@@ -1,0 +1,583 @@
+/* Flat ghost chevron — no border, no drop shadow. It rides the faded edge of
+     the scroller, so a near-opaque warm chip is enough to lift it off the tabs
+     behind it. Hidden by default; revealed on strip hover/focus (see below). */
+  .tab-scroll-btn {
+    flex-shrink: 0;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--solus-text-tertiary);
+    background: color-mix(in srgb, var(--solus-container-bg) 88%, transparent);
+    border: none;
+    box-shadow: none;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease,
+      opacity 0.14s ease,
+      scale 0.1s ease;
+  }
+
+  .tab-scroll-btn:hover {
+    color: var(--solus-text-primary);
+    background: color-mix(
+      in srgb,
+      var(--solus-container-bg) 94%,
+      var(--solus-text-primary) 6%
+    );
+  }
+
+  .tab-scroll-btn:focus-visible {
+    outline: 0.125rem solid
+      color-mix(in srgb, var(--solus-accent) 55%, transparent);
+    outline-offset: 0.125rem;
+  }
+
+  .tab-scroll-btn:active {
+    scale: 0.96;
+  }
+
+  /* #8 — auto-hide: arrows stay invisible until the strip is hovered or holds
+     focus, and only the side that can actually scroll lights up. The persistent
+     edge fade is the always-on hint that there's more to see. */
+  .tab-bar-row:hover .tab-scroll-btn[data-active="true"],
+  .tab-bar-row:focus-within .tab-scroll-btn[data-active="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Overlay the scroll arrows on the faded edges of the viewport rather than
+     letting them sit in flex flow. Mounting/unmounting them then never changes
+     the viewport width, so reaching an edge can't reflow and snap the scroll. */
+  .tab-scroll-btn--left,
+  .tab-scroll-btn--right {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+  }
+  .tab-scroll-btn--left {
+    left: 0.125rem;
+  }
+  .tab-scroll-btn--right {
+    right: 0.125rem;
+  }
+
+  /* Drag-to-reorder (flat mode): the lifted tab dims, and the tab being hovered
+     shows an accent insertion bar on its leading edge marking the drop point. */
+  .tab-item.dragging {
+    opacity: 0.4;
+  }
+  .tab-item.drag-over {
+    box-shadow: inset 0.125rem 0 0 var(--solus-accent);
+  }
+
+  /* The editor tab bar is a floating soft toolbar — the bar surface lives on
+     .tab-bar-row, so the outer container stays transparent. */
+  .editor-variant {
+    background: transparent;
+  }
+
+  /* Soft, inset vertical separator — short and centered so it reads as a hairline
+     rather than a hard full-height rule. */
+  .tab-sep {
+    width: 0.0625rem;
+    height: 0.875rem;
+    align-self: center;
+    margin: 0 0.1875rem;
+    background: color-mix(
+      in srgb,
+      var(--solus-container-border) 32%,
+      transparent
+    );
+  }
+
+  /* Strong left gap setting the binder divider apart from the previous section's
+     tabs (skipped on the first group). */
+  .tab-group-lead {
+    margin-left: 0.75rem;
+  }
+
+  /* Binder divider — an index tab leading each status section. A flat
+     status-colored spine, a faint tinted body, and a rounded outer edge so it
+     reads like a physical binder divider the section's tabs hang off of. */
+  .tab-group-binder {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    height: 1.5rem;
+    margin-left: 0.25rem;
+    margin-right: 0.25rem;
+    padding: 0 0.4375rem;
+    border-left: 0.125rem solid var(--gc);
+    border-radius: 0 0.4375rem 0.4375rem 0;
+    background: color-mix(in srgb, var(--gc) 9%, transparent);
+  }
+
+  .tab-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1875rem;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    width: clamp(8.75rem, 15vw, 10.75rem);
+    max-width: 11.25rem;
+    min-height: 1.75rem;
+    padding: 0.1875rem 0.3125rem 0.1875rem 0.5625rem;
+    border-radius: 0.625rem;
+    font-size: 0.7188rem;
+    letter-spacing: -0.01em;
+    /* Single weight across all states — active/attention differentiate via color +
+       background only, avoiding the layout reflow a weight change causes. */
+    font-weight: 450;
+    transition:
+      box-shadow 0.12s ease,
+      width 0.11s cubic-bezier(0.2, 0.8, 0.2, 1),
+      max-width 0.11s cubic-bezier(0.2, 0.8, 0.2, 1);
+    color: color-mix(
+      in srgb,
+      var(--solus-text-secondary) 76%,
+      var(--solus-text-tertiary)
+    );
+    outline: none;
+  }
+
+  .tab-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3125rem;
+    min-width: 0;
+  }
+
+  .tab-item:not(.active):hover {
+    background: color-mix(in srgb, var(--solus-accent) 6%, transparent);
+    color: var(--solus-text-secondary);
+  }
+
+  .tab-item.active {
+    width: clamp(11rem, 24vw, 16rem);
+    max-width: 16rem;
+    color: var(--solus-text-primary);
+  }
+
+  .tab-item:focus-visible {
+    box-shadow:
+      0 0 0 0.125rem var(--solus-input-focus-ring),
+      0 0 0 0.0625rem var(--solus-input-focus-border);
+  }
+
+  .tab-item.active:focus-visible {
+    box-shadow:
+      0 0 0 0.125rem var(--solus-input-focus-ring),
+      0 0 0 0.0625rem var(--solus-input-focus-border);
+  }
+
+  .tab-item.needs-attention:not(.active) {
+    color: var(--solus-text-secondary);
+  }
+
+  .tab-item.unread:not(.active) {
+    position: relative;
+    isolation: isolate;
+    background: var(--solus-unread-canvas);
+  }
+
+  /* Brushed fill: accent paint as a set of broad vertical strokes laid side by
+     side — soft repeating bands with bare canvas between them — then broken up by
+     a bristle streak and an uneven load blotch. Reads like someone sweeping a
+     loaded brush up and down, not covering every inch. */
+  .tab-item.unread:not(.active)::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: var(--solus-unread-ink);
+    opacity: 0.2;
+    -webkit-mask-image:
+      var(--solus-brush-streak), var(--solus-brush-load),
+      repeating-linear-gradient(
+        122deg,
+        #000 0,
+        #000 18px,
+        rgba(0, 0, 0, 0) 28px,
+        rgba(0, 0, 0, 0) 34px,
+        #000 50px
+      );
+    mask-image:
+      var(--solus-brush-streak), var(--solus-brush-load),
+      repeating-linear-gradient(
+        122deg,
+        #000 0,
+        #000 18px,
+        rgba(0, 0, 0, 0) 28px,
+        rgba(0, 0, 0, 0) 34px,
+        #000 50px
+      );
+    mask-size:
+      150px 150px,
+      260px 150px,
+      100% 100%;
+    mask-repeat: repeat, repeat, repeat;
+    mask-composite: intersect;
+    -webkit-mask-composite: source-in, source-in;
+  }
+
+  .tab-item.unread:not(.active):hover::before {
+    opacity: 0.28;
+  }
+
+  .tab-item.unread:not(.active) .tab-label {
+    color: var(--solus-text-primary);
+  }
+
+  .tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tab-progress-track {
+    height: 0.0938rem;
+    border-radius: 624.9375rem;
+    background: color-mix(in srgb, var(--solus-text-tertiary) 10%, transparent);
+    overflow: hidden;
+    margin: 0 0.0625rem 0.0625rem 0.0625rem;
+  }
+
+  .tab-progress-fill {
+    height: 100%;
+    border-radius: 624.9375rem;
+    background: color-mix(
+      in srgb,
+      var(--solus-status-running) 72%,
+      transparent
+    );
+    transition:
+      width 0.4s ease,
+      background 0.3s ease;
+  }
+
+  .tab-progress-fill-complete {
+    background: color-mix(
+      in srgb,
+      var(--solus-status-complete) 72%,
+      transparent
+    );
+  }
+
+  .tab-status-spin {
+    animation: tab-spin 1s linear infinite;
+  }
+
+  @keyframes tab-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .tab-ctx-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 10rem;
+    background: var(--solus-popover-bg);
+    border: 0.0625rem solid var(--solus-container-border);
+    border-radius: 0.5rem;
+    padding: 0.25rem;
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.18);
+    display: flex;
+    flex-direction: column;
+    gap: 0.0625rem;
+  }
+
+  .tab-ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4375rem;
+    width: 100%;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.3125rem;
+    font-size: 0.75rem;
+    color: var(--solus-text-primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s ease;
+  }
+
+  .tab-ctx-item:hover {
+    background: var(--solus-surface-hover);
+  }
+
+  .tab-ctx-item-danger {
+    color: var(--solus-status-error);
+  }
+
+  .tab-ctx-kbd {
+    margin-left: auto;
+    font-size: 0.625rem;
+    opacity: 0.45;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .tab-ctx-sep {
+    height: 0.0625rem;
+    background: var(--solus-container-border);
+    margin: 0.125rem 0.25rem;
+  }
+
+  .tab-close {
+    flex-shrink: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    opacity: 0.32;
+    transition:
+      opacity 0.1s ease,
+      scale 0.09s ease;
+    color: var(--solus-text-secondary);
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin-left: 0.0625rem;
+  }
+
+  .tab-item:hover .tab-close {
+    opacity: 0.62;
+  }
+
+  .tab-item.active .tab-close {
+    opacity: 0.55;
+  }
+
+  .tab-close:hover {
+    opacity: 1 !important;
+    background: color-mix(
+      in srgb,
+      var(--solus-surface-hover) 90%,
+      var(--solus-text-primary) 6%
+    );
+    color: var(--solus-text-primary);
+  }
+
+  .tab-close:active {
+    scale: 0.96;
+  }
+
+  .tab-close:focus-visible {
+    opacity: 1;
+    outline: 0.125rem solid var(--solus-input-focus-border);
+    outline-offset: 0.0625rem;
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .tab-strip-divider {
+    height: 0.0625rem;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    background: color-mix(
+      in srgb,
+      var(--solus-container-border) 38%,
+      transparent
+    );
+  }
+
+  /* Base row padding (was an inline style; now a class so bar variants can
+     reshape the whole strip). */
+  .tab-bar-row {
+    padding: 0.375rem 0 0.3125rem 0;
+  }
+
+  /* ───────────────────────────────────────────────────────────────────────
+     Editor tab bar — Unified flush header. Edge-to-edge title bar with a
+     translucent surface fill and a single bottom hairline dividing chrome from
+     canvas. Tabs read as segments of the bar; the active thumb uses a luminous
+     sheen + accent-tinted ring. Active highlights are INSET shadows only so
+     the horizontal scroller never clips them.
+     ─────────────────────────────────────────────────────────────────────── */
+
+  .editor-variant .tab-strip-divider,
+  .editor-variant .tab-sep {
+    display: none;
+  }
+  .editor-variant .tab-bar-row {
+    margin: 0;
+    padding: 0 0.5rem 0.375rem;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 0.0625rem solid
+      color-mix(in srgb, var(--solus-container-border) 38%, transparent);
+    box-shadow: none;
+  }
+  .editor-variant .tab-scroll-row {
+    gap: 0.125rem;
+    padding-top: 0.1875rem;
+    padding-bottom: 0.1875rem;
+  }
+  .editor-variant .tab-item {
+    border-radius: 0.5rem;
+    background: transparent;
+    box-shadow: none;
+    margin: 0;
+  }
+  .editor-variant .tab-item:not(.active):hover {
+    background: color-mix(in srgb, var(--solus-accent) 6%, transparent);
+  }
+  /* Action cluster: part of the header, not a separate boxed module. */
+  .editor-variant .tab-actions {
+    gap: 0.125rem;
+    padding: 0.125rem 0.1875rem;
+    margin-left: 0.375rem;
+    margin-right: 0;
+    background: transparent;
+    border: none;
+  }
+
+  /* Sidebar / panel expand toggle — only rendered while that panel is collapsed.
+     Same shape and hover as other bar controls so both ends match exactly. */
+  .tab-chrome-lead {
+    flex-shrink: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    color: var(--solus-text-tertiary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 0;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease;
+  }
+  .tab-chrome-lead--left {
+    margin-left: 0.375rem;
+    margin-right: 0.125rem;
+  }
+  .tab-chrome-lead--right {
+    margin-left: 0.125rem;
+    margin-right: 0.375rem;
+  }
+  .tab-chrome-lead--left svg {
+    transform: translateX(0.0313rem) rotate(-3deg);
+  }
+  .tab-chrome-lead--right svg {
+    transform: translateX(-0.0313rem) rotate(3deg);
+  }
+  .tab-chrome-lead:hover {
+    color: var(--solus-text-primary);
+    background: color-mix(in srgb, var(--solus-text-primary) 6%, transparent);
+  }
+  .tab-chrome-lead:focus-visible {
+    outline: 0.125rem solid var(--solus-input-focus-border);
+    outline-offset: 0.0625rem;
+  }
+
+  /* Re-show the hairline divider between the collapse toggle and the tab track.
+     (The base editor rule above hides all .tab-sep; this re-enables the specific
+     lead divider only when there's a toggle present to divide.) */
+  .editor-variant .tab-sep-lead {
+    display: block;
+  }
+  .tab-sep-lead {
+    margin-left: 0.375rem;
+    margin-right: 0.0625rem;
+  }
+
+  /* ───────────────────────────────────────────────────────────────────────
+     Active tab "flows into the page" (Safari-style). The bar's bottom hairline
+     (.tab-seam) routes up and around the active tab via a masked gap positioned
+     under it (--gap-start / --gap-end, set in JS). The active tab is framed with
+     inset shadows (clip-safe — the horizontal scroller never clips them) + an
+     accent crown, painted in the page color, and stretches down to meet the
+     seam with its bottom left open, so the line reads as one continuous frame.
+     ─────────────────────────────────────────────────────────────────────── */
+
+  /* Bar-level seam — the bottom hairline, masked to open a gap under the active
+     tab so it reads as routing up and around it. */
+  .editor-variant .tab-seam {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0.0625rem;
+    background: color-mix(
+      in srgb,
+      var(--solus-container-border) 50%,
+      transparent
+    );
+    pointer-events: none;
+    --mask: linear-gradient(
+      to right,
+      #000 0,
+      #000 var(--gap-start, 0px),
+      transparent var(--gap-start, 0px),
+      transparent var(--gap-end, 0px),
+      #000 var(--gap-end, 0px),
+      #000 100%
+    );
+    -webkit-mask-image: var(--mask);
+    mask-image: var(--mask);
+  }
+  .tab-seam {
+    display: none;
+  }
+
+  /* Geometry — drop the row's own border (the seam replaces it), centered band,
+     seam anchored at the bottom. */
+  .editor-variant .tab-bar-row {
+    position: relative;
+    border-bottom: none;
+    padding: 0.4375rem 0.5rem 0;
+  }
+  .editor-variant .tab-scroll-row {
+    align-items: center;
+    min-height: 2.5rem;
+    padding-bottom: 0;
+  }
+  .editor-variant .tab-item {
+    justify-content: center;
+    min-height: 2rem;
+  }
+
+  /* Active tab: page-color fill, inset side frame + accent crown, rounded top,
+     stretched down to meet the seam (bottom left open). */
+  .editor-variant .tab-item.active {
+    align-self: stretch;
+    position: relative;
+    color: var(--solus-text-primary);
+    background: var(--solus-container-bg);
+    border-radius: 0.625rem 0.625rem 0 0;
+    box-shadow:
+      inset 0.0625rem 0 0
+        color-mix(in srgb, var(--solus-container-border) 60%, transparent),
+      inset -0.0625rem 0 0
+        color-mix(in srgb, var(--solus-container-border) 60%, transparent),
+      inset 0 0.0938rem 0
+        color-mix(in srgb, var(--solus-accent) 45%, transparent);
+  }

@@ -1,0 +1,106 @@
+{
+  "claude-code": {
+    "claude-sonnet-5": {
+      "label": "Sonnet 5",
+      "isDefault": true,
+      "reasoningLevels": ["none", "low", "medium", "high", "max"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [200000, 1000000],
+      "defaultContextWindow": 200000
+    },
+    "claude-opus-4-8": {
+      "label": "Opus 4.8",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max", "ultracode"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [200000, 1000000],
+      "defaultContextWindow": 200000
+    },
+    "claude-fable-5": {
+      "label": "Fable 5",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max", "ultracode"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [300000, 1000000],
+      "defaultContextWindow": 300000
+    },
+    "claude-opus-4-7": {
+      "label": "Opus 4.7",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "xhigh",
+      "supportsFastMode": false,
+      "contextWindows": [200000, 1000000],
+      "defaultContextWindow": 200000
+    },
+    "claude-opus-4-6": {
+      "label": "Opus 4.6",
+      "isDefault": false,
+      "reasoningLevels": ["none", "low", "medium", "high", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [200000, 1000000],
+      "defaultContextWindow": 200000
+    },
+    "claude-sonnet-4-6": {
+      "label": "Sonnet 4.6",
+      "isDefault": true,
+      "reasoningLevels": ["none", "low", "medium", "high", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [200000, 1000000],
+      "defaultContextWindow": 200000
+    },
+    "claude-haiku-4-5-20251001": {
+      "label": "Haiku 4.5",
+      "reasoningLevels": ["none", "low", "medium", "high"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [200000],
+      "defaultContextWindow": 200000
+    }
+  },
+  "codex": {
+    "gpt-5.5": {
+      "label": "Gpt 5.5",
+      "isDefault": true,
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "low",
+      "supportsFastMode": true,
+      "contextWindows": [258000],
+      "defaultContextWindow": 258000
+    },
+    "gpt-5.5-pro": {
+      "label": "Gpt 5.5 Pro",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [128000],
+      "defaultContextWindow": 128000
+    },
+    "gpt-5.4": {
+      "label": "Gpt 5.4",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [128000],
+      "defaultContextWindow": 128000
+    },
+    "gpt-5.4-mini": {
+      "label": "Gpt 5.4 Mini",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [128000],
+      "defaultContextWindow": 128000
+    },
+    "gpt-5.3-codex": {
+      "label": "Gpt 5.3 Codex",
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [128000],
+      "defaultContextWindow": 128000
+    }
+  }
+}

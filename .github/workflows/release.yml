@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    environment: CD
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Import code signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security default-keychain -s $KEYCHAIN_PATH
+          security unlock-keychain -p "" $KEYCHAIN_PATH
+          security import certificate.p12 -k $KEYCHAIN_PATH -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain
+          rm certificate.p12
+
+      - name: Write .env.production
+        run: |
+          echo "VITE_POSTHOG_KEY=${{ secrets.VITE_POSTHOG_KEY }}" > .env.production
+          echo "SOLUS_GOOGLE_CLIENT_ID=${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}" >> .env.production
+          echo "SOLUS_GOOGLE_CLIENT_SECRET=${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}" >> .env.production
+          echo "SOLUS_GITHUB_CLIENT_ID=${{ secrets.SOLUS_GITHUB_CLIENT_ID }}" >> .env.production
+
+      - name: Build Electron app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_KEYCHAIN: ${{ runner.temp }}/build.keychain
+          SOLUS_GOOGLE_CLIENT_ID: ${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}
+          SOLUS_GOOGLE_CLIENT_SECRET: ${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}
+          SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
+        run: |
+          bun run electron-vite build --mode production
+          cd client && bun install --frozen-lockfile && bun run build && cd ..
+          bun run electron-builder --mac --publish never
+
+      - name: Upload to Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          export AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID
+          export AWS_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY
+          export AWS_DEFAULT_REGION=auto
+
+          R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          for f in release/*.dmg release/*.zip release/*.yml release/*.blockmap; do
+            [ -f "$f" ] || continue
+            echo "Uploading $(basename $f)..."
+            aws s3 cp "$f" "s3://solus-releases/$(basename $f)" \
+              --endpoint-url "$R2_ENDPOINT"
+          done
+
+          DMG=$(ls release/*-arm64.dmg 2>/dev/null | head -1)
+          if [ -n "$DMG" ]; then
+            echo "Uploading stable download link..."
+            aws s3 cp "$DMG" "s3://solus-releases/Solus-latest-arm64.dmg" \
+              --endpoint-url "$R2_ENDPOINT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
+          generate_release_notes: true
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain $RUNNER_TEMP/build.keychain 2>/dev/null || true

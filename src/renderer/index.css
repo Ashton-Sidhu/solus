@@ -1,0 +1,1805 @@
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..600;1,400..600&display=swap');
+@import "tailwindcss";
+
+/* Explicitly tell Tailwind which folders to scan. Required because the web
+   client (client/vite.config.ts) sets its Vite root to `client/`, which
+   excludes the renderer source from Tailwind's automatic content detection.
+   Paths are relative to this CSS file. */
+@source ".";
+@source "../../client/src";
+
+/* Class-based dark mode: the app toggles a `.dark` class on the root rather
+   than relying on prefers-color-scheme, so map Tailwind's `dark:` variant to it. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('@geist-fonts/geist-mono/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('@geist-fonts/geist-sans/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Inter, bundled locally (was a Google-Fonts CDN webfont). Self-hosting kills the
+   network round-trip + the SF→Inter fallback flash, and lets us pin the opsz
+   (optical-size) variable axis. Real italics included so `em` doesn't fall back to
+   a synthesised oblique. Latin + latin-ext only; subset by unicode-range. */
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-opsz-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-opsz-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-opsz-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* DM Sans, self-hosted (variable weight axis) so the UI-font option renders
+   regardless of whether the user has it installed. Latin subset only. */
+@font-face {
+  font-family: 'DM Sans';
+  src: url('@fontsource-variable/dm-sans/files/dm-sans-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DM Sans';
+  src: url('@fontsource-variable/dm-sans/files/dm-sans-latin-wght-italic.woff2') format('woff2');
+  font-weight: 100 1000;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* JetBrains Mono, self-hosted (variable weight axis) so the code-font option
+   renders regardless of whether the user has it installed. Latin subset only. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-italic.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/*
+ * ─── Theme CSS Variables ───
+ * Defined statically here for light (`:root`) and dark (`.dark`).
+ * The theme context toggles `.dark` on <html> to switch themes.
+ */
+
+:root {
+  --solus-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --solus-code-font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+  --solus-code-font-scale: 1;
+  /* 0.75rem = 12px at the 16px design-reference root (DEFAULT_CODE_FONT_SIZE).
+     rem-based so the code/diff font scales with the screen; the scale var carries
+     the user's "Code font size" preference. */
+  --solus-code-font-size: calc(0.75rem * var(--solus-code-font-scale, 1));
+  /* Centered reading column — shared by the message stream, progress tracker,
+     status bars and the input dock so the whole thread lines up as one column.
+     Fluid: the 88% scales the column with the conversation pane's width, bounded
+     to a readable min/max. Resolves against each consumer's container, so it
+     also adapts when the sidebar/diff panel resize the pane, and is a no-op in
+     the narrow pill window (pane already below the min). */
+  --solus-reading-max: clamp(40rem, 92%, 80rem);
+  /* First-paint default for the Inter UI font: named 500 (Medium) instance, not
+     an interpolated 475 — named instances are hinted, so glyphs render a touch
+     crisper. applyFontFamily() overrides both at runtime with the per-font crisp
+     weight (see APP_FONT_FAMILIES in settings.context). */
+  --solus-font-weight-body: 500;
+  --solus-font-weight-secondary: 500;
+  /* Container */
+  --solus-edge-bg: #fbfaf6;
+  --solus-container-bg: #fefefc;
+  --solus-container-bg-collapsed: #faf9f4;
+  --solus-container-border: #d2cfc5;
+  --solus-sidebar-bg: #f9f8f4;
+  --solus-sidebar-bg-left: #fffdf8;
+  --solus-sidebar-bg-right: #fffdf8;
+  --solus-container-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
+  --solus-card-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
+  --solus-card-shadow-collapsed: 0 0.25rem 1rem rgba(0,0,0,0.09), 0 0.0625rem 0.25rem rgba(0,0,0,0.05);
+  /* Surface */
+  --solus-surface-primary: #faf3e4;
+  --solus-surface-secondary: #dddad2;
+  --solus-surface-hover: rgba(0, 0, 0, 0.04);
+  --solus-surface-active: rgba(0, 0, 0, 0.06);
+  /* Input */
+  --solus-input-bg: transparent;
+  --solus-input-border: #dddad2;
+  --solus-input-focus-border: rgba(217, 119, 87, 0.45);
+  --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
+  --solus-input-pill-bg: rgba(255, 255, 255, 0.99);
+  /* Text — darker than original for better contrast */
+  --solus-text-primary: #2a2618;
+  --solus-text-secondary: #484538;
+  --solus-text-tertiary: #7d7a6e;
+  --solus-text-muted: #dddad2;
+  /* Accent */
+  --solus-accent: #d97757;
+  --solus-accent-light: rgba(217, 119, 87, 0.07);
+  --solus-accent-soft: rgba(217, 119, 87, 0.12);
+  --solus-accent-border: rgba(217, 119, 87, 0.19);
+  --solus-accent-border-medium: rgba(217, 119, 87, 0.25);
+  /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
+  --solus-accent-wash: rgba(217, 119, 87, 0.18);
+  /* Paintbrush texture for unread items. Two masks multiplied together: an
+     anisotropic "bristle" streak (long in x, thin in y, so it drags like brush
+     hairs) and a low-frequency "load" blotch where the paint pools thick and
+     thins out. Fuller/wetter coverage than a pencil. Alpha-only, defined once. */
+  --solus-brush-streak: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='bs'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.11 0.055' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.2 0.18'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23bs)'/%3E%3C/svg%3E");
+  --solus-brush-load: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Cfilter id='bl'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.04' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.05 0.12'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23bl)'/%3E%3C/svg%3E");
+  /* Status */
+  --solus-status-idle: #8a8a80;
+  --solus-status-running: #d97757;
+  --solus-status-running-bg: rgba(217, 119, 87, 0.1);
+  /* Live service (a running process/server) — reads as healthy, so green, not
+     the brand orange that signals "agent working" elsewhere. */
+  --solus-status-live: #5a9e6f;
+  --solus-status-live-bg: rgba(90, 158, 111, 0.1);
+  --solus-status-live-glow: rgba(90, 158, 111, 0.3);
+  --solus-status-complete: #5a9e6f;
+  --solus-status-complete-bg: rgba(90, 158, 111, 0.1);
+  --solus-status-error: #c47060;
+  --solus-status-error-bg: rgba(196, 112, 96, 0.06);
+  --solus-status-dead: #c47060;
+  --solus-status-permission: #d97757;
+  --solus-status-permission-glow: rgba(217, 119, 87, 0.3);
+  /* Tab */
+  --solus-tab-active: #f1efe7;
+  --solus-tab-active-border: #dddad2;
+  --solus-tab-inactive: transparent;
+  --solus-tab-hover: rgba(0, 0, 0, 0.04);
+  /* Bare "canvas" behind the brushed unread strokes — a light wash so the gaps
+     read whiter than the surrounding bar, giving the strokes more contrast. */
+  --solus-unread-canvas: rgba(255, 255, 255, 0.6);
+  /* Ink for the unread brush strokes + dot — currently the brand accent. */
+  --solus-unread-ink: var(--solus-accent);
+  /* User bubble */
+  --solus-user-bubble: var(--solus-surface-primary);
+  --solus-user-bubble-border: #e2d4b8;
+  --solus-user-bubble-text: #2a2618;
+  /* Tool card */
+  --solus-tool-bg: #f1efe7;
+  --solus-tool-border: #dddad2;
+  --solus-tool-running-border: rgba(217, 119, 87, 0.3);
+  --solus-tool-running-bg: rgba(217, 119, 87, 0.05);
+  /* Timeline */
+  --solus-timeline-line: #dddad2;
+  --solus-timeline-node: rgba(217, 119, 87, 0.2);
+  --solus-timeline-node-active: #d97757;
+  --solus-timeline-node-done: rgba(90, 158, 111, 0.25);
+  /* Scrollbar */
+  --solus-scroll-thumb: rgba(0, 0, 0, 0.13);
+  --solus-scroll-thumb-hover: rgba(0, 0, 0, 0.22);
+  /* Buttons */
+  --solus-stop-bg: #ef4444;
+  --solus-stop-hover: #dc2626;
+  --solus-send-bg: #d97757;
+  --solus-send-hover: #c96442;
+  --solus-send-disabled: rgba(217, 119, 87, 0.3);
+  --solus-send-glow: rgba(217, 119, 87, 0.20);
+  --solus-btn-disabled: #c8c5bc;
+  --solus-btn-hover-color: #2a2618;
+  --solus-btn-hover-bg: #f1efe7;
+  /* Popover */
+  --solus-popover-bg: rgba(252, 251, 248, 0.99);
+  --solus-popover-border: #dddad2;
+  --solus-popover-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.06), 0 0.5rem 1.75rem rgba(0,0,0,0.14), 0 0.125rem 0.375rem rgba(0,0,0,0.07);
+  /* Code */
+  --solus-code-bg: #f4f2ec;
+  --solus-code-shadow: 0 0.0625rem 0.125rem rgba(0,0,0,0.04);
+  /* Warm parchment for prose code blocks — a desaturated sand panel that stays
+     on-theme without competing with the warm/orange syntax tokens (peach tints
+     in the accent's own hue muddy the keywords). */
+  --solus-code-tint: #fcfaf5;
+  /* Balanced syntax palette — spread across the hue wheel so tokens separate
+     from each other and from the warm surface. Orange is reserved for numbers;
+     keywords move to rose so they stop echoing the brand accent. */
+  --solus-syntax-comment: #9c9486;
+  --solus-syntax-keyword: #b0566a;
+  --solus-syntax-number: #c07d39;
+  --solus-syntax-string: #5f8a52;
+  --solus-syntax-function: #3a7ca5;
+  --solus-syntax-type: #2f8f86;
+  --solus-syntax-attr: #8767bf;
+  --solus-syntax-deletion: #c2603f;
+  --solus-syntax-addition: #5a9e6f;
+  /* Mic */
+  --solus-mic-bg: #f1efe7;
+  --solus-mic-color: #484538;
+  --solus-mic-disabled: #c8c5bc;
+  /* Rail */
+  --solus-rail-bg: #f4f2eb;
+  --solus-rail-border: #e8e4da;
+  --solus-rail-icon: rgba(0, 0, 0, 0.4);
+  --solus-rail-icon-hover: rgba(0, 0, 0, 0.7);
+  --solus-rail-icon-hover-bg: rgba(0, 0, 0, 0.06);
+  --solus-rail-danger-color: #dc2626;
+  --solus-rail-danger-bg: rgba(239, 68, 68, 0.1);
+  /* Misc */
+  --solus-placeholder: #b0ada4;
+  --solus-text-on-accent: #ffffff;
+  /* Permissions */
+  --solus-permission-border: rgba(245, 158, 11, 0.3);
+  --solus-permission-shadow: 0 0.125rem 0.75rem rgba(245, 158, 11, 0.08);
+  --solus-permission-header-bg: rgba(245, 158, 11, 0.06);
+  --solus-permission-header-border: rgba(245, 158, 11, 0.12);
+  --solus-permission-allow-bg: rgba(34, 197, 94, 0.1);
+  --solus-permission-allow-hover-bg: rgba(34, 197, 94, 0.22);
+  --solus-permission-allow-border: rgba(34, 197, 94, 0.25);
+  --solus-permission-deny-bg: rgba(239, 68, 68, 0.08);
+  --solus-permission-deny-hover-bg: rgba(239, 68, 68, 0.18);
+  --solus-permission-deny-border: rgba(239, 68, 68, 0.22);
+  --solus-permission-denied-border: rgba(196, 112, 96, 0.3);
+  --solus-permission-denied-header-border: rgba(196, 112, 96, 0.12);
+  /* Diff */
+  --solus-diff-added-text: #3f704f;
+  --solus-diff-added-bg: rgba(63, 112, 79, 0.18);
+  --solus-diff-added-bg-write: rgba(63, 112, 79, 0.32);
+  --solus-diff-removed-text: #b06a5a;
+  --solus-diff-removed-bg: rgba(176, 106, 90, 0.18);
+  --solus-diff-gutter-bg: rgba(0, 0, 0, 0.015);
+  --solus-diff-gutter-text: rgba(42, 38, 24, 0.42);
+  --solus-diff-hunk-bg: rgba(0, 0, 0, 0.025);
+  --solus-diff-hunk-text: rgba(42, 38, 24, 0.85);
+  --solus-diff-selection-bg: rgba(138, 92, 28, 0.28);
+  /* Diff (vivid) — diff-view only, boosted saturation so changes read clearly on
+     the warm surface. Consumed solely by diffTheme.ts; never reuse for chrome
+     that must stay on-brand (permission cards, file-write previews). */
+  --solus-diff-added-text-vivid: #157f3c;
+  --solus-diff-added-bg-vivid: rgba(33, 122, 67, 0.22);
+  --solus-diff-added-number-vivid: rgba(33, 122, 67, 0.32);
+  --solus-diff-added-emphasis-vivid: rgba(33, 122, 67, 0.24);
+  --solus-diff-removed-text-vivid: #c0392b;
+  --solus-diff-removed-bg-vivid: rgba(192, 57, 43, 0.2);
+  --solus-diff-removed-number-vivid: rgba(192, 57, 43, 0.3);
+  --solus-diff-removed-emphasis-vivid: rgba(192, 57, 43, 0.22);
+  --solus-diff-gutter-text-vivid: rgba(42, 38, 24, 0.6);
+  /* Find-in-diff highlight (CSS Custom Highlight API; see diffTheme.ts). Active
+     match is the emphasized amber; the rest are a softer fill. */
+  --solus-diff-find-bg: rgba(217, 161, 32, 0.32);
+  --solus-diff-find-text: inherit;
+  --solus-diff-find-active-bg: rgba(217, 119, 87, 0.85);
+  --solus-diff-find-active-text: #ffffff;
+  /* File slot */
+  --solus-file-slot-well: rgba(0, 0, 0, 0.025);
+  --solus-file-slot-well-focused: rgba(217, 119, 87, 0.06);
+  --solus-file-slot-divider: rgba(0, 0, 0, 0.06);
+  --solus-file-header-bg: #f4f2eb;
+  --solus-file-header-name: #8a7a5a;
+  /* Polish */
+  --solus-assistant-left-border: rgba(217, 119, 87, 0.08);
+  --solus-tool-result-badge-bg: rgba(0, 0, 0, 0.05);
+  --solus-empty-state-bg: rgba(217, 119, 87, 0.06);
+  --solus-activity-strip-bg-from: rgba(250, 249, 246, 0);
+  --solus-message-divider: rgba(0, 0, 0, 0.04);
+  /* Soft input background — used by textareas / inline forms */
+  --solus-input-bg-soft: rgba(0, 0, 0, 0.025);
+  /* File token */
+  --solus-file-token: #1e3a5f;
+  --solus-file-token-bg: rgba(30, 58, 95, 0.08);
+  --solus-file-token-bg-hover: rgba(30, 58, 95, 0.14);
+  --solus-file-token-border: rgba(30, 58, 95, 0.2);
+  --solus-file-token-border-hover: rgba(30, 58, 95, 0.35);
+  /* Work token */
+  --solus-work-token: #8b5e83;
+  /* Plan modal scrim */
+  --solus-modal-scrim: rgba(40, 30, 20, 0.32);
+  /* Shared motion language */
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-modal: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-quick: 120ms;
+  --duration-base: 160ms;
+  --duration-modal: 200ms;
+  /* Responsive sizing — desktop defaults */
+  --solus-tap-target: 2rem;
+  --solus-tap-target-lg: 2.5rem;
+  --solus-font-ui: 0.75rem;
+  --solus-font-ui-sm: 0.625rem;
+  --solus-font-ui-lg: 0.8125rem;
+  /* ─── HTML artifact palette ───
+     Warm, brand-coherent colours injected into rendered HTML artifacts (see
+     ArtifactView THEME_VARS). Replaces the generic grey the design tool used to
+     default to: neutrals are parchment/sand rather than grey, and the
+     categorical data colours are a curated spread of the brand hues
+     (terracotta → plum) drawn from the same family as the syntax/status tokens,
+     so every chart sits naturally on the warm theme. */
+  --solus-art-surface: #fffdf8;
+  --solus-art-raised: #f6efe1;
+  --solus-art-border: #ece2cf;
+  --solus-art-border-strong: #d8c8a8;
+  --solus-art-1: #d97757; /* terracotta (brand accent) */
+  --solus-art-2: #c9883f; /* amber */
+  --solus-art-3: #5a9e6f; /* sage */
+  --solus-art-4: #2f8f86; /* teal */
+  --solus-art-5: #4f7fa8; /* dusty blue */
+  --solus-art-6: #8767bf; /* plum */
+  --solus-art-positive: #5a9e6f;
+  --solus-art-negative: #c2603f;
+}
+
+
+/* Touch devices (iPad, touch laptops) — larger tap targets */
+@media (pointer: coarse) {
+  :root {
+    --solus-tap-target: 2.5rem;
+    --solus-tap-target-lg: 3rem;
+  }
+}
+
+/* Phone-sized screens — largest targets, bigger text */
+@media (max-width: 767px) {
+  :root {
+    --solus-tap-target: 2.5rem;
+    --solus-tap-target-lg: 3rem;
+    --solus-font-ui: 0.8125rem;
+    --solus-font-ui-sm: 0.6875rem;
+    --solus-font-ui-lg: 0.875rem;
+  }
+}
+
+.dark {
+  /* Container */
+  --solus-edge-bg: #1c1b18;
+  --solus-container-bg: rgba(30, 29, 26, 0.98);
+  --solus-container-bg-collapsed: rgba(26, 25, 22, 0.98);
+  --solus-container-border: rgba(255, 255, 255, 0.14);
+  --solus-sidebar-bg: #232120;
+  --solus-sidebar-bg-left: #29251f;
+  --solus-sidebar-bg-right: #29251f;
+  --solus-container-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
+  --solus-card-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
+  --solus-card-shadow-collapsed: 0 0.25rem 1.25rem rgba(0,0,0,0.40), 0 0.0625rem 0.375rem rgba(0,0,0,0.25);
+  /* Surface */
+  --solus-surface-primary: #38281c;
+  --solus-surface-secondary: #3c3a33;
+  --solus-surface-hover: rgba(255, 255, 255, 0.06);
+  --solus-surface-active: rgba(255, 255, 255, 0.09);
+  /* Input */
+  --solus-input-bg: transparent;
+  --solus-input-border: rgba(255, 255, 255, 0.10);
+  --solus-input-focus-border: rgba(217, 119, 87, 0.45);
+  --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
+  --solus-input-pill-bg: rgba(24, 23, 20, 0.98);
+  /* Text */
+  --solus-text-primary: #f0ece3;
+  --solus-text-secondary: #bfb9aa;
+  --solus-text-tertiary: #7a7568;
+  --solus-text-muted: #2e2c27;
+  /* Accent */
+  --solus-accent: #e08a6e;
+  --solus-accent-light: rgba(224, 138, 110, 0.09);
+  --solus-accent-soft: rgba(224, 138, 110, 0.15);
+  --solus-accent-border: rgba(224, 138, 110, 0.22);
+  --solus-accent-border-medium: rgba(224, 138, 110, 0.28);
+  /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
+  --solus-accent-wash: rgba(224, 138, 110, 0.20);
+  /* Status */
+  --solus-status-idle: #8a8578;
+  --solus-status-running: #e08a6e;
+  --solus-status-running-bg: rgba(224, 138, 110, 0.10);
+  --solus-status-live: #6ec98b;
+  --solus-status-live-bg: rgba(110, 201, 139, 0.10);
+  --solus-status-live-glow: rgba(110, 201, 139, 0.4);
+  --solus-status-complete: #6ec98b;
+  --solus-status-complete-bg: rgba(110, 201, 139, 0.10);
+  --solus-status-error: #e06060;
+  --solus-status-error-bg: rgba(224, 96, 96, 0.08);
+  --solus-status-dead: #e06060;
+  --solus-status-permission: #e08a6e;
+  --solus-status-permission-glow: rgba(224, 138, 110, 0.4);
+  /* Tab */
+  --solus-tab-active: #2e2c27;
+  --solus-tab-active-border: rgba(255, 255, 255, 0.10);
+  --solus-tab-inactive: transparent;
+  --solus-tab-hover: rgba(255, 255, 255, 0.06);
+  --solus-unread-canvas: rgba(255, 255, 255, 0.05);
+  --solus-unread-ink: var(--solus-accent);
+  /* User bubble */
+  --solus-user-bubble: var(--solus-surface-primary);
+  --solus-user-bubble-border: rgba(238, 217, 196, 0.15);
+  --solus-user-bubble-text: #f0ece3;
+  /* Tool card */
+  --solus-tool-bg: #2e2c27;
+  --solus-tool-border: rgba(255, 255, 255, 0.10);
+  --solus-tool-running-border: rgba(224, 138, 110, 0.3);
+  --solus-tool-running-bg: rgba(224, 138, 110, 0.06);
+  /* Timeline */
+  --solus-timeline-line: #2e2c27;
+  --solus-timeline-node: rgba(224, 138, 110, 0.2);
+  --solus-timeline-node-active: #e08a6e;
+  --solus-timeline-node-done: rgba(110, 201, 139, 0.35);
+  /* Scrollbar */
+  --solus-scroll-thumb: rgba(255, 255, 255, 0.12);
+  --solus-scroll-thumb-hover: rgba(255, 255, 255, 0.22);
+  /* Buttons */
+  --solus-stop-bg: #ef4444;
+  --solus-stop-hover: #dc2626;
+  --solus-send-bg: #e08a6e;
+  --solus-send-hover: #d07a5e;
+  --solus-send-disabled: rgba(224, 138, 110, 0.3);
+  --solus-send-glow: rgba(224, 138, 110, 0.35);
+  --solus-btn-disabled: #3c3a33;
+  --solus-btn-hover-color: #bfb9aa;
+  --solus-btn-hover-bg: #262520;
+  /* Popover */
+  --solus-popover-bg: rgba(30, 29, 26, 0.99);
+  --solus-popover-border: rgba(255, 255, 255, 0.10);
+  --solus-popover-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.45), 0 0.125rem 0.5rem rgba(0,0,0,0.30), 0 1rem 3rem rgba(0,0,0,0.20);
+  /* Code */
+  --solus-code-bg: #252420;
+  --solus-code-shadow: 0 0.0625rem 0.1875rem rgba(0,0,0,0.25), 0 0 0 0.0625rem rgba(255,255,255,0.04);
+  /* Warm parchment for prose code blocks (dark twin of the light sand panel). */
+  --solus-code-tint: #2b2926;
+  /* Balanced syntax palette (dark twin) — brighter, still muted. */
+  --solus-syntax-comment: #8a8475;
+  --solus-syntax-keyword: #e08a9b;
+  --solus-syntax-number: #e0a05f;
+  --solus-syntax-string: #8fbf7e;
+  --solus-syntax-function: #6fb3df;
+  --solus-syntax-type: #5cc4b8;
+  --solus-syntax-attr: #b79ae8;
+  --solus-syntax-deletion: #e0846a;
+  --solus-syntax-addition: #7fc08e;
+  /* Mic */
+  --solus-mic-bg: #2e2c27;
+  --solus-mic-color: #bfb9aa;
+  --solus-mic-disabled: #3c3a33;
+  /* Rail */
+  --solus-rail-bg: #161513;
+  --solus-rail-border: #100f0d;
+  --solus-rail-icon: rgba(255, 255, 255, 0.5);
+  --solus-rail-icon-hover: rgba(255, 255, 255, 0.85);
+  --solus-rail-icon-hover-bg: rgba(255, 255, 255, 0.1);
+  --solus-rail-danger-color: #fecaca;
+  --solus-rail-danger-bg: rgba(239, 68, 68, 0.5);
+  /* Misc */
+  --solus-placeholder: #6e6960;
+  --solus-text-on-accent: #ffffff;
+  /* Permissions */
+  --solus-permission-border: rgba(245, 158, 11, 0.3);
+  --solus-permission-shadow: 0 0 0 0.0625rem rgba(245,158,11,0.10), 0 0.25rem 1.25rem rgba(245,158,11,0.10), 0 0.0625rem 0.375rem rgba(0,0,0,0.35);
+  --solus-permission-header-bg: rgba(245, 158, 11, 0.06);
+  --solus-permission-header-border: rgba(245, 158, 11, 0.12);
+  --solus-permission-allow-bg: rgba(34, 197, 94, 0.1);
+  --solus-permission-allow-hover-bg: rgba(34, 197, 94, 0.22);
+  --solus-permission-allow-border: rgba(34, 197, 94, 0.25);
+  --solus-permission-deny-bg: rgba(239, 68, 68, 0.08);
+  --solus-permission-deny-hover-bg: rgba(239, 68, 68, 0.18);
+  --solus-permission-deny-border: rgba(239, 68, 68, 0.22);
+  --solus-permission-denied-border: rgba(196, 112, 96, 0.3);
+  --solus-permission-denied-header-border: rgba(196, 112, 96, 0.12);
+  /* Diff */
+  --solus-diff-added-text: #8cbf9a;
+  --solus-diff-added-bg: rgba(140, 191, 154, 0.16);
+  --solus-diff-added-bg-write: rgba(140, 191, 154, 0.12);
+  --solus-diff-removed-text: #d4897c;
+  --solus-diff-removed-bg: rgba(212, 137, 124, 0.16);
+  --solus-diff-gutter-bg: rgba(255, 255, 255, 0.015);
+  --solus-diff-gutter-text: rgba(240, 236, 227, 0.40);
+  --solus-diff-hunk-bg: rgba(255, 255, 255, 0.03);
+  --solus-diff-hunk-text: rgba(240, 236, 227, 0.80);
+  --solus-diff-selection-bg: rgba(190, 135, 52, 0.30);
+  /* Diff (vivid) — see light-mode block above. Brighter, more saturated tones
+     so changes pop against the dark warm surface. */
+  --solus-diff-added-text-vivid: #5fd083;
+  --solus-diff-added-bg-vivid: rgba(73, 200, 123, 0.22);
+  --solus-diff-added-number-vivid: rgba(73, 200, 123, 0.32);
+  --solus-diff-added-emphasis-vivid: rgba(73, 200, 123, 0.24);
+  --solus-diff-removed-text-vivid: #f0826f;
+  --solus-diff-removed-bg-vivid: rgba(240, 110, 90, 0.2);
+  --solus-diff-removed-number-vivid: rgba(240, 110, 90, 0.3);
+  --solus-diff-removed-emphasis-vivid: rgba(240, 110, 90, 0.22);
+  --solus-diff-gutter-text-vivid: rgba(240, 236, 227, 0.58);
+  /* Find-in-diff highlight — see light-mode block above. */
+  --solus-diff-find-bg: rgba(230, 184, 64, 0.30);
+  --solus-diff-find-text: inherit;
+  --solus-diff-find-active-bg: rgba(224, 138, 110, 0.85);
+  --solus-diff-find-active-text: #1a1814;
+  /* File slot */
+  --solus-file-slot-well: rgba(255, 255, 255, 0.03);
+  --solus-file-slot-well-focused: rgba(224, 138, 110, 0.08);
+  --solus-file-slot-divider: rgba(255, 255, 255, 0.06);
+  --solus-file-header-bg: #252420;
+  --solus-file-header-name: #c8b889;
+  /* Polish */
+  --solus-assistant-left-border: rgba(224, 138, 110, 0.1);
+  --solus-tool-result-badge-bg: rgba(255, 255, 255, 0.06);
+  --solus-empty-state-bg: rgba(224, 138, 110, 0.07);
+  --solus-activity-strip-bg-from: rgba(30, 29, 26, 0);
+  --solus-message-divider: rgba(255, 255, 255, 0.05);
+  /* Soft input background — used by textareas / inline forms */
+  --solus-input-bg-soft: rgba(255, 255, 255, 0.04);
+  /* File token */
+  --solus-file-token: #4a7ab5;
+  --solus-file-token-bg: rgba(40, 70, 120, 0.15);
+  --solus-file-token-bg-hover: rgba(40, 70, 120, 0.22);
+  --solus-file-token-border: rgba(40, 70, 120, 0.25);
+  --solus-file-token-border-hover: rgba(40, 70, 120, 0.4);
+  /* Work token */
+  --solus-work-token: #c58cb9;
+  /* Plan modal scrim */
+  --solus-modal-scrim: rgba(0, 0, 0, 0.60);
+  /* ─── HTML artifact palette (dark twin) ───
+     Same warm family as the light ramp, brightened for dark surfaces. Neutrals
+     stay warm brown (never grey); borders carry a faint sand tint so hairlines
+     read warm rather than cold. */
+  --solus-art-surface: #221f1a;
+  --solus-art-raised: #2c2820;
+  --solus-art-border: rgba(232, 200, 150, 0.13);
+  --solus-art-border-strong: rgba(232, 200, 150, 0.24);
+  --solus-art-1: #e08a6e; /* terracotta (brand accent) */
+  --solus-art-2: #e0a85f; /* amber */
+  --solus-art-3: #6ec98b; /* sage */
+  --solus-art-4: #5cc4b8; /* teal */
+  --solus-art-5: #6fb3df; /* dusty blue */
+  --solus-art-6: #b79ae8; /* plum */
+  --solus-art-positive: #6ec98b;
+  --solus-art-negative: #e0846a;
+}
+
+/* Shiki dual-theme support */
+:root .shiki span {
+  color: var(--shiki-light) !important;
+}
+.dark .shiki span {
+  color: var(--shiki-dark) !important;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: transparent !important;
+  overflow: hidden;
+  user-select: none;
+  font-family: var(--solus-font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1, 'ss01' 1;
+  font-variant-numeric: tabular-nums;
+  /* `auto` snaps glyphs to the device-pixel grid (geometricPrecision forces
+     fractional sub-pixel positioning, which softens small UI text). */
+  text-rendering: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.solus-web,
+html.solus-web body,
+html.solus-web #root {
+  background: var(--solus-edge-bg) !important;
+}
+
+/* Secondary UI labels carry slightly more visual weight than reading text. */
+[class~="text-(--solus-text-secondary)"] {
+  font-weight: var(--solus-font-weight-secondary);
+}
+
+/* ─── Touch scrolling — native-feel on mobile/touch devices ─── */
+@media (pointer: coarse) {
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ─── Scrollbar — thin & subtle ─── */
+::-webkit-scrollbar {
+  width: 0.1875rem;
+  height: 0.1875rem;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--solus-scroll-thumb);
+  border-radius: 0.25rem;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--solus-scroll-thumb-hover);
+}
+
+/* ─── Glass surface — shared card/pill style ─── */
+.glass-surface {
+  background: var(--solus-container-bg);
+  border: 0.0625rem solid var(--solus-container-border);
+  box-shadow: var(--solus-card-shadow);
+}
+
+/* ─── Textarea reset ─── */
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: text;
+}
+textarea:focus {
+  outline: none;
+}
+textarea::placeholder,
+input::placeholder {
+  color: var(--solus-placeholder);
+}
+
+/* ─── Shared prose primitives (code, pre, table) ───
+   Every prose context (.prose-cloud, .solus-md-editor, .solus-doc-editor)
+   inherits these base styles. Override per-context with CSS custom properties
+   or by re-declaring the property on a more-specific selector. */
+
+.prose-cloud code,
+.solus-md-editor .ProseMirror code,
+.solus-doc-editor .ProseMirror code {
+  background: transparent;
+  /* Toned toward the text colour — full-saturation accent on every inline span
+     reads as static rather than emphasis. (pre code keeps `inherit` below.) */
+  color: color-mix(in srgb, var(--solus-accent) 72%, var(--solus-text-primary));
+  font-size: 0.875em;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-weight: 400;
+  margin-inline: 0.1em;
+}
+
+.prose-cloud pre,
+.solus-md-editor .ProseMirror pre,
+.solus-doc-editor .ProseMirror pre {
+  background: transparent;
+  border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 60%, transparent);
+  border-radius: 0.5rem;
+  line-height: 1.65;
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-weight: 400;
+}
+
+.prose-cloud pre code,
+.solus-md-editor .ProseMirror pre code,
+.solus-doc-editor .ProseMirror pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: 1em;
+}
+
+.prose-cloud table,
+.solus-doc-editor .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose-cloud th,
+.prose-cloud td,
+.solus-doc-editor .ProseMirror th,
+.solus-doc-editor .ProseMirror td {
+  border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
+  padding: 0.45em 0.7em;
+  text-align: left;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.prose-cloud th,
+.solus-doc-editor .ProseMirror th {
+  background: var(--solus-surface-primary);
+  font-weight: 600;
+}
+
+/* Shared decorations — identical across every prose context. */
+.prose-cloud blockquote,
+.solus-md-editor .ProseMirror blockquote,
+.solus-doc-editor .ProseMirror blockquote {
+  border-left: 0.1875rem solid var(--solus-tool-running-border);
+  padding-left: 0.8em;
+  color: var(--solus-text-secondary);
+  margin: 0.5em 0;
+}
+
+.prose-cloud hr,
+.solus-md-editor .ProseMirror hr,
+.solus-doc-editor .ProseMirror hr {
+  border: none;
+  border-top: 0.0625rem solid var(--solus-container-border);
+  margin: 1em 0;
+  opacity: 0.6;
+}
+
+.prose-cloud a,
+.solus-md-editor .ProseMirror a,
+.solus-doc-editor .ProseMirror a {
+  color: var(--solus-accent);
+  text-decoration: none;
+}
+.prose-cloud a:hover,
+.solus-md-editor .ProseMirror a:hover,
+.solus-doc-editor .ProseMirror a:hover {
+  text-decoration: underline;
+}
+
+/* ─── Tiptap markdown editor ─── */
+.solus-md-editor .ProseMirror {
+  outline: none;
+  border: none;
+  background: transparent;
+  width: 100%;
+  resize: none;
+  font-family: inherit;
+  font-weight: var(--solus-font-weight-body);
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  line-height: 1.375rem;
+  min-height: 1.25rem;
+  color: var(--solus-text-primary);
+  padding: 0.75rem 0 0.75rem 0.25rem;
+  max-height: var(--md-max-h, 8.75rem);
+  overflow-y: auto;
+  cursor: text;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.solus-md-editor .ProseMirror p {
+  margin: 0;
+}
+.solus-md-editor .ProseMirror p + p {
+  margin-top: 0.3em;
+}
+.solus-md-editor .ProseMirror strong {
+  font-weight: 600;
+}
+.solus-md-editor .ProseMirror em {
+  font-style: italic;
+}
+.solus-md-editor .ProseMirror pre {
+  padding: 0.7rem 0.85rem;
+  font-size: var(--solus-code-font-size);
+  margin: 0.7em 0;
+  background: var(--solus-code-tint);
+  border-color: color-mix(in srgb, var(--solus-container-border) 60%, transparent);
+  border-radius: 0.625rem;
+  line-height: 1.55;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--solus-text-primary) 18%, transparent)
+    transparent;
+}
+.solus-md-editor .ProseMirror pre::-webkit-scrollbar {
+  height: 0.5rem;
+}
+.solus-md-editor .ProseMirror pre::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--solus-text-primary) 18%, transparent);
+  border-radius: 0.5rem;
+}
+.solus-md-editor .ProseMirror h1 { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; margin: 0.25em 0; }
+.solus-md-editor .ProseMirror h2 { font-size: 0.9063rem; font-weight: 600; letter-spacing: -0.015em; margin: 0.25em 0; }
+.solus-md-editor .ProseMirror h3 { font-size: 0.875rem; font-weight: 600; letter-spacing: -0.01em; margin: 0.2em 0; }
+.solus-md-editor .ProseMirror ul {
+  padding-left: 1.3em;
+  margin: 0.3em 0;
+  list-style: disc;
+}
+.solus-md-editor .ProseMirror ol {
+  padding-left: 1.3em;
+  margin: 0.3em 0;
+  list-style: decimal;
+}
+.solus-md-editor .ProseMirror li {
+  margin: 0.15em 0;
+}
+.solus-md-editor .ProseMirror li p { margin: 0; }
+.solus-md-placeholder {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.25rem;
+  right: 0;
+  pointer-events: none;
+  color: var(--solus-placeholder);
+  font-size: 0.8125rem;
+  line-height: 1.375rem;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * ─── Inline reference tokens ───
+ * Shared shape for the plan / file / slash-command inline atoms inserted
+ * into the input editor. Each variant sets `--solus-token-color`; the
+ * label and icon inherit it, and the soft wash is derived from it.
+ */
+.solus-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 0.3125rem;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  line-height: inherit;
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--solus-token-color, var(--solus-text-secondary));
+  background: color-mix(in srgb, var(--solus-token-color, var(--solus-text-secondary)) 10%, transparent);
+  transition: background 120ms ease;
+}
+button.solus-token {
+  border: none;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.solus-token--slash { cursor: default; }
+.solus-token:hover {
+  background: color-mix(in srgb, var(--solus-token-color, var(--solus-text-secondary)) 16%, transparent);
+}
+.solus-token__icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--solus-token-color, var(--solus-text-secondary));
+}
+.solus-token__icon svg {
+  width: 100%;
+  height: 100%;
+}
+.solus-token--mono {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+.solus-token--plan-pending  { --solus-token-color: var(--solus-accent); }
+.solus-token--plan-accepted {
+  --solus-token-color: var(--solus-status-complete);
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-weight: 400;
+}
+.solus-token--plan-accepted .solus-token__icon { width: 0.75rem; height: 0.75rem; }
+.solus-token--plan-rejected { --solus-token-color: var(--solus-text-tertiary); }
+.solus-token--work {
+  --solus-token-color: var(--solus-work-token);
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  gap: 0.1875rem;
+  padding: 0 0.3125rem 0 0.25rem;
+  border-radius: 0.25rem;
+}
+.solus-token--work .solus-token__icon { width: 0.75rem; height: 0.75rem; }
+.solus-token--file {
+  --solus-token-color: var(--solus-file-token);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  gap: 0.1875rem;
+  padding: 0 0.3125rem 0 0.25rem;
+  border-radius: 0.25rem;
+  background: transparent;
+  border: 0.0625rem solid var(--solus-file-token-border);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.solus-token--file:hover {
+  background: transparent;
+  border-color: var(--solus-file-token-border-hover);
+}
+.solus-token--file .solus-token__icon { width: 0.875rem; height: 0.875rem; }
+.solus-token--input-file-ref {
+  margin-inline: 0.0625rem;
+  padding: 0.0625rem;
+  font-size: calc(0.85rem * var(--solus-font-scale, 1));
+  line-height: 1;
+  vertical-align: middle;
+}
+.solus-token--input-file-ref .solus-token__icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+.solus-token--output-link {
+  position: relative;
+  top: -0.0625rem;
+}
+.solus-token--output-file-link {
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+.solus-token--output-file-link .solus-token__icon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+.solus-token__line-number {
+  opacity: 0.5;
+  font-weight: 400;
+}
+.solus-token__dir {
+  opacity: 0.5;
+  font-weight: 400;
+}
+.solus-token--slash         { --solus-token-color: var(--solus-accent); }
+
+/* Selected (cursor adjacent) state — Tiptap adds .ProseMirror-selectednode. */
+.solus-token.ProseMirror-selectednode {
+  outline: 0.0938rem solid var(--solus-token-color, var(--solus-accent));
+  outline-offset: 0.0625rem;
+}
+
+/* ─── Document editor (long-form: plans, SKILL.md, etc.) ─── */
+.solus-doc-editor-wrap {
+  position: relative;
+  width: 100%;
+}
+.solus-doc-editor-wrap .doc-mode-hidden {
+  display: none !important;
+}
+.solus-doc-raw {
+  display: block;
+  width: 100%;
+  min-height: 12.5rem;
+  resize: none;
+  outline: none;
+  border: none;
+  background: transparent;
+  color: var(--solus-text-primary);
+  padding: 1.25rem 1.5rem 2rem;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  field-sizing: content;
+}
+.solus-doc-raw::placeholder {
+  color: var(--solus-placeholder);
+}
+.solus-doc-editor .ProseMirror {
+  outline: none;
+  border: none;
+  background: transparent;
+  width: 100%;
+  max-width: 62.5rem;
+  margin-inline: auto;
+  font-family: inherit;
+  font-weight: var(--solus-font-weight-body);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.75;
+  color: var(--solus-text-primary);
+  padding: 0.75rem 2rem 3rem;
+  min-height: 12.5rem;
+  word-break: break-word;
+  white-space: pre-wrap;
+  cursor: text;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'ss01' 1;
+}
+/* Prompt-editor usage (task composer/detail) fills its container instead of the
+   centered long-form column, and trims the wide long-form padding so the field
+   reads edge-to-edge. Left padding stays ~1.25rem as the gutter the block drag
+   handle sits in (it's drawn ~18px left of the text), matching the document
+   editor's left-of-line grip. */
+.doc-prompt-editor .solus-doc-editor .ProseMirror {
+  max-width: none;
+  margin-inline: 0;
+  padding: 0.5rem 0.75rem 0.75rem 1.25rem;
+}
+.solus-doc-editor .ProseMirror > * + * {
+  margin-top: 0.5em;
+}
+.solus-doc-editor .ProseMirror p {
+  margin: 0.35em 0;
+  text-wrap: pretty;
+}
+.solus-doc-editor .ProseMirror strong { font-weight: 600; }
+.solus-doc-editor .ProseMirror em { font-style: italic; }
+.solus-doc-editor .ProseMirror h1,
+.solus-doc-editor .ProseMirror h2,
+.solus-doc-editor .ProseMirror h3 {
+  text-wrap: balance;
+}
+.solus-doc-editor .ProseMirror h1 {
+  font-size: calc(1.25rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.02em;
+  margin: 1.2em 0 0.35em; line-height: 1.3;
+}
+.solus-doc-editor .ProseMirror h1:first-child { margin-top: 0; }
+.solus-doc-editor .ProseMirror h2 {
+  font-size: calc(1.0625rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.015em;
+  margin: 1em 0 0.3em; line-height: 1.35;
+}
+.solus-doc-editor .ProseMirror h3 {
+  font-size: calc(0.9375rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.01em;
+  margin: 0.85em 0 0.25em; line-height: 1.4;
+}
+.solus-doc-editor .ProseMirror h2 + h3,
+.solus-doc-editor .ProseMirror h2 + p,
+.solus-doc-editor .ProseMirror h3 + p {
+  margin-top: 0.4em;
+}
+.solus-doc-editor .ProseMirror ::selection {
+  background: var(--solus-accent-wash);
+  color: inherit;
+}
+.solus-doc-editor .ProseMirror ul {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+  list-style: disc;
+}
+.solus-doc-editor .ProseMirror ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+  list-style: decimal;
+}
+.solus-doc-editor .ProseMirror li { margin: 0.2em 0; }
+.solus-doc-editor .ProseMirror li p { margin: 0; }
+.solus-doc-editor .ProseMirror pre {
+  padding: 0.7em 0.9em;
+  font-size: calc(0.7813rem * var(--solus-font-scale, 1));
+  margin: 0.6em 0;
+}
+/* Task list */
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  margin: 0.25em 0;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] li > label {
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  accent-color: var(--solus-accent);
+  width: 0.875rem;
+  height: 0.875rem;
+  cursor: pointer;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--solus-text-tertiary);
+  text-decoration: line-through;
+}
+/* Table */
+/* Tiptap's TableView wraps every table in div.tableWrapper. Let wide tables
+   scroll horizontally here instead of overflowing the editor (or, on mobile,
+   squishing columns to an unreadable width). */
+.solus-doc-editor .ProseMirror .tableWrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.solus-doc-editor .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  margin: 0.6em 0;
+}
+.solus-doc-editor .ProseMirror th,
+.solus-doc-editor .ProseMirror td {
+  border: 0.0625rem solid var(--solus-container-border);
+  padding: 0.4em 0.7em;
+  overflow-wrap: anywhere;
+  /* Contain the .selectedCell::after overlay to its own cell. Without this the
+     absolutely-positioned overlay escapes to .solus-doc-editor-wrap and fills
+     the whole editor — and a full-table CellSelection (e.g. while dragging)
+     stacks one sheet per cell into a heavy accent wash. */
+  position: relative;
+}
+.solus-doc-editor .ProseMirror .selectedCell::after {
+  background: var(--solus-accent-light);
+  content: "";
+  left: 0; right: 0; top: 0; bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+.solus-doc-editor .ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -0.125rem; top: 0; bottom: -0.125rem;
+  width: 0.25rem;
+  background: var(--solus-accent);
+  pointer-events: none;
+}
+/* Placeholder — first-child carries the whole-doc placeholder; `is-empty`
+   (applied only to the cursor's node by Placeholder's showOnlyCurrent) carries
+   the per-line "/" command hint. */
+.solus-doc-editor .ProseMirror p.is-editor-empty:first-child::before,
+.solus-doc-editor .ProseMirror p.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--solus-placeholder);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ─── Lowlight syntax highlighting tokens (in document editor code blocks) ─── */
+.solus-doc-editor .hljs-comment,
+.solus-doc-editor .hljs-quote { color: var(--solus-syntax-comment); font-style: italic; }
+.solus-doc-editor .hljs-keyword,
+.solus-doc-editor .hljs-selector-tag,
+.solus-doc-editor .hljs-subst { color: var(--solus-syntax-keyword); }
+.solus-doc-editor .hljs-number,
+.solus-doc-editor .hljs-literal,
+.solus-doc-editor .hljs-variable,
+.solus-doc-editor .hljs-template-variable,
+.solus-doc-editor .hljs-tag .hljs-attr { color: var(--solus-syntax-number); }
+.solus-doc-editor .hljs-string,
+.solus-doc-editor .hljs-doctag { color: var(--solus-syntax-string); }
+.solus-doc-editor .hljs-title,
+.solus-doc-editor .hljs-section,
+.solus-doc-editor .hljs-selector-id { color: var(--solus-syntax-function); font-weight: 600; }
+.solus-doc-editor .hljs-type,
+.solus-doc-editor .hljs-class .hljs-title { color: var(--solus-syntax-type); }
+.solus-doc-editor .hljs-attribute,
+.solus-doc-editor .hljs-name { color: var(--solus-syntax-attr); }
+.solus-doc-editor .hljs-regexp,
+.solus-doc-editor .hljs-link { color: var(--solus-syntax-string); }
+.solus-doc-editor .hljs-symbol,
+.solus-doc-editor .hljs-bullet { color: var(--solus-syntax-number); }
+.solus-doc-editor .hljs-built_in,
+.solus-doc-editor .hljs-builtin-name { color: var(--solus-syntax-type); }
+.solus-doc-editor .hljs-meta { color: var(--solus-syntax-comment); }
+.solus-doc-editor .hljs-deletion { color: var(--solus-syntax-deletion); }
+.solus-doc-editor .hljs-addition { color: var(--solus-syntax-addition); }
+.solus-doc-editor .hljs-emphasis { font-style: italic; }
+.solus-doc-editor .hljs-strong { font-weight: bold; }
+
+/* ─── Document editor: compact / mobile ─── */
+@media (max-width: 1100px) {
+  .solus-doc-editor .ProseMirror {
+    max-width: none;
+    padding-inline: 1rem;
+  }
+  .solus-doc-raw {
+    padding-inline: 1rem;
+  }
+}
+@media (max-width: 767px) {
+  .solus-doc-editor .ProseMirror {
+    padding: 0.5rem 0.75rem 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+  .solus-doc-editor .ProseMirror h1 {
+    font-size: calc(1.0625rem * var(--solus-font-scale, 1));
+  }
+  .solus-doc-editor .ProseMirror h2 {
+    font-size: calc(0.9375rem * var(--solus-font-scale, 1));
+  }
+  .solus-doc-editor .ProseMirror h3 {
+    font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  }
+  /* Keep each column readable: give cells a min-width floor so text wraps
+     within a sane column instead of being squished character-by-character.
+     When columns no longer fit, .tableWrapper scrolls horizontally. */
+  .solus-doc-editor .ProseMirror th,
+  .solus-doc-editor .ProseMirror td {
+    min-width: 7rem;
+  }
+  .solus-doc-raw {
+    padding-inline: 0.75rem;
+  }
+}
+
+/* ─── Plan comment marks ─── */
+.plan-comment-saved {
+  background: rgba(217, 119, 87, 0.18);
+  border-bottom: 0.125rem solid rgba(217, 119, 87, 0.55);
+  border-radius: 0.125rem;
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+  cursor: pointer;
+  transition: background var(--duration-quick) var(--ease-premium);
+}
+.plan-comment-saved:hover {
+  background: rgba(217, 119, 87, 0.28);
+}
+.plan-comment-active {
+  background: rgba(217, 119, 87, 0.32);
+  border-bottom: 0.125rem solid var(--solus-accent);
+  border-radius: 0.125rem;
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+}
+@keyframes plan-comment-flash {
+  0%   { box-shadow: 0 0 0 0 var(--solus-accent); background: rgba(217, 119, 87, 0.38); }
+  50%  { box-shadow: 0 0 0 0.3125rem var(--solus-accent-soft); }
+  100% { box-shadow: 0 0 0 0 transparent; background: rgba(217, 119, 87, 0.18); }
+}
+.plan-comment-flash {
+  animation: plan-comment-flash 720ms var(--ease-premium);
+}
+
+/* ─── Mode shell enter animation ─── */
+.mode-shell {
+  transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 1;
+}
+
+@starting-style {
+  .mode-shell {
+    opacity: 0;
+  }
+}
+
+/* ─── Message entrance animations (CSS — zero JS overhead vs Framer Motion) ─── */
+@keyframes msg-in-up {
+  from { opacity: 0; transform: translateY(0.375rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes msg-in-side {
+  from { opacity: 0; transform: translate(-0.25rem, 0.375rem); }
+  to   { opacity: 1; transform: translate(0, 0); }
+}
+.animate-msg-in-up {
+  /* `backwards` (not `both`) so no transform lingers after the animation —
+     a retained transform keeps the element on its own GPU layer and renders text blurry. */
+  animation: msg-in-up 0.15s ease-out backwards;
+}
+.animate-msg-in-side {
+  /* see note above: `backwards` avoids the post-animation blurry-text compositing layer */
+  animation: msg-in-side 0.15s ease-out backwards;
+}
+
+/* ─── Allow text selection in conversation content and diff panel ─── */
+.prose-cloud,
+.conversation-selectable,
+.diff-panel-border,
+.diff-panel-border * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ─── Prose overrides for markdown ─── */
+.prose-cloud {
+  color: var(--solus-text-primary);
+  font-weight: var(--solus-font-weight-body);
+  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+  letter-spacing: -0.006em;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
+}
+.prose-cloud > * + * {
+  margin-top: 0.75em;
+}
+.prose-cloud p {
+  margin: 0.45em 0;
+}
+.prose-cloud pre {
+  padding: 0.65em 0.9em;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  margin: 0.6em 0;
+}
+.prose-cloud code {
+  padding: 0;
+  margin-inline: 0.1em;
+}
+.prose-cloud pre code {
+  margin-inline: 0;
+}
+
+/* ─── Chat code blocks (CodeBlock.svelte) ───
+   A self-contained surface: header strip (language + copy) over a recessed
+   well, with hljs syntax tokens and horizontal edge-fades. Scoped to
+   .solus-code-block so it works wherever the component is mounted. */
+.solus-code-block {
+  margin: 0.7em 0;
+  border-radius: 0.625rem;
+  border: 0.0625rem solid
+    color-mix(in srgb, var(--solus-container-border) 60%, transparent);
+  background: var(--solus-code-tint);
+  overflow: hidden;
+}
+.solus-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.45rem 0.3rem 0.75rem;
+  border-bottom: 0.0625rem solid
+    color-mix(in srgb, var(--solus-container-border) 45%, transparent);
+}
+.solus-code-lang {
+  font-family: var(--solus-code-font-family);
+  font-size: 0.6875rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: var(--solus-text-tertiary);
+  user-select: none;
+}
+.solus-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1;
+  color: var(--solus-text-tertiary);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.group\/code:hover .solus-code-copy,
+.solus-code-copy:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .solus-code-copy {
+    opacity: 1;
+  }
+}
+.solus-code-copy:hover {
+  background: var(--solus-surface-hover);
+  color: var(--solus-text-secondary);
+}
+.solus-code-copy.is-copied {
+  opacity: 1;
+  color: var(--solus-status-complete);
+  background: var(--solus-status-complete-bg);
+}
+.solus-code-copy .icon-swap {
+  position: relative;
+  display: inline-flex;
+  width: 0.6875rem;
+  height: 0.6875rem;
+  align-items: center;
+  justify-content: center;
+}
+.solus-code-body {
+  position: relative;
+}
+.solus-code-block pre {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: 1.55;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--solus-text-primary) 18%, transparent)
+    transparent;
+}
+.solus-code-block pre::-webkit-scrollbar {
+  height: 0.5rem;
+}
+.solus-code-block pre::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--solus-text-primary) 18%, transparent);
+  border-radius: 0.5rem;
+}
+/* Edge-fades — shown only when the code actually overflows in that direction. */
+.solus-code-body::before,
+.solus-code-body::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.75rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 1;
+}
+.solus-code-body::before {
+  left: 0;
+  background: linear-gradient(to right, var(--solus-code-tint), transparent);
+}
+.solus-code-body::after {
+  right: 0;
+  background: linear-gradient(to left, var(--solus-code-tint), transparent);
+}
+.solus-code-body:has(pre.fade-l)::before,
+.solus-code-body:has(pre.fade-r)::after {
+  opacity: 1;
+}
+
+/* hljs syntax tokens for chat code blocks — shares the --solus-syntax-* palette
+   with the doc editor so chat and the plan modal stay identical. */
+.solus-code-block .hljs-comment,
+.solus-code-block .hljs-quote {
+  color: var(--solus-syntax-comment);
+  font-style: italic;
+}
+.solus-code-block .hljs-keyword,
+.solus-code-block .hljs-selector-tag,
+.solus-code-block .hljs-subst {
+  color: var(--solus-syntax-keyword);
+}
+.solus-code-block .hljs-number,
+.solus-code-block .hljs-literal,
+.solus-code-block .hljs-variable,
+.solus-code-block .hljs-template-variable,
+.solus-code-block .hljs-tag .hljs-attr {
+  color: var(--solus-syntax-number);
+}
+.solus-code-block .hljs-string,
+.solus-code-block .hljs-doctag {
+  color: var(--solus-syntax-string);
+}
+.solus-code-block .hljs-title,
+.solus-code-block .hljs-section,
+.solus-code-block .hljs-selector-id {
+  color: var(--solus-syntax-function);
+  font-weight: 600;
+}
+.solus-code-block .hljs-type,
+.solus-code-block .hljs-class .hljs-title {
+  color: var(--solus-syntax-type);
+}
+.solus-code-block .hljs-attribute,
+.solus-code-block .hljs-name {
+  color: var(--solus-syntax-attr);
+}
+.solus-code-block .hljs-regexp,
+.solus-code-block .hljs-link {
+  color: var(--solus-syntax-string);
+}
+.solus-code-block .hljs-symbol,
+.solus-code-block .hljs-bullet {
+  color: var(--solus-syntax-number);
+}
+.solus-code-block .hljs-built_in,
+.solus-code-block .hljs-builtin-name {
+  color: var(--solus-syntax-type);
+}
+.solus-code-block .hljs-meta {
+  color: var(--solus-syntax-comment);
+}
+.solus-code-block .hljs-deletion {
+  color: var(--solus-syntax-deletion);
+}
+.solus-code-block .hljs-addition {
+  color: var(--solus-syntax-addition);
+}
+.solus-code-block .hljs-emphasis {
+  font-style: italic;
+}
+.solus-code-block .hljs-strong {
+  font-weight: bold;
+}
+
+.prose-cloud ul {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+  list-style: disc;
+}
+.prose-cloud ol {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+  list-style: decimal;
+}
+.prose-cloud li {
+  margin: 0.25em 0;
+}
+.prose-cloud li > p {
+  margin: 0.1em 0;
+}
+.prose-cloud h1, .prose-cloud h2, .prose-cloud h3, .prose-cloud h4 {
+  margin: 1.4em 0 0.4em;
+  font-weight: 600;
+  color: var(--solus-text-primary);
+  line-height: 1.3;
+}
+.prose-cloud h1:first-child,
+.prose-cloud h2:first-child,
+.prose-cloud h3:first-child { margin-top: 0; }
+.prose-cloud h1 { font-size: calc(1.1563rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
+.prose-cloud h2 { font-size: calc(1.0313rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
+.prose-cloud h3 { font-size: calc(0.9375rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
+.prose-cloud h4 { font-size: calc(0.875rem * var(--solus-font-scale, 1)); letter-spacing: -0.005em; color: var(--solus-text-secondary); }
+.prose-cloud table {
+  font-size: calc(0.7813rem * var(--solus-font-scale, 1));
+}
+.prose-cloud th {
+  border-bottom-color: var(--solus-container-border);
+}
+.prose-cloud strong {
+  font-weight: 600;
+}
+
+/* ─── Assistant reading prose — clean sans at a comfortable reading size ─── */
+/* Applied alongside `.prose-cloud` on assistant + streaming output only.
+   Uses the app font (same as the rest of the UI) but at a slightly larger
+   size with looser leading and proportional figures, so Claude's narration
+   reads cleanly and sits a touch above the dense tool rows / user bubbles.
+   Code (`pre`/`code`) stays monospace via the `.prose-cloud` rules above. */
+.prose-reading {
+  font-size: calc(0.9375rem * var(--solus-font-scale, 1));
+  line-height: 1.78;
+  /* 400 (Regular) is a *named* master instance — hinted, so glyphs snap to the
+     pixel grid and stay crisp at the ~12–13px sizes the reading text hits once
+     the root font-size floors on a laptop screen. (An interpolated weight like
+     520 falls between masters, renders un-hinted, and reads soft.) We deliberately
+     run body at 400 — not 500 — so the jump to 600 headings / strong is a full
+     200 units and emphasis actually separates from the surrounding prose. */
+  font-weight: 400;
+  font-variant-numeric: normal;
+  -webkit-font-smoothing: antialiased;
+  /* `auto` (not optimizeLegibility) snaps glyphs to the pixel grid — matches the
+     root rule's reasoning and keeps the main reading text from softening. Ligatures
+     and kerning are already enabled explicitly via .prose-cloud font-feature-settings. */
+  text-rendering: auto;
+}
+.prose-reading p { text-wrap: pretty; }
+/* Looser list rhythm so bullets breathe instead of reading as a packed block. */
+.prose-reading li { margin: 0.45em 0; }
+/* Nudge table text up from the dense .prose-cloud base — too small to read in narration. */
+.prose-reading table { font-size: calc(0.8438rem * var(--solus-font-scale, 1)); }
+/* A comparison table is usually the point of the message, so make it the most
+   scannable element, not the least: filled header row, roomier cells, and body
+   cells dropped to the secondary tone so the header + first column lead. */
+.prose-reading th, .prose-reading td { padding: 0.5em 0.9em; }
+.prose-reading th {
+  background: var(--solus-surface-primary);
+  color: var(--solus-text-primary);
+}
+.prose-reading td { color: var(--solus-text-secondary); }
+/* Asymmetric spacing — a big gap *above* a heading separates the previous
+   section; a tight gap *below* bonds the heading to the content it leads.
+   (First-child margin-top:0 from .prose-cloud still wins via higher specificity.) */
+.prose-reading h1, .prose-reading h2, .prose-reading h3, .prose-reading h4 {
+  margin-top: 2em;
+  margin-bottom: 0.45em;
+}
+/* Wider size jump from body so headings anchor sections instead of just reading
+   as slightly-larger text (h1 ~1.6× body, was ~1.33×). */
+.prose-reading h1 { font-size: calc(1.5rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
+.prose-reading h2 { font-size: calc(1.2rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
+.prose-reading h3 { font-size: calc(1.0313rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
+.prose-reading h4 { font-size: calc(0.9375rem * var(--solus-font-scale, 1)); letter-spacing: -0.005em; }
+
+/* Pill mode — assistant text 2px smaller than editor/default */
+.pill-shell .prose-reading {
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+
+/* ─── User bubble prose overrides ─── */
+.prose-user-bubble,
+.prose-user-bubble h1,
+.prose-user-bubble h2,
+.prose-user-bubble h3,
+.prose-user-bubble h4 {
+  color: inherit;
+}
+.prose-user-bubble h1 { font-size: calc(0.8438rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
+.prose-user-bubble h2 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
+.prose-user-bubble h3 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
+.prose-user-bubble h4 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.005em; }
+.prose-user-bubble > * + * { margin-top: 0.35em; }
+.prose-user-bubble p { margin: 0.2em 0; }
+.prose-user-bubble ul, .prose-user-bubble ol { margin: 0.2em 0; }
+.prose-user-bubble pre { font-size: calc(0.75rem * var(--solus-font-scale, 1)); margin: 0.35em 0; }
+
+/* ─── Pulsing dot animation ─── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* ─── Bouncing dots for thinking ─── */
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-0.25rem); }
+}
+.animate-bounce-dot {
+  animation: bounce-dot 1.2s ease-in-out infinite;
+}
+
+/* ─── Breathing glow for activity dots (replaces bounce) ─── */
+@keyframes breathing-glow {
+  0% { opacity: 0.45; transform: scale(0.95); }
+  38% { opacity: 0.9; transform: scale(1.08); }
+  58% { opacity: 0.75; transform: scale(1.04); }
+  100% { opacity: 0.45; transform: scale(0.95); }
+}
+.animate-breathing {
+  animation: breathing-glow 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* ─── Spin for running status icon ─── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* ─── Top scroll fade — sticky pseudo-element ─── */
+.has-scroll-fade-top {
+  position: relative;
+}
+.has-scroll-fade-top::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.25rem;
+  display: block;
+  background: linear-gradient(to bottom, var(--solus-container-bg), transparent);
+  pointer-events: none;
+  z-index: 1;
+  margin-bottom: -1.25rem;
+}
+
+/* ─── Click-through shell ─── */
+.click-through-shell {
+  pointer-events: none;
+}
+.click-through-shell > * {
+  pointer-events: auto;
+}
+
+/* ─── Drag region for frameless window ─── */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ─── Fast custom tooltips ─── */
+.solus-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.3125rem;
+  font-size: 0.7188rem;
+  font-family: var(--solus-font-family);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: var(--solus-text-primary);
+  color: var(--solus-container-bg);
+  box-shadow: 0 0.125rem 0.5rem rgba(0,0,0,0.18);
+  animation: solus-tooltip-in 100ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes solus-tooltip-in {
+  from { opacity: 0; transform: translateY(0.125rem) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.solus-tooltip--above {
+  transform-origin: bottom center;
+}
+.solus-tooltip--below {
+  transform-origin: top center;
+}
+
+@keyframes backdrop-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes picker-scale-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: -25rem 0; }
+  100% { background-position: 25rem 0; }
+}
+
+/* ─── Session picker motion ─── */
+@keyframes picker-enter {
+  from { opacity: 0; transform: translate3d(0, 0.25rem, 0) scale(0.985); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes search-glow-pulse {
+  0%, 100% { opacity: 0.2; }
+  50%      { opacity: 0.85; }
+}
+@keyframes count-scale-bump {
+  0%   { transform: scale(1.12); color: var(--solus-accent); }
+  100% { transform: scale(1); color: inherit; }
+}
+@keyframes scanning-ellipsis {
+  0%   { width: 0; }
+  25%  { width: 0.33em; }
+  50%  { width: 0.66em; }
+  75%  { width: 1em; }
+  100% { width: 0; }
+}
+@keyframes picker-skeleton-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ─── Plan modal motion ─── */
+@keyframes plan-modal-enter {
+  from { opacity: 0; transform: translate3d(0, 0.375rem, 0) scale(0.985); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0)   scale(1); }
+}
+@keyframes plan-backdrop-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes plan-save-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.92); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+@keyframes plan-comment-form-in {
+  from { opacity: 0; transform: translateY(-0.1875rem) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.doc-shell-root--floating {
+  animation: plan-modal-enter var(--duration-modal) var(--ease-modal) both;
+  transform-origin: center top;
+}
+.doc-shell-backdrop {
+  animation: plan-backdrop-enter var(--duration-modal) var(--ease-premium) both;
+}
+.doc-shell-save-dot {
+  animation: plan-save-pulse 1.4s ease-in-out infinite;
+}
+.plan-comment-form-in {
+  animation: plan-comment-form-in 140ms var(--ease-premium) both;
+}
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .doc-shell-root--floating,
+  .doc-shell-backdrop,
+  .plan-comment-form-in,
+  .plan-comment-flash,
+  .doc-shell-save-dot {
+    animation: none !important;
+  }
+  .plan-comment-flash { background: rgba(217, 119, 87, 0.22); }
+}
+
+.icon-swap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── New tab home motion (consumed via [animation:…] utilities in NewTabHome.svelte) ─── */
+@keyframes home-fade-in {
+  from { opacity: 0; transform: translateY(0.375rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes home-skel-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}

@@ -1,0 +1,677 @@
+<script lang="ts">
+  import { tick } from "svelte";
+  import {
+    XIcon,
+    PlusIcon,
+    ArrowClockwiseIcon,
+    CircleNotchIcon,
+    ListChecksIcon,
+    WarningCircleIcon,
+    PlugIcon,
+    ListIcon,
+    KanbanIcon,
+    TrashIcon,
+  } from "phosphor-svelte";
+  import type { Task, TaskStatus, TaskKind, TaskPriority } from "../../../shared/task-types";
+  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
+  import {
+    TasksSelectionStore,
+    setTasksSelection,
+  } from "../../contexts/tasks-selection.store.svelte";
+  import {
+    useKeybinding,
+    useScope,
+  } from "../../lib/keybindings/use-keybinding.svelte";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { runtime } from "../../contexts/runtime.svelte";
+  import { toasts } from "../../contexts/toast.store.svelte";
+  import {
+    buildTaskGroups,
+    relativeTime,
+    STATUS_META,
+    BOARD_COLUMNS,
+    type StatusFilter,
+    type TaskSort,
+  } from "./lib/tasks-api";
+  import TaskFilters from "./TaskFilters.svelte";
+  import TaskCard from "./TaskCard.svelte";
+  import EpicGroup from "./EpicGroup.svelte";
+  import TaskComposer from "./TaskComposer.svelte";
+  import TaskDetail from "./TaskDetail.svelte";
+  import TaskBoard from "./TaskBoard.svelte";
+  import TaskBoardSkeleton from "./TaskBoardSkeleton.svelte";
+
+  const session = getWorkspaceContext();
+  const store = session.tasksStore;
+  const projectConfig = getProjectConfigStore();
+
+  const open = $derived(session.tasksOpen);
+  const cwd = $derived(session.tasksProjectCwd);
+
+  // Resolved provider (unset defaults to local). Local + GitHub support create;
+  // only local owns the epic/sub-task hierarchy, so epics + add-child are local.
+  const provider = $derived(
+    cwd ? (projectConfig.configFor(cwd)?.taskProvider ?? "local") : "local",
+  );
+  const canCreate = $derived(
+    !!cwd && (provider === "local" || provider === "github"),
+  );
+  const allowEpics = $derived(provider === "local");
+  // Delete is local-only (we never delete remote tickets); both providers have a
+  // comment model (GitHub issue comments, local notes).
+  const canDelete = $derived(provider === "local");
+  const canComment = $derived(provider === "local" || provider === "github");
+
+  // ── List-view multi-select ── owned by a context store so the selection isn't
+  // threaded through EpicGroup down to each card.
+  const selection = new TasksSelectionStore();
+  setTasksSelection(selection);
+  // Composer state: null = closed; an object opens it (with an optional preset
+  // parent epic when adding a child from an epic header, or a preset status when
+  // adding into a board column).
+  let composing = $state<{ parentId?: string; status?: TaskStatus } | null>(null);
+  // Detail view: the task whose full ticket (body, comments, PRs) is open.
+  let detailTask = $state<Task | null>(null);
+  const epics = $derived(store.tasks.filter((t) => t.kind === "epic"));
+  // Existing labels across the project, offered as composer suggestions.
+  const knownLabels = $derived(
+    Array.from(new Set(store.tasks.flatMap((t) => t.labels))).sort(),
+  );
+
+  let query = $state("");
+  let statusFilter = $state<StatusFilter>("active");
+  let assignedToMe = $state(false);
+  // Ordering for both list + board. `priority`/`due` answer "what's next".
+  let sort = $state<TaskSort>("updated");
+  // List (dense, epic-grouped) vs board (kanban by status). The board is a flat
+  // status view, so it ignores the status tabs (hidden) but keeps search + Mine.
+  let view = $state<"list" | "board">("list");
+  let searchEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  let bodyEl = $state<HTMLDivElement | null>(null);
+
+  // GitHub's "not connected / auth" failures get a Connect affordance; anything
+  // else (network, rate limit, bad remote) gets a plain retry instead.
+  const isAuthError = $derived(
+    provider === "github" &&
+      !!store.error &&
+      /auth|token|credential|connect|unauthor|401|403|sign in/i.test(store.error),
+  );
+
+  // Counts are over the unfiltered (but assignee-scoped) list so the tab badges
+  // stay stable as the user types a query.
+  const counts = $derived.by(() => {
+    const c: Record<StatusFilter, number> = {
+      all: store.tasks.length,
+      active: 0,
+      open: 0,
+      in_progress: 0,
+      done: 0,
+    };
+    for (const t of store.tasks) {
+      c[t.status]++;
+      if (t.status === 'open' || t.status === 'in_progress') c.active++;
+    }
+    return c;
+  });
+
+  const groups = $derived(
+    buildTaskGroups(store.tasks, { query, status: statusFilter, sort }),
+  );
+
+  // The selectable cards in render order (epic children + standalone), for Shift
+  // range-select. Epics are headers, not cards, so they're excluded.
+  const flatVisibleIds = $derived(groups.flatMap((g) => g.children).map((t) => t.id));
+
+  // Keep the selection store's order in sync so Shift-range resolves correctly.
+  $effect(() => {
+    selection.setOrder(flatVisibleIds);
+  });
+
+  function sessionsFor(taskId: string): number {
+    return store.sessionsByTask.get(taskId)?.length ?? 0;
+  }
+
+  // Load when the page opens, the project changes, or the assignee scope toggles.
+  // assignedToMe is a server-side filter (the viewer identity lives in main).
+  $effect(() => {
+    if (!open || !cwd) return;
+    void store.load(cwd, { assignedToMe });
+    // Provider config drives whether the New-task affordance shows.
+    void projectConfig.load(cwd);
+  });
+
+  $effect(() => {
+    if (open) {
+      query = "";
+      statusFilter = "active";
+      composing = null;
+      if (!runtime.shouldSuppressFocus) {
+        void tick().then(() => searchEl?.focus());
+      }
+    }
+  });
+
+  // "Go to task…" from the palette: once the list is loaded, open the requested
+  // task's detail and clear the focus request (whether or not it was found).
+  $effect(() => {
+    const focusId = session.ui.tasksFocusId;
+    if (!open || !focusId || !store.loaded) return;
+    const task = store.tasks.find((t) => t.id === focusId);
+    if (task) detailTask = task;
+    session.ui.tasksFocusId = null;
+  });
+
+  useScope("tasks", { active: () => open });
+  useKeybinding(
+    "tasks.close",
+    () => {
+      // Esc backs out of the detail page first, then clears a held selection,
+      // then closes the panel.
+      if (detailTask) detailTask = null;
+      else if (selection.size > 0) selection.clear();
+      else close();
+    },
+    { enabled: () => open },
+  );
+
+  function close() {
+    session.tasksOpen = false;
+    requestInputFocus();
+  }
+
+  // Force a live re-fetch (task-service always hits the provider first, falling
+  // back to cache only on failure) — the list otherwise only loads on open.
+  function refresh() {
+    if (cwd && !store.loading) void store.load(cwd, { assignedToMe });
+  }
+
+  function onOpen(task: Task) {
+    detailTask = task;
+  }
+
+  function onStart(task: Task) {
+    detailTask = null;
+    void session.openTaskSession(task);
+    session.tasksOpen = false;
+  }
+
+  function onResume(task: Task) {
+    detailTask = null;
+    void session.openTaskLinkedSession(task);
+    session.tasksOpen = false;
+  }
+
+  function onOpenLink(task: Task) {
+    if (task.url) void window.solus.openExternal(task.url);
+  }
+
+  function toastTaskError(action: string, err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    toasts.error(`Couldn't ${action}: ${message}`);
+  }
+
+  async function onSetStatus(task: Task, status: TaskStatus) {
+    if (!cwd) return;
+    try {
+      await store.setStatus(cwd, task.id, status);
+    } catch (err) {
+      toastTaskError("update status", err);
+    }
+  }
+
+  async function onSaveDetail(patch: Partial<Task>): Promise<Task> {
+    if (!cwd || !detailTask) throw new Error("No task open");
+    try {
+      return await store.update(cwd, detailTask.id, patch);
+    } catch (err) {
+      toastTaskError("save task", err);
+      throw err;
+    }
+  }
+
+  function hydrateTask(id: string): Promise<Task> {
+    if (!cwd) throw new Error("No project open");
+    return window.solus.tasksGet(cwd, id);
+  }
+
+  function deleteTasks(ids: string[], label: string) {
+    const currentCwd = cwd;
+    if (!currentCwd || !store.softRemove(ids)) return;
+    toasts.undo(label, () => store.restorePending(), {
+      onDismiss: () => void store.commitPending(currentCwd),
+    });
+  }
+
+  function onDelete(task: Task) {
+    detailTask = null;
+    deleteTasks([task.id], "Task deleted");
+  }
+
+  async function onComment(body: string): Promise<Task> {
+    if (!cwd || !detailTask) throw new Error("No task open");
+    try {
+      return await store.comment(cwd, detailTask.id, body);
+    } catch (err) {
+      toastTaskError("post comment", err);
+      throw err;
+    }
+  }
+
+  // ── Bulk actions over the current selection ──
+  function bulkSetStatus(status: TaskStatus) {
+    const ids = [...selection.ids];
+    selection.clear();
+    for (const id of ids) {
+      const t = store.tasks.find((x) => x.id === id);
+      if (t && t.status !== status) void onSetStatus(t, status);
+    }
+  }
+
+  function bulkDelete() {
+    const ids = [...selection.ids];
+    selection.clear();
+    deleteTasks(ids, `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`);
+  }
+
+  // Selection is a list-view concept: drop it when switching to the board or
+  // when the page closes so a stale selection can't act on a hidden view.
+  $effect(() => {
+    if (view === "board" || !open) selection.clear();
+  });
+
+  function onAddChild(epic: Task) {
+    composing = { parentId: epic.id };
+  }
+
+  // Arrow-key navigation between cards — the page is keyboard-first, so Up/Down
+  // move focus through the rendered rows without leaving the home row for a mouse.
+  function onBodyKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const cards = bodyEl
+      ? Array.from(bodyEl.querySelectorAll<HTMLElement>("[data-task-card]"))
+      : [];
+    if (!cards.length) return;
+    e.preventDefault();
+    const active = document.activeElement as HTMLElement | null;
+    const idx = active ? cards.indexOf(active) : -1;
+    const next =
+      e.key === "ArrowDown"
+        ? cards[Math.min(idx + 1, cards.length - 1)] ?? cards[0]
+        : cards[Math.max(idx - 1, 0)] ?? cards[0];
+    next.focus();
+  }
+
+  async function onCreate(input: {
+    title: string;
+    body: string;
+    kind: TaskKind;
+    parentId?: string;
+    dueDate?: string;
+    priority?: TaskPriority;
+    status?: TaskStatus;
+    labels?: string[];
+  }) {
+    if (!cwd) return;
+    try {
+      await store.create(cwd, input, { assignedToMe });
+    } catch (err) {
+      toastTaskError("create task", err);
+      // Rethrow so the composer keeps the modal (and the user's draft) open; the
+      // composer owns dismissal on success so "Create more" can stay open.
+      throw err;
+    }
+  }
+</script>
+
+{#if open}
+  <!--
+    `[transform:translate(0)]` is load-bearing for the document editor's block
+    drag handle, not decoration: `@container` already makes this the containing
+    block for the handle's `position: fixed`, but tiptap-extension-global-drag-handle
+    only switches to dialog-relative coordinates when it finds a `[role="dialog"]`
+    ancestor whose transform is non-none. Without the identity transform it keeps
+    raw viewport coords and the grip drifts to the middle of the field (same fix
+    DocumentShell's `.doc-shell-root` applies).
+  -->
+  <div
+    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-(--solus-container-bg) focus:outline-none [transform:translate(0)]"
+    role="dialog"
+    aria-label="Tasks"
+    tabindex="-1"
+  >
+    {#if detailTask}
+      <!-- ── Full-page task detail / editor ── -->
+      {#key detailTask.id}
+        <TaskDetail
+          task={detailTask}
+          canEdit={provider === "local" || provider === "github"}
+          canEditExtras={!!detailTask.canEditPlanningFields}
+          canEditWork={provider === "local"}
+          {canDelete}
+          {canComment}
+          linkedSessions={cwd ? (store.sessionsByTask.get(detailTask.id) ?? []) : []}
+          {onStart}
+          {onOpenLink}
+          {onSetStatus}
+          onResumeSession={onResume}
+          onSave={onSaveDetail}
+          {onDelete}
+          {onComment}
+          hydrate={hydrateTask}
+          onDone={() => (detailTask = null)}
+        />
+      {/key}
+    {:else}
+    <!-- Header -->
+    <div class="shrink-0 border-b border-(--solus-popover-border)">
+      <div class="flex items-center justify-between gap-3 px-5 py-2">
+        <div class="flex min-w-0 items-center gap-2">
+          <ListChecksIcon size={15} weight="fill" class="text-(--solus-accent)" />
+          <span
+            class="whitespace-nowrap text-[0.8125rem] font-semibold text-(--solus-text-primary)"
+            >Tasks</span
+          >
+          {#if store.loaded && !store.error && store.refreshedAt}
+            <span
+              class="whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary)"
+              title="When this list was last fetched (the provider list may be cached)"
+              >· updated {relativeTime(store.refreshedAt)}</span
+            >
+          {/if}
+        </div>
+        <div class="flex items-center gap-1.5">
+          <!-- List | Board view toggle -->
+          <div class="flex items-center gap-0.5 rounded-[0.5rem] bg-(--solus-surface-hover)/50 p-0.5">
+            <button
+              type="button"
+              class="inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-[0.375rem] border-0 transition-colors duration-100 {view ===
+              'list'
+                ? 'bg-(--solus-popover-bg) text-(--solus-text-primary) shadow-sm'
+                : 'bg-transparent text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
+              onclick={() => (view = "list")}
+              aria-pressed={view === "list"}
+              aria-label="List view"
+              title="List view"
+            >
+              <ListIcon size={14} weight="bold" />
+            </button>
+            <button
+              type="button"
+              class="inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-[0.375rem] border-0 transition-colors duration-100 {view ===
+              'board'
+                ? 'bg-(--solus-popover-bg) text-(--solus-text-primary) shadow-sm'
+                : 'bg-transparent text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
+              onclick={() => (view = "board")}
+              aria-pressed={view === "board"}
+              aria-label="Board view"
+              title="Board view"
+            >
+              <KanbanIcon size={14} weight="bold" />
+            </button>
+          </div>
+          <button
+            type="button"
+            class="relative inline-flex size-[1.625rem] cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            onclick={refresh}
+            disabled={!cwd || store.loading}
+            aria-label="Refresh tasks"
+            title="Refresh"
+          >
+            <ArrowClockwiseIcon
+              size={14}
+              class={store.loading ? "animate-spin [animation-duration:0.9s]" : ""}
+            />
+          </button>
+          {#if canCreate}
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-[0.3125rem] rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-2.5 py-[0.3125rem] text-[0.6875rem] font-semibold text-(--solus-accent) transition-[background-color] duration-100 ease-in-out hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+              onclick={() => (composing = { parentId: undefined })}
+            >
+              <PlusIcon size={13} weight="bold" />
+              <span>New</span>
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="relative inline-flex size-[1.625rem] cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+            onclick={close}
+            aria-label="Close"
+          >
+            <XIcon size={16} />
+          </button>
+        </div>
+      </div>
+
+      <TaskFilters
+        bind:query
+        bind:status={statusFilter}
+        bind:assignedToMe
+        bind:sort
+        bind:searchEl
+        {counts}
+        showStatus={view === "list"}
+      />
+    </div>
+
+    <!-- Body -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      bind:this={bodyEl}
+      class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-3 [scrollbar-width:thin]"
+      onkeydown={onBodyKeydown}
+    >
+      {#if !cwd}
+        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+          <p class="text-base font-semibold text-(--solus-text-primary)">
+            Open a project to see its tasks.
+          </p>
+          <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
+            Tasks come from the active project's provider — GitHub Issues, or the
+            built-in local task list.
+          </p>
+        </div>
+      {:else if !store.loaded && store.loading}
+        {#if view === "board"}
+          <TaskBoardSkeleton />
+        {:else}
+          <div class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-16 text-center">
+            <CircleNotchIcon
+              size={20}
+              class="animate-spin text-(--solus-text-tertiary) [animation-duration:0.9s]"
+            />
+          </div>
+        {/if}
+      {:else if store.error}
+        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+          <WarningCircleIcon size={28} class="text-(--solus-text-tertiary)" />
+          <p class="text-base font-semibold text-(--solus-text-primary)">
+            {isAuthError ? "Connect GitHub to see tasks." : "Couldn't load tasks."}
+          </p>
+          <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
+            {isAuthError
+              ? "This project reads issues from its GitHub remote. Connect your account to browse and update them."
+              : store.error}
+          </p>
+          {#if isAuthError}
+            <button
+              type="button"
+              class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+              onclick={() => session.showSettings("git-providers")}
+            >
+              <PlugIcon size={13} weight="bold" />
+              Connect GitHub
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+              onclick={refresh}
+            >
+              <ArrowClockwiseIcon size={13} />
+              Retry
+            </button>
+          {/if}
+        </div>
+      {:else if store.tasks.length === 0}
+        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+          <p class="text-base font-semibold text-(--solus-text-primary)">
+            No tasks yet.
+          </p>
+          <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
+            {#if canCreate}
+              Create {allowEpics ? "a task or epic" : "an issue"}, then start a
+              session from it to give the agent its full context.
+            {:else}
+              When this project's provider has tickets, they'll show up here —
+              start a session from any one to give the agent its full context.
+            {/if}
+          </p>
+          {#if canCreate}
+            <button
+              type="button"
+              class="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3.5 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+              onclick={() => (composing = { parentId: undefined })}
+            >
+              <PlusIcon size={13} weight="bold" />
+              <span>New task</span>
+            </button>
+          {/if}
+        </div>
+      {:else if view === "board"}
+        <TaskBoard
+          tasks={store.tasks}
+          {query}
+          {sort}
+          {onOpen}
+          {onStart}
+          {onOpenLink}
+          {onSetStatus}
+          onResume={onResume}
+          {sessionsFor}
+          onAddInColumn={canCreate
+            ? (status) => (composing = { status })
+            : undefined}
+        />
+      {:else if groups.length === 0}
+        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+          <p class="text-base font-semibold text-(--solus-text-primary)">
+            No tasks match.
+          </p>
+          <p class="max-w-[25rem] text-[0.8125rem] text-(--solus-text-tertiary)">
+            Try a different search or filter.
+          </p>
+        </div>
+      {:else}
+        {#each groups as group (group.epic?.id ?? "__standalone")}
+          {#if group.epic}
+            <EpicGroup
+              epic={group.epic}
+              childTasks={group.children}
+              {onOpen}
+              {onStart}
+              {onOpenLink}
+              {onSetStatus}
+              {onResume}
+              {sessionsFor}
+              {canCreate}
+              {onAddChild}
+              selectable
+            />
+          {:else}
+            <ul class="flex flex-col gap-0" role="list" aria-label="Tasks">
+              {#each group.children as task (task.id)}
+                <li>
+                  <TaskCard
+                    {task}
+                    {onOpen}
+                    {onStart}
+                    {onOpenLink}
+                    {onSetStatus}
+                    {onResume}
+                    activeSessions={sessionsFor(task.id)}
+                    selectable
+                  />
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {/each}
+      {/if}
+    </div>
+
+    <!-- Bulk action bar (list view) — floats over the list while a selection is held -->
+    {#if view === "list" && selection.size > 0}
+      <div
+        class="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4"
+      >
+        <div
+          class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-2 py-1.5 shadow-[var(--solus-popover-shadow)]"
+          role="toolbar"
+          aria-label="Bulk actions"
+        >
+          <span class="px-1.5 text-[0.75rem] font-semibold text-(--solus-text-primary) tabular-nums">
+            {selection.size} selected
+          </span>
+          <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
+          {#each BOARD_COLUMNS as col (col.status)}
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover)"
+              onclick={() => bulkSetStatus(col.status)}
+              title={`Set ${col.label}`}
+            >
+              <span class="block size-2 rounded-full {STATUS_META[col.status].dotClass}"></span>
+              {col.label}
+            </button>
+          {/each}
+          {#if canDelete}
+            <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
+            <button
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-[#f85149] transition-colors duration-100 hover:bg-[#f85149]/10"
+              onclick={bulkDelete}
+              title="Delete selected"
+            >
+              <TrashIcon size={12} />
+              Delete
+            </button>
+          {/if}
+          <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)"
+            onclick={() => selection.selectAllVisible()}
+            title="Select all visible"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)"
+            onclick={() => selection.clear()}
+            title="Clear selection (Esc)"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    {/if}
+    {/if}
+
+    {#if composing}
+      <TaskComposer
+        {epics}
+        {allowEpics}
+        {knownLabels}
+        workingDirectory={cwd ?? undefined}
+        provider={session.settings.activeAgent}
+        initialParentId={composing.parentId}
+        initialStatus={composing.status}
+        {onCreate}
+        onCancel={() => (composing = null)}
+      />
+    {/if}
+  </div>
+{/if}

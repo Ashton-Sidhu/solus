@@ -1,0 +1,51 @@
+import type { SolusServer } from '../server'
+import type { IpcContext } from '../../../shared/types'
+import type { ReviewLedger, ReviewState } from '../../../shared/review'
+import { readGuideByKey, readLedger, writeLedger, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/ledger'
+import { generateGuide, type GenerateGuideOptions } from '../../review/guide-producer'
+import { readReviewState, writeReviewState } from '../../review/review-state'
+
+export function registerReviewHandlers(server: SolusServer): void {
+  server.register('readLedger', async (args) => {
+    const [ctx] = args as [IpcContext]
+    return readLedger(ctx)
+  })
+
+  server.register('writeLedger', async (args) => {
+    const [ctx, ledger] = args as [IpcContext, ReviewLedger]
+    const repoRoot = await reviewRepoRoot(ctx)
+    if (!repoRoot) return false
+    return writeLedger(repoRoot, ledger)
+  })
+
+  server.register('getReviewContext', async (args) => {
+    const [ctx] = args as [IpcContext]
+    return resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  })
+
+  server.register('generateGuide', async (args) => {
+    const [ctx, opts] = args as [IpcContext, GenerateGuideOptions | undefined]
+    return generateGuide(ctx, opts, (event) => server.broadcast('review-progress', event))
+  })
+
+  server.register('readGuide', async (args) => {
+    const [ctx, key] = args as [IpcContext, string]
+    const repoRoot = await reviewRepoRoot(ctx)
+    if (!repoRoot) return null
+    return readGuideByKey(repoRoot, key)
+  })
+
+  server.register('readReviewState', async (args) => {
+    const [ctx, key] = args as [IpcContext, string]
+    const repoRoot = await reviewRepoRoot(ctx)
+    if (!repoRoot) return null
+    return readReviewState(repoRoot, key)
+  })
+
+  server.register('writeReviewState', async (args) => {
+    const [ctx, state] = args as [IpcContext, ReviewState]
+    const repoRoot = await reviewRepoRoot(ctx)
+    if (!repoRoot) return false
+    return writeReviewState(repoRoot, state)
+  })
+}

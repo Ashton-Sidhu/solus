@@ -1,0 +1,5 @@
+{
+  "name": "solus",
+  "description": "Solus's bundled skills. Includes visual-artifacts for authoring rich local visual and interactive HTML artifacts in the conversation, and diagrams for authoring editable architecture / ER / data-flow diagram works.",
+  "version": "0.1.0"
+}
