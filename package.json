@@ -1,0 +1,151 @@
+{
+  "name": "solus",
+  "version": "0.16.0",
+  "description": "Solus — Command Line User Interface for Coding Agents.",
+  "license": "MIT",
+  "homepage": "https://solus.sh",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "bun run electron-vite dev",
+    "qa": "bun run electron-vite preview",
+    "build": "electron-vite build --logLevel warn && (cd client && vite build --logLevel warn)",
+    "build:test": "BUILD_TARGET=test electron-vite build --logLevel warn && (cd client && vite build --logLevel warn)",
+    "preview": "electron-vite preview",
+    "dist": "electron-vite build --mode production && (cd client && bun run build) && electron-builder --mac",
+    "dist:dir": "electron-vite build --mode production && (cd client && bun run build) && electron-builder --mac --dir",
+    "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh",
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "premake": "electron-vite build",
+    "make": "NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv electron-forge make",
+    "build-native": "cd node_modules/macos-alias && node-gyp rebuild && cd ../fs-xattr && node-gyp rebuild && cd ../..",
+    "test": "bun run build:test && bun run playwright test",
+    "test:ui": "bun run playwright test --ui",
+    "test:headed": "bun run playwright test --headed",
+    "test:bg": "bun run playwright test --workers=1"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
+    "@dagrejs/dagre": "^3.0.0",
+    "@ff-labs/fff-node": "^0.9.4",
+    "@fontsource-variable/dm-sans": "^5.2.8",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@humanspeak/svelte-markdown": "^1.6.0",
+    "@iconify/svelte": "^5.2.1",
+    "@octokit/graphql": "^9.0.3",
+    "@octokit/rest": "^22.0.1",
+    "@pierre/diffs": "^1.3.0-beta.5",
+    "@pierre/trees": "^1.0.0-beta.4",
+    "@tiptap/core": "^3.26.0",
+    "@tiptap/extension-code-block-lowlight": "^3.26.0",
+    "@tiptap/extension-image": "^3.26.0",
+    "@tiptap/extension-link": "^3.26.0",
+    "@tiptap/extension-placeholder": "^3.26.0",
+    "@tiptap/extension-table": "^3.26.0",
+    "@tiptap/extension-table-cell": "^3.26.0",
+    "@tiptap/extension-table-header": "^3.26.0",
+    "@tiptap/extension-table-row": "^3.26.0",
+    "@tiptap/extension-task-item": "^3.26.0",
+    "@tiptap/extension-task-list": "^3.26.0",
+    "@tiptap/extension-typography": "^3.26.0",
+    "@tiptap/starter-kit": "^3.26.0",
+    "@xyflow/svelte": "^1.6.0",
+    "croner": "^10.0.1",
+    "electron-updater": "^6.8.3",
+    "geist": "^1.7.2",
+    "hast-util-to-html": "^9.0.5",
+    "html-to-image": "1.11.11",
+    "lowlight": "^3.3.0",
+    "onnxruntime-node": "^1.26.0",
+    "posthog-js": "^1.380.1",
+    "shiki": "^4.2.0",
+    "svelte-tiny-virtual-list": "^3.0.1",
+    "tiptap-extension-global-drag-handle": "^0.1.18",
+    "tiptap-markdown": "^0.9.0",
+    "ws": "^8.21.0",
+    "zod": "^4.3.6"
+  },
+  "build": {
+    "appId": "com.solus.app",
+    "productName": "Solus",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/main/**/*",
+      "dist/preload/**/*",
+      "dist/renderer/**/*",
+      "dist/client/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "resources/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "notarize": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Solus uses your microphone to transcribe voice input locally with Whisper.",
+        "NSAppleEventsUsageDescription": "Solus needs to send Apple Events to your terminal app to open editor sessions."
+      }
+    },
+    "dmg": {
+      "sign": false
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://releases.solus.sh"
+    },
+    "afterPack": "./scripts/afterPack.js"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-deb": "^7.11.2",
+    "@electron-forge/maker-dmg": "^7.11.2",
+    "@electron-forge/maker-rpm": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
+    "@electron-forge/plugin-fuses": "^7.11.2",
+    "@electron/fuses": "^1.8.0",
+    "@iconify-json/logos": "^1.2.11",
+    "@iconify-json/simple-icons": "^1.2.86",
+    "@playwright/test": "^1.60.0",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/ws": "^8.18.1",
+    "bun-types": "^1.3.14",
+    "dotenv-cli": "^11.0.0",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^3.1.0",
+    "jsdom": "^29.1.1",
+    "phosphor-svelte": "^3.1.0",
+    "svelte": "^5.56.2",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  },
+  "overrides": {
+    "prosemirror-model": "1.25.7"
+  }
+}

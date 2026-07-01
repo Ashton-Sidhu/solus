@@ -1,0 +1,1334 @@
+<script lang="ts">
+  import { fly } from "svelte/transition";
+  import { tick, untrack } from "svelte";
+  import Input from "../ui/Input.svelte";
+  import {
+    MagnifyingGlassIcon,
+    XIcon,
+    FileTextIcon,
+    GraphIcon,
+    TrashIcon,
+    CopyIcon,
+    PushPinIcon,
+    PushPinSlashIcon,
+    PlusIcon,
+    UploadSimpleIcon,
+  } from "phosphor-svelte";
+  import type { Work } from "../../../shared/types";
+  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { runtime } from "../../contexts/runtime.svelte";
+  import {
+    useKeybinding,
+    useScope,
+  } from "../../lib/keybindings/use-keybinding.svelte";
+  import {
+    formatTimeAgo,
+    getDateGroup,
+    matchesOpenProjects,
+    type DateGroup,
+  } from "../../lib/sessionUtils";
+  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
+  import Dropdown from "../ui/Dropdown.svelte";
+  import DropdownItem from "../ui/DropdownItem.svelte";
+  import { CaretDownIcon } from "phosphor-svelte";
+
+  type SortMode = "updated" | "created" | "title";
+  type TypeFilter = "all" | "doc" | "slides" | "diagram";
+
+  const session = getWorkspaceContext();
+  const windowCtx = getWindowContext();
+
+  const isEditorMode = $derived(
+    windowCtx.viewMode === "editor" || windowCtx.isWeb,
+  );
+  const open = $derived(session.folioGalleryOpen);
+
+  let query = $state("");
+  let selectedIndex = $state(0);
+  let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
+  let scrollEl: HTMLDivElement | null = $state(null);
+  let mouseHasMoved = $state(false);
+  let sortMode = $state<SortMode>("updated");
+  let sortMenuOpen = $state(false);
+  let sortTriggerEl = $state<HTMLButtonElement | null>(null);
+  let typeFilter = $state<TypeFilter>("all");
+  let newMenuOpen = $state(false);
+
+  const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+    { value: "updated", label: "Last updated" },
+    { value: "created", label: "Date created" },
+    { value: "title", label: "Title" },
+  ];
+  const sortLabel = $derived(
+    SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? "",
+  );
+
+  $effect(() => {
+    if (open) {
+      query = "";
+      selectedIndex = 0;
+      newMenuOpen = false;
+      mouseHasMoved = false;
+      void session.worksStore.loadAll(session.galleryProjectPath);
+      if (!runtime.shouldSuppressFocus) {
+        tick().then(() => searchEl?.focus());
+      }
+    }
+  });
+
+  function sortWorks(a: Work, b: Work): number {
+    // Pinned always float to the top.
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    if (sortMode === "title") return a.title.localeCompare(b.title);
+    const key = sortMode === "created" ? "createdAt" : "updatedAt";
+    return new Date(b[key]).getTime() - new Date(a[key]).getTime();
+  }
+
+  // Scoped to the projects with open sessions in the sidebar.
+  const scopeRoots = $derived(session.openProjectScopeRoots);
+  const multiProject = $derived(session.openProjectKeys.length > 1);
+
+  function projectShort(cwd: string): string {
+    const dir = cwd?.replace(/\/$/, "");
+    if (!dir || dir === "~") return "~";
+    const parts = dir.split("/");
+    return parts[parts.length - 1] || "~";
+  }
+
+  const filtered: Work[] = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    return Object.values(session.worksStore.works)
+      .filter((w) => {
+        if (session.pendingWorkDelete?.id === w.id) return false;
+        if (!matchesOpenProjects(w.cwd, scopeRoots)) return false;
+        if (typeFilter !== "all" && w.type !== typeFilter) return false;
+        if (!q) return true;
+        return (
+          w.title.toLowerCase().includes(q) ||
+          w.preview.toLowerCase().includes(q)
+        );
+      })
+      .sort(sortWorks);
+  });
+
+  // ── Card-grid variant: Pinned section + date groups (mirrors Plans) ──
+  const dateGroupOrder: DateGroup[] = [
+    "Today",
+    "Yesterday",
+    "This week",
+    "This month",
+    "Older",
+  ];
+  const folioPinned: Work[] = $derived(filtered.filter((w) => w.pinned));
+  const folioDateGroups: { label: DateGroup; items: Work[] }[] = $derived.by(
+    () => {
+      const rest = filtered.filter((w) => !w.pinned);
+      const groups = new Map<DateGroup, Work[]>();
+      for (const w of rest) {
+        const g = getDateGroup(new Date(w.updatedAt).getTime());
+        let arr = groups.get(g);
+        if (!arr) {
+          arr = [];
+          groups.set(g, arr);
+        }
+        arr.push(w);
+      }
+      return dateGroupOrder
+        .filter((g) => groups.has(g))
+        .map((g) => ({ label: g, items: groups.get(g)! }));
+    },
+  );
+
+  $effect(() => {
+    query;
+    selectedIndex = 0;
+  });
+
+  $effect(() => {
+    if (selectedIndex >= filtered.length && filtered.length > 0)
+      selectedIndex = 0;
+  });
+
+  $effect(() => {
+    if (!open) return;
+    selectedIndex;
+    filtered.length;
+    tick().then(() => {
+      const el = scrollEl?.querySelector<HTMLElement>('[data-selected="true"]');
+      el?.scrollIntoView({ block: "nearest" });
+    });
+  });
+
+  useScope("folio-gallery", { active: () => open });
+
+  useKeybinding("folio-gallery.close", () => close(), { enabled: () => open });
+  useKeybinding("folio-gallery.focus-search", () => searchEl?.focus(), {
+    enabled: () => open && document.activeElement !== searchEl,
+  });
+  useKeybinding(
+    "folio-gallery.open",
+    () => {
+      const w = filtered[selectedIndex];
+      if (w) handleOpen(w);
+    },
+    { enabled: () => open && filtered.length > 0 },
+  );
+  useKeybinding(
+    "folio-gallery.next",
+    () => {
+      selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
+    },
+    { enabled: () => open && filtered.length > 0 },
+  );
+  useKeybinding(
+    "folio-gallery.prev",
+    () => {
+      selectedIndex = Math.max(selectedIndex - 1, 0);
+    },
+    { enabled: () => open && filtered.length > 0 },
+  );
+  useKeybinding(
+    "folio-gallery.delete",
+    () => {
+      const w = filtered[selectedIndex];
+      if (w) handleDelete(w);
+    },
+    { enabled: () => open && filtered.length > 0 },
+  );
+
+  function close() {
+    session.folioGalleryOpen = false;
+  }
+
+  function handleOpen(w: Work) {
+    session.openWorkModal(w.id);
+  }
+
+  function handleWorkHover(index: number) {
+    if (!mouseHasMoved) return;
+    selectedIndex = index;
+  }
+
+  /** Delete a work (with global undo toast) and keep the selection in range. */
+  function handleDelete(w: Work) {
+    session.requestWorkDelete(w);
+    const newLen = untrack(() => filtered.length);
+    if (selectedIndex >= newLen && newLen > 0) selectedIndex = newLen - 1;
+    void tick().then(() => searchEl?.focus());
+  }
+
+  function togglePin(w: Work, e: Event) {
+    e.stopPropagation();
+    void session.worksStore.setPinned(w.id, !w.pinned);
+  }
+
+  function duplicateWork(w: Work, e: Event) {
+    e.stopPropagation();
+    void session.worksStore.duplicate(w.id).then((duplicated) => {
+      const index = filtered.findIndex((item) => item.id === duplicated.id);
+      if (index !== -1) selectedIndex = index;
+      searchEl?.focus();
+    });
+  }
+
+  function createNew(type: "doc" | "diagram") {
+    newMenuOpen = false;
+    void session.createBlankWork(type);
+  }
+
+  let importInput: HTMLInputElement | null = $state(null);
+
+  function triggerImport() {
+    newMenuOpen = false;
+    importInput?.click();
+  }
+
+  async function onImportFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ""; // allow re-importing the same file
+    if (!file) return;
+    const text = await file.text();
+    const title =
+      file.name.replace(/\.(md|markdown|txt)$/i, "") || "Imported document";
+    await session.createWorkFromContent(title, "doc", text);
+  }
+
+  /** The doc preview is the first chars of content, which almost always opens
+   *  with the title heading — so the thumbnail would echo the footer title.
+   *  Drop a leading copy of the title so the peek shows real body text. */
+  function bodyPreview(w: Work): string {
+    const p = w.preview ?? "";
+    const t = w.title.trim();
+    if (t && p.toLowerCase().startsWith(t.toLowerCase())) {
+      const rest = p.slice(t.length).replace(/^[\s:–—-]+/, "").trim();
+      if (rest) return rest;
+    }
+    return p;
+  }
+</script>
+
+{#snippet cardActions(w: Work)}
+  <button
+    type="button"
+    class="card-icon-btn"
+    class:is-active={w.pinned}
+    class:always-show={w.pinned}
+    onclick={(e) => togglePin(w, e)}
+    aria-label={w.pinned ? "Unpin document" : "Pin document"}
+    title={w.pinned ? "Unpin" : "Pin"}
+  >
+    {#if w.pinned}
+      <PushPinSlashIcon size={11} />
+    {:else}
+      <PushPinIcon size={11} />
+    {/if}
+  </button>
+  <button
+    type="button"
+    class="card-icon-btn"
+    onclick={(e) => duplicateWork(w, e)}
+    aria-label="Duplicate document"
+    title="Duplicate"
+  >
+    <CopyIcon size={11} />
+  </button>
+  <button
+    type="button"
+    class="card-icon-btn card-icon-btn--danger"
+    onclick={(e) => { e.stopPropagation(); handleDelete(w); }}
+    aria-label="Delete document"
+    title="Delete (⌥⌫)"
+  >
+    <TrashIcon size={11} />
+  </button>
+{/snippet}
+
+<!-- Mirrors PlanCard: a tone-tinted accent rail, a meta header with actions,
+     a one-line title, and a two-line preview. Docs show their body preview;
+     diagrams (which have no body text) show a quiet type label. -->
+{#snippet gridCard(w: Work, i: number)}
+  {@const sel = i === selectedIndex}
+  {@const isDiagram = w.type === "diagram"}
+  {@const preview = isDiagram ? "" : bodyPreview(w)}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="folio-card folio-card--{w.type}"
+    class:selected={sel}
+    data-selected={sel ? "true" : null}
+    onclick={() => handleOpen(w)}
+    onmouseenter={() => handleWorkHover(i)}
+    role="option"
+    aria-selected={sel}
+    tabindex="-1"
+  >
+    <div class="card-accent"></div>
+
+    <div class="card-body">
+      <div class="card-header">
+        <div class="card-meta">
+          <span
+            class="type-badge"
+            aria-label={isDiagram ? "Diagram" : "Document"}
+            title={isDiagram ? "Diagram" : "Document"}
+          >
+            {#if isDiagram}
+              <GraphIcon size={10} weight="regular" />
+            {:else}
+              <FileTextIcon size={10} weight="regular" />
+            {/if}
+          </span>
+          <span class="meta-text">{formatTimeAgo(w.updatedAt)}</span>
+          {#if multiProject}
+            <span class="meta-sep">·</span>
+            <span class="meta-text" title={w.cwd}>{projectShort(w.cwd)}</span>
+          {/if}
+        </div>
+        <div class="folio-card__actions">{@render cardActions(w)}</div>
+      </div>
+
+      <div class="folio-title">{w.title}</div>
+      {#if isDiagram}
+        <div class="folio-excerpt folio-excerpt--muted">Diagram</div>
+      {:else if preview}
+        <div class="folio-excerpt">{preview}</div>
+      {:else}
+        <div class="folio-excerpt folio-excerpt--muted">Empty document</div>
+      {/if}
+    </div>
+  </div>
+{/snippet}
+
+{#if open && isEditorMode}
+  <div
+    class="folio-inline flex flex-col flex-1 min-h-0"
+    role="dialog"
+    aria-label="Folio gallery"
+    tabindex="-1"
+  >
+    <div class="gallery-top">
+      <div class="gallery-titlebar">
+        <div class="gallery-header-group">
+          <FrameExpandButton variant="sidebar" />
+          <span class="gallery-title">Folio</span>
+        </div>
+        <div class="gallery-header-group">
+          <div class="new-menu-wrap">
+            <button
+              type="button"
+              class="new-btn"
+              onclick={() => (newMenuOpen = !newMenuOpen)}
+              aria-haspopup="menu"
+              aria-expanded={newMenuOpen}
+              data-testid="folio-new"
+            >
+              <PlusIcon size={13} weight="bold" />
+              <span>New</span>
+            </button>
+            {#if newMenuOpen}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="new-menu" role="menu">
+                <button type="button" role="menuitem" class="new-menu__item" onclick={() => createNew("doc")}>
+                  <FileTextIcon size={14} /> Document
+                </button>
+                <button type="button" role="menuitem" class="new-menu__item" onclick={() => createNew("diagram")}>
+                  <GraphIcon size={14} /> Diagram
+                </button>
+                <button type="button" role="menuitem" class="new-menu__item" onclick={triggerImport}>
+                  <UploadSimpleIcon size={14} /> Import .md…
+                </button>
+              </div>
+            {/if}
+          </div>
+          <button
+            type="button"
+            class="close-btn"
+            onclick={close}
+            aria-label="Close"
+          >
+            <XIcon size={16} />
+          </button>
+          <FrameExpandButton variant="projectPanel" />
+        </div>
+      </div>
+      <div class="gallery-commandbar">
+        <div class="gallery-search">
+          <MagnifyingGlassIcon
+            size={15}
+            class="text-(--solus-text-tertiary) flex-shrink-0"
+          />
+          <Input
+            bind:el={searchEl}
+            bind:value={query}
+            type="text"
+            variant="bare"
+            size="md"
+            placeholder="Search documents…"
+          />
+        </div>
+        <div class="commandbar-trailing">
+          <div class="gallery-filters">
+            {#each [["all", "All"], ["doc", "Docs"], ["diagram", "Diagrams"]] as [val, label] (val)}
+              <button
+                type="button"
+                class="filter-chip"
+                class:active={typeFilter === val}
+                onclick={() => (typeFilter = val as TypeFilter)}
+              >
+                {label}
+              </button>
+            {/each}
+          </div>
+          <div class="commandbar-sep" aria-hidden="true"></div>
+          <div class="commandbar-right">
+            <button
+              type="button"
+              bind:this={sortTriggerEl}
+              class="sort-trigger"
+              aria-label="Sort works"
+              aria-haspopup="listbox"
+              aria-expanded={sortMenuOpen}
+              onclick={() => (sortMenuOpen = !sortMenuOpen)}
+            >
+              <span>{sortLabel}</span>
+              <CaretDownIcon size={9} class="sort-trigger-caret" />
+            </button>
+            <Dropdown
+              bind:open={sortMenuOpen}
+              triggerEl={sortTriggerEl}
+              align="top"
+              anchor="right"
+              width={140}
+            >
+              <div class="py-1" role="listbox" aria-label="Sort works">
+                {#each SORT_OPTIONS as opt (opt.value)}
+                  <DropdownItem
+                    selected={sortMode === opt.value}
+                    onclick={() => {
+                      sortMode = opt.value;
+                      sortMenuOpen = false;
+                    }}
+                  >
+                    {opt.label}
+                  </DropdownItem>
+                {/each}
+              </div>
+            </Dropdown>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      bind:this={scrollEl}
+      class="gallery-scroll"
+      role="listbox"
+      tabindex="-1"
+      onmousemove={() => { mouseHasMoved = true; }}
+    >
+      {#if filtered.length === 0}
+        <div class="empty">
+          <p class="empty-title">{query ? "No matches." : "No documents yet."}</p>
+          {#if !query}
+            <p class="empty-sub">Press <span class="empty-kbd">New</span> to start one, or ask the agent to write a document.</p>
+          {/if}
+        </div>
+      {:else}
+        {#if folioPinned.length > 0}
+          <div class="section-header">
+            <PushPinIcon size={12} weight="fill" class="text-(--solus-accent)" />
+            <span>Pinned</span>
+          </div>
+          <div class="card-grid">
+            {#each folioPinned as w, i (w.id)}
+              {@render gridCard(w, i)}
+            {/each}
+          </div>
+        {/if}
+        {#each folioDateGroups as group}
+          {@const groupOffset =
+            folioPinned.length +
+            folioDateGroups
+              .slice(0, folioDateGroups.indexOf(group))
+              .reduce((n, g) => n + g.items.length, 0)}
+          <div class="section-header"><span>{group.label}</span></div>
+          <div class="card-grid">
+            {#each group.items as w, j (w.id)}
+              {@render gridCard(w, groupOffset + j)}
+            {/each}
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </div>
+{/if}
+
+{#if open && !isEditorMode}
+  <div
+    class="folio-inline-pill flex flex-col flex-1 min-h-0"
+    style="max-height:var(--pill-body-max)"
+    transition:fly={{ y: 8, duration: 160 }}
+    role="dialog"
+    aria-label="Folio gallery"
+    tabindex="-1"
+  >
+    <div class="gallery-top">
+      <div class="flex items-center justify-between px-4 pt-3 pb-2">
+        <span class="gallery-title">Folio</span>
+        <div class="flex items-center gap-1">
+          <div class="new-menu-wrap">
+            <button
+              type="button"
+              class="new-btn"
+              onclick={() => (newMenuOpen = !newMenuOpen)}
+              aria-haspopup="menu"
+              aria-expanded={newMenuOpen}
+            >
+              <PlusIcon size={12} weight="bold" />
+              <span>New</span>
+            </button>
+            {#if newMenuOpen}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="new-menu" role="menu">
+                <button type="button" role="menuitem" class="new-menu__item" onclick={() => createNew("doc")}>
+                  <FileTextIcon size={14} /> Document
+                </button>
+                <button type="button" role="menuitem" class="new-menu__item" onclick={() => createNew("diagram")}>
+                  <GraphIcon size={14} /> Diagram
+                </button>
+                <button type="button" role="menuitem" class="new-menu__item" onclick={triggerImport}>
+                  <UploadSimpleIcon size={14} /> Import .md…
+                </button>
+              </div>
+            {/if}
+          </div>
+          <button
+            type="button"
+            class="close-btn"
+            onclick={close}
+            aria-label="Close"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
+      </div>
+      <div class="gallery-search">
+        <MagnifyingGlassIcon
+          size={14}
+          class="text-(--solus-text-tertiary) flex-shrink-0"
+        />
+        <Input
+          bind:el={searchEl}
+          bind:value={query}
+          type="text"
+          variant="bare"
+          size="md"
+          placeholder="Search documents…"
+          onkeydown={(e) => {
+            if (e.key === "Enter" && runtime.isMobileViewport) {
+              e.stopPropagation();
+              e.preventDefault();
+              (e.target as HTMLInputElement)?.blur();
+            }
+          }}
+        />
+      </div>
+    </div>
+
+    <div
+      bind:this={scrollEl}
+      class="gallery-scroll pill-scroll"
+      role="listbox"
+      tabindex="-1"
+      onmousemove={() => {
+        mouseHasMoved = true;
+      }}
+    >
+      {#if filtered.length === 0}
+        <div class="empty">
+          <p class="empty-title">
+            {query ? "No matches." : "No documents yet."}
+          </p>
+          {#if !query}
+            <p class="empty-sub">
+              Press New to start one, or ask the agent to write a document.
+            </p>
+          {/if}
+        </div>
+      {:else}
+        {#each filtered as w, i (w.id)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="pill-work-row"
+            class:selected={i === selectedIndex}
+            data-selected={i === selectedIndex ? "true" : null}
+            onclick={() => handleOpen(w)}
+            onmouseenter={() => {
+              handleWorkHover(i);
+            }}
+            role="option"
+            aria-selected={i === selectedIndex}
+            tabindex="-1"
+          >
+            {#if w.type === "diagram"}
+              <GraphIcon
+                size={13}
+                class="flex-shrink-0 text-(--solus-text-tertiary)"
+              />
+            {:else}
+              <FileTextIcon
+                size={13}
+                class="flex-shrink-0 text-(--solus-text-tertiary)"
+              />
+            {/if}
+            <div class="pill-work-body">
+              <span class="pill-work-title">{w.title}</span>
+              <span class="pill-work-end">
+                {#if multiProject}
+                  <span class="pill-work-project" title={w.cwd}>{projectShort(w.cwd)}</span>
+                {/if}
+                <span class="pill-work-time">{formatTimeAgo(w.updatedAt)}</span>
+              </span>
+            </div>
+            <button
+              type="button"
+              class="pin-btn"
+              class:pinned={w.pinned}
+              onclick={(e) => togglePin(w, e)}
+              aria-label={w.pinned ? "Unpin" : "Pin"}
+              title={w.pinned ? "Unpin" : "Pin"}
+            >
+              {#if w.pinned}
+                <PushPinSlashIcon size={11} />
+              {:else}
+                <PushPinIcon size={11} />
+              {/if}
+            </button>
+            <button
+              type="button"
+              class="delete-btn"
+              onclick={(e) => { e.stopPropagation(); handleDelete(w); }}
+              aria-label="Delete"
+              title="Delete (⌥⌫)"
+            >
+              <TrashIcon size={11} />
+            </button>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </div>
+{/if}
+
+<input
+  bind:this={importInput}
+  type="file"
+  accept=".md,.markdown,.txt,text/markdown,text/plain"
+  class="sr-only-input"
+  onchange={onImportFile}
+  tabindex="-1"
+  aria-hidden="true"
+/>
+
+<style>
+  .folio-inline {
+    background: var(--solus-container-bg);
+    overflow: hidden;
+    /* Query container so the command bar responds to the pane's own width
+       (e.g. a split pane on desktop), not just the viewport. */
+    container: folio-gallery / inline-size;
+  }
+  .folio-inline-pill {
+    overflow: hidden;
+  }
+
+  .gallery-top {
+    flex-shrink: 0;
+    border-bottom: 0.0625rem solid var(--solus-popover-border);
+  }
+  .gallery-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--solus-text-primary);
+  }
+  .gallery-header-group {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .close-btn {
+    position: relative;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    border: none;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      background 0.1s ease,
+      color 0.1s ease;
+  }
+
+  @media (pointer: coarse) {
+    .close-btn::before,
+    .delete-btn::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 3rem);
+      height: max(100%, 3rem);
+      transform: translate(-50%, -50%);
+    }
+    /* Touch devices zoom the viewport when focusing an input under 16px — pin
+       the search to 16px so focusing it never triggers that jump. */
+    :global(.gallery-search .inp) {
+      font-size: 16px;
+    }
+  }
+  .close-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  /* Title row + command bar share one gutter so every left edge lines up. */
+  .gallery-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 1.25rem;
+  }
+
+  /* One control strip: search grows, filters + sort + trash sit to its right. */
+  .gallery-commandbar {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 1.25rem;
+  }
+  /* Base search row (pill mode): its own gutter. */
+  .gallery-search {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.25rem 1rem 0.625rem 1rem;
+  }
+  /* In the editor command bar the search grows to fill the row instead. */
+  .gallery-commandbar .gallery-search {
+    flex: 1;
+    min-width: 0;
+    gap: 0.5rem;
+    padding: 0;
+  }
+  /* Filters + sort + trash travel together so they can stack as one unit. */
+  .commandbar-trailing {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    flex-shrink: 0;
+  }
+  .commandbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+  }
+  .commandbar-sep {
+    flex-shrink: 0;
+    width: 0.0625rem;
+    height: 1rem;
+    background: var(--solus-container-border);
+  }
+
+  /* Narrow pane (split view / resized window): drop back to the stacked
+     search-over-controls layout so nothing overflows. */
+  @container folio-gallery (max-width: 34rem) {
+    .gallery-commandbar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+      padding: 0;
+    }
+    .gallery-commandbar .gallery-search {
+      flex: none;
+      padding: 0.25rem 1.25rem 0.5rem;
+    }
+    .commandbar-trailing {
+      justify-content: space-between;
+      padding: 0 1.25rem 0.625rem;
+    }
+    .commandbar-trailing .commandbar-sep {
+      display: none;
+    }
+  }
+
+  .gallery-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem;
+    scrollbar-width: thin;
+    overscroll-behavior-y: contain;
+  }
+  .pill-scroll {
+    padding: 0.375rem;
+  }
+
+  .delete-btn {
+    position: relative;
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.3125rem;
+    border: none;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .pill-work-row:hover .delete-btn {
+    opacity: 1;
+  }
+  .delete-btn:hover {
+    background: color-mix(
+      in srgb,
+      var(--solus-status-error, #e53e3e) 12%,
+      transparent
+    );
+    color: var(--solus-status-error, #e53e3e);
+  }
+
+  /* Pin button mirrors the delete affordance (reveal on hover). */
+  .pin-btn {
+    position: relative;
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.3125rem;
+    border: none;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .pill-work-row:hover .pin-btn {
+    opacity: 1;
+  }
+  .pin-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  /* A pinned work shows its pin even when not hovered. */
+  .pin-btn.pinned {
+    opacity: 1;
+    color: var(--solus-accent);
+  }
+
+  /* ── Pill work rows ── */
+  .pill-work-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5625rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background 0.1s ease;
+    user-select: none;
+  }
+  .pill-work-row:hover {
+    background: var(--solus-surface-hover);
+  }
+  .pill-work-row.selected {
+    background: var(--solus-accent-light);
+  }
+  .pill-work-row.selected .delete-btn {
+    opacity: 1;
+  }
+
+  .pill-work-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .pill-work-title {
+    font-size: 0.7813rem;
+    font-weight: 500;
+    color: var(--solus-text-primary);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .pill-work-end {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+
+  .pill-work-project {
+    font-size: 0.625rem;
+    color: var(--solus-text-tertiary);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    max-width: 5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pill-work-time {
+    font-size: 0.6563rem;
+    color: var(--solus-text-tertiary);
+    white-space: nowrap;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    flex-shrink: 0;
+  }
+
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    gap: 0.25rem;
+    text-align: center;
+  }
+  .empty-title {
+    font-size: 0.8125rem;
+    color: var(--solus-text-secondary);
+    font-weight: 500;
+  }
+  .empty-sub {
+    font-size: 0.75rem;
+    color: var(--solus-text-tertiary);
+  }
+
+  /* ── Card-grid (Plans-style) ── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--solus-text-tertiary);
+    padding: 0.625rem 0.125rem 0.5rem 0.125rem;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  /* Column count tracks the pane's own width (container), mirroring Plans. */
+  @container folio-gallery (max-width: 56.25rem) {
+    .card-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @container folio-gallery (max-width: 40rem) {
+    .card-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .folio-card {
+    position: relative;
+    display: flex;
+    width: 100%;
+    border-radius: 0.625rem;
+    background: var(--solus-container-bg);
+    border: 0.0625rem solid transparent;
+    box-shadow:
+      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04),
+      0 0.0625rem 0.125rem rgba(0, 0, 0, 0.02);
+    transition:
+      border-color 200ms ease,
+      box-shadow 200ms ease;
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+    overflow: hidden;
+  }
+  .folio-card:hover {
+    border-color: color-mix(
+      in srgb,
+      var(--solus-accent) 20%,
+      var(--solus-container-border)
+    );
+    box-shadow:
+      0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
+      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
+  }
+  .folio-card:focus-visible,
+  .folio-card.selected {
+    border-color: color-mix(
+      in srgb,
+      var(--solus-accent) 40%,
+      var(--solus-container-border)
+    );
+    box-shadow:
+      0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
+      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04),
+      0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 8%, transparent);
+  }
+  .folio-card.selected .card-accent {
+    opacity: 0.95;
+  }
+  .folio-card.selected .card-icon-btn {
+    opacity: 1;
+  }
+
+  .card-accent {
+    width: 0.1875rem;
+    flex-shrink: 0;
+    border-radius: 0.1875rem 0 0 0.1875rem;
+    background: var(--card-tone, var(--solus-accent));
+    opacity: 0.5;
+    transition: opacity 200ms ease;
+  }
+  .folio-card:hover .card-accent {
+    opacity: 0.85;
+  }
+
+  .card-body {
+    flex: 1;
+    min-width: 0;
+    padding: 0.625rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.3125rem;
+    font-size: 0.6563rem;
+    color: var(--solus-text-tertiary);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .meta-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .meta-sep {
+    opacity: 0.35;
+    flex-shrink: 0;
+  }
+
+  .folio-card__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.0625rem;
+    flex-shrink: 0;
+  }
+  .card-icon-btn {
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.3125rem;
+    border: none;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      opacity 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
+    opacity: 0;
+  }
+  .folio-card:hover .card-icon-btn,
+  .folio-card:focus-within .card-icon-btn {
+    opacity: 1;
+  }
+  .card-icon-btn.always-show {
+    opacity: 1;
+  }
+  .card-icon-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .card-icon-btn.is-active {
+    color: var(--solus-accent);
+  }
+  .card-icon-btn--danger:hover {
+    background: color-mix(
+      in srgb,
+      var(--solus-status-error, #e53e3e) 12%,
+      transparent
+    );
+    color: var(--solus-status-error, #e53e3e);
+  }
+
+  /* Per-type tone: docs use the warm app accent, diagrams a sage hue, so a
+     glance separates the two without reading the label. */
+  .folio-card--doc {
+    --card-tone: var(--solus-accent);
+  }
+  .folio-card--diagram {
+    --card-tone: var(--solus-art-3, #5a9e6f);
+  }
+
+  /* Tone-tinted type glyph, mirroring PlanCard's provider badge. */
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 0.3125rem;
+    color: var(--card-tone, var(--solus-accent));
+    background: color-mix(
+      in srgb,
+      var(--card-tone, var(--solus-accent)) 12%,
+      transparent
+    );
+    box-shadow: inset 0 0 0 0.0625rem
+      color-mix(in srgb, var(--card-tone, var(--solus-accent)) 18%, transparent);
+    flex-shrink: 0;
+  }
+
+  .folio-title {
+    font-size: 0.8125rem;
+    font-weight: 550;
+    color: var(--solus-text-primary);
+    line-height: 1.3;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    letter-spacing: -0.01em;
+  }
+
+  .folio-excerpt {
+    font-size: 0.7188rem;
+    color: var(--solus-text-tertiary);
+    line-height: 1.5;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .folio-excerpt--muted {
+    font-style: italic;
+    opacity: 0.8;
+  }
+
+  /* ── New button + menu ── */
+  .new-menu-wrap {
+    position: relative;
+  }
+  .new-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.4375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--solus-accent);
+    background: var(--solus-accent-light);
+    border: none;
+    cursor: pointer;
+    transition: background var(--duration-quick, 0.12s) ease;
+  }
+  .new-btn:hover {
+    background: color-mix(in srgb, var(--solus-accent-light) 100%, var(--solus-accent) 12%);
+  }
+  .new-menu {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    z-index: 40;
+    min-width: 9rem;
+    padding: 0.25rem;
+    border-radius: 0.625rem;
+    background: var(--solus-popover-bg);
+    border: 0.0625rem solid var(--solus-popover-border);
+    box-shadow: var(--solus-popover-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+  .new-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.4375rem;
+    font-size: 0.75rem;
+    color: var(--solus-text-primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background var(--duration-quick, 0.12s) ease;
+  }
+  .new-menu__item:hover {
+    background: var(--solus-surface-hover);
+  }
+
+  /* ── Filters / sort (live in the command bar) ── */
+  .gallery-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+  .filter-chip {
+    padding: 0.1875rem 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--solus-text-tertiary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+  .filter-chip:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .filter-chip.active {
+    background: var(--solus-accent-light);
+    color: var(--solus-accent);
+  }
+  .sort-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.6875rem;
+    color: var(--solus-text-secondary);
+    background: var(--solus-input-bg-soft);
+    border: 0.0625rem solid var(--solus-container-border);
+    border-radius: 0.375rem;
+    padding: 0.1875rem 0.5rem;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.1s ease;
+  }
+  .sort-trigger:focus-visible {
+    border-color: color-mix(in srgb, var(--solus-accent) 50%, transparent);
+  }
+  :global(.sort-trigger-caret) {
+    color: var(--solus-text-tertiary);
+    flex-shrink: 0;
+  }
+  .empty-kbd {
+    font-weight: 600;
+    color: var(--solus-accent);
+  }
+
+  .sr-only-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+
+</style>

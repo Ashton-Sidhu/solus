@@ -1,0 +1,548 @@
+.diagram-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--solus-container-bg);
+    outline: none;
+  }
+
+  .diagram-shell__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    gap: 0.375rem;
+    /* In the editor's secondary pane the header shares the tab strip's chrome
+       row — match its height and seam so they read as one continuous bar. */
+    min-height: var(--solus-chrome-row-h, auto);
+    border-bottom: 0.0625rem solid var(--solus-chrome-row-border, var(--solus-tool-border));
+    flex-shrink: 0;
+  }
+
+  .diagram-shell__header-meta {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+  }
+
+  .diagram-shell__header-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .diagram-shell__title-icon {
+    color: var(--solus-text-tertiary);
+    flex-shrink: 0;
+  }
+
+  .diagram-shell__title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--solus-text-primary);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .diagram-shell__title--editable {
+    background: transparent;
+    border: none;
+    padding: 0.125rem 0.25rem;
+    margin-inline: -0.25rem;
+    border-radius: 0.375rem;
+    cursor: text;
+    transition: background var(--duration-quick) var(--ease-premium);
+  }
+  .diagram-shell__title--editable:hover {
+    background: var(--solus-surface-hover);
+  }
+  .diagram-shell__title--editable:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+  .diagram-shell__title-input {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    min-width: 6rem;
+    max-width: 24rem;
+    padding: 0.125rem 0.25rem;
+    margin-inline: -0.25rem;
+    border-radius: 0.375rem;
+    color: var(--solus-text-primary);
+    background: var(--solus-surface-hover);
+    border: 0.0625rem solid var(--solus-accent-border);
+    outline: none;
+  }
+
+  .diagram-shell__crumb {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-shell__crumb:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .diagram-shell__crumb:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  .diagram-shell__crumb--current {
+    flex-shrink: 0;
+  }
+
+  .diagram-shell__crumb-sep {
+    flex-shrink: 0;
+    color: var(--solus-text-tertiary);
+    font-size: 0.75rem;
+    opacity: 0.7;
+  }
+
+  .diagram-shell__close {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-left: 0.125rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    border: none;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-shell__close:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .diagram-shell__close:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  .diagram-shell__save-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    min-width: 0;
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: opacity var(--duration-base) ease;
+  }
+
+  .diagram-shell__save-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 50%;
+    background: var(--solus-accent);
+    flex-shrink: 0;
+  }
+
+  .diagram-btn {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 0.0625rem solid var(--solus-accent-border);
+    background: var(--solus-accent-light);
+    color: var(--solus-accent);
+    cursor: pointer;
+    transition: opacity 0.15s;
+    font-weight: 500;
+  }
+
+  .diagram-btn:hover {
+    opacity: 0.8;
+  }
+
+  .diagram-shell__canvas {
+    flex: 1;
+    min-height: 0;
+    padding: 0.75rem;
+  }
+
+  .diagram-shell__board {
+    position: relative;
+    height: 100%;
+    border-radius: 1rem;
+    overflow: hidden;
+    border: 0.0625rem solid var(--solus-container-border);
+    background: var(--solus-container-bg);
+  }
+
+  /* Clear focus pill */
+  .clear-focus-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding: 0.3125rem 0.625rem;
+    border-radius: 1rem;
+    border: 0.0625rem solid var(--solus-container-border);
+    background: var(--solus-container-bg);
+    color: var(--solus-text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: var(--solus-container-shadow);
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .clear-focus-pill:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .drill-back-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.3125rem 0.625rem 0.3125rem 0.4375rem;
+    border-radius: 1rem;
+    border: 0.0625rem solid var(--solus-container-border);
+    background: var(--solus-container-bg);
+    color: var(--solus-text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: var(--solus-container-shadow);
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .drill-back-pill:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .drill-back-pill:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  /* Empty state */
+  .diagram-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+
+  .diagram-empty__card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 1.5rem 2rem;
+    text-align: center;
+    color: var(--solus-text-tertiary);
+    pointer-events: auto;
+  }
+
+  .diagram-empty__title {
+    margin: 0.375rem 0 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--solus-text-secondary);
+  }
+
+  .diagram-empty__hint {
+    margin: 0;
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
+  }
+
+  .diagram-empty__cta {
+    margin-top: 0.625rem;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.75rem;
+  }
+
+  /* --- SvelteFlow chrome --- */
+  .diagram-shell__board .svelte-flow {
+    background: var(--solus-container-bg);
+  }
+
+  .diagram-shell__board .svelte-flow__renderer,
+  .diagram-shell__board .svelte-flow__zoompane,
+  .diagram-shell__board .svelte-flow__pane {
+    background: var(--solus-container-bg);
+  }
+
+  .diagram-shell__board .svelte-flow__edge-path {
+    stroke: color-mix(
+      in srgb,
+      var(--solus-accent) 48%,
+      var(--solus-text-tertiary)
+    );
+    stroke-width: 1.5;
+    transition:
+      stroke 0.15s ease,
+      stroke-width 0.15s ease;
+  }
+
+  .diagram-shell__board
+    .svelte-flow__edge:hover .svelte-flow__edge-path,
+  .diagram-shell__board
+    .svelte-flow__edge.selected .svelte-flow__edge-path {
+    stroke: var(--solus-accent);
+    stroke-width: 2;
+  }
+
+  /* Async edges: dashed flow */
+  .diagram-shell__board
+    .svelte-flow__edge.edge--async .svelte-flow__edge-path {
+    stroke-dasharray: 6 3;
+  }
+
+  /* Data edges: thicker */
+  .diagram-shell__board
+    .svelte-flow__edge.edge--data .svelte-flow__edge-path {
+    stroke-width: 2.5;
+    stroke: color-mix(
+      in srgb,
+      var(--solus-accent) 65%,
+      var(--solus-text-tertiary)
+    );
+  }
+
+  /* In-progress connection line: accent + dashed so the provisional wire reads
+     distinctly from committed edges. */
+  .diagram-shell__board .svelte-flow__connection-path {
+    stroke: var(--solus-accent);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+  }
+
+  .diagram-shell__board .svelte-flow__edge-textbg {
+    fill: var(--solus-container-bg);
+  }
+
+  .diagram-shell__board .svelte-flow__edge-text {
+    fill: var(--solus-text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+  }
+
+  .diagram-shell__board .svelte-flow__node {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
+    /* xyflow's default node type hard-codes width:150px; clear it so the
+       wrapper shrink-wraps the card. Without this the wrapper and card are
+       different sizes and the handles/resize controls (anchored to the
+       wrapper) never line up with the card's edges. */
+    width: auto;
+    text-align: left;
+  }
+
+  /* xyflow draws the node frame from per-variant rules
+     (.svelte-flow__node-default / -group) and adds a box-shadow on
+     hover/selected/focus — all of which outrank the base reset above. Restate
+     the reset at matching specificity so the card's own border + selection ring
+     stay the only chrome, in every state. (These lived as one scoped rule in
+     the original <style> block; the scope class kept their specificity high.) */
+  .diagram-shell__board .svelte-flow__node.selectable:hover,
+  .diagram-shell__board .svelte-flow__node.selectable.selected,
+  .diagram-shell__board .svelte-flow__node.selectable:focus,
+  .diagram-shell__board .svelte-flow__node.selectable:focus-visible {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  /* Connection points: a larger hit target with a small centered accent dot.
+     They appear on hover (to draw edges) and while connecting. Selection shows
+     the corner resize squares instead, so the two never clutter the node at
+     once. */
+  .diagram-shell__board .svelte-flow__handle {
+    display: grid;
+    place-items: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    min-width: 0;
+    min-height: 0;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    /* Keep the dots above the node card (and its content) so they're
+       never clipped behind it while connecting. */
+    z-index: 10;
+    opacity: 0;
+    transition:
+      opacity 0.12s ease,
+      box-shadow 0.12s ease;
+  }
+
+  .diagram-shell__board .svelte-flow__handle::after {
+    content: '';
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--solus-accent);
+    border: 0.09375rem solid var(--solus-container-bg);
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.12);
+    box-sizing: border-box;
+  }
+
+  .diagram-shell__board .svelte-flow__node:hover .svelte-flow__handle,
+  .diagram-shell__board .svelte-flow__handle.connectingfrom,
+  .diagram-shell__board .svelte-flow__handle.connectingto {
+    opacity: 1;
+  }
+
+  /* While a connection is being dragged (new edge or an endpoint being moved),
+     surface every node's handles so the available drop targets are visible —
+     `:hover` can't fire on the node under a captured pointer. */
+  .diagram-shell__board--connecting .svelte-flow__handle {
+    opacity: 1;
+  }
+
+  /* Strict connection mode validates the drop against the handle directly
+     under the pointer (elementFromPoint), and each node side stacks a source
+     and a target handle on the same spot. Make handles of the drag's own end
+     type transparent to hit-testing so a drop exactly on a dot falls through
+     to the compatible half of the pair — otherwise the topmost (wrong-type)
+     handle rejects the connection and the endpoint snaps back. */
+  .diagram-shell__board--from-source .svelte-flow__handle.source,
+  .diagram-shell__board--from-target .svelte-flow__handle.target {
+    pointer-events: none;
+  }
+
+  /* Mid-drag, every node card is a drop target (a release anywhere on it
+     attaches the edge) — light up the card under the pointer, and the one
+     whose handle the line has snapped to, so the drop zone is unmistakable. */
+  .diagram-shell__board--connecting
+    .svelte-flow__node:hover .diagram-node,
+  .diagram-shell__board--connecting
+    .svelte-flow__node:has(.svelte-flow__handle.connectingto) .diagram-node,
+  .diagram-shell__board--connecting
+    .svelte-flow__node:hover .diagram-group,
+  .diagram-shell__board--connecting
+    .svelte-flow__node:has(.svelte-flow__handle.connectingto) .diagram-group {
+    border-color: var(--solus-accent);
+    box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
+  }
+
+  .diagram-shell__board--connecting
+    .svelte-flow__node:hover .diagram-node--diamond,
+  .diagram-shell__board--connecting
+    .svelte-flow__node:has(.svelte-flow__handle.connectingto) .diagram-node--diamond {
+    box-shadow: none;
+    filter:
+      drop-shadow(0 0 0.1875rem var(--solus-accent-soft))
+      drop-shadow(0 0.25rem 1rem rgba(0, 0, 0, 0.12));
+  }
+
+  /* The snapped handle mirrors the hover ring so the exact anchor point the
+     connection will land on reads at a glance. */
+  .diagram-shell__board .svelte-flow__handle.connectingto {
+    box-shadow:
+      0 0 0 0.1875rem var(--solus-accent-soft),
+      0 0.0625rem 0.125rem rgba(0, 0, 0, 0.12);
+  }
+
+  /* Overlays must never trap a wiring drag: edge labels/anchors go
+     hit-transparent and the side drawer fades out of the way, so a release
+     passes through to the node beneath. (!important — EdgeLabel sets
+     pointer-events:all inline.) */
+  .diagram-shell__board--connecting .svelte-flow__edge-label {
+    pointer-events: none !important;
+  }
+
+  .diagram-shell__board--connecting .diagram-drawer {
+    opacity: 0.15;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+
+  /* Grow via a ring rather than `transform: scale()` — xyflow uses each
+     handle's own `transform: translate(...)` to centre it, and overriding that
+     on hover knocks the dot off-centre (revealing the stacked source/target
+     sibling underneath). A box-shadow ring keeps the dot perfectly in place. */
+  .diagram-shell__board .svelte-flow__handle:hover {
+    box-shadow:
+      0 0 0 0.1875rem var(--solus-accent-soft),
+      0 0.0625rem 0.125rem rgba(0, 0, 0, 0.12);
+  }
+
+  /* --- Subgroup drag/resize affordances ---------------------------------
+     Live hints toggled as DOM classes on the node wrapper while dragging or
+     resizing (see applyHints): the group a node will nest into, the nodes a
+     group will swallow, and the children a group will eject on release. */
+  .diagram-shell__board
+    .svelte-flow__node.is-drop-target .diagram-group {
+    border-color: var(--solus-accent);
+    box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
+    background: color-mix(
+      in srgb,
+      var(--solus-accent) 12%,
+      var(--solus-container-bg)
+    );
+  }
+
+  .diagram-shell__board .svelte-flow__node.is-will-nest .diagram-node,
+  .diagram-shell__board .svelte-flow__node.is-will-nest .diagram-group {
+    border-color: var(--solus-accent);
+    box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
+  }
+
+  .diagram-shell__board .svelte-flow__node.is-will-eject .diagram-node,
+  .diagram-shell__board
+    .svelte-flow__node.is-will-eject .diagram-group {
+    border-style: dashed;
+    border-color: var(--solus-accent-border-medium);
+    opacity: 0.55;
+  }
+
+  .diagram-shell__board .diagram-minimap {
+    border-radius: 0.75rem;
+    border: 0.0625rem solid var(--solus-container-border);
+    box-shadow: var(--solus-container-shadow);
+    overflow: hidden;
+  }
+
+  .diagram-shell__board .svelte-flow__attribution {
+    background: transparent;
+    font-size: 0.5625rem;
+  }
+
+  .diagram-shell__board .svelte-flow__attribution a {
+    color: var(--solus-text-tertiary);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .diagram-shell__board .svelte-flow__edge-path {
+      transition: none;
+    }
+  }

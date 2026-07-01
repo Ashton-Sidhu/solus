@@ -1,0 +1,205 @@
+import { ClaudeAgent } from '../agents/claude/claude-agent'
+import { runCodexOneShot } from '../agents/codex/codex-oneshot'
+import { buildSystemPrompt } from '../agents/system-hint'
+import { createWorktree } from '../git/worktree-manager'
+import { isWorkspacePath } from '../workspace'
+import { createLogger } from '../logger'
+import { startRun, finishRun } from './automations-store'
+import { composeAutomationPrompt } from './compose-prompt'
+import type { Automation, AutomationRun, AgentId, ReasoningEffort } from '../../shared/types'
+
+const log = createLogger('automations', 'automation-runner.ts')
+
+/**
+ * Dispatches an automation prompt into an existing chat session (in-thread,
+ * full context). Injected by the server layer so the runner stays decoupled
+ * from the ControlPlane. Null until wired (the headless path always works).
+ */
+export type AutomationSessionDispatcher = (opts: {
+  agentSessionId: string
+  prompt: string
+  automationId: string
+  automationName: string
+  /** Run config used to resume the session when it isn't resident in memory
+   *  (cold start from disk), taken from the automation's own action. */
+  fallback?: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; cwd: string }
+}) => Promise<void>
+
+let sessionDispatcher: AutomationSessionDispatcher | null = null
+export function setAutomationSessionDispatcher(dispatcher: AutomationSessionDispatcher): void {
+  sessionDispatcher = dispatcher
+}
+
+// A single session-agnostic Claude agent drives every Claude-backed run.
+// ClaudeAgent is explicitly designed for background tasks (no IpcContext, no
+// permission UI). The Codex path uses runCodexOneShot, which talks to the
+// shared app-server client directly.
+const claudeAgent = new ClaudeAgent()
+
+// In-flight runs keyed by runId. Each entry holds an aborter (provider-specific)
+// and a `done` promise that settles once the run has been finalized in the store,
+// so a caller can cancel and await the run reaching its terminal 'cancelled'
+// state before reading it back.
+interface ActiveRun {
+  automationId: string
+  abort: AbortController
+  cancelled: boolean
+  done: Promise<void>
+}
+const activeRuns = new Map<string, ActiveRun>()
+
+function prependAutomationRunContext(prompt: string, run: AutomationRun): string {
+  const header = [
+    'This is an automation run.',
+    `Automation run id: ${run.id}`,
+    `Automation started at: ${run.startedAt}`,
+  ].join('\n')
+
+  return prompt ? `${header}\n\n${prompt}` : header
+}
+
+/**
+ * Kick off an automation run. Records the run immediately (status 'running'),
+ * executes the agent in the background, and returns the run handle so the caller
+ * gets a runId without blocking. Results land in the store when the run settles
+ * and are read back via the run-result tools.
+ *
+ * Recursion guard: the spawned run is given NO automation tools (the `solus` MCP
+ * server / dynamic tools are not attached on either provider), so an automation
+ * cannot create or trigger more automations. This is the Phase 1 fork-bomb guard.
+ */
+export async function triggerAutomationRun(automation: Automation): Promise<AutomationRun> {
+  const run = await startRun(automation.id)
+  const entry: ActiveRun = {
+    automationId: automation.id,
+    abort: new AbortController(),
+    cancelled: false,
+    done: Promise.resolve(),
+  }
+  activeRuns.set(run.id, entry)
+  entry.done = executeRun(automation, run, entry).finally(() => activeRuns.delete(run.id))
+  return run
+}
+
+/**
+ * Cancel any in-flight run(s) for an automation: abort the underlying agent and
+ * wait for the run to be finalized as 'cancelled'. Returns false when nothing
+ * was running. Resolving only after the run settles lets the caller refresh and
+ * see the terminal status immediately.
+ */
+export async function cancelAutomationRun(automationId: string): Promise<boolean> {
+  const entries = [...activeRuns.values()].filter((e) => e.automationId === automationId)
+  if (entries.length === 0) return false
+  for (const entry of entries) {
+    entry.cancelled = true
+    entry.abort.abort()
+  }
+  await Promise.all(entries.map((e) => e.done.catch(() => {})))
+  return true
+}
+
+async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun): Promise<void> {
+  const { action } = automation
+  const runId = run.id
+
+  try {
+    // Session-bound ("heartbeat") automation: dispatch the prompt into the live
+    // chat thread it was created in, preserving conversation context, instead of
+    // a headless one-shot. The agent's reply streams into that session's UI; we
+    // only record that the run was handed off (its output lives in the thread).
+    if (action.sessionId) {
+      if (!sessionDispatcher) throw new Error('In-session automations require the app to be running with an active control plane.')
+      const prompt = await composeAutomationPrompt(action)
+      await sessionDispatcher({
+        agentSessionId: action.sessionId,
+        prompt,
+        automationId: automation.id,
+        automationName: automation.name,
+        fallback: {
+          provider: action.agentProvider,
+          model: action.modelId,
+          reasoningEffort: action.reasoningEffort,
+          cwd: action.cwd,
+        },
+      })
+      if (entry.cancelled) {
+        await finishRun(automation.id, runId, { status: 'cancelled' })
+        log.info(`Automation ${automation.id} run ${runId} cancelled`)
+        return
+      }
+      await finishRun(automation.id, runId, { status: 'succeeded', output: `Ran in session ${action.sessionId}.`, agentSessionId: action.sessionId })
+      log.info(`Automation ${automation.id} run ${runId} dispatched into session ${action.sessionId}`)
+      return
+    }
+
+    // When the automation opts into a worktree, branch off `cwd` and run there
+    // so unattended changes land on an isolated branch instead of the working
+    // directory. A failure here surfaces as a failed run rather than silently
+    // mutating the user's tree. No model-backed namer is available in the
+    // headless runner, so the branch name falls back to a prompt slug.
+    let cwd = action.cwd
+    if (action.useWorktree) {
+      const gitContext = await createWorktree(action.cwd, action.prompt)
+      cwd = gitContext.worktreePath ?? action.cwd
+    }
+
+    // Expand any plan/work references into context blocks. Files (@) and skills
+    // (/) stay inline in the prompt — the provider resolves those natively.
+    const prompt = prependAutomationRunContext(await composeAutomationPrompt(action), run)
+
+    // Automations run unattended → 'auto' permission semantics on both providers.
+    const { text, sessionId } =
+      action.agentProvider === 'codex'
+        ? await runCodexOneShot({
+            prompt,
+            cwd,
+            model: action.modelId,
+            reasoningEffort: action.reasoningEffort,
+            abortSignal: entry.abort.signal,
+          })
+        : await runViaClaude(action, cwd, prompt, entry.abort)
+
+    // A cancelled run that still returned (Claude resolves on SIGINT rather than
+    // throwing) is terminal as 'cancelled', not a partial success.
+    if (entry.cancelled) {
+      await finishRun(automation.id, runId, { status: 'cancelled', output: text, agentSessionId: sessionId })
+      log.info(`Automation ${automation.id} run ${runId} cancelled`)
+      return
+    }
+
+    await finishRun(automation.id, runId, {
+      status: 'succeeded',
+      output: text,
+      agentSessionId: sessionId,
+    })
+    log.info(`Automation ${automation.id} run ${runId} succeeded (session ${sessionId})`)
+  } catch (err: any) {
+    if (entry.cancelled) {
+      await finishRun(automation.id, runId, { status: 'cancelled' })
+      log.info(`Automation ${automation.id} run ${runId} cancelled`)
+      return
+    }
+    await finishRun(automation.id, runId, {
+      status: 'failed',
+      error: String(err?.message ?? err),
+    })
+    log.error(`Automation ${automation.id} run ${runId} failed: ${String(err)}`)
+  }
+}
+
+async function runViaClaude(action: Automation['action'], cwd: string, prompt: string, abortController: AbortController) {
+  const general = isWorkspacePath(cwd)
+  const { text, result } = await claudeAgent.runOneShot({
+    prompt,
+    cwd,
+    model: action.modelId ?? undefined,
+    reasoningEffort: action.reasoningEffort,
+    permissionMode: 'auto',
+    abortController,
+    systemPromptAppend: buildSystemPrompt({
+      agent: 'claude',
+      general,
+    }),
+  })
+  return { text, sessionId: result.sessionId }
+}

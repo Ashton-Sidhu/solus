@@ -1,0 +1,191 @@
+import { app } from 'electron'
+import { homedir } from 'os'
+import { mkdirSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { WORKSPACE_DIR } from '../../workspace'
+import type { ControlPlane } from '../../control-plane'
+import type { AgentId, AgentMetadata, IpcContext, PromptOptions, RateLimitDecisionAction, ThreadGoalSetRequest } from '../../../shared/types'
+import { AGENT_BIN } from '../../../shared/types'
+import { getCliEnv } from '../../cli-env'
+import { createLogger } from '../../logger'
+import { warmFinder } from '../file-finder'
+import type { SolusServer } from '../server'
+
+const log = createLogger('main', 'session-handlers')
+
+export interface SessionDeps {
+  controlPlane: ControlPlane
+  agentIdFromContext(ctx?: IpcContext): AgentId
+}
+
+const _agentBinaryCache = new Map<AgentId, string | null>()
+
+function resolveAgentBinary(agentId: AgentId): string | null {
+  if (_agentBinaryCache.has(agentId)) return _agentBinaryCache.get(agentId)!
+  const bin = AGENT_BIN[agentId]
+  let result: string | null = null
+  if (bin) {
+    try {
+      result = execFileSync('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }).trim() || null
+    } catch {}
+  }
+  _agentBinaryCache.set(agentId, result)
+  return result
+}
+
+export function enrichAgentMetadata(metadata: AgentMetadata): AgentMetadata {
+  const binaryPath = resolveAgentBinary(metadata.id)
+  return {
+    ...metadata,
+    available: !!binaryPath,
+    binaryPath: binaryPath ?? undefined,
+    unavailableReason: binaryPath ? undefined : `${AGENT_BIN[metadata.id]} binary not found`,
+  }
+}
+
+export function registerSessionHandlers(server: SolusServer, deps: SessionDeps): void {
+  const { controlPlane, agentIdFromContext } = deps
+
+  server.register('start', async (_args, _ctx) => {
+    log.info('RPC start')
+    queueMicrotask(() => {
+      server.broadcast('seq-watermark', server.getSeqWatermark())
+    })
+    // Ensure the default workspace exists before any session points its cwd at it.
+    try {
+      mkdirSync(WORKSPACE_DIR, { recursive: true })
+    } catch (err) {
+      log.warn(`failed to create workspace dir ${WORKSPACE_DIR}: ${String(err)}`)
+    }
+    const agents = controlPlane
+      .getBackendIds()
+      .map((id) => controlPlane.getMetadataFor(id))
+      .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
+      .map(enrichAgentMetadata)
+    return { projectPath: process.cwd(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: app.getVersion(), agents }
+  })
+
+  server.register('createTab', (args) => {
+    const [clientTabId] = args as [string | undefined]
+    const tabId = controlPlane.createTab(clientTabId)
+    log.info(`RPC createTab → ${tabId}`)
+    return { tabId }
+  })
+
+  function bindRuntimeSession(args: unknown[]) {
+    const [ctx] = args as [IpcContext]
+    const sessionId = ctx.session.agentSessionId
+    if (!sessionId) return null
+    log.info(`RPC bindRuntimeSession: tab=${ctx.session.tabId} session=${sessionId}`)
+    return controlPlane.bindRuntimeSession(ctx.session.tabId, sessionId)
+  }
+
+  server.register('bindRuntimeSession', bindRuntimeSession)
+
+  server.register('startAgentSession', async (args, handlerCtx) => {
+    const [ctx, options] = args as [IpcContext, PromptOptions]
+    log.info(`RPC startAgentSession: tab=${ctx.session.tabId || 'headless'}`)
+    return controlPlane.startAgentSession(ctx, options, handlerCtx.deviceId)
+  })
+
+  server.register('dispatchToAgentSession', async (args, handlerCtx) => {
+    const [ctx, agentSessionId, options] = args as [IpcContext, string, PromptOptions]
+    log.info(`RPC dispatchToAgentSession: session=${agentSessionId} tab=${ctx.session.tabId || 'headless'}`)
+    return controlPlane.dispatchToAgentSession(ctx, agentSessionId, options, handlerCtx.deviceId)
+  })
+
+  server.register('resetTabSession', (args) => {
+    const [ctx] = args as [IpcContext]
+    log.info(`RPC resetTabSession: ${ctx.session.tabId}`)
+    // Warm the same path the Files view queries: the worktree root when this tab
+    // has one, else the project directory. Warming the bare workingDirectory
+    // missed entirely for worktree sessions, so their first open paid full scan.
+    const warmPath =
+      controlPlane.getGitContext(ctx.session.tabId)?.worktreePath ?? ctx.session.workingDirectory
+    if (warmPath && warmPath !== '~') warmFinder(warmPath)
+    controlPlane.resetTabSession(ctx)
+  })
+
+  server.register('prompt', async (args, handlerCtx) => {
+    const [ctx, options] = args as [IpcContext, PromptOptions]
+    const tabId = ctx.session.tabId
+    log.info(`RPC prompt: tab=${tabId}`)
+    if (!tabId) throw new Error('No tabId provided — prompt rejected')
+    try {
+      await controlPlane.submitPrompt(ctx, options, handlerCtx.deviceId)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error(`prompt error: ${msg}`)
+      throw err
+    }
+  })
+
+  server.register('stopTab', (args) => {
+    const [ctx] = args as [IpcContext]
+    log.info(`RPC stopTab: ${ctx.session.tabId}`)
+    return controlPlane.cancelTab(ctx)
+  })
+
+  server.register('retry', async (args) => {
+    const [ctx, options] = args as [IpcContext, PromptOptions]
+    log.info(`RPC retry: tab=${ctx.session.tabId}`)
+    return controlPlane.retry(ctx, options)
+  })
+
+  server.register('closeTab', (args) => {
+    const [ctx] = args as [IpcContext]
+    log.info(`RPC closeTab: ${ctx.session.tabId}`)
+    controlPlane.closeTab(ctx)
+  })
+
+  server.register('respondPermission', (args) => {
+    const [ctx, questionId, optionId, updatedPlan] = args as [IpcContext, string, string, string | undefined]
+    log.info(`RPC respondPermission: tab=${ctx.session.tabId} question=${questionId} option=${optionId}${updatedPlan ? ' (with edited plan)' : ''}`)
+    return controlPlane.respondToPermission(ctx, questionId, optionId, updatedPlan)
+  })
+
+  server.register('respondQuestion', (args) => {
+    const [ctx, questionId, answers] = args as [IpcContext, string, Record<string, string>]
+    log.info(`RPC respondQuestion: tab=${ctx.session.tabId} question=${questionId}`)
+    return controlPlane.respondToQuestion(ctx, questionId, answers)
+  })
+
+  server.register('rateLimitDecision', (args) => {
+    const [ctx, action] = args as [IpcContext, RateLimitDecisionAction]
+    log.info(`RPC rateLimitDecision: tab=${ctx.session.tabId} action=${action}`)
+    return controlPlane.resolveRateLimit(ctx, action)
+  })
+
+  server.register('cancelQueuedPrompt', (args) => {
+    const [ctx, queueId] = args as [IpcContext, string]
+    log.info(`RPC cancelQueuedPrompt: tab=${ctx.session.tabId} queueId=${queueId}`)
+    return controlPlane.cancelQueuedPrompt(ctx, queueId)
+  })
+
+  server.register('rewindFiles', async (args) => {
+    const [ctx, checkpointId] = args as [IpcContext, string]
+    log.info(`RPC rewindFiles: tab=${ctx.session.tabId} checkpoint=${checkpointId}`)
+    await controlPlane.rewindTabFiles(ctx, checkpointId)
+    return true
+  })
+
+  server.register('getPluginCommands', (args) => {
+    const [workingDirectory, ctx] = args as [string, IpcContext | undefined]
+    return controlPlane.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)
+  })
+
+  server.register('getThreadGoal', (args) => {
+    const [threadId, ctx, provider] = args as [string, IpcContext | undefined, AgentId | undefined]
+    return controlPlane.getThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
+  })
+
+  server.register('setThreadGoal', (args) => {
+    const [request, ctx, provider] = args as [ThreadGoalSetRequest, IpcContext | undefined, AgentId | undefined]
+    return controlPlane.setThreadGoal(provider ?? agentIdFromContext(ctx), request)
+  })
+
+  server.register('clearThreadGoal', (args) => {
+    const [threadId, ctx, provider] = args as [string, IpcContext | undefined, AgentId | undefined]
+    return controlPlane.clearThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
+  })
+}
