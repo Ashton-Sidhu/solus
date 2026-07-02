@@ -17,3 +17,10 @@ export const markdownSanitizeUrl: SanitizeUrlFn = (url, context) => {
   }
   return defaultSanitizeUrl(url, context);
 };
+
+// For remote-authored markdown — PR descriptions and comments written by
+// arbitrary GitHub users. The in-app protocols above trigger navigation and
+// file opens when clicked, so a hostile PR body must never get them through;
+// this defers entirely to the library's default allowlist
+// (http/https/mailto/tel/relative), which blanks everything else.
+export const remoteMarkdownSanitizeUrl: SanitizeUrlFn = defaultSanitizeUrl;
