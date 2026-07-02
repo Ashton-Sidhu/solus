@@ -21,6 +21,7 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { formatInlineComments } from "../../contexts/session.utils";
   import { uuid } from "../../../shared/uuid";
+  import { toasts } from "../../contexts/toast.store.svelte";
   import { formatSavedAgo } from "../document-shell/saveStatus";
   import DiagramNodeComponent from "./nodes/DiagramNode.svelte";
   import DiagramGroupNode from "./nodes/DiagramGroupNode.svelte";
@@ -168,7 +169,7 @@
         copied = true;
         setTimeout(() => (copied = false), 1800);
       })
-      .catch(() => {});
+      .catch(() => toasts.error("Copy failed"));
   }
 
   const theme = getSettingsContext();
