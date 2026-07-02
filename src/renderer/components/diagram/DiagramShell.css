@@ -117,6 +117,52 @@
     opacity: 0.7;
   }
 
+  .diagram-shell__comments-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.5rem;
+    padding: 0 0.375rem;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    border: none;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-shell__comments-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .diagram-shell__comments-btn:active {
+    scale: 0.96;
+  }
+
+  .diagram-shell__comments-btn--on {
+    background: var(--solus-accent-light);
+    color: var(--solus-accent);
+  }
+
+  .diagram-shell__comments-btn:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  .diagram-shell__comments-count {
+    font-size: 0.5625rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 0 0.25rem;
+    border-radius: 624.9375rem;
+    background: var(--solus-accent-light);
+    color: var(--solus-accent);
+  }
+
   .diagram-shell__close {
     width: 1.5rem;
     height: 1.5rem;
@@ -551,7 +597,8 @@
     pointer-events: none !important;
   }
 
-  .diagram-shell__board--connecting .diagram-drawer {
+  .diagram-shell__board--connecting .diagram-drawer,
+  .diagram-shell__board--connecting .diagram-comments {
     opacity: 0.15;
     pointer-events: none;
     transition: opacity var(--duration-base) var(--ease-premium);

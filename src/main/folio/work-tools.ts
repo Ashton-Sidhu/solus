@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
+import { loadWorkAnnotations } from './work-annotations'
 import { workPreview } from '../../shared/work-preview'
 import { parseDiagram } from '../../shared/diagram-types'
 import type { AgentId } from '../../shared/types'
@@ -131,9 +132,22 @@ export async function executeWorkTool(
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const work = await loadWork(workId, deps.ctx?.cwd)
       if (!work) return { ok: false, text: `No work found with id "${workId}".` }
+      // Surface the user's comments alongside the content so the agent sees
+      // feedback without the user having to paste it into chat. Diagram
+      // comments carry the anchored node id; use it to target the revision.
+      const annotations = await loadWorkAnnotations(workId)
+      let commentsBlock = ''
+      if (annotations?.comments?.length) {
+        const lines = annotations.comments.map((c) =>
+          c.nodeId
+            ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
+            : `- On "${c.selectedText}": ${c.comment}`,
+        )
+        commentsBlock = `\n\nUser comments on this work (${lines.length}) — address them when revising:\n${lines.join('\n')}`
+      }
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${commentsBlock}`,
       }
     }
 

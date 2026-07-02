@@ -18,6 +18,8 @@
     sentToBack?: boolean
     onSendToBack?: () => void
     onBringToFront?: () => void
+    /** Shown for nodes: open the comments panel with the composer anchored here. */
+    onAddComment?: () => void
   }
 
   let {
@@ -35,6 +37,7 @@
     sentToBack = false,
     onSendToBack,
     onBringToFront,
+    onAddComment,
   }: Props = $props()
 
   const isMac = navigator.platform.includes('Mac')
@@ -106,6 +109,20 @@
           <path d="M5.5 7.5v1.5a1 1 0 001 1h1" />
         </svg>
         {hasDetail ? 'Open detail' : 'Add detail diagram'}
+      </button>
+    {/if}
+
+    {#if type === 'node' && onAddComment}
+      <button
+        type="button"
+        class="ctx-menu__item"
+        role="menuitem"
+        onclick={() => { onAddComment(); onClose() }}
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.5 7.5a5.5 5.5 0 01-7.9 5L2.5 13.5l1-3.1a5.5 5.5 0 1110-2.9z" />
+        </svg>
+        Add comment
       </button>
     {/if}
 
