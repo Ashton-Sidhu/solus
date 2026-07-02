@@ -14,6 +14,7 @@
     CaretDownIcon,
     FileIcon,
     ArrowSquareOutIcon,
+    QueueIcon,
   } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -39,6 +40,7 @@
   import Input from "../ui/Input.svelte";
   import Dropdown from "../ui/Dropdown.svelte";
   import DropdownItem from "../ui/DropdownItem.svelte";
+  import MergeQueuePanel from "./MergeQueuePanel.svelte";
   import {
     filterPrs,
     sortPrs,
@@ -51,6 +53,7 @@
 
   const session = getWorkspaceContext();
   const store = session.prsStore;
+  const mergeQueue = session.mergeQueueStore;
 
   const open = $derived(session.prsOpen);
 
@@ -163,11 +166,30 @@
       detail = null;
       store.filter = { state: "open" };
       void store.loadAll(session.ctx);
+      // Catch up on a queue started before this open (or from another client).
+      void mergeQueue.refresh(session.ctx);
       if (!runtime.shouldSuppressFocus) {
         void tick().then(() => searchEl?.focus());
       }
     });
   });
+
+  // A finished run changes PR states (merged PRs leave the open list) — reload.
+  let lastRunStatus: string | null = null;
+  $effect(() => {
+    const status = mergeQueue.state?.status ?? null;
+    if (status === lastRunStatus) return;
+    const wasActive = lastRunStatus === "running" || lastRunStatus === "waiting";
+    lastRunStatus = status;
+    if (wasActive && (status === "done" || status === "cancelled")) {
+      void store.loadAll(session.ctx, { force: true });
+    }
+  });
+
+  function toggleQueued(pr: PullRequestSummary) {
+    if (pr.state !== "open" || pr.draft) return;
+    mergeQueue.toggle(pr.number);
+  }
 
   function loadDetail(number: number) {
     const n = number;
@@ -268,6 +290,13 @@
       else close();
     },
     { enabled: () => open },
+  );
+  useKeybinding(
+    "prs.queue",
+    () => {
+      if (selectedPr) toggleQueued(selectedPr);
+    },
+    { enabled: () => open && !!selectedPr },
   );
 
   function close() {
@@ -591,12 +620,36 @@
                       <span class="text-(--solus-art-negative)">-{pr.deletions}</span>
                     </div>
                   {/if}
+                  {#if pr.state === "open" && !pr.draft}
+                    {@const queued = mergeQueue.isQueued(pr.number)}
+                    <button
+                      type="button"
+                      class="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent transition-[background-color,color,opacity] duration-100 focus-visible:opacity-100 {queued
+                        ? 'text-(--solus-accent)'
+                        : 'text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        toggleQueued(pr);
+                      }}
+                      aria-pressed={queued}
+                      aria-label={queued
+                        ? "Remove from merge queue"
+                        : "Add to merge queue"}
+                      use:tooltip={queued
+                        ? "Remove from merge queue"
+                        : "Add to merge queue (⌥Q)"}
+                    >
+                      <QueueIcon size={13} weight={queued ? "fill" : "regular"} />
+                    </button>
+                  {/if}
                 </div>
               </li>
             {/each}
           </ul>
         {/if}
       </div>
+
+      <MergeQueuePanel />
     </div>
 
     <!-- ════════════════════════════════════════════════════════════════════════ -->

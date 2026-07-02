@@ -1,4 +1,4 @@
-import type { AuthStatus, DeviceCodePrompt, ProviderId } from '../../shared/types'
+import type { AuthStatus, DeviceCodePrompt, MergeMethod, ProviderId } from '../../shared/types'
 import type {
   DraftReview,
   DraftReviewComment,
@@ -67,6 +67,13 @@ export interface ReviewProvider {
   replyToThread(repo: RepoRef, threadId: string, body: string): Promise<ReviewComment>
   resolveThread(repo: RepoRef, threadId: string): Promise<void>
   unresolveThread(repo: RepoRef, threadId: string): Promise<void>
+
+  /** Merge via the host's merge button. `merged: false` + message when the host
+   *  refuses (conflicts, branch protection) — not an exception, so the merge
+   *  queue can fall back to local conflict resolution. */
+  mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }>
+  /** Changed file paths, for the merge queue's overlap-based auto-ordering. */
+  listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]>
 }
 
 /** A host is the pair `{ auth, review }`, keyed by its `ProviderId`. */

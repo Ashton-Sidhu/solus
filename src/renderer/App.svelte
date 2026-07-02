@@ -282,6 +282,9 @@
     const unsubRunLog = window.solus.onRunLog((batch) =>
       runStore.applyLog(batch),
     );
+    const unsubMergeQueue = window.solus.onMergeQueueUpdate((state) =>
+      session.mergeQueueStore.apply(state),
+    );
     const unsubShown = window.solus.onWindowShown(() => {
       const active = session.sessionFor(session.activeTabId);
       const cwd =
@@ -298,6 +301,7 @@
     return () => {
       unsubRun();
       unsubRunLog();
+      unsubMergeQueue();
       unsubShown();
     };
   });
