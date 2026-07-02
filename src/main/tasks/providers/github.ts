@@ -3,7 +3,7 @@ import { buildClient, type GitHubClient } from '../../providers/github/octokit'
 import { resolveRepoRef } from '../../git/git-helpers'
 import { createLogger } from '../../logger'
 import type { RepoRef } from '../../providers/types'
-import type { Task, TaskKind, TaskPriority, TaskProvider, TaskStatus } from '../../../shared/task-types'
+import type { Task, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskProvider, TaskStatus } from '../../../shared/task-types'
 
 const log = createLogger('main', 'github-tasks')
 
@@ -435,35 +435,43 @@ export class GitHubTaskProvider implements TaskProvider {
     return buildClient(this.auth)
   }
 
-  async listTasks(opts: { query?: string; assignedToMe?: boolean } = {}): Promise<Task[]> {
+  async listTasks(opts: { assignedToMe?: boolean } = {}): Promise<TaskList> {
     const { graphql } = await this.client()
     // null filters = no scoping (all issues); only narrow to the viewer on demand.
     const filters = opts.assignedToMe ? { assignee: await this.viewerLogin(graphql) } : null
 
     const tasks: Task[] = []
-    let cursor: string | null = null
-    // Fetch open + closed so the board can show "done"; capped at MAX_ISSUES.
-    while (tasks.length < MAX_ISSUES) {
-      const res: ListIssuesResponse = await graphql<ListIssuesResponse>(LIST_ISSUES_QUERY, {
-        owner: this.repo.owner,
-        repo: this.repo.repo,
-        states: ['OPEN', 'CLOSED'],
-        filters,
-        cursor,
-      })
-      const page = res.repository.issues
-      for (const node of page.nodes) tasks.push(issueToTask(node))
-      if (!page.pageInfo.hasNextPage) break
-      cursor = page.pageInfo.endCursor
+    let truncated = false
+    // Open issues first, then closed with whatever budget remains: everything is
+    // capped at MAX_ISSUES, and a busy repo's recently-closed churn must not
+    // crowd still-open work out of the capped slice.
+    outer: for (const states of [['OPEN'], ['CLOSED']]) {
+      let cursor: string | null = null
+      for (;;) {
+        const res: ListIssuesResponse = await graphql<ListIssuesResponse>(LIST_ISSUES_QUERY, {
+          owner: this.repo.owner,
+          repo: this.repo.repo,
+          states,
+          filters,
+          cursor,
+        })
+        const page = res.repository.issues
+        for (const node of page.nodes) {
+          if (tasks.length >= MAX_ISSUES) {
+            truncated = true
+            break outer
+          }
+          tasks.push(issueToTask(node))
+        }
+        if (!page.pageInfo.hasNextPage) break
+        if (tasks.length >= MAX_ISSUES) {
+          truncated = true
+          break outer
+        }
+        cursor = page.pageInfo.endCursor
+      }
     }
-
-    // GitHub's issues connection has no free-text filter (that's the search API);
-    // apply the title query ourselves to keep the helper self-contained.
-    if (opts.query) {
-      const q = opts.query.toLowerCase()
-      return tasks.filter((t) => t.title.toLowerCase().includes(q))
-    }
-    return tasks
+    return truncated ? { tasks, truncated } : { tasks }
   }
 
   async getTask(id: string): Promise<Task> {
@@ -588,7 +596,9 @@ export class GitHubTaskProvider implements TaskProvider {
     }
     if (fields.assignees !== undefined) task.assignee = fields.assignees[0]
     // Overlay the planning writes too, for the same eventual-consistency reason.
-    if (onBoard && patch.status !== undefined) task.status = patch.status
+    // Status is overlaid on AND off boards — the off-board path writes through
+    // REST (state + label) and the stale GraphQL re-read flickers just the same.
+    if (patch.status !== undefined) task.status = patch.status
     if (onBoard && patch.dueDate !== undefined) task.dueDate = patch.dueDate || undefined
     if (onBoard && patch.priority !== undefined) task.priority = patch.priority || undefined
     return task
@@ -749,14 +759,20 @@ export class GitHubTaskProvider implements TaskProvider {
    * a session binds to a task. Not part of `TaskProvider` (it's a GitHub-only
    * capability the binding layer calls directly).
    */
-  async postComment(id: string, body: string): Promise<void> {
+  async postComment(id: string, body: string): Promise<TaskCommentData> {
     const { rest } = await this.client()
-    await rest.issues.createComment({
+    const res = await rest.issues.createComment({
       owner: this.repo.owner,
       repo: this.repo.repo,
       issue_number: toIssueNumber(id),
       body,
     })
+    return {
+      id: String(res.data.id),
+      author: res.data.user ? { login: res.data.user.login } : null,
+      body: res.data.body ?? body,
+      createdAt: res.data.created_at,
+    }
   }
 
   async startTaskWork(id: string, current?: Task): Promise<void> {
