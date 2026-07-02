@@ -248,8 +248,10 @@
         title={data.expanded ? 'Collapse' : 'Expand'}
         aria-label={data.expanded ? 'Collapse node' : 'Expand node'}
       >
-        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-          <path d={data.expanded ? 'M4 10l4-4 4 4' : 'M4 6l4 4 4-4'} />
+        <!-- One down-chevron rotated 180° when expanded, so the flip animates
+             instead of hard-swapping between two paths. -->
+        <svg class="diagram-node__expand-icon" class:diagram-node__expand-icon--open={data.expanded} viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" />
         </svg>
       </button>
     {/if}
@@ -372,7 +374,7 @@
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.04), 0 0.125rem 0.5rem rgba(0, 0, 0, 0.05);
     cursor: grab;
     user-select: none;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, opacity 0.2s ease;
+    transition: transform var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium), border-color var(--duration-base) var(--ease-premium), opacity var(--duration-modal) var(--ease-premium);
   }
 
   .diagram-node:hover {
@@ -388,10 +390,11 @@
     box-shadow: 0 0 0 0.125rem var(--solus-accent-soft), 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
   }
 
+  /* Dimmed cards stay clickable: in focus mode a click on one moves the focus
+     there (see DiagramShell.handleNodeClick) instead of hitting a dead zone. */
   .diagram-node--dimmed {
     opacity: 0.28;
     filter: saturate(0.4);
-    pointer-events: none;
   }
 
   .diagram-node--clickable { cursor: pointer; }
@@ -467,7 +470,7 @@
     fill: var(--solus-container-bg);
     stroke: var(--solus-tool-border);
     stroke-width: 1.25px;
-    transition: stroke 0.15s ease, stroke-width 0.15s ease;
+    transition: stroke var(--duration-base) var(--ease-premium), stroke-width var(--duration-base) var(--ease-premium);
   }
   .diagram-node--diamond:hover .diagram-node__shape {
     filter: drop-shadow(0 0.25rem 0.75rem rgba(0, 0, 0, 0.16));
@@ -567,7 +570,7 @@
     color: var(--solus-text-tertiary);
     cursor: pointer;
     padding: 0;
-    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    transition: background var(--duration-base) var(--ease-premium), color var(--duration-base) var(--ease-premium), transform var(--duration-base) var(--ease-premium);
   }
   .diagram-node__expand-btn:hover {
     background: color-mix(in srgb, var(--node-accent) 10%, transparent);
@@ -576,6 +579,13 @@
   .diagram-node__expand-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;
+  }
+
+  .diagram-node__expand-icon {
+    transition: transform var(--duration-base) var(--ease-premium);
+  }
+  .diagram-node__expand-icon--open {
+    transform: rotate(180deg);
   }
 
   /* Drill affordance — signals the node opens a nested detail diagram. */
@@ -588,7 +598,7 @@
     border-radius: 0.375rem;
     background: color-mix(in srgb, var(--node-accent) 12%, transparent);
     color: var(--node-accent);
-    transition: background 0.15s ease, transform 0.15s ease;
+    transition: background var(--duration-base) var(--ease-premium), transform var(--duration-base) var(--ease-premium);
   }
   .diagram-node--drillable:hover .diagram-node__drill {
     background: color-mix(in srgb, var(--node-accent) 22%, transparent);
@@ -727,7 +737,7 @@
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.12) !important;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.12s ease, transform 0.12s ease;
+    transition: opacity var(--duration-quick) var(--ease-premium), transform var(--duration-quick) var(--ease-premium);
   }
 
   :global(.svelte-flow__node.selected .node-resize-handle) {
@@ -746,5 +756,6 @@
   @media (prefers-reduced-motion: reduce) {
     .diagram-node { transition: none; }
     .diagram-node--dimmed { transition: none; }
+    .diagram-node__expand-icon { transition: none; }
   }
 </style>

@@ -160,7 +160,7 @@
         <path d="M6.5 7v4M9.5 7v4" />
       </svg>
       Delete
-      <span class="ctx-menu__shortcut">{navigator.platform.includes('Mac') ? '⌫' : 'Del'}</span>
+      <span class="ctx-menu__shortcut">{isMac ? '⌫' : 'Del'}</span>
     </button>
   </div>
 </div>
@@ -187,6 +187,21 @@
     border: 0.0625rem solid var(--solus-container-border);
     box-shadow: 0 0.25rem 1.5rem rgba(0, 0, 0, 0.18), 0 0.0625rem 0.25rem rgba(0, 0, 0, 0.08);
     outline: none;
+    transform-origin: top left;
+    animation: ctx-menu-in var(--duration-quick) var(--ease-premium);
+  }
+
+  @keyframes ctx-menu-in {
+    from {
+      opacity: 0;
+      scale: 0.98;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ctx-menu {
+      animation: none;
+    }
   }
 
   .ctx-menu__item {
@@ -202,7 +217,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background var(--duration-quick) var(--ease-premium), color var(--duration-quick) var(--ease-premium);
     text-align: left;
   }
 
@@ -214,8 +229,8 @@
   }
 
   .ctx-menu__item--danger:hover {
-    background: color-mix(in srgb, #f87171 12%, transparent);
-    color: #f87171;
+    background: color-mix(in srgb, var(--solus-status-error) 12%, transparent);
+    color: var(--solus-status-error);
   }
 
   .ctx-menu__shortcut {

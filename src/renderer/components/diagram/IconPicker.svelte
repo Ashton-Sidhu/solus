@@ -227,7 +227,7 @@
     color: var(--solus-text-secondary);
     cursor: pointer;
     padding: 0.1875rem;
-    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    transition: background var(--duration-quick) var(--ease-premium), border-color var(--duration-quick) var(--ease-premium), color var(--duration-quick) var(--ease-premium);
   }
 
   .icon-picker__item:hover {
@@ -271,7 +271,7 @@
     font-size: 0.75rem;
     font-family: inherit;
     outline: none;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium);
   }
 
   .icon-picker__input:focus {
@@ -296,7 +296,7 @@
     background: transparent;
     color: var(--solus-text-tertiary);
     cursor: pointer;
-    transition: color 0.12s ease, background 0.12s ease;
+    transition: color var(--duration-quick) var(--ease-premium), background var(--duration-quick) var(--ease-premium);
   }
 
   .icon-picker__clear:hover {
