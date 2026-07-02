@@ -2,7 +2,7 @@
   import { tick, untrack } from "svelte";
   import { XIcon, ArrowsClockwiseIcon, ChatCircleIcon, ArrowSquareOutIcon } from "phosphor-svelte";
   import type { PrReviewContext, DiffScope } from "../../../shared/types";
-  import type { ReviewThread } from "../../../shared/providers";
+  import type { DraftReview, ReviewThread } from "../../../shared/providers";
   import type { GuideDiffCommentSave } from "./guide/lib/guide-data";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
@@ -117,6 +117,9 @@
 
   let showSubmit = $state(false);
   let activityFeedRef: ActivityFeed | null = $state(null);
+  // Owned here so a typed summary survives closing/reopening the submit modal.
+  let submitEvent = $state<DraftReview["event"]>("COMMENT");
+  let submitBody = $state("");
 
   // A submitted review creates threads and flips the viewer's review state —
   // reload so the result is visible without a manual refresh. The feed's
@@ -150,6 +153,19 @@
   function select(next: ContentTab) {
     av.prReviewTab = next;
     requestInputFocus();
+  }
+
+  // Roving tablist focus (WAI-ARIA tabs pattern): arrows move and activate,
+  // and focus follows onto the newly selected tab instead of the input bar.
+  async function onTablistKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const tablist = e.currentTarget as HTMLElement;
+    const idx = TABS.findIndex((t) => t.id === sub);
+    const step = e.key === "ArrowRight" ? 1 : TABS.length - 1;
+    av.prReviewTab = TABS[(idx + step) % TABS.length].id;
+    await tick();
+    tablist.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
   }
 
   // File chips in the Guide / threads in Activity jump to the Diff tab rather
@@ -207,12 +223,15 @@
       class="inline-flex items-center gap-0.5 rounded-lg bg-(--solus-accent-light) p-0.5"
       role="tablist"
       aria-label="PR review tabs"
+      tabindex="-1"
+      onkeydown={onTablistKeydown}
     >
       {#each TABS as t (t.id)}
         <button
           type="button"
           role="tab"
           aria-selected={sub === t.id}
+          tabindex={sub === t.id ? 0 : -1}
           class={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${sub === t.id ? "bg-(--solus-container-bg) text-(--solus-text-primary) shadow-sm" : "text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"}`}
           onclick={() => select(t.id)}
         >
@@ -334,6 +353,8 @@
   <SubmitReviewModal
     {pr}
     {drafts}
+    bind:event={submitEvent}
+    bind:body={submitBody}
     onClose={() => (showSubmit = false)}
     onSubmitted={onReviewSubmitted}
   />
