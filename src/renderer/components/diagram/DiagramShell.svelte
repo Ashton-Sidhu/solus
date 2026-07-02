@@ -1,6 +1,7 @@
 <script lang="ts">
   import "./DiagramShell.css";
 
+  import { onDestroy } from "svelte";
   import {
     SvelteFlow,
     Background,
@@ -280,6 +281,7 @@
   // last-saved timestamp kept fresh by a slow ticking clock.
   let isSaving = $state(false);
   let hasPendingSave = $state(false);
+  let saveFailed = $state(false);
   let lastSavedAt = $state<number | null>(null);
   let savedStatusNow = $state(Date.now());
   const showSaving = $derived(hasPendingSave || isSaving);
@@ -635,19 +637,41 @@
     clearTimeout(saveTimeout);
     hasPendingSave = true;
     onDirtyChange?.(true);
-    saveTimeout = setTimeout(async () => {
-      hasPendingSave = false;
-      isSaving = true;
-      try {
-        await onSave(serializeDiagram(fullDoc()));
-        lastSavedAt = Date.now();
-        savedStatusNow = lastSavedAt;
-      } finally {
-        isSaving = false;
-        onDirtyChange?.(false);
-      }
-    }, 600);
+    saveTimeout = setTimeout(() => void performSave(), 600);
   }
+
+  async function performSave() {
+    hasPendingSave = false;
+    isSaving = true;
+    try {
+      await onSave(serializeDiagram(fullDoc()));
+      saveFailed = false;
+      lastSavedAt = Date.now();
+      savedStatusNow = lastSavedAt;
+      onDirtyChange?.(false);
+    } catch {
+      // Keep the dirty flag on failure — clearing it would let the host treat
+      // unsaved edits as clean (and an agent refresh clobber them). The header
+      // shows a retry affordance and any further edit re-arms the save.
+      saveFailed = true;
+    } finally {
+      isSaving = false;
+    }
+  }
+
+  function retrySave() {
+    clearTimeout(saveTimeout);
+    void performSave();
+  }
+
+  // Flush a pending debounce on unmount so an edit made just before the shell
+  // is torn down (tab close, mode switch) still reaches disk.
+  onDestroy(() => {
+    if (hasPendingSave) {
+      clearTimeout(saveTimeout);
+      void performSave();
+    }
+  });
 
   function handleNodesChange(changes: any[]) {
     if (changes.some((c: any) => c.type === "position" && !c.dragging)) {
@@ -1821,6 +1845,15 @@
         {#if showSaving}
           <span class="diagram-shell__save-dot" aria-hidden="true"></span>
           <span>Saving…</span>
+        {:else if saveFailed}
+          <button
+            type="button"
+            class="diagram-shell__save-retry"
+            onclick={retrySave}
+            title="The last save failed — click to retry"
+          >
+            Save failed — retry
+          </button>
         {:else if lastSavedAt !== null}
           <CheckIcon size={11} />
           <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
