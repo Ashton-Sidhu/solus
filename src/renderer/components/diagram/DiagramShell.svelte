@@ -57,7 +57,9 @@
     sizeStyle,
     type Membership,
     NODE_WIDTH_EST,
+    NODE_HEIGHT_EST,
   } from "./lib/graph-layout";
+  import { diagramAccent } from "./diagram-colors";
   import {
     buildClipboardPaste,
     hasDiagramClipboard,
@@ -311,7 +313,7 @@
     onContextMenu: handleContextMenuOpen,
   };
 
-  const edgeAccent = $derived(theme.isDark ? "#e08a6e" : "#d97757");
+  const edgeAccent = $derived(diagramAccent(theme.isDark));
   const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fefefc");
   const defaultEdgeOptions = $derived({
     type: "default",
@@ -1054,6 +1056,13 @@
   // Selecting a node/edge opens its editor drawer so the side menu tracks the
   // current selection (mirrors how the session sidebar follows the active item).
   function handleNodeClick(nodeId: string) {
+    // In focus mode every card stays clickable: clicking any node moves the
+    // focus there, so dimmed cards are a way to walk the graph rather than
+    // dead zones only escapable via the clear-focus pill.
+    if (focusedNodeId !== null && focusedNodeId !== nodeId) {
+      focusedNodeId = nodeId;
+      applyTransientState();
+    }
     openNodeDrawer(nodeId, false);
   }
 
@@ -1994,7 +2003,7 @@
             nodeColor={miniMapNodeColor}
             nodeStrokeColor="transparent"
             nodeBorderRadius={3}
-            bgColor={theme.isDark ? "#1a1916" : "#fefefc"}
+            bgColor={exportBgColor}
             maskColor={theme.isDark
               ? "rgba(0,0,0,0.45)"
               : "rgba(250,243,228,0.55)"}
@@ -2095,6 +2104,9 @@
           }}
           onClose={() => {
             activeDrawerNodeId = null;
+            // Hand focus back to the canvas so shortcuts keep working — after
+            // an Escape/✕ close it would otherwise fall to <body>.
+            shellEl?.focus();
           }}
           onUpdateNode={handleUpdateNode}
         />
@@ -2108,6 +2120,7 @@
           targetLabel={activeDrawerEdge.targetLabel}
           onClose={() => {
             activeDrawerEdgeId = null;
+            shellEl?.focus();
           }}
           onUpdateLabel={handleEdgeLabelChange}
           onUpdateKind={handleEdgeKindChange}
