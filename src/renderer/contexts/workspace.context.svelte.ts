@@ -10,6 +10,7 @@ import { WorksStore } from './works.store.svelte'
 import { AutomationsStore } from './automations.store.svelte'
 import { TasksStore } from './tasks.store.svelte'
 import { PrsStore } from './prs.store.svelte'
+import { MergeQueueStore } from './merge-queue.store.svelte'
 import { type Task } from '../../shared/task-types'
 import { toasts } from './toast.store.svelte'
 import { PaneViewStore, type SplitOpenOptions } from './pane-view.store.svelte'
@@ -76,6 +77,7 @@ export class WorkspaceContext {
   automationsStore = new AutomationsStore()
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
+  mergeQueueStore = new MergeQueueStore()
   /** Global two-pane view state — not per-tab. */
   artifactViewer = new PaneViewStore()
   ui: WorkspaceUiStore
