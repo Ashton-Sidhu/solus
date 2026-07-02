@@ -13,17 +13,21 @@
     type Node,
   } from "@xyflow/svelte";
   import "@xyflow/svelte/dist/style.css";
-  import { CheckIcon, GraphIcon, XIcon } from "phosphor-svelte";
+  import { ChatsCircleIcon, CheckIcon, GraphIcon, XIcon } from "phosphor-svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import type { SessionMeta, WorkStorage } from "../../shared/types";
+  import type { PlanComment, SessionMeta, WorkAnnotations, WorkStorage } from "../../shared/types";
+  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { formatInlineComments } from "../../contexts/session.utils";
+  import { uuid } from "../../../shared/uuid";
   import { formatSavedAgo } from "../document-shell/saveStatus";
   import DiagramNodeComponent from "./nodes/DiagramNode.svelte";
   import DiagramGroupNode from "./nodes/DiagramGroupNode.svelte";
   import DiagramEdgeComponent from "./edges/DiagramEdge.svelte";
   import DiagramDetailsDrawer from "./DiagramDetailsDrawer.svelte";
   import DiagramEdgeDrawer from "./DiagramEdgeDrawer.svelte";
+  import DiagramCommentsPanel from "./DiagramCommentsPanel.svelte";
   import DiagramSearch from "./DiagramSearch.svelte";
   import CanvasToolbar from "./CanvasToolbar.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -169,6 +173,119 @@
 
   const theme = getSettingsContext();
   const keybindings = getKeybindingsContext();
+  const session = getWorkspaceContext();
+
+  // Load the annotation sidecar whenever the open work changes (mirrors
+  // DocumentModal).
+  $effect(() => {
+    const id = workId;
+    if (!id || id === loadedAnnotationsFor) return;
+    loadedAnnotationsFor = id;
+    comments.splice(0, comments.length);
+    void window.solus.loadWorkAnnotations(id).then((ann) => {
+      if (loadedAnnotationsFor !== id) return; // a different work opened meanwhile
+      if (ann?.comments?.length) comments.splice(0, comments.length, ...ann.comments);
+      applyTransientState();
+    });
+  });
+
+  function persistComments() {
+    if (!workId) return;
+    if (commentsSaveTimer) clearTimeout(commentsSaveTimer);
+    const id = workId;
+    commentsSaveTimer = setTimeout(() => {
+      const ann: WorkAnnotations = {
+        version: 1,
+        workId: id,
+        comments: $state.snapshot(comments) as PlanComment[],
+        updatedAt: Date.now(),
+      };
+      void window.solus.saveWorkAnnotations(ann);
+    }, 400);
+  }
+
+  function openComments(nodeId: string | null, autoFocus: boolean) {
+    activeDrawerNodeId = null;
+    activeDrawerEdgeId = null;
+    commentDraftNodeId = nodeId;
+    commentsAutoFocus = autoFocus;
+    commentsOpen = true;
+  }
+
+  function toggleComments() {
+    if (commentsOpen) {
+      commentsOpen = false;
+      return;
+    }
+    // Anchor to the node whose drawer is open, if any — likeliest target.
+    openComments(activeDrawerNodeId, false);
+  }
+
+  function nodeLabelFor(nodeId: string): string | null {
+    const label = nodes.find((n) => n.id === nodeId)?.data.label;
+    return typeof label === "string" ? label : null;
+  }
+
+  function addComment(text: string) {
+    comments.push({
+      id: uuid(),
+      selectedText: commentDraftNodeId
+        ? (nodeLabelFor(commentDraftNodeId) ?? commentDraftNodeId)
+        : title,
+      comment: text,
+      ...(commentDraftNodeId ? { nodeId: commentDraftNodeId } : {}),
+    });
+    persistComments();
+    applyTransientState();
+  }
+
+  function editComment(commentId: string, text: string) {
+    const c = comments.find((x) => x.id === commentId);
+    if (c) c.comment = text;
+    persistComments();
+  }
+
+  function deleteComment(commentId: string) {
+    const i = comments.findIndex((x) => x.id === commentId);
+    if (i !== -1) comments.splice(i, 1);
+    persistComments();
+    applyTransientState();
+  }
+
+  // Center the canvas on a comment's node (keeping the current zoom — xyflow's
+  // setCenter would otherwise jump to max zoom) and select it.
+  function scrollToComment(commentId: string) {
+    const nodeId = comments.find((c) => c.id === commentId)?.nodeId;
+    if (!nodeId || !flowControls) return;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const node = byId.get(nodeId);
+    if (!node) return; // anchored node was deleted or lives in another view
+    const box = absoluteBox(node, byId);
+    nodes = nodes.map((n) =>
+      (n.selected ?? false) === (n.id === nodeId) ? n : { ...n, selected: n.id === nodeId },
+    );
+    void flowControls.setCenter(box.x + box.w / 2, box.y + box.h / 2, {
+      zoom: flowControls.getViewport().zoom,
+      duration: 300,
+    });
+  }
+
+  // Hand the comments to the agent as a chat message (same flow as
+  // DocumentModal): they're cleared here because the agent now owns them.
+  async function sendCommentsToAgent() {
+    if (!workId || comments.length === 0) return;
+    const body = formatInlineComments($state.snapshot(comments) as PlanComment[]);
+    const msg = `Please address these comments on the diagram "${title}" (work_id: ${workId}):\n${body}`;
+    comments.splice(0, comments.length);
+    persistComments();
+    applyTransientState();
+    const boundTabId = session.tabOrder.find(
+      (t) => session.sessionFor(t)?.boundWorkId === workId,
+    );
+    if (boundTabId) session.selectTab(boundTabId);
+    else await session.openChatForWork(workId, "new");
+    session.sendMessage(msg);
+  }
   let flowControls:
     | {
         getViewport: () => { x: number; y: number; zoom: number };
@@ -182,6 +299,11 @@
           duration?: number;
           padding?: number;
         }) => Promise<boolean>;
+        setCenter: (
+          x: number,
+          y: number,
+          options?: { zoom?: number; duration?: number },
+        ) => Promise<boolean>;
         screenToFlowPosition: (pos: {
           x: number;
           y: number;
@@ -225,6 +347,15 @@
   // details) — drives whether the drawer auto-focuses its label input. Plain
   // selection leaves it false so canvas keyboard shortcuts keep working.
   let drawerAutoFocus = $state(false);
+  // Node-anchored comments, persisted to the work-annotations sidecar (same
+  // store DocumentModal uses for docs) and surfaced to the agent via read_work.
+  let comments = $state<PlanComment[]>([]);
+  let commentsOpen = $state(false);
+  // Node the composer is pre-anchored to; null = whole-diagram comment.
+  let commentDraftNodeId = $state<string | null>(null);
+  let commentsAutoFocus = $state(false);
+  let commentsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let loadedAnnotationsFor: string | null = null;
   let contextMenu = $state<{
     x: number;
     y: number;
@@ -306,6 +437,7 @@
     onContextMenu: handleContextMenuOpen,
     onSelect: handleNodeClick,
     onToggleCollapse: handleToggleCollapse,
+    onOpenComments: (id: string) => openComments(id, false),
   };
 
   const EDGE_HANDLERS = {
@@ -407,6 +539,11 @@
       }
     }
 
+    const commentCountByNode = new Map<string, number>();
+    for (const c of comments) {
+      if (c.nodeId) commentCountByNode.set(c.nodeId, (commentCountByNode.get(c.nodeId) ?? 0) + 1);
+    }
+
     // Only reallocate nodes whose transient flags actually changed. Returning the
     // same reference for unchanged nodes keeps xyflow (and every DiagramNode's
     // derived chain) from re-rendering the whole graph on each focus/search/expand
@@ -420,8 +557,15 @@
         !neighborIds.has(n.id);
       const searchDimmed = matchedNodeIds !== null && !matchedNodeIds.has(n.id);
       const dimmed = focusDimmed || searchDimmed;
-      if (n.data.expanded === expanded && n.data.dimmed === dimmed) return n;
-      return { ...n, data: { ...n.data, expanded, dimmed } };
+      const commentCount = commentCountByNode.get(n.id) ?? 0;
+      if (
+        n.data.expanded === expanded &&
+        n.data.dimmed === dimmed &&
+        (n.data.commentCount ?? 0) === commentCount
+      ) {
+        return n;
+      }
+      return { ...n, data: { ...n.data, expanded, dimmed, commentCount } };
     });
   }
 
@@ -1067,12 +1211,14 @@
   // selection so canvas keyboard shortcuts keep working. Pass null to close.
   function openNodeDrawer(id: string | null, autoFocus: boolean) {
     activeDrawerEdgeId = null;
+    commentsOpen = false;
     drawerAutoFocus = autoFocus;
     activeDrawerNodeId = id;
   }
 
   function openEdgeDrawer(id: string | null, autoFocus: boolean) {
     activeDrawerNodeId = null;
+    commentsOpen = false;
     drawerAutoFocus = autoFocus;
     activeDrawerEdgeId = id;
   }
@@ -1699,6 +1845,10 @@
       paneMenu = null;
       return;
     }
+    if (commentsOpen) {
+      commentsOpen = false;
+      return;
+    }
     if (activeDrawerEdgeId !== null) {
       activeDrawerEdgeId = null;
       return;
@@ -1762,6 +1912,7 @@
   useKeybinding("diagram.send-to-back", () => sendSelectionToBack(true), guard);
   useKeybinding("diagram.bring-to-front", () => sendSelectionToBack(false), guard);
   useKeybinding("diagram.search", () => (searchOpen = true), guard);
+  useKeybinding("diagram.comments", toggleComments, guard);
   useKeybinding("diagram.dismiss", dismiss, guard);
   useKeybinding("diagram.zoom-in", () => flowControls?.zoomIn({ duration: 150 }), guard);
   useKeybinding("diagram.zoom-out", () => flowControls?.zoomOut({ duration: 150 }), guard);
@@ -1861,6 +2012,22 @@
       </div>
     </div>
     <div class="diagram-shell__header-actions">
+      {#if workId}
+        <button
+          type="button"
+          class="diagram-shell__comments-btn"
+          class:diagram-shell__comments-btn--on={commentsOpen}
+          onclick={toggleComments}
+          title="Comments (⌥C)"
+          aria-label="Toggle comments"
+          aria-pressed={commentsOpen}
+        >
+          <ChatsCircleIcon size={13} />
+          {#if comments.length > 0}
+            <span class="diagram-shell__comments-count">{comments.length}</span>
+          {/if}
+        </button>
+      {/if}
       <WorkHeaderActions
         {inline}
         paneSlot={slot}
@@ -2082,6 +2249,11 @@
           x={contextMenu.x}
           y={contextMenu.y}
           type={contextMenu.type}
+          onAddComment={workId
+            ? () => {
+                if (contextMenu) openComments(contextMenu.targetId, true);
+              }
+            : undefined}
           showRemoveFromGroup={contextTargetHasParent}
           onRemoveFromGroup={handleContextMenuRemoveFromGroup}
           sentToBack={contextTargetSentToBack}
@@ -2162,6 +2334,26 @@
           onUpdateArrows={handleEdgeArrowsChange}
           onUpdateShape={handleEdgeShapeChange}
           onUpdateCardinality={handleEdgeCardinalityChange}
+        />
+      {/if}
+
+      {#if commentsOpen}
+        <DiagramCommentsPanel
+          {comments}
+          draftAnchorLabel={commentDraftNodeId
+            ? (nodeLabelFor(commentDraftNodeId) ?? commentDraftNodeId)
+            : null}
+          onClearAnchor={() => (commentDraftNodeId = null)}
+          autoFocus={commentsAutoFocus}
+          onAdd={addComment}
+          onEdit={editComment}
+          onDelete={deleteComment}
+          onScrollTo={scrollToComment}
+          onSendToAgent={sendCommentsToAgent}
+          onClose={() => {
+            commentsOpen = false;
+            shellEl?.focus();
+          }}
         />
       {/if}
     </div>

@@ -17,6 +17,8 @@
     expanded?: boolean
     dimmed?: boolean
     resizable?: boolean
+    /** Number of comments anchored to this node (transient, from the sidecar). */
+    commentCount?: number
     onLabelChange?: (id: string, label: string) => void
     onAction?: (nodeId: string, action: DiagramAction) => void
     onResize?: (id: string, width: number, height: number) => void
@@ -26,6 +28,8 @@
     // controls that stopPropagation (which would otherwise block xyflow's
     // onnodeclick). Absent in read-only contexts (e.g. thumbnails).
     onSelect?: (id: string) => void
+    /** Open the comments panel filtered to this node. */
+    onOpenComments?: (id: string) => void
   }
 
   interface Props {
@@ -223,6 +227,21 @@
         title="Status: {statusLabel}"
         aria-label="Status: {statusLabel}"
       ></span>
+    {/if}
+
+    {#if data.commentCount}
+      <button
+        type="button"
+        class="diagram-node__comments"
+        onclick={(e) => { e.stopPropagation(); data.onOpenComments?.(data.id) }}
+        title="{data.commentCount} {data.commentCount === 1 ? 'comment' : 'comments'} — click to view"
+        aria-label="View {data.commentCount} {data.commentCount === 1 ? 'comment' : 'comments'}"
+      >
+        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.5 7.5a5.5 5.5 0 01-7.9 5L2.5 13.5l1-3.1a5.5 5.5 0 1110-2.9z" />
+        </svg>
+        {data.commentCount}
+      </button>
     {/if}
 
     {#if drillable}
@@ -586,6 +605,37 @@
   }
   .diagram-node__expand-icon--open {
     transform: rotate(180deg);
+  }
+
+  /* Comment-count chip — mirrors the drill affordance's tinting. */
+  .diagram-node__comments {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1875rem;
+    flex-shrink: 0;
+    height: 1.25rem;
+    padding: 0 0.3125rem;
+    border: none;
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--node-accent) 12%, transparent);
+    color: var(--node-accent);
+    font-size: 0.5625rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition:
+      background var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
+  }
+  .diagram-node__comments:hover {
+    background: color-mix(in srgb, var(--node-accent) 22%, transparent);
+  }
+  .diagram-node__comments:active {
+    scale: 0.96;
+  }
+  .diagram-node__comments:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.125rem;
   }
 
   /* Drill affordance — signals the node opens a nested detail diagram. */
