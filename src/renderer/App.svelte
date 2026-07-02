@@ -30,6 +30,7 @@
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
   import type {
+    AgentId,
     DesignAnnotation as DesignAnnotationType,
     WorktreeEntry,
     PlanDescriptor,
@@ -45,6 +46,11 @@
     flushDrafts,
     type PersistedTabs,
   } from "./contexts/tab-persistence";
+  import {
+    writeActiveSessionPointer,
+    readActiveSessionPointer,
+    consumeSessionHandoff,
+  } from "./contexts/active-session-pointer";
   import { createAppCore } from "./contexts/app-core";
   import {
     useKeybinding,
@@ -136,6 +142,99 @@
       flush();
       window.removeEventListener("pagehide", flush);
     };
+  });
+
+  // ── Cross-window session pickup ───────────────────────────────────────────
+  // Keep the shared "last active session" pointer fresh: whichever window the
+  // user is in records the session they're on. Focus-gated so a background
+  // window's boot/hydration never clobbers the foreground's writes.
+  $effect(() => {
+    if (session.hydrating) return;
+    const sess = session.sessionFor(session.activeTabId);
+    const agentSessionId = sess?.agentSessionId;
+    if (!sess || !agentSessionId) return;
+    const title = session.tabs[session.activeTabId]?.title ?? null;
+    if (!document.hasFocus()) return;
+    writeActiveSessionPointer({
+      sessionId: agentSessionId,
+      provider: sess.provider ?? settings.activeAgent,
+      cwd: sess.workingDirectory,
+      title,
+      writer: windowCtx.viewMode,
+    });
+  });
+
+  /** Focus (or attach) the session a pointer/handoff names. Reuses the resume
+   *  path, which loads history and splices the live stream if a run is going. */
+  function openSessionFromPointer(ptr: {
+    sessionId: string;
+    provider: AgentId;
+    cwd: string;
+    title: string | null;
+  }) {
+    const existingTab = session.tabOrder.find(
+      (id) => session.sessionFor(id)?.agentSessionId === ptr.sessionId,
+    );
+    if (existingTab) {
+      if (existingTab !== session.activeTabId) session.selectTab(existingTab);
+      else session.isExpanded = true;
+      return;
+    }
+    void session.resumeSession({
+      provider: ptr.provider,
+      sessionId: ptr.sessionId,
+      slug: ptr.title,
+      firstMessage: ptr.title,
+      lastTimestamp: "",
+      size: 0,
+      cwd: ptr.cwd,
+      projectPath: "",
+    });
+  }
+
+  // Pill: when summoned (hidden → visible), land on the session last touched
+  // in the editor. Visibility transitions only — clicking an already-visible
+  // pill must never yank the tab out from under the user. Each pointer stamp
+  // is handled once so pill-side tab switches aren't re-overridden later.
+  let lastHandledPointerStamp = 0;
+  $effect(() => {
+    if (isEditorMode) return;
+    const maybePickUp = () => {
+      if (document.hidden || session.hydrating) return;
+      const ptr = readActiveSessionPointer();
+      if (!ptr || ptr.writer !== "editor") return;
+      if (ptr.updatedAt <= lastHandledPointerStamp) return;
+      lastHandledPointerStamp = ptr.updatedAt;
+      openSessionFromPointer(ptr);
+    };
+    const onVisibility = () => {
+      if (!document.hidden) maybePickUp();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibility);
+  });
+
+  // Pill boot: the visibilitychange above only covers later summons; check the
+  // pointer once as soon as hydration settles for the visible-at-boot case.
+  let bootPickupDone = false;
+  $effect(() => {
+    if (isEditorMode || bootPickupDone || session.hydrating) return;
+    bootPickupDone = true;
+    if (document.hidden) return;
+    const ptr = readActiveSessionPointer();
+    if (!ptr || ptr.writer !== "editor") return;
+    lastHandledPointerStamp = ptr.updatedAt;
+    openSessionFromPointer(ptr);
+  });
+
+  // Editor: consume an explicit pill→editor handoff ("continue in editor"),
+  // both one stashed before this window existed and any that arrive while
+  // it's open. Gated on hydration so a boot-time handoff doesn't race the
+  // tab bootstrap.
+  $effect(() => {
+    if (!isEditorMode || session.hydrating) return;
+    return consumeSessionHandoff(openSessionFromPointer);
   });
 
   // Slash command discovery is backend-scoped, so refresh when the active agent changes.

@@ -465,6 +465,21 @@ function boundsOnSomeDisplay(bounds: Electron.Rectangle): boolean {
   })
 }
 
+/** The app boots dock-hidden (the pill is a menu-bar-style overlay). The Dock
+ *  item appears while the editor window is visible — it's the "traditional
+ *  app" surface — and goes away when the editor hides, leaving the pill
+ *  summonable without Dock/cmd-tab presence. Dock click lands on the app
+ *  `activate` event, which surfaces the current mode's window. */
+function updateDockVisibility(): void {
+  if (process.platform !== 'darwin' || !app.dock) return
+  const editorVisible = isLive(editorWindow) && editorWindow.isVisible()
+  if (editorVisible) {
+    if (!app.dock.isVisible()) void app.dock.show()
+  } else {
+    app.dock.hide()
+  }
+}
+
 /** Create the editor window: a standard OS window (resizable, Dock/alt-tab
  *  presence, native shadow), lazily on first switch to editor mode. Closing it
  *  hides it — state is preserved and reopening is instant. */
@@ -501,7 +516,11 @@ function createEditorWindow(): BrowserWindow {
       editorWindow?.hide()
     }
   })
-  editorWindow.on('hide', () => booted?.server.broadcast('window-hidden'))
+  editorWindow.on('show', updateDockVisibility)
+  editorWindow.on('hide', () => {
+    updateDockVisibility()
+    booted?.server.broadcast('window-hidden')
+  })
 
   attachContextMenu(editorWindow)
 
