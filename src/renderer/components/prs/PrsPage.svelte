@@ -74,6 +74,10 @@
   let reviewersLoading = $state(false);
   let filesLoading = $state(false);
   let filesExpanded = $state(false);
+  // Provider failures are shown explicitly (with retry) instead of reading as
+  // "no pull requests" / an empty detail pane.
+  let listLoadFailed = $state(false);
+  let detailLoadFailed = $state(false);
 
   const markdownRenderers = { codespan: CodeSpan };
   const FILES_PREVIEW = 6;
@@ -162,12 +166,19 @@
       selectedNumber = null;
       detail = null;
       store.filter = { state: "open" };
-      void store.loadAll(session.ctx);
+      loadList();
       if (!runtime.shouldSuppressFocus) {
         void tick().then(() => searchEl?.focus());
       }
     });
   });
+
+  function loadList(force = false) {
+    listLoadFailed = false;
+    void store.loadAll(session.ctx, { force }).catch(() => {
+      listLoadFailed = true;
+    });
+  }
 
   function loadDetail(number: number) {
     const n = number;
@@ -176,6 +187,7 @@
     reviewers = [];
     changedFiles = [];
     filesExpanded = false;
+    detailLoadFailed = false;
     detailLoading = commitsLoading = reviewersLoading = filesLoading = true;
 
     store
@@ -192,13 +204,17 @@
             .then((f) => {
               if (selectedNumber === n) changedFiles = f;
             })
-            .catch(() => {})
+            .catch(() => {
+              if (selectedNumber === n) detailLoadFailed = true;
+            })
             .finally(() => {
               if (selectedNumber === n) filesLoading = false;
             });
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (selectedNumber === n) detailLoadFailed = true;
+      })
       .finally(() => {
         if (selectedNumber === n) {
           detailLoading = false;
@@ -250,13 +266,13 @@
 
   function refreshList() {
     store.filter = { state: stateFilter };
-    void store.loadAll(session.ctx, { force: true });
+    loadList(true);
   }
 
   function onStateFilterChange(state: PrStateFilter) {
     stateFilter = state;
     store.filter = { state };
-    void store.loadAll(session.ctx);
+    loadList();
   }
 
   // ── Keybindings ──
@@ -510,6 +526,28 @@
               Loading pull requests…
             </p>
           </div>
+        {:else if listLoadFailed && store.items.length === 0}
+          <div class="flex flex-col items-center justify-center gap-1 px-4 py-16 text-center">
+            <GitPullRequestIcon
+              size={36}
+              weight="fill"
+              class="mb-3 text-(--solus-art-negative) opacity-60"
+            />
+            <p class="text-[0.8125rem] font-semibold text-(--solus-text-primary)">
+              Couldn't load pull requests
+            </p>
+            <p class="max-w-[18rem] text-[0.75rem] leading-relaxed text-(--solus-text-tertiary)">
+              Check your connection or provider sign-in, then try again.
+            </p>
+            <button
+              type="button"
+              class="mt-3 inline-flex items-center gap-1.5 rounded-md bg-(--solus-accent-light) px-2.5 py-1 text-[0.6875rem] font-semibold text-(--solus-accent) transition-[background-color] duration-100 hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)]"
+              onclick={refreshList}
+            >
+              <ArrowsClockwiseIcon size={12} weight="bold" />
+              Retry
+            </button>
+          </div>
         {:else if store.items.length === 0}
           <div class="flex flex-col items-center justify-center gap-1 px-4 py-16 text-center">
             <GitPullRequestIcon
@@ -663,6 +701,23 @@
                   <span class="font-mono text-[0.75rem] truncate">{detail.headRef}</span>
                 {/if}
               </div>
+
+              {#if detailLoadFailed}
+                <div
+                  class="mt-5 flex items-center gap-2.5 rounded-lg border border-[color:color-mix(in_srgb,var(--solus-art-negative)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-art-negative)_8%,transparent)] px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary)"
+                  role="alert"
+                >
+                  <span class="min-w-0 flex-1">Couldn't load this pull request's details.</span>
+                  <button
+                    type="button"
+                    class="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-accent-light)"
+                    onclick={() => selectedNumber && loadDetail(selectedNumber)}
+                  >
+                    <ArrowsClockwiseIcon size={12} weight="bold" />
+                    Retry
+                  </button>
+                </div>
+              {/if}
 
               <!-- Description -->
               {#if detailLoading}

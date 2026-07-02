@@ -52,6 +52,9 @@ export interface CodexOneShotOptions {
   /** Abort the in-flight turn (interrupts the app-server turn and rejects). */
   abortSignal?: AbortSignal
   ephemeral?: boolean
+  /** Run under Codex's read-only sandbox (the same policy plan mode uses).
+   *  Approvals stay 'never'; the run just cannot write anywhere. */
+  readOnly?: boolean
   onThreadStart?: (threadId: string) => void
   /** Tools to register for this run. Without these the one-shot exposes no
    *  dynamic tools (the automation fork-bomb guard). */
@@ -91,11 +94,15 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     general,
   })
 
+  // 'plan' is the mode whose sandbox is read-only; approvals are 'never' in
+  // both modes, so a readOnly run stays unattended.
+  const sandboxMode = opts.readOnly ? 'plan' : PERMISSION
+
   const start = await client.request<CodexThreadStartResponse>('thread/start', {
     model,
     cwd: opts.cwd,
     approvalPolicy: approvalPolicyFor(PERMISSION),
-    sandbox: sandboxFor(PERMISSION),
+    sandbox: sandboxFor(sandboxMode),
     baseInstructions: null,
     developerInstructions,
     experimentalRawEvents: false,
@@ -166,7 +173,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
         input: [{ type: 'text', text: opts.prompt, text_elements: [] }],
         cwd: opts.cwd,
         approvalPolicy: approvalPolicyFor(PERMISSION),
-        sandboxPolicy: sandboxPolicyFor(PERMISSION, opts.cwd, []),
+        sandboxPolicy: sandboxPolicyFor(sandboxMode, opts.cwd, []),
         model,
         reasoning_effort: reasoningEffort,
         collaborationMode: {
