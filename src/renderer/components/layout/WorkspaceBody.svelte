@@ -11,12 +11,6 @@
   import SessionSidebar from "../session/SessionSidebar.svelte";
   import TabStrip from "./TabStrip.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
-  import PlanGallery from "../plan/PlanGallery.svelte";
-  import FolioGallery from "../artifact/FolioGallery.svelte";
-  import AutomationsPage from "../automations/AutomationsPage.svelte";
-  import TasksPage from "../tasks/TasksPage.svelte";
-  import PrsPage from "../prs/PrsPage.svelte";
-  import SettingsPage from "../settings/SettingsPage.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import NewTabHome from "./NewTabHome.svelte";
@@ -25,6 +19,9 @@
   import {
     DEFAULT_PANEL_WIDTH,
     DEFAULT_SECONDARY_RATIO,
+    isArtifactContent,
+    isMovableContent,
+    isPageContent,
     type PaneContent,
   } from "../../contexts/pane-view.store.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -77,31 +74,12 @@
     sidebarOpen || secondaryCollapsesSidebar,
   );
 
-  // The conversation pool is hidden (but never unmounted) whenever a full-page
-  // overlay — settings or a gallery — takes over the column.
-  const poolHidden = $derived(
-    session.settingsOpen ||
-      session.plansGalleryOpen ||
-      session.folioGalleryOpen ||
-      session.automationsOpen ||
-      session.tasksOpen ||
-      session.prsOpen,
-  );
-
+  // Any non-conversation content in the primary slot — a page, artifact, or
+  // review — covers the conversation pool (hidden, never unmounted) and its
+  // composer. A maximized secondary (e.g. the full-screen PR-review surface)
+  // covers the whole column too, so the composer has nothing to dock to.
   const inputDockHidden = $derived(
-    session.settingsOpen ||
-      session.folioGalleryOpen ||
-      session.plansGalleryOpen ||
-      session.automationsOpen ||
-      session.tasksOpen ||
-      session.prsOpen ||
-      av.primary.kind === "plan" ||
-      av.primary.kind === "work" ||
-      av.primary.kind === "automation" ||
-      av.primary.kind === "review" ||
-      // A maximized secondary (e.g. the full-screen PR-review surface) covers the
-      // whole column, so the primary conversation's composer has nothing to dock to.
-      av.maximized,
+    av.primary.kind !== "conversation" || av.maximized,
   );
   // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
   const runCwd = $derived(
@@ -260,19 +238,9 @@
   useKeybinding(
     "global.open-in-split",
     () => {
-      if (
-        av.primary.kind === "plan" ||
-        av.primary.kind === "work" ||
-        av.primary.kind === "automation" ||
-        av.primary.kind === "review"
-      ) {
+      if (isMovableContent(av.primary)) {
         av.moveToOppositeSlot(av.primary, "primary");
-      } else if (
-        av.secondary.kind === "plan" ||
-        av.secondary.kind === "work" ||
-        av.secondary.kind === "automation" ||
-        av.secondary.kind === "review"
-      ) {
+      } else if (isMovableContent(av.secondary)) {
         av.moveToOppositeSlot(av.secondary, "secondary");
       } else {
         return;
@@ -555,11 +523,7 @@
   // A work/plan document shell in the primary pane should claim the full width
   // like the diff panel does — collapse the project panel while it's open and
   // restore it on close. The session sidebar deliberately stays put.
-  const documentShellOpen = $derived(
-    av.primary.kind === "plan" ||
-      av.primary.kind === "work" ||
-      av.primary.kind === "automation",
-  );
+  const documentShellOpen = $derived(isArtifactContent(av.primary));
 
   // Collapse the session sidebar while a full-width overlay is up — a secondary
   // pane or the settings page — and restore it on close, the
@@ -606,9 +570,7 @@
     isResizingProjectPanel ||
     isResizingDock}
   class:has-secondary-pane={av.secondaryOpen && (av.hasResized || av.maximized)}
-  class:has-document-shell={av.primary.kind === "plan" ||
-    av.primary.kind === "work" ||
-    av.primary.kind === "automation"}
+  class:has-document-shell={documentShellOpen}
   class:sidebar-collapsed={!sidebarOpen}
   class:project-panel-open={enableProjectPanel && projectPanelOpen}
   class:project-panel-collapsed={enableProjectPanel && !projectPanelOpen}
@@ -681,23 +643,14 @@
         <div class="flex-1 flex min-w-0 relative">
           <div class="flex-1 flex flex-col min-w-0">
             {@render dragBar()}
-            <!-- Settings and the galleries are cheap to mount and render as
-                 overlays. The conversation pool below stays mounted underneath
-                 them (hidden via display:none) so dismissing settings/an
-                 artifact reveals every tab instantly with derived state,
-                 scroll, and editor drafts intact — never re-mounted. -->
-            {#if session.settingsOpen}
-              <SettingsPage />
-            {/if}
-            <PlanGallery />
-            <FolioGallery />
-            <AutomationsPage />
-            <TasksPage />
-            <PrsPage />
+            <!-- Pages, artifacts, and reviews render through the primary Pane
+                 below. The conversation pool stays mounted underneath (hidden
+                 via display:none) so closing a pane reveals every tab instantly
+                 with derived state, scroll, and editor drafts intact — never
+                 re-mounted. -->
             <div
               class="conversation-pool flex-1 flex flex-col min-h-0 no-drag"
-              class:mode-hidden={poolHidden ||
-                av.primary.kind !== "conversation"}
+              class:mode-hidden={av.primary.kind !== "conversation"}
             >
               {#if session.tabOrder.length === 0}
                 <NewTabHome />
@@ -716,7 +669,7 @@
                 {/if}
               {/each}
             </div>
-            {#if !poolHidden && av.primary.kind !== "conversation"}
+            {#if av.primary.kind !== "conversation"}
               <Pane content={av.primary} slot="primary" />
             {/if}
 
@@ -769,11 +722,11 @@
                 : ''}"
               class:secondary-pane-wrap--maximized={av.maximized}
               class:secondary-pane-wrap--closing={secondaryPaneClosing}
-              class:secondary-pane-wrap--framed={displayedSecondaryContent.kind ===
-                "plan" ||
-                displayedSecondaryContent.kind === "work" ||
-                displayedSecondaryContent.kind === "automation" ||
-                displayedSecondaryContent.kind === "review"}
+              class:secondary-pane-wrap--framed={isArtifactContent(
+                displayedSecondaryContent,
+              ) ||
+                displayedSecondaryContent.kind === "review" ||
+                isPageContent(displayedSecondaryContent)}
               style={secondaryPaneClosing
                 ? `width:${secondaryClosingWidth}px`
                 : secondaryPaneStyle}
