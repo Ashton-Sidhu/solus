@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { ClaudeAgent } from '../agents/claude/claude-agent'
 import { runCodexOneShot } from '../agents/codex/codex-oneshot'
 import { buildSystemPrompt } from '../agents/system-hint'
@@ -48,6 +50,29 @@ interface ActiveRun {
 }
 const activeRuns = new Map<string, ActiveRun>()
 
+// Automations that passed the overlap check but whose run record hasn't landed
+// yet (startRun is async). Claimed synchronously so two near-simultaneous
+// triggers can't both slip past hasActiveRun.
+const pendingTriggers = new Set<string>()
+
+/** Whether an automation has a run in flight. Used by the scheduler, the tools,
+ *  and the RPC handler to refuse overlapping runs of the same automation. */
+export function hasActiveRun(automationId: string): boolean {
+  if (pendingTriggers.has(automationId)) return true
+  for (const entry of activeRuns.values()) {
+    if (entry.automationId === automationId) return true
+  }
+  return false
+}
+
+/** Expand a leading `~` — the default cwd when no project is active is the
+ *  literal string '~', which Node would treat as a relative path. */
+function expandHome(p: string): string {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+  return p
+}
+
 function prependAutomationRunContext(prompt: string, run: AutomationRun): string {
   const header = [
     'This is an automation run.',
@@ -69,7 +94,19 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * cannot create or trigger more automations. This is the Phase 1 fork-bomb guard.
  */
 export async function triggerAutomationRun(automation: Automation): Promise<AutomationRun> {
-  const run = await startRun(automation.id)
+  // One run per automation at a time. Overlapping unattended runs of the same
+  // automation would race on the same working directory; callers (scheduler,
+  // tools, RPC) check hasActiveRun first — this throw is the backstop.
+  if (hasActiveRun(automation.id)) {
+    throw new Error(`Automation "${automation.name}" already has a run in progress.`)
+  }
+  pendingTriggers.add(automation.id)
+  let run: AutomationRun
+  try {
+    run = await startRun(automation.id)
+  } finally {
+    pendingTriggers.delete(automation.id)
+  }
   const entry: ActiveRun = {
     automationId: automation.id,
     abort: new AbortController(),
@@ -127,7 +164,10 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
         log.info(`Automation ${automation.id} run ${runId} cancelled`)
         return
       }
-      await finishRun(automation.id, runId, { status: 'succeeded', output: `Ran in session ${action.sessionId}.`, agentSessionId: action.sessionId })
+      // 'dispatched', not 'succeeded': the prompt was handed to the thread, but
+      // the thread's turn owns the real outcome — don't claim a success we
+      // never observed.
+      await finishRun(automation.id, runId, { status: 'dispatched', output: `Dispatched into session ${action.sessionId}; the outcome lives in that chat thread.`, agentSessionId: action.sessionId })
       log.info(`Automation ${automation.id} run ${runId} dispatched into session ${action.sessionId}`)
       return
     }
@@ -137,10 +177,12 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // directory. A failure here surfaces as a failed run rather than silently
     // mutating the user's tree. No model-backed namer is available in the
     // headless runner, so the branch name falls back to a prompt slug.
-    let cwd = action.cwd
+    let cwd = expandHome(action.cwd)
+    let branch: string | undefined
     if (action.useWorktree) {
-      const gitContext = await createWorktree(action.cwd, action.prompt)
-      cwd = gitContext.worktreePath ?? action.cwd
+      const gitContext = await createWorktree(cwd, action.prompt)
+      branch = gitContext.branch
+      cwd = gitContext.worktreePath ?? cwd
     }
 
     // Expand any plan/work references into context blocks. Files (@) and skills
@@ -162,7 +204,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // A cancelled run that still returned (Claude resolves on SIGINT rather than
     // throwing) is terminal as 'cancelled', not a partial success.
     if (entry.cancelled) {
-      await finishRun(automation.id, runId, { status: 'cancelled', output: text, agentSessionId: sessionId })
+      await finishRun(automation.id, runId, { status: 'cancelled', output: text, agentSessionId: sessionId, branch })
       log.info(`Automation ${automation.id} run ${runId} cancelled`)
       return
     }
@@ -171,6 +213,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       status: 'succeeded',
       output: text,
       agentSessionId: sessionId,
+      branch,
     })
     log.info(`Automation ${automation.id} run ${runId} succeeded (session ${sessionId})`)
   } catch (err: any) {

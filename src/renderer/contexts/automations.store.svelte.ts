@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger } from '../../shared/types'
+import type { Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger } from '../../shared/types'
 
 // Renderer-side cache + RPC wrapper for automations. Mirrors WorksStore: the UI
 // reads reactive state here and calls these methods, which forward to the same
@@ -38,6 +38,34 @@ export class AutomationsStore {
     const i = this.items.findIndex((x) => x.id === a.id)
     if (i === -1) this.items.unshift(a)
     else this.items[i] = a
+  }
+
+  /** Apply a pushed `automations-changed` event from main. This is how the UI
+   *  learns about background activity (scheduler fires, run transitions, agent
+   *  tool saves) without polling; RPC-initiated mutations also echo here, which
+   *  the upsert absorbs idempotently. */
+  applyChange(event: AutomationsChangedEvent): void {
+    if (event.kind === 'deleted') {
+      const i = this.items.findIndex((a) => a.id === event.automationId)
+      if (i !== -1) this.items.splice(i, 1)
+      this.runs.delete(event.automationId)
+      return
+    }
+    // Don't resurrect a row the user just soft-deleted (its undo window is
+    // still open; commit/restore owns its fate).
+    if (this.pendingDelete?.automation.id === event.automation.id) return
+    this.upsert(event.automation)
+    if (event.kind === 'run-started' || event.kind === 'run-finished') {
+      const existing = this.runs.get(event.automation.id)
+      if (!existing) return // history not loaded for this row; loaded lazily on demand
+      const i = existing.findIndex((r) => r.id === event.run.id)
+      if (i === -1) this.runs.set(event.automation.id, [event.run, ...existing])
+      else {
+        const next = existing.slice()
+        next[i] = event.run
+        this.runs.set(event.automation.id, next)
+      }
+    }
   }
 
   async create(
