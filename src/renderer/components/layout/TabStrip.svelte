@@ -14,6 +14,7 @@
     ClockIcon,
     CaretLeftIcon,
     CaretRightIcon,
+    ColumnsIcon,
     GitForkIcon,
     TreeStructureIcon,
     FunnelSimpleIcon,
@@ -321,6 +322,11 @@
   async function continueWorktreeFromContextMenu(tabId: string) {
     closeContextMenu();
     await session.continueInWorktree(tabId);
+  }
+
+  function openInSplitFromContextMenu(tabId: string) {
+    closeContextMenu();
+    session.openTabInSplit(tabId);
   }
 
   function closeFromContextMenu(tabId: string) {
@@ -748,6 +754,16 @@
         </button>
       {/if}
       <div class="tab-ctx-sep"></div>
+    {/if}
+    {#if variant === "editor"}
+      <button
+        class="tab-ctx-item"
+        role="menuitem"
+        onclick={() => openInSplitFromContextMenu(contextMenu!.tabId)}
+      >
+        <ColumnsIcon size={12} />
+        <span>Open in Split</span>
+      </button>
     {/if}
     <button
       class="tab-ctx-item tab-ctx-item-danger"

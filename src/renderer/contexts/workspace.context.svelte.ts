@@ -250,10 +250,21 @@ export class WorkspaceContext {
     if (this.artifactViewer.primary.kind === 'review') {
       this.artifactViewer.primary = { kind: 'conversation' }
     }
+    // A chat pinned in the split can't also be the primary conversation —
+    // activating it promotes it back to a plain tab.
+    const secondary = this.artifactViewer.secondary
+    if (secondary.kind === 'conversation' && secondary.tabId === tabId) {
+      this.artifactViewer.closeSecondary()
+    }
   }
 
   private isTabVisible(tabId: string): boolean {
-    return tabId === this.activeTabId && (this.window.viewMode === 'editor' || this.window.isWeb || this.isExpanded)
+    const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
+    // A chat pinned in the split pane is on screen too — but only in editor/web,
+    // where the secondary pane actually renders.
+    const secondary = this.artifactViewer.secondary
+    if (editorLike && secondary.kind === 'conversation' && secondary.tabId === tabId) return true
+    return tabId === this.activeTabId && (editorLike || this.isExpanded)
   }
 
   private resetOverlays(opts: { closeArtifactViewer?: boolean } = {}): void {
@@ -624,6 +635,33 @@ export class WorkspaceContext {
     }
   }
 
+  /**
+   * Pin a chat into the secondary pane beside the primary conversation.
+   * Splitting the active tab first activates its nearest neighbour (or a fresh
+   * tab when it's the only one) so the same chat isn't rendered twice — the
+   * pool and the split pane are separate ConversationView instances.
+   */
+  openTabInSplit(tabId: string): void {
+    const tab = this.tabs[tabId]
+    if (!tab) return
+    if (tabId === this.activeTabId) {
+      const others = this.tabOrder.filter((id) => id !== tabId && this.tabs[id])
+      if (others.length === 0) {
+        this.createTabFromDefaults()
+      } else {
+        const splitIdx = this.tabOrder.indexOf(tabId)
+        this.selectTab(others.reduce((best, id) => {
+          const idxA = this.tabOrder.indexOf(id)
+          const idxB = this.tabOrder.indexOf(best)
+          return Math.abs(idxA - splitIdx) < Math.abs(idxB - splitIdx) ? id : best
+        }))
+      }
+    }
+    tab.hasUnread = false
+    this.artifactViewer.moveToSecondary({ kind: 'conversation', tabId })
+    requestInputFocus()
+  }
+
   async toggleViewMode(): Promise<void> {
     const currentMode = this.window.viewMode
     const newMode = currentMode === 'pill' ? 'editor' : 'pill'
@@ -663,6 +701,10 @@ export class WorkspaceContext {
 
   closeTab(tabId: string): void {
     window.solus.closeTab(this.ctxFor(tabId))
+    const splitContent = this.artifactViewer.secondary
+    if (splitContent.kind === 'conversation' && splitContent.tabId === tabId) {
+      this.artifactViewer.closeSecondary()
+    }
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
     const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
@@ -933,13 +975,15 @@ export class WorkspaceContext {
       })
   }
 
-  sendMessage(prompt: string, projectPath?: string): void {
-    if (this.tabOrder.length === 0) {
+  /** Sends to the active tab unless `tabId` targets another one (the split
+   *  conversation pane's composer). */
+  sendMessage(prompt: string, projectPath?: string, tabId?: string): void {
+    if (!tabId && this.tabOrder.length === 0) {
       this.createTabFromDefaults()
     }
-    const { activeTabId } = this
-    const tab = this.tabs[activeTabId]
-    const session = this.sessionFor(activeTabId)
+    const targetTabId = tabId ?? this.activeTabId
+    const tab = this.tabs[targetTabId]
+    const session = this.sessionFor(targetTabId)
     if (!tab || !session) return
     if (session.status === 'connecting') return
     if (session.readOnlyReason) return
@@ -976,7 +1020,7 @@ export class WorkspaceContext {
       input.attachments = []
       input.planRefs = []
       input.workRefs = []
-      this.promptTab(activeTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
+      this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
       return
     }
 
@@ -1007,7 +1051,7 @@ export class WorkspaceContext {
       session.messages.push(userMsg)
     }
 
-    this.promptTab(activeTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
+    this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
   }
 
   retryLastMessage(tabId: string): void {

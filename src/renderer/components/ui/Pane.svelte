@@ -19,6 +19,7 @@
   import PrReviewPane from '../pr-review/PrReviewPane.svelte'
   import PrReviewSkeleton from '../pr-review/PrReviewSkeleton.svelte'
   import AutomationBuilder from '../automations/AutomationBuilder.svelte'
+  import ConversationPane from '../conversation/ConversationPane.svelte'
   import TasksPage from '../tasks/TasksPage.svelte'
   import PrsPage from '../prs/PrsPage.svelte'
   import SettingsPage from '../settings/SettingsPage.svelte'
@@ -359,6 +360,10 @@
     file={content.file}
     onClose={() => av.closeSlot(slot)}
   />
+{:else if content.kind === 'conversation' && content.tabId}
+  <!-- A chat pinned beside the primary conversation. Only ever reaches the
+       secondary slot: a primary conversation renders through the pool. -->
+  <ConversationPane tabId={content.tabId} onClose={() => av.closeSlot(slot)} />
 {:else if isPageContent(content)}
   {@const Page = PAGE_COMPONENTS[content.kind]}
   <!-- Pages size themselves with `flex-1` (they used to be children of the

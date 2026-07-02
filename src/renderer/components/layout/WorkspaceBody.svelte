@@ -242,6 +242,12 @@
         av.moveToOppositeSlot(av.primary, "primary");
       } else if (isMovableContent(av.secondary)) {
         av.moveToOppositeSlot(av.secondary, "secondary");
+      } else if (av.secondary.kind === "conversation" && av.secondary.tabId) {
+        // Toggle off: promote the split chat back to the main view.
+        session.selectTab(av.secondary.tabId);
+      } else if (av.primary.kind === "conversation" && tab) {
+        // Plain conversation: split the active chat off to the side.
+        session.openTabInSplit(tab.id);
       } else {
         return;
       }
