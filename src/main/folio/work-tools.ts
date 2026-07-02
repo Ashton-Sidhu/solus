@@ -186,6 +186,19 @@ export async function executeWorkTool(
       const existing = await loadWork(workId, deps.ctx?.cwd)
       if (!existing) return { ok: false, text: `No work found with id "${workId}".` }
 
+      // Same guard as create_work: a malformed diagram update would otherwise
+      // overwrite good content and render as a silently blank canvas.
+      if (existing.type === 'diagram') {
+        try {
+          parseDiagram(content)
+        } catch (err: any) {
+          return {
+            ok: false,
+            text: `Invalid diagram content: ${String(err?.message ?? err)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`,
+          }
+        }
+      }
+
       const preview = workPreview(existing.type, content)
       const saved = await agentSaveWork(workId, { content, preview, ...(title !== undefined ? { title } : {}) }, deps.ctx?.cwd)
 
