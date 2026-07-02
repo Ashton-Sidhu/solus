@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import Icon from '@iconify/svelte'
   import { ICON_SVG, isIconifyName, CURATED_ICONS } from './diagram-icons'
-  import { ensureIconCollections } from '../diagram/iconify'
+  import { ensureIconCollections } from './iconify'
 
   // Code-split, idempotent brand-icon registration (see DiagramNode).
   ensureIconCollections()
@@ -27,10 +28,20 @@
   let query = $state('')
   let results = $state<string[]>([])
   let searching = $state(false)
+  // True when the last search failed (offline, API error) — distinct from a
+  // genuine empty result so the user isn't told "no icons found" while offline.
+  let searchFailed = $state(false)
   let searchInput: HTMLInputElement | undefined
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   let activeController: AbortController | undefined
+
+  // A drawer close mid-search must not leave a timer poised to fire or a fetch
+  // in flight against a torn-down component.
+  onDestroy(() => {
+    clearTimeout(debounceTimer)
+    activeController?.abort()
+  })
 
   const hasQuery = $derived(query.trim().length >= 2)
 
@@ -60,6 +71,7 @@
     const controller = new AbortController()
     activeController = controller
     searching = true
+    searchFailed = false
     fetch(
       `https://api.iconify.design/search?query=${encodeURIComponent(q)}&limit=${SEARCH_LIMIT}`,
       { signal: controller.signal },
@@ -75,6 +87,7 @@
         if (controller.signal.aborted) return
         results = []
         searching = false
+        searchFailed = true
       })
   }
 
@@ -170,6 +183,13 @@
       </div>
     {:else if searching}
       <div class="icon-picker__status" role="status">Searching…</div>
+    {:else if searchFailed}
+      <div class="icon-picker__status icon-picker__status--error" role="status">
+        Icon search unavailable — check your connection.
+        <button type="button" class="icon-picker__retry" onclick={() => runSearch(query)}>
+          Retry
+        </button>
+      </div>
     {:else}
       <div class="icon-picker__status">No icons found for “{query.trim()}”</div>
     {/if}
@@ -314,5 +334,26 @@
     text-align: center;
     font-size: 0.6875rem;
     color: var(--solus-text-tertiary);
+  }
+
+  .icon-picker__status--error {
+    color: var(--solus-status-error);
+  }
+
+  .icon-picker__retry {
+    margin-left: 0.25rem;
+    border: none;
+    background: transparent;
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: inherit;
+    font-weight: 600;
+    color: var(--solus-accent);
+    cursor: pointer;
+    transition: background var(--duration-quick) var(--ease-premium);
+  }
+
+  .icon-picker__retry:hover {
+    background: var(--solus-accent-light);
   }
 </style>
