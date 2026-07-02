@@ -140,6 +140,10 @@ function saveAppShortcuts(shortcuts: AppGlobalShortcuts): void {
  * Unregister the previous summon accelerators and register the new ones.
  * Returns the accelerators that failed to register (caller offers a restart).
  * Only the two summon accelerators are touched — no other globalShortcut state.
+ *
+ * Each key has a dedicated window: primary always toggles the pill (the
+ * assistant summon), secondary always toggles the editor. Deterministic —
+ * what a key does never depends on which window the user last touched.
  */
 function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: string[] } {
   const prevAccels = [
@@ -151,11 +155,15 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: strin
   }
 
   const failed: string[] = []
-  for (const combo of [shortcuts.primary, shortcuts.secondary]) {
+  const bindings: Array<[AppShortcutCombo, (accel: string) => void]> = [
+    [shortcuts.primary, (accel) => togglePillWindow(`shortcut ${accel}`)],
+    [shortcuts.secondary, (accel) => toggleEditorWindow(`shortcut ${accel}`)],
+  ]
+  for (const [combo, handler] of bindings) {
     const accel = comboToAccelerator(combo)
     if (!accel) { failed.push(combo.code); continue }
     try {
-      const ok = globalShortcut.register(accel, () => toggleWindow(`shortcut ${accel}`))
+      const ok = globalShortcut.register(accel, () => handler(accel))
       if (!ok) {
         log.warn(`Global shortcut "${accel}" registration failed — another app may claim it`)
         failed.push(accel)
@@ -289,18 +297,6 @@ function setPillWindowLevel(active: boolean): void {
   }
 }
 
-function applyViewMode(mode: 'pill' | 'editor'): void {
-  if (!isLive(mainWindow)) return
-
-  currentViewMode = mode
-  saveWindowState({ lastViewMode: mode })
-  setPillWindowLevel(true)
-
-  if (mode === 'editor') {
-    focusPillWindow()
-  }
-}
-
 function focusPillWindow(): void {
   if (!isLive(mainWindow)) return
   setPillWindowLevel(true)
@@ -419,7 +415,9 @@ function createPillWindow(): void {
   }
 
   mainWindow.once('ready-to-show', () => {
-    if (!isTestMode) mainWindow?.show()
+    // When the app last ran in editor mode, boot straight to the editor window
+    // (created in whenReady) and keep the pill loaded-but-hidden for instant summon.
+    if (!isTestMode && windowState.lastViewMode !== 'editor') mainWindow?.show()
     booted?.server.broadcast('window-shown', windowCursorRelative())
     if (!isTestMode) {
       void warmupTranscription()
@@ -569,19 +567,12 @@ function hideEditorWindow(): void {
   if (process.platform === 'darwin' && !isAppVisible()) app.hide()
 }
 
-/** Summon shortcut / tray / dock-activate entry point: toggles the window for
- *  the current mode, so summon works no matter which surface the user last used. */
-function toggleWindow(source = 'unknown'): void {
+/** Primary summon key: always the pill. Summoning over a visible editor works —
+ *  the pill floats above it, which is the assistant-over-workspace flow. */
+function togglePillWindow(source = 'unknown'): void {
   if (hiddenUntilTrayShow) return
-
-  if (currentViewMode === 'editor' && isLive(editorWindow)) {
-    const shouldHide = editorWindow.isVisible() && (editorWindow.isFocused() || editorWindow.webContents.isFocused())
-    if (shouldHide) hideEditorWindow()
-    else showEditorWindow()
-    return
-  }
-
   if (!mainWindow) return
+
   const toggleId = ++toggleSequence
   if (SPACES_DEBUG) {
     log.debug(`[spaces] toggle#${toggleId} source=${source} start`)
@@ -595,6 +586,19 @@ function toggleWindow(source = 'unknown'): void {
   } else {
     showPillWindow(source)
   }
+}
+
+/** Secondary summon key: always the editor, creating it on first use.
+ *  Visible-but-unfocused means focus it, not hide it. */
+function toggleEditorWindow(_source = 'unknown'): void {
+  if (hiddenUntilTrayShow || isTestMode) return
+  if (!isLive(editorWindow)) {
+    createEditorWindow() // shows + focuses on ready-to-show
+    return
+  }
+  const shouldHide = editorWindow.isVisible() && (editorWindow.isFocused() || editorWindow.webContents.isFocused())
+  if (shouldHide) hideEditorWindow()
+  else showEditorWindow()
 }
 
 /** Tray "Show Solus" / app activate: surface the current mode's window. */
@@ -845,7 +849,6 @@ if (isPairUrl) {
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
-      applyViewMode,
       switchMode,
       getAppGlobalShortcuts: () => currentAppShortcuts,
       setAppGlobalShortcuts: (shortcuts) => {
@@ -889,21 +892,23 @@ if (isPairUrl) {
       })
 
       // Track the last-focused Solus window for dialog/capture targeting.
-      // The editor window's focus also flips the mode so the summon shortcut
-      // targets the surface the user last touched. Focusing the pill window
-      // does NOT flip to 'pill' yet: until the renderer bootstraps per-window
-      // modes (?mode=), the pill window still hosts both layouts and the
-      // renderer drives the mode via notifyViewMode.
+      // Each window is mode-locked (?mode= at load), so focus is the mode:
+      // tray/dock-activate and next boot follow the surface last touched.
       app.on('browser-window-focus', (_e, win) => {
         if (!allWindows().includes(win)) return
         lastFocusedWindow = win
-        if (win === editorWindow) {
-          currentViewMode = 'editor'
-          saveWindowState({ lastViewMode: 'editor' })
+        const mode = win === editorWindow ? 'editor' : 'pill'
+        if (mode !== currentViewMode) {
+          currentViewMode = mode
+          saveWindowState({ lastViewMode: mode })
         }
       })
 
       createPillWindow()
+      if (!isTestMode && windowState.lastViewMode === 'editor') {
+        currentViewMode = 'editor'
+        createEditorWindow()
+      }
       snapshotWindowState('after createWindow')
       initAutoUpdater(() => { forceQuit = true })
 

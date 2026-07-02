@@ -70,9 +70,11 @@
     keybindings,
   } = createAppCore();
 
-  // Electron-only: analytics is desktop-side.
+  // Electron-only: analytics is desktop-side. appOpened fires from the pill
+  // window only — it's the boot window, so this counts once per app open even
+  // when the editor window is also up.
   initAnalytics(settings.analyticsEnabled);
-  analytics.appOpened();
+  if (windowCtx.viewMode === "pill") analytics.appOpened();
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
@@ -146,10 +148,6 @@
     );
   });
 
-  if (windowCtx.viewMode === "editor") {
-    window.solus.notifyViewMode("editor");
-  }
-
   setupAgentEvents(session);
   // Refresh the key the project panel reads: the worktree path when the tab has one.
   session.onTurnSettled = (tabId, cwd) => {
@@ -184,20 +182,11 @@
   const taskComposer = $derived(session.ui.taskComposer);
 
   const isExpanded = $derived(session.isExpanded);
+  // Each Electron window is mode-locked (`?mode=` in its URL), so exactly one
+  // layout mounts for the window's lifetime — no dual trees, no display:none
+  // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
-
-  // Lazy-mount: only create the inactive layout's DOM subtree (and its full
-  // ConversationView pool) the first time the user switches to that mode.
-  // This halves the number of live component trees at 20 tabs from ~40 to ~20.
-  // Read windowCtx.viewMode directly here (not the $derived) to avoid a Svelte
-  // warning about capturing a derived's initial value in a $state initializer.
-  let hasMountedEditor = $state(windowCtx.viewMode === "editor");
-  let hasMountedPill = $state(windowCtx.viewMode !== "editor");
-  $effect(() => {
-    if (isEditorMode) hasMountedEditor = true;
-    else hasMountedPill = true;
-  });
   const activeTabId = $derived(session.activeTabId);
   // status/provider live on Session, not Tab — reading them off the tab always
   // yielded undefined, so isRunning was permanently false and the run-gated
@@ -242,6 +231,9 @@
   });
 
   $effect(() => {
+    // Click-through only applies to the pill window's transparent canvas; the
+    // editor is an opaque, normal OS window.
+    if (isEditorMode) return;
     if (!window.solus?.setIgnoreMouseEvents) return;
     let lastIgnored: boolean = true;
     window.solus.setIgnoreMouseEvents(true, { forward: true });
@@ -963,12 +955,10 @@
       session.addAttachments([attachment]);
     }
     designModeScreenshot = null;
-    window.solus.notifyViewMode(windowCtx.viewMode);
   }
 
   function handleDesignCancel() {
     designModeScreenshot = null;
-    window.solus.notifyViewMode(windowCtx.viewMode);
   }
 
   async function cycleAgentProvider() {
@@ -1101,22 +1091,16 @@
   style="position:fixed;inset:0;z-index:10010;pointer-events:none"
 ></div>
 
-{#if hasMountedEditor}
-  <div
-    class="flex h-full w-full items-center justify-center mode-shell click-through-shell"
-    class:mode-hidden={!isEditorMode}
-    style="background:transparent;"
-  >
+{#if isEditorMode}
+  <div class="mode-shell h-full w-full">
     <EditorLayout
       onAttachFile={handleAttachFile}
       onScreenshot={handleScreenshot}
       onDesignMode={handleDesignMode}
     />
   </div>
-{/if}
-
-{#if hasMountedPill}
-  <div class="mode-shell" class:mode-hidden={isEditorMode}>
+{:else}
+  <div class="mode-shell">
     <PillLayout
       onAttachFile={handleAttachFile}
       onScreenshot={handleScreenshot}
@@ -1182,10 +1166,6 @@
 {/if}
 
 <style>
-  .mode-hidden {
-    display: none !important;
-  }
-
   .drop-overlay {
     position: fixed;
     inset: 0;

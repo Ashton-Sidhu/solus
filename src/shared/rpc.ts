@@ -15,7 +15,6 @@ export const RPC_INVOKE_METHODS = [
   // Lifecycle / window
   'start',
   'isVisible',
-  'notifyViewMode',
   'switchMode',
   'getAppGlobalShortcuts',
   'setAppGlobalShortcuts',
