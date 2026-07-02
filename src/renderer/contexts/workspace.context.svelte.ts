@@ -15,6 +15,7 @@ import { toasts } from './toast.store.svelte'
 import { PaneViewStore, type SplitOpenOptions } from './pane-view.store.svelte'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { WorkspaceUiStore, type SettingsTab } from './workspace-ui.store.svelte'
+import { writeSessionHandoff } from './active-session-pointer'
 import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
 import { TabRegistry } from './tab-registry.svelte'
@@ -624,9 +625,23 @@ export class WorkspaceContext {
     }
   }
 
-  /** Surfaces the other mode's OS window; this window keeps its own mode. */
+  /** Surfaces the other mode's OS window; this window keeps its own mode.
+   *  Toggling pill→editor carries the active session so the editor continues
+   *  it (the pill picks editor sessions up automatically via the ambient
+   *  pointer on summon, so the reverse direction needs no handoff). */
   async toggleViewMode(): Promise<void> {
     const newMode = this.window.viewMode === 'pill' ? 'editor' : 'pill'
+    if (newMode === 'editor') {
+      const sess = this.activeSession
+      if (sess?.agentSessionId) {
+        writeSessionHandoff({
+          sessionId: sess.agentSessionId,
+          provider: sess.provider ?? this.settings.activeAgent,
+          cwd: sess.workingDirectory,
+          title: this.activeTab?.title ?? null,
+        })
+      }
+    }
     analytics.modeToggled({ mode: newMode })
     await this.window.setViewMode(newMode)
   }

@@ -128,29 +128,45 @@ the web client attaching to a running session today.
 - This phase must land **with or before** Phase 1 being enabled by default — two windows
   writing one key clobber each other (the debounced writer assumes a single writer).
 
-## Phase 4 — Active-session pointer + pill pickup
+## Phase 4 — Active-session pointer + pill pickup ✅ (landed)
 
-1. **Write** (`workspace.context.svelte.ts`): on `setActiveTab` and on prompt send,
-   persist `solus-active-session: { sessionId, provider, workingDirectory, updatedAt }`.
-   Both windows write it; last-focused wins by construction.
-2. **Read** (pill only): on `onWindowShown` (the summon moment — pull semantics,
-   decision #5):
-   - pointer's session already open in a pill tab → `selectTab` + expand;
-   - not open → create a tab attached to that `agentSessionId` via the existing
-     resume/history path (`session-bootstrap.ts` / session-picker open flow), which
-     already handles load-then-splice-live-stream;
-   - pointer written by the pill itself (same window) → no-op guard.
-3. No polling: the `storage` event fires across same-origin windows for free if we later
-   want the pill to react while visible; v1 only needs the summon check.
+Implementation (`contexts/active-session-pointer.ts` + `App.svelte` wiring):
 
-## Phase 5 — Shrink + polish (optional, after v1 settles)
+1. **Write** (both windows): a focus-gated `$effect` records
+   `solus-active-session: { sessionId, provider, cwd, title, writer, updatedAt }`
+   whenever the focused window's active tab has a bound agent session. Focus
+   gating means a background window's boot/hydration never clobbers the
+   foreground's writes; `writer` records which mode wrote it.
+2. **Read** (pill only, pull semantics): on a hidden→visible transition
+   (`visibilitychange`, i.e. summon) plus one post-hydration boot check — never
+   on focus/click of an already-visible pill, so the tab is never yanked while
+   the user is looking at it. Picks up only pointers with `writer: 'editor'`,
+   and each `updatedAt` stamp is handled at most once, so pill-side tab
+   switches aren't re-overridden by a stale pointer.
+3. **Attach** reuses `resumeSession` (history load + live-stream splice); an
+   already-open session is focused instead.
 
-- Shrink the pill window to pill max bounds (bottom-center of cursor display), keeping
-  click-through only for its transparent margins — cuts the composited surface from the
-  whole work area to a strip (decision #10 deferred this).
-- Revisit `backgroundThrottling` for hidden windows (rAF pause conveniently stops the
-  typewriter loop; verify notification sounds/unread still behave).
-- "Continue in editor" affordance in the pill (decision #6).
+## Phase 5 — Polish ✅ (landed, one item deferred)
+
+- **Dock item (macOS)**: the app still boots dock-hidden (pill = menu-bar-style
+  overlay), but the Dock icon appears while the editor window is visible and
+  goes away when it hides. Dock click → app `activate` → current mode's window.
+- **"Continue in editor"** (decision #6): the pill→editor mode-toggle carries
+  the active session via a one-shot `solus-session-handoff` key (30s TTL); the
+  editor consumes it on mount or via the cross-window `storage` event and
+  focuses-or-resumes that session. Editor→pill needs no handoff — the ambient
+  pointer covers it.
+- **`backgroundThrottling`**: left at Electron's default (on). A hidden window's
+  rAF pauses (stopping the typewriter loop for free); server-pushed IPC events
+  still deliver, so unread/notification behavior is unaffected.
+- **Pill window shrink — deferred deliberately.** Three couplings make it a
+  visual-verification job, not a headless one: (a) pill sizing CSS derives from
+  `window.innerWidth`, so shrinking the window to CSS-derived bounds is
+  circular — sizing must move to main or the CSS must become fill-window;
+  (b) `DesignAnnotation` needs the full work area, so design mode would have to
+  grow/restore the window bounds around capture; (c) centered modals
+  (DirectoryPicker, shortcuts) would render inside the strip. Do it in a
+  session where the app can actually be run.
 
 ---
 
@@ -163,7 +179,9 @@ the web client attaching to a running session today.
 | Mode-toggle key (⌥⇧E), other window hidden | Show+focus other window, hide current |
 | Mode-toggle key, both visible | Focus the other window |
 | Start run in editor → summon pill | Pill opens showing that session, live-streaming (pointer + attach) |
-| Close editor via traffic light | Window hides; tabs/state preserved; reopen instant |
+| Toggle pill→editor on a session | Editor opens/focuses that session (one-shot handoff) |
+| Close editor via traffic light | Window hides; Dock icon disappears; tabs/state preserved; reopen instant |
+| Editor window visible | App has a macOS Dock icon; pill-only keeps the app out of the Dock |
 | Click outside pill | Pill drops always-on-top on blur (unchanged) |
 | Close tab in one window | No effect on the other window's tabs (independent views; session lives on backend) |
 
