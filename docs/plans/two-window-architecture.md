@@ -46,7 +46,7 @@ the web client attaching to a running session today.
 
 ---
 
-## Phase 1 — Main process: window registry + editor window
+## Phase 1 — Main process: window registry + editor window ✅ (landed)
 
 `src/main/index.ts` (~65 `mainWindow` references to audit).
 

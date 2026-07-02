@@ -177,6 +177,9 @@ export interface SolusAPI {
   isVisible(ctx?: IpcContext): Promise<boolean>
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
   notifyViewMode(mode: 'pill' | 'editor'): Promise<void>
+  /** Switch to the given mode's window (toggles when omitted). Shows/creates the
+   *  target window and hides the current one unless both were visible. */
+  switchMode(mode?: 'pill' | 'editor'): Promise<void>
   getAppGlobalShortcuts(): Promise<AppGlobalShortcuts>
   setAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): Promise<SetAppGlobalShortcutsResult>
   restartApp(): Promise<void>

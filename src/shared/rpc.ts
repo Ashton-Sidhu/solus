@@ -16,6 +16,7 @@ export const RPC_INVOKE_METHODS = [
   'start',
   'isVisible',
   'notifyViewMode',
+  'switchMode',
   'getAppGlobalShortcuts',
   'setAppGlobalShortcuts',
   'restartApp',
