@@ -217,6 +217,7 @@ export const RPC_TOPICS = [
   'session-scan',
   'run-status',
   'run-log',
+  'automations-changed',
   'provider-device-code',
   'review-progress',
 ] as const

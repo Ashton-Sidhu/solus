@@ -576,7 +576,7 @@
       weight="fill"
       class="shrink-0 text-(--solus-status-error)"
     />
-  {:else if a.lastRunStatus === "succeeded"}
+  {:else if a.lastRunStatus === "succeeded" || a.lastRunStatus === "dispatched"}
     <CheckCircleIcon
       size={13}
       weight="fill"
