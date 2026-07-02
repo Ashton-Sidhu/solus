@@ -125,7 +125,7 @@
 
   const openedTime = $derived(
     detail
-      ? formatTimeAgoFromTimestamp(new Date(detail.updatedAt).getTime())
+      ? formatTimeAgoFromTimestamp(new Date(detail.createdAt).getTime())
       : null,
   );
   // The commit group is stamped with its most recent commit, like GitHub's "added N commits".
@@ -136,6 +136,14 @@
         )
       : null,
   );
+  // Attribute the commit group to who actually authored the commits, not the
+  // PR author (forks and co-authored branches routinely differ).
+  const commitsAuthorLabel = $derived.by(() => {
+    const authors = [...new Set(commits.map((c) => c.author))].filter(Boolean);
+    if (authors.length === 0) return detail?.author ?? pr.owner;
+    if (authors.length === 1) return authors[0];
+    return `${authors[0]} and ${authors.length - 1} other${authors.length > 2 ? "s" : ""}`;
+  });
   const hasTimelineAfterOpened = $derived(
     commits.length > 0 || threads.length > 0 || posted.length > 0,
   );
@@ -236,7 +244,9 @@
   }
 
   // The Refresh button reloads this tab's data and the parent-owned threads.
-  function refresh() {
+  // Exported so the host can force a reload after submitting a review — the
+  // just-posted comments/review state should appear without a manual refresh.
+  export function refresh() {
     load(true);
     onRefreshThreads?.();
   }
@@ -301,13 +311,24 @@
         commitId: pr.headSha,
         comments: [],
       });
+      // "You", not the PR author — the viewer wrote this comment, and there is
+      // no viewer-identity API yet to resolve the real login.
       posted.push({
         id: crypto.randomUUID(),
-        author: detail?.author ?? "You",
+        author: "You",
         body,
         ts: Date.now(),
       });
       composer = "";
+      // Posting goes through the review API, so the viewer's review state may
+      // change — refresh the rail quietly (no full-tab reload).
+      const n = pr.number;
+      void session.prsStore
+        .loadReviewers(session.ctx, n, { force: true })
+        .then((r) => {
+          if (pr.number === n) reviewers = r;
+        })
+        .catch(() => {});
     } catch (err) {
       toasts.error(
         `Couldn't post comment: ${err instanceof Error ? err.message : String(err)}`,
@@ -506,7 +527,7 @@
               <div class="-mt-0.5 min-w-0 flex-1 pb-5">
                 <p class="text-[0.8125rem] text-(--solus-text-secondary)">
                   <span class="font-medium text-(--solus-text-primary)"
-                    >{detail?.author ?? pr.owner}</span
+                    >{commitsAuthorLabel}</span
                   >
                   added {commits.length}
                   {commits.length === 1
@@ -531,11 +552,6 @@
                         class="min-w-0 flex-1 truncate text-[0.8125rem] text-(--solus-text-secondary)"
                         >{commit.message}</span
                       >
-                      <span
-                        class="inline-flex shrink-0 items-center gap-1 text-(--solus-art-positive)"
-                      >
-                        <CheckCircleIcon size={13} weight="fill" />
-                      </span>
                       <code
                         class="shrink-0 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
                         >{commit.sha.slice(0, 7)}</code

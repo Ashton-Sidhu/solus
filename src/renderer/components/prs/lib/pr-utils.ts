@@ -10,7 +10,10 @@ export function filterPrs(
 ): PullRequestSummary[] {
   const q = query.trim().toLowerCase()
   return items.filter((pr) => {
-    if (stateFilter !== 'all' && pr.state !== stateFilter) return false
+    // "Closed" includes merged: the server's closed fetch returns merged PRs
+    // (remapped to state 'merged'), and the tab counts group them as closed.
+    if (stateFilter === 'open' && pr.state !== 'open') return false
+    if (stateFilter === 'closed' && pr.state === 'open') return false
     if (!q) return true
     return (
       pr.title.toLowerCase().includes(q) ||

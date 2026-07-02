@@ -116,6 +116,17 @@
   const removeDraft = (id: string) => reviewDrafts.remove(id);
 
   let showSubmit = $state(false);
+  let activityFeedRef: ActivityFeed | null = $state(null);
+
+  // A submitted review creates threads and flips the viewer's review state —
+  // reload so the result is visible without a manual refresh. The feed's
+  // refresh() covers detail/reviewers and re-triggers loadThreads; when the
+  // Activity tab was never mounted, reload the shared threads directly.
+  function onReviewSubmitted() {
+    reviewDrafts.clear();
+    if (activityFeedRef) activityFeedRef.refresh();
+    else loadThreads();
+  }
 
   // Keep each visited tab mounted (DiffState / scroll / derived chains survive
   // toggles) and hide the inactive ones via display:none, per the Svelte perf rule.
@@ -298,6 +309,7 @@
     {#if mountedActivity}
       <div class="absolute inset-0" class:hidden={sub !== "activity"}>
         <ActivityFeed
+          bind:this={activityFeedRef}
           {pr}
           threads={reviewThreads}
           threadsFailed={threadsLoadFailed}
@@ -323,6 +335,6 @@
     {pr}
     {drafts}
     onClose={() => (showSubmit = false)}
-    onSubmitted={() => reviewDrafts.clear()}
+    onSubmitted={onReviewSubmitted}
   />
 {/if}
