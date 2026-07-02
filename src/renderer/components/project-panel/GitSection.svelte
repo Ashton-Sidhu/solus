@@ -361,6 +361,14 @@
   // an explicit second click before opening the companion in the main pane.
   let reviewing = $state(false);
   let reviewKey = $state<string | null>(null);
+
+  // The panel survives branch switches; a key latched for the previous branch
+  // would open that branch's guide. Reset so "View report" never crosses over.
+  $effect(() => {
+    void currentBranch;
+    reviewKey = null;
+  });
+
   let branchPickerOpen = $state(false);
   let branchTriggerEl: HTMLButtonElement | null = $state(null);
   let branchPickerRef: SearchablePickerList | null = $state(null);

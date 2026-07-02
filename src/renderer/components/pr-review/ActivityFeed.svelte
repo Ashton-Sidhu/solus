@@ -55,6 +55,7 @@
   let {
     pr,
     threads,
+    threadsFailed = false,
     onJump,
     onRefreshThreads,
   }: {
@@ -62,6 +63,8 @@
     /** Review threads, owned by the parent so the Diff tab and this timeline
      *  share one fetch (and one set of objects — reply/resolve mutate in place). */
     threads: ReviewThread[];
+    /** The parent's thread fetch failed — folded into this tab's error banner. */
+    threadsFailed?: boolean;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Refetch the shared threads (e.g. from this tab's Refresh button). */
@@ -81,6 +84,10 @@
   let commitsLoading = $state(true);
   let reviewersLoading = $state(true);
   let filesLoading = $state(true);
+  // Any of the four loads rejecting (expired token, network) flips this so the
+  // tab shows an explicit error + retry instead of masquerading as an empty PR.
+  let loadFailed = $state(false);
+  const anyLoadFailed = $derived(loadFailed || threadsFailed);
 
   // Comments posted from the composer this session — appended optimistically so
   // they show in the timeline even though listReviewThreads only returns inline
@@ -183,14 +190,19 @@
     commits = [];
     reviewers = [];
     changedFiles = [];
+    loadFailed = false;
     detailLoading = commitsLoading = reviewersLoading = filesLoading = true;
+
+    const failed = () => {
+      if (pr.number === n) loadFailed = true;
+    };
 
     session.prsStore
       .loadDetail(session.ctx, n, { force })
       .then((d) => {
         if (pr.number === n) detail = d;
       })
-      .catch(() => {})
+      .catch(failed)
       .finally(() => {
         if (pr.number === n) detailLoading = false;
       });
@@ -199,7 +211,7 @@
       .then((c) => {
         if (pr.number === n) commits = c;
       })
-      .catch(() => {})
+      .catch(failed)
       .finally(() => {
         if (pr.number === n) commitsLoading = false;
       });
@@ -208,7 +220,7 @@
       .then((r) => {
         if (pr.number === n) reviewers = r;
       })
-      .catch(() => {})
+      .catch(failed)
       .finally(() => {
         if (pr.number === n) reviewersLoading = false;
       });
@@ -217,7 +229,7 @@
       .then((f) => {
         if (pr.number === n) changedFiles = f;
       })
-      .catch(() => {})
+      .catch(failed)
       .finally(() => {
         if (pr.number === n) filesLoading = false;
       });
@@ -351,6 +363,26 @@
 {/snippet}
 
 <div class="h-full min-h-0 overflow-y-auto">
+    {#if anyLoadFailed}
+      <div class="mx-auto w-full max-w-[92rem] px-8 pt-4">
+        <div
+          class="flex items-center gap-2.5 rounded-lg border border-[color:color-mix(in_srgb,var(--solus-art-negative)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-art-negative)_8%,transparent)] px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary)"
+          role="alert"
+        >
+          <span class="min-w-0 flex-1 truncate">
+            Couldn't load some of this pull request's data. Check your connection or provider sign-in.
+          </span>
+          <button
+            type="button"
+            class="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-accent-light)"
+            onclick={refresh}
+          >
+            <ArrowsClockwiseIcon size={12} weight="bold" />
+            Retry
+          </button>
+        </div>
+      </div>
+    {/if}
     <div class="mx-auto flex w-full max-w-[92rem] gap-10 px-8 py-9">
       <!-- ── Main column: title, meta, description, activity, composer ── -->
       <main class="flex min-w-0 flex-1 flex-col">
