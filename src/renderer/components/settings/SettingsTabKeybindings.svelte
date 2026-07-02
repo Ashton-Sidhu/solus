@@ -155,8 +155,8 @@
   let appFailed = $state<{ primary: boolean; secondary: boolean }>({ primary: false, secondary: false });
 
   const APP_ROWS: { key: "primary" | "secondary"; label: string }[] = [
-    { key: "primary", label: "Show / hide Solus" },
-    { key: "secondary", label: "Show / hide Solus (alt)" },
+    { key: "primary", label: "Summon assistant (pill)" },
+    { key: "secondary", label: "Show / hide editor" },
   ];
 
   $effect(() => {

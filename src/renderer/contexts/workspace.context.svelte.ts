@@ -624,16 +624,9 @@ export class WorkspaceContext {
     }
   }
 
+  /** Surfaces the other mode's OS window; this window keeps its own mode. */
   async toggleViewMode(): Promise<void> {
-    const currentMode = this.window.viewMode
-    const newMode = currentMode === 'pill' ? 'editor' : 'pill'
-    if (newMode === 'editor') {
-      this.isExpanded = true
-      const { activeTabId } = this
-      if (this.tabs[activeTabId]) {
-        this.tabs[activeTabId].hasUnread = false
-      }
-    }
+    const newMode = this.window.viewMode === 'pill' ? 'editor' : 'pill'
     analytics.modeToggled({ mode: newMode })
     await this.window.setViewMode(newMode)
   }

@@ -53,7 +53,6 @@
     onToggleSidebar?: () => void;
     projectPanelOpen?: boolean;
     onToggleProjectPanel?: () => void;
-    onStartWindowDrag?: (e: MouseEvent) => void;
   }
 
   let {
@@ -63,7 +62,6 @@
     onToggleSidebar,
     projectPanelOpen = true,
     onToggleProjectPanel,
-    onStartWindowDrag,
   }: Props = $props();
 
   // The bar only hosts a panel toggle while that panel is COLLAPSED — it's the
@@ -328,14 +326,6 @@
     session.closeTab(tabId);
   }
 
-  function handleMouseDown(e: MouseEvent) {
-    e.stopPropagation();
-    if (variant !== "editor" || !onStartWindowDrag) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest("button,[role='tab']")) return;
-    onStartWindowDrag(e);
-  }
-
   // Edge fades appear only on the side that can actually scroll, so the masked
   // edge always sits under the arrow overlay (and the strip reads as flush when
   // nothing is hidden in that direction).
@@ -451,11 +441,9 @@
   {/if}
 {/snippet}
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="no-drag flex flex-col"
   class:editor-variant={variant === "editor"}
-  onmousedown={handleMouseDown}
 >
   <div class="tab-bar-row flex items-center" bind:this={barEl}>
     <div class="tab-seam" aria-hidden="true"></div>

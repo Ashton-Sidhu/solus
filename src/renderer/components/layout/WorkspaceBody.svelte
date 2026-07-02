@@ -37,9 +37,6 @@
     enableProjectPanel: boolean;
     /** Allow the floating run-log dock + its keybinding. */
     enableRunDock: boolean;
-    /** Optional window-drag hooks — the desktop shell passes these; web omits them. */
-    onStartWindowDrag?: (e: MouseEvent) => void;
-    onResetWindowPosition?: () => void;
     /** Action buttons + InputBar row (varies between editor and web). */
     inputRow: Snippet;
     /** Status bar contents (StatusBarControls, plus web extras). */
@@ -49,8 +46,6 @@
     active,
     enableProjectPanel,
     enableRunDock,
-    onStartWindowDrag,
-    onResetWindowPosition,
     inputRow,
     statusBar,
   }: Props = $props();
@@ -635,12 +630,7 @@
   </div>
 
   {#snippet dragBar()}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="drag-bar flex-shrink-0"
-      onmousedown={onStartWindowDrag}
-      ondblclick={onResetWindowPosition}
-    >
+    <div class="drag-bar flex-shrink-0">
       {#if !inputDockHidden}
         <TabStrip
           variant="editor"
@@ -651,13 +641,11 @@
           onToggleProjectPanel={enableProjectPanel
             ? toggleProjectPanel
             : undefined}
-          {onStartWindowDrag}
         />
       {:else}
-        <!-- Slim drag handle for full-page views (settings / plans / folio /
-             document). The frame-level expand controls now live inline in each
-             page's own header (see FrameExpandButton); this just preserves a
-             grabbable strip so the shell can still be moved. -->
+        <!-- Slim spacer for full-page views (settings / plans / folio /
+             document). The frame-level expand controls live inline in each
+             page's own header (see FrameExpandButton). -->
         <div class="page-drag-strip" aria-hidden="true"></div>
       {/if}
     </div>
@@ -838,7 +826,6 @@
   }
   .drag-bar {
     height: auto;
-    cursor: grab;
     flex-shrink: 0;
     position: relative;
   }

@@ -4,7 +4,6 @@ import type { AppGlobalShortcuts, SetAppGlobalShortcutsResult } from '../../../s
 export interface WindowDeps {
   /** Whether any Solus window (pill or editor) is currently visible. */
   isAppVisible(): boolean
-  applyViewMode(mode: 'pill' | 'editor'): void
   /** Show the given mode's window (toggles when omitted), hiding the other
    *  unless both were already visible. */
   switchMode(mode?: 'pill' | 'editor'): void
@@ -19,11 +18,6 @@ export interface WindowDeps {
 export function registerWindowHandlers(server: SolusServer, deps: WindowDeps): void {
   server.register('isVisible', () => {
     return deps.isAppVisible()
-  })
-
-  server.register('notifyViewMode', (args) => {
-    const [mode] = args as ['pill' | 'editor']
-    deps.applyViewMode(mode)
   })
 
   server.register('switchMode', (args) => {

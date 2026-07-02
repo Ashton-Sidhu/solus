@@ -23,8 +23,8 @@ during design discussion.
 | 4 | Cross-window shared state | **Exactly one key**: `solus-active-session` — the last active session id (+ cwd/provider). Written by the focused window; read via the same-origin `storage` event. No tab-snapshot sharing. |
 | 5 | Editor→pill pickup | **Automatic, pull-based.** On summon, the pill reads the pointer: tab exists → focus it (instant); no tab → attach once (existing history-load path), then it stays mounted. Never a cold reload. |
 | 6 | Pill→editor pickup | **Explicit affordance** ("continue in editor"), not automatic — the editor tab strip is a curated workspace. Follow-up, out of scope for v1. |
-| 7 | Keyboard summon | **Stays in main, works regardless of focus/mode.** Primary summon accelerator toggles the window for the current mode. Mode-toggle shows the other window. |
-| 8 | Coexistence | **Both windows may be visible at once.** Mode-toggle focuses the other window when both are up. `currentViewMode` = mode of the last-focused Solus window. |
+| 7 | Keyboard summon | **Dedicated key per window, both in main.** Primary (Alt+Space) always toggles the pill; secondary (⌘⇧K) always toggles the editor, creating it on first use. Deterministic — no mode inference. In-app mode-toggle (⌥⇧E) surfaces the other window via `switchMode`. |
+| 8 | Coexistence | **Both windows may be visible at once.** Mode-toggle focuses the other window when both are up. `currentViewMode` (last-focused window's mode) survives only as a soft default for tray "Show Solus", dock-activate, and next boot. |
 | 9 | Mode bootstrap | **`?mode=pill\|editor` URL param.** Each window mounts one layout; `WindowContext.viewMode` is fixed for the window's lifetime. Web client keeps its `matchMedia` behavior. |
 | 10 | Pill window bounds | **Unchanged in v1** (full work area, CSS-positioned pill) to keep the diff surgical. Shrinking to pill bounds is a separate optimization phase. |
 | 11 | Legacy tab migration | Existing `solus-open-tabs` seeds the **editor** store (it's the workspace); pill starts fresh. Legacy key deleted after migration. |
@@ -86,7 +86,16 @@ the web client attaching to a running session today.
 5. **`notifyViewMode`** becomes obsolete (window identity carries the mode). Remove the
    RPC and its startup call in `App.svelte:149-151` once Phase 2 lands.
 
-## Phase 2 — Renderer: one layout per window
+## Phase 2 — Renderer: one layout per window ✅ (landed)
+
+> Landed with three deltas from the sketch below: (a) summon keys became
+> per-window (decision #7 revised) and `notifyViewMode` was deleted outright;
+> (b) the editor's window-drag is a slim native drag strip under the macOS
+> traffic lights rather than an app-region tab strip (polish item later);
+> (c) pill→editor file-preview requests hop windows via a pending-key in
+> localStorage + `storage` event (`lib/filePreview.ts`) — the same mechanism
+> Phase 4's session pointer will use. Phase 3's key scoping landed alongside
+> (required before two live windows share localStorage).
 
 1. **`WindowContext`** (`src/renderer/contexts/window.context.svelte.ts`): on Electron,
    read `viewMode` from `new URLSearchParams(location.search)` — fixed for the window's
@@ -108,7 +117,7 @@ the web client attaching to a running session today.
    they're independent clients of the same broadcast stream, which the event reducer
    already supports (web + desktop concurrently today).
 
-## Phase 3 — Mode-scoped persistence
+## Phase 3 — Mode-scoped persistence ✅ (landed with Phase 2)
 
 `src/renderer/contexts/tab-persistence.ts` — keys become per-mode:
 
@@ -150,9 +159,9 @@ the web client attaching to a running session today.
 
 | Action | Result |
 |--------|--------|
-| Summon key, editor is current mode | Toggle editor window (show+focus / hide) |
-| Summon key, pill is current mode | Toggle pill (unchanged from today) |
-| Mode-toggle key, other window hidden | Show+focus other window, hide current, flip `currentViewMode` |
+| Primary key (Alt+Space) | Toggle the pill — always, even over a visible editor |
+| Secondary key (⌘⇧K) | Toggle the editor — always, creating it on first use; focuses if visible-but-unfocused |
+| Mode-toggle key (⌥⇧E), other window hidden | Show+focus other window, hide current |
 | Mode-toggle key, both visible | Focus the other window |
 | Start run in editor → summon pill | Pill opens showing that session, live-streaming (pointer + attach) |
 | Close editor via traffic light | Window hides; tabs/state preserved; reopen instant |
