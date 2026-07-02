@@ -92,10 +92,9 @@ the web client attaching to a running session today.
 > per-window (decision #7 revised) and `notifyViewMode` was deleted outright;
 > (b) the editor's window-drag is a slim native drag strip under the macOS
 > traffic lights rather than an app-region tab strip (polish item later);
-> (c) pill→editor file-preview requests hop windows via a pending-key in
-> localStorage + `storage` event (`lib/filePreview.ts`) — the same mechanism
-> Phase 4's session pointer will use. Phase 3's key scoping landed alongside
-> (required before two live windows share localStorage).
+> (c) file preview is simply disabled in the pill window (`requestFilePreview`
+> no-ops there) — the pill has no pane surface for it. Phase 3's key scoping
+> landed alongside (required before two live windows share localStorage).
 
 1. **`WindowContext`** (`src/renderer/contexts/window.context.svelte.ts`): on Electron,
    read `viewMode` from `new URLSearchParams(location.search)` — fixed for the window's

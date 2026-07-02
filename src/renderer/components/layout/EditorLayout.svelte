@@ -7,7 +7,6 @@
   import ToastHost from "../ToastHost.svelte";
   import {
     FILE_PREVIEW_EVENT,
-    consumePendingFilePreview,
     type FilePreviewRequest,
   } from "../../lib/filePreview";
   import type { DiffScope } from "../../../shared/types";
@@ -54,26 +53,18 @@
     return () => window.removeEventListener("solus:toggle-diff-panel", handler);
   });
 
-  function openFilePreview(detail: FilePreviewRequest) {
-    av.openFilePreview(detail);
-    session.settingsOpen = false;
-    session.plansGalleryOpen = false;
-  }
-
   $effect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<FilePreviewRequest>).detail;
       if (!detail?.path) return;
       if (detail.tabId && detail.tabId !== session.activeTabId) return;
-      openFilePreview(detail);
+      av.openFilePreview(detail);
+      session.settingsOpen = false;
+      session.plansGalleryOpen = false;
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);
   });
-
-  // Preview requests handed off from the pill window (which has no pane
-  // system): consumed at mount and whenever the pill stashes a new one.
-  $effect(() => consumePendingFilePreview(openFilePreview));
 </script>
 
 <div class="editor-shell flex flex-col h-full w-full overflow-hidden">
