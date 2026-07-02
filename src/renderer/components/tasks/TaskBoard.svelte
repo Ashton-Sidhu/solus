@@ -57,7 +57,7 @@
     {@const isOver = overStatus === col.status}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="group/col flex min-h-0 min-w-[15.5rem] max-w-[20rem] flex-1 flex-col rounded-xl border border-transparent transition-colors duration-100 {isOver
+      class="group/col flex min-h-0 min-w-[15.5rem] max-w-[20rem] flex-1 flex-col rounded-2xl border border-transparent transition-colors duration-100 {isOver
         ? 'border-(--solus-accent)/40 bg-(--solus-accent-light)/40'
         : 'bg-(--solus-surface-hover)/35'}"
       ondragover={(e) => {
@@ -81,7 +81,7 @@
         {#if onAddInColumn}
           <button
             type="button"
-            class="ml-auto inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) opacity-0 transition-[background-color,color,opacity] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none group-hover/col:opacity-100"
+            class="relative ml-auto inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) opacity-0 transition-[background-color,color,opacity] duration-100 ease-in-out after:absolute after:-inset-1.5 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none group-hover/col:opacity-100"
             onclick={() => onAddInColumn?.(col.status)}
             aria-label={`Add task to ${col.label}`}
             title={`Add task to ${col.label}`}
