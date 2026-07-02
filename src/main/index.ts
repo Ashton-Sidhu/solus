@@ -71,7 +71,16 @@ async function handleArtifactRequest(request: Request): Promise<Response> {
 
 let forceQuit = false
 
+// The pill window (kept as `mainWindow` — it's the boot window and the summon
+// surface). The editor is a second, standard OS window created lazily on first
+// switch; both are clients of the same SolusServer broadcast stream.
 let mainWindow: BrowserWindow | null = null
+let editorWindow: BrowserWindow | null = null
+// Last Solus window the user focused — the target for dialogs, screenshots,
+// and design mode when no window currently holds focus (e.g. mid-capture).
+let lastFocusedWindow: BrowserWindow | null = null
+// Window whose opacity design mode zeroed, so restore hits the same one.
+let designModeWindow: BrowserWindow | null = null
 let powerSaveBlockerId: number | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
@@ -161,6 +170,50 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: strin
   return { failed }
 }
 
+// ─── Persisted window state (last mode + editor bounds) ───
+
+interface PersistedWindowState {
+  lastViewMode: 'pill' | 'editor'
+  editorBounds: Electron.Rectangle | null
+}
+
+let windowState: PersistedWindowState = { lastViewMode: 'pill', editorBounds: null }
+
+function windowStatePath(): string {
+  return join(app.getPath('userData'), 'window-state.json')
+}
+
+function loadWindowState(): PersistedWindowState {
+  try {
+    const parsed = JSON.parse(readFileSync(windowStatePath(), 'utf-8'))
+    const bounds = parsed?.editorBounds
+    return {
+      lastViewMode: parsed?.lastViewMode === 'editor' ? 'editor' : 'pill',
+      editorBounds:
+        bounds && [bounds.x, bounds.y, bounds.width, bounds.height].every((v: unknown) => typeof v === 'number')
+          ? bounds
+          : null,
+    }
+  } catch {
+    return { lastViewMode: 'pill', editorBounds: null }
+  }
+}
+
+let windowStateTimer: ReturnType<typeof setTimeout> | null = null
+
+function saveWindowState(patch: Partial<PersistedWindowState>): void {
+  windowState = { ...windowState, ...patch }
+  if (windowStateTimer) return
+  windowStateTimer = setTimeout(() => {
+    windowStateTimer = null
+    try {
+      writeFileSync(windowStatePath(), JSON.stringify(windowState, null, 2))
+    } catch (err: any) {
+      log.warn(`Failed to persist window state: ${err?.message ?? err}`)
+    }
+  }, 400)
+}
+
 function createTemplateMenuIcon(svg: string): Electron.NativeImage {
   const icon = nativeImage.createFromDataURL(
     `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
@@ -188,14 +241,14 @@ function agentIdFromContext(ctx?: IpcContext): AgentId {
   return ctx?.session.provider ?? ctx?.settings.activeAgent ?? DEFAULT_AGENT_ID
 }
 
-// ─── View-mode window geometry ───
-// The native window always fills the cursor display's work area in both modes.
-// Pill mode is a transparent canvas with the pill UI positioned by CSS; editor
-// mode renders a sized, centered card via CSS with a transparent surround.
-// Keeping bounds constant avoids a resize flash when toggling modes. Both modes
-// float while active so the summon shortcut can surface Solus above a full-screen
-// Space, then drop regular always-on-top behavior on blur so outside clicks let
-// the clicked app cover Solus normally.
+// ─── Window registry + view-mode geometry ───
+// The pill window fills the cursor display's work area: a transparent canvas
+// with the pill UI positioned by CSS. It floats while active so the summon
+// shortcut can surface Solus above a full-screen Space, then drops regular
+// always-on-top behavior on blur so outside clicks let the clicked app cover
+// it normally. The editor window is a standard OS window (native frame
+// behavior, Dock/alt-tab presence, normal Spaces membership) — none of the
+// pill's level/workspace juggling applies to it.
 
 function workAreaBoundsForCursor(): Electron.Rectangle {
   const cursor = screen.getCursorScreenPoint()
@@ -204,12 +257,32 @@ function workAreaBoundsForCursor(): Electron.Rectangle {
   return { x, y, width, height }
 }
 
-function setWindowLevelForViewMode(_mode: 'pill' | 'editor', active: boolean): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
+function isLive(win: BrowserWindow | null): win is BrowserWindow {
+  return !!win && !win.isDestroyed()
+}
+
+function allWindows(): BrowserWindow[] {
+  return [mainWindow, editorWindow].filter(isLive)
+}
+
+/** The window the user is in: focused, else last-focused live, else the pill. */
+function activeWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused && allWindows().includes(focused)) return focused
+  if (isLive(lastFocusedWindow)) return lastFocusedWindow
+  return isLive(mainWindow) ? mainWindow : null
+}
+
+function isAppVisible(): boolean {
+  return allWindows().some((win) => win.isVisible())
+}
+
+function setPillWindowLevel(active: boolean): void {
+  if (!isLive(mainWindow)) return
 
   if (active) {
-    // Solus floats while active, including over macOS full-screen Spaces, then
-    // drops back on blur so outside clicks can put the clicked app above it.
+    // The pill floats while active, including over macOS full-screen Spaces,
+    // then drops back on blur so outside clicks can put the clicked app above it.
     mainWindow.setAlwaysOnTop(true, 'floating')
   } else {
     mainWindow.setAlwaysOnTop(false)
@@ -217,24 +290,33 @@ function setWindowLevelForViewMode(_mode: 'pill' | 'editor', active: boolean): v
 }
 
 function applyViewMode(mode: 'pill' | 'editor'): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (!isLive(mainWindow)) return
 
   currentViewMode = mode
-  setWindowLevelForViewMode(mode, true)
+  saveWindowState({ lastViewMode: mode })
+  setPillWindowLevel(true)
 
   if (mode === 'editor') {
-    focusMainWindow()
+    focusPillWindow()
   }
 }
 
-function focusMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  setWindowLevelForViewMode(currentViewMode, true)
+function focusPillWindow(): void {
+  if (!isLive(mainWindow)) return
+  setPillWindowLevel(true)
   mainWindow.moveTop()
   if (process.platform === 'darwin') app.focus({ steal: true })
   mainWindow.focus()
   mainWindow.webContents.focus()
   booted?.server.broadcast('window-shown', windowCursorRelative())
+}
+
+function focusEditorWindow(): void {
+  if (!isLive(editorWindow)) return
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  editorWindow.focus()
+  editorWindow.webContents.focus()
+  booted?.server.broadcast('window-shown', null)
 }
 
 // Cursor position relative to the window's content area, in DIPs (matches CSS px).
@@ -283,9 +365,19 @@ function scheduleToggleSnapshots(toggleId: number, phase: 'show' | 'hide'): void
 
 // ─── Window Creation ───
 
-function createWindow(): void {
-  // Default to pill geometry (full work area); renderer sends a fire-and-forget
-  // notification on startup if the persisted mode is 'editor'.
+/** Load the renderer with the window's mode in the URL. The renderer reads
+ *  `?mode=` at bootstrap so each window mounts exactly one layout. */
+function loadRenderer(win: BrowserWindow, mode: 'pill' | 'editor'): void {
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    url.searchParams.set('mode', mode)
+    win.loadURL(url.toString())
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode } })
+  }
+}
+
+function createPillWindow(): void {
   const bounds = workAreaBoundsForCursor()
 
   mainWindow = new BrowserWindow({
@@ -345,17 +437,91 @@ function createWindow(): void {
     }
   })
   mainWindow.on('blur', () => {
-    setWindowLevelForViewMode(currentViewMode, false)
+    setPillWindowLevel(false)
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  loadRenderer(mainWindow, 'pill')
+}
+
+/** Default editor bounds: a centered card on the cursor display, matching the
+ *  92% × 90% the in-window editor shell used before the split. */
+function editorDefaultBounds(): Electron.Rectangle {
+  const { x, y, width, height } = workAreaBoundsForCursor()
+  const w = Math.round(width * 0.92)
+  const h = Math.round(height * 0.9)
+  return {
+    x: x + Math.round((width - w) / 2),
+    y: y + Math.round((height - h) / 2),
+    width: w,
+    height: h,
   }
 }
 
-function showWindow(source = 'unknown', options: { fromTrayShow?: boolean } = {}): void {
+function boundsOnSomeDisplay(bounds: Electron.Rectangle): boolean {
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea
+    return (
+      bounds.x < a.x + a.width && bounds.x + bounds.width > a.x &&
+      bounds.y < a.y + a.height && bounds.y + bounds.height > a.y
+    )
+  })
+}
+
+/** Create the editor window: a standard OS window (resizable, Dock/alt-tab
+ *  presence, native shadow), lazily on first switch to editor mode. Closing it
+ *  hides it — state is preserved and reopening is instant. */
+function createEditorWindow(): BrowserWindow {
+  const persisted = windowState.editorBounds
+  const bounds = persisted && boundsOnSomeDisplay(persisted) ? persisted : editorDefaultBounds()
+
+  editorWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: 640,
+    minHeight: 480,
+    // Frameless look with real traffic lights on macOS; standard frame elsewhere.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
+    show: false,
+    icon: join(__dirname, '../../resources/icon.icns'),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  const persistBounds = () => {
+    if (!isLive(editorWindow) || editorWindow.isMaximized() || editorWindow.isFullScreen()) return
+    saveWindowState({ editorBounds: editorWindow.getBounds() })
+  }
+  editorWindow.on('resize', persistBounds)
+  editorWindow.on('move', persistBounds)
+
+  editorWindow.on('close', (e) => {
+    if (!forceQuit) {
+      e.preventDefault()
+      editorWindow?.hide()
+    }
+  })
+  editorWindow.on('hide', () => booted?.server.broadcast('window-hidden'))
+
+  attachContextMenu(editorWindow)
+
+  editorWindow.once('ready-to-show', () => {
+    if (!isTestMode) {
+      editorWindow?.show()
+      focusEditorWindow()
+    }
+    if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
+      editorWindow?.webContents.openDevTools({ mode: 'detach' })
+    }
+  })
+
+  loadRenderer(editorWindow, 'editor')
+  return editorWindow
+}
+
+function showPillWindow(source = 'unknown', options: { fromTrayShow?: boolean } = {}): void {
   if (!mainWindow || isTestMode) return
   if (hiddenUntilTrayShow && !options.fromTrayShow) return
   if (options.fromTrayShow) hiddenUntilTrayShow = false
@@ -375,20 +541,47 @@ function showWindow(source = 'unknown', options: { fromTrayShow?: boolean } = {}
   if (SPACES_DEBUG) snapshotWindowState(`showWindow#${toggleId} pre-show`)
 
   mainWindow.show()
-  focusMainWindow()
+  focusPillWindow()
   if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
 }
 
-function hideWindow(_source = 'unknown'): void {
+/** On macOS, `app.hide()` returns focus to the previous app — but it hides
+ *  every Solus window, so only do it when no other window stays visible. */
+function hidePillWindow(_source = 'unknown'): void {
   if (!mainWindow) return
   mainWindow.hide()
-  if (process.platform === 'darwin') app.hide()
+  if (process.platform === 'darwin' && !isAppVisible()) app.hide()
 }
 
+function showEditorWindow(): void {
+  if (isTestMode) return
+  if (!isLive(editorWindow)) {
+    createEditorWindow() // shows + focuses on ready-to-show
+    return
+  }
+  editorWindow.show()
+  focusEditorWindow()
+}
+
+function hideEditorWindow(): void {
+  if (!isLive(editorWindow)) return
+  editorWindow.hide()
+  if (process.platform === 'darwin' && !isAppVisible()) app.hide()
+}
+
+/** Summon shortcut / tray / dock-activate entry point: toggles the window for
+ *  the current mode, so summon works no matter which surface the user last used. */
 function toggleWindow(source = 'unknown'): void {
-  if (!mainWindow) return
   if (hiddenUntilTrayShow) return
 
+  if (currentViewMode === 'editor' && isLive(editorWindow)) {
+    const shouldHide = editorWindow.isVisible() && (editorWindow.isFocused() || editorWindow.webContents.isFocused())
+    if (shouldHide) hideEditorWindow()
+    else showEditorWindow()
+    return
+  }
+
+  if (!mainWindow) return
   const toggleId = ++toggleSequence
   if (SPACES_DEBUG) {
     log.debug(`[spaces] toggle#${toggleId} source=${source} start`)
@@ -397,40 +590,133 @@ function toggleWindow(source = 'unknown'): void {
 
   const shouldHide = mainWindow.isVisible() && (mainWindow.isFocused() || mainWindow.webContents.isFocused())
   if (shouldHide) {
-    hideWindow(source)
+    hidePillWindow(source)
     if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
   } else {
-    showWindow(source)
+    showPillWindow(source)
   }
 }
 
+/** Tray "Show Solus" / app activate: surface the current mode's window. */
+function showCurrentModeWindow(source: string, options: { fromTrayShow?: boolean } = {}): void {
+  if (currentViewMode === 'editor' && isLive(editorWindow)) {
+    if (hiddenUntilTrayShow && !options.fromTrayShow) return
+    if (options.fromTrayShow) hiddenUntilTrayShow = false
+    showEditorWindow()
+    return
+  }
+  showPillWindow(source, options)
+}
+
+/** Switch to the given mode's window (toggles when omitted). Shows/creates the
+ *  target and hides the window being left unless both were already visible —
+ *  then this is just a focus change. No caller until the renderer bootstraps
+ *  per-window modes via `?mode=` (Phase 2 of the two-window split). */
+function switchMode(target?: 'pill' | 'editor'): void {
+  const next = target ?? (currentViewMode === 'pill' ? 'editor' : 'pill')
+  const leaving = next === 'editor' ? mainWindow : editorWindow
+  const entering = next === 'editor' ? editorWindow : mainWindow
+  const bothVisible = isLive(leaving) && leaving.isVisible() && isLive(entering) && entering.isVisible()
+  // Direct hide, not hidePill/hideEditorWindow: the entering window keeps (or
+  // is about to take) focus, so no app.hide() focus-return is wanted here.
+  const hideLeaving = () => {
+    if (!bothVisible && isLive(leaving) && leaving.isVisible()) leaving.hide()
+  }
+
+  currentViewMode = next
+  saveWindowState({ lastViewMode: next })
+
+  if (next === 'editor' && !isLive(editorWindow)) {
+    // First switch: don't blank the screen while the editor window boots —
+    // hide the pill only once the editor has actually shown.
+    createEditorWindow().once('show', hideLeaving)
+    return
+  }
+
+  if (next === 'editor') showEditorWindow()
+  else showPillWindow('switch-mode')
+  hideLeaving()
+}
+
 function hideAppWindow(): void {
-  if (process.platform === 'darwin') app.hide()
   mainWindow?.hide()
+  editorWindow?.hide()
+  if (process.platform === 'darwin') app.hide()
 }
 
 function hideUntilTrayShow(): void {
   hiddenUntilTrayShow = true
-  hideWindow('tray dev hide until shown')
+  hidePillWindow('tray dev hide until shown')
+  hideEditorWindow()
 }
 
-function showAndFocusMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed() || isTestMode) return
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  mainWindow.show()
-  focusMainWindow()
+/** Restore + focus the window a capture flow hid (screenshot). */
+function showAndFocusActiveWindow(): void {
+  if (isTestMode) return
+  const win = activeWindow()
+  if (!isLive(win)) return
+  if (win === mainWindow) {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    win.show()
+    focusPillWindow()
+  } else {
+    win.show()
+    focusEditorWindow()
+  }
 }
 
-function setMainWindowOpacity(o: number): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.setOpacity(o)
+/** Design mode zeroes the active window's opacity for capture; remember which
+ *  one so `restoreDesignModeWindow` restores the same window. */
+function setActiveWindowOpacity(o: number): void {
+  const win = o < 1 ? activeWindow() : (designModeWindow ?? activeWindow())
+  if (!isLive(win)) return
+  if (o < 1) designModeWindow = win
+  win.setOpacity(o)
 }
 
 function designModeCaptureRegion(): { x: number; y: number; width: number; height: number } {
-  if (!mainWindow) return { x: 0, y: 0, width: 0, height: 0 }
-  const windowBounds = mainWindow.getBounds()
+  const win = activeWindow()
+  if (!isLive(win)) return { x: 0, y: 0, width: 0, height: 0 }
+  const windowBounds = win.getBounds()
   const display = screen.getDisplayNearestPoint({ x: windowBounds.x, y: windowBounds.y })
   return display.workArea
+}
+
+/** Native context menu (copy/cut/paste + "Quote in reply"), attached to each window. */
+function attachContextMenu(win: BrowserWindow): void {
+  win.webContents.on('context-menu', (_event, params) => {
+    const menuItems: Electron.MenuItemConstructorOptions[] = []
+
+    if (params.selectionText) {
+      menuItems.push({ label: 'Copy', role: 'copy' })
+    }
+    if (params.isEditable) {
+      if (params.selectionText) {
+        menuItems.push({ label: 'Cut', role: 'cut' })
+      }
+      menuItems.push({ label: 'Paste', role: 'paste' })
+      menuItems.push({ type: 'separator' })
+      menuItems.push({ label: 'Select All', role: 'selectAll' })
+    } else if (params.selectionText) {
+      menuItems.push({ type: 'separator' })
+      menuItems.push({ label: 'Select All', role: 'selectAll' })
+    }
+
+    // Conversation output only: let the user pull a selected snippet into the
+    // composer as a markdown blockquote to address that specific text.
+    if (quoteContextActive && params.selectionText && !params.isEditable) {
+      menuItems.push({ type: 'separator' })
+      menuItems.push({
+        label: 'Quote in reply',
+        icon: quoteInReplyIcon,
+        click: () => win.webContents.send('solus:quote-selection', params.selectionText),
+      })
+    }
+
+    if (menuItems.length > 0) {
+      Menu.buildFromTemplate(menuItems).popup({ window: win })
+    }
+  })
 }
 
 // ─── Native-only IPC handlers (don't go through SolusServer) ───
@@ -454,11 +740,19 @@ ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: {
 })
 
 function restoreDesignModeWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.setAlwaysOnTop(true, 'floating')
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  mainWindow.setOpacity(1)
-  focusMainWindow()
+  const win = designModeWindow ?? mainWindow
+  designModeWindow = null
+  if (!isLive(win)) return
+  if (win === mainWindow) {
+    // Pill-only level/workspace juggling; the editor is a normal window.
+    win.setAlwaysOnTop(true, 'floating')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    win.setOpacity(1)
+    focusPillWindow()
+  } else {
+    win.setOpacity(1)
+    focusEditorWindow()
+  }
   if (SPACES_DEBUG) {
     log.info('[spaces] design-mode overlay ready, window shown')
     snapshotWindowState('design-mode restore')
@@ -547,9 +841,12 @@ if (isPairUrl) {
       log.info(`Power save blocker started (id=${powerSaveBlockerId})`)
     }
 
+    windowState = loadWindowState()
+
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
-      getMainWindow: () => mainWindow,
+      isAppVisible,
       applyViewMode,
+      switchMode,
       getAppGlobalShortcuts: () => currentAppShortcuts,
       setAppGlobalShortcuts: (shortcuts) => {
         const result = applyAppGlobalShortcuts(shortcuts)
@@ -563,10 +860,10 @@ if (isPairUrl) {
     }
 
     const fileDeps: FileDeps | undefined = isHeadless ? undefined : {
-      getMainWindow: () => mainWindow,
+      getActiveWindow: activeWindow,
       hideAppWindow,
-      showAndFocusMainWindow,
-      setMainWindowOpacity,
+      showAndFocusActiveWindow,
+      setActiveWindowOpacity,
       restoreDesignModeWindow,
       bumpScreenshotCounter: () => ++screenshotCounter,
       bumpDesignModeCounter: () => ++designModeCounter,
@@ -585,13 +882,28 @@ if (isPairUrl) {
     })
 
     if (!isHeadless) {
-      detachIpc = attachElectronIpcTransport(booted.server, () => mainWindow)
+      detachIpc = attachElectronIpcTransport(booted.server, allWindows)
 
       nativeTheme.on('updated', () => {
         booted?.server.broadcast('theme-changed', nativeTheme.shouldUseDarkColors)
       })
 
-      createWindow()
+      // Track the last-focused Solus window for dialog/capture targeting.
+      // The editor window's focus also flips the mode so the summon shortcut
+      // targets the surface the user last touched. Focusing the pill window
+      // does NOT flip to 'pill' yet: until the renderer bootstraps per-window
+      // modes (?mode=), the pill window still hosts both layouts and the
+      // renderer drives the mode via notifyViewMode.
+      app.on('browser-window-focus', (_e, win) => {
+        if (!allWindows().includes(win)) return
+        lastFocusedWindow = win
+        if (win === editorWindow) {
+          currentViewMode = 'editor'
+          saveWindowState({ lastViewMode: 'editor' })
+        }
+      })
+
+      createPillWindow()
       snapshotWindowState('after createWindow')
       initAutoUpdater(() => { forceQuit = true })
 
@@ -624,39 +936,7 @@ if (isPairUrl) {
         })
       }
 
-      mainWindow?.webContents.on('context-menu', (_event, params) => {
-        const menuItems: Electron.MenuItemConstructorOptions[] = []
-
-        if (params.selectionText) {
-          menuItems.push({ label: 'Copy', role: 'copy' })
-        }
-        if (params.isEditable) {
-          if (params.selectionText) {
-            menuItems.push({ label: 'Cut', role: 'cut' })
-          }
-          menuItems.push({ label: 'Paste', role: 'paste' })
-          menuItems.push({ type: 'separator' })
-          menuItems.push({ label: 'Select All', role: 'selectAll' })
-        } else if (params.selectionText) {
-          menuItems.push({ type: 'separator' })
-          menuItems.push({ label: 'Select All', role: 'selectAll' })
-        }
-
-        // Conversation output only: let the user pull a selected snippet into the
-        // composer as a markdown blockquote to address that specific text.
-        if (quoteContextActive && params.selectionText && !params.isEditable) {
-          menuItems.push({ type: 'separator' })
-          menuItems.push({
-            label: 'Quote in reply',
-            icon: quoteInReplyIcon,
-            click: () => mainWindow?.webContents.send('solus:quote-selection', params.selectionText),
-          })
-        }
-
-        if (menuItems.length > 0) {
-          Menu.buildFromTemplate(menuItems).popup({ window: mainWindow! })
-        }
-      })
+      if (mainWindow) attachContextMenu(mainWindow)
 
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()
@@ -668,7 +948,7 @@ if (isPairUrl) {
         tray = new Tray(trayIcon)
         tray.setToolTip('Solus')
         const trayTemplate: Electron.MenuItemConstructorOptions[] = [
-          { label: 'Show Solus', click: () => showWindow('tray menu', { fromTrayShow: true }) },
+          { label: 'Show Solus', click: () => showCurrentModeWindow('tray menu', { fromTrayShow: true }) },
         ]
         if (isDevMode) {
           trayTemplate.push({ label: 'Hide Solus Until Shown', click: hideUntilTrayShow })
@@ -680,7 +960,7 @@ if (isPairUrl) {
         void tray // keep alive for lifetime of the app
 
         app.on('activate', () => {
-          showWindow('app activate')
+          showCurrentModeWindow('app activate')
         })
       }
     }
@@ -688,6 +968,14 @@ if (isPairUrl) {
 }
 
 app.on('will-quit', () => {
+  // Flush a pending debounced window-state write so last mode/bounds survive quit.
+  if (windowStateTimer) {
+    clearTimeout(windowStateTimer)
+    windowStateTimer = null
+    try {
+      writeFileSync(windowStatePath(), JSON.stringify(windowState, null, 2))
+    } catch {}
+  }
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
     powerSaveBlocker.stop(powerSaveBlockerId)
   }

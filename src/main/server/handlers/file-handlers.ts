@@ -17,12 +17,14 @@ import type { SolusServer } from '../server'
 const log = createLogger('main', 'file-handlers')
 
 export interface FileDeps {
-  getMainWindow(): BrowserWindow | null
+  /** The focused Solus window, falling back to the last-focused live one —
+   *  dialogs, screenshots, and design mode target the window the user is in. */
+  getActiveWindow(): BrowserWindow | null
   hideAppWindow(): void
   /** Used by takeScreenshot to restore + focus the window after capturing. */
-  showAndFocusMainWindow(): void
+  showAndFocusActiveWindow(): void
   /** Used by enterDesignMode to make the window invisible to screen capture. */
-  setMainWindowOpacity(opacity: number): void
+  setActiveWindowOpacity(opacity: number): void
   /** Restores the window after design mode (opacity, alwaysOnTop, visibility, focus). */
   restoreDesignModeWindow(): void
   bumpScreenshotCounter(): number
@@ -282,7 +284,7 @@ async function readTextFile(
 
 export function registerFileHandlers(server: SolusServer, deps: FileDeps): void {
   server.register('selectDirectory', async () => {
-    const win = deps.getMainWindow()
+    const win = deps.getActiveWindow()
     if (!win) return null
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]
@@ -290,7 +292,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
   server.register('saveFileDialog', async (args) => {
     const [defaultName, content] = args as [string, string]
-    const win = deps.getMainWindow()
+    const win = deps.getActiveWindow()
     if (!win) return null
     const result = await dialog.showSaveDialog(win, { defaultPath: defaultName })
     if (result.canceled || !result.filePath) return null
@@ -311,7 +313,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('attachFiles', async () => {
-    const win = deps.getMainWindow()
+    const win = deps.getActiveWindow()
     if (!win) return null
     const options = {
       properties: ['openFile', 'multiSelections'] as Array<'openFile' | 'multiSelections'>,
@@ -333,7 +335,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('takeScreenshot', async () => {
-    const win = deps.getMainWindow()
+    const win = deps.getActiveWindow()
     if (!win) return null
 
     win.hide()
@@ -358,17 +360,17 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     } catch {
       return null
     } finally {
-      deps.showAndFocusMainWindow()
+      deps.showAndFocusActiveWindow()
     }
   })
 
   server.register('enterDesignMode', async () => {
-    const win = deps.getMainWindow()
+    const win = deps.getActiveWindow()
     if (!win) return null
 
     const { x: wx, y: wy, width: ww, height: wh } = deps.designModeCaptureRegion()
 
-    deps.setMainWindowOpacity(0)
+    deps.setActiveWindowOpacity(0)
     await new Promise((r) => setTimeout(r, 300))
 
     try {
