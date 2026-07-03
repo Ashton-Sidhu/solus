@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
+import { loadWorkAnnotations } from './work-annotations'
 import { workPreview } from '../../shared/work-preview'
 import { parseDiagram } from '../../shared/diagram-types'
 import type { AgentId } from '../../shared/types'
@@ -131,9 +132,22 @@ export async function executeWorkTool(
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const work = await loadWork(workId, deps.ctx?.cwd)
       if (!work) return { ok: false, text: `No work found with id "${workId}".` }
+      // Surface the user's comments alongside the content so the agent sees
+      // feedback without the user having to paste it into chat. Diagram
+      // comments carry the anchored node id; use it to target the revision.
+      const annotations = await loadWorkAnnotations(workId)
+      let commentsBlock = ''
+      if (annotations?.comments?.length) {
+        const lines = annotations.comments.map((c) =>
+          c.nodeId
+            ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
+            : `- On "${c.selectedText}": ${c.comment}`,
+        )
+        commentsBlock = `\n\nUser comments on this work (${lines.length}) — address them when revising:\n${lines.join('\n')}`
+      }
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${commentsBlock}`,
       }
     }
 
@@ -186,6 +200,19 @@ export async function executeWorkTool(
       const existing = await loadWork(workId, deps.ctx?.cwd)
       if (!existing) return { ok: false, text: `No work found with id "${workId}".` }
 
+      // Same guard as create_work: a malformed diagram update would otherwise
+      // overwrite good content and render as a silently blank canvas.
+      if (existing.type === 'diagram') {
+        try {
+          parseDiagram(content)
+        } catch (err: any) {
+          return {
+            ok: false,
+            text: `Invalid diagram content: ${String(err?.message ?? err)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`,
+          }
+        }
+      }
+
       const preview = workPreview(existing.type, content)
       const saved = await agentSaveWork(workId, { content, preview, ...(title !== undefined ? { title } : {}) }, deps.ctx?.cwd)
 
@@ -216,19 +243,25 @@ function toToolResult(r: WorkToolResult) {
 }
 
 export interface SolusMcpDeps {
-  onWorkUpdated: OnWorkUpdated
-  onWorkCreated: OnWorkCreated
+  /** Fires when the agent updates a work. Optional: headless runs (automations)
+   *  have no conversation to stream into, and works persist regardless. */
+  onWorkUpdated?: OnWorkUpdated
+  onWorkCreated?: OnWorkCreated
   /** Fires when the agent calls render_artifact (see artifact-tools.ts). */
-  onArtifact: ArtifactToolDeps['onArtifact']
+  onArtifact?: ArtifactToolDeps['onArtifact']
   /** Fires when the agent creates or updates an automation, so the thread can
    *  render an automation card. */
-  onAutomationSaved: OnAutomationSaved
+  onAutomationSaved?: OnAutomationSaved
   /** Fires when the agent spawns a new session via create_session, so the thread
    *  can render a card that opens it in a tab. */
-  onSessionCreated: OnSessionCreated
+  onSessionCreated?: OnSessionCreated
   /** Origin context for create_work. `sessionId` is resolved lazily because a
    *  fresh session has no id until session_init, which lands before any tool runs. */
   createCtx: { agentProvider: AgentId; cwd: string; sessionId: () => string | undefined }
+  /** When false, the automation CRUD/run tools are omitted so a headless
+   *  automation run can't create or trigger more automations (the fork-bomb
+   *  guard). Defaults to true (interactive sessions get the full suite). */
+  includeAutomationTools?: boolean
 }
 
 export function createSolusMcpServer(deps: SolusMcpDeps) {
@@ -263,12 +296,16 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
         sessionId: deps.createCtx.sessionId,
         now: () => new Date().toISOString(),
       }),
-      ...automationSdkTools({
-        agentProvider: deps.createCtx.agentProvider,
-        cwd: deps.createCtx.cwd,
-        sessionId: deps.createCtx.sessionId,
-        onAutomationSaved: deps.onAutomationSaved,
-      }),
+      // Automation tools are omitted for headless runs (fork-bomb guard) — an
+      // automation must not be able to create or trigger more automations.
+      ...(deps.includeAutomationTools === false
+        ? []
+        : automationSdkTools({
+            agentProvider: deps.createCtx.agentProvider,
+            cwd: deps.createCtx.cwd,
+            sessionId: deps.createCtx.sessionId,
+            onAutomationSaved: deps.onAutomationSaved,
+          })),
       ...sessionSdkTools({
         agentProvider: deps.createCtx.agentProvider,
         cwd: deps.createCtx.cwd,

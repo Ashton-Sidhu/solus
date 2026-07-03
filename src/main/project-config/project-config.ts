@@ -53,6 +53,7 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
     runCommands?: unknown
     taskProvider?: unknown
     taskProviderConfig?: unknown
+    taskStartWriteBack?: unknown
   }
   const config: ProjectConfig = { version: 1 }
   if (Array.isArray(raw.runCommands)) {
@@ -69,6 +70,8 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
     const repo = typeof scope.repo === 'string' ? scope.repo : undefined
     if (owner || repo) config.taskProviderConfig = { owner, repo }
   }
+  // Only the opt-out is stored; absence means the write-back stays enabled.
+  if (raw.taskStartWriteBack === false) config.taskStartWriteBack = false
   return config
 }
 

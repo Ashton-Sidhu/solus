@@ -1,18 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://example.com/</loc>
-    <lastmod>2026-03-28</lastmod>
+    <loc>https://solus.sh/</loc>
+    <lastmod>2026-07-01</lastmod>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://example.com/privacy</loc>
-    <lastmod>2026-03-28</lastmod>
+    <loc>https://solus.sh/docs</loc>
+    <lastmod>2026-07-01</lastmod>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://solus.sh/privacy</loc>
+    <lastmod>2026-07-01</lastmod>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://example.com/terms</loc>
-    <lastmod>2026-03-28</lastmod>
+    <loc>https://solus.sh/terms</loc>
+    <lastmod>2026-07-01</lastmod>
     <priority>0.3</priority>
   </url>
 </urlset>

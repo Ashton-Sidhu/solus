@@ -38,6 +38,8 @@
   const flow = useSvelteFlow()
   const viewport = useViewport()
 
+  const isMac = navigator.platform.includes('Mac')
+
   $effect(() => {
     onFlowReady?.(flow)
   })
@@ -65,9 +67,9 @@
     <button
       type="button"
       class="canvas-toolbar__zoom"
-      onclick={() => void flow.fitView({ duration: 300, padding: 0.2 })}
-      title="Fit to view"
-      aria-label="Fit to view, current zoom {zoomPct}%"
+      onclick={() => void flow.setZoom(1, { duration: 150 })}
+      title="Reset zoom to 100%"
+      aria-label="Reset zoom to 100%, current zoom {zoomPct}%"
     >
       {zoomPct}%
     </button>
@@ -152,7 +154,7 @@
         class:canvas-toolbar__btn--disabled={!hasSelection}
         onclick={onDeleteSelected}
         disabled={!hasSelection}
-        title="Delete selected (⌫)"
+        title="Delete selected ({isMac ? '⌫' : 'Del'})"
         aria-label="Delete selected"
       >
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -190,7 +192,10 @@
     background: transparent;
     color: var(--solus-text-secondary);
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition:
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   .canvas-toolbar :global(.canvas-toolbar__btn:hover) {
@@ -200,6 +205,7 @@
 
   .canvas-toolbar :global(.canvas-toolbar__btn:active) {
     background: var(--solus-surface-active);
+    scale: 0.96;
   }
 
   .canvas-toolbar :global(.canvas-toolbar__btn svg) {
@@ -224,12 +230,19 @@
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition:
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   .canvas-toolbar__zoom:hover {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
+  }
+
+  .canvas-toolbar__zoom:active {
+    scale: 0.96;
   }
 
   .canvas-toolbar__divider {
@@ -250,6 +263,6 @@
   }
 
   .canvas-toolbar :global(.canvas-toolbar__btn--delete:not(.canvas-toolbar__btn--disabled):hover) {
-    color: #f87171;
+    color: var(--solus-status-error);
   }
 </style>
