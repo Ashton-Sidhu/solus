@@ -246,6 +246,7 @@ class GitHubProvider implements ReviewProvider {
       baseSha: pr.base.sha,
       headSha: pr.head.sha,
       changedFiles: (pr as any).changed_files ?? 0,
+      mergeable: pr.mergeable ?? null,
       headRepo: {
         owner: pr.head.repo?.owner?.login ?? repo.owner,
         repo: pr.head.repo?.name ?? repo.repo,

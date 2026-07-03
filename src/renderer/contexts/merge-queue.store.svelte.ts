@@ -72,4 +72,21 @@ export class MergeQueueStore {
   clear(): void {
     if (!this.active) this.state = null
   }
+
+  /** Failed entries of a finished run, mergeable again via re-queueing. */
+  get failedNumbers(): number[] {
+    if (this.active) return []
+    return this.state?.entries.filter((e) => e.status === 'failed').map((e) => e.number) ?? []
+  }
+
+  /** Stage a finished run's failed entries back into the queue — retrying is
+   *  just another run through the normal start path. */
+  requeueFailed(): void {
+    const failed = this.failedNumbers
+    if (failed.length === 0) return
+    for (const number of failed) {
+      if (!this.queued.includes(number)) this.queued.push(number)
+    }
+    this.state = null
+  }
 }

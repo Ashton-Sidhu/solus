@@ -14,6 +14,22 @@ const log = createLogger('main', 'merge-queue')
 
 /** How often to re-check a conflicted worktree while waiting for resolution. */
 const RESOLUTION_POLL_MS = 3_000
+/** Check the host every Nth worktree poll (~30s) — a resolution can also
+ *  arrive remotely (push from another checkout, web editor, external merge). */
+const REMOTE_CHECK_EVERY = 10
+
+/** How a wait on a conflicted entry ended. */
+type ResolutionOutcome =
+  /** Merge concluded in the local worktree — push it, then merge on the host. */
+  | 'local'
+  /** The host reports the PR mergeable again (fixed elsewhere) — just merge. */
+  | 'remote'
+  /** Merged on the host while we waited. */
+  | 'merged'
+  /** Closed on the host while we waited. */
+  | 'closed'
+  /** Cancelled or skipped by the user; entry status already set. */
+  | 'stopped'
 
 export interface MergeQueueDeps {
   repoRoot: string
@@ -181,23 +197,58 @@ export class MergeQueue {
       entry.branch = wt.branch
       await runAsync('git', ['fetch', 'origin', detail.baseRef], wt.worktreePath)
 
+      let mergeError = ''
       const cleanMerge = await runAsync(
         'git',
         ['merge', '--no-edit', `origin/${detail.baseRef}`],
         wt.worktreePath,
-      ).then(() => true, () => false)
+      ).then(
+        () => true,
+        (err) => {
+          mergeError = err?.message ?? String(err)
+          return false
+        },
+      )
 
+      let outcome: ResolutionOutcome = 'local'
       if (!cleanMerge) {
-        const resolved = await this.waitForResolution(entry, wt.worktreePath)
-        if (!resolved) return // cancelled or skipped — status already set
+        // Only a merge that actually started (MERGE_HEAD / conflict entries) can
+        // be resolved. Anything else — dirty worktree, unrelated histories —
+        // failed outright; report the git error instead of waiting on a
+        // resolution that can never come.
+        const status = await computeGitProjectStatus(wt.worktreePath)
+        const conflictStarted = status?.mergeInProgress || status?.files.some((f) => f.conflicted)
+        if (!conflictStarted) {
+          entry.status = 'failed'
+          entry.detail = mergeError
+          this.publish()
+          return
+        }
+
+        outcome = await this.waitForResolution(entry, wt.worktreePath)
+        if (outcome === 'stopped') return
+        if (outcome === 'merged') {
+          entry.status = 'merged'
+          this.publish()
+          return
+        }
+        if (outcome === 'closed') {
+          entry.status = 'skipped'
+          entry.detail = 'Pull request was closed while the queue waited'
+          this.publish()
+          return
+        }
         entry.status = 'merging'
         entry.conflictFiles = undefined
         this.publish()
       }
 
-      // Push the merge commit to the PR's head branch, then merge for real.
-      await runAsync('git', ['push', 'origin', `HEAD:refs/heads/${detail.headRef}`], wt.worktreePath)
-      const second = await provider.review.mergePullRequest(repo, entry.number, this.state.method)
+      // Push the merge commit to the PR's head branch (a remote resolution has
+      // nothing local to push), then merge for real.
+      if (outcome === 'local') {
+        await runAsync('git', ['push', 'origin', `HEAD:refs/heads/${detail.headRef}`], wt.worktreePath)
+      }
+      const second = await this.mergeWithBackoff(entry.number)
       if (second.merged) {
         entry.status = 'merged'
       } else {
@@ -212,18 +263,25 @@ export class MergeQueue {
   }
 
   /**
-   * Pause on a conflicted worktree until its merge concludes: MERGE_HEAD gone
-   * and no conflicted files left (the resolver must commit the merge). Returns
-   * false when the wait ended via cancel/skip instead of resolution.
+   * Pause on a conflicted worktree until the entry becomes actionable again.
+   * Two signals close the loop: the local merge concluding (MERGE_HEAD gone,
+   * no conflicted files — the resolver must commit), or — at a slower cadence —
+   * the host reporting the PR mergeable/merged/closed because the resolution
+   * happened somewhere else entirely.
    */
-  private async waitForResolution(entry: MergeQueueEntry, worktreePath: string): Promise<boolean> {
+  private async waitForResolution(entry: MergeQueueEntry, worktreePath: string): Promise<ResolutionOutcome> {
     const status = await computeGitProjectStatus(worktreePath)
     entry.status = 'conflicts'
     entry.conflictFiles = status?.files.filter((f) => f.conflicted).map((f) => f.path) ?? []
     this.state.status = 'waiting'
     this.publish()
 
-    for (;;) {
+    const finish = (outcome: ResolutionOutcome): ResolutionOutcome => {
+      this.state.status = 'running'
+      return outcome
+    }
+
+    for (let tick = 0; ; tick++) {
       if (this.cancelled || this.skipRequested) {
         entry.status = 'skipped'
         entry.detail = this.cancelled ? 'Queue cancelled during conflict resolution' : 'Skipped while conflicted'
@@ -231,17 +289,29 @@ export class MergeQueue {
         // No — a lingering MERGE_HEAD would poison the next queue run for this
         // PR. Abort the merge so the worktree returns to the PR head.
         await runAsync('git', ['merge', '--abort'], worktreePath).catch(() => {})
-        this.state.status = 'running'
         this.publish()
-        return false
+        return finish('stopped')
       }
 
       const current = await computeGitProjectStatus(worktreePath)
       const conflicted = current?.files.filter((f) => f.conflicted).map((f) => f.path) ?? []
       if (current && !current.mergeInProgress && conflicted.length === 0) {
-        this.state.status = 'running'
-        return true
+        return finish('local')
       }
+
+      if (tick > 0 && tick % REMOTE_CHECK_EVERY === 0) {
+        const remote = await this.deps.provider.review
+          .getPullRequest(this.deps.repo, entry.number)
+          .catch(() => null)
+        if (remote && (remote.state !== 'open' || remote.mergeable === true)) {
+          // Whatever the local worktree holds is now stale — drop its merge.
+          await runAsync('git', ['merge', '--abort'], worktreePath).catch(() => {})
+          if (remote.state === 'merged') return finish('merged')
+          if (remote.state === 'closed') return finish('closed')
+          return finish('remote')
+        }
+      }
+
       // Keep the renderer's conflict list live as the agent resolves files.
       if (JSON.stringify(conflicted) !== JSON.stringify(entry.conflictFiles)) {
         entry.conflictFiles = conflicted
@@ -249,6 +319,22 @@ export class MergeQueue {
       }
       await new Promise((resolve) => setTimeout(resolve, RESOLUTION_POLL_MS))
     }
+  }
+
+  /**
+   * The host recomputes mergeability asynchronously after a push, so a merge
+   * attempted right after pushing a resolution can be refused transiently.
+   * Retry with backoff before believing the refusal.
+   */
+  private async mergeWithBackoff(number: number): Promise<{ merged: boolean; message?: string }> {
+    const delays = [2_000, 4_000, 8_000]
+    let last = await this.deps.provider.review.mergePullRequest(this.deps.repo, number, this.state.method)
+    for (const delay of delays) {
+      if (last.merged || this.cancelled) break
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      last = await this.deps.provider.review.mergePullRequest(this.deps.repo, number, this.state.method)
+    }
+    return last
   }
 }
 
