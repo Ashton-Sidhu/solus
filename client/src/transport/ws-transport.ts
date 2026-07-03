@@ -135,6 +135,7 @@ export class WsTransport {
     api.onReviewProgress = (cb: Listener) => this.subscribe('review-progress', cb)
     api.onRunStatus      = (cb: Listener) => this.subscribe('run-status', cb)
     api.onRunLog         = (cb: Listener) => this.subscribe('run-log', cb)
+    api.onMergeQueueUpdate = (cb: Listener) => this.subscribe('merge-queue-update', cb)
     api.onTasksChanged   = (cb: Listener) => this.subscribe('tasks-changed', cb)
     api.onSeqWatermark   = (cb: Listener) => this.subscribe('seq-watermark', cb)
     api.onResetRuntime   = (cb: () => void) => {
