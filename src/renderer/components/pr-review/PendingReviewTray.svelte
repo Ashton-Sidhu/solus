@@ -3,18 +3,21 @@
   import type { ReviewDraftComment } from "../../../shared/review";
 
   // The pending-review tray (decision #16: pending drafts live here, not in
-  // Activity). A footer over the review surface listing queued GitHub-bound
-  // comments with remove + jump, and the Submit button that opens the modal.
+  // Activity). A footer over the review surface listing queued comments with
+  // remove + jump, and the submit button. The PR review host submits to GitHub;
+  // the local review guide host sends the drafts to the agent.
   let {
     drafts,
+    submitLabel = "Submit review",
     onSubmit,
     onRemove,
     onJump,
   }: {
     drafts: ReviewDraftComment[];
+    submitLabel?: string;
     onSubmit: () => void;
     onRemove: (id: string) => void;
-    onJump?: (path: string, line: number) => void;
+    onJump?: (path: string, line: number, side: "old" | "new") => void;
   } = $props();
 
   let expanded = $state(false);
@@ -28,7 +31,7 @@
           <button
             type="button"
             class="min-w-0 flex-1 text-left"
-            onclick={() => onJump?.(d.path, d.line)}
+            onclick={() => onJump?.(d.path, d.line, d.side)}
           >
             <span class="block truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)">{d.path}:{d.line}</span>
             <span class="block truncate text-[0.8125rem] text-(--solus-text-secondary)">{d.body}</span>
@@ -61,7 +64,7 @@
       onclick={onSubmit}
     >
       <PaperPlaneTiltIcon size={14} weight="bold" />
-      Submit review
+      {submitLabel}
     </button>
   </div>
 </div>
