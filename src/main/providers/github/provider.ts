@@ -1,5 +1,6 @@
 import { GitHubAuth } from './auth'
 import { buildClient, type GitHubClient } from './octokit'
+import type { MergeMethod } from '../../../shared/types'
 import type {
   DraftReview,
   PrCommit,
@@ -126,7 +127,7 @@ function githubApiErrorMessage(err: unknown, fallback: string): string {
     : []
 
   const parts = [bodyMessage, ...details].filter(Boolean)
-  if (parts.length > 0) return `GitHub rejected the review${status ? ` (${status})` : ''}: ${parts.join('; ')}`
+  if (parts.length > 0) return `${fallback}${status ? ` (${status})` : ''}: ${parts.join('; ')}`
 
   const message = err instanceof Error ? err.message : String(err)
   return message ? `${fallback}: ${message}` : fallback
@@ -245,6 +246,7 @@ class GitHubProvider implements ReviewProvider {
       baseSha: pr.base.sha,
       headSha: pr.head.sha,
       changedFiles: (pr as any).changed_files ?? 0,
+      mergeable: pr.mergeable ?? null,
       headRepo: {
         owner: pr.head.repo?.owner?.login ?? repo.owner,
         repo: pr.head.repo?.name ?? repo.repo,
@@ -338,6 +340,36 @@ class GitHubProvider implements ReviewProvider {
     } catch (err) {
       throw new Error(githubApiErrorMessage(err, 'Could not submit the review'))
     }
+  }
+
+  async mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }> {
+    const { rest } = await this.client()
+    try {
+      const { data } = await rest.pulls.merge({
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        merge_method: method,
+      })
+      return { merged: data.merged, message: data.message }
+    } catch (err) {
+      // 405/409 = not mergeable (conflicts, protection, stale head) — the merge
+      // queue treats this as "resolve locally", not as a failure.
+      return { merged: false, message: githubApiErrorMessage(err, 'GitHub could not merge the pull request') }
+    }
+  }
+
+  async listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]> {
+    const { rest } = await this.client()
+    // One page of 100 is plenty for the ordering heuristic — overlap on the
+    // first 100 files is representative even for giant PRs.
+    const { data } = await rest.pulls.listFiles({
+      owner: repo.owner,
+      repo: repo.repo,
+      pull_number: number,
+      per_page: 100,
+    })
+    return data.map((f) => f.filename)
   }
 
   async replyToThread(_repo: RepoRef, threadId: string, body: string): Promise<ReviewComment> {

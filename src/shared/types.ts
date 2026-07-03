@@ -1295,6 +1295,7 @@ export interface DeviceCodePrompt {
 
 export * from './git-types'
 export * from './run-types'
+export * from './merge-queue-types'
 
 // IPC channel constants moved to `shared/rpc.ts` (RPC_INVOKE_METHODS,
 // RPC_SEND_METHODS, RPC_TOPICS). Both transports — Electron IPC and the
