@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MagnifyingGlassIcon, UserIcon, ArrowsDownUpIcon, CaretDownIcon } from "phosphor-svelte";
+  import { MagnifyingGlassIcon, UserIcon, ArrowsDownUpIcon, CaretDownIcon, XIcon } from "phosphor-svelte";
   import Input from "../ui/Input.svelte";
   import type { StatusFilter, TaskSort } from "./lib/tasks-api";
 
@@ -58,6 +58,20 @@
       size="lg"
       placeholder="Search tasks…"
     />
+    {#if query}
+      <button
+        type="button"
+        class="relative grid size-[1.125rem] shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-colors duration-100 after:absolute after:-inset-1.5 hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
+        onclick={() => {
+          query = "";
+          searchEl?.focus();
+        }}
+        aria-label="Clear search"
+        title="Clear search (Esc)"
+      >
+        <XIcon size={10} weight="bold" />
+      </button>
+    {/if}
   </div>
 
   {#if showStatus}

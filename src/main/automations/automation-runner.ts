@@ -1,5 +1,6 @@
-import { ClaudeAgent } from '../agents/claude/claude-agent'
+import { ClaudeAgent, SAFE_TOOLS } from '../agents/claude/claude-agent'
 import { runCodexOneShot } from '../agents/codex/codex-oneshot'
+import { createSolusMcpServer } from '../folio/work-tools'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { createWorktree } from '../git/worktree-manager'
 import { isWorkspacePath } from '../workspace'
@@ -64,9 +65,10 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * gets a runId without blocking. Results land in the store when the run settles
  * and are read back via the run-result tools.
  *
- * Recursion guard: the spawned run is given NO automation tools (the `solus` MCP
- * server / dynamic tools are not attached on either provider), so an automation
- * cannot create or trigger more automations. This is the Phase 1 fork-bomb guard.
+ * Recursion guard: the spawned run gets the full `solus` tool suite (works,
+ * tasks, review ledger, artifacts, create_session) EXCEPT the automation
+ * CRUD/run tools, on both providers — so an automation cannot create or trigger
+ * more automations. This is the fork-bomb guard; everything else is available.
  */
 export async function triggerAutomationRun(automation: Automation): Promise<AutomationRun> {
   const run = await startRun(automation.id)
@@ -156,6 +158,8 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
             model: action.modelId,
             reasoningEffort: action.reasoningEffort,
             abortSignal: entry.abort.signal,
+            // Full solus tool suite minus the automation tools (fork-bomb guard).
+            solusTools: true,
           })
         : await runViaClaude(action, cwd, prompt, entry.abort)
 
@@ -187,8 +191,41 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
   }
 }
 
+// The solus tools a headless run may call — the full suite minus the automation
+// CRUD/run tools (which are never registered on the headless MCP server, per the
+// fork-bomb guard in createSolusMcpServer). Reads, writes, and create_session all
+// run unattended under 'auto' permissions.
+const HEADLESS_SOLUS_TOOLS = [
+  'mcp__solus__list_works',
+  'mcp__solus__read_work',
+  'mcp__solus__create_work',
+  'mcp__solus__update_work',
+  'mcp__solus__render_artifact',
+  'mcp__solus__record_change',
+  'mcp__solus__get_task',
+  'mcp__solus__update_task_status',
+  'mcp__solus__create_session',
+]
+
 async function runViaClaude(action: Automation['action'], cwd: string, prompt: string, abortController: AbortController) {
   const general = isWorkspacePath(cwd)
+
+  // The run's session id lands at session_init (before any tool runs); resolve it
+  // lazily so create_work/record_change can stamp the correct origin session.
+  let sessionId: string | null = null
+
+  // Full solus suite (works, tasks, review ledger, artifacts, create_session)
+  // minus automation tools. Callbacks are omitted — a headless run has no
+  // conversation to stream cards into, and works persist to disk regardless.
+  const solusServer = createSolusMcpServer({
+    createCtx: {
+      agentProvider: 'claude-code',
+      cwd,
+      sessionId: () => sessionId ?? undefined,
+    },
+    includeAutomationTools: false,
+  })
+
   const { text, result } = await claudeAgent.runOneShot({
     prompt,
     cwd,
@@ -196,6 +233,9 @@ async function runViaClaude(action: Automation['action'], cwd: string, prompt: s
     reasoningEffort: action.reasoningEffort,
     permissionMode: 'auto',
     abortController,
+    mcpServers: { solus: solusServer },
+    allowedTools: [...SAFE_TOOLS, ...HEADLESS_SOLUS_TOOLS],
+    onSessionInit: async (sid) => { sessionId = sid },
     systemPromptAppend: buildSystemPrompt({
       agent: 'claude',
       general,

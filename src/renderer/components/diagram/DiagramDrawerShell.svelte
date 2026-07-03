@@ -1,6 +1,14 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { fly } from "svelte/transition";
+  import { quintOut } from "svelte/easing";
   import { XIcon } from "phosphor-svelte";
+
+  // Svelte transitions don't consult prefers-reduced-motion on their own —
+  // zero the durations so reduced-motion users get an instant swap.
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
 
   interface Props {
     title: string;
@@ -46,11 +54,16 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+<!-- `|global` so the transitions also play when the parent's {#if} removes the
+     whole drawer component, not just this element's own block. The exit is
+     deliberately softer than the enter: shorter, with a smaller offset. -->
 <div
   class="diagram-drawer"
   bind:this={drawerEl}
   role="complementary"
   aria-label={ariaLabel}
+  in:fly|global={{ x: 24, duration: reduceMotion ? 0 : 200, easing: quintOut }}
+  out:fly|global={{ x: 12, duration: reduceMotion ? 0 : 140, easing: quintOut }}
 >
   <div class="diagram-drawer__header">
     <div class="diagram-drawer__title-group">
@@ -105,18 +118,6 @@
     box-shadow: var(--solus-card-shadow-collapsed);
     z-index: 10;
     overflow: hidden;
-    animation: drawer-slide-in 0.2s cubic-bezier(0.2, 0, 0, 1);
-  }
-
-  @keyframes drawer-slide-in {
-    from {
-      transform: translateX(calc(100% + 0.75rem));
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
   }
 
   /* Header mirrors SidePanel: uppercase micro-caps title + a ghost icon button. */
@@ -168,8 +169,9 @@
     color: var(--solus-text-tertiary);
     cursor: pointer;
     transition:
-      color 0.15s ease,
-      background-color 0.15s ease;
+      color var(--duration-base) var(--ease-premium),
+      background-color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   @media (hover: hover) {
@@ -181,6 +183,7 @@
 
   .diagram-drawer__close:active {
     background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
+    scale: 0.96;
   }
 
   .diagram-drawer__close:focus-visible {
@@ -238,8 +241,8 @@
     font-family: inherit;
     outline: none;
     transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      border-color var(--duration-base) var(--ease-premium),
+      box-shadow var(--duration-base) var(--ease-premium);
   }
 
   :global(.diagram-drawer__input:focus),
@@ -258,12 +261,18 @@
     background: var(--solus-accent-light);
     color: var(--solus-accent);
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition:
+      opacity var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
     font-weight: 500;
   }
 
   :global(.diagram-drawer .diagram-btn:hover) {
     opacity: 0.8;
+  }
+
+  :global(.diagram-drawer .diagram-btn:active) {
+    scale: 0.96;
   }
 
   :global(.diagram-drawer .diagram-btn:focus-visible) {
@@ -277,9 +286,4 @@
     color: var(--solus-text-secondary);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .diagram-drawer {
-      animation: none;
-    }
-  }
 </style>

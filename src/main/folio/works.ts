@@ -144,14 +144,8 @@ export async function revertWork(id: string, cwd?: string): Promise<Work | null>
   if (!current || !prev) return null
   const found = await findWork(id, cwd)
   if (!found) return null
-  await writeJson(
-    
-    prevPath(found.locator.root, id),
-    JSON.stringify({ content: current.content, updatedAt: current.updatedAt }),
-  )
-  await writeFile(
-    'utf8',
-  )
+  const nextPrev: WorkPrevious = { content: current.content, updatedAt: current.updatedAt }
+  await writeFile(prevPath(found.locator.root, id), JSON.stringify(nextPrev), 'utf8')
   const preview = workPreview(current.type, prev.content)
   return saveWork(id, { content: prev.content, preview }, cwd)
 }

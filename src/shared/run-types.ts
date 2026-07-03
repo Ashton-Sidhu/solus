@@ -63,4 +63,7 @@ export interface ProjectConfig {
   /** Provider scope. Auto-filled from the git remote for GitHub (`owner`/`repo`);
    *  later providers will carry their own selectors (Jira project key, Linear team). */
   taskProviderConfig?: { owner?: string; repo?: string }
+  /** When false, starting a session from a task does NOT move the ticket to
+   *  In Progress or post the "started in Solus" comment. Absent = enabled. */
+  taskStartWriteBack?: boolean
 }

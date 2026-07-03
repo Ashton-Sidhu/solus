@@ -226,6 +226,7 @@ export const RPC_TOPICS = [
   'provider-device-code',
   'review-progress',
   'merge-queue-update',
+  'tasks-changed',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]
