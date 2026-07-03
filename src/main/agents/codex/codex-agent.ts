@@ -188,3 +188,15 @@ export function getCodexAppServerClient(): CodexAppServerClient {
   if (!sharedClient) sharedClient = new CodexAppServerClient()
   return sharedClient
 }
+
+// ─── Headless thread registry ───
+// Thread ids of in-flight headless one-shot runs (see codex-oneshot) that own
+// their own dynamic-tool dispatch on the shared client. The interactive
+// CodexBackend skips server-requests for these threads so the two listeners on
+// the shared client never both respond to the same request.
+const headlessThreadIds = new Set<string>()
+export function registerHeadlessThread(id: string): void { headlessThreadIds.add(id) }
+export function unregisterHeadlessThread(id: string): void { headlessThreadIds.delete(id) }
+export function isHeadlessCodexThread(id: unknown): boolean {
+  return typeof id === 'string' && headlessThreadIds.has(id)
+}

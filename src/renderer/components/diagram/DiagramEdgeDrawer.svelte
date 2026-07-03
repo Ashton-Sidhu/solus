@@ -8,7 +8,9 @@
     DIAGRAM_BLUE,
     DIAGRAM_PURPLE,
     DIAGRAM_GRAY,
+    diagramAccent,
   } from './diagram-colors'
+  import { getSettingsContext } from '../../contexts/settings.context.svelte'
 
   interface Props {
     edge: Pick<DiagramEdge, 'id' | 'source' | 'target' | 'label' | 'kind' | 'color' | 'width' | 'arrows' | 'shape' | 'cardinality'>
@@ -28,6 +30,8 @@
   }
 
   let { edge, sourceLabel, targetLabel, onClose, onUpdateLabel, onUpdateKind, onUpdateColor, onUpdateWidth, onUpdateArrows, onUpdateShape, onUpdateCardinality, autoFocus = false }: Props = $props()
+
+  const theme = getSettingsContext()
 
   // Edge weight (stroke width in px). Bounds and step for the slider; the
   // default mirrors the base CSS stroke so an untouched edge sits mid-low.
@@ -249,7 +253,7 @@
           <input
             type="color"
             class="diagram-edge-color__custom-input"
-            value={activeColor ?? '#d97757'}
+            value={activeColor ?? diagramAccent(theme.isDark)}
             oninput={(e) => onUpdateColor(edge.id, e.currentTarget.value)}
             aria-label="Custom color"
           />
@@ -426,7 +430,7 @@
     font-weight: 500;
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background var(--duration-quick) var(--ease-premium), color var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-edge-seg__name {
@@ -499,7 +503,7 @@
     border: 0.0625rem solid color-mix(in srgb, var(--solus-text-primary) 14%, transparent);
     background: var(--swatch);
     cursor: pointer;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    transition: transform var(--duration-quick) var(--ease-premium), box-shadow var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-edge-color__swatch:hover {
@@ -575,7 +579,7 @@
     height: var(--weight);
     border-radius: 999px;
     background: var(--solus-accent);
-    transition: height 0.12s ease;
+    transition: height var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-edge-weight__slider {
@@ -617,7 +621,7 @@
     border: 0.125rem solid var(--solus-sidebar-bg-left);
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.18);
     cursor: pointer;
-    transition: transform 0.12s ease;
+    transition: transform var(--duration-quick) var(--ease-premium);
   }
   .diagram-edge-weight__slider::-moz-range-thumb {
     width: 0.875rem;
@@ -627,7 +631,7 @@
     border: 0.125rem solid var(--solus-sidebar-bg-left);
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.18);
     cursor: pointer;
-    transition: transform 0.12s ease;
+    transition: transform var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-edge-weight__slider:hover::-webkit-slider-thumb,

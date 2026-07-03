@@ -1857,6 +1857,7 @@
 			</div>
 		{/if}
 	</div>
+	</div>
 </section>
 
 <!-- Section after hero — Three-act zoom -->

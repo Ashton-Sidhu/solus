@@ -6,6 +6,7 @@
   import { parseDiagram } from '../../../shared/diagram-types'
   import { applyLayout } from '../../../shared/diagram-layout'
   import { getSettingsContext } from '../../contexts/settings.context.svelte'
+  import { diagramAccent } from './diagram-colors'
 
   interface Props {
     content: string
@@ -18,7 +19,7 @@
   // Match the editor's custom edge + arrow styling so the preview doesn't drift
   // from what opens in the shell.
   const edgeTypes = { default: DiagramEdgeComponent }
-  const edgeAccent = $derived(theme.isDark ? '#e08a6e' : '#d97757')
+  const edgeAccent = $derived(diagramAccent(theme.isDark))
   const defaultEdgeOptions = $derived({
     type: 'default',
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: edgeAccent },

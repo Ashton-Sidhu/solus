@@ -154,9 +154,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     }
   })
 
-  server.register('worktreeBranches', (args) => {
+  server.register('worktreeBranches', async (args) => {
     const [ctx] = args as [IpcContext]
-    return listBranches(ctx.session.workingDirectory)
+    const cwd = ctx.session.workingDirectory
+    if (!cwd || cwd === '~') return []
+    await runAsync('git', ['fetch', '--all', '--prune'], cwd).catch((err) => {
+      log.warn(`Failed to fetch branches before listing: ${err?.message ?? err}`)
+    })
+    return listBranches(cwd)
   })
 
   server.register('worktreeRestore', (args) => {

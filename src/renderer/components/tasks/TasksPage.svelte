@@ -12,7 +12,14 @@
     KanbanIcon,
     TrashIcon,
   } from "phosphor-svelte";
-  import type { Task, TaskStatus, TaskKind, TaskPriority } from "../../../shared/task-types";
+  import { fade } from "svelte/transition";
+  import {
+    TASKS_AUTH_ERROR_PREFIX,
+    type Task,
+    type TaskStatus,
+    type TaskKind,
+    type TaskPriority,
+  } from "../../../shared/task-types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
   import {
@@ -58,6 +65,10 @@
     !!cwd && (provider === "local" || provider === "github"),
   );
   const allowEpics = $derived(provider === "local");
+  // Priority/due are only persistable at create time for local tasks — a new
+  // GitHub issue isn't on a Projects board yet, so those fields would be
+  // silently dropped. The composer hides them rather than eating the input.
+  const canPlanOnCreate = $derived(provider === "local");
   // Delete is local-only (we never delete remote tickets); both providers have a
   // comment model (GitHub issue comments, local notes).
   const canDelete = $derived(provider === "local");
@@ -91,12 +102,44 @@
   let bodyEl = $state<HTMLDivElement | null>(null);
 
   // GitHub's "not connected / auth" failures get a Connect affordance; anything
-  // else (network, rate limit, bad remote) gets a plain retry instead.
+  // else (network, rate limit, bad remote) gets a plain retry instead. The main
+  // process classifies these and prepends a stable marker (task-service), so no
+  // error-prose sniffing is needed here.
   const isAuthError = $derived(
-    provider === "github" &&
-      !!store.error &&
-      /auth|token|credential|connect|unauthor|401|403|sign in/i.test(store.error),
+    provider === "github" && !!store.error && store.error.includes(TASKS_AUTH_ERROR_PREFIX),
   );
+  const displayError = $derived(
+    store.error ? store.error.replace(TASKS_AUTH_ERROR_PREFIX, "") : null,
+  );
+
+  // Tick the freshness hint so "updated 5m ago" doesn't read "just now" forever.
+  let freshnessNow = $state(Date.now());
+  $effect(() => {
+    if (!open || store.refreshedAt === null) return;
+    const interval = setInterval(() => {
+      freshnessNow = Date.now();
+    }, 30_000);
+    return () => clearInterval(interval);
+  });
+
+  // Live refresh: any task mutation for this project (an agent tool closing the
+  // ticket, a session write-back, another window/client editing) invalidates the
+  // list. Debounced so a bulk operation's burst collapses into one reload.
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = window.solus.onTasksChanged((changedCwd) => {
+      if (!session.tasksOpen || !session.tasksProjectCwd) return;
+      if (changedCwd !== session.tasksProjectCwd) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!store.loading) void store.load(changedCwd, { assignedToMe });
+      }, 500);
+    });
+    return () => {
+      unsub();
+      clearTimeout(timer);
+    };
+  });
 
   // Counts are over the unfiltered (but assignee-scoped) list so the tab badges
   // stay stable as the user types a query.
@@ -166,11 +209,14 @@
   useKeybinding(
     "tasks.close",
     () => {
-      // Esc backs out of the detail page first, then clears a held selection,
-      // then closes the panel.
+      // Esc backs out one layer at a time: detail page, then a held selection,
+      // then an active search, and only then the panel itself.
       if (detailTask) detailTask = null;
       else if (selection.size > 0) selection.clear();
-      else close();
+      else if (query) {
+        query = "";
+        searchEl?.focus();
+      } else close();
     },
     { enabled: () => open },
   );
@@ -239,7 +285,9 @@
     const currentCwd = cwd;
     if (!currentCwd || !store.softRemove(ids)) return;
     toasts.undo(label, () => store.restorePending(), {
-      onDismiss: () => void store.commitPending(currentCwd),
+      // commitPending restores any rows whose delete failed; surface why.
+      onDismiss: () =>
+        store.commitPending(currentCwd).catch((err) => toastTaskError("delete task", err)),
     });
   }
 
@@ -372,12 +420,29 @@
             class="whitespace-nowrap text-[0.8125rem] font-semibold text-(--solus-text-primary)"
             >Tasks</span
           >
-          {#if store.loaded && !store.error && store.refreshedAt}
-            <span
-              class="whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary)"
-              title="When this list was last fetched (the provider list may be cached)"
-              >· updated {relativeTime(store.refreshedAt)}</span
-            >
+          {#if store.loaded && !store.error}
+            {#if store.fromCache}
+              <span
+                class="whitespace-nowrap text-[0.6875rem] text-[#9a6700] [.dark_&]:text-[#d29922]"
+                title="The live fetch failed — this is the last list fetched from the provider"
+                >· offline copy{store.refreshedAt
+                  ? ` from ${relativeTime(store.refreshedAt, freshnessNow)}`
+                  : ""}</span
+              >
+            {:else if store.refreshedAt}
+              <span
+                class="whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary)"
+                title="When this list was last fetched from the provider"
+                >· updated {relativeTime(store.refreshedAt, freshnessNow)}</span
+              >
+            {/if}
+            {#if store.truncated}
+              <span
+                class="whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary)"
+                title="The provider caps this list — older items exist but are not shown"
+                >· most recent {store.tasks.length}</span
+              >
+            {/if}
           {/if}
         </div>
         <div class="flex items-center gap-1.5">
@@ -426,7 +491,7 @@
           {#if canCreate}
             <button
               type="button"
-              class="inline-flex cursor-pointer items-center gap-[0.3125rem] rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-2.5 py-[0.3125rem] text-[0.6875rem] font-semibold text-(--solus-accent) transition-[background-color] duration-100 ease-in-out hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+              class="inline-flex cursor-pointer items-center gap-[0.3125rem] rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-2.5 py-[0.3125rem] text-[0.6875rem] font-semibold text-(--solus-accent) transition-[background-color,scale] duration-100 ease-in-out hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] active:scale-[0.96] focus-visible:outline-none"
               onclick={() => (composing = { parentId: undefined })}
             >
               <PlusIcon size={13} weight="bold" />
@@ -486,13 +551,13 @@
       {:else if store.error}
         <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
           <WarningCircleIcon size={28} class="text-(--solus-text-tertiary)" />
-          <p class="text-base font-semibold text-(--solus-text-primary)">
+          <p class="text-balance text-base font-semibold text-(--solus-text-primary)">
             {isAuthError ? "Connect GitHub to see tasks." : "Couldn't load tasks."}
           </p>
           <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
             {isAuthError
               ? "This project reads issues from its GitHub remote. Connect your account to browse and update them."
-              : store.error}
+              : displayError}
           </p>
           {#if isAuthError}
             <button
@@ -516,7 +581,7 @@
         </div>
       {:else if store.tasks.length === 0}
         <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
-          <p class="text-base font-semibold text-(--solus-text-primary)">
+          <p class="text-balance text-base font-semibold text-(--solus-text-primary)">
             No tasks yet.
           </p>
           <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
@@ -570,6 +635,7 @@
               epic={group.epic}
               childTasks={group.children}
               {onOpen}
+              onOpenEpic={onOpen}
               {onStart}
               {onOpenLink}
               {onSetStatus}
@@ -582,7 +648,7 @@
           {:else}
             <ul class="flex flex-col gap-0" role="list" aria-label="Tasks">
               {#each group.children as task (task.id)}
-                <li>
+                <li out:fade={{ duration: 120 }}>
                   <TaskCard
                     {task}
                     {onOpen}
@@ -630,7 +696,7 @@
             <span class="h-4 w-px bg-(--solus-container-border)" aria-hidden="true"></span>
             <button
               type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-[#f85149] transition-colors duration-100 hover:bg-[#f85149]/10"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
               onclick={bulkDelete}
               title="Delete selected"
             >
@@ -664,6 +730,7 @@
       <TaskComposer
         {epics}
         {allowEpics}
+        canPlan={canPlanOnCreate}
         {knownLabels}
         workingDirectory={cwd ?? undefined}
         provider={session.settings.activeAgent}
