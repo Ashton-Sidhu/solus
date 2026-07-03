@@ -35,8 +35,10 @@
   let method = $state<MergeMethod>("merge");
   let methodMenuOpen = $state(false);
   let methodTriggerEl = $state<HTMLButtonElement | null>(null);
-  /** Entry a resolution session was just spawned for, until its status moves on. */
-  let resolvingNumber = $state<number | null>(null);
+  /** True only while a resolution session is being spawned. The button re-enables
+   *  right after — a stalled or failed agent must not lock out another attempt,
+   *  and the queue auto-resumes regardless of how the merge gets concluded. */
+  let spawningResolver = $state(false);
 
   const METHOD_OPTIONS: { value: MergeMethod; label: string }[] = [
     { value: "merge", label: "Merge commit" },
@@ -70,24 +72,22 @@
 
   async function resolveWithAgent(entry: MergeQueueEntry) {
     if (!entry.worktreePath || !entry.branch || !entry.baseRef || !run) return;
-    resolvingNumber = entry.number;
-    await session.startNewSessionWithPrompt(
-      buildConflictResolutionPrompt(entry),
-      run.repoRoot,
-      {
-        branch: entry.branch,
-        targetBranch: entry.baseRef,
-        worktreePath: entry.worktreePath,
-      },
-    );
+    spawningResolver = true;
+    try {
+      await session.startNewSessionWithPrompt(
+        buildConflictResolutionPrompt(entry),
+        run.repoRoot,
+        {
+          branch: entry.branch,
+          targetBranch: entry.baseRef,
+          worktreePath: entry.worktreePath,
+        },
+      );
+    } finally {
+      spawningResolver = false;
+    }
     requestInputFocus();
   }
-
-  $effect(() => {
-    if (resolvingNumber === null) return;
-    const entry = run?.entries.find((e) => e.number === resolvingNumber);
-    if (!entry || entry.status !== "conflicts") resolvingNumber = null;
-  });
 
   const smallBtnClass =
     "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border-0 px-2 py-1 text-[0.6875rem] font-medium transition-[background-color,color] duration-100 ease-in-out disabled:cursor-not-allowed disabled:opacity-40";
@@ -142,13 +142,25 @@
           Cancel
         </button>
       {:else if finished}
-        <button
-          type="button"
-          class="{smallBtnClass} bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-          onclick={() => queue.clear()}
-        >
-          Clear
-        </button>
+        <div class="flex items-center gap-1">
+          {#if queue.failedNumbers.length > 0}
+            <button
+              type="button"
+              class="{smallBtnClass} bg-(--solus-accent-light) text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)]"
+              onclick={() => queue.requeueFailed()}
+              use:tooltip={"Stage the failed PRs for another run"}
+            >
+              Re-queue {queue.failedNumbers.length} failed
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="{smallBtnClass} bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+            onclick={() => queue.clear()}
+          >
+            Clear
+          </button>
+        </div>
       {/if}
     </div>
 
@@ -186,13 +198,11 @@
                 <button
                   type="button"
                   class="{smallBtnClass} bg-(--solus-accent-light) text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)]"
-                  disabled={resolvingNumber === entry.number}
+                  disabled={spawningResolver}
                   onclick={() => void resolveWithAgent(entry)}
                 >
                   <GitMergeIcon size={11} weight="bold" />
-                  {resolvingNumber === entry.number
-                    ? "Agent working…"
-                    : "Resolve with agent"}
+                  {spawningResolver ? "Opening session…" : "Resolve with agent"}
                 </button>
                 <button
                   type="button"
