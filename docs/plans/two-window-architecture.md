@@ -24,7 +24,8 @@ during design discussion.
 | 5 | Editor→pill pickup | **Automatic, pull-based.** On summon, the pill reads the pointer: tab exists → focus it (instant); no tab → attach once (existing history-load path), then it stays mounted. Never a cold reload. |
 | 6 | Pill→editor pickup | **Explicit affordance** ("continue in editor"), not automatic — the editor tab strip is a curated workspace. Follow-up, out of scope for v1. |
 | 7 | Keyboard summon | **Dedicated key per window, both in main.** Primary (Alt+Space) always toggles the pill; secondary (⌘⇧K) always toggles the editor, creating it on first use. Deterministic — no mode inference. In-app mode-toggle (⌥⇧E) surfaces the other window via `switchMode`. |
-| 8 | Coexistence | **Both windows may be visible at once.** Mode-toggle focuses the other window when both are up. `currentViewMode` (last-focused window's mode) survives only as a soft default for tray "Show Solus", dock-activate, and next boot. |
+| 8 | Coexistence | **Both windows may be visible at once.** Mode-toggle focuses the other window when both are up. `currentViewMode` (last-focused window's mode) is runtime-only — a soft default for tray "Show Solus" and dock-activate. |
+| 8b | Window-state persistence | **None (post-review).** Close-hides keep the editor window (and its bounds) alive for the whole app run; a fresh launch boots to the pill with the editor at default bounds. No `window-state.json`, no off-screen-bounds validation. Add back only if relaunch amnesia proves annoying in use. |
 | 9 | Mode bootstrap | **`?mode=pill\|editor` URL param.** Each window mounts one layout; `WindowContext.viewMode` is fixed for the window's lifetime. Web client keeps its `matchMedia` behavior. |
 | 10 | Pill window bounds | **Unchanged in v1** (full work area, CSS-positioned pill) to keep the diff surgical. Shrinking to pill bounds is a separate optimization phase. |
 | 11 | Legacy tab migration | Existing `solus-open-tabs` seeds the **editor** store (it's the workspace); pill starts fresh. Legacy key deleted after migration. |
@@ -64,8 +65,9 @@ the web client attaching to a running session today.
      `skipTaskbar: false`, no `alwaysOnTop`, native shadow. macOS:
      `titleBarStyle: 'hiddenInset'` so it keeps the premium frameless look with real
      traffic lights.
-   - Default bounds ≈ current CSS card (92% × 90% of work area, centered); persist
-     bounds/maximized state in main on move/resize and restore on recreate.
+   - Default bounds ≈ current CSS card (92% × 90% of work area, centered). ~~Persist
+     bounds on move/resize~~ — cut in review (decision #8b): within-run bounds
+     survive via close-hides; relaunches start at the default.
    - Loads the same renderer URL with `?mode=editor`.
    - `close` → hide (decision #12).
 3. **IPC transport fan-out.** `attachElectronIpcTransport` currently sends every topic to

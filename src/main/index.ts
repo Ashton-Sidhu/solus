@@ -178,50 +178,6 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: strin
   return { failed }
 }
 
-// ─── Persisted window state (last mode + editor bounds) ───
-
-interface PersistedWindowState {
-  lastViewMode: 'pill' | 'editor'
-  editorBounds: Electron.Rectangle | null
-}
-
-let windowState: PersistedWindowState = { lastViewMode: 'pill', editorBounds: null }
-
-function windowStatePath(): string {
-  return join(app.getPath('userData'), 'window-state.json')
-}
-
-function loadWindowState(): PersistedWindowState {
-  try {
-    const parsed = JSON.parse(readFileSync(windowStatePath(), 'utf-8'))
-    const bounds = parsed?.editorBounds
-    return {
-      lastViewMode: parsed?.lastViewMode === 'editor' ? 'editor' : 'pill',
-      editorBounds:
-        bounds && [bounds.x, bounds.y, bounds.width, bounds.height].every((v: unknown) => typeof v === 'number')
-          ? bounds
-          : null,
-    }
-  } catch {
-    return { lastViewMode: 'pill', editorBounds: null }
-  }
-}
-
-let windowStateTimer: ReturnType<typeof setTimeout> | null = null
-
-function saveWindowState(patch: Partial<PersistedWindowState>): void {
-  windowState = { ...windowState, ...patch }
-  if (windowStateTimer) return
-  windowStateTimer = setTimeout(() => {
-    windowStateTimer = null
-    try {
-      writeFileSync(windowStatePath(), JSON.stringify(windowState, null, 2))
-    } catch (err: any) {
-      log.warn(`Failed to persist window state: ${err?.message ?? err}`)
-    }
-  }, 400)
-}
-
 function createTemplateMenuIcon(svg: string): Electron.NativeImage {
   const icon = nativeImage.createFromDataURL(
     `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
@@ -415,9 +371,7 @@ function createPillWindow(): void {
   }
 
   mainWindow.once('ready-to-show', () => {
-    // When the app last ran in editor mode, boot straight to the editor window
-    // (created in whenReady) and keep the pill loaded-but-hidden for instant summon.
-    if (!isTestMode && windowState.lastViewMode !== 'editor') mainWindow?.show()
+    if (!isTestMode) mainWindow?.show()
     booted?.server.broadcast('window-shown', windowCursorRelative())
     if (!isTestMode) {
       void warmupTranscription()
@@ -455,16 +409,6 @@ function editorDefaultBounds(): Electron.Rectangle {
   }
 }
 
-function boundsOnSomeDisplay(bounds: Electron.Rectangle): boolean {
-  return screen.getAllDisplays().some((d) => {
-    const a = d.workArea
-    return (
-      bounds.x < a.x + a.width && bounds.x + bounds.width > a.x &&
-      bounds.y < a.y + a.height && bounds.y + bounds.height > a.y
-    )
-  })
-}
-
 /** The app boots dock-hidden (the pill is a menu-bar-style overlay). The Dock
  *  item appears while the editor window is visible — it's the "traditional
  *  app" surface — and goes away when the editor hides, leaving the pill
@@ -482,13 +426,11 @@ function updateDockVisibility(): void {
 
 /** Create the editor window: a standard OS window (resizable, Dock/alt-tab
  *  presence, native shadow), lazily on first switch to editor mode. Closing it
- *  hides it — state is preserved and reopening is instant. */
+ *  hides it — the window (and its bounds) live for the rest of the app run,
+ *  so reopening is instant; a fresh launch starts at the default bounds. */
 function createEditorWindow(): BrowserWindow {
-  const persisted = windowState.editorBounds
-  const bounds = persisted && boundsOnSomeDisplay(persisted) ? persisted : editorDefaultBounds()
-
   editorWindow = new BrowserWindow({
-    ...bounds,
+    ...editorDefaultBounds(),
     minWidth: 640,
     minHeight: 480,
     // Frameless look with real traffic lights on macOS; standard frame elsewhere.
@@ -502,13 +444,6 @@ function createEditorWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   })
-
-  const persistBounds = () => {
-    if (!isLive(editorWindow) || editorWindow.isMaximized() || editorWindow.isFullScreen()) return
-    saveWindowState({ editorBounds: editorWindow.getBounds() })
-  }
-  editorWindow.on('resize', persistBounds)
-  editorWindow.on('move', persistBounds)
 
   editorWindow.on('close', (e) => {
     if (!forceQuit) {
@@ -647,7 +582,6 @@ function switchMode(target?: 'pill' | 'editor'): void {
   }
 
   currentViewMode = next
-  saveWindowState({ lastViewMode: next })
 
   if (next === 'editor' && !isLive(editorWindow)) {
     // First switch: don't blank the screen while the editor window boots —
@@ -864,8 +798,6 @@ if (isPairUrl) {
       log.info(`Power save blocker started (id=${powerSaveBlockerId})`)
     }
 
-    windowState = loadWindowState()
-
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
       switchMode,
@@ -912,22 +844,14 @@ if (isPairUrl) {
 
       // Track the last-focused Solus window for dialog/capture targeting.
       // Each window is mode-locked (?mode= at load), so focus is the mode:
-      // tray/dock-activate and next boot follow the surface last touched.
+      // tray "Show Solus" and dock-activate follow the surface last touched.
       app.on('browser-window-focus', (_e, win) => {
         if (!allWindows().includes(win)) return
         lastFocusedWindow = win
-        const mode = win === editorWindow ? 'editor' : 'pill'
-        if (mode !== currentViewMode) {
-          currentViewMode = mode
-          saveWindowState({ lastViewMode: mode })
-        }
+        currentViewMode = win === editorWindow ? 'editor' : 'pill'
       })
 
       createPillWindow()
-      if (!isTestMode && windowState.lastViewMode === 'editor') {
-        currentViewMode = 'editor'
-        createEditorWindow()
-      }
       snapshotWindowState('after createWindow')
       initAutoUpdater(() => { forceQuit = true })
 
@@ -992,14 +916,6 @@ if (isPairUrl) {
 }
 
 app.on('will-quit', () => {
-  // Flush a pending debounced window-state write so last mode/bounds survive quit.
-  if (windowStateTimer) {
-    clearTimeout(windowStateTimer)
-    windowStateTimer = null
-    try {
-      writeFileSync(windowStatePath(), JSON.stringify(windowState, null, 2))
-    } catch {}
-  }
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
     powerSaveBlocker.stop(powerSaveBlockerId)
   }
