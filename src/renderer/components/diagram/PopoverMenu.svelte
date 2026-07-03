@@ -83,8 +83,8 @@
     font-weight: 500;
     cursor: pointer;
     transition:
-      background 0.12s ease,
-      color 0.12s ease;
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
     text-align: left;
   }
 

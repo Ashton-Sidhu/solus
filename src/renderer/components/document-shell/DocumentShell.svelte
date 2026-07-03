@@ -218,6 +218,7 @@
   let uploadError = $state<string | null>(null);
   let isSaving = $state(false);
   let hasPendingSave = $state(false);
+  let saveFailed = $state(false);
   let lastSavedAt = $state<number | null>(null);
   let savedStatusNow = $state(Date.now());
 
@@ -445,11 +446,17 @@
     isSaving = true;
     try {
       await onSave(md);
+      saveFailed = false;
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
+      onDirtyChange?.(false);
+    } catch {
+      // Keep the dirty flag on failure — clearing it would let the host treat
+      // unsaved edits as clean (and an agent refresh clobber them). The header
+      // shows a retry affordance and any further edit re-arms the save.
+      saveFailed = true;
     } finally {
       isSaving = false;
-      onDirtyChange?.(false);
     }
   }
 
@@ -529,6 +536,15 @@
           {#if showSaving}
             <span class="doc-shell-save-dot" aria-hidden="true"></span>
             <span>Saving…</span>
+          {:else if saveFailed}
+            <button
+              type="button"
+              class="doc-shell-save-retry"
+              onclick={() => void flushSave()}
+              title="The last save failed — click to retry"
+            >
+              Save failed — retry
+            </button>
           {:else if lastSavedAt !== null}
             <CheckIcon size={11} />
             <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
@@ -819,6 +835,26 @@
     border-radius: 50%;
     background: var(--solus-accent);
     flex-shrink: 0;
+  }
+  .doc-shell-save-retry {
+    border: none;
+    background: transparent;
+    padding: 0.0625rem 0.25rem;
+    margin-inline: -0.25rem;
+    border-radius: 0.25rem;
+    font-size: inherit;
+    font-weight: 500;
+    color: var(--solus-status-error);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--duration-quick) var(--ease-premium);
+  }
+  .doc-shell-save-retry:hover {
+    background: color-mix(in srgb, var(--solus-status-error) 10%, transparent);
+  }
+  .doc-shell-save-retry:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
   }
 
   /* Toolbar */

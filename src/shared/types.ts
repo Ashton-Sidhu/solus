@@ -295,9 +295,12 @@ export interface SessionProgress {
 
 export interface PlanComment {
   id: string
+  /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
   selectedText: string
   comment: string
   textOffset?: number
+  /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
+  nodeId?: string
 }
 
 export interface DiffComment {
