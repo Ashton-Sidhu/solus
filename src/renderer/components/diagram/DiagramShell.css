@@ -117,6 +117,52 @@
     opacity: 0.7;
   }
 
+  .diagram-shell__comments-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.5rem;
+    padding: 0 0.375rem;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    border: none;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-shell__comments-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .diagram-shell__comments-btn:active {
+    scale: 0.96;
+  }
+
+  .diagram-shell__comments-btn--on {
+    background: var(--solus-accent-light);
+    color: var(--solus-accent);
+  }
+
+  .diagram-shell__comments-btn:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  .diagram-shell__comments-count {
+    font-size: 0.5625rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 0 0.25rem;
+    border-radius: 624.9375rem;
+    background: var(--solus-accent-light);
+    color: var(--solus-accent);
+  }
+
   .diagram-shell__close {
     width: 1.5rem;
     height: 1.5rem;
@@ -153,7 +199,9 @@
     color: var(--solus-text-tertiary);
     white-space: nowrap;
     flex-shrink: 0;
-    transition: opacity var(--duration-base) ease;
+    /* The "Saved Ns ago" counter ticks — tabular digits keep it from wobbling. */
+    font-variant-numeric: tabular-nums;
+    transition: opacity var(--duration-base) var(--ease-premium);
   }
 
   .diagram-shell__save-dot {
@@ -162,6 +210,37 @@
     border-radius: 50%;
     background: var(--solus-accent);
     flex-shrink: 0;
+    /* Breathe while a save is pending/in flight — the dot only renders then. */
+    animation: save-dot-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes save-dot-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .diagram-shell__save-retry {
+    border: none;
+    background: transparent;
+    padding: 0.0625rem 0.25rem;
+    margin-inline: -0.25rem;
+    border-radius: 0.25rem;
+    font-size: inherit;
+    font-weight: 500;
+    color: var(--solus-status-error);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-shell__save-retry:hover {
+    background: color-mix(in srgb, var(--solus-status-error) 10%, transparent);
+  }
+
+  .diagram-shell__save-retry:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
   }
 
   .diagram-btn {
@@ -172,12 +251,18 @@
     background: var(--solus-accent-light);
     color: var(--solus-accent);
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition:
+      opacity var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
     font-weight: 500;
   }
 
   .diagram-btn:hover {
     opacity: 0.8;
+  }
+
+  .diagram-btn:active {
+    scale: 0.96;
   }
 
   .diagram-shell__canvas {
@@ -210,13 +295,18 @@
     cursor: pointer;
     box-shadow: var(--solus-container-shadow);
     transition:
-      background 0.15s ease,
-      color 0.15s ease;
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   .clear-focus-pill:hover {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
+  }
+
+  .clear-focus-pill:active {
+    scale: 0.96;
   }
 
   .drill-back-pill {
@@ -233,13 +323,18 @@
     cursor: pointer;
     box-shadow: var(--solus-container-shadow);
     transition:
-      background 0.15s ease,
-      color 0.15s ease;
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   .drill-back-pill:hover {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
+  }
+
+  .drill-back-pill:active {
+    scale: 0.96;
   }
 
   .drill-back-pill:focus-visible {
@@ -265,6 +360,28 @@
     text-align: center;
     color: var(--solus-text-tertiary);
     pointer-events: auto;
+  }
+
+  /* Staggered rise: icon → title → hint → CTA, ~90ms apart. `backwards` holds
+     each chunk invisible until its delay elapses. */
+  .diagram-empty__card > * {
+    animation: diagram-empty-rise 0.3s var(--ease-premium) backwards;
+  }
+  .diagram-empty__card > :nth-child(2) {
+    animation-delay: 90ms;
+  }
+  .diagram-empty__card > :nth-child(3) {
+    animation-delay: 180ms;
+  }
+  .diagram-empty__card > :nth-child(4) {
+    animation-delay: 270ms;
+  }
+
+  @keyframes diagram-empty-rise {
+    from {
+      opacity: 0;
+      transform: translateY(0.375rem);
+    }
   }
 
   .diagram-empty__title {
@@ -305,8 +422,8 @@
     );
     stroke-width: 1.5;
     transition:
-      stroke 0.15s ease,
-      stroke-width 0.15s ease;
+      stroke var(--duration-base) var(--ease-premium),
+      stroke-width var(--duration-base) var(--ease-premium);
   }
 
   .diagram-shell__board
@@ -400,8 +517,8 @@
     z-index: 10;
     opacity: 0;
     transition:
-      opacity 0.12s ease,
-      box-shadow 0.12s ease;
+      opacity var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-shell__board .svelte-flow__handle::after {
@@ -480,10 +597,11 @@
     pointer-events: none !important;
   }
 
-  .diagram-shell__board--connecting .diagram-drawer {
+  .diagram-shell__board--connecting .diagram-drawer,
+  .diagram-shell__board--connecting .diagram-comments {
     opacity: 0.15;
     pointer-events: none;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--duration-base) var(--ease-premium);
   }
 
   /* Grow via a ring rather than `transform: scale()` — xyflow uses each
@@ -544,5 +662,9 @@
   @media (prefers-reduced-motion: reduce) {
     .diagram-shell__board .svelte-flow__edge-path {
       transition: none;
+    }
+    .diagram-shell__save-dot,
+    .diagram-empty__card > * {
+      animation: none;
     }
   }

@@ -17,15 +17,34 @@ export interface TaskFilterState {
  *  more urgent); the colour classes drive the badge. */
 // Classes are full literals (no runtime string-building) so Tailwind's scanner
 // emits them. `chipClass` = badge bg+text, `flagClass` = icon text colour.
+// Each colour pairs a darker light-mode value with a brighter dark-mode one —
+// the dark-palette hexes alone fall below readable contrast on light surfaces.
 export const PRIORITY_META: Record<
   TaskPriority,
   { label: string; rank: number; chipClass: string; flagClass: string }
 > = {
-  urgent: { label: 'Urgent', rank: 0, chipClass: 'text-[#f85149] bg-[#f85149]/10', flagClass: 'text-[#f85149]' },
-  high: { label: 'High', rank: 1, chipClass: 'text-[#db6d28] bg-[#db6d28]/10', flagClass: 'text-[#db6d28]' },
-  medium: { label: 'Medium', rank: 2, chipClass: 'text-[#d29922] bg-[#d29922]/10', flagClass: 'text-[#d29922]' },
+  urgent: { label: 'Urgent', rank: 0, chipClass: 'text-[#cf222e] bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:bg-[#f85149]/10', flagClass: 'text-[#cf222e] [.dark_&]:text-[#f85149]' },
+  high: { label: 'High', rank: 1, chipClass: 'text-[#bc4c00] bg-[#bc4c00]/10 [.dark_&]:text-[#db6d28] [.dark_&]:bg-[#db6d28]/10', flagClass: 'text-[#bc4c00] [.dark_&]:text-[#db6d28]' },
+  medium: { label: 'Medium', rank: 2, chipClass: 'text-[#9a6700] bg-[#9a6700]/10 [.dark_&]:text-[#d29922] [.dark_&]:bg-[#d29922]/10', flagClass: 'text-[#9a6700] [.dark_&]:text-[#d29922]' },
   low: { label: 'Low', rank: 3, chipClass: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)', flagClass: 'text-(--solus-text-tertiary)' },
 }
+
+/** Due-date tone classes, paired light/dark like PRIORITY_META. `chip` is the
+ *  badge form (cards), `text` the inline form (detail sidebar). */
+export const DUE_TONE_META = {
+  overdue: {
+    chip: 'text-[#cf222e] bg-[#cf222e]/10 [.dark_&]:text-[#f85149] [.dark_&]:bg-[#f85149]/10',
+    text: 'text-[#cf222e] [.dark_&]:text-[#f85149]',
+  },
+  soon: {
+    chip: 'text-[#9a6700] bg-[#9a6700]/10 [.dark_&]:text-[#d29922] [.dark_&]:bg-[#d29922]/10',
+    text: 'text-[#9a6700] [.dark_&]:text-[#d29922]',
+  },
+  normal: {
+    chip: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)',
+    text: 'text-(--solus-text-tertiary)',
+  },
+} as const
 
 function priorityRank(t: Task): number {
   return t.priority ? PRIORITY_META[t.priority].rank : 4
@@ -111,11 +130,12 @@ export function taskHydration(task: Task): { comments: TaskComment[]; linkedPrs:
 }
 
 /** Compact "updated 5m ago" style relative time for the freshness hint and
- *  comment timestamps. Falls back to the raw string if it won't parse. */
-export function relativeTime(iso: string | number): string {
+ *  comment timestamps. Falls back to the raw string if it won't parse. Pass
+ *  `now` from a ticking $state so the label re-renders as time passes. */
+export function relativeTime(iso: string | number, now = Date.now()): string {
   const then = typeof iso === 'number' ? iso : Date.parse(iso)
   if (Number.isNaN(then)) return String(iso)
-  const secs = Math.round((Date.now() - then) / 1000)
+  const secs = Math.round((now - then) / 1000)
   if (secs < 45) return 'just now'
   const mins = Math.round(secs / 60)
   if (mins < 60) return `${mins}m ago`

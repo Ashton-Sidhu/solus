@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { readFile, rm, } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../logger'
-import { nextRunFrom } from './automation-schedule'
+import { nextRunFrom, validateTrigger } from './automation-schedule'
 import type {
+  AgentId,
   Automation,
   AutomationAction,
   AutomationCreator,
@@ -25,6 +26,7 @@ const MANIFEST_FILE = 'automations-manifest.json'
 /** Cap retained runs per automation so the run log can't grow unbounded. */
 const MAX_RUNS_PER_AUTOMATION = 50
 const MANIFEST_PATH = join(ROOT, MANIFEST_FILE)
+const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
 function runsPath(id: string): string {
   return join(ROOT, `${id}.runs.json`)
@@ -72,6 +74,19 @@ function persist(): Promise<void> {
   return next
 }
 
+function assertValidAction(action: AutomationAction): void {
+  if (!RUNNABLE_AGENT_PROVIDERS.has(action.agentProvider)) {
+    throw new Error(`Unsupported automation agent provider: ${action.agentProvider}`)
+  }
+  if (!action.prompt.trim()) throw new Error('Automation prompt cannot be empty.')
+  if (!action.cwd.trim()) throw new Error('Automation cwd cannot be empty.')
+}
+
+function assertValidTrigger(trigger: AutomationTrigger): void {
+  const err = validateTrigger(trigger)
+  if (err) throw new Error(err)
+}
+
 export async function createAutomation(
   name: string,
   action: AutomationAction,
@@ -79,6 +94,8 @@ export async function createAutomation(
   enabled = true,
   trigger: AutomationTrigger = { type: 'manual' },
 ): Promise<Automation> {
+  assertValidAction(action)
+  assertValidTrigger(trigger)
   const now = new Date()
   const nowIso = now.toISOString()
   const automation: Automation = {
@@ -120,11 +137,15 @@ export async function updateAutomation(
   const m = await getManifest()
   const existing = m.automations[id]
   if (!existing) return null
+  const nextAction = patch.action ? { ...existing.action, ...patch.action } : existing.action
+  const nextTrigger = patch.trigger ?? existing.trigger
+  assertValidAction(nextAction)
+  assertValidTrigger(nextTrigger)
   if (patch.name !== undefined) existing.name = patch.name
   if (patch.enabled !== undefined) existing.enabled = patch.enabled
   if (patch.favorite !== undefined) existing.favorite = patch.favorite
-  if (patch.action) existing.action = { ...existing.action, ...patch.action }
-  if (patch.trigger !== undefined) existing.trigger = patch.trigger
+  if (patch.action) existing.action = nextAction
+  if (patch.trigger !== undefined) existing.trigger = nextTrigger
 
   // Re-arm the schedule whenever the trigger or enabled state changes. A paused
   // automation carries no pending fire; a (re)enabled one schedules afresh from
