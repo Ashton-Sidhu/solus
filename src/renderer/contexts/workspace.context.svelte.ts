@@ -72,6 +72,10 @@ export class WorkspaceContext {
   /** True while bootstrapRuntimeTabs is running; prevents persist effect from clobbering saved snapshot. */
   hydrating = $state(true)
 
+  /** Tab that last sent a prompt — that tab's session is "the latest session"
+   *  for the cross-window pickup pointer (see active-session-pointer.ts). */
+  lastPromptTabId = $state<string | null>(null)
+
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
@@ -978,6 +982,8 @@ export class WorkspaceContext {
     const agent = session.provider ?? this.settings.activeAgent
     if (isFirstMessage) analytics.conversationStarted({ agent })
     analytics.messageSent({ agent, isFirstMessage })
+
+    this.lastPromptTabId = activeTabId
 
     if (session.status === 'rate_limited' && (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue')) {
       tab.title = title

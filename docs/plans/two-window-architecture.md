@@ -132,11 +132,12 @@ the web client attaching to a running session today.
 
 Implementation (`contexts/active-session-pointer.ts` + `App.svelte` wiring):
 
-1. **Write** (both windows): a focus-gated `$effect` records
-   `solus-active-session: { sessionId, provider, cwd, title, writer, updatedAt }`
-   whenever the focused window's active tab has a bound agent session. Focus
-   gating means a background window's boot/hydration never clobbers the
-   foreground's writes; `writer` records which mode wrote it.
+1. **Write** (both windows): the latest session is simply the one the last
+   message was sent in. `sendMessage` records `lastPromptTabId`; a small effect
+   writes `solus-active-session: { sessionId, provider, cwd, title, writer,
+   updatedAt }` once that tab's `agentSessionId` is known (it binds a moment
+   after the first send). Only a user send triggers a write, so background
+   windows never clobber it — no focus gating needed.
 2. **Read** (pill only, pull semantics): on a hidden→visible transition
    (`visibilitychange`, i.e. summon) plus one post-hydration boot check — never
    on focus/click of an already-visible pill, so the tab is never yanked while
