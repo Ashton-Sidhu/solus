@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { CaretDownIcon, StackIcon, PlusIcon } from "phosphor-svelte";
   import type { Task, TaskStatus } from "../../../shared/task-types";
   import TaskCard from "./TaskCard.svelte";
@@ -7,6 +8,8 @@
     epic: Task;
     childTasks: Task[];
     onOpen: (task: Task) => void;
+    /** Open the epic's own detail page (title/description/status live there). */
+    onOpenEpic?: (epic: Task) => void;
     onStart: (task: Task) => void;
     onOpenLink: (task: Task) => void;
     onSetStatus: (task: Task, status: TaskStatus) => void;
@@ -24,6 +27,7 @@
     epic,
     childTasks,
     onOpen,
+    onOpenEpic,
     onStart,
     onOpenLink,
     onSetStatus,
@@ -45,24 +49,34 @@
 </script>
 
 <div class="flex flex-col">
-  <!-- Epic header: a disclosure row. The label area toggles; the title is also a
-       deep-link / session target via the trailing actions. -->
+  <!-- Epic header, split into two controls: the caret discloses, the title
+       opens the epic's own detail page (where it can be edited, moved, started,
+       or deleted like any task). -->
   <div
     class="group flex items-center gap-2 rounded-[0.625rem] px-2 py-2 transition-colors duration-150 ease-in-out hover:bg-(--solus-surface-hover)"
   >
     <button
       type="button"
-      class="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent text-left cursor-pointer"
+      class="relative grid size-[1.125rem] shrink-0 place-items-center rounded border-0 bg-transparent cursor-pointer after:absolute after:-inset-1.5 focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
       onclick={() => (expanded = !expanded)}
       aria-expanded={expanded}
+      aria-label={expanded ? "Collapse epic" : "Expand epic"}
+      title={expanded ? "Collapse" : "Expand"}
     >
       <CaretDownIcon
         size={12}
         weight="bold"
-        class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 {expanded
+        class="text-(--solus-text-tertiary) transition-transform duration-150 {expanded
           ? ''
           : '-rotate-90'}"
       />
+    </button>
+    <button
+      type="button"
+      class="flex min-w-0 flex-1 items-center gap-2 rounded-md border-0 bg-transparent text-left cursor-pointer focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
+      onclick={() => (onOpenEpic ?? onOpen)(epic)}
+      title="Open epic"
+    >
       <StackIcon size={14} class="shrink-0 text-(--solus-accent)" />
       <span
         class="truncate text-[0.8125rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
@@ -86,7 +100,7 @@
     {#if canCreate && onAddChild}
       <button
         type="button"
-        class="shrink-0 grid size-[1.625rem] place-items-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) opacity-0 transition-[opacity,background-color,color] duration-100 ease-in-out group-hover:opacity-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+        class="relative shrink-0 grid size-[1.625rem] place-items-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) opacity-0 transition-[opacity,background-color,color] duration-100 ease-in-out after:absolute after:-inset-1 group-hover:opacity-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
         onclick={() => onAddChild?.(epic)}
         aria-label="Add task to epic"
         title="Add task to this epic"
@@ -104,7 +118,7 @@
     {:else}
       <ul class="flex flex-col gap-0" role="list" aria-label={epic.title}>
         {#each childTasks as child (child.id)}
-          <li>
+          <li out:fade={{ duration: 120 }}>
             <TaskCard
               task={child}
               {onOpen}

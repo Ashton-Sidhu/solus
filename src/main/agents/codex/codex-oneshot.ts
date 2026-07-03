@@ -9,7 +9,6 @@ import {
 import { classifyCodexSolusTool, executeCodexSolusTool, codexSolusToolSchemas } from './codex-solus-tools'
 import {
   approvalPolicyFor,
-  sandboxFor,
   sandboxPolicyFor,
   codexItemToMessage,
   toEpochMs,
@@ -36,7 +35,7 @@ const DEFAULT_CODEX_MODEL =
 
 // Automations always run unattended, so the headless run uses the same
 // semantics as the 'auto' permission mode in the interactive backend:
-// approvals are never requested and the sandbox is workspace-write.
+// approvals are never requested and the sandbox is unrestricted.
 const PERMISSION = 'auto' as const
 
 /** A Codex dynamicTools JSON-schema descriptor (same shape work-tools use). */
@@ -149,7 +148,6 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     model,
     cwd: opts.cwd,
     approvalPolicy: approvalPolicyFor(PERMISSION),
-    sandbox: sandboxFor(PERMISSION),
     baseInstructions: null,
     developerInstructions,
     experimentalRawEvents: false,
@@ -234,7 +232,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
         input: [{ type: 'text', text: opts.prompt, text_elements: [] }],
         cwd: opts.cwd,
         approvalPolicy: approvalPolicyFor(PERMISSION),
-        sandboxPolicy: sandboxPolicyFor(PERMISSION, opts.cwd, []),
+        sandboxPolicy: sandboxPolicyFor(PERMISSION),
         model,
         reasoning_effort: reasoningEffort,
         collaborationMode: {

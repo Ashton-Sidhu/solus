@@ -15,6 +15,7 @@
     CheckIcon,
     XIcon,
     ArrowsClockwiseIcon,
+    StackIcon,
   } from "phosphor-svelte";
   import {
     type Task,
@@ -30,6 +31,7 @@
     relativeTime,
     authorInitials,
     dueDateMeta,
+    DUE_TONE_META,
     PRIORITY_META,
     type TaskComment,
     type TaskLinkedPr,
@@ -126,9 +128,10 @@
   const ROW = "flex items-center justify-between gap-3 min-h-[1.875rem]";
   const ROW_LABEL =
     "shrink-0 text-xs font-medium text-(--solus-text-secondary)";
-  // Soft recessed full-width field (labels / branch / PR).
+  // Soft recessed full-width field (labels / branch / PR). rounded-md keeps the
+  // inner corners closer to concentric with the card's 14px radius + padding.
   const FIELD =
-    "w-full text-xs text-(--solus-text-primary) bg-(--solus-surface-hover) rounded-lg px-2 py-[0.375rem] border-0 " +
+    "w-full text-xs text-(--solus-text-primary) bg-(--solus-surface-hover) rounded-md px-2 py-[0.375rem] border-0 " +
     "[outline:0.0625rem_solid_transparent] transition-[background-color,outline-color] duration-120 " +
     "hover:bg-(--solus-accent-light) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
     "focus-visible:[outline:0.125rem_solid_color-mix(in_srgb,var(--solus-accent)_55%,transparent)] placeholder:text-(--solus-text-tertiary)";
@@ -153,8 +156,8 @@
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]";
   const START_BTN =
     "shrink-0 inline-flex items-center gap-1.5 px-3 py-[0.4375rem] rounded-lg border-0 text-xs font-semibold " +
-    "text-[var(--solus-accent-contrast,#fff)] bg-(--solus-accent) cursor-pointer transition-[filter,opacity] duration-120 " +
-    "hover:brightness-[1.07] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
+    "text-[var(--solus-accent-contrast,#fff)] bg-(--solus-accent) cursor-pointer transition-[filter,opacity,scale] duration-120 " +
+    "hover:brightness-[1.07] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
   // Title + description mirror AutomationBuilder's main column: a borderless 2xl
   // title and a recessed markdown well that lifts on hover and outlines on focus.
   const TITLE_FIELD =
@@ -211,6 +214,7 @@
     $state(null);
   // Blank add-field: existing labels live in their chips, this only appends new ones.
   let labelDraft = $state("");
+  let assigneeDraft = $state(initial.assignee ?? "");
   let dueDateDraft = $state(initial.dueDate ?? "");
   let priorityDraft = $state<TaskPriority | "">(initial.priority ?? "");
   let branchDraft = $state(initial.branch ?? "");
@@ -240,13 +244,7 @@
   const due = $derived(
     display.status === "done" ? null : dueDateMeta(display.dueDate),
   );
-  const dueToneClass = $derived(
-    due?.tone === "overdue"
-      ? "text-[#f85149]"
-      : due?.tone === "soon"
-        ? "text-[#d29922]"
-        : "text-(--solus-text-tertiary)",
-  );
+  const dueToneClass = $derived(due ? DUE_TONE_META[due.tone].text : "");
 
   let commentDraft = $state("");
   let posting = $state(false);
@@ -352,6 +350,12 @@
     const labels = display.labels.filter((l) => l !== label);
     void commit({ labels }, { labels });
   }
+  function commitAssignee() {
+    const assignee = assigneeDraft.trim();
+    assigneeDraft = assignee;
+    if (assignee !== (display.assignee ?? ""))
+      void commit({ assignee }, { assignee: assignee || undefined });
+  }
   function commitDueDate() {
     const dueDate = dueDateDraft || undefined;
     if ((dueDate ?? "") !== (display.dueDate ?? ""))
@@ -386,19 +390,21 @@
     }
   }
 
+  // Paired light/dark values — the dark-palette hexes alone lack contrast on
+  // light surfaces.
   const prStateColor = (s: TaskLinkedPr["state"]) =>
     s === "MERGED"
-      ? "text-[#a371f7]"
+      ? "text-[#8250df] [.dark_&]:text-[#a371f7]"
       : s === "CLOSED"
-        ? "text-[#f85149]"
-        : "text-[#3fb950]";
+        ? "text-[#cf222e] [.dark_&]:text-[#f85149]"
+        : "text-[#1a7f37] [.dark_&]:text-[#3fb950]";
 </script>
 
 <div
   class="task-detail-scroll flex flex-1 min-h-0 flex-col overflow-y-auto pt-4 px-5 pb-10 overscroll-y-contain"
 >
   <article
-    class="max-w-[92rem] w-full mx-auto flex flex-col gap-6 min-h-full"
+    class="max-w-[92rem] w-full mx-auto flex flex-col gap-6 min-h-full [animation:task-detail-enter_150ms_ease-out_both]"
   >
     <!-- ── Breadcrumb header + actions ── -->
     <header class="flex items-center justify-between gap-4">
@@ -411,6 +417,15 @@
           size={12}
           class="text-(--solus-text-tertiary) opacity-60 shrink-0"
         />
+        {#if display.kind === "epic"}
+          <span
+            class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-(--solus-accent)"
+            title="This is an epic — its tasks are grouped under it in the list"
+          >
+            <StackIcon size={12} weight="fill" />
+            Epic
+          </span>
+        {/if}
         <span class="text-(--solus-text-tertiary) tabular-nums shrink-0"
           >{display.id.length > 8
             ? `#${display.id.slice(0, 6)}`
@@ -473,7 +488,7 @@
         {#if canDelete}
           <button
             type="button"
-            class="grid size-7 place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) cursor-pointer transition-colors duration-150 hover:bg-[#f85149]/12 hover:text-[#f85149] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#f85149]"
+            class="grid size-7 place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) cursor-pointer transition-colors duration-150 hover:bg-[#cf222e]/12 hover:text-[#cf222e] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#cf222e] [.dark_&]:hover:bg-[#f85149]/12 [.dark_&]:hover:text-[#f85149] [.dark_&]:focus-visible:outline-[#f85149]"
             onclick={() => onDelete(display)}
             aria-label="Delete task"
             title="Delete"
@@ -486,7 +501,7 @@
           class={START_BTN}
           onclick={() => onStart(display)}
         >
-          <PlayIcon size={13} weight="fill" />
+          <PlayIcon size={13} weight="fill" class="translate-x-[0.5px]" />
           <span>Start session</span>
         </button>
       </div>
@@ -509,7 +524,7 @@
           />
         {:else}
           <h2
-            class="text-2xl font-[650] tracking-[-0.02em] text-(--solus-text-primary) {display.status ===
+            class="text-balance text-2xl font-[650] tracking-[-0.02em] text-(--solus-text-primary) {display.status ===
             'done'
               ? 'line-through opacity-70'
               : ''}"
@@ -692,7 +707,7 @@
                       >
                     </div>
                     <div
-                      class="prose-cloud mt-1.5 text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+                      class="prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
                     >
                       <SvelteMarkdown
                         source={c.body}
@@ -850,6 +865,31 @@
             </div>
 
             <div class={ROW}>
+              <dt class={ROW_LABEL}>Assignee</dt>
+              <dd class="min-w-0">
+                {#if canEdit}
+                  <input
+                    bind:value={assigneeDraft}
+                    onblur={commitAssignee}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
+                    type="text"
+                    aria-label="Assignee"
+                    placeholder="—"
+                    class={GHOST_INPUT}
+                  />
+                {:else if display.assignee}
+                  <span class="text-xs text-(--solus-text-secondary)"
+                    >@{display.assignee}</span
+                  >
+                {:else}
+                  <span class="text-xs text-(--solus-text-tertiary)">—</span>
+                {/if}
+              </dd>
+            </div>
+
+            <div class={ROW}>
               <dt class={ROW_LABEL}>Due</dt>
               <dd class="min-w-0">
                 {#if canEditExtras}
@@ -892,7 +932,7 @@
                     {#if canEdit}
                       <button
                         type="button"
-                        class="grid size-3 place-items-center rounded-sm border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer hover:text-(--solus-text-primary)"
+                        class="relative grid size-3 place-items-center rounded-sm border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer after:absolute after:-inset-1.5 hover:text-(--solus-text-primary)"
                         onclick={() => removeLabel(label)}
                         aria-label={`Remove ${label}`}
                       >
@@ -984,6 +1024,19 @@
 </div>
 
 <style>
+  /* One-shot enter for the list → detail swap; keyframes because it runs once
+     on mount (interactive state changes stay on transitions). */
+  @keyframes task-detail-enter {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 0.25rem, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
   .task-detail-scroll {
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
