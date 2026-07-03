@@ -68,7 +68,6 @@ export class TextGenerator {
       model,
       cwd: options.cwd,
       approvalPolicy: approvalPolicyFor('plan'),
-      sandbox: 'read-only',
       baseInstructions: systemPrompt,
       developerInstructions: systemPrompt,
       experimentalRawEvents: false,
@@ -123,7 +122,7 @@ export class TextGenerator {
       input: [{ type: 'text', text: options.prompt, text_elements: [] }],
       cwd: options.cwd,
       approvalPolicy: approvalPolicyFor('plan'),
-      sandboxPolicy: sandboxPolicyFor('plan', options.cwd, options.additionalDirs ?? []),
+      sandboxPolicy: sandboxPolicyFor('plan'),
       model,
       ...reasoningParams,
       collaborationMode: {

@@ -41,10 +41,10 @@
   import DropdownItem from "../ui/DropdownItem.svelte";
   import Select from "../ui/Select.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
-  import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
   import DocumentPromptEditor from "../editor/DocumentPromptEditor.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
+  import TaskCommentCodeSpan from "./TaskCommentCodeSpan.svelte";
   import type { AgentId } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
@@ -187,7 +187,7 @@
     "rounded-[0.375rem] bg-[linear-gradient(90deg,var(--solus-surface-hover)_25%,transparent_50%,var(--solus-surface-hover)_75%)] [background-size:25rem_100%] animate-[skeleton-shimmer_1.5s_ease-in-out_infinite]";
   const markdownRenderers = {
     code: CodeBlock,
-    codespan: CodeSpan,
+    codespan: TaskCommentCodeSpan,
     link: MarkdownLink,
   };
 
@@ -401,7 +401,7 @@
 </script>
 
 <div
-  class="flex flex-1 min-h-0 flex-col overflow-y-auto pt-4 px-5 pb-10 [scrollbar-width:thin] overscroll-y-contain"
+  class="task-detail-scroll flex flex-1 min-h-0 flex-col overflow-y-auto pt-4 px-5 pb-10 overscroll-y-contain"
 >
   <article
     class="max-w-[92rem] w-full mx-auto flex flex-col gap-6 min-h-full [animation:task-detail-enter_150ms_ease-out_both]"
@@ -923,8 +923,11 @@
               <div class="flex flex-wrap gap-1.5">
                 {#each display.labels as label (label)}
                   <span
-                    class="inline-flex items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-px text-[0.625rem] font-medium text-(--solus-text-tertiary)"
+                    class="inline-flex items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.625rem] font-medium leading-none text-(--solus-text-secondary)"
                   >
+                    <span
+                      class="size-1 shrink-0 rounded-full bg-(--solus-text-tertiary)"
+                    ></span>
                     {label}
                     {#if canEdit}
                       <button
@@ -993,7 +996,7 @@
                 {#if display.pr}
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1 rounded bg-(--solus-accent-light) px-1.5 py-px text-[0.625rem] font-medium text-(--solus-accent) tabular-nums cursor-pointer hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)]"
+                    class="inline-flex items-center gap-1 rounded-md bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.625rem] font-medium leading-none text-(--solus-accent) tabular-nums cursor-pointer hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)]"
                     onclick={() =>
                       display.pr && window.solus.openExternal(display.pr.url)}
                     title={display.pr.url}
@@ -1004,7 +1007,7 @@
                 {/if}
                 {#if display.branch}
                   <span
-                    class="inline-flex max-w-full items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-px font-mono text-[0.625rem] font-medium text-(--solus-text-tertiary)"
+                    class="inline-flex max-w-full items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium leading-none text-(--solus-text-tertiary)"
                     title={display.branch}
                   >
                     <GitBranchIcon size={11} weight="bold" />
@@ -1032,5 +1035,30 @@
       opacity: 1;
       transform: translate3d(0, 0, 0);
     }
+  }
+
+  .task-detail-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color var(--duration-base) var(--ease-premium);
+  }
+
+  .task-detail-scroll:hover,
+  .task-detail-scroll:focus-within {
+    scrollbar-color: var(--solus-scroll-thumb) transparent;
+  }
+
+  .task-detail-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    transition: background var(--duration-base) var(--ease-premium);
+  }
+
+  .task-detail-scroll:hover::-webkit-scrollbar-thumb,
+  .task-detail-scroll:focus-within::-webkit-scrollbar-thumb {
+    background: var(--solus-scroll-thumb);
+  }
+
+  .task-detail-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--solus-scroll-thumb-hover);
   }
 </style>
