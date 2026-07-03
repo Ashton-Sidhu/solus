@@ -113,6 +113,7 @@ export class WorkspaceContext {
       ctx: () => this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
+      refreshGitRefs: (projectRoot, ctx) => { void this.gitStatus.refreshRefs(projectRoot, ctx, { force: true }) },
       fetchGitContext: (tabId, dir) => { void this.fetchGitContext(tabId, dir) },
     })
     this.env = new EnvironmentStore({
@@ -567,6 +568,8 @@ export class WorkspaceContext {
       // it with --fork-session in the worktree cwd (see control-plane dispatch).
       session.gitContext = result.gitContext
       session.worktreeBaseBranch = null
+      const projectRoot = worktreeProjectRoot(result.gitContext.worktreePath ?? session.workingDirectory)
+      void this.gitStatus.refreshRefs(projectRoot, this.ctxForDirectory(projectRoot), { force: true })
       session.forkedFromSessionId = session.agentSessionId
       session.forked = true
       session.messages.push({
@@ -1393,7 +1396,7 @@ export class WorkspaceContext {
     this.artifactViewer.enterPrReviewLoading(number, title)
     try {
       const pr = await window.solus.prOpenReview(this.ctx, number)
-      const tabId = await this.createTab(pr.worktreePath)
+      const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath))
       const session = this.sessionFor(tabId)
       if (session) {
         session.gitContext = { branch: pr.branch, targetBranch: pr.baseRef, worktreePath: pr.worktreePath }

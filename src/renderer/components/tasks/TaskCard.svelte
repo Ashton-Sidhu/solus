@@ -169,7 +169,7 @@
       <div class={wrapClass}>
         {#if task.priority}
           <span
-            class="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-px text-[0.625rem] font-semibold {PRIORITY_META[
+            class="inline-flex shrink-0 items-center gap-1 rounded-md py-0.5 pl-1 pr-1.5 text-[0.625rem] font-semibold leading-none {PRIORITY_META[
               task.priority
             ].chipClass}"
             title={`${PRIORITY_META[task.priority].label} priority`}
@@ -180,7 +180,7 @@
         {/if}
         {#if due}
           <span
-            class="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-px text-[0.625rem] font-medium tabular-nums {dueToneClass}"
+            class="inline-flex shrink-0 items-center gap-1 rounded-md py-0.5 pl-1 pr-1.5 text-[0.625rem] font-medium leading-none tabular-nums {dueToneClass}"
             title={`Due ${task.dueDate}`}
           >
             <CalendarBlankIcon size={10} weight="bold" />
@@ -189,7 +189,7 @@
         {/if}
         {#if task.pr}
           <span
-            class="inline-flex shrink-0 items-center gap-0.5 rounded bg-(--solus-accent-light) px-1.5 py-px text-[0.625rem] font-medium text-(--solus-accent) tabular-nums"
+            class="inline-flex shrink-0 items-center gap-1 rounded-md bg-(--solus-accent-light) py-0.5 pl-1 pr-1.5 text-[0.625rem] font-medium leading-none text-(--solus-accent) tabular-nums"
             title="A pull request is open for this task"
           >
             <GitPullRequestIcon size={10} weight="bold" />
@@ -197,21 +197,27 @@
           </span>
         {:else if task.branch}
           <span
-            class="inline-flex shrink-0 items-center gap-0.5 rounded bg-(--solus-surface-hover) px-1.5 py-px text-[0.625rem] font-medium text-(--solus-text-tertiary) max-w-[9rem] truncate"
+            class="inline-flex shrink-0 items-center gap-1 rounded-md bg-(--solus-surface-hover) py-0.5 pl-1 pr-1.5 text-[0.625rem] font-medium leading-none text-(--solus-text-tertiary) max-w-[9rem]"
             title={`Work happened on ${task.branch}`}
           >
-            <GitBranchIcon size={10} weight="bold" />
+            <GitBranchIcon size={10} weight="bold" class="shrink-0" />
             <span class="truncate">{task.branch}</span>
           </span>
         {/if}
         {#each labels.slice(0, 3) as label (label)}
           <span
-            class="shrink-0 rounded bg-(--solus-surface-hover) px-1.5 py-px text-[0.625rem] font-medium text-(--solus-text-tertiary) truncate max-w-[8rem]"
-            >{label}</span
+            class="inline-flex shrink-0 items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.625rem] font-medium leading-none text-(--solus-text-secondary) max-w-[8rem]"
+            title={label}
           >
+            <span
+              class="size-1 shrink-0 rounded-full bg-(--solus-text-tertiary)"
+            ></span>
+            <span class="truncate">{label}</span>
+          </span>
         {/each}
         {#if task.assignee}
-          <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)"
+          <span
+            class="shrink-0 text-[0.6875rem] font-medium leading-none text-(--solus-text-tertiary)"
             >@{task.assignee}</span
           >
         {/if}
