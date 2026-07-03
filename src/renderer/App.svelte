@@ -145,21 +145,21 @@
   });
 
   // ── Cross-window session pickup ───────────────────────────────────────────
-  // Keep the shared "last active session" pointer fresh: whichever window the
-  // user is in records the session they're on. Focus-gated so a background
-  // window's boot/hydration never clobbers the foreground's writes.
+  // The latest session is simply the one the last message was sent in. The
+  // effect keys off lastPromptTabId (set only by a user send, so background
+  // windows never write) and that session's agentSessionId — which binds a
+  // moment after the first send, re-firing this effect once it's known.
   $effect(() => {
-    if (session.hydrating) return;
-    const sess = session.sessionFor(session.activeTabId);
+    const tabId = session.lastPromptTabId;
+    if (!tabId) return;
+    const sess = session.sessionFor(tabId);
     const agentSessionId = sess?.agentSessionId;
     if (!sess || !agentSessionId) return;
-    const title = session.tabs[session.activeTabId]?.title ?? null;
-    if (!document.hasFocus()) return;
     writeActiveSessionPointer({
       sessionId: agentSessionId,
       provider: sess.provider ?? settings.activeAgent,
       cwd: sess.workingDirectory,
-      title,
+      title: session.tabs[tabId]?.title ?? null,
       writer: windowCtx.viewMode,
     });
   });

@@ -4,9 +4,9 @@ import type { AgentId } from '../../shared/types'
 // these two keys are the only state that crosses windows (tab stores stay
 // per-window):
 //
-//  - POINTER_KEY: ambient "last active session" — written by whichever window
-//    the user is in. The pill reads it on summon so it lands on the session
-//    the user was just working in (automatic, pull-based).
+//  - POINTER_KEY: the latest session = the session the last message was sent
+//    in, whichever window sent it. The pill reads it on summon so it lands on
+//    what the user was just working on (automatic, pull-based).
 //  - HANDOFF_KEY: explicit pill→editor handoff — written when the user toggles
 //    pill→editor, consumed once by the editor window (on mount or via the
 //    cross-window `storage` event). The editor never follows the ambient
