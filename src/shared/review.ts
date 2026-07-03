@@ -53,6 +53,9 @@ export interface ReviewContext {
   branch: string
   targetBranch: string
   baseSha: string
+  /** Current HEAD of the checkout — compared against a cached guide's
+   *  `headSha` to detect that the change has moved on since generation. */
+  headSha: string
   repoRoot: string
   prUrl?: string
 }
