@@ -31,7 +31,6 @@
   import { worktreeProjectRoot } from "../shared/types";
   import type {
     DesignAnnotation as DesignAnnotationType,
-    WorktreeEntry,
     PlanDescriptor,
     ProjectEntry,
   } from "../shared/types";
@@ -522,38 +521,29 @@
     },
   );
 
-  // Git refs for the active project, loaded lazily when the palette opens so
-  // branch/worktree commands reflect what currently exists on disk.
-  let worktrees = $state<WorktreeEntry[]>([]);
-  let paletteBranches = $state<string[]>([]);
+  const paletteGitProjectRoot = $derived.by(() => {
+    const dir =
+      session.activeSession?.gitContext?.repoRoot ??
+      session.activeSession?.workingDirectory;
+    return dir && dir !== "~" ? worktreeProjectRoot(dir) : null;
+  });
+  const paletteGitRefs = $derived(gitStatusStore.refsFor(paletteGitProjectRoot));
+  const worktrees = $derived(paletteGitRefs.worktrees);
+  const paletteBranches = $derived(paletteGitRefs.branches);
   // Open PRs for the "Review PR…" sub-page, loaded lazily alongside the git refs.
   let palettePrs = $state<PullRequestSummary[]>([]);
   $effect(() => {
     if (!commandPaletteOpen) return;
-    const dir =
-      session.activeSession?.gitContext?.repoRoot ??
-      session.activeSession?.workingDirectory;
-    if (!dir || dir === "~") {
-      worktrees = [];
-      paletteBranches = [];
+    const projectRoot = paletteGitProjectRoot;
+    if (!projectRoot) {
       palettePrs = [];
       return;
     }
-    const ctx = untrack(() =>
-      session.ctxForDirectory(worktreeProjectRoot(dir)),
+    void gitStatusStore.refreshRefs(
+      projectRoot,
+      untrack(() => session.ctxForDirectory(projectRoot)),
+      { force: true },
     );
-    Promise.all([
-      window.solus.worktreeListProject(ctx).catch(() => []),
-      window.solus.worktreeBranches(ctx).catch(() => []),
-    ])
-      .then(([wts, branches]) => {
-        worktrees = wts;
-        paletteBranches = branches;
-      })
-      .catch(() => {
-        worktrees = [];
-        paletteBranches = [];
-      });
     session.prsStore
       .loadFor(untrack(() => session.ctx), { state: "open" })
       .then((prs) => {
@@ -835,6 +825,25 @@
             })();
           },
         }));
+      const newSessionBranchChildren: Command[] = paletteBranches
+        .filter((branch) => !worktreeBranchNames.includes(branch))
+        .map((branch) => ({
+          id: `new-session-branch:${branch}`,
+          label: branch,
+          group: "Branches",
+          icon: GitBranchIcon,
+          keywords: ["session", "branch", "checkout", "switch", branch],
+          run: () => {
+            void (async () => {
+              await session.createTab();
+              await session.switchToBranch(branch);
+            })();
+          },
+        }));
+      const newSessionInChildren: Command[] = [
+        ...newSessionBranchChildren,
+        ...existingWorktreeChildren,
+      ];
       const activeSess = session.activeSession;
       const canContinueWorktree =
         !!activeSess?.agentSessionId && !activeSess.gitContext?.worktreePath;
@@ -861,12 +870,12 @@
           run: () => void session.createWorktreeTab(),
         },
         {
-          id: "new-session-existing-worktree",
-          label: "New session in existing worktree…",
+          id: "new-session-in",
+          label: "New session in…",
           group: "General",
           icon: GitForkIcon,
-          keywords: ["session", "worktree", "existing", "open", "pick"],
-          children: existingWorktreeChildren,
+          keywords: ["session", "branch", "worktree", "checkout", "switch", "remote", "existing", "open", "pick"],
+          children: newSessionInChildren,
         },
         {
           id: "switch-branch-or-worktree",

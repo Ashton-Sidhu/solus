@@ -216,19 +216,25 @@ function toToolResult(r: WorkToolResult) {
 }
 
 export interface SolusMcpDeps {
-  onWorkUpdated: OnWorkUpdated
-  onWorkCreated: OnWorkCreated
+  /** Fires when the agent updates a work. Optional: headless runs (automations)
+   *  have no conversation to stream into, and works persist regardless. */
+  onWorkUpdated?: OnWorkUpdated
+  onWorkCreated?: OnWorkCreated
   /** Fires when the agent calls render_artifact (see artifact-tools.ts). */
-  onArtifact: ArtifactToolDeps['onArtifact']
+  onArtifact?: ArtifactToolDeps['onArtifact']
   /** Fires when the agent creates or updates an automation, so the thread can
    *  render an automation card. */
-  onAutomationSaved: OnAutomationSaved
+  onAutomationSaved?: OnAutomationSaved
   /** Fires when the agent spawns a new session via create_session, so the thread
    *  can render a card that opens it in a tab. */
-  onSessionCreated: OnSessionCreated
+  onSessionCreated?: OnSessionCreated
   /** Origin context for create_work. `sessionId` is resolved lazily because a
    *  fresh session has no id until session_init, which lands before any tool runs. */
   createCtx: { agentProvider: AgentId; cwd: string; sessionId: () => string | undefined }
+  /** When false, the automation CRUD/run tools are omitted so a headless
+   *  automation run can't create or trigger more automations (the fork-bomb
+   *  guard). Defaults to true (interactive sessions get the full suite). */
+  includeAutomationTools?: boolean
 }
 
 export function createSolusMcpServer(deps: SolusMcpDeps) {
@@ -263,12 +269,16 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
         sessionId: deps.createCtx.sessionId,
         now: () => new Date().toISOString(),
       }),
-      ...automationSdkTools({
-        agentProvider: deps.createCtx.agentProvider,
-        cwd: deps.createCtx.cwd,
-        sessionId: deps.createCtx.sessionId,
-        onAutomationSaved: deps.onAutomationSaved,
-      }),
+      // Automation tools are omitted for headless runs (fork-bomb guard) — an
+      // automation must not be able to create or trigger more automations.
+      ...(deps.includeAutomationTools === false
+        ? []
+        : automationSdkTools({
+            agentProvider: deps.createCtx.agentProvider,
+            cwd: deps.createCtx.cwd,
+            sessionId: deps.createCtx.sessionId,
+            onAutomationSaved: deps.onAutomationSaved,
+          })),
       ...sessionSdkTools({
         agentProvider: deps.createCtx.agentProvider,
         cwd: deps.createCtx.cwd,
