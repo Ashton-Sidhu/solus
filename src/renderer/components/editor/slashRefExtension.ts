@@ -34,14 +34,7 @@ export const SlashRefExtension = Node.create({
     ]
   },
 
-  addStorage() {
-    return {
-      markdown: {
-        serialize(state: any, node: any) {
-          state.write(node.attrs.command)
-        },
-        parse: {},
-      },
-    }
+  renderMarkdown(node) {
+    return node.attrs?.command ?? ''
   },
 })

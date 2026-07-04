@@ -2,7 +2,6 @@
   import type {
     RecentProject,
     SessionMeta,
-    WorktreeEntry,
   } from "../../../shared/types";
 
   let _prefetchedProjects: Promise<RecentProject[]> | null = null;
@@ -29,6 +28,7 @@
     ArrowSquareInIcon,
   } from "phosphor-svelte";
   import { untrack } from "svelte";
+  import { getGitStatusStore } from "../../contexts/git-status.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
@@ -41,6 +41,7 @@
   } from "../../lib/git-context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import type { Tab, Automation } from "../../../shared/types";
+  import { worktreeProjectRoot } from "../../../shared/types";
   import type { Task } from "../../../shared/task-types";
   import {
     recentAutomationActivity,
@@ -65,6 +66,7 @@
   let { tab }: Props = $props();
 
   const session = getWorkspaceContext();
+  const gitStatus = getGitStatusStore();
   const windowCtx = getWindowContext();
   const sess = $derived(tab ? session.sessionFor(tab.id) : undefined);
   const isEditorMode = $derived(
@@ -79,12 +81,16 @@
   let sessionsLoaded = $state(false);
   let projects = $state<RecentProject[]>([]);
   let sessions = $state<SessionMeta[]>([]);
-  let worktrees = $state<WorktreeEntry[]>([]);
   let worktreesLoaded = $state(false);
 
   const currentDir = $derived(
     sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
   );
+  const projectRoot = $derived(
+    currentDir && currentDir !== "~" ? worktreeProjectRoot(currentDir) : null,
+  );
+  const gitRefs = $derived(gitStatus.refsFor(projectRoot));
+  const worktrees = $derived(gitRefs.worktrees);
   // One environment model so the hero matches the sidebar/panel. No live status
   // needed here — the hero is about identity (branch name) and worktree intent.
   const env = $derived(
@@ -186,23 +192,17 @@
   });
 
   $effect(() => {
-    if (currentDir && currentDir !== "~") {
-      const dir = currentDir;
-      const ctx = untrack(() => session.ctxForDirectory(dir));
-      window.solus
-        .worktreeListProject(ctx)
-        .then((wts) => {
-          worktrees = wts;
-          worktreesLoaded = true;
-        })
-        .catch(() => {
-          worktrees = [];
-          worktreesLoaded = true;
-        });
-    } else {
-      worktrees = [];
+    if (!projectRoot) {
       worktreesLoaded = true;
+      return;
     }
+    worktreesLoaded = false;
+    const root = projectRoot;
+    const ctx = untrack(() => session.ctxForDirectory(root));
+    gitStatus.refreshRefs(root, ctx).finally(() => {
+      if (projectRoot !== root) return;
+      worktreesLoaded = true;
+    });
   });
 
   // ── Control hub: automations + tasks ──
@@ -576,7 +576,7 @@
       weight="fill"
       class="shrink-0 text-(--solus-status-error)"
     />
-  {:else if a.lastRunStatus === "succeeded"}
+  {:else if a.lastRunStatus === "succeeded" || a.lastRunStatus === "dispatched"}
     <CheckCircleIcon
       size={13}
       weight="fill"

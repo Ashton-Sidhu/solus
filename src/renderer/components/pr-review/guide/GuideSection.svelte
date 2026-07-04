@@ -85,27 +85,35 @@
 
   // Per-file collapse for the diff cards; diffs are open by default.
   const collapsed = new SvelteSet<string>();
+  const visibleFiles = new SvelteSet<string>();
   function toggleCard(path: string): void {
     if (collapsed.has(path)) collapsed.delete(path);
     else collapsed.add(path);
   }
 
-  let sectionEl: HTMLElement | undefined = $state();
-  let visible = $state(false);
-  $effect(() => {
-    if (!sectionEl || visible) return;
+  function lazyDiffCard(node: HTMLElement, path: string) {
+    if (visibleFiles.has(path)) return {};
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          visible = true;
+          visibleFiles.add(path);
           observer.disconnect();
         }
       },
-      { rootMargin: "300px" },
+      { rootMargin: "500px" },
     );
-    observer.observe(sectionEl);
-    return () => observer.disconnect();
-  });
+    observer.observe(node);
+    return {
+      update(nextPath: string) {
+        if (nextPath === path) return;
+        path = nextPath;
+        if (visibleFiles.has(path)) observer.disconnect();
+      },
+      destroy() {
+        observer.disconnect();
+      },
+    };
+  }
 </script>
 
 <!-- Vibrant brand icon for known languages; monochrome extension badge otherwise. -->
@@ -123,7 +131,6 @@
 {/snippet}
 
 <section
-  bind:this={sectionEl}
   data-guide-section-id={section.id}
   class="grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
 >
@@ -189,8 +196,10 @@
     {#each section.files as file (file.path)}
       {@const patch = patchByPath.get(file.path)}
       {@const open = !collapsed.has(file.path)}
+      {@const fileVisible = visibleFiles.has(file.path)}
       <div
         bind:this={cards[file.path]}
+        use:lazyDiffCard={file.path}
         class="scroll-mt-6 overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
       >
         <div
@@ -235,7 +244,7 @@
         </div>
         {#if open}
           <div class="overflow-x-auto">
-            {#if visible && patch}
+            {#if fileVisible && patch}
               <div class="guide-diff-in">
                 <GuideFileDiff
                   {patch}
@@ -245,7 +254,7 @@
                   onDeleteComment={onCommentDelete}
                 />
               </div>
-            {:else if visible}
+            {:else if fileVisible}
               <p
                 class="guide-diff-in px-3 py-3 text-[0.75rem] text-(--solus-text-tertiary)"
               >

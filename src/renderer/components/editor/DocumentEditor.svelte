@@ -1,12 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Editor, Extension, type AnyExtension } from "@tiptap/core";
-  import { NodeSelection } from "@tiptap/pm/state";
-  import { Slice, Fragment, type Node as PMNode } from "@tiptap/pm/model";
-  import { dropPoint } from "@tiptap/pm/transform";
-  import { CellSelection } from "@tiptap/pm/tables";
   import StarterKit from "@tiptap/starter-kit";
-  import { Markdown, type MarkdownStorage } from "tiptap-markdown";
+  import { Markdown } from "@tiptap/markdown";
   import Placeholder from "@tiptap/extension-placeholder";
   import Typography from "@tiptap/extension-typography";
   import TaskList from "@tiptap/extension-task-list";
@@ -19,7 +15,7 @@
     TableCell,
   } from "@tiptap/extension-table";
   import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
-  import GlobalDragHandle from "tiptap-extension-global-drag-handle";
+  import DragHandle from "@tiptap/extension-drag-handle";
   import { lowlight } from "./lowlight";
   import { SearchExtension } from "./searchExtension";
   import { imageFilesFromDataTransfer, readAsDataUrl } from "./images";
@@ -88,9 +84,6 @@
   let wrapperEl: HTMLDivElement | null = $state(null);
   let editorDiv: HTMLDivElement | null = $state(null);
   let editorInstance: Editor | null = $state(null);
-  // Source table captured at dragstart so the drop can remove the whole node
-  // (not just empty its cells). Plain let — never read in markup, no reactivity.
-  let draggedTable: { pos: number; node: PMNode } | null = null;
   let mode = $state<"rich" | "raw">("rich");
   let rawTextareaEl: HTMLTextAreaElement | null = $state(null);
   // Skip the value-sync diff pass when the incoming `value` is our own echo.
@@ -119,9 +112,7 @@
   const slashFiltered = $derived(filterCommands(slashQuery));
 
   function getMd(editor: Editor): string {
-    return (
-      editor.storage as unknown as { markdown: MarkdownStorage }
-    ).markdown.getMarkdown();
+    return editor.getMarkdown();
   }
 
   $effect(() => {
@@ -152,13 +143,7 @@
             class: "solus-dropcursor",
           },
         }),
-        // transformPastedText parses pasted markdown into rich blocks (smart paste).
-        Markdown.configure({
-          html: true,
-          tightLists: true,
-          breaks: false,
-          transformPastedText: true,
-        }),
+        Markdown,
         CodeBlockLowlight.configure({ lowlight }),
         // Whole-doc placeholder when empty, otherwise a "/" command hint on the
         // current empty line so the slash menu is discoverable.
@@ -188,14 +173,11 @@
         TableCell,
         SlashCommandExtension,
         SearchExtension,
-        ...(dragEnabled
-          ? [
-              GlobalDragHandle.configure({
-                dragHandleWidth: 18,
-                scrollTreshold: 100,
-              }),
-            ]
-          : []),
+        // Hover-to-grab block drag handle. Defaults render a `.drag-handle`
+        // element (styled below) positioned in the left gutter; dragging sets a
+        // NodeRangeSelection over the hovered block, so whole nodes (including
+        // tables) move correctly through ProseMirror's native drop handling.
+        ...(dragEnabled ? [DragHandle] : []),
         Extension.create({
           name: "customShortcuts",
           addKeyboardShortcuts() {
@@ -212,6 +194,7 @@
         ...exts,
       ],
       content: initialValue || "",
+      contentType: "markdown",
       editable: initialEditable,
       editorProps: {
         handlePaste: (view, event) => {
@@ -227,10 +210,18 @@
             editor.chain().focus().setLink({ href: text }).run();
             return true;
           }
-          // 3) Otherwise let tiptap-markdown's transformPastedText handle it.
+          // 3) Plain-text paste → parse as markdown (smart paste). When the
+          //    clipboard also carries text/html, keep ProseMirror's rich-HTML
+          //    paste path instead.
+          const raw = event.clipboardData?.getData("text/plain");
+          const html = event.clipboardData?.getData("text/html");
+          if (raw && !html) {
+            editor.commands.insertContent(raw, { contentType: "markdown" });
+            return true;
+          }
           return false;
         },
-        handleDrop: (view, event, _slice, moved) => {
+        handleDrop: (view, event) => {
           const dragEvent = event as DragEvent;
           const images = imageFilesFromDataTransfer(dragEvent.dataTransfer);
           if (images.length > 0) {
@@ -240,33 +231,6 @@
             });
             event.preventDefault();
             void insertImageFiles(images, coords?.pos);
-            return true;
-          }
-
-          // Move a dragged table by removing the whole source node and
-          // re-inserting it — PM's default would delete the live CellSelection,
-          // which empties the cells but leaves the table behind (an empty husk).
-          if (draggedTable && moved) {
-            const dropPos = view.posAtCoords({
-              left: dragEvent.clientX,
-              top: dragEvent.clientY,
-            });
-            if (!dropPos) return false;
-            const { pos: from, node } = draggedTable;
-            const to = from + node.nodeSize;
-            const slice = new Slice(Fragment.from(node), 0, 0);
-            const insertPos = dropPoint(view.state.doc, dropPos.pos, slice) ?? dropPos.pos;
-            event.preventDefault();
-            // Dropped back inside its own range → nothing to move.
-            if (insertPos >= from && insertPos <= to) return true;
-            const tr = view.state.tr.delete(from, to);
-            const mapped = tr.mapping.map(insertPos);
-            tr.replaceRangeWith(mapped, mapped, node);
-            if (NodeSelection.isSelectable(node)) {
-              tr.setSelection(NodeSelection.create(tr.doc, mapped));
-            }
-            view.dispatch(tr.scrollIntoView());
-            view.focus();
             return true;
           }
           return false;
@@ -408,14 +372,14 @@
     editorInstance = editor;
     untrack(() => onEditorReady?.(editor));
 
-    // The block-drag library hands the dragged node to the browser as the drag
-    // image — Chromium paints that snapshot on a solid white card and leaves the
-    // source block highlighted (node selection / text wash). Both read as heavy.
-    // We swap in an empty off-screen element as the drag image (an Image() data
-    // URL can lose the decode race and get ignored, so a real DOM node is used)
-    // and flag the editor `is-dragging` so the selection wash is muted. Moving a
-    // block then shows only the accent drop line gliding to its landing spot.
-    // Skipped entirely when the drag handle is disabled.
+    // The drag-handle extension hands the browser a snapshot of the dragged
+    // node as the drag image — Chromium paints it on a solid white card, and
+    // the source block stays highlighted (node selection / text wash). Both
+    // read as heavy. We swap in an empty off-screen element as the drag image
+    // (our document-level listener runs after the extension's element-level
+    // one, so our setDragImage wins) and flag the editor `is-dragging` so the
+    // selection wash is muted. Moving a block then shows only the accent drop
+    // line gliding to its landing spot. Skipped when the handle is disabled.
     let dragGhost: HTMLDivElement | null = null;
     let onDocDragStart: ((e: DragEvent) => void) | null = null;
     let onDocDragEnd: (() => void) | null = null;
@@ -430,28 +394,9 @@
         if (!target?.closest(".drag-handle")) return;
         e.dataTransfer?.setDragImage(ghost, 0, 0);
         editorDiv?.classList.add("is-dragging");
-
-        // Record the source table (if any) so handleDrop can move it deterministically.
-        // tiptap-extension-global-drag-handle selects table cells, so PM's drop would
-        // delete that CellSelection — which only empties the cells and leaves an empty
-        // table husk behind. We instead remove the whole table node ourselves on drop.
-        // (Our handler runs after the library's, which fires on the handle element.)
-        const sel = editor.state.selection;
-        if (sel instanceof CellSelection) {
-          const tablePos = sel.$anchorCell.before(-1);
-          draggedTable = { pos: tablePos, node: sel.$anchorCell.node(-1) };
-        } else if (
-          sel instanceof NodeSelection &&
-          sel.node.type.name === "table"
-        ) {
-          draggedTable = { pos: sel.from, node: sel.node };
-        } else {
-          draggedTable = null;
-        }
       };
       onDocDragEnd = () => {
         editorDiv?.classList.remove("is-dragging");
-        draggedTable = null;
       };
       document.addEventListener("dragstart", onDocDragStart);
       document.addEventListener("dragend", onDocDragEnd);
@@ -549,7 +494,10 @@
     // mid-type. Only genuine content changes reconcile.
     const cur = getMd(editorInstance);
     if (normalizeMd(cur) !== normalizeMd(ext)) {
-      editorInstance.commands.setContent(ext || "", { emitUpdate: false });
+      editorInstance.commands.setContent(ext || "", {
+        emitUpdate: false,
+        contentType: "markdown",
+      });
     }
   });
 
@@ -791,12 +739,13 @@
     background: transparent;
   }
 
-  /* Global block drag handle (tiptap-extension-global-drag-handle mounts a
-     single element on document.body — must be styled globally + unscoped).
-     The element is the hover pill; the six-dot grip lives on ::before as a
-     mask so it can be tinted independently (tertiary → accent on grab). */
+  /* Block drag handle (@tiptap/extension-drag-handle renders a `.drag-handle`
+     element inside its own absolutely-positioned wrapper in the editor
+     container — must be styled globally + unscoped; the wrapper owns
+     positioning, so no position here). The element is the hover pill; the
+     six-dot grip lives on ::before as a mask so it can be tinted
+     independently (tertiary → accent on grab). */
   :global(.drag-handle) {
-    position: fixed;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -842,11 +791,6 @@
     background-color: var(--solus-text-secondary);
     opacity: 1;
   }
-  :global(.drag-handle.hide) {
-    display: none;
-    pointer-events: none;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     :global(.solus-doc-editor .ProseMirror .column-resize-handle),
     :global(.drag-handle),

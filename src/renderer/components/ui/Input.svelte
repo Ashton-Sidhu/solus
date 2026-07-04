@@ -1,54 +1,54 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
-  import { dictation, isDictationTarget } from '../../lib/dictation.svelte'
-  import RecordingControls from '../input/RecordingControls.svelte'
+  import { onDestroy } from "svelte";
+  import { dictation, isDictationTarget } from "../../lib/dictation.svelte";
+  import RecordingControls from "../input/RecordingControls.svelte";
 
   interface Props {
-    el?: HTMLInputElement | HTMLTextAreaElement | null
-    value?: string
-    type?: 'text' | 'search' | 'number' | 'textarea'
-    variant?: 'bare' | 'field'
-    size?: 'sm' | 'md' | 'lg'
-    placeholder?: string
-    disabled?: boolean
-    autofocus?: boolean
-    rows?: number
-    min?: number
-    step?: number
+    el?: HTMLInputElement | HTMLTextAreaElement | null;
+    value?: string;
+    type?: "text" | "search" | "number" | "textarea";
+    variant?: "bare" | "field";
+    size?: "sm" | "md" | "lg";
+    placeholder?: string;
+    disabled?: boolean;
+    autofocus?: boolean;
+    rows?: number;
+    min?: number;
+    step?: number;
     /** Show an inline mic button for voice dictation (⌥⇧K works regardless). */
-    mic?: boolean
+    mic?: boolean;
     /**
      * Minimum ms of detected speech before the VAD silence timer starts.
      * Set to 0 (default) for short-form inputs like search bars.
      * Set to ~300 for conversational inputs to avoid false triggers on brief noise.
      */
-    vadMinSpeechMs?: number
+    vadMinSpeechMs?: number;
     /**
      * Commit handler for this field. Fired when the user submits via keyboard
      * (see `submitOn`) and after a dictated transcript is inserted (auto-send).
      */
-    onSubmit?: () => void
+    onSubmit?: () => void;
     /**
      * Which keystroke triggers `onSubmit`. `'enter'` = plain Enter (Shift+Enter
      * still inserts a newline); `'mod-enter'` = ⌘/Ctrl+Enter. Omit to disable
      * keyboard submit. No-op without `onSubmit`.
      */
-    submitOn?: 'enter' | 'mod-enter'
-    class?: string
-    'data-testid'?: string
-    oninput?: (e: Event) => void
-    onkeydown?: (e: KeyboardEvent) => void
-    onchange?: (e: Event) => void
-    onfocus?: (e: FocusEvent) => void
-    onblur?: (e: FocusEvent) => void
+    submitOn?: "enter" | "mod-enter";
+    class?: string;
+    "data-testid"?: string;
+    oninput?: (e: Event) => void;
+    onkeydown?: (e: KeyboardEvent) => void;
+    onchange?: (e: Event) => void;
+    onfocus?: (e: FocusEvent) => void;
+    onblur?: (e: FocusEvent) => void;
   }
 
   let {
     el = $bindable<HTMLInputElement | HTMLTextAreaElement | null>(null),
-    value = $bindable(''),
-    type = 'text',
-    variant = 'bare',
-    size = 'md',
+    value = $bindable(""),
+    type = "text",
+    variant = "bare",
+    size = "md",
     placeholder,
     disabled = false,
     autofocus = false,
@@ -59,58 +59,58 @@
     vadMinSpeechMs = 0,
     onSubmit,
     submitOn,
-    class: extraClass = '',
-    'data-testid': dataTestId,
+    class: extraClass = "",
+    "data-testid": dataTestId,
     oninput,
     onkeydown,
     onchange,
     onfocus,
     onblur,
-  }: Props = $props()
+  }: Props = $props();
 
   $effect(() => {
-    if (autofocus) el?.focus({ preventScroll: true })
-  })
+    if (autofocus) el?.focus({ preventScroll: true });
+  });
 
   // Register/unregister this field's auto-send handler so dictation (mic click
   // or ⌥⇧K) can submit after inserting. Re-runs when el or onSubmit changes.
   $effect(() => {
-    if (!el) return
-    const target = el
-    dictation.registerSubmit(target, onSubmit)
-    dictation.registerVadMinSpeechMs(target, vadMinSpeechMs)
-    return () => dictation.unregisterSubmit(target)
-  })
+    if (!el) return;
+    const target = el;
+    dictation.registerSubmit(target, onSubmit);
+    dictation.registerVadMinSpeechMs(target, vadMinSpeechMs);
+    return () => dictation.unregisterSubmit(target);
+  });
 
   onDestroy(() => {
-    if (el) dictation.releaseTarget(el)
-  })
+    if (el) dictation.releaseTarget(el);
+  });
 
-  const micState = $derived(dictation.target === el ? dictation.state : 'idle')
+  const micState = $derived(dictation.target === el ? dictation.state : "idle");
 
   // Auto voice mode: focusing a dictation-capable field hands the mic to this
   // input (the conversational recorder yields), and starts dictation when voice
   // mode is on so the user can just talk. Blur releases it back.
   function handleFocus(e: FocusEvent) {
-    if (el && isDictationTarget(el)) dictation.focusGained(el)
-    onfocus?.(e)
+    if (el && isDictationTarget(el)) dictation.focusGained(el);
+    onfocus?.(e);
   }
   function handleBlur(e: FocusEvent) {
-    if (el) dictation.focusLost(el)
-    onblur?.(e)
+    if (el) dictation.focusLost(el);
+    onblur?.(e);
   }
 
   // Run the consumer's handler first (it may preventDefault, e.g. Escape), then
   // fire onSubmit when the configured submit key is pressed. Centralizes the
   // Enter/⌘↵ submit pattern that every comment/editor bar used to reimplement.
   function handleKeydown(e: KeyboardEvent) {
-    onkeydown?.(e)
-    if (e.defaultPrevented || !submitOn || !onSubmit) return
-    if (e.key !== 'Enter' || e.isComposing) return
-    const mod = e.metaKey || e.ctrlKey
-    if (submitOn === 'mod-enter' ? mod : !e.shiftKey && !mod && !e.altKey) {
-      e.preventDefault()
-      onSubmit()
+    onkeydown?.(e);
+    if (e.defaultPrevented || !submitOn || !onSubmit) return;
+    if (e.key !== "Enter" || e.isComposing) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (submitOn === "mod-enter" ? mod : !e.shiftKey && !mod && !e.altKey) {
+      e.preventDefault();
+      onSubmit();
     }
   }
 </script>
@@ -119,9 +119,12 @@
      re-mounted. If we conditionally switch between bare and wrapped, `el` gets
      a new DOM node the moment recording starts, leaving dictation.target pointing
      to a detached element — text insertion bails and the waveform never shows. -->
-<span class="inp-mic-wrap" class:inp-mic-wrap--recording={micState === 'recording'}>
+<span
+  class="inp-mic-wrap"
+  class:inp-mic-wrap--recording={micState === "recording"}
+>
   <!-- Keep the real input mounted for value binding; hide it while recording -->
-  <span class:inp-hidden={micState === 'recording'}>
+  <span class:inp-hidden={micState === "recording"}>
     {@render control()}
   </span>
 
@@ -130,16 +133,18 @@
     state={micState}
     rmsRef={dictation.rmsRef}
     showMic={mic}
-    micTextarea={type === 'textarea' && rows > 1}
+    micTextarea={type === "textarea" && rows > 1}
     {disabled}
     onCancel={() => dictation.cancel()}
     onConfirm={() => dictation.stop()}
-    onToggle={() => { if (el) dictation.toggleInto(el); }}
+    onToggle={() => {
+      if (el) dictation.toggleInto(el);
+    }}
   />
 </span>
 
 {#snippet control()}
-  {#if type === 'textarea'}
+  {#if type === "textarea"}
     <textarea
       bind:this={el as HTMLTextAreaElement}
       {value}
@@ -148,13 +153,16 @@
       {rows}
       data-testid={dataTestId}
       class="inp {extraClass}"
-      class:inp--bare={variant === 'bare'}
-      class:inp--field={variant === 'field'}
-      class:inp--sm={size === 'sm'}
-      class:inp--md={size === 'md'}
-      class:inp--lg={size === 'lg'}
+      class:inp--bare={variant === "bare"}
+      class:inp--field={variant === "field"}
+      class:inp--sm={size === "sm"}
+      class:inp--md={size === "md"}
+      class:inp--lg={size === "lg"}
       class:inp--has-mic={mic}
-      oninput={(e) => { value = (e.currentTarget as HTMLTextAreaElement).value; oninput?.(e); }}
+      oninput={(e) => {
+        value = (e.currentTarget as HTMLTextAreaElement).value;
+        oninput?.(e);
+      }}
       onkeydown={handleKeydown}
       onfocus={handleFocus}
       onblur={handleBlur}
@@ -163,21 +171,24 @@
     <input
       bind:this={el as HTMLInputElement}
       {value}
-      type={type === 'search' ? 'text' : type}
+      type={type === "search" ? "text" : type}
       {placeholder}
       {disabled}
       {min}
       {step}
       data-testid={dataTestId}
       class="inp {extraClass}"
-      class:inp--bare={variant === 'bare'}
-      class:inp--field={variant === 'field'}
-      class:inp--sm={size === 'sm'}
-      class:inp--md={size === 'md'}
-      class:inp--lg={size === 'lg'}
-      class:inp--number={type === 'number'}
+      class:inp--bare={variant === "bare"}
+      class:inp--field={variant === "field"}
+      class:inp--sm={size === "sm"}
+      class:inp--md={size === "md"}
+      class:inp--lg={size === "lg"}
+      class:inp--number={type === "number"}
       class:inp--has-mic={mic}
-      oninput={(e) => { value = (e.currentTarget as HTMLInputElement).value; oninput?.(e); }}
+      oninput={(e) => {
+        value = (e.currentTarget as HTMLInputElement).value;
+        oninput?.(e);
+      }}
       onkeydown={handleKeydown}
       {onchange}
       onfocus={handleFocus}
@@ -200,9 +211,15 @@
   }
 
   /* Sizes */
-  .inp--sm { font-size: 0.6875rem; }
-  .inp--md { font-size: 0.7813rem; }
-  .inp--lg { font-size: 0.8438rem; }
+  .inp--sm {
+    font-size: 0.6875rem;
+  }
+  .inp--md {
+    font-size: 0.7813rem;
+  }
+  .inp--lg {
+    font-size: 0.8438rem;
+  }
 
   /* bare variant */
   .inp--bare {
@@ -221,7 +238,7 @@
     padding: 0.5rem 0.625rem;
     border-radius: 0.4375rem;
     border: 0.0625rem solid var(--solus-input-focus-border);
-    background: var(--solus-input-bg-soft);
+    background: transparent;
     outline: none;
     resize: none;
     box-shadow: 0 0 0 0.1875rem var(--solus-input-focus-ring);

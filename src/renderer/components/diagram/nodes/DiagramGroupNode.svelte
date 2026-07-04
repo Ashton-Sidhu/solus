@@ -117,8 +117,10 @@
       title={data.collapsed ? 'Expand group' : 'Collapse group'}
       aria-label={data.collapsed ? 'Expand group' : 'Collapse group'}
     >
-      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d={data.collapsed ? 'M6 4l4 4-4 4' : 'M4 6l4 4 4-4'} />
+      <!-- One down-chevron rotated to point right while collapsed, so the fold
+           toggle animates instead of hard-swapping between two paths. -->
+      <svg class="diagram-group__collapse-icon" class:diagram-group__collapse-icon--collapsed={data.collapsed} viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" />
       </svg>
     </button>
     <span class="diagram-group__icon" aria-hidden="true">
@@ -171,7 +173,7 @@
     z-index: 0;
     cursor: grab;
     user-select: none;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.2s ease;
+    transition: border-color var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium), opacity var(--duration-modal) var(--ease-premium);
   }
 
   .diagram-group:hover {
@@ -194,10 +196,11 @@
     box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
   }
 
+  /* Dimmed groups stay clickable — clicking one in focus mode moves the focus
+     there (see DiagramShell.handleNodeClick). */
   .diagram-group--dimmed {
     opacity: 0.28;
     filter: saturate(0.4);
-    pointer-events: none;
   }
 
   .diagram-group:focus-visible {
@@ -232,7 +235,7 @@
     color: var(--solus-text-tertiary);
     cursor: pointer;
     padding: 0;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background var(--duration-base) var(--ease-premium), color var(--duration-base) var(--ease-premium);
   }
 
   .diagram-group__collapse:hover {
@@ -243,6 +246,13 @@
   .diagram-group__collapse:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;
+  }
+
+  .diagram-group__collapse-icon {
+    transition: transform var(--duration-base) var(--ease-premium);
+  }
+  .diagram-group__collapse-icon--collapsed {
+    transform: rotate(-90deg);
   }
 
   /* A collapsed group is just its header chip, so drop the container tint/fill
@@ -298,5 +308,6 @@
 
   @media (prefers-reduced-motion: reduce) {
     .diagram-group { transition: none; }
+    .diagram-group__collapse-icon { transition: none; }
   }
 </style>

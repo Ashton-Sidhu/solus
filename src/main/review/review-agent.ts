@@ -1,4 +1,4 @@
-import { ClaudeAgent, SAFE_TOOLS } from '../agents/claude/claude-agent'
+import { ClaudeAgent, SAFE_TOOLS, type CanUseTool } from '../agents/claude/claude-agent'
 import { runCodexOneShot } from '../agents/codex/codex-oneshot'
 import { createLogger } from '../logger'
 import type { ReviewContext, ReviewLedger, ReviewGuideDraft } from '../../shared/review'
@@ -13,6 +13,44 @@ import {
 } from './review-guide-tool'
 
 const log = createLogger('review', 'review-agent.ts')
+
+// ─── read-only enforcement ───
+//
+// The prompt says "you are strictly read-only", but prompts don't enforce.
+// SAFE_TOOLS (pre-approved via allowedTools) contains no Bash and no edit
+// tools, so everything else lands in this gate: Bash is allowed only for
+// read-only git subcommands (the prompt tells the agent to gather the diff
+// itself), and every other tool — Write, Edit, arbitrary shell — is denied.
+// permissionMode must stay 'ask': 'auto' (acceptEdits) would approve file
+// edits before this gate is ever consulted.
+
+const READ_ONLY_GIT_SUBCOMMANDS = new Set([
+  'diff', 'log', 'show', 'status', 'ls-files', 'blame', 'grep',
+  'rev-parse', 'merge-base', 'cat-file', 'shortlog', 'describe',
+])
+
+/** Chaining/redirection would let a read-only git command smuggle in writes
+ *  (`git diff | tee`, `git log; rm …`), so any metacharacter fails the check. */
+const SHELL_METACHARACTERS = /[;&|<>`$\n]/
+
+function isReadOnlyGitCommand(command: unknown): boolean {
+  if (typeof command !== 'string') return false
+  if (SHELL_METACHARACTERS.test(command)) return false
+  const m = command.trim().match(/^git\s+(?:-C\s+\S+\s+)?(?:--no-pager\s+)?(\S+)/)
+  return !!m && READ_ONLY_GIT_SUBCOMMANDS.has(m[1])
+}
+
+const reviewReadOnlyGate: CanUseTool = async (toolName, input) => {
+  if (toolName === 'Bash' && isReadOnlyGitCommand(input?.command)) {
+    return { behavior: 'allow', updatedInput: input }
+  }
+  return {
+    behavior: 'deny',
+    message: toolName === 'Bash'
+      ? 'This review is read-only: Bash is limited to read-only git commands (diff, log, show, status, ls-files, blame, grep, …) with no chaining or redirection.'
+      : `This review is read-only: ${toolName} is not permitted. Use the read tools and submit the guide via ${SUBMIT_REVIEW_GUIDE_TOOL_NAME}.`,
+  }
+}
 
 // A single session-agnostic Claude agent drives every Claude-backed review, the
 // same pattern automations use (no IpcContext, no permission UI). The Codex path
@@ -61,6 +99,7 @@ export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGui
         model: input.model,
         reasoningEffort,
         ephemeral: false,
+        readOnly: true,
         dynamicTools: [SUBMIT_REVIEW_GUIDE_TOOL_JSON_SCHEMA],
         onThreadStart: (threadId) => {
           unregisterCodexCapture = registerCodexReviewGuideCapture(threadId, (guide) => {
@@ -77,7 +116,8 @@ export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGui
         cwd: input.workTree,
         model: input.model ?? undefined,
         reasoningEffort,
-        permissionMode: 'auto',
+        permissionMode: 'ask',
+        canUseTool: reviewReadOnlyGate,
         persistSession: false,
         mcpServers: { solus: reviewGuideMcpServer((g) => { captured = g }) },
         allowedTools: [...SAFE_TOOLS, SUBMIT_REVIEW_GUIDE_MCP_TOOL],
@@ -91,8 +131,9 @@ export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGui
       await result
     }
   } catch (err) {
+    // Don't return here: a late stream error (budget cut, transport hiccup)
+    // must not discard a guide the agent already submitted.
     log.error(`review agent run failed (${input.agent}): ${String(err)}`)
-    return null
   } finally {
     unregisterCodexCapture()
   }

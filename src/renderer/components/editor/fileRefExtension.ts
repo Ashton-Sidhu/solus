@@ -56,14 +56,7 @@ export const FileRefExtension = Node.create({
     ]
   },
 
-  addStorage() {
-    return {
-      markdown: {
-        serialize(state: any, node: any) {
-          state.write(`@${node.attrs.path}`)
-        },
-        parse: {},
-      },
-    }
+  renderMarkdown(node) {
+    return `@${node.attrs?.path ?? ''}`
   },
 })

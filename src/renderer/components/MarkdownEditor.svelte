@@ -4,12 +4,17 @@
   import { Link } from "@tiptap/extension-link";
   import { TextSelection } from "@tiptap/pm/state";
   import StarterKit from "@tiptap/starter-kit";
-  import { Markdown, type MarkdownStorage } from "tiptap-markdown";
+  import { Markdown } from "@tiptap/markdown";
   import { referenceExtensions } from "./editor/referenceExtensions";
 
   interface Props {
     value: string;
+    /** Debounced markdown — fired off the keystroke hot path. Flushed
+     *  synchronously on Enter keydown, blur, and unmount so hosts that read
+     *  `value` at send/submit time always see current content. */
     onValueChange: (md: string) => void;
+    /** Cheap synchronous per-edit signal (autocomplete triggers, dirty marks). */
+    onInput?: () => void;
     onKeyDown?: (e: KeyboardEvent) => void;
     /** When true, plain Enter inserts a newline instead of being swallowed for a
      *  send action. Used by editors with no "send" (e.g. the automation prompt). */
@@ -33,6 +38,7 @@
   let {
     value,
     onValueChange,
+    onInput,
     onKeyDown,
     enterInsertsNewline = false,
     onPaste,
@@ -55,6 +61,45 @@
   let lastEmittedValue: string | null = null;
   let editorEmpty = $state(true);
   let focused = $state(false);
+  // How long to wait after the last keystroke before serializing to markdown.
+  // Serialization walks the whole doc, so it stays off the keystroke hot path;
+  // Enter/blur/unmount flush synchronously so send paths never read stale text.
+  const EMIT_DEBOUNCE_MS = 200;
+  let emitTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function emitNow() {
+    if (!editorInstance) return;
+    const md = getMarkdown(editorInstance);
+    if (md === lastEmittedValue) return;
+    lastEmittedValue = md;
+    untrack(() => onValueChange(md));
+  }
+
+  function scheduleEmit() {
+    if (emitTimer) clearTimeout(emitTimer);
+    emitTimer = setTimeout(() => {
+      emitTimer = null;
+      emitNow();
+    }, EMIT_DEBOUNCE_MS);
+  }
+
+  function flushPendingEmit() {
+    if (!emitTimer) return;
+    clearTimeout(emitTimer);
+    emitTimer = null;
+    emitNow();
+  }
+
+  // Drop (don't emit) a pending serialization — used when external content is
+  // about to replace the doc. Flushing here would be wrong: by the time the
+  // `value` sync runs, the host's write target may have moved (e.g. the input
+  // bar's per-tab draft after a tab switch).
+  function cancelPendingEmit() {
+    if (emitTimer) {
+      clearTimeout(emitTimer);
+      emitTimer = null;
+    }
+  }
 
   const ShiftEnter = Extension.create({
     name: "shiftEnter",
@@ -107,12 +152,12 @@
   });
 
   function getMarkdown(editor: Editor): string {
-    const md = (
-      editor.storage as unknown as { markdown: MarkdownStorage }
-    ).markdown.getMarkdown();
-    return unescapeProse(md);
+    return unescapeProse(editor.getMarkdown());
   }
 
+  // The serializer entity-encodes & < > in prose (symmetric with its parser),
+  // but the emitted markdown is sent to the agent as literal prompt text, so
+  // decode entities outside code segments.
   function unescapeProse(md: string): string {
     return md
       .split(CODE_SEGMENT_RE)
@@ -146,9 +191,10 @@
         ShiftEnter,
         BlockquoteBackspace,
         ...referenceExtensions,
-        Markdown.configure({ html: false, tightLists: true, breaks: false }),
+        Markdown,
       ],
       content: untrack(() => value) || "",
+      contentType: "markdown",
       editable: untrack(() => !disabled),
       editorProps: {
         attributes: {
@@ -205,6 +251,9 @@
         },
         handleKeyDown(_view, event) {
           if (event.defaultPrevented) return true;
+          // Send handlers read content through the `value` round-trip; flush
+          // the debounced emit first so Enter never submits stale text.
+          if (event.key === "Enter") flushPendingEmit();
           onKeyDown?.(event);
           // An autocomplete menu may have consumed it (e.g. Enter to accept).
           if (event.defaultPrevented) return true;
@@ -259,19 +308,21 @@
     });
     editor.on("blur", () => {
       focused = false;
+      flushPendingEmit();
       onBlur?.();
     });
     editor.on("update", () => {
       editorEmpty = shouldShowPlaceholder(editor);
-      const md = getMarkdown(editor);
-      if (md === lastEmittedValue) return;
-      lastEmittedValue = md;
-      untrack(() => onValueChange(md));
+      untrack(() => onInput?.());
+      scheduleEmit();
     });
 
     editorInstance = editor;
 
     return () => {
+      // Push any pending content to the host before teardown (e.g. a modal
+      // closing right after the last keystroke).
+      flushPendingEmit();
       editor.destroy();
       editorInstance = null;
     };
@@ -287,8 +338,10 @@
 
     const current = getMarkdown(editorInstance);
     if (current !== externalValue) {
+      cancelPendingEmit();
       editorInstance.commands.setContent(externalValue || "", {
         emitUpdate: false,
+        contentType: "markdown",
       });
       editorEmpty = shouldShowPlaceholder(editorInstance);
     }
@@ -333,8 +386,12 @@
     ensureTrailingParagraph = false,
   ) {
     if (!editorInstance) return;
+    cancelPendingEmit();
     lastEmittedValue = null;
-    editorInstance.commands.setContent(text || "", { emitUpdate: false });
+    editorInstance.commands.setContent(text || "", {
+      emitUpdate: false,
+      contentType: "markdown",
+    });
     if (
       ensureTrailingParagraph &&
       editorInstance.state.doc.lastChild?.type.name === "blockquote"
@@ -352,6 +409,7 @@
 
   export function clearEditor() {
     if (!editorInstance) return;
+    cancelPendingEmit();
     lastEmittedValue = null;
     editorInstance.commands.setContent("", { emitUpdate: false });
     editorEmpty = true;

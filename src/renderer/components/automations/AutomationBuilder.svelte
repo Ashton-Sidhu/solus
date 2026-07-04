@@ -5,9 +5,11 @@
     CircleNotchIcon,
     CheckIcon,
     CheckCircleIcon,
+    ChatCircleDotsIcon,
     WarningCircleIcon,
     ProhibitIcon,
     CaretRightIcon,
+    GitBranchIcon,
     ArrowSquareOutIcon,
     ArrowsOutSimpleIcon,
     XIcon,
@@ -48,8 +50,8 @@
     intervalParts,
     INTERVAL_UNIT_MINUTES,
     toLocalInputValue,
-    systemTimezone,
     absoluteTime,
+    nextOccurrences,
     relativeTime,
     runDate,
     runDuration,
@@ -185,10 +187,17 @@
   const agentContext = getAgentContext();
   const planStore = getPlanStore();
 
-  // The live automation: starts from the prop and is replaced by the persisted
-  // copy after every save. A brand-new automation (prop === null) is created
-  // lazily on the first edit, so an untouched "New" view leaves nothing behind.
-  let current = $derived<Automation | null>(automation);
+  // The live automation, read from the store by id so pushed changes (scheduler
+  // fires, run transitions) update this view without a save. A brand-new
+  // automation (prop === null) is created lazily on the first edit, so an
+  // untouched "New" view leaves nothing behind.
+  let currentId = $state<string | null>(untrack(() => automation?.id ?? null));
+  // Fallback for the window between a save and the store echoing it (and for
+  // rows the store list hasn't loaded).
+  let savedSnapshot = $state<Automation | null>(untrack(() => automation));
+  const current = $derived<Automation | null>(
+    currentId ? (store.get(currentId) ?? savedSnapshot) : null,
+  );
 
   // Only providers with a headless runner can back an automation.
   const RUNNABLE: AgentId[] = ["claude-code", "codex"];
@@ -247,9 +256,6 @@
     t0?.type === "interval" ? intervalParts(t0.everyMinutes).unit : "hours",
   );
   let cronExpr = $state(t0?.type === "cron" ? t0.expr : "0 9 * * *");
-  let timezone = $state(
-    t0?.type === "cron" ? (t0.timezone ?? systemTimezone()) : systemTimezone(),
-  );
   let onceLocal = $state(
     toLocalInputValue(t0?.type === "once" ? t0.runAt : undefined),
   );
@@ -267,12 +273,10 @@
   const modelSelectOptions = $derived(
     models.map((m) => ({ value: m.id as string | null, label: m.label })),
   );
-  $effect(() => {
-    if (modelId === null && models.length > 0) {
-      modelId = models[0].id;
-      commitAction();
-    }
-  });
+  // `modelId: null` means "the provider's default model" — display it as the
+  // first model without writing it back. Pinning + saving here used to fire on
+  // mount, creating a ghost "Untitled automation" the moment the New view opened.
+  const effectiveModelId = $derived(modelId ?? models[0]?.id ?? null);
   const reasoningSelectOptions = REASONING_OPTIONS.map((r) => ({
     value: r,
     label: REASONING_EFFORT_LABELS[r] ?? r,
@@ -295,31 +299,28 @@
     value: d.value,
     label: d.label,
   }));
-  const timezoneOptions = $derived.by(() => {
-    const local = systemTimezone();
-    const opts = [
-      { value: local, label: "Local" },
-      { value: "UTC", label: "UTC" },
-    ];
-    if (timezone && timezone !== local && timezone !== "UTC")
-      opts.push({ value: timezone, label: timezone });
-    return opts;
+
+  const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
+  // In-session ("heartbeat") automations run inside the chat thread they were
+  // created in. The builder can't create them (agent-only), but it must show
+  // what they are — and hide the worktree toggle, which is ignored for them.
+  const inSession = $derived(!!current?.action.sessionId);
+
+  // Run history for the live automation. Keyed on the id (not `current`, which
+  // is replaced on every save/push) so history only reloads when the id changes;
+  // subsequent run updates arrive over the automations-changed push.
+  const runsKey = $derived(current?.id ?? null);
+  const runs = $derived(runsKey ? (store.runs.get(runsKey) ?? []) : []);
+  $effect(() => {
+    if (runsKey) void store.loadRuns(runsKey);
   });
 
-  // Timezone only affects cron-derived schedules.
-  const isCronSchedule = $derived(
-    kind === "daily" ||
-      kind === "weekly" ||
-      kind === "monthly" ||
-      kind === "cron",
-  );
-  const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
-
-  // Run history for the live automation.
-  const runs = $derived(current ? (store.runs.get(current.id) ?? []) : []);
+  // Minute-ish ticker so "Next run" / "Last ran" stay truthful while the
+  // builder sits open (a fired schedule also pushes a fresh nextRunAt).
+  let nowTick = $state(Date.now());
   $effect(() => {
-    const id = current?.id;
-    if (id) void store.loadRuns(id);
+    const t = setInterval(() => (nowTick = Date.now()), 30_000);
+    return () => clearInterval(t);
   });
 
   // ── Trigger / action assembly ──
@@ -359,17 +360,37 @@
         return { type: "interval", everyMinutes };
       }
       case "daily":
-        return { type: "cron", expr: dailyCron(hh, mm), timezone };
+        return { type: "cron", expr: dailyCron(hh, mm) };
       case "weekly":
-        return { type: "cron", expr: weeklyCron(hh, mm, weekday), timezone };
+        return { type: "cron", expr: weeklyCron(hh, mm, weekday) };
       case "monthly":
-        return { type: "cron", expr: monthlyCron(hh, mm, monthDay), timezone };
+        return { type: "cron", expr: monthlyCron(hh, mm, monthDay) };
       case "cron": {
-        if (!cronExpr.trim()) return { error: "Enter a cron expression." };
-        return { type: "cron", expr: cronExpr.trim(), timezone };
+        const expr = cronExpr.trim();
+        if (!expr) return { error: "Enter a cron expression." };
+        if (nextOccurrences({ type: "cron", expr }, 1) === null)
+          return { error: `Invalid cron expression: "${expr}".` };
+        return { type: "cron", expr };
       }
     }
   }
+
+  // Upcoming fires of the draft schedule, shown under the fields so the user
+  // can confirm the schedule means what they think before it ever fires.
+  // Reads the same drafts buildTrigger does, so it tracks every edit.
+  const schedulePreview = $derived.by(() => {
+    void nowTick; // keep "Tomorrow"/"Today" phrasing honest over time
+    if (kind === "manual" || kind === "once") return [];
+    const t = buildTrigger();
+    if ("error" in t) return [];
+    const next = nextOccurrences(t, 3) ?? [];
+    return next.map((d) => absoluteTime(d.toISOString(), nowTick));
+  });
+  const cronInvalid = $derived(
+    kind === "cron" &&
+      cronExpr.trim() !== "" &&
+      nextOccurrences({ type: "cron", expr: cronExpr.trim() }, 1) === null,
+  );
 
   function currentAction(): AutomationAction {
     const planRefs = resolvePlanRefs();
@@ -449,7 +470,8 @@
       "error" in trigger ? { type: "manual" } : trigger,
       enabled,
     );
-    current = created;
+    savedSnapshot = created;
+    currentId = created.id;
     return created.id;
   }
 
@@ -459,6 +481,10 @@
     action?: Partial<AutomationAction>;
     trigger?: AutomationTrigger;
   }) {
+    // A new automation with no name and no prompt is an untouched draft —
+    // don't materialize it just because a field blurred or a select changed.
+    // (Run now still creates via ensureCreated: running IS an intent to keep it.)
+    if (!current && !name.trim() && !prompt.trim()) return;
     error = null;
     isSaving = true;
     try {
@@ -467,7 +493,7 @@
         await ensureCreated();
       } else {
         await store.update(current.id, patch);
-        current = store.get(current.id) ?? current;
+        savedSnapshot = store.get(current.id) ?? savedSnapshot;
       }
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
@@ -514,7 +540,6 @@
     running = true;
     try {
       await store.runNow(id);
-      current = store.get(id) ?? current;
     } catch (e: any) {
       error = String(e?.message ?? e);
     } finally {
@@ -529,7 +554,6 @@
     cancelling = true;
     try {
       await store.cancel(id);
-      current = store.get(id) ?? current;
     } catch (e: any) {
       error = String(e?.message ?? e);
     } finally {
@@ -708,7 +732,7 @@
               </dt>
               <dd class={META_VALUE}>
                 {#if enabled && current?.nextRunAt}
-                  {absoluteTime(current.nextRunAt)}
+                  {absoluteTime(current.nextRunAt, nowTick)}
                 {:else if kind === "manual"}
                   Manual only
                 {:else}
@@ -721,7 +745,9 @@
                 Last ran
               </dt>
               <dd class={META_VALUE}>
-                {current?.lastRunAt ? absoluteTime(current.lastRunAt) : "Never"}
+                {current?.lastRunAt
+                  ? absoluteTime(current.lastRunAt, nowTick)
+                  : "Never"}
               </dd>
             </div>
           </dl>
@@ -825,7 +851,7 @@
               />
             </div>
           {:else if kind === "cron"}
-            <div class="flex pb-1.5">
+            <div class="flex flex-col gap-1 pb-1.5">
               <input
                 class="{FIELD} w-full font-mono"
                 type="text"
@@ -833,25 +859,25 @@
                 onchange={commitTrigger}
                 placeholder="0 9 * * 1-5"
                 aria-label="Cron expression"
+                aria-invalid={cronInvalid}
                 autocomplete="off"
               />
+              {#if cronInvalid}
+                <p
+                  class="m-0 text-[0.6875rem] text-[var(--solus-status-error,#e53e3e)]"
+                >
+                  Invalid cron expression.
+                </p>
+              {/if}
             </div>
           {/if}
 
-          {#if isCronSchedule}
-            <div class={ROW}>
-              <dt>Runs in</dt>
-              <dd>
-                <Select
-                  bind:value={timezone}
-                  options={timezoneOptions}
-                  onChange={commitTrigger}
-                  ariaLabel="Timezone"
-                  anchor="right"
-                  variant="ghost"
-                />
-              </dd>
-            </div>
+          {#if schedulePreview.length > 0}
+            <p
+              class="m-0 pb-1.5 text-[0.6875rem] leading-normal text-(--solus-text-tertiary)"
+            >
+              Next: {schedulePreview.join(" · ")}
+            </p>
           {/if}
 
           <div class={ROW}>
@@ -886,9 +912,12 @@
             <dt>Model</dt>
             <dd>
               <Select
-                bind:value={modelId}
+                value={effectiveModelId}
                 options={modelSelectOptions}
-                onChange={commitAction}
+                onChange={(v) => {
+                  modelId = v;
+                  commitAction();
+                }}
                 ariaLabel="Model"
                 anchor="right"
                 variant="ghost"
@@ -910,6 +939,23 @@
             </dd>
           </div>
 
+          {#if inSession}
+            <!-- Agent-created heartbeat automation: runs resume its chat thread
+                 (full context) instead of spawning isolated background runs.
+                 Worktree doesn't apply — the thread runs where it runs. -->
+            <div class={ROW}>
+              <dt>Runs in</dt>
+              <dd>
+                <span
+                  class="{META_VALUE} inline-flex items-center gap-1.5"
+                  title="Each run resumes the chat thread this automation was created in, with full conversation context"
+                >
+                  <ChatCircleDotsIcon size={13} class="shrink-0" />
+                  Chat thread
+                </span>
+              </dd>
+            </div>
+          {:else}
           <div class={ROW}>
             <dt>Worktree</dt>
             <dd>
@@ -933,6 +979,7 @@
               </label>
             </dd>
           </div>
+          {/if}
         </dl>
       </section>
 
@@ -977,9 +1024,27 @@
                     <span class="text-xs text-(--solus-text-primary) truncate"
                       >{name || "Automation run"}</span
                     >
-                    <span class="text-[0.6875rem] text-(--solus-text-tertiary)"
-                      >{projectName}</span
-                    >
+                    {#if r.status === "failed" && r.error}
+                      <!-- Failed runs often have no session to open, so this line
+                           is the only diagnostic the user gets — show it here. -->
+                      <span
+                        class="text-[0.6875rem] leading-snug text-[var(--solus-status-error,#e53e3e)] line-clamp-2"
+                        title={r.error}>{r.error}</span
+                      >
+                    {:else if r.branch}
+                      <span
+                        class="inline-flex items-center gap-1 text-[0.6875rem] text-(--solus-text-tertiary)"
+                        title="Changes from this run live on branch {r.branch}"
+                      >
+                        <GitBranchIcon size={10} class="shrink-0" />
+                        <span class="truncate">{r.branch}</span>
+                      </span>
+                    {:else}
+                      <span
+                        class="text-[0.6875rem] text-(--solus-text-tertiary)"
+                        >{projectName}</span
+                      >
+                    {/if}
                   </span>
                   <span
                     class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)"

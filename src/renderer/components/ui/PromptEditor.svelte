@@ -122,10 +122,16 @@
     if (markdownEditorEl) untrack(() => ac.syncRefs());
   });
 
+  // Synchronous per-keystroke channel: autocomplete triggers must track the
+  // caret immediately, not after the debounced markdown emit.
+  function handleEditorInput() {
+    if (readOnly) return;
+    ac.handleEditorChange(refs.textBeforeCursor(ed()));
+  }
+
   function handleEditorChange(md: string) {
     if (readOnly) return;
     onValueChange(md);
-    ac.handleEditorChange(refs.textBeforeCursor(ed()) || md);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -213,6 +219,7 @@
   bind:this={markdownEditorEl}
   {value}
   onValueChange={handleEditorChange}
+  onInput={handleEditorInput}
   onKeyDown={handleKeyDown}
   {enterInsertsNewline}
   {onPaste}

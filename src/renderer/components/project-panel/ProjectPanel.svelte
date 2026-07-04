@@ -149,7 +149,7 @@
 
   function newTask() {
     if (!gitCwd) return;
-    session.ui.openTaskComposer(gitCwd);
+    session.ui.openTasks();
     requestInputFocus();
   }
 </script>

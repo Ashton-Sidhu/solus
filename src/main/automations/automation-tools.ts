@@ -12,7 +12,7 @@ import {
   loadRun,
 } from './automations-store'
 import { validateTrigger } from './automation-schedule'
-import { triggerAutomationRun } from './automation-runner'
+import { hasActiveRun, triggerAutomationRun } from './automation-runner'
 
 const log = createLogger('automations', 'automation-tools.ts')
 
@@ -272,6 +272,9 @@ export async function executeAutomationTool(
       if (typeof args.cwd === 'string') actionPatch.cwd = args.cwd
       if (args.agent_provider !== undefined) actionPatch.agentProvider = agentProvider(args.agent_provider, existing.action.agentProvider)
       if (args.model_id === null || typeof args.model_id === 'string') actionPatch.modelId = args.model_id as string | null
+      // Switching provider without naming a model resets to that provider's
+      // default — the old provider's model id would be meaningless on the new one.
+      else if (actionPatch.agentProvider && actionPatch.agentProvider !== existing.action.agentProvider) actionPatch.modelId = null
       if (args.reasoning_effort !== undefined) actionPatch.reasoningEffort = reasoning(args.reasoning_effort, existing.action.reasoningEffort)
       if (args.run_in_session === true) {
         if (!deps.ctx?.sessionId) return { ok: false, text: 'update_automation: run_in_session requires being called from within a chat session.' }
@@ -321,6 +324,7 @@ export async function executeAutomationTool(
       const a = await loadAutomation(id)
       if (!a) return { ok: false, text: `No automation found with id "${id}".` }
       if (!a.enabled) return { ok: false, text: `Automation "${a.name}" is paused. Enable it before running.` }
+      if (hasActiveRun(a.id)) return { ok: false, text: `Automation "${a.name}" already has a run in progress. Wait for it to finish (list_automation_runs shows its status) or cancel it first.` }
       const run = await triggerAutomationRun(a)
       return { ok: true, text: `Started run ${run.id} for "${a.name}". It runs in the background — read_automation_run with run_id "${run.id}" to get the result.` }
     }

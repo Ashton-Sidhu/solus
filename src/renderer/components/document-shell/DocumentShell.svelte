@@ -30,7 +30,6 @@
   import PlanTableOfContents from "../plan/PlanTableOfContents.svelte";
   import { portal } from "../portal";
   import { extractHeadings, type PlanHeading } from "./headings";
-  import { getMarkdown } from "./markdown";
   import { formatSavedAgo } from "./saveStatus";
   import { isActive, cmd } from "./toolbar";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
@@ -218,6 +217,7 @@
   let uploadError = $state<string | null>(null);
   let isSaving = $state(false);
   let hasPendingSave = $state(false);
+  let saveFailed = $state(false);
   let lastSavedAt = $state<number | null>(null);
   let savedStatusNow = $state(Date.now());
 
@@ -396,16 +396,14 @@
     // here. getCurrentMarkdown is mode-aware (rich serialized OR raw textarea).
     editorRef?.cancelPendingEmit();
     const md =
-      editorRef?.getCurrentMarkdown() ??
-      (tiptapEditor ? getMarkdown(tiptapEditor) : content);
+      editorRef?.getCurrentMarkdown() ?? tiptapEditor?.getMarkdown() ?? content;
     await saveContent(md);
   }
 
   // Copy the *live* editor content, not the (possibly stale, pre-save) prop.
   function currentMarkdown(): string {
     return (
-      editorRef?.getCurrentMarkdown() ??
-      (tiptapEditor ? getMarkdown(tiptapEditor) : content)
+      editorRef?.getCurrentMarkdown() ?? tiptapEditor?.getMarkdown() ?? content
     );
   }
 
@@ -445,11 +443,17 @@
     isSaving = true;
     try {
       await onSave(md);
+      saveFailed = false;
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
+      onDirtyChange?.(false);
+    } catch {
+      // Keep the dirty flag on failure — clearing it would let the host treat
+      // unsaved edits as clean (and an agent refresh clobber them). The header
+      // shows a retry affordance and any further edit re-arms the save.
+      saveFailed = true;
     } finally {
       isSaving = false;
-      onDirtyChange?.(false);
     }
   }
 
@@ -473,15 +477,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 {#snippet shellInner()}
-  <!--
-    role="dialog" is load-bearing for drag-handle alignment, not just semantics:
-    .doc-shell-root sets `container-type` (below), which makes it the containing
-    block for the global drag handle's `position: fixed`. The drag-handle library
-    only resolves its viewport coords against this element (instead of the
-    viewport) when it finds a `[role="dialog"]` ancestor with a non-none
-    transform — otherwise the handle lands in the middle of the modal, rows below
-    the hovered line. aria-modal is set only for the true (floating) modal.
-  -->
+  <!-- aria-modal is set only for the true (floating) modal. -->
   <div
     data-testid={rootTestId}
     data-solus-ui
@@ -529,6 +525,15 @@
           {#if showSaving}
             <span class="doc-shell-save-dot" aria-hidden="true"></span>
             <span>Saving…</span>
+          {:else if saveFailed}
+            <button
+              type="button"
+              class="doc-shell-save-retry"
+              onclick={() => void flushSave()}
+              title="The last save failed — click to retry"
+            >
+              Save failed — retry
+            </button>
           {:else if lastSavedAt !== null}
             <CheckIcon size={11} />
             <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
@@ -717,12 +722,6 @@
 <style>
   .doc-shell-root {
     container: doc-shell / inline-size;
-    /* Identity transform so the root reports a non-none transform. The global
-       drag-handle library keys its dialog-relative positioning off
-       `[role="dialog"]` + a transform (see the role="dialog" note in markup) —
-       without this the handle, which is `position: fixed` inside this
-       container-block, drifts to the middle of the editor. */
-    transform: translate(0);
   }
   .doc-shell-root--floating {
     box-shadow:
@@ -819,6 +818,26 @@
     border-radius: 50%;
     background: var(--solus-accent);
     flex-shrink: 0;
+  }
+  .doc-shell-save-retry {
+    border: none;
+    background: transparent;
+    padding: 0.0625rem 0.25rem;
+    margin-inline: -0.25rem;
+    border-radius: 0.25rem;
+    font-size: inherit;
+    font-weight: 500;
+    color: var(--solus-status-error);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--duration-quick) var(--ease-premium);
+  }
+  .doc-shell-save-retry:hover {
+    background: color-mix(in srgb, var(--solus-status-error) 10%, transparent);
+  }
+  .doc-shell-save-retry:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
   }
 
   /* Toolbar */

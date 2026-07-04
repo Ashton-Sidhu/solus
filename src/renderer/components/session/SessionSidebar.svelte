@@ -358,13 +358,12 @@
         {@const groupKey = `project:${pg.projectKey}`}
         {@const collapsed = collapsedGroups.has(groupKey)}
         {@const projectTabIds = pg.branches.flatMap((b) => b.tabIds)}
-        {@const isProjectActive =
-          pg.projectKey === sidebarStore.activeProjectKey}
+        {@const isProjectActive = projectTabIds.includes(session.activeTabId)}
         {@const showProjectActive = isProjectActive && collapsed}
         <div
-          class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 bg-transparent cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {focusRing} {showProjectActive
+          class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {focusRing} {showProjectActive
             ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
-            : 'hover:bg-[color-mix(in_srgb,var(--solus-accent)_5%,transparent)]'}"
+            : 'bg-transparent hover:bg-[color-mix(in_srgb,var(--solus-accent)_5%,transparent)]'}"
           role="button"
           tabindex="0"
           data-active={showProjectActive ? "true" : undefined}
@@ -398,23 +397,20 @@
           <div class="flex flex-col gap-px pl-4 pb-1">
             {#each pg.branches as branch (branch.key)}
               {@const isExpanded = expandedBranches.has(branch.key)}
-              {@const isActiveBranch =
-                isProjectActive && branch.key === sidebarStore.activeBranchKey}
-              {@const showBranchActive =
-                isActiveBranch && (!isExpanded || branch.tabIds.length === 1)}
+              {@const isActiveBranch = branch.tabIds.includes(
+                session.activeTabId,
+              )}
               <div
-                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border border-transparent bg-transparent cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
+                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {isActiveBranch
                   ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
-                  : rowHoverWash}"
+                  : `border-transparent bg-transparent ${rowHoverWash}`}"
                 style="--branch-kind-color:{branchKindColor(branch.kind)}"
                 role="button"
                 tabindex="0"
-                data-active={showBranchActive ? "true" : undefined}
+                data-active={isActiveBranch && !isExpanded ? "true" : undefined}
                 onclick={() => selectBranch(branch.key, branch.tabIds)}
-                aria-current={showBranchActive ? "page" : undefined}
-                aria-expanded={branch.tabIds.length > 1
-                  ? isExpanded
-                  : undefined}
+                aria-current={isActiveBranch ? "page" : undefined}
+                aria-expanded={isExpanded}
                 aria-label={branch.attention && branch.attention !== "running"
                   ? `${branch.label} — ${attentionLabel(branch.attention)}`
                   : branch.label}
@@ -456,41 +452,39 @@
                   {branch.label}
                 </span>
                 {@render rowActions(branch.tabIds, branch.label, true)}
-                {#if branch.attention && !(isExpanded && branch.tabIds.length > 1)}
+                {#if branch.attention && !isExpanded}
                   {@render attentionMark(branch.attention)}
                 {/if}
-                {#if branch.tabIds.length > 1}
-                  <button
-                    class="flex-shrink-0 flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background,transform] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_10%,transparent)] {focusRing} {isExpanded
-                      ? 'rotate-90'
-                      : ''}"
-                    aria-label={isExpanded
-                      ? "Collapse sessions"
-                      : "Expand sessions"}
-                    onclick={(e) => {
+                <button
+                  class="flex-shrink-0 flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background,transform] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_10%,transparent)] {focusRing} {isExpanded
+                    ? 'rotate-90'
+                    : ''}"
+                  aria-label={isExpanded
+                    ? "Collapse sessions"
+                    : "Expand sessions"}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    toggleExpand(branch.key);
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
                       e.stopPropagation();
                       toggleExpand(branch.key);
-                    }}
-                    onkeydown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleExpand(branch.key);
-                      }
-                    }}
-                  >
-                    <CaretRightIcon size={9} />
-                  </button>
-                {/if}
+                    }
+                  }}
+                >
+                  <CaretRightIcon size={9} />
+                </button>
               </div>
-              {#if isExpanded && branch.tabIds.length > 1}
+              {#if isExpanded}
                 {#each branch.tabIds as tabId (tabId)}
                   {@const child = sidebarStore.childForTab(tabId)}
                   {@const showChildActive = isActiveBranch && child.active}
                   <div
-                    class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border border-transparent bg-transparent cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
+                    class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                       ? `${rowActiveWash} text-(--solus-text-primary)`
-                      : rowHoverWash}"
+                      : `border-transparent bg-transparent ${rowHoverWash}`}"
                     role="button"
                     tabindex="0"
                     data-active={showChildActive ? "true" : undefined}

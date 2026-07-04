@@ -30,7 +30,6 @@
   import {
     worktreeProjectRoot,
     type IpcContext,
-    type WorktreeEntry,
   } from "../../../shared/types";
 
   interface Props {
@@ -361,12 +360,21 @@
   // an explicit second click before opening the companion in the main pane.
   let reviewing = $state(false);
   let reviewKey = $state<string | null>(null);
+
+  // The panel survives branch switches; a key latched for the previous branch
+  // would open that branch's guide. Reset so "View report" never crosses over.
+  $effect(() => {
+    void currentBranch;
+    reviewKey = null;
+  });
+
   let branchPickerOpen = $state(false);
   let branchTriggerEl: HTMLButtonElement | null = $state(null);
   let branchPickerRef: SearchablePickerList | null = $state(null);
-  let branches = $state<string[]>([]);
-  let worktrees = $state<WorktreeEntry[]>([]);
 
+  const branchRefs = $derived(gitStatus.refsFor(branchRepoRoot));
+  const branches = $derived(branchRefs.branches);
+  const worktrees = $derived(branchRefs.worktrees);
   const worktreeBranches = $derived(worktrees.map((wt) => wt.branch));
   const localBranchItems = $derived(
     branches.filter((branch) => !worktreeBranches.includes(branch)),
@@ -377,19 +385,11 @@
 
   $effect(() => {
     if (!branchPickerOpen || !branchRepoCtx) return;
-    void Promise.all([
-      window.solus.worktreeBranches(branchRepoCtx).catch(() => []),
-      window.solus.worktreeListProject(branchRepoCtx).catch(() => []),
-    ]).then(([nextBranches, nextWorktrees]) => {
-      branches = nextBranches;
-      worktrees = nextWorktrees;
-    });
+    void gitStatus.refreshRefs(branchRepoRoot, branchRepoCtx, { force: true });
   });
 
   $effect(() => {
     if (!branchPickerOpen) {
-      branches = [];
-      worktrees = [];
       return;
     }
     const onKeydown = (e: KeyboardEvent) => {

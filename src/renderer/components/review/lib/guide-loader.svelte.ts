@@ -30,6 +30,10 @@ export class GuideLoader {
   patch = $state("");
   loading = $state(true);
   progressStep = $state<ReviewProgressStep>("preparing");
+  /** A cached guide whose `headSha` no longer matches the checkout's HEAD —
+   *  the walkthrough describes an older state of the change. Commit-level
+   *  only: working-tree edits don't move HEAD, so those stay undetected. */
+  stale = $state(false);
 
   #opts: GuideLoaderOptions;
   constructor(opts: GuideLoaderOptions) {
@@ -40,6 +44,7 @@ export class GuideLoader {
     const ctx = this.#opts.getCtx();
     const key = this.#opts.getKey();
     this.loading = true;
+    this.stale = false;
     // Prefer the cached guide; regenerate (or generate-on-first-open) otherwise.
     const cached = regenerate ? null : await window.solus.readGuide(ctx, key);
     if (cached) {
@@ -69,6 +74,13 @@ export class GuideLoader {
         window.solus.readLedger(ctx),
       ]);
       this.ledger = loadedLedger;
+      // Only a cached guide can be stale — a fresh generation just ran.
+      this.stale = !!(
+        cached &&
+        cached.headSha &&
+        reviewCtx?.headSha &&
+        cached.headSha !== reviewCtx.headSha
+      );
       // Re-derive the patch from the guide's own base so a session walkthrough
       // shows only this session's diff (not the whole branch). Older cached guides
       // predate `baseSha`, so fall back to the branch base.

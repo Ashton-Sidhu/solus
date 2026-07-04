@@ -1,13 +1,14 @@
-import { getCodexAppServerClient } from './codex-agent'
+import { getCodexAppServerClient, registerHeadlessThread, unregisterHeadlessThread } from './codex-agent'
 import {
   normalizeCodexNotification,
   type CodexThreadStartResponse,
   type CodexTurnStartResponse,
   type JsonRpcNotification,
+  type JsonRpcRequest,
 } from './codex-event-normalizer'
+import { classifyCodexSolusTool, executeCodexSolusTool, codexSolusToolSchemas } from './codex-solus-tools'
 import {
   approvalPolicyFor,
-  sandboxFor,
   sandboxPolicyFor,
   codexItemToMessage,
   toEpochMs,
@@ -34,7 +35,7 @@ const DEFAULT_CODEX_MODEL =
 
 // Automations always run unattended, so the headless run uses the same
 // semantics as the 'auto' permission mode in the interactive backend:
-// approvals are never requested and the sandbox is workspace-write.
+// approvals are never requested and the sandbox is unrestricted.
 const PERMISSION = 'auto' as const
 
 /** A Codex dynamicTools JSON-schema descriptor (same shape work-tools use). */
@@ -52,10 +53,61 @@ export interface CodexOneShotOptions {
   /** Abort the in-flight turn (interrupts the app-server turn and rejects). */
   abortSignal?: AbortSignal
   ephemeral?: boolean
+  /** Run under Codex's read-only sandbox (the same policy plan mode uses).
+   *  Approvals stay 'never'; the run just cannot write anywhere. */
+  readOnly?: boolean
   onThreadStart?: (threadId: string) => void
-  /** Tools to register for this run. Without these the one-shot exposes no
-   *  dynamic tools (the automation fork-bomb guard). */
+  /** Extra tools to register for this run, on top of any enabled by `solusTools`. */
   dynamicTools?: CodexDynamicTool[]
+  /** Register the full solus tool suite (works, tasks, review ledger, artifacts,
+   *  create_session) and handle their calls in-process for this run's thread.
+   *  The automation CRUD/run tools are intentionally excluded (fork-bomb guard).
+   *  Off by default so callers that want no tools (or their own) are unaffected. */
+  solusTools?: boolean
+}
+
+function toolArgsOf(params: any): Record<string, unknown> {
+  let raw: unknown = params?.arguments ?? params?.input ?? params?.args ?? {}
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw) } catch { raw = {} } }
+  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+}
+
+/**
+ * In-process dispatch for a headless run's solus tool calls. Routes through the
+ * same shared executor the interactive backend uses (executeCodexSolusTool) but
+ * runs every tool with 'auto' semantics — no permission gate, no UI callbacks
+ * (works persist to disk regardless). Only handles `item/tool/call` requests for
+ * our own thread; the interactive backend skips these threads
+ * (isHeadlessCodexThread) so responses are never doubled. Automation tools are
+ * never registered here (fork-bomb guard), so any such call is rejected.
+ */
+async function handleHeadlessToolCall(
+  client: ReturnType<typeof getCodexAppServerClient>,
+  threadId: string,
+  cwd: string,
+  msg: JsonRpcRequest,
+): Promise<void> {
+  if (msg.method !== 'item/tool/call') return
+  const params: any = msg.params || {}
+  if (params.threadId !== threadId) return
+
+  const toolName = String(
+    typeof params?.tool === 'string' ? params.tool : params?.tool?.name ?? params?.name ?? params?.toolName ?? '',
+  )
+  const respond = (r: { ok: boolean; text: string }) =>
+    client.respond(msg.id, { success: r.ok, contentItems: [{ type: 'inputText', text: r.text }] })
+
+  const cls = classifyCodexSolusTool(toolName)
+  if (!cls || cls.kind === 'automation') {
+    respond({ ok: false, text: `Unsupported dynamic tool: ${toolName || '(unnamed)'}` })
+    return
+  }
+  try {
+    respond(await executeCodexSolusTool(toolName, toolArgsOf(params), { cwd, sessionId: threadId, agentProvider: 'codex' }))
+  } catch (err: any) {
+    log.error(`headless tool ${toolName} failed: ${String(err)}`)
+    respond({ ok: false, text: `Tool error: ${String(err?.message ?? err)}` })
+  }
 }
 
 export interface CodexOneShotResult {
@@ -69,11 +121,10 @@ export interface CodexOneShotResult {
  * `ClaudeAgent.runOneShot`: it starts a fresh thread, runs a single turn, and
  * resolves with the final assistant text once the turn completes.
  *
- * Like the Claude path it attaches NO dynamic tools, so an automation's run
- * cannot create or trigger more automations (the fork-bomb guard). With
- * approvalPolicy 'never' (auto) the regular CodexBackend handles any
- * server-request responses on the shared client, including approved dynamic
- * tools registered for this run.
+ * With `solusTools`, it registers the full solus tool suite MINUS the automation
+ * CRUD/run tools (the fork-bomb guard) and dispatches those calls in-process for
+ * its own thread — the interactive CodexBackend skips headless threads so the
+ * two server-request listeners on the shared client never both respond.
  *
  * The app-server client is a shared singleton (the interactive backend uses it
  * too), so we cannot read text off the global notification firehose reliably —
@@ -91,25 +142,47 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     general,
   })
 
+  // 'plan' is the mode whose sandbox is read-only; approvals are 'never' in
+  // both modes, so a readOnly run stays unattended.
+  const sandboxMode = opts.readOnly ? 'plan' : PERMISSION
+
+  const dynamicTools = [
+    ...(opts.solusTools ? codexSolusToolSchemas({ includeAutomationTools: false }) : []),
+    ...(opts.dynamicTools ?? []),
+  ]
+
   const start = await client.request<CodexThreadStartResponse>('thread/start', {
     model,
     cwd: opts.cwd,
     approvalPolicy: approvalPolicyFor(PERMISSION),
-    sandbox: sandboxFor(PERMISSION),
     baseInstructions: null,
     developerInstructions,
     experimentalRawEvents: false,
     persistExtendedHistory: true,
     reasoning_effort: reasoningEffort,
     ephemeral: opts.ephemeral,
-    ...(opts.dynamicTools?.length ? { dynamicTools: opts.dynamicTools } : {}),
+    ...(dynamicTools.length ? { dynamicTools } : {}),
   })
   const threadId = start.thread.id
   opts.onThreadStart?.(threadId)
 
+  // Own this thread's solus tool calls: mark it headless (so the interactive
+  // backend skips it) and attach an in-process dispatcher. Detached on settle.
+  let detachToolHandler: (() => void) | null = null
+  if (opts.solusTools) {
+    registerHeadlessThread(threadId)
+    const onToolCall = (msg: JsonRpcRequest) => { void handleHeadlessToolCall(client, threadId, opts.cwd, msg) }
+    client.on('server-request', onToolCall)
+    detachToolHandler = () => {
+      client.off('server-request', onToolCall)
+      unregisterHeadlessThread(threadId)
+    }
+  }
+
   let turnId = ''
   let settled = false
 
+  try {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       client.off('notification', onNotification)
@@ -166,7 +239,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
         input: [{ type: 'text', text: opts.prompt, text_elements: [] }],
         cwd: opts.cwd,
         approvalPolicy: approvalPolicyFor(PERMISSION),
-        sandboxPolicy: sandboxPolicyFor(PERMISSION, opts.cwd, []),
+        sandboxPolicy: sandboxPolicyFor(sandboxMode),
         model,
         reasoning_effort: reasoningEffort,
         collaborationMode: {
@@ -182,6 +255,10 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
         done(err instanceof Error ? err : new Error(String(err)))
       })
   })
+  } finally {
+    // The turn is done — no more tool calls can arrive for this thread.
+    detachToolHandler?.()
+  }
 
   // Read the finished thread back for the assistant text and tool-call count.
   return { sessionId: threadId, ...(await readThreadOutcome(client, threadId)) }

@@ -1,5 +1,8 @@
-import { ClaudeAgent } from '../agents/claude/claude-agent'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { ClaudeAgent, SAFE_TOOLS } from '../agents/claude/claude-agent'
 import { runCodexOneShot } from '../agents/codex/codex-oneshot'
+import { createSolusMcpServer } from '../folio/work-tools'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { createWorktree } from '../git/worktree-manager'
 import { isWorkspacePath } from '../workspace'
@@ -48,6 +51,29 @@ interface ActiveRun {
 }
 const activeRuns = new Map<string, ActiveRun>()
 
+// Automations that passed the overlap check but whose run record hasn't landed
+// yet (startRun is async). Claimed synchronously so two near-simultaneous
+// triggers can't both slip past hasActiveRun.
+const pendingTriggers = new Set<string>()
+
+/** Whether an automation has a run in flight. Used by the scheduler, the tools,
+ *  and the RPC handler to refuse overlapping runs of the same automation. */
+export function hasActiveRun(automationId: string): boolean {
+  if (pendingTriggers.has(automationId)) return true
+  for (const entry of activeRuns.values()) {
+    if (entry.automationId === automationId) return true
+  }
+  return false
+}
+
+/** Expand a leading `~` — the default cwd when no project is active is the
+ *  literal string '~', which Node would treat as a relative path. */
+function expandHome(p: string): string {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+  return p
+}
+
 function prependAutomationRunContext(prompt: string, run: AutomationRun): string {
   const header = [
     'This is an automation run.',
@@ -64,12 +90,25 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * gets a runId without blocking. Results land in the store when the run settles
  * and are read back via the run-result tools.
  *
- * Recursion guard: the spawned run is given NO automation tools (the `solus` MCP
- * server / dynamic tools are not attached on either provider), so an automation
- * cannot create or trigger more automations. This is the Phase 1 fork-bomb guard.
+ * Recursion guard: the spawned run gets the full `solus` tool suite (works,
+ * tasks, review ledger, artifacts, create_session) EXCEPT the automation
+ * CRUD/run tools, on both providers — so an automation cannot create or trigger
+ * more automations. This is the fork-bomb guard; everything else is available.
  */
 export async function triggerAutomationRun(automation: Automation): Promise<AutomationRun> {
-  const run = await startRun(automation.id)
+  // One run per automation at a time. Overlapping unattended runs of the same
+  // automation would race on the same working directory; callers (scheduler,
+  // tools, RPC) check hasActiveRun first — this throw is the backstop.
+  if (hasActiveRun(automation.id)) {
+    throw new Error(`Automation "${automation.name}" already has a run in progress.`)
+  }
+  pendingTriggers.add(automation.id)
+  let run: AutomationRun
+  try {
+    run = await startRun(automation.id)
+  } finally {
+    pendingTriggers.delete(automation.id)
+  }
   const entry: ActiveRun = {
     automationId: automation.id,
     abort: new AbortController(),
@@ -127,7 +166,10 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
         log.info(`Automation ${automation.id} run ${runId} cancelled`)
         return
       }
-      await finishRun(automation.id, runId, { status: 'succeeded', output: `Ran in session ${action.sessionId}.`, agentSessionId: action.sessionId })
+      // 'dispatched', not 'succeeded': the prompt was handed to the thread, but
+      // the thread's turn owns the real outcome — don't claim a success we
+      // never observed.
+      await finishRun(automation.id, runId, { status: 'dispatched', output: `Dispatched into session ${action.sessionId}; the outcome lives in that chat thread.`, agentSessionId: action.sessionId })
       log.info(`Automation ${automation.id} run ${runId} dispatched into session ${action.sessionId}`)
       return
     }
@@ -137,10 +179,12 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // directory. A failure here surfaces as a failed run rather than silently
     // mutating the user's tree. No model-backed namer is available in the
     // headless runner, so the branch name falls back to a prompt slug.
-    let cwd = action.cwd
+    let cwd = expandHome(action.cwd)
+    let branch: string | undefined
     if (action.useWorktree) {
-      const gitContext = await createWorktree(action.cwd, action.prompt)
-      cwd = gitContext.worktreePath ?? action.cwd
+      const gitContext = await createWorktree(cwd, action.prompt)
+      branch = gitContext.branch
+      cwd = gitContext.worktreePath ?? cwd
     }
 
     // Expand any plan/work references into context blocks. Files (@) and skills
@@ -156,13 +200,15 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
             model: action.modelId,
             reasoningEffort: action.reasoningEffort,
             abortSignal: entry.abort.signal,
+            // Full solus tool suite minus the automation tools (fork-bomb guard).
+            solusTools: true,
           })
         : await runViaClaude(action, cwd, prompt, entry.abort)
 
     // A cancelled run that still returned (Claude resolves on SIGINT rather than
     // throwing) is terminal as 'cancelled', not a partial success.
     if (entry.cancelled) {
-      await finishRun(automation.id, runId, { status: 'cancelled', output: text, agentSessionId: sessionId })
+      await finishRun(automation.id, runId, { status: 'cancelled', output: text, agentSessionId: sessionId, branch })
       log.info(`Automation ${automation.id} run ${runId} cancelled`)
       return
     }
@@ -171,6 +217,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       status: 'succeeded',
       output: text,
       agentSessionId: sessionId,
+      branch,
     })
     log.info(`Automation ${automation.id} run ${runId} succeeded (session ${sessionId})`)
   } catch (err: any) {
@@ -187,8 +234,41 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
   }
 }
 
+// The solus tools a headless run may call — the full suite minus the automation
+// CRUD/run tools (which are never registered on the headless MCP server, per the
+// fork-bomb guard in createSolusMcpServer). Reads, writes, and create_session all
+// run unattended under 'auto' permissions.
+const HEADLESS_SOLUS_TOOLS = [
+  'mcp__solus__list_works',
+  'mcp__solus__read_work',
+  'mcp__solus__create_work',
+  'mcp__solus__update_work',
+  'mcp__solus__render_artifact',
+  'mcp__solus__record_change',
+  'mcp__solus__get_task',
+  'mcp__solus__update_task_status',
+  'mcp__solus__create_session',
+]
+
 async function runViaClaude(action: Automation['action'], cwd: string, prompt: string, abortController: AbortController) {
   const general = isWorkspacePath(cwd)
+
+  // The run's session id lands at session_init (before any tool runs); resolve it
+  // lazily so create_work/record_change can stamp the correct origin session.
+  let sessionId: string | null = null
+
+  // Full solus suite (works, tasks, review ledger, artifacts, create_session)
+  // minus automation tools. Callbacks are omitted — a headless run has no
+  // conversation to stream cards into, and works persist to disk regardless.
+  const solusServer = createSolusMcpServer({
+    createCtx: {
+      agentProvider: 'claude-code',
+      cwd,
+      sessionId: () => sessionId ?? undefined,
+    },
+    includeAutomationTools: false,
+  })
+
   const { text, result } = await claudeAgent.runOneShot({
     prompt,
     cwd,
@@ -196,6 +276,9 @@ async function runViaClaude(action: Automation['action'], cwd: string, prompt: s
     reasoningEffort: action.reasoningEffort,
     permissionMode: 'auto',
     abortController,
+    mcpServers: { solus: solusServer },
+    allowedTools: [...SAFE_TOOLS, ...HEADLESS_SOLUS_TOOLS],
+    onSessionInit: async (sid) => { sessionId = sid },
     systemPromptAppend: buildSystemPrompt({
       agent: 'claude',
       general,
