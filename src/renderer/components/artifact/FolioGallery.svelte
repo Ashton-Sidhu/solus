@@ -13,6 +13,7 @@
     PushPinSlashIcon,
     PlusIcon,
     UploadSimpleIcon,
+    BooksIcon,
   } from "phosphor-svelte";
   import type { Work } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
@@ -29,9 +30,13 @@
     type DateGroup,
   } from "../../lib/sessionUtils";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { PAGE_PRIMARY_BTN } from "../../lib/page-chrome";
+  import PageShell from "../ui/PageShell.svelte";
+  import PageHeader from "../ui/PageHeader.svelte";
+  import SearchField from "../ui/SearchField.svelte";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SectionLabel from "../ui/SectionLabel.svelte";
+  import SortMenu from "../ui/SortMenu.svelte";
 
   type SortMode = "updated" | "created" | "title";
   type TypeFilter = "all" | "doc" | "slides" | "diagram";
@@ -48,10 +53,7 @@
   let selectedIndex = $state(0);
   let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let scrollEl: HTMLDivElement | null = $state(null);
-  let mouseHasMoved = $state(false);
   let sortMode = $state<SortMode>("updated");
-  let sortMenuOpen = $state(false);
-  let sortTriggerEl = $state<HTMLButtonElement | null>(null);
   let typeFilter = $state<TypeFilter>("all");
   let newMenuOpen = $state(false);
 
@@ -60,16 +62,12 @@
     { value: "created", label: "Date created" },
     { value: "title", label: "Title" },
   ];
-  const sortLabel = $derived(
-    SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? "",
-  );
 
   $effect(() => {
     if (open) {
       query = "";
       selectedIndex = 0;
       newMenuOpen = false;
-      mouseHasMoved = false;
       void session.worksStore.loadAll(session.galleryProjectPath);
       if (!runtime.shouldSuppressFocus) {
         tick().then(() => searchEl?.focus());
@@ -96,12 +94,37 @@
     return parts[parts.length - 1] || "~";
   }
 
+  /** Works under an open project (minus a pending delete) — the visible universe. */
+  const scopedWorks: Work[] = $derived(
+    Object.values(session.worksStore.works).filter(
+      (w) =>
+        session.pendingWorkDelete?.id !== w.id &&
+        matchesOpenProjects(w.cwd, scopeRoots),
+    ),
+  );
+
+  // Counts stay over the unfiltered universe so the segment badges hold steady
+  // while the user types a query.
+  const typeCounts = $derived.by(() => {
+    let doc = 0;
+    let diagram = 0;
+    for (const w of scopedWorks) {
+      if (w.type === "diagram") diagram++;
+      else if (w.type === "doc") doc++;
+    }
+    return { all: scopedWorks.length, doc, diagram };
+  });
+
+  const typeSegments = $derived([
+    { value: "all" as TypeFilter, label: "All", count: typeCounts.all },
+    { value: "doc" as TypeFilter, label: "Docs", count: typeCounts.doc },
+    { value: "diagram" as TypeFilter, label: "Diagrams", count: typeCounts.diagram },
+  ]);
+
   const filtered: Work[] = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    return Object.values(session.worksStore.works)
+    return scopedWorks
       .filter((w) => {
-        if (session.pendingWorkDelete?.id === w.id) return false;
-        if (!matchesOpenProjects(w.cwd, scopeRoots)) return false;
         if (typeFilter !== "all" && w.type !== typeFilter) return false;
         if (!q) return true;
         return (
@@ -203,11 +226,6 @@
 
   function handleOpen(w: Work) {
     session.openWorkModal(w.id);
-  }
-
-  function handleWorkHover(index: number) {
-    if (!mouseHasMoved) return;
-    selectedIndex = index;
   }
 
   /** Delete a work (with global undo toast) and keep the selection in range. */
@@ -316,10 +334,8 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="folio-card folio-card--{w.type}"
-    class:selected={sel}
     data-selected={sel ? "true" : null}
     onclick={() => handleOpen(w)}
-    onmouseenter={() => handleWorkHover(i)}
     role="option"
     aria-selected={sel}
     tabindex="-1"
@@ -363,22 +379,31 @@
 
 {#if open && isEditorMode}
   <div
-    class="folio-inline flex flex-col flex-1 min-h-0"
+    class="folio-inline relative flex flex-col flex-1 min-h-0"
     role="dialog"
     aria-label="Folio gallery"
     tabindex="-1"
   >
-    <div class="gallery-top">
-      <div class="gallery-titlebar">
-        <div class="gallery-header-group">
-          <FrameExpandButton variant="sidebar" />
-          <span class="gallery-title">Folio</span>
-        </div>
-        <div class="gallery-header-group">
+    <PageShell onClose={close}>
+      {#snippet leading()}
+        <FrameExpandButton variant="sidebar" />
+      {/snippet}
+      {#snippet trailing()}
+        <FrameExpandButton variant="projectPanel" />
+      {/snippet}
+
+      <PageHeader
+        title="Folio"
+        subtitle="Documents and diagrams from your sessions."
+      >
+        {#snippet icon()}
+          <BooksIcon size={18} weight="fill" />
+        {/snippet}
+        {#snippet actions()}
           <div class="new-menu-wrap">
             <button
               type="button"
-              class="new-btn"
+              class={PAGE_PRIMARY_BTN}
               onclick={() => (newMenuOpen = !newMenuOpen)}
               aria-haspopup="menu"
               aria-expanded={newMenuOpen}
@@ -402,126 +427,73 @@
               </div>
             {/if}
           </div>
-          <button
-            type="button"
-            class="close-btn"
-            onclick={close}
-            aria-label="Close"
-          >
-            <XIcon size={16} />
-          </button>
-          <FrameExpandButton variant="projectPanel" />
-        </div>
-      </div>
-      <div class="gallery-commandbar">
-        <div class="gallery-search">
-          <MagnifyingGlassIcon
-            size={15}
-            class="text-(--solus-text-tertiary) flex-shrink-0"
-          />
-          <Input
-            bind:el={searchEl}
-            bind:value={query}
-            type="text"
-            variant="bare"
-            size="md"
-            placeholder="Search documents…"
-          />
-        </div>
-        <div class="commandbar-trailing">
-          <div class="gallery-filters">
-            {#each [["all", "All"], ["doc", "Docs"], ["diagram", "Diagrams"]] as [val, label] (val)}
-              <button
-                type="button"
-                class="filter-chip"
-                class:active={typeFilter === val}
-                onclick={() => (typeFilter = val as TypeFilter)}
-              >
-                {label}
-              </button>
-            {/each}
-          </div>
-          <div class="commandbar-sep" aria-hidden="true"></div>
-          <div class="commandbar-right">
-            <button
-              type="button"
-              bind:this={sortTriggerEl}
-              class="sort-trigger"
-              aria-label="Sort works"
-              aria-haspopup="listbox"
-              aria-expanded={sortMenuOpen}
-              onclick={() => (sortMenuOpen = !sortMenuOpen)}
-            >
-              <span>{sortLabel}</span>
-              <CaretDownIcon size={9} class="sort-trigger-caret" />
-            </button>
-            <Dropdown
-              bind:open={sortMenuOpen}
-              triggerEl={sortTriggerEl}
-              align="top"
-              anchor="right"
-              width={140}
-            >
-              <div class="py-1" role="listbox" aria-label="Sort works">
-                {#each SORT_OPTIONS as opt (opt.value)}
-                  <DropdownItem
-                    selected={sortMode === opt.value}
-                    onclick={() => {
-                      sortMode = opt.value;
-                      sortMenuOpen = false;
-                    }}
-                  >
-                    {opt.label}
-                  </DropdownItem>
-                {/each}
-              </div>
-            </Dropdown>
-          </div>
-        </div>
-      </div>
-    </div>
+        {/snippet}
+      </PageHeader>
 
-    <div
-      bind:this={scrollEl}
-      class="gallery-scroll"
-      role="listbox"
-      tabindex="-1"
-      onmousemove={() => { mouseHasMoved = true; }}
-    >
-      {#if filtered.length === 0}
-        <div class="empty">
-          <p class="empty-title">{query ? "No matches." : "No documents yet."}</p>
-          {#if !query}
-            <p class="empty-sub">Press <span class="empty-kbd">New</span> to start one, or ask the agent to write a document.</p>
-          {/if}
+      <!-- ── Command bar: search + type segments + sort ── -->
+      <div class="flex flex-wrap items-center gap-2 pb-4">
+        <SearchField
+          bind:el={searchEl}
+          bind:value={query}
+          placeholder="Search documents…"
+        />
+        <SegmentedControl
+          options={typeSegments}
+          isActive={(v) => typeFilter === v}
+          onSelect={(v) => (typeFilter = v)}
+          ariaLabel="Filter by type"
+        />
+        <div class="ml-auto flex shrink-0 items-center gap-1">
+          <SortMenu
+            bind:value={sortMode}
+            options={SORT_OPTIONS}
+            ariaLabel="Sort works"
+          />
         </div>
-      {:else}
-        {#if folioPinned.length > 0}
-          <div class="section-header">
-            <PushPinIcon size={12} weight="fill" class="text-(--solus-accent)" />
-            <span>Pinned</span>
+      </div>
+
+      <div
+        bind:this={scrollEl}
+        class="outline-none"
+        role="listbox"
+        tabindex="-1"
+      >
+        {#if filtered.length === 0}
+          <div class="empty">
+            <p class="empty-title">{query ? "No matches." : "No documents yet."}</p>
+            {#if !query}
+              <p class="empty-sub">Press <span class="empty-kbd">New</span> to start one, or ask the agent to write a document.</p>
+            {/if}
           </div>
-          <div class="card-grid">
-            {#each folioPinned as w, i (w.id)}
-              {@render gridCard(w, i)}
-            {/each}
-          </div>
+        {:else}
+          {#if folioPinned.length > 0}
+            <SectionLabel label="Pinned" count={folioPinned.length}>
+              {#snippet icon()}
+                <PushPinIcon size={12} weight="fill" class="text-(--solus-accent)" />
+              {/snippet}
+            </SectionLabel>
+            <div class="card-grid">
+              {#each folioPinned as w, i (w.id)}
+                {@render gridCard(w, i)}
+              {/each}
+            </div>
+          {/if}
+          {#each folioDateGroups as group}
+            {@const groupOffset =
+              folioPinned.length +
+              folioDateGroups
+                .slice(0, folioDateGroups.indexOf(group))
+                .reduce((n, g) => n + g.items.length, 0)}
+            <SectionLabel label={group.label} count={group.items.length} />
+            <div class="card-grid">
+              {#each group.items as w, j (w.id)}
+                {@render gridCard(w, groupOffset + j)}
+              {/each}
+            </div>
+          {/each}
         {/if}
-        {#each folioDateGroups as group}
-          {@const groupOffset =
-            folioPinned.length +
-            folioDateGroups
-              .slice(0, folioDateGroups.indexOf(group))
-              .reduce((n, g) => n + g.items.length, 0)}
-          <div class="section-header"><span>{group.label}</span></div>
-          <div class="card-grid">
-            {#each group.items as w, j (w.id)}
-              {@render gridCard(w, groupOffset + j)}
-            {/each}
-          </div>
-        {/each}
-      {/if}
-    </div>
+      </div>
+    </PageShell>
   </div>
 {/if}
 
@@ -602,9 +574,6 @@
       class="gallery-scroll pill-scroll"
       role="listbox"
       tabindex="-1"
-      onmousemove={() => {
-        mouseHasMoved = true;
-      }}
     >
       {#if filtered.length === 0}
         <div class="empty">
@@ -623,12 +592,8 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="pill-work-row"
-            class:selected={i === selectedIndex}
             data-selected={i === selectedIndex ? "true" : null}
             onclick={() => handleOpen(w)}
-            onmouseenter={() => {
-              handleWorkHover(i);
-            }}
             role="option"
             aria-selected={i === selectedIndex}
             tabindex="-1"
@@ -714,12 +679,6 @@
     font-weight: 600;
     color: var(--solus-text-primary);
   }
-  .gallery-header-group {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
   .close-btn {
     position: relative;
     width: 1.5rem;
@@ -759,76 +718,12 @@
     color: var(--solus-text-primary);
   }
 
-  /* Title row + command bar share one gutter so every left edge lines up. */
-  .gallery-titlebar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 1.25rem;
-  }
-
-  /* One control strip: search grows, filters + sort + trash sit to its right. */
-  .gallery-commandbar {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.5rem 1.25rem;
-  }
-  /* Base search row (pill mode): its own gutter. */
+  /* Search row (pill mode): its own gutter. */
   .gallery-search {
     display: flex;
     align-items: center;
     gap: 0.625rem;
     padding: 0.25rem 1rem 0.625rem 1rem;
-  }
-  /* In the editor command bar the search grows to fill the row instead. */
-  .gallery-commandbar .gallery-search {
-    flex: 1;
-    min-width: 0;
-    gap: 0.5rem;
-    padding: 0;
-  }
-  /* Filters + sort + trash travel together so they can stack as one unit. */
-  .commandbar-trailing {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    flex-shrink: 0;
-  }
-  .commandbar-right {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    flex-shrink: 0;
-  }
-  .commandbar-sep {
-    flex-shrink: 0;
-    width: 0.0625rem;
-    height: 1rem;
-    background: var(--solus-container-border);
-  }
-
-  /* Narrow pane (split view / resized window): drop back to the stacked
-     search-over-controls layout so nothing overflows. */
-  @container folio-gallery (max-width: 34rem) {
-    .gallery-commandbar {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0;
-      padding: 0;
-    }
-    .gallery-commandbar .gallery-search {
-      flex: none;
-      padding: 0.25rem 1.25rem 0.5rem;
-    }
-    .commandbar-trailing {
-      justify-content: space-between;
-      padding: 0 1.25rem 0.625rem;
-    }
-    .commandbar-trailing .commandbar-sep {
-      display: none;
-    }
   }
 
   .gallery-scroll {
@@ -919,13 +814,6 @@
   .pill-work-row:hover {
     background: var(--solus-surface-hover);
   }
-  .pill-work-row.selected {
-    background: var(--solus-accent-light);
-  }
-  .pill-work-row.selected .delete-btn {
-    opacity: 1;
-  }
-
   .pill-work-body {
     flex: 1;
     min-width: 0;
@@ -990,17 +878,6 @@
   }
 
   /* ── Card-grid (Plans-style) ── */
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--solus-text-tertiary);
-    padding: 0.625rem 0.125rem 0.5rem 0.125rem;
-  }
   .card-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1047,8 +924,7 @@
       0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
       0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
   }
-  .folio-card:focus-visible,
-  .folio-card.selected {
+  .folio-card:focus-visible {
     border-color: color-mix(
       in srgb,
       var(--solus-accent) 40%,
@@ -1058,12 +934,6 @@
       0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
       0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04),
       0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 8%, transparent);
-  }
-  .folio-card.selected .card-accent {
-    opacity: 0.95;
-  }
-  .folio-card.selected .card-icon-btn {
-    opacity: 1;
   }
 
   .card-accent {
@@ -1268,53 +1138,6 @@
     background: var(--solus-surface-hover);
   }
 
-  /* ── Filters / sort (live in the command bar) ── */
-  .gallery-filters {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    flex-shrink: 0;
-  }
-  .filter-chip {
-    padding: 0.1875rem 0.5rem;
-    border-radius: 0.375rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--solus-text-tertiary);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    transition: background 0.1s ease, color 0.1s ease;
-  }
-  .filter-chip:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .filter-chip.active {
-    background: var(--solus-accent-light);
-    color: var(--solus-accent);
-  }
-  .sort-trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.6875rem;
-    color: var(--solus-text-secondary);
-    background: var(--solus-input-bg-soft);
-    border: 0.0625rem solid var(--solus-container-border);
-    border-radius: 0.375rem;
-    padding: 0.1875rem 0.5rem;
-    cursor: pointer;
-    outline: none;
-    transition: border-color 0.1s ease;
-  }
-  .sort-trigger:focus-visible {
-    border-color: color-mix(in srgb, var(--solus-accent) 50%, transparent);
-  }
-  :global(.sort-trigger-caret) {
-    color: var(--solus-text-tertiary);
-    flex-shrink: 0;
-  }
   .empty-kbd {
     font-weight: 600;
     color: var(--solus-accent);

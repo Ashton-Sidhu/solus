@@ -143,6 +143,7 @@ export const KEYBINDINGS = {
   // ── Pull Requests ──────────────────────────────────────────────────────────
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
   'prs.queue':                    { combo: { alt: true, code: 'KeyQ' },                    scope: 'prs',                label: 'Queue for merge',          group: 'Pull Requests' },
+  'prs.queueView':                { combo: { alt: true, code: 'KeyM' },                    scope: 'prs',                label: 'Open merge queue',         group: 'Pull Requests' },
 
   // ── Design annotation ──────────────────────────────────────────────────────
   'annotation.cancel':            { combo: { code: 'Escape' },                             scope: 'design-annotation',  label: 'Cancel / dismiss',         group: 'Annotation' },

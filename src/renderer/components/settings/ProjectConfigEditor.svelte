@@ -6,11 +6,13 @@
     TrashIcon,
     ListChecksIcon,
     MegaphoneIcon,
+    PlugIcon,
+    WarningCircleIcon,
   } from "phosphor-svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
   import { getRunStore } from "../../contexts/run.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import type { TaskProviderId } from "../../../shared/task-types";
+  import type { TaskProviderId, TaskProviderStatus } from "../../../shared/task-types";
 
   interface Props {
     cwd: string;
@@ -22,16 +24,48 @@
   const session = getWorkspaceContext();
 
   // Task provider — `local` (default) is the built-in store; `github` reads
-  // issues from the repo's `origin` remote (no extra config, just a connection).
+  // issues from an explicit owner/repo when set, otherwise the `origin` remote.
   let taskProvider = $state<TaskProviderId>("local");
+  let repoOwner = $state("");
+  let repoName = $state("");
+  let providerStatus = $state<TaskProviderStatus | null>(null);
+  let providerStatusLoading = $state(false);
   async function onProviderChange(next: TaskProviderId) {
     taskProvider = next;
     status = "saving";
     await projectConfig.save(cwd, { taskProvider: next });
-    if (session.tasksProjectCwd === cwd) {
-      await session.tasksStore.load(cwd);
-    }
+    await reloadTasksIfActive();
+    await refreshProviderStatus();
     status = "saved";
+  }
+
+  async function refreshProviderStatus() {
+    providerStatusLoading = true;
+    try {
+      providerStatus = await window.solus.tasksProviderStatus(cwd, { checkAccess: true });
+      if (!repoOwner && !repoName && providerStatus.repo?.source === "origin") {
+        repoOwner = providerStatus.repo.owner;
+        repoName = providerStatus.repo.repo;
+      }
+    } finally {
+      providerStatusLoading = false;
+    }
+  }
+
+  async function saveRepo() {
+    const owner = repoOwner.trim();
+    const repo = repoName.trim();
+    status = "saving";
+    await projectConfig.save(cwd, {
+      taskProviderConfig: owner && repo ? { owner, repo } : undefined,
+    });
+    await reloadTasksIfActive();
+    await refreshProviderStatus();
+    status = "saved";
+  }
+
+  async function reloadTasksIfActive() {
+    if (session.tasksProjectCwd === cwd) await session.tasksStore.load(cwd);
   }
 
   // Session-start write-back — on by default; the opt-out keeps an exploratory
@@ -65,6 +99,8 @@
     if (!cwd) return;
     void projectConfig.load(cwd).then((loaded) => {
       taskProvider = loaded?.taskProvider ?? "local";
+      repoOwner = loaded?.taskProviderConfig?.owner ?? "";
+      repoName = loaded?.taskProviderConfig?.repo ?? "";
       taskWriteBack = loaded?.taskStartWriteBack !== false;
       rows = (loaded?.runCommands ?? []).map((entry) => ({
         id: entry.id,
@@ -74,6 +110,7 @@
       }));
       if (rows.length === 0) addRow();
       void tick().then(() => commandInputs[0]?.focus());
+      void refreshProviderStatus();
     });
   });
 
@@ -132,7 +169,7 @@
           <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Task provider</div>
           <div class="text-[0.6875rem] text-(--solus-text-tertiary) mt-px">
             Where this project's tasks come from. GitHub reads issues from the
-            repo's <code>origin</code> remote — connect GitHub in Git providers.
+            configured repo, falling back to <code>origin</code> when unset.
           </div>
         </div>
       </div>
@@ -147,6 +184,79 @@
         <option value="github">GitHub</option>
       </select>
     </div>
+    {#if taskProvider === "github"}
+      <div class="ml-7 mb-2 flex flex-col gap-2 rounded-lg border border-(--solus-container-border)/70 bg-(--solus-surface-hover)/45 p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 text-[0.75rem] font-medium {providerStatus?.ok ? 'text-(--solus-text-primary)' : 'text-(--solus-status-error)'}">
+              {#if providerStatus?.ok}
+                <ListChecksIcon size={13} />
+              {:else}
+                <WarningCircleIcon size={13} />
+              {/if}
+              <span>{providerStatusLoading ? "Checking GitHub…" : (providerStatus?.message ?? "Checking GitHub…")}</span>
+            </div>
+            {#if providerStatus?.repo}
+              <div class="mt-1 text-[0.6875rem] text-(--solus-text-tertiary)">
+                Repo: <code>{providerStatus.repo.owner}/{providerStatus.repo.repo}</code>
+                via {providerStatus.repo.source === "config" ? "project settings" : "origin remote"}
+              </div>
+            {/if}
+            {#if providerStatus?.auth?.connected}
+              <div class="mt-1 text-[0.6875rem] text-(--solus-text-tertiary)">
+                Connected{providerStatus.auth.login ? ` as @${providerStatus.auth.login}` : ""}
+              </div>
+            {/if}
+            {#if providerStatus?.liveCheck}
+              <div class="mt-1 text-[0.6875rem] text-(--solus-text-tertiary)">
+                Read {providerStatus.liveCheck.issueCount}{providerStatus.liveCheck.truncated ? "+" : ""}
+                issues{providerStatus.liveCheck.planningFieldsDetected ? " · Projects fields detected" : ""}
+              </div>
+            {/if}
+            {#if providerStatus?.warning}
+              <div class="mt-1 text-[0.6875rem] text-[#9a6700] [.dark_&]:text-[#d29922]">
+                {providerStatus.warning}
+              </div>
+            {/if}
+          </div>
+          {#if providerStatus?.reason === "github_not_connected" || providerStatus?.warning}
+            <button
+              type="button"
+              class="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-2.5 py-1.5 text-[0.75rem] font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-active) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+              onclick={() => session.showSettings("git-providers")}
+            >
+              <PlugIcon size={13} />
+              {providerStatus?.warning ? "Reconnect" : "Connect"}
+            </button>
+          {/if}
+        </div>
+        <div class="flex items-center gap-2">
+          <input
+            bind:value={repoOwner}
+            class="{inputClass} min-w-0 flex-1"
+            placeholder={providerStatus?.detectedRepo?.owner ?? "owner"}
+            aria-label="GitHub owner"
+          />
+          <span class="text-[0.75rem] text-(--solus-text-tertiary)">/</span>
+          <input
+            bind:value={repoName}
+            class="{inputClass} min-w-0 flex-1"
+            placeholder={providerStatus?.detectedRepo?.repo ?? "repo"}
+            aria-label="GitHub repository"
+          />
+          <button
+            type="button"
+            class="inline-flex min-h-8 shrink-0 cursor-pointer items-center rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3 text-[0.75rem] font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-active) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+            onclick={saveRepo}
+          >
+            Save repo
+          </button>
+        </div>
+        <div class="text-[0.6875rem] text-(--solus-text-tertiary)">
+          Leave owner/repo empty to use the project's GitHub <code>origin</code> remote.
+        </div>
+      </div>
+    {/if}
     <div class="flex items-center justify-between gap-4 py-3.5 pb-2.5">
       <div class="flex items-center gap-3 min-w-0">
         <MegaphoneIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />

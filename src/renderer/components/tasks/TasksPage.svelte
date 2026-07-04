@@ -1,7 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
   import {
-    XIcon,
     PlusIcon,
     ArrowClockwiseIcon,
     CircleNotchIcon,
@@ -19,6 +18,8 @@
     type TaskStatus,
     type TaskKind,
     type TaskPriority,
+    type TaskProviderId,
+    type TaskProviderStatus,
   } from "../../../shared/task-types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
@@ -41,6 +42,9 @@
     type StatusFilter,
     type TaskSort,
   } from "./lib/tasks-api";
+  import { PAGE_PRIMARY_BTN, PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import PageShell from "../ui/PageShell.svelte";
+  import PageHeader from "../ui/PageHeader.svelte";
   import TaskFilters from "./TaskFilters.svelte";
   import TaskCard from "./TaskCard.svelte";
   import EpicGroup from "./EpicGroup.svelte";
@@ -58,8 +62,11 @@
 
   // Resolved provider (unset defaults to local). Local + GitHub support create;
   // only local owns the epic/sub-task hierarchy, so epics + add-child are local.
-  const provider = $derived(
-    cwd ? (projectConfig.configFor(cwd)?.taskProvider ?? "local") : "local",
+  let configReady = $state(false);
+  let providerHealth = $state<TaskProviderStatus | null>(null);
+  let taskLoadEpoch = 0;
+  const provider = $derived<TaskProviderId | "unknown">(
+    cwd ? (configReady ? (projectConfig.configFor(cwd)?.taskProvider ?? "local") : "unknown") : "local",
   );
   const canCreate = $derived(
     !!cwd && (provider === "local" || provider === "github"),
@@ -132,7 +139,7 @@
       if (changedCwd !== session.tasksProjectCwd) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!store.loading) void store.load(changedCwd, { assignedToMe });
+        if (configReady && !store.loading) void store.load(changedCwd, { assignedToMe });
       }, 500);
     });
     return () => {
@@ -178,10 +185,25 @@
   // Load when the page opens, the project changes, or the assignee scope toggles.
   // assignedToMe is a server-side filter (the viewer identity lives in main).
   $effect(() => {
-    if (!open || !cwd) return;
-    void store.load(cwd, { assignedToMe });
-    // Provider config drives whether the New-task affordance shows.
-    void projectConfig.load(cwd);
+    if (!open || !cwd) {
+      configReady = false;
+      providerHealth = null;
+      return;
+    }
+    const currentCwd = cwd;
+    const mine = assignedToMe;
+    const epoch = ++taskLoadEpoch;
+    configReady = false;
+    providerHealth = null;
+    void (async () => {
+      await projectConfig.load(currentCwd);
+      const health = await window.solus.tasksProviderStatus(currentCwd);
+      if (epoch !== taskLoadEpoch || !session.tasksOpen || session.tasksProjectCwd !== currentCwd) return;
+      providerHealth = health;
+      configReady = true;
+      if (!health.ok) return;
+      await store.load(currentCwd, { assignedToMe: mine });
+    })();
   });
 
   $effect(() => {
@@ -229,7 +251,43 @@
   // Force a live re-fetch (task-service always hits the provider first, falling
   // back to cache only on failure) — the list otherwise only loads on open.
   function refresh() {
-    if (cwd && !store.loading) void store.load(cwd, { assignedToMe });
+    if (!cwd || store.loading) return;
+    const currentCwd = cwd;
+    void (async () => {
+      await projectConfig.load(currentCwd);
+      const health = await window.solus.tasksProviderStatus(currentCwd);
+      if (cwd !== currentCwd) return;
+      providerHealth = health;
+      configReady = true;
+      if (health.ok) await store.load(currentCwd, { assignedToMe });
+    })();
+  }
+
+  function openProviderRepair() {
+    if (providerHealth?.reason === "github_not_connected") {
+      session.showSettings("git-providers");
+    } else if (cwd) {
+      session.showProjectSettings(cwd);
+    }
+  }
+
+  async function switchTaskProvider(next: TaskProviderId) {
+    if (!cwd) return;
+    const currentCwd = cwd;
+    await projectConfig.save(currentCwd, { taskProvider: next });
+    await projectConfig.load(currentCwd);
+    const health = await window.solus.tasksProviderStatus(currentCwd);
+    if (cwd !== currentCwd) return;
+    providerHealth = health;
+    configReady = true;
+    if (health.ok) {
+      await store.load(currentCwd, { assignedToMe });
+    } else {
+      store.tasks = [];
+      store.loaded = true;
+      store.error = null;
+      openProviderRepair();
+    }
   }
 
   function onOpen(task: Task) {
@@ -373,17 +431,8 @@
 </script>
 
 {#if open}
-  <!--
-    `[transform:translate(0)]` is load-bearing for the document editor's block
-    drag handle, not decoration: `@container` already makes this the containing
-    block for the handle's `position: fixed`, but tiptap-extension-global-drag-handle
-    only switches to dialog-relative coordinates when it finds a `[role="dialog"]`
-    ancestor whose transform is non-none. Without the identity transform it keeps
-    raw viewport coords and the grip drifts to the middle of the field (same fix
-    DocumentShell's `.doc-shell-root` applies).
-  -->
   <div
-    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-(--solus-container-bg) focus:outline-none [transform:translate(0)]"
+    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-(--solus-container-bg) focus:outline-none"
     role="dialog"
     aria-label="Tasks"
     tabindex="-1"
@@ -411,75 +460,76 @@
         />
       {/key}
     {:else}
-    <!-- Header -->
-    <div class="shrink-0 border-b border-(--solus-popover-border)">
-      <div class="flex items-center justify-between gap-3 px-5 py-2">
-        <div class="flex min-w-0 items-center gap-2">
-          <ListChecksIcon size={15} weight="fill" class="text-(--solus-accent)" />
+    {#snippet tasksSubtitle()}
+      {provider === "github"
+        ? "Issues from the project's GitHub remote."
+        : "The project's task board."}
+      {#if store.loaded && !store.error}
+        {#if store.fromCache}
           <span
-            class="whitespace-nowrap text-[0.8125rem] font-semibold text-(--solus-text-primary)"
-            >Tasks</span
+            class="text-[#9a6700] [.dark_&]:text-[#d29922]"
+            title="The live fetch failed — this is the last list fetched from the provider"
+            >· offline copy{store.refreshedAt
+              ? ` from ${relativeTime(store.refreshedAt, freshnessNow)}`
+              : ""}</span
           >
-          {#if store.loaded && !store.error}
-            {#if store.fromCache}
-              <span
-                class="whitespace-nowrap text-[0.6875rem] text-[#9a6700] [.dark_&]:text-[#d29922]"
-                title="The live fetch failed — this is the last list fetched from the provider"
-                >· offline copy{store.refreshedAt
-                  ? ` from ${relativeTime(store.refreshedAt, freshnessNow)}`
-                  : ""}</span
-              >
-            {:else if store.refreshedAt}
-              <span
-                class="whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary)"
-                title="When this list was last fetched from the provider"
-                >· updated {relativeTime(store.refreshedAt, freshnessNow)}</span
-              >
-            {/if}
-            {#if store.truncated}
-              <span
-                class="whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary)"
-                title="The provider caps this list — older items exist but are not shown"
-                >· most recent {store.tasks.length}</span
-              >
-            {/if}
-          {/if}
-        </div>
-        <div class="flex items-center gap-1.5">
+        {:else if store.refreshedAt}
+          <span title="When this list was last fetched from the provider"
+            >· updated {relativeTime(store.refreshedAt, freshnessNow)}</span
+          >
+        {/if}
+        {#if store.truncated}
+          <span
+            title="The provider caps this list — older items exist but are not shown"
+            >· most recent {store.tasks.length}</span
+          >
+        {/if}
+      {/if}
+    {/snippet}
+    <PageShell onClose={close}>
+      <PageHeader title="Tasks" subtitle={tasksSubtitle}>
+        {#snippet icon()}
+          <ListChecksIcon size={18} weight="fill" />
+        {/snippet}
+        {#snippet actions()}
           <!-- List | Board view toggle -->
-          <div class="flex items-center gap-0.5 rounded-[0.5rem] bg-(--solus-surface-hover)/50 p-0.5">
+          <div
+            class="flex items-center gap-0.5 rounded-full bg-(--solus-surface-hover) p-0.5"
+            role="group"
+            aria-label="View"
+          >
             <button
               type="button"
-              class="inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-[0.375rem] border-0 transition-colors duration-100 {view ===
+              class="grid size-6 cursor-pointer place-items-center rounded-full border-0 transition-[background-color,color] duration-100 ease-in-out {view ===
               'list'
-                ? 'bg-(--solus-popover-bg) text-(--solus-text-primary) shadow-sm'
+                ? 'bg-(--solus-input-pill-bg) text-(--solus-text-primary) shadow-[0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] ring-1 ring-black/5 dark:shadow-none dark:ring-white/10'
                 : 'bg-transparent text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
               onclick={() => (view = "list")}
               aria-pressed={view === "list"}
               aria-label="List view"
               title="List view"
             >
-              <ListIcon size={14} weight="bold" />
+              <ListIcon size={13} weight="bold" />
             </button>
             <button
               type="button"
-              class="inline-flex size-[1.375rem] cursor-pointer items-center justify-center rounded-[0.375rem] border-0 transition-colors duration-100 {view ===
+              class="grid size-6 cursor-pointer place-items-center rounded-full border-0 transition-[background-color,color] duration-100 ease-in-out {view ===
               'board'
-                ? 'bg-(--solus-popover-bg) text-(--solus-text-primary) shadow-sm'
+                ? 'bg-(--solus-input-pill-bg) text-(--solus-text-primary) shadow-[0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] ring-1 ring-black/5 dark:shadow-none dark:ring-white/10'
                 : 'bg-transparent text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
               onclick={() => (view = "board")}
               aria-pressed={view === "board"}
               aria-label="Board view"
               title="Board view"
             >
-              <KanbanIcon size={14} weight="bold" />
+              <KanbanIcon size={13} weight="bold" />
             </button>
           </div>
           <button
             type="button"
-            class="relative inline-flex size-[1.625rem] cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            class={PAGE_ICON_BTN}
             onclick={refresh}
-            disabled={!cwd || store.loading}
+            disabled={!cwd || !configReady || store.loading}
             aria-label="Refresh tasks"
             title="Refresh"
           >
@@ -491,23 +541,15 @@
           {#if canCreate}
             <button
               type="button"
-              class="inline-flex cursor-pointer items-center gap-[0.3125rem] rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-2.5 py-[0.3125rem] text-[0.6875rem] font-semibold text-(--solus-accent) transition-[background-color,scale] duration-100 ease-in-out hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] active:scale-[0.96] focus-visible:outline-none"
+              class={PAGE_PRIMARY_BTN}
               onclick={() => (composing = { parentId: undefined })}
             >
               <PlusIcon size={13} weight="bold" />
               <span>New</span>
             </button>
           {/if}
-          <button
-            type="button"
-            class="relative inline-flex size-[1.625rem] cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
-            onclick={close}
-            aria-label="Close"
-          >
-            <XIcon size={16} />
-          </button>
-        </div>
-      </div>
+        {/snippet}
+      </PageHeader>
 
       <TaskFilters
         bind:query
@@ -518,13 +560,11 @@
         {counts}
         showStatus={view === "list"}
       />
-    </div>
 
     <!-- Body -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={bodyEl}
-      class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-3 [scrollbar-width:thin]"
       onkeydown={onBodyKeydown}
     >
       {#if !cwd}
@@ -537,7 +577,7 @@
             built-in local task list.
           </p>
         </div>
-      {:else if !store.loaded && store.loading}
+      {:else if !configReady || (!store.loaded && store.loading)}
         {#if view === "board"}
           <TaskBoardSkeleton />
         {:else}
@@ -548,6 +588,31 @@
             />
           </div>
         {/if}
+      {:else if providerHealth && !providerHealth.ok}
+        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+          <WarningCircleIcon size={28} class="text-(--solus-text-tertiary)" />
+          <p class="text-balance text-base font-semibold text-(--solus-text-primary)">
+            {providerHealth.reason === "github_not_connected"
+              ? "Connect GitHub to see tasks."
+              : "Finish task setup for this project."}
+          </p>
+          <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
+            {providerHealth.message}
+          </p>
+          <button
+            type="button"
+            class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+            onclick={openProviderRepair}
+          >
+            {#if providerHealth.reason === "github_not_connected"}
+              <PlugIcon size={13} weight="bold" />
+              Connect GitHub
+            {:else}
+              <ListChecksIcon size={13} weight="bold" />
+              Open project settings
+            {/if}
+          </button>
+        </div>
       {:else if store.error}
         <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
           <WarningCircleIcon size={28} class="text-(--solus-text-tertiary)" />
@@ -586,7 +651,7 @@
           </p>
           <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
             {#if canCreate}
-              Create {allowEpics ? "a task or epic" : "an issue"}, then start a
+              Create {allowEpics ? "a task or epic" : "a task"}, then start a
               session from it to give the agent its full context.
             {:else}
               When this project's provider has tickets, they'll show up here —
@@ -594,14 +659,26 @@
             {/if}
           </p>
           {#if canCreate}
-            <button
-              type="button"
-              class="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3.5 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
-              onclick={() => (composing = { parentId: undefined })}
-            >
-              <PlusIcon size={13} weight="bold" />
-              <span>New task</span>
-            </button>
+            <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                class="inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3.5 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+                onclick={() => (composing = { parentId: undefined })}
+              >
+                <PlusIcon size={13} weight="bold" />
+                <span>{provider === "github" ? "New issue" : "New task"}</span>
+              </button>
+              {#if provider === "local"}
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border border-(--solus-container-border) bg-transparent px-3.5 py-[0.375rem] text-xs font-semibold text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none"
+                  onclick={() => void switchTaskProvider("github")}
+                >
+                  <PlugIcon size={13} weight="bold" />
+                  <span>Connect a task provider</span>
+                </button>
+              {/if}
+            </div>
           {/if}
         </div>
       {:else if view === "board"}
@@ -666,6 +743,7 @@
         {/each}
       {/if}
     </div>
+    </PageShell>
 
     <!-- Bulk action bar (list view) — floats over the list while a selection is held -->
     {#if view === "list" && selection.size > 0}

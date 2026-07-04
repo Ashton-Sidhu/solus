@@ -816,8 +816,11 @@ interface GetIssueResponse {
  * its `origin` remote — so GitHub needs almost no manual config. Throws when the
  * cwd has no parseable GitHub remote, letting the caller fall back to local.
  */
-export async function makeGitHubTaskProvider(cwd: string): Promise<GitHubTaskProvider> {
-  const repo = await resolveRepoRef(cwd)
+export async function makeGitHubTaskProvider(
+  cwd: string,
+  configuredRepo?: RepoRef,
+): Promise<GitHubTaskProvider> {
+  const repo = configuredRepo ?? await resolveRepoRef(cwd)
   if (!repo) {
     throw new Error('Could not detect a GitHub repository from the origin remote.')
   }

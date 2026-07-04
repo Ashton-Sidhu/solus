@@ -14,12 +14,13 @@
     CaretDownIcon,
     FileIcon,
     GitCommitIcon,
+    WarningCircleIcon,
   } from "phosphor-svelte";
   import { SvelteSet } from "svelte/reactivity";
   import Icon from "@iconify/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import MarkdownEditor from "../MarkdownEditor.svelte";
-  import type { PrReviewContext, ChangedFileStat } from "../../../shared/types";
+  import type { ChangedFileStat } from "../../../shared/types";
   import type {
     ReviewThread,
     PullRequestDetail,
@@ -40,8 +41,10 @@
     initials,
     fileName,
     dirName,
+    type PrActivityTarget,
   } from "./lib/activity-data";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
+  import MergeControl from "./MergeControl.svelte";
 
   // Register the lazy (~12MB) `logos` icon set so changed-file rows can resolve
   // their vibrant brand icon. Idempotent and shared across the app.
@@ -58,7 +61,7 @@
     onJump,
     onRefreshThreads,
   }: {
-    pr: PrReviewContext;
+    pr: PrActivityTarget;
     /** Review threads, owned by the parent so the Diff tab and this timeline
      *  share one fetch (and one set of objects — reply/resolve mutate in place). */
     threads: ReviewThread[];
@@ -95,6 +98,7 @@
   let composer = $state("");
   let posting = $state(false);
   let filesExpanded = $state(false);
+  let mergeabilityRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // A resolved thread collapses to a "Marked as resolved" bar (hiding its diff
   // hunk + conversation), matching the inline Diff tab. This tracks the ones the
@@ -102,9 +106,12 @@
   const expandedThreads = new SvelteSet<string>();
   const threadCollapsed = (t: ReviewThread) =>
     t.isResolved && !expandedThreads.has(t.id);
+  const collapsedDiffs = new SvelteSet<string>();
+  const diffExpanded = (thread: ReviewThread) => !collapsedDiffs.has(thread.id);
 
   const markdownRenderers = { codespan: CodeSpan };
   const FILES_PREVIEW = 6;
+  const MERGEABILITY_RETRY_DELAYS_MS = [1_000, 2_500, 5_000];
 
   // Markdown comment inputs styled like the message composer: forced 400 weight
   // so typed text never reads bold. The reply box is a bordered transparent
@@ -113,8 +120,23 @@
     "rounded-lg border border-(--solus-art-border) bg-transparent px-2.5 transition-colors focus-within:border-(--solus-accent) [&_.solus-md-editor_.ProseMirror]:![min-height:2.5rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![left:0.875rem]";
   const composerFieldClass =
     "flex-1 min-w-0 [&_.solus-md-editor_.ProseMirror]:![padding:0.25rem_0] [&_.solus-md-editor_.ProseMirror]:![min-height:1.25rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![top:0.25rem] [&_.solus-md-placeholder]:![left:0]";
-  const sidebarPanelBg =
-    "bg-[color:color-mix(in_srgb,var(--solus-container-bg)_90%,color-mix(in_srgb,var(--solus-input-pill-bg)_70%,var(--solus-surface-primary))_10%)]";
+  // Timeline event markers: one consistent 24px circle so the connector line
+  // threads through evenly sized dots, tinted only where state matters
+  // (opened / resolved read positive; everything else stays neutral).
+  const markerClass =
+    "grid size-6 shrink-0 place-items-center rounded-full bg-(--solus-art-raised) text-(--solus-text-tertiary)";
+  const markerPositiveClass =
+    "grid size-6 shrink-0 place-items-center rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] text-(--solus-art-positive)";
+
+  // Resolve display fields from `detail` once it loads, falling back to the
+  // up-front hints on `pr` so the header paints instantly (the list already has
+  // author + avatar from the summary; the review pane has the branch refs).
+  const authorName = $derived(detail?.author ?? pr.owner ?? "");
+  const authorAvatarUrl = $derived(
+    detail?.authorAvatarUrl ?? pr.authorAvatarUrl ?? "",
+  );
+  const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
+  const headBranch = $derived(pr.branch ?? detail?.headRef ?? "");
 
   const openedTime = $derived(
     detail
@@ -146,6 +168,53 @@
   const addPct = $derived(
     totalAdds + totalDels > 0 ? (totalAdds / (totalAdds + totalDels)) * 100 : 0,
   );
+
+  const canMerge = $derived(detail?.state === "open" && !detail?.draft);
+
+  const mergeability = $derived.by(() => {
+    if (!detail) return null;
+    if (detail.state === "merged")
+      return {
+        label: "Merged",
+        description: "This PR has already been merged.",
+        Icon: GitMergeIcon,
+        tone: "var(--solus-accent)",
+      };
+    if (detail.state === "closed")
+      return {
+        label: "Closed",
+        description: "Closed PRs cannot be merged.",
+        Icon: GitPullRequestIcon,
+        tone: "var(--solus-text-tertiary)",
+      };
+    if (detail.draft)
+      return {
+        label: "Draft",
+        description: "Mark ready for review before merging.",
+        Icon: GitBranchIcon,
+        tone: "var(--solus-text-tertiary)",
+      };
+    if (detail.mergeable === true)
+      return {
+        label: "Good to merge",
+        description: "GitHub reports no merge conflicts.",
+        Icon: CheckCircleIcon,
+        tone: "var(--solus-art-positive)",
+      };
+    if (detail.mergeable === false)
+      return {
+        label: "Merge conflicts",
+        description: "Resolve conflicts before merging.",
+        Icon: WarningCircleIcon,
+        tone: "var(--solus-art-negative)",
+      };
+    return {
+      label: "Checking",
+      description: "GitHub is still computing mergeability.",
+      Icon: ArrowsClockwiseIcon,
+      tone: "var(--solus-text-tertiary)",
+    };
+  });
 
   const statusBadge = $derived.by(() => {
     if (!detail) return null;
@@ -179,6 +248,9 @@
   // fast ones. `n` guards against a PR switch mid-flight clobbering newer data.
   function load(force = false) {
     const n = pr.number;
+    const baseSha = pr.baseSha;
+    const isCurrentPr = () => pr?.number === n;
+    clearMergeabilityRetry();
     detail = null;
     commits = [];
     reviewers = [];
@@ -188,38 +260,82 @@
     session.prsStore
       .loadDetail(session.ctx, n, { force })
       .then((d) => {
-        if (pr.number === n) detail = d;
+        if (!isCurrentPr()) return;
+        detail = d;
+        // The list preview has no worktree base up front — take it from the
+        // detail it just fetched. The review pane passes `baseSha`, so it has
+        // already kicked off the change set below in parallel.
+        if (!baseSha) loadChangedFiles(d.baseSha, n);
+        scheduleMergeabilityRetry(n);
       })
-      .catch(() => {})
+      .catch(() => {
+        // Without `detail` there's no fallback base, so stop the files spinner.
+        if (isCurrentPr() && !baseSha) filesLoading = false;
+      })
       .finally(() => {
-        if (pr.number === n) detailLoading = false;
+        if (isCurrentPr()) detailLoading = false;
       });
     session.prsStore
       .loadCommits(session.ctx, n, { force })
       .then((c) => {
-        if (pr.number === n) commits = c;
+        if (isCurrentPr()) commits = c;
       })
       .catch(() => {})
       .finally(() => {
-        if (pr.number === n) commitsLoading = false;
+        if (isCurrentPr()) commitsLoading = false;
       });
     session.prsStore
       .loadReviewers(session.ctx, n, { force })
       .then((r) => {
-        if (pr.number === n) reviewers = r;
+        if (isCurrentPr()) reviewers = r;
       })
       .catch(() => {})
       .finally(() => {
-        if (pr.number === n) reviewersLoading = false;
+        if (isCurrentPr()) reviewersLoading = false;
       });
+    if (baseSha) loadChangedFiles(baseSha, n);
+  }
+
+  function clearMergeabilityRetry() {
+    if (!mergeabilityRetryTimer) return;
+    clearTimeout(mergeabilityRetryTimer);
+    mergeabilityRetryTimer = null;
+  }
+
+  function scheduleMergeabilityRetry(n: number, attempt = 0) {
+    clearMergeabilityRetry();
+    if (
+      pr?.number !== n ||
+      detail?.state !== "open" ||
+      detail.draft ||
+      detail.mergeable !== null ||
+      attempt >= MERGEABILITY_RETRY_DELAYS_MS.length
+    ) {
+      return;
+    }
+
+    mergeabilityRetryTimer = setTimeout(() => {
+      mergeabilityRetryTimer = null;
+      session.prsStore
+        .loadDetail(session.ctx, n, { force: true })
+        .then((d) => {
+          if (pr?.number !== n) return;
+          detail = d;
+          scheduleMergeabilityRetry(n, attempt + 1);
+        })
+        .catch(() => {});
+    }, MERGEABILITY_RETRY_DELAYS_MS[attempt]);
+  }
+
+  function loadChangedFiles(baseSha: string, n: number) {
     window.solus
-      .prChangedFiles(session.ctx, pr.baseSha)
+      .prChangedFiles(session.ctx, baseSha)
       .then((f) => {
-        if (pr.number === n) changedFiles = f;
+        if (pr?.number === n) changedFiles = f;
       })
       .catch(() => {})
       .finally(() => {
-        if (pr.number === n) filesLoading = false;
+        if (pr?.number === n) filesLoading = false;
       });
   }
 
@@ -232,6 +348,29 @@
   $effect(() => {
     void pr.number;
     load();
+  });
+
+  $effect(() => {
+    return () => clearMergeabilityRetry();
+  });
+
+  // When the merge queue finishes merging this PR, force-reload so the status
+  // flips to Merged without a manual refresh.
+  let lastMerge: { number: number; status: string | null } = {
+    number: -1,
+    status: null,
+  };
+  $effect(() => {
+    const status = session.mergeQueueStore.entryFor(pr.number)?.status ?? null;
+    const prev = lastMerge;
+    lastMerge = { number: pr.number, status };
+    if (
+      prev.number === pr.number &&
+      prev.status !== status &&
+      status === "merged"
+    ) {
+      load(true);
+    }
   });
 
   async function submitReply(thread: ReviewThread) {
@@ -286,7 +425,7 @@
       await window.solus.prSubmitReview(session.ctx, pr.number, {
         body,
         event: "COMMENT",
-        commitId: pr.headSha,
+        commitId: detail?.headSha ?? pr.headSha ?? "",
         comments: [],
       });
       posted.push({
@@ -311,6 +450,12 @@
     requestInputFocus();
   }
 
+  function toggleDiff(threadId: string) {
+    if (collapsedDiffs.has(threadId)) collapsedDiffs.delete(threadId);
+    else collapsedDiffs.add(threadId);
+    requestInputFocus();
+  }
+
   function onComposerKey(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -325,6 +470,18 @@
   >
     {initials(name)}
   </span>
+{/snippet}
+
+{#snippet avatarImg(url: string, name: string, size: string)}
+  {#if url}
+    <img
+      src={url}
+      alt={name}
+      class="shrink-0 rounded-full object-cover outline-1 -outline-offset-1 outline-black/5 dark:outline-white/10 {size}"
+    />
+  {:else}
+    {@render avatar(name, size)}
+  {/if}
 {/snippet}
 
 {#snippet reviewStateBadge(state: PrReviewer['state'])}
@@ -356,13 +513,13 @@
       <main class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-start justify-between gap-3">
           <h1
-            class="text-[1.35rem] leading-tight font-semibold tracking-tight text-(--solus-text-primary)"
+            class="text-xl font-semibold tracking-tight text-balance text-(--solus-text-primary)"
           >
             {pr.title}
           </h1>
           <button
             type="button"
-            class="flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
             aria-label="Refresh activity"
             use:tooltip={"Refresh"}
             onclick={refresh}
@@ -375,21 +532,61 @@
         <div
           class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-(--solus-text-tertiary)"
         >
-          {@render avatar(
-            detail?.author ?? pr.owner,
+          {@render avatarImg(
+            authorAvatarUrl,
+            authorName,
             "size-5 text-[0.5625rem]",
           )}
           <span class="font-medium text-(--solus-text-secondary)"
-            >{detail?.author ?? pr.owner}</span
+            >{authorName}</span
           >
           <span aria-hidden="true">·</span>
-          <span class="font-mono">{pr.repo}#{pr.number}</span>
-          <span aria-hidden="true">·</span>
-          <GitBranchIcon size={13} class="shrink-0" />
-          <span class="font-mono">{pr.baseRef}</span>
-          <span aria-hidden="true">←</span>
-          <span class="font-mono truncate">{pr.branch}</span>
+          <span class="font-mono text-[0.75rem]">{pr.repo ? `${pr.repo}#` : "#"}{pr.number}</span>
+          {#if baseRef}
+            <span aria-hidden="true">·</span>
+            <span class="inline-flex min-w-0 items-center gap-1.5">
+              <span
+                class="inline-flex items-center gap-1 rounded-md bg-(--solus-art-raised) py-0.5 pr-1.5 pl-1 font-mono text-[0.6875rem] text-(--solus-text-secondary)"
+              >
+                <GitBranchIcon size={11} class="shrink-0" />
+                {baseRef}
+              </span>
+              <span aria-hidden="true">←</span>
+              <span
+                class="truncate rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.6875rem] text-(--solus-text-secondary)"
+                >{headBranch}</span
+              >
+            </span>
+          {/if}
         </div>
+
+        <!-- Merge action for narrow layouts, where the right rail is hidden -->
+        {#if canMerge}
+          <div class="mt-5 flex max-w-[22rem] flex-col gap-2 lg:hidden">
+            {#if mergeability}
+              {@const MergeabilityIcon = mergeability.Icon}
+              <div
+                class="flex items-center gap-2 rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2"
+              >
+                <span
+                  class="grid size-6 shrink-0 place-items-center rounded-full"
+                  style={`color:${mergeability.tone};background:color-mix(in srgb,${mergeability.tone} 12%,transparent)`}
+                >
+                  <MergeabilityIcon size={14} weight="fill" />
+                </span>
+                <div class="min-w-0">
+                  <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+                    {mergeability.label}
+                  </div>
+                  <div class="truncate text-[0.75rem] text-(--solus-text-tertiary)">
+                    {mergeability.description}
+                  </div>
+                </div>
+              </div>
+            {/if}
+            <MergeControl {pr} />
+          </div>
+        {/if}
 
         <!-- Description -->
         {#if detailLoading}
@@ -431,24 +628,22 @@
           Activity
         </h2>
 
-        <ol class="flex flex-col">
+        <ol class="flex flex-col" role="list">
           <!-- Opened event -->
           <li class="relative flex gap-3">
             <div class="flex flex-col items-center">
-              <span
-                class="grid size-5 shrink-0 place-items-center text-(--solus-art-positive)"
-              >
-                <GitPullRequestIcon size={15} weight="bold" />
+              <span class={markerPositiveClass}>
+                <GitPullRequestIcon size={13} weight="bold" />
               </span>
               {#if hasTimelineAfterOpened}
-                <span class="w-px flex-1 bg-(--solus-art-border)"></span>
+                <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
               {/if}
             </div>
             <p
-              class="-mt-0.5 pb-5 text-[0.8125rem] text-(--solus-text-secondary)"
+              class="mt-0.5 pb-6 text-[0.8125rem] text-(--solus-text-secondary)"
             >
               <span class="font-medium text-(--solus-text-primary)"
-                >{detail?.author ?? pr.owner}</span
+                >{authorName}</span
               >
               opened this pull request{#if openedTime}<span
                   class="text-(--solus-text-tertiary)"
@@ -462,19 +657,17 @@
           {#if commits.length > 0}
             <li class="relative flex gap-3">
               <div class="flex flex-col items-center">
-                <span
-                  class="grid size-5 shrink-0 place-items-center text-(--solus-text-tertiary)"
-                >
-                  <GitCommitIcon size={15} weight="bold" />
+                <span class={markerClass}>
+                  <GitCommitIcon size={13} weight="bold" />
                 </span>
                 {#if threads.length > 0 || posted.length > 0}
-                  <span class="w-px flex-1 bg-(--solus-art-border)"></span>
+                  <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
                 {/if}
               </div>
-              <div class="-mt-0.5 min-w-0 flex-1 pb-5">
+              <div class="mt-0.5 min-w-0 flex-1 pb-6">
                 <p class="text-[0.8125rem] text-(--solus-text-secondary)">
                   <span class="font-medium text-(--solus-text-primary)"
-                    >{detail?.author ?? pr.owner}</span
+                    >{authorName}</span
                   >
                   added {commits.length}
                   {commits.length === 1
@@ -486,7 +679,8 @@
                     >{/if}
                 </p>
                 <ul
-                  class="mt-2.5 flex flex-col gap-px overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
+                  class="mt-2.5 flex flex-col divide-y divide-(--solus-art-border) overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
+                  role="list"
                 >
                   {#each commits as commit (commit.sha)}
                     <li class="flex items-center gap-2.5 px-3 py-2">
@@ -499,13 +693,8 @@
                         class="min-w-0 flex-1 truncate text-[0.8125rem] text-(--solus-text-secondary)"
                         >{commit.message}</span
                       >
-                      <span
-                        class="inline-flex shrink-0 items-center gap-1 text-(--solus-art-positive)"
-                      >
-                        <CheckCircleIcon size={13} weight="fill" />
-                      </span>
                       <code
-                        class="shrink-0 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                        class="shrink-0 rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
                         >{commit.sha.slice(0, 7)}</code
                       >
                     </li>
@@ -518,43 +707,67 @@
           <!-- Existing review threads, repliable / resolvable -->
           {#each threads as thread, ti (thread.id)}
             {@const diffHunk = thread.comments[0]?.diffHunk}
+            {@const showDiff = diffExpanded(thread)}
             <li class="relative flex gap-3">
               <div class="flex flex-col items-center">
-                <span
-                  class="grid size-5 shrink-0 place-items-center text-(--solus-text-tertiary)"
-                >
-                  <ChatCircleIcon size={14} weight="fill" />
+                <span class={thread.isResolved ? markerPositiveClass : markerClass}>
+                  {#if thread.isResolved}
+                    <CheckCircleIcon size={13} weight="fill" />
+                  {:else}
+                    <ChatCircleIcon size={13} weight="fill" />
+                  {/if}
                 </span>
                 {#if ti < threads.length - 1 || posted.length > 0}
-                  <span class="w-px flex-1 bg-(--solus-art-border)"></span>
+                  <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
                 {/if}
               </div>
 
-              <div class="-mt-0.5 min-w-0 flex-1 pb-5">
+              <div class="-mt-1 min-w-0 flex-1 pb-6">
                 <div
                   class="overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
                 >
                   <div
                     class="flex items-center gap-2 border-b border-(--solus-art-border) px-3 py-2"
                   >
+                    {#if diffHunk && !threadCollapsed(thread)}
+                      <button
+                        type="button"
+                        class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[color,background-color,scale] duration-150 ease-out hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-[0.92]"
+                        aria-expanded={showDiff}
+                        aria-label={showDiff
+                          ? `Collapse diff for ${fileName(thread.filePath)}`
+                          : `Expand diff for ${fileName(thread.filePath)}`}
+                        use:tooltip={showDiff ? "Collapse diff" : "Expand diff"}
+                        onclick={() => toggleDiff(thread.id)}
+                      >
+                        {#if showDiff}
+                          <CaretDownIcon size={13} weight="bold" />
+                        {:else}
+                          <CaretRightIcon size={13} weight="bold" />
+                        {/if}
+                      </button>
+                    {/if}
                     <button
                       type="button"
-                      class="min-w-0 flex-1 truncate text-left font-mono text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-accent)"
+                      class="min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-accent)"
+                      use:tooltip={"Open in Diff tab"}
                       onclick={() => jumpToFile(thread.filePath, thread.line)}
                     >
-                      {thread.filePath}{thread.line !== null
+                      <span class="text-(--solus-text-tertiary)"
+                        >{dirName(thread.filePath)}</span
+                      >{fileName(thread.filePath)}{thread.line !== null
                         ? `:${thread.line}`
                         : ""}
                     </button>
                     {#if thread.isOutdated}
                       <span
-                        class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+                        class="shrink-0 rounded-full bg-(--solus-art-raised) px-1.5 py-0.5 text-[0.625rem] font-medium text-(--solus-text-tertiary)"
                         >Outdated</span
                       >
                     {/if}
                     {#if thread.isResolved}
                       <span
-                        class="inline-flex shrink-0 items-center gap-1 rounded bg-[color:color-mix(in_srgb,var(--solus-art-positive)_16%,transparent)] px-1.5 py-0.5 text-[0.625rem] font-semibold text-(--solus-art-positive)"
+                        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1 text-[0.625rem] font-medium text-(--solus-art-positive)"
                       >
                         <CheckCircleIcon size={11} weight="fill" /> Resolved
                       </span>
@@ -564,7 +777,7 @@
                   {#if threadCollapsed(thread)}
                     <button
                       type="button"
-                      class="flex w-full items-center gap-1.5 px-3 py-2.5 text-left transition-colors hover:bg-(--solus-accent-light)"
+                      class="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2.5 text-left transition-colors hover:bg-(--solus-accent-light)"
                       onclick={() => expandedThreads.add(thread.id)}
                       aria-expanded="false"
                     >
@@ -584,7 +797,7 @@
                   {:else}
                   <!-- The diff GitHub anchored the thread to (first comment's hunk),
                        rendered through the same @pierre/diffs engine as the Diff tab. -->
-                  {#if diffHunk}
+                  {#if diffHunk && showDiff}
                     <div class="border-b border-(--solus-art-border)">
                       <GuideFileDiff
                         patch={hunkToPatch(thread.filePath, diffHunk)}
@@ -645,7 +858,7 @@
                         <div class="flex justify-end gap-1.5">
                           <button
                             type="button"
-                            class="rounded-md px-2.5 py-1 text-xs font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
+                            class="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
                             onclick={() => {
                               replyingTo = null;
                               replyText = "";
@@ -656,10 +869,10 @@
                           <button
                             type="button"
                             disabled={busy === thread.id || !replyText.trim()}
-                            class="rounded-md bg-(--solus-accent) px-2.5 py-1 text-xs font-semibold text-(--solus-on-accent,#fff) disabled:opacity-50"
+                            class="cursor-pointer rounded-md bg-(--solus-accent) px-2.5 py-1 text-xs font-semibold text-(--solus-on-accent,#fff) hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                             onclick={() => submitReply(thread)}
                           >
-                            Reply
+                            {busy === thread.id ? "Replying…" : "Reply"}
                           </button>
                         </div>
                       </div>
@@ -667,18 +880,18 @@
                       <div class="flex items-center gap-1">
                         <button
                           type="button"
-                          class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+                          class="inline-flex cursor-pointer items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
                           onclick={() => {
                             replyingTo = thread.id;
                             replyText = "";
                           }}
                         >
-                          <ArrowBendUpLeftIcon size={13} /> Reply
+                          <ArrowBendUpLeftIcon size={13} class="shrink-0" /> Reply
                         </button>
                         <button
                           type="button"
                           disabled={busy === thread.id}
-                          class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) disabled:opacity-50"
+                          class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) disabled:cursor-not-allowed disabled:opacity-50"
                           onclick={() => toggleResolved(thread)}
                         >
                           {thread.isResolved ? "Unresolve" : "Resolve"}
@@ -686,7 +899,7 @@
                         {#if thread.isResolved}
                           <button
                             type="button"
-                            class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+                            class="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
                             onclick={() => expandedThreads.delete(thread.id)}
                           >
                             Hide
@@ -705,12 +918,12 @@
           {#each posted as p, pi (p.id)}
             <li class="relative flex gap-3">
               <div class="flex flex-col items-center">
-                {@render avatar(p.author, "size-5 text-[0.5625rem]")}
+                {@render avatarImg(authorAvatarUrl, p.author, "size-6 text-[0.625rem]")}
                 {#if pi < posted.length - 1}
-                  <span class="w-px flex-1 bg-(--solus-art-border)"></span>
+                  <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
                 {/if}
               </div>
-              <div class="-mt-0.5 min-w-0 flex-1 pb-5">
+              <div class="mt-0.5 min-w-0 flex-1 pb-6">
                 <div class="mb-1 text-[0.8125rem]">
                   <span class="font-medium text-(--solus-text-primary)"
                     >{p.author}</span
@@ -733,7 +946,7 @@
         <div
           class="mt-3 flex items-center gap-2.5 rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2.5 focus-within:border-(--solus-accent)"
         >
-          {@render avatar(detail?.author ?? pr.owner, "size-6 text-[0.625rem]")}
+          {@render avatarImg(authorAvatarUrl, authorName, "size-6 text-[0.625rem]")}
           <MarkdownEditor
             value={composer}
             onValueChange={(md) => (composer = md)}
@@ -747,7 +960,7 @@
           <button
             type="button"
             disabled={!composer.trim() || posting}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-opacity disabled:opacity-40"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Post comment"
             use:tooltip={"Comment · ⌘↵"}
             onclick={postComment}
@@ -762,7 +975,7 @@
         <div class="sticky top-9 flex flex-col gap-3.5">
           <!-- Status & meta card -->
           <section
-            class="overflow-hidden rounded-2xl border border-(--solus-art-border) {sidebarPanelBg} shadow-[var(--solus-card-shadow-collapsed)]"
+            class="overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface)"
           >
             <!-- Status row -->
             <div
@@ -783,6 +996,41 @@
               {/if}
             </div>
 
+            <!-- Mergeability row -->
+            <div class="border-t border-(--solus-art-border) px-3.5 py-3">
+              {#if detailLoading}
+                <div class="flex animate-pulse items-center gap-2 motion-reduce:animate-none">
+                  <span class="size-7 shrink-0 rounded-full bg-(--solus-art-border)"></span>
+                  <span class="h-3 w-28 rounded bg-(--solus-art-border)"></span>
+                </div>
+              {:else if mergeability}
+                {@const MergeabilityIcon = mergeability.Icon}
+                <div class="flex items-start gap-2.5">
+                  <span
+                    class="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full"
+                    style={`color:${mergeability.tone};background:color-mix(in srgb,${mergeability.tone} 12%,transparent)`}
+                  >
+                    <MergeabilityIcon size={15} weight="fill" />
+                  </span>
+                  <div class="min-w-0">
+                    <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+                      {mergeability.label}
+                    </div>
+                    <div class="mt-0.5 text-[0.75rem] leading-snug text-(--solus-text-tertiary)">
+                      {mergeability.description}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+            </div>
+
+            <!-- Merge action -->
+            {#if canMerge}
+              <div class="border-t border-(--solus-art-border) px-3.5 py-3">
+                <MergeControl {pr} />
+              </div>
+            {/if}
+
             <!-- Reviewers / Resolves rows -->
             <dl
               class="divide-y divide-(--solus-art-border) border-t border-(--solus-art-border)"
@@ -802,7 +1050,7 @@
                   {:else if reviewers.length === 0}
                     <span class="text-[0.75rem] font-normal text-(--solus-text-tertiary)">None</span>
                   {:else}
-                    <ul class="flex flex-col gap-1.5">
+                    <ul class="flex flex-col gap-1.5" role="list">
                       {#each reviewers as reviewer (reviewer.login)}
                         <li class="flex items-center gap-2">
                           {@render avatar(reviewer.login, "size-5 text-[0.5rem]")}
@@ -843,7 +1091,7 @@
 
           <!-- Changed files card -->
           <section
-            class="overflow-hidden rounded-2xl border border-(--solus-art-border) {sidebarPanelBg} shadow-[var(--solus-card-shadow-collapsed)]"
+            class="overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface)"
           >
             <div
               class="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2.5"
@@ -899,6 +1147,7 @@
 
             <ul
               class="flex flex-col gap-px border-t border-(--solus-art-border) p-1.5"
+              role="list"
             >
               {#if filesLoading}
                 {#each [0, 1, 2, 3] as i (i)}
@@ -918,7 +1167,7 @@
                 <li>
                   <button
                     type="button"
-                    class="group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-(--solus-accent-light)"
+                    class="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-(--solus-accent-light)"
                     onclick={() => jumpToFile(file.path)}
                   >
                     {#if icon}
@@ -961,7 +1210,7 @@
                 <li>
                   <button
                     type="button"
-                    class="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-secondary)"
+                    class="flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-secondary)"
                     onclick={() => (filesExpanded = !filesExpanded)}
                   >
                     <CaretRightIcon

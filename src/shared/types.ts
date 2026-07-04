@@ -229,6 +229,9 @@ export interface Session {
   sessionVersion: string | null
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
+  /** Live inline progress card for the current multi-step action (worktree
+   *  setup, etc.). Live-only — not persisted to the transcript. */
+  statusCard: StatusCardState | null
   changedFiles: string[]
   gitContext: TabGitContext | null
   workingDirectory: string
@@ -558,6 +561,30 @@ export interface RunResult {
   sessionId: string
 }
 
+// ─── Status Cards (inline progress for multi-step chat actions) ───
+
+export type StatusCardStepStatus = 'pending' | 'active' | 'done' | 'error'
+
+export interface StatusCardStep {
+  /** Stable key within the card. */
+  id: string
+  label: string
+  status: StatusCardStepStatus
+}
+
+/** A live, ordered checklist rendered inline in the conversation while a
+ *  multi-step action (e.g. creating a worktree-backed session) runs. Emitted
+ *  as a `status_card` event and replaced wholesale on each stage transition. */
+export interface StatusCardState {
+  /** Stable id so successive stage updates target the same card. */
+  id: string
+  title: string
+  /** Icon hint for the header; the renderer maps it to a component. */
+  icon?: 'git-branch'
+  status: 'active' | 'done' | 'error'
+  steps: StatusCardStep[]
+}
+
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
@@ -598,6 +625,7 @@ export type NormalizedEvent =
   | { type: 'artifact_created'; kind: 'html' | 'image'; html?: string; path?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'session_created'; agentSessionId: string; title: string; provider: AgentId; cwd: string }
+  | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
 

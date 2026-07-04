@@ -94,6 +94,42 @@ export interface TaskListResult extends TaskList {
   fetchedAt?: number
 }
 
+export interface TaskProviderRepoRef {
+  owner: string
+  repo: string
+}
+
+export type TaskProviderStatusReason =
+  | 'ok'
+  | 'missing_github_repo'
+  | 'github_not_connected'
+  | 'github_access_failed'
+  | 'unsupported_provider'
+
+/** Project-scoped provider health for onboarding and repair UI. This is a
+ *  lightweight preflight: it reports the configured provider, the resolved repo
+ *  binding, auth state, and whether tasks can be listed without falling back. */
+export interface TaskProviderStatus {
+  provider: TaskProviderId
+  ok: boolean
+  reason: TaskProviderStatusReason
+  message: string
+  repo?: TaskProviderRepoRef & { source: 'config' | 'origin' }
+  detectedRepo?: TaskProviderRepoRef
+  auth?: {
+    connected: boolean
+    login?: string
+    hasProjectScope?: boolean
+  }
+  liveCheck?: {
+    checkedAt: number
+    issueCount: number
+    truncated?: boolean
+    planningFieldsDetected?: boolean
+  }
+  warning?: string
+}
+
 /** Stable marker prepended to auth/connection failures from remote providers,
  *  so the renderer can offer "Connect GitHub" without sniffing error prose. */
 export const TASKS_AUTH_ERROR_PREFIX = '[tasks-auth] '

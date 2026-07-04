@@ -1,4 +1,4 @@
-import type { MergeQueueEntry, MergeQueueEntryStatus } from '../../../../shared/types'
+import type { MergeQueueEntry, MergeQueueEntryStatus } from '../../shared/types'
 
 /** Prompt for the agent session that resolves a queue entry's merge conflicts.
  *  The queue polls the worktree and resumes on its own once the merge commit

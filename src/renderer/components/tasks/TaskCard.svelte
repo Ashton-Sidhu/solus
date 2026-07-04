@@ -17,7 +17,7 @@
     dueDateMeta,
     DUE_TONE_META,
     PRIORITY_META,
-    shortDate,
+    relativeTime,
     visibleLabels,
   } from "./lib/tasks-api";
   import Dropdown from "../ui/Dropdown.svelte";
@@ -287,7 +287,7 @@
     <div class="flex items-start gap-2">
       {@render statusDot("h-[1.125rem] w-[1.375rem]")}
       <span
-        class="text-[0.8125rem] font-medium leading-snug tracking-[-0.01em] text-(--solus-text-primary) line-clamp-2"
+        class="text-[0.8125rem] font-medium tracking-[-0.01em] text-(--solus-text-primary) line-clamp-2"
         >{task.title}</span
       >
     </div>
@@ -295,7 +295,7 @@
     <div
       class="mt-0.5 pl-[1.875rem] text-[0.6875rem] text-(--solus-text-tertiary)"
     >
-      Updated {shortDate(task.updatedAt)}
+      Updated {relativeTime(task.updatedAt)}
     </div>
   {:else}
     {#if selectable}
