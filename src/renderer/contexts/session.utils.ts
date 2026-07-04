@@ -172,7 +172,13 @@ export function removeAssistantPlanDuplicate(messages: Message[], planContent: s
 }
 
 export function formatInlineComments(comments: PlanComment[]): string {
-  return comments.map((c) => `- On "${c.selectedText}": ${c.comment}`).join('\n')
+  return comments
+    .map((c) =>
+      c.nodeId
+        ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
+        : `- On "${c.selectedText}": ${c.comment}`,
+    )
+    .join('\n')
 }
 
 function normalizeDiffSelectedCode(code: string): string {

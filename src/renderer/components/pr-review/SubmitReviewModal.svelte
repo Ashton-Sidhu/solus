@@ -17,15 +17,21 @@
 
   // The submit modal (decision #14): pick an event, write a summary body, review
   // the read-only queued comments, and fire one prSubmitReview anchored to the
-  // PR head SHA. On success the parent clears the draft store.
+  // PR head SHA. On success the parent clears the draft store. Event + body are
+  // bindable so the host owns them — Esc/close no longer destroys a typed
+  // summary; it's there again on reopen.
   let {
     pr,
     drafts,
+    event = $bindable("COMMENT"),
+    body = $bindable(""),
     onClose,
     onSubmitted,
   }: {
     pr: PrReviewContext;
     drafts: ReviewDraftComment[];
+    event?: DraftReview["event"];
+    body?: string;
     onClose: () => void;
     onSubmitted: () => void;
   } = $props();
@@ -70,10 +76,15 @@
     },
   ];
 
-  let event = $state<DraftReview["event"]>("COMMENT");
-  let body = $state("");
   let submitting = $state(false);
   let submitError = $state<string | null>(null);
+
+  // Move focus into the modal on open (keyboard-first: Tab must not land on
+  // the surface behind, and the summary is what you came here to write).
+  let bodyEditor: MarkdownEditor | null = $state(null);
+  $effect(() => {
+    bodyEditor?.focus();
+  });
 
   // Markdown input styled like the message composer: transparent field, accent
   // focus ring, forced 400 weight so typed text never reads bold.
@@ -96,6 +107,7 @@
     try {
       await window.solus.prSubmitReview(session.ctx, pr.number, review);
       toasts.success("Review submitted");
+      body = "";
       onSubmitted();
       closeModal();
     } catch (err) {
@@ -111,6 +123,9 @@
     if (e.key === "Escape") {
       e.preventDefault();
       closeModal();
+    } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canSubmit) {
+      e.preventDefault();
+      void submit();
     }
   }
 
@@ -194,6 +209,7 @@
       <div class="flex flex-col gap-2">
         <span class="text-[0.6875rem] font-semibold tracking-wider text-(--solus-text-tertiary) uppercase">Summary</span>
         <MarkdownEditor
+          bind:this={bodyEditor}
           value={body}
           onValueChange={(md) => (body = md)}
           enterInsertsNewline

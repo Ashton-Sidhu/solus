@@ -5,6 +5,7 @@
   import { serializeMermaid } from '../../../shared/diagram-mermaid'
   import type { DiagramDoc } from '../../../shared/diagram-types'
   import PopoverMenu from './PopoverMenu.svelte'
+  import { toasts } from '../../contexts/toast.store.svelte'
 
   interface Props {
     getDoc: () => DiagramDoc
@@ -62,30 +63,66 @@
     a.click()
   }
 
+  // Every action reports its outcome: rendering and the clipboard API can both
+  // reject (permissions, tainted canvas), and silence is indistinguishable from
+  // success for actions whose result lives outside the app.
   async function savePng() {
-    const url = await renderViewport(toPng as never)
-    if (url) triggerDownload(url, 'png')
+    try {
+      const url = await renderViewport(toPng as never)
+      if (!url) {
+        toasts.info('Nothing to export — the diagram is empty')
+        return
+      }
+      triggerDownload(url, 'png')
+    } catch {
+      toasts.error('PNG export failed')
+    }
   }
 
   async function saveSvg() {
-    const url = await renderViewport(toSvg as never, true)
-    if (url) triggerDownload(url, 'svg')
+    try {
+      const url = await renderViewport(toSvg as never, true)
+      if (!url) {
+        toasts.info('Nothing to export — the diagram is empty')
+        return
+      }
+      triggerDownload(url, 'svg')
+    } catch {
+      toasts.error('SVG export failed')
+    }
   }
 
   async function copyImage() {
-    const url = await renderViewport(toPng as never)
-    if (url) {
+    try {
+      const url = await renderViewport(toPng as never)
+      if (!url) {
+        toasts.info('Nothing to copy — the diagram is empty')
+        return
+      }
       const blob = await (await fetch(url)).blob()
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      toasts.success('Image copied')
+    } catch {
+      toasts.error('Copy failed')
     }
   }
 
   async function copyJson() {
-    await navigator.clipboard.writeText(serializeDiagram(getDoc()))
+    try {
+      await navigator.clipboard.writeText(serializeDiagram(getDoc()))
+      toasts.success('JSON copied')
+    } catch {
+      toasts.error('Copy failed')
+    }
   }
 
   async function copyMermaid() {
-    await navigator.clipboard.writeText(serializeMermaid(getDoc()))
+    try {
+      await navigator.clipboard.writeText(serializeMermaid(getDoc()))
+      toasts.success('Mermaid copied')
+    } catch {
+      toasts.error('Copy failed')
+    }
   }
 </script>
 

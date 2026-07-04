@@ -136,6 +136,8 @@ export class WsTransport {
     api.onRunStatus      = (cb: Listener) => this.subscribe('run-status', cb)
     api.onRunLog         = (cb: Listener) => this.subscribe('run-log', cb)
     api.onAutomationsChanged = (cb: Listener) => this.subscribe('automations-changed', cb)
+    api.onMergeQueueUpdate = (cb: Listener) => this.subscribe('merge-queue-update', cb)
+    api.onTasksChanged   = (cb: Listener) => this.subscribe('tasks-changed', cb)
     api.onSeqWatermark   = (cb: Listener) => this.subscribe('seq-watermark', cb)
     api.onResetRuntime   = (cb: () => void) => {
       this.onResetCallback = cb

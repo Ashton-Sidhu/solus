@@ -370,8 +370,8 @@
     cursor: text;
     white-space: nowrap;
     transition:
-      border-color 0.15s ease,
-      background 0.15s ease;
+      border-color var(--duration-base) var(--ease-premium),
+      background var(--duration-base) var(--ease-premium);
   }
 
   /* Fat transparent hit line along the whole movable segment — a wide, forgiving
@@ -394,8 +394,8 @@
     opacity: 0.55;
     pointer-events: none;
     transition:
-      stroke-width 0.12s ease,
-      opacity 0.12s ease;
+      stroke-width var(--duration-quick) var(--ease-premium),
+      opacity var(--duration-quick) var(--ease-premium);
   }
 
   .edge-bend-hit:hover + .edge-bend-guide {
@@ -434,7 +434,7 @@
     background: var(--solus-accent);
     border: 0.09375rem solid var(--solus-container-bg);
     box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.18);
-    transition: box-shadow 0.12s ease;
+    transition: box-shadow var(--duration-quick) var(--ease-premium);
     pointer-events: none;
   }
 

@@ -555,35 +555,14 @@ export function approvalPolicyFor(mode: 'ask' | 'auto' | 'plan'): unknown {
   return 'untrusted'
 }
 
-export function sandboxFor(mode: 'ask' | 'auto' | 'plan'): string {
-  if (mode === 'plan') return 'read-only'
-  if (mode === 'auto') return 'workspace-write'
-  return 'workspace-write'
-}
-
-export function sandboxPolicyFor(mode: 'ask' | 'auto' | 'plan', cwd: string, additionalDirs: string[]): unknown {
+export function sandboxPolicyFor(mode: 'ask' | 'auto' | 'plan'): unknown {
   if (mode === 'plan') {
     return {
       type: 'readOnly',
-      access: { type: 'fullAccess' },
       networkAccess: true,
     }
   }
-  if (mode === 'auto' || mode === 'ask') {
-    return {
-      type: 'workspaceWrite',
-      writableRoots: [cwd, ...(additionalDirs || [])].filter((dir) => dir && dir !== '~'),
-      readOnlyAccess: { type: 'fullAccess' },
-      networkAccess: true,
-      excludeTmpdirEnvVar: false,
-      excludeSlashTmp: false,
-    }
-  }
-  return {
-    type: 'readOnly',
-    access: { type: 'fullAccess' },
-    networkAccess: true,
-  }
+  return { type: 'dangerFullAccess' }
 }
 
 export function planFromCompletedItem(params: any): { id: string; text: string } | null {

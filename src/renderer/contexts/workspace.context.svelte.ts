@@ -10,6 +10,7 @@ import { WorksStore } from './works.store.svelte'
 import { AutomationsStore } from './automations.store.svelte'
 import { TasksStore } from './tasks.store.svelte'
 import { PrsStore } from './prs.store.svelte'
+import { MergeQueueStore } from './merge-queue.store.svelte'
 import { type Task } from '../../shared/task-types'
 import { toasts } from './toast.store.svelte'
 import { PaneViewStore, type SplitOpenOptions } from './pane-view.store.svelte'
@@ -76,6 +77,7 @@ export class WorkspaceContext {
   automationsStore = new AutomationsStore()
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
+  mergeQueueStore = new MergeQueueStore()
   /** Global two-pane view state — not per-tab. */
   artifactViewer = new PaneViewStore()
   ui: WorkspaceUiStore
@@ -113,6 +115,7 @@ export class WorkspaceContext {
       ctx: () => this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
+      refreshGitRefs: (projectRoot, ctx) => { void this.gitStatus.refreshRefs(projectRoot, ctx, { force: true }) },
       fetchGitContext: (tabId, dir) => { void this.fetchGitContext(tabId, dir) },
     })
     this.env = new EnvironmentStore({
@@ -567,6 +570,8 @@ export class WorkspaceContext {
       // it with --fork-session in the worktree cwd (see control-plane dispatch).
       session.gitContext = result.gitContext
       session.worktreeBaseBranch = null
+      const projectRoot = worktreeProjectRoot(result.gitContext.worktreePath ?? session.workingDirectory)
+      void this.gitStatus.refreshRefs(projectRoot, this.ctxForDirectory(projectRoot), { force: true })
       session.forkedFromSessionId = session.agentSessionId
       session.forked = true
       session.messages.push({
@@ -1393,7 +1398,7 @@ export class WorkspaceContext {
     this.artifactViewer.enterPrReviewLoading(number, title)
     try {
       const pr = await window.solus.prOpenReview(this.ctx, number)
-      const tabId = await this.createTab(pr.worktreePath)
+      const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath))
       const session = this.sessionFor(tabId)
       if (session) {
         session.gitContext = { branch: pr.branch, targetBranch: pr.baseRef, worktreePath: pr.worktreePath }

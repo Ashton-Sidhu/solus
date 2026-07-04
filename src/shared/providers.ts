@@ -38,6 +38,8 @@ export interface PullRequestDetail extends PullRequestSummary {
   baseSha: string
   headSha: string
   changedFiles: number
+  /** Host-computed mergeability; null while the host is still computing it. */
+  mergeable: boolean | null
   /** Where the head branch lives; `isFork` true when it differs from the base repo. */
   headRepo: { owner: string; repo: string; isFork: boolean }
 }

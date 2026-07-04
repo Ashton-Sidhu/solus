@@ -333,3 +333,95 @@ describe('isSafeUrl', () => {
     expect(isSafeUrl('not a url at all')).toBe(false)
   })
 })
+
+// parseDiagram runs on both agent-authored tool input and persisted content at
+// load time, so structural problems must be repaired, not thrown: a throw at
+// load blanks the canvas (data loss), while a dangling reference or duplicate
+// id that survives into the renderer errors inside xyflow.
+describe('parseDiagram — reference repair', () => {
+  test('drops edges whose endpoints are not declared nodes', () => {
+    const doc = {
+      nodes: [{ id: 'a', label: 'A' }],
+      edges: [
+        { id: 'ok', source: 'a', target: 'a' },
+        { id: 'dangling-target', source: 'a', target: 'ghost' },
+        { id: 'dangling-source', source: 'ghost', target: 'a' },
+      ],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc))
+    expect(parsed.edges.map((e) => e.id)).toEqual(['ok'])
+  })
+
+  test('drops duplicate node ids, keeping the first occurrence', () => {
+    const doc = {
+      nodes: [
+        { id: 'a', label: 'First' },
+        { id: 'a', label: 'Second' },
+        { id: 'b', label: 'B' },
+      ],
+      edges: [],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc))
+    expect(parsed.nodes).toHaveLength(2)
+    expect(parsed.nodes.find((n) => n.id === 'a')!.label).toBe('First')
+  })
+
+  test('drops duplicate edge ids, keeping the first occurrence', () => {
+    const doc = {
+      nodes: [
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B' },
+      ],
+      edges: [
+        { id: 'e', source: 'a', target: 'b', label: 'first' },
+        { id: 'e', source: 'b', target: 'a', label: 'second' },
+      ],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc))
+    expect(parsed.edges).toHaveLength(1)
+    expect(parsed.edges[0].label).toBe('first')
+  })
+
+  test('detaches a parentId that references a nonexistent node', () => {
+    const doc = {
+      nodes: [{ id: 'child', label: 'Child', parentId: 'no-such-group' }],
+      edges: [],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc))
+    expect(parsed.nodes[0].parentId).toBeUndefined()
+  })
+
+  test('drops nodes without an id and coerces a missing label', () => {
+    const json = JSON.stringify({
+      nodes: [{ label: 'No id' }, { id: 'ok' }],
+      edges: [],
+    })
+    const parsed = parseDiagram(json)
+    expect(parsed.nodes).toHaveLength(1)
+    // A missing label would throw inside layout's `label.length` estimate.
+    expect(parsed.nodes[0].label).toBe('')
+  })
+
+  test('repairs detail sub-diagrams too: dangling edges and cardinality', () => {
+    const doc = {
+      nodes: [
+        {
+          id: 'svc',
+          label: 'Service',
+          detail: {
+            nodes: [{ id: 'inner', label: 'Inner' }],
+            edges: [
+              { id: 'd1', source: 'inner', target: 'missing' },
+              { id: 'd2', source: 'inner', target: 'inner', cardinality: 'bogus' },
+            ],
+          },
+        },
+      ],
+      edges: [],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc as never))
+    const detail = parsed.nodes[0].detail!
+    expect(detail.edges.map((e) => e.id)).toEqual(['d2'])
+    expect(detail.edges[0].cardinality).toBeUndefined()
+  })
+})

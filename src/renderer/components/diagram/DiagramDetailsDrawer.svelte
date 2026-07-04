@@ -12,7 +12,9 @@
     DIAGRAM_BLUE,
     DIAGRAM_PURPLE,
     DIAGRAM_GRAY,
+    diagramAccent,
   } from './diagram-colors'
+  import { getSettingsContext } from '../../contexts/settings.context.svelte'
   import {
     DIAGRAM_NODE_SHAPE_OPTIONS,
     isDecorativeNodeShape,
@@ -49,6 +51,8 @@
   // Groups are pure containers — they carry only a label + icon, so the drawer
   // hides the node-only fields (status/badges/tags/metrics/body/subtitle).
   const isGroup = $derived(!!node.group)
+
+  const theme = getSettingsContext()
 
   const STATUSES: NonNullable<DiagramNode['status']>[] = ['healthy', 'warn', 'error', 'info', 'muted']
 
@@ -172,8 +176,9 @@
   }
 
   function onLabelInput() {
-    const trimmed = label.trim()
-    if (trimmed) commit({ label: trimmed })
+    // Empty commits too — otherwise clearing the field leaves the input blank
+    // while the card silently keeps the old label.
+    commit({ label: label.trim() })
   }
   function onSubtitleInput() {
     commit({ subtitle: subtitle.trim() || undefined })
@@ -333,7 +338,7 @@
           <input
             type="color"
             class="diagram-node-color__custom-input"
-            value={node.color ?? '#d97757'}
+            value={node.color ?? diagramAccent(theme.isDark)}
             oninput={(e) => commit({ color: e.currentTarget.value })}
             aria-label="Custom color"
           />
@@ -693,7 +698,7 @@
     border: 0.0625rem solid color-mix(in srgb, var(--solus-text-primary) 14%, transparent);
     background: var(--swatch);
     cursor: pointer;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    transition: transform var(--duration-quick) var(--ease-premium), box-shadow var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-node-color__swatch:hover {
@@ -767,7 +772,7 @@
     background: transparent;
     color: var(--solus-text-tertiary);
     cursor: pointer;
-    transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+    transition: border-color var(--duration-quick) var(--ease-premium), color var(--duration-quick) var(--ease-premium), background var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-shape__btn:hover {
@@ -848,13 +853,13 @@
     font-size: 0.5625rem;
     cursor: pointer;
     opacity: 0.7;
-    transition: opacity 0.12s ease, background 0.12s ease;
+    transition: opacity var(--duration-quick) var(--ease-premium), background var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-drawer__chip-x:hover {
     opacity: 1;
-    background: color-mix(in srgb, #f87171 18%, transparent);
-    color: #f87171;
+    background: color-mix(in srgb, var(--solus-status-error) 18%, transparent);
+    color: var(--solus-status-error);
   }
 
   .diagram-drawer__metric-edit {
@@ -878,12 +883,12 @@
     background: transparent;
     color: var(--solus-text-tertiary);
     cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease;
+    transition: color var(--duration-quick) var(--ease-premium), border-color var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-drawer__icon-btn:hover {
-    color: #f87171;
-    border-color: color-mix(in srgb, #f87171 40%, transparent);
+    color: var(--solus-status-error);
+    border-color: color-mix(in srgb, var(--solus-status-error) 40%, transparent);
   }
 
   .diagram-drawer__add-row {
@@ -899,7 +904,7 @@
     font-size: 0.6875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: border-color 0.12s ease, color 0.12s ease;
+    transition: border-color var(--duration-quick) var(--ease-premium), color var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-drawer__add-row:hover {

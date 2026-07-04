@@ -43,6 +43,10 @@
     /** Whether the provider models epics/sub-tasks + a settable status (local
      *  only). When false the composer hides those local-only fields. */
     allowEpics?: boolean;
+    /** Whether priority/due date will actually persist on create. A new GitHub
+     *  issue isn't on a Projects board yet, so those fields would be silently
+     *  dropped — hide them rather than eat the input. */
+    canPlan?: boolean;
     /** Known project labels, offered as suggestions in the labels picker. */
     knownLabels?: string[];
     /** Project directory for @-file / #-plan / %-work autocomplete in the body. */
@@ -70,6 +74,7 @@
   let {
     epics,
     allowEpics = false,
+    canPlan = false,
     knownLabels = [],
     workingDirectory,
     provider,
@@ -81,9 +86,10 @@
 
   const session = getWorkspaceContext();
 
-  // Only the plain "new task" composer (no preset parent) restores and persists
-  // a draft.
-  const persistable = untrack(() => !initialParentId);
+  // Only the plain "new task" composer restores and persists a draft — a preset
+  // parent (add-from-epic) or preset status (add-into-column) is its own flow
+  // and must neither resurrect nor overwrite the plain draft.
+  const persistable = untrack(() => !initialParentId && !initialStatus);
   const draft = persistable ? loadDraft() : null;
 
   let title = $state(draft?.title ?? "");
@@ -240,8 +246,9 @@
         body: body.trim(),
         kind: initialParentId ? "task" : kind,
         parentId: parent || undefined,
-        dueDate: dueDate || undefined,
-        priority: priority || undefined,
+        // Planning fields only persist where the provider stores them (local).
+        dueDate: canPlan ? dueDate || undefined : undefined,
+        priority: canPlan ? priority || undefined : undefined,
         // Status is only a real settable field locally; GitHub issues open as open.
         status: allowEpics ? status : undefined,
         labels: labels.length ? [...labels] : undefined,
@@ -303,7 +310,13 @@
         KeyL: "labels",
       };
       const name = map[e.code];
-      if (name && (name !== "status" || allowEpics)) {
+      const nameAllowed =
+        name === "status"
+          ? allowEpics
+          : name === "priority" || name === "due"
+            ? canPlan
+            : !!name;
+      if (name && nameAllowed) {
         e.preventDefault();
         openPicker(name);
       } else if (e.code === "KeyE" && !initialParentId && allowEpics) {
@@ -402,11 +415,22 @@
         title={expanded ? "Collapse (⌥F)" : "Expand (⌥F)"}
         aria-label={expanded ? "Collapse" : "Expand"}
       >
-        {#if expanded}
-          <ArrowsInSimpleIcon size={14} />
-        {:else}
-          <ArrowsOutSimpleIcon size={14} />
-        {/if}
+        <!-- Both icons stay mounted and cross-fade (opacity/scale/blur) instead
+             of swapping via an {#if} — the toggle animates in both directions. -->
+        <span class="grid place-items-center">
+          <ArrowsInSimpleIcon
+            size={14}
+            class="col-start-1 row-start-1 transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {expanded
+              ? 'opacity-100 scale-100 blur-none'
+              : 'opacity-0 scale-[0.25] blur-[4px]'}"
+          />
+          <ArrowsOutSimpleIcon
+            size={14}
+            class="col-start-1 row-start-1 transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {expanded
+              ? 'opacity-0 scale-[0.25] blur-[4px]'
+              : 'opacity-100 scale-100 blur-none'}"
+          />
+        </span>
       </button>
       <button
         type="button"
@@ -519,7 +543,8 @@
         </Dropdown>
       {/if}
 
-      <!-- Priority -->
+      <!-- Priority + due date — only when the provider persists them on create -->
+      {#if canPlan}
       <button
         type="button"
         bind:this={priorityTrigger}
@@ -652,6 +677,7 @@
           {/if}
         </div>
       </Dropdown>
+      {/if}
 
       <!-- Labels -->
       <button
@@ -687,7 +713,7 @@
                   {label}
                   <button
                     type="button"
-                    class="grid size-3 place-items-center rounded-sm border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer hover:text-(--solus-text-primary)"
+                    class="relative grid size-3 place-items-center rounded-sm border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer after:absolute after:-inset-1.5 hover:text-(--solus-text-primary)"
                     onclick={() => removeLabel(label)}
                     aria-label={`Remove ${label}`}
                   >
@@ -846,9 +872,13 @@
             ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
             : 'border-(--solus-container-border)'}"
         >
-          {#if createAnother}
-            <CheckIcon size={9} weight="bold" />
-          {/if}
+          <CheckIcon
+            size={9}
+            weight="bold"
+            class="transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {createAnother
+              ? 'opacity-100 scale-100 blur-none'
+              : 'opacity-0 scale-[0.25] blur-[4px]'}"
+          />
         </span>
         Create more
       </button>
@@ -863,7 +893,7 @@
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-[0.6875rem] font-semibold text-white transition-opacity duration-100 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem] text-[0.6875rem] font-semibold text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canSubmit}
           onclick={submit}
         >

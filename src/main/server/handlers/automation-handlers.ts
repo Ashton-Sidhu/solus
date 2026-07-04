@@ -54,6 +54,7 @@ export function registerAutomationHandlers(server: SolusServer): void {
     const [id] = args as [string]
     const automation = await loadAutomation(id)
     if (!automation) return null
+    if (!automation.enabled) return null
     return triggerAutomationRun(automation)
   })
 
