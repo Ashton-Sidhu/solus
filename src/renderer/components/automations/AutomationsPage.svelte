@@ -77,6 +77,10 @@
   let sortMenuOpen = $state(false);
   let sortTriggerEl = $state<HTMLButtonElement | null>(null);
   let searchEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  let listEl = $state<HTMLDivElement | null>(null);
+  /** Lifts the open-projects scope so automations from other projects show too —
+   *  without it, a closed project's automations look like they vanished. */
+  let showAllProjects = $state(false);
 
   const sortLabel = $derived(
     SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? "",
@@ -89,10 +93,14 @@
   const stateBtnClass =
     "grid size-7 shrink-0 cursor-pointer place-items-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none [@media(pointer:coarse)]:size-11";
 
-  // The visible universe: automations under a currently-open project.
+  // The visible universe: automations under a currently-open project, unless
+  // the user lifted the scope from the "hidden in other projects" affordance.
   const scoped = $derived(
-    store.items.filter((a) => matchesOpenProjects(a.action.cwd, scopeRoots)),
+    showAllProjects
+      ? store.items
+      : store.items.filter((a) => matchesOpenProjects(a.action.cwd, scopeRoots)),
   );
+  const hiddenCount = $derived(store.items.length - scoped.length);
 
   const counts = $derived.by(() => {
     let active = 0;
@@ -113,7 +121,8 @@
         if (!q) return true;
         return (
           a.name.toLowerCase().includes(q) ||
-          folderLabel(a.action.cwd).toLowerCase().includes(q)
+          folderLabel(a.action.cwd).toLowerCase().includes(q) ||
+          a.action.prompt.toLowerCase().includes(q)
         );
       })
       .sort((a, b) => {
@@ -156,6 +165,7 @@
       statusFilter = "all";
       showStarred = false;
       sortMode = "recent";
+      showAllProjects = false;
       // Deep-link: jump straight into one automation's editor when a focus id was
       // set (e.g. from the project panel or a "Sent via automation" badge), then
       // consume it so re-opening the page lands back on the list.
@@ -228,7 +238,29 @@
 
   async function runNow(a: Automation, e: Event) {
     e.stopPropagation();
-    await store.runNow(a.id);
+    try {
+      await store.runNow(a.id);
+    } catch (err: any) {
+      // e.g. a run is already in flight (the scheduler fired between renders).
+      toasts.error(String(err?.message ?? err));
+    }
+  }
+
+  // Keyboard-first list: up/down walk the rows (across section boundaries),
+  // Enter/Space on a focused row already opens it via the row's own handler.
+  function onListKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const rows = Array.from(
+      listEl?.querySelectorAll<HTMLElement>("[data-automation-row]") ?? [],
+    );
+    if (rows.length === 0) return;
+    const idx = rows.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === "ArrowDown"
+        ? rows[idx < 0 ? 0 : Math.min(idx + 1, rows.length - 1)]
+        : rows[idx < 0 ? rows.length - 1 : Math.max(idx - 1, 0)];
+    next.focus();
+    e.preventDefault();
   }
 
   async function cancelRun(a: Automation, e: Event) {
@@ -446,7 +478,10 @@
       </div>
 
       <!-- ── Body: the list ── -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
+        bind:this={listEl}
+        onkeydown={onListKeydown}
         class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-3 [scrollbar-width:thin]"
       >
         {#if !store.loaded && store.loading}
@@ -544,6 +579,7 @@
                       : 'opacity-60'}"
                     role="button"
                     tabindex="0"
+                    data-automation-row
                     onclick={() => startEdit(a)}
                     onkeydown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -700,6 +736,39 @@
               {/each}
             </ul>
           {/each}
+        {/if}
+
+        <!-- Scope affordance: automations live under projects, and the list only
+             shows open ones — say so, instead of letting rows silently vanish
+             when their project closes. -->
+        {#if store.loaded && hiddenCount > 0}
+          <div
+            class="flex items-center justify-center gap-1.5 pt-5 text-[0.6875rem] text-(--solus-text-tertiary)"
+          >
+            <span
+              >{hiddenCount} automation{hiddenCount === 1 ? "" : "s"} in other projects</span
+            >
+            <button
+              type="button"
+              class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-0.5 text-[0.6875rem] font-medium text-(--solus-accent) transition-[background-color] duration-100 hover:bg-(--solus-accent-light) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+              onclick={() => (showAllProjects = true)}
+            >
+              Show all
+            </button>
+          </div>
+        {:else if store.loaded && showAllProjects}
+          <div
+            class="flex items-center justify-center gap-1.5 pt-5 text-[0.6875rem] text-(--solus-text-tertiary)"
+          >
+            <span>Showing all projects</span>
+            <button
+              type="button"
+              class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-0.5 text-[0.6875rem] font-medium text-(--solus-accent) transition-[background-color] duration-100 hover:bg-(--solus-accent-light) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+              onclick={() => (showAllProjects = false)}
+            >
+              Only open projects
+            </button>
+          </div>
         {/if}
       </div>
     {/if}
