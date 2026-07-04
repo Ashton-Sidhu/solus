@@ -169,7 +169,7 @@
   </div>
 {:else}
 <div class="flex h-full overflow-hidden [--settings-header-height:3.25rem]">
-  <nav class="w-[13rem] shrink-0 flex flex-col bg-(--solus-sidebar-bg-left) border-r border-r-(--solus-container-border)/60">
+  <nav class="w-[13rem] shrink-0 flex flex-col bg-[color-mix(in_srgb,var(--solus-container-bg)_90%,color-mix(in_srgb,var(--solus-input-pill-bg)_70%,var(--solus-surface-primary))_10%)] border-r border-r-(--solus-container-border)/60">
     <div class="flex items-center gap-2 h-(--settings-header-height) px-3.5 shrink-0 border-b border-b-(--solus-container-border)/45">
       <GearSixIcon size={15} class="text-(--solus-text-secondary)" />
       <span class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-(--solus-text-primary)">Settings</span>
