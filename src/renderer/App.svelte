@@ -63,6 +63,7 @@
     planStore,
     gitStatusStore,
     runStore,
+    projectConfigStore,
     session,
     sessionSidebarStore,
     agent,
@@ -181,6 +182,22 @@
   // lives on the UI store so the palette, the action orb, and create-from-session
   // can all open it. Saves straight through to the provider.
   const taskComposer = $derived(session.ui.taskComposer);
+  const taskComposerConfig = $derived(
+    taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
+  );
+  const taskComposerProvider = $derived(taskComposerConfig?.taskProvider ?? "local");
+  const taskComposerTasks = $derived(
+    taskComposer && session.tasksStore.cwd === taskComposer.cwd ? session.tasksStore.tasks : [],
+  );
+  const taskComposerEpics = $derived(taskComposerTasks.filter((t) => t.kind === "epic"));
+  const taskComposerLabels = $derived(
+    Array.from(new Set(taskComposerTasks.flatMap((t) => t.labels))).sort(),
+  );
+
+  $effect(() => {
+    if (!taskComposer) return;
+    void projectConfigStore.load(taskComposer.cwd);
+  });
 
   const isExpanded = $derived(session.isExpanded);
   const viewMode = $derived(windowCtx.viewMode);
@@ -1155,15 +1172,20 @@
   commands={commandPaletteOpen ? paletteCommands : []}
 />
 
-{#if taskComposer}
+{#if taskComposer && taskComposerConfig !== undefined}
   <TaskComposer
-    epics={[]}
-    allowEpics={false}
+    epics={taskComposerEpics}
+    allowEpics={taskComposerProvider === "local"}
+    canPlan={taskComposerProvider === "local"}
+    knownLabels={taskComposerLabels}
+    workingDirectory={taskComposer.cwd}
+    provider={settings.activeAgent}
     onCreate={async (input) => {
       const cwd = taskComposer?.cwd;
       if (!cwd) return;
       try {
-        await window.solus.tasksCreate(cwd, input);
+        if (session.tasksStore.cwd === cwd) await session.tasksStore.create(cwd, input);
+        else await window.solus.tasksCreate(cwd, input);
         toasts.success("Task created");
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

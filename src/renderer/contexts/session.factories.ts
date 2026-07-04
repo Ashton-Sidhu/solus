@@ -32,6 +32,7 @@ export function makeSession(settings: SettingsContext, overrides?: Partial<Sessi
     sessionVersion: null,
     pluginCommands: { global: [], project: [] },
     progress: null,
+    statusCard: null,
     changedFiles: [],
     gitContext: null,
     workingDirectory: '~',

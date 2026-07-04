@@ -14,6 +14,43 @@ export const WorkRefExtension = Node.create({
   atom: true,
   selectable: true,
   draggable: false,
+  // A dedicated tokenizer (not markdownTokenName: 'link') because inline
+  // parsing dispatches each token type to a single handler — claiming `link`
+  // here would swallow every other link in the document. Marked tries
+  // extension tokenizers before its built-in link rule, so work:// links
+  // become workReference tokens and everything else stays a normal link.
+  markdownTokenizer: {
+    name: 'workReference',
+    level: 'inline',
+    start: (src: string) =>
+      /\[(?:\\.|[^\]\\\n])*\]\(work:\/\//.exec(src)?.index ?? -1,
+    tokenize(src: string) {
+      const m = /^\[((?:\\.|[^\]\\\n])*)\]\((work:\/\/[^)\s]*)\)/.exec(src)
+      if (!m) return undefined
+      return { type: 'workReference', raw: m[0], text: m[1], href: m[2] }
+    },
+  },
+
+  parseMarkdown(token) {
+    const url = new URL(token.href as string)
+    return {
+      type: 'workReference',
+      attrs: {
+        workId: url.searchParams.get('workId'),
+        type: url.searchParams.get('type') || 'doc',
+        title: (token.text || '').replace(/\\([\[\]])/g, '$1'),
+      },
+    }
+  },
+
+  renderMarkdown(node) {
+    const params = new URLSearchParams({
+      workId: node.attrs?.workId,
+      type: node.attrs?.type,
+    })
+    const safeTitle = (node.attrs?.title ?? '').replace(/[\[\]]/g, '\\$&')
+    return `[${safeTitle}](work://ref?${params})`
+  },
 
   addAttributes() {
     return {
@@ -51,19 +88,4 @@ export const WorkRefExtension = Node.create({
     ]
   },
 
-  addStorage() {
-    return {
-      markdown: {
-        serialize(state: any, node: any) {
-          const params = new URLSearchParams({
-            workId: node.attrs.workId,
-            type: node.attrs.type,
-          })
-          const safeTitle = node.attrs.title.replace(/[\[\]]/g, '\\$&')
-          state.write(`[${safeTitle}](work://ref?${params})`)
-        },
-        parse: {},
-      },
-    }
-  },
 })

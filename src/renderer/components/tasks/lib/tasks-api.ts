@@ -148,14 +148,6 @@ export function relativeTime(iso: string | number, now = Date.now()): string {
   return `${Math.round(months / 12)}y ago`
 }
 
-/** Compact "Jun 25" calendar label for the board card footer. Falls back to the
- *  raw string if it won't parse so the footer never renders garbage. */
-export function shortDate(iso: string | number): string {
-  const then = typeof iso === 'number' ? iso : Date.parse(iso)
-  if (Number.isNaN(then)) return String(iso)
-  return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
 /** The kanban columns, in board order. Status is the drop target / drag result. */
 export const BOARD_COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'open', label: 'Open' },

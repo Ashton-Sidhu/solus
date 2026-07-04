@@ -7,14 +7,19 @@ import { writeJson } from '../project-config/json-file'
 import { loadProjectConfig, resolveProjectKey } from '../project-config/project-config'
 import { LocalTaskProvider } from './providers/local'
 import { GitHubTaskProvider, makeGitHubTaskProvider, type GitHubTaskRaw } from './providers/github'
+import { resolveRepoRef } from '../git/git-helpers'
+import { GitHubAuth } from '../providers/github/auth'
 import { GitHubReauthRequiredError } from '../providers/github/octokit'
 import { getExistingPR } from '../git/worktree-manager'
+import type { RepoRef } from '../../shared/providers'
 import {
   TASKS_AUTH_ERROR_PREFIX,
   type Task,
   type TaskCommentData,
   type TaskListResult,
   type TaskProvider,
+  type TaskProviderRepoRef,
+  type TaskProviderStatus,
   taskPrFromUrl,
 } from '../../shared/task-types'
 
@@ -56,11 +61,19 @@ function cachePath(projectKey: string): string {
   return join(CACHE_ROOT, `${projectKey}.json`)
 }
 
+function configuredRepo(
+  config: Awaited<ReturnType<typeof loadProjectConfig>>,
+): RepoRef | undefined {
+  const owner = config?.taskProviderConfig?.owner?.trim()
+  const repo = config?.taskProviderConfig?.repo?.trim()
+  return owner && repo ? { host: 'github.com', owner, repo } : undefined
+}
+
 /**
  * Resolve the single task provider a project uses. `taskProvider: 'github'` binds
- * the GitHub provider (repo auto-detected from the origin remote); everything
- * else — including an unset provider — falls back to the local store, which is
- * always available and never needs auth.
+ * the GitHub provider (explicit owner/repo when configured, otherwise the
+ * origin remote). An explicit remote provider failure is surfaced to the UI
+ * rather than silently becoming local tasks; unset/local remains local.
  */
 export async function resolveProvider(cwd: string): Promise<TaskProvider> {
   const config = await loadProjectConfig(cwd)
@@ -69,19 +82,122 @@ export async function resolveProvider(cwd: string): Promise<TaskProvider> {
       const projectKey = resolveProjectKey(cwd)
       const cached = githubProviderCache.get(projectKey)
       if (cached) return await cached
-      const pending = makeGitHubTaskProvider(cwd).catch((err) => {
+      const pending = makeGitHubTaskProvider(cwd, configuredRepo(config)).catch((err) => {
         githubProviderCache.delete(projectKey)
         throw err
       })
       githubProviderCache.set(projectKey, pending)
       return await pending
     } catch (err) {
-      // A misconfigured/undetectable remote shouldn't strand the user with no
-      // tasks UI — degrade to local rather than throwing up the stack.
-      log.warn(`GitHub provider unavailable, falling back to local: ${String(err)}`)
+      log.warn(`GitHub provider unavailable for configured task provider: ${String(err)}`)
+      throw classifyProviderError(err)
     }
   }
+  if (config?.taskProvider && config.taskProvider !== 'local') {
+    throw new Error(`Task provider ${config.taskProvider} is not supported yet.`)
+  }
   return new LocalTaskProvider(resolveProjectKey(cwd))
+}
+
+export async function taskProviderStatus(
+  cwd: string,
+  opts: { checkAccess?: boolean } = {},
+): Promise<TaskProviderStatus> {
+  const config = await loadProjectConfig(cwd)
+  const provider = config?.taskProvider ?? 'local'
+  if (provider === 'local') {
+    return {
+      provider,
+      ok: true,
+      reason: 'ok',
+      message: 'Using Solus local tasks for this project.',
+    }
+  }
+  if (provider !== 'github') {
+    return {
+      provider,
+      ok: false,
+      reason: 'unsupported_provider',
+      message: `${provider} task integration is not available yet.`,
+    }
+  }
+
+  const explicitRepo = configuredRepo(config)
+  const detected = await resolveRepoRef(cwd)
+  const repo = explicitRepo
+    ? { ...explicitRepo, source: 'config' as const }
+    : detected
+      ? { owner: detected.owner, repo: detected.repo, source: 'origin' as const }
+      : undefined
+  const auth = await new GitHubAuth().status()
+  const hasProjectScope = auth.connected ? auth.scopes?.includes('project') === true : undefined
+
+  if (!repo) {
+    return {
+      provider,
+      ok: false,
+      reason: 'missing_github_repo',
+      message: 'GitHub tasks need a repository. Set owner/repo here or add a GitHub origin remote.',
+      auth: { connected: auth.connected, login: auth.login, hasProjectScope },
+    }
+  }
+  if (!auth.connected) {
+    return {
+      provider,
+      ok: false,
+      reason: 'github_not_connected',
+      message: `Connect GitHub to read issues from ${repo.owner}/${repo.repo}.`,
+      repo,
+      detectedRepo: detected ? { owner: detected.owner, repo: detected.repo } : undefined,
+      auth: { connected: false },
+    }
+  }
+
+  let liveCheck: TaskProviderStatus['liveCheck'] | undefined
+  let accessWarning: string | undefined
+  if (opts.checkAccess) {
+    try {
+      const list = await (await makeGitHubTaskProvider(cwd, explicitRepo)).listTasks()
+      liveCheck = {
+        checkedAt: Date.now(),
+        issueCount: list.tasks.length,
+        truncated: list.truncated,
+        planningFieldsDetected: list.tasks.some((task) => task.canEditPlanningFields === true),
+      }
+      if (!hasProjectScope) {
+        accessWarning = 'Reconnect GitHub to enable Projects fields like status, priority, and due date.'
+      } else if (list.tasks.length > 0 && !liveCheck.planningFieldsDetected) {
+        accessWarning = 'Issues are reachable, but no Projects fields were detected on the sampled issues.'
+      }
+    } catch (err) {
+      const classified = classifyProviderError(err)
+      const message = classified instanceof Error ? classified.message : String(classified)
+      const display = message.replace(TASKS_AUTH_ERROR_PREFIX, '')
+      return {
+        provider,
+        ok: false,
+        reason: message.includes(TASKS_AUTH_ERROR_PREFIX) ? 'github_not_connected' : 'github_access_failed',
+        message: display,
+        repo,
+        detectedRepo: detected ? { owner: detected.owner, repo: detected.repo } : undefined,
+        auth: { connected: true, login: auth.login, hasProjectScope },
+      }
+    }
+  }
+
+  return {
+    provider,
+    ok: true,
+    reason: 'ok',
+    message: `GitHub issues are linked to ${repo.owner}/${repo.repo}.`,
+    repo,
+    detectedRepo: detected ? { owner: detected.owner, repo: detected.repo } : undefined,
+    auth: { connected: true, login: auth.login, hasProjectScope },
+    liveCheck,
+    warning: accessWarning ?? (hasProjectScope
+      ? undefined
+      : 'Reconnect GitHub to enable Projects fields like status, priority, and due date.'),
+  }
 }
 
 /** Invalidate a project's cached provider binding — called when its config is

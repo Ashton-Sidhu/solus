@@ -178,6 +178,7 @@ export const RPC_INVOKE_METHODS = [
   'writeReviewState',
 
   // Tasks (provider-backed tickets: list/get/CRUD behind one interface)
+  'tasksProviderStatus',
   'tasksList',
   'tasksGet',
   'tasksCreate',

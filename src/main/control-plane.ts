@@ -31,6 +31,8 @@ import type {
   SessionRunInput,
   ReasoningEffort,
   RuntimeSessionInfo,
+  StatusCardState,
+  StatusCardStep,
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../shared/types'
@@ -1002,30 +1004,52 @@ export class ControlPlane extends EventEmitter {
     }
 
     const worktreeBaseBranch = input.worktreeBaseBranch
-    if (worktreeBaseBranch) {
-      if (!effectiveGitCtx?.worktreePath && resolvedProjectPath) {
-        try {
-          const branchModel = input.provider === 'codex'
-            ? 'gpt-5.4-mini'
-            : 'claude-haiku-4-5-20251001'
-          const gitContext: TabGitContext = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
-            generateName: (prompt) => textGenerator.generate({
-              provider: input.provider,
-              cwd: resolvedProjectPath,
-              prompt: buildBranchNamePrompt(prompt),
-              model: branchModel,
-              reasoningEffort: 'none',
-              maxTurns: 1,
-              timeoutMs: 30_000,
-            }),
-          })
-          if (existingSession) existingSession.gitContext = gitContext
-          effectiveGitCtx = gitContext
-          log.info(`Worktree created for tab ${tabId}: ${gitContext.branch} at ${gitContext.worktreePath}`)
-          this._broadcastToSession('event', tabId, { type: 'git_context', gitContext })
-        } catch (e) {
-          log.error(`Worktree creation failed for tab ${tabId}: ${e}`)
-        }
+    // Inline status card mirroring the pre-run worktree setup. The renderer
+    // clears it once the session leaves 'connecting'; a failed card is kept so
+    // the (otherwise swallowed) error stays visible.
+    let worktreeCardActive = false
+    const buildWorktreeCard = (activeIndex: number, errored = false): StatusCardState => ({
+      id: `worktree-${tabId}`,
+      title: errored ? 'Worktree setup failed' : 'Preparing worktree…',
+      icon: 'git-branch',
+      status: errored ? 'error' : 'active',
+      steps: ([
+        { id: 'worktree', label: 'Creating branch & worktree' },
+        { id: 'workspace', label: 'Linking workspace' },
+        { id: 'session', label: 'Starting agent session' },
+      ]).map((s, i): StatusCardStep => ({
+        id: s.id,
+        label: s.label,
+        status: i < activeIndex ? 'done' : i === activeIndex ? (errored ? 'error' : 'active') : 'pending',
+      })),
+    })
+    if (worktreeBaseBranch && !effectiveGitCtx?.worktreePath && resolvedProjectPath) {
+      worktreeCardActive = true
+      this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(0) })
+      try {
+        const branchModel = input.provider === 'codex'
+          ? 'gpt-5.4-mini'
+          : 'claude-haiku-4-5-20251001'
+        const gitContext: TabGitContext = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
+          generateName: (prompt) => textGenerator.generate({
+            provider: input.provider,
+            cwd: resolvedProjectPath,
+            prompt: buildBranchNamePrompt(prompt),
+            model: branchModel,
+            reasoningEffort: 'none',
+            maxTurns: 1,
+            timeoutMs: 30_000,
+          }),
+        })
+        if (existingSession) existingSession.gitContext = gitContext
+        effectiveGitCtx = gitContext
+        log.info(`Worktree created for tab ${tabId}: ${gitContext.branch} at ${gitContext.worktreePath}`)
+        this._broadcastToSession('event', tabId, { type: 'git_context', gitContext })
+        // Worktree done → advance to "Linking thread workspace".
+        this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(1) })
+      } catch (e) {
+        log.error(`Worktree creation failed for tab ${tabId}: ${e}`)
+        this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(0, true) })
       }
     }
 
@@ -1040,6 +1064,12 @@ export class ControlPlane extends EventEmitter {
     // (worktree root when present, else the project) so its first open hits a
     // ready index instead of paying for the initial filesystem scan.
     if (effectiveCwd && effectiveCwd !== '~') warmFinder(effectiveCwd)
+
+    // Workspace linked (git watcher + file index warmed) → advance to the final
+    // "Starting session" step; the reducer clears the card once the run begins.
+    if (worktreeCardActive) {
+      this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(2) })
+    }
 
     const effectiveAdditionalDirs = useWorktree && resolvedProjectPath
       ? [...new Set([...(input.additionalDirs || []), resolvedProjectPath])]

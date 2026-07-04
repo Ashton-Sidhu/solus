@@ -1,5 +1,5 @@
 import type { Task } from '../../../shared/task-types'
-import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment, setTasksChangedNotifier } from '../../tasks/task-service'
+import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment, setTasksChangedNotifier, taskProviderStatus } from '../../tasks/task-service'
 import { linkTaskSession, taskSessions } from '../../tasks/task-links'
 import type { SolusServer } from '../server'
 
@@ -10,6 +10,11 @@ export function registerTasksHandlers(server: SolusServer): void {
   // Every task mutation (renderer, agent tool, or session write-back) funnels
   // through task-service; fan it out so open task views can refresh live.
   setTasksChangedNotifier((cwd) => server.broadcast('tasks-changed', cwd))
+
+  server.register('tasksProviderStatus', (args) => {
+    const [cwd, opts] = args as [string, { checkAccess?: boolean } | undefined]
+    return taskProviderStatus(cwd, opts ?? {})
+  })
 
   server.register('tasksList', (args) => {
     const [cwd, opts] = args as [string, { assignedToMe?: boolean } | undefined]

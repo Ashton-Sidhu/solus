@@ -121,7 +121,19 @@
   }
 
   function persistDrafts(): Promise<boolean> {
-    const state: ReviewState = { version: 1, key: guideKey, drafts: [...drafts] };
+    const state: ReviewState = {
+      version: 1,
+      key: guideKey,
+      drafts: drafts.map((draft) => ({
+        id: draft.id,
+        path: draft.path,
+        startLine: draft.startLine,
+        line: draft.line,
+        side: draft.side,
+        body: draft.body,
+        createdAt: draft.createdAt,
+      })),
+    };
     return window.solus.writeReviewState(session.ctx, state);
   }
 

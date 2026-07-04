@@ -2,7 +2,9 @@ import type {
   IpcContext,
   MergeMethod,
   MergeOrderMode,
+  MergeQueueEntry,
   MergeQueueStartItem,
+  MergeQueueStartOptions,
   MergeQueueState,
 } from '../../shared/types'
 
@@ -28,10 +30,24 @@ export class MergeQueueStore {
     return this.queued.includes(number)
   }
 
+  /** This PR's entry in the current (or last finished) run, if any. */
+  entryFor(number: number): MergeQueueEntry | null {
+    return this.state?.entries.find((e) => e.number === number) ?? null
+  }
+
   toggle(number: number): void {
     const idx = this.queued.indexOf(number)
     if (idx >= 0) this.queued.splice(idx, 1)
     else this.queued.push(number)
+  }
+
+  /** Move a staged PR by `offset` places (−1 up, +1 down) for manual ordering. */
+  move(number: number, offset: number): void {
+    const idx = this.queued.indexOf(number)
+    const next = idx + offset
+    if (idx < 0 || next < 0 || next >= this.queued.length) return
+    this.queued.splice(idx, 1)
+    this.queued.splice(next, 0, number)
   }
 
   apply(state: MergeQueueState): void {
@@ -45,14 +61,27 @@ export class MergeQueueStore {
   }
 
   async start(ctx: IpcContext, items: MergeQueueStartItem[], order: MergeOrderMode, method: MergeMethod): Promise<void> {
-    if (this.starting || this.active) return
+    if (await this.begin(ctx, items, { order, method })) this.queued.length = 0
+  }
+
+  /** Merge one PR right away — a run of one — without touching the rest of the
+   *  staged selection (only the merged PR leaves it). */
+  async startSingle(ctx: IpcContext, item: MergeQueueStartItem, method: MergeMethod): Promise<void> {
+    if (await this.begin(ctx, [item], { order: 'manual', method })) {
+      const idx = this.queued.indexOf(item.number)
+      if (idx >= 0) this.queued.splice(idx, 1)
+    }
+  }
+
+  private async begin(ctx: IpcContext, items: MergeQueueStartItem[], options: MergeQueueStartOptions): Promise<boolean> {
+    if (this.starting || this.active) return false
     this.starting = true
     this.error = null
     try {
       const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
-      const result = await window.solus.mergeQueueStart(safeCtx, items, { order, method })
-      if (result.success) this.queued.length = 0
-      else this.error = result.error ?? 'Could not start the merge queue'
+      const result = await window.solus.mergeQueueStart(safeCtx, items, options)
+      if (!result.success) this.error = result.error ?? 'Could not start the merge queue'
+      return result.success
     } finally {
       this.starting = false
     }
