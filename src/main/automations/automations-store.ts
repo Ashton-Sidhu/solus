@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { readFile, rm, } from 'node:fs/promises'
+import { mkdir, readFile, rm, } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createLogger } from '../logger'
 import { nextRunFrom, validateTrigger } from './automation-schedule'
@@ -11,6 +11,7 @@ import type {
   AutomationAction,
   AutomationCreator,
   AutomationRun,
+  AutomationsChangedEvent,
   AutomationsManifest,
   AutomationTrigger,
 } from '../../shared/types'
@@ -25,11 +26,37 @@ const ROOT = join(homedir(), '.solus', 'automations')
 const MANIFEST_FILE = 'automations-manifest.json'
 /** Cap retained runs per automation so the run log can't grow unbounded. */
 const MAX_RUNS_PER_AUTOMATION = 50
+/** Cap the stored output of a single run. The full transcript lives in the
+ *  spawned session anyway; together with the run cap this bounds each sidecar. */
+const MAX_RUN_OUTPUT_CHARS = 20_000
 const MANIFEST_PATH = join(ROOT, MANIFEST_FILE)
 const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
 function runsPath(id: string): string {
   return join(ROOT, `${id}.runs.json`)
+}
+
+// Nothing else creates ~/.solus/automations (the app only mkdirs ~/.solus), so
+// every write path funnels through this memoized mkdir before touching disk.
+let rootReady: Promise<unknown> | null = null
+function ensureRoot(): Promise<unknown> {
+  return (rootReady ??= mkdir(ROOT, { recursive: true }))
+}
+
+// Every mutation is announced so the server can broadcast it to all clients —
+// scheduled fires happen with no renderer in the loop, so push is the only way
+// the UI learns a run started/finished without reopening the page.
+type AutomationsChangedListener = (event: AutomationsChangedEvent) => void
+let changedListener: AutomationsChangedListener | null = null
+export function setAutomationsChangedListener(listener: AutomationsChangedListener): void {
+  changedListener = listener
+}
+function emitChanged(event: AutomationsChangedEvent): void {
+  try {
+    changedListener?.(event)
+  } catch (err: any) {
+    log.error(`automations-changed listener failed: ${String(err)}`)
+  }
 }
 
 // The manifest is read from disk once and then kept in memory as the single
@@ -68,7 +95,10 @@ async function loadManifest(): Promise<AutomationsManifest> {
 // reintroduce a lost-update race.
 let writeChain: Promise<void> = Promise.resolve()
 function persist(): Promise<void> {
-  const write = () => writeJson(MANIFEST_PATH, manifest)
+  const write = async () => {
+    await ensureRoot()
+    await writeJson(MANIFEST_PATH, manifest)
+  }
   const next = writeChain.then(write, write)
   writeChain = next.catch(() => {})
   return next
@@ -114,6 +144,7 @@ export async function createAutomation(
   const m = await getManifest()
   m.automations[automation.id] = automation
   await persist()
+  emitChanged({ kind: 'saved', automation })
   return automation
 }
 
@@ -141,20 +172,24 @@ export async function updateAutomation(
   const nextTrigger = patch.trigger ?? existing.trigger
   assertValidAction(nextAction)
   assertValidTrigger(nextTrigger)
+  const enabledChanged = patch.enabled !== undefined && patch.enabled !== existing.enabled
   if (patch.name !== undefined) existing.name = patch.name
   if (patch.enabled !== undefined) existing.enabled = patch.enabled
   if (patch.favorite !== undefined) existing.favorite = patch.favorite
   if (patch.action) existing.action = nextAction
   if (patch.trigger !== undefined) existing.trigger = nextTrigger
 
-  // Re-arm the schedule whenever the trigger or enabled state changes. A paused
-  // automation carries no pending fire; a (re)enabled one schedules afresh from
-  // now so resuming never replays a fire that elapsed while it was paused.
-  if (patch.trigger !== undefined || patch.enabled !== undefined) {
+  // Re-arm the schedule whenever the trigger or enabled state actually changes.
+  // A paused automation carries no pending fire; a re-enabled one schedules
+  // afresh from now so resuming never replays a fire that elapsed while it was
+  // paused. A no-op `enabled: true` patch must NOT re-arm — that would push out
+  // a pending fire.
+  if (patch.trigger !== undefined || enabledChanged) {
     existing.nextRunAt = existing.enabled ? nextRunFrom(existing.trigger, new Date()) : undefined
   }
   existing.updatedAt = new Date().toISOString()
   await persist()
+  emitChanged({ kind: 'saved', automation: existing })
   return existing
 }
 
@@ -165,6 +200,7 @@ export async function deleteAutomation(id: string): Promise<boolean> {
   await persist()
   const runs = runsPath(id)
   if (existsSync(runs)) await rm(runs).catch(() => {})
+  emitChanged({ kind: 'deleted', automationId: id })
   return true
 }
 
@@ -175,12 +211,25 @@ export async function deleteAutomation(id: string): Promise<boolean> {
  * their schedules in a single manifest write before the caller fires any runs.
  * A one-time automation is consumed (disabled, no next fire); recurring ones
  * schedule their next occurrence from `now`.
+ *
+ * `isRunning` lets the scheduler skip automations with a run still in flight:
+ * a skipped automation keeps its past-due `nextRunAt`, so it's re-claimed on
+ * the first tick after the run finishes rather than stacking overlapping runs
+ * (two unattended agents mutating the same cwd).
  */
-export async function claimDueAutomations(now = new Date()): Promise<Automation[]> {
+export async function claimDueAutomations(
+  now = new Date(),
+  isRunning?: (automationId: string) => boolean,
+): Promise<Automation[]> {
   const m = await getManifest()
   const nowIso = now.toISOString()
   const due = Object.values(m.automations).filter(
-    (a) => a.enabled && a.trigger.type !== 'manual' && !!a.nextRunAt && a.nextRunAt <= nowIso,
+    (a) =>
+      a.enabled &&
+      a.trigger.type !== 'manual' &&
+      !!a.nextRunAt &&
+      a.nextRunAt <= nowIso &&
+      !isRunning?.(a.id),
   )
   if (due.length === 0) return []
 
@@ -194,6 +243,7 @@ export async function claimDueAutomations(now = new Date()): Promise<Automation[
     a.updatedAt = nowIso
   }
   await persist()
+  for (const a of due) emitChanged({ kind: 'saved', automation: a })
   return due
 }
 
@@ -212,6 +262,25 @@ async function readRuns(id: string): Promise<AutomationRun[]> {
   }
 }
 
+// Runs files get the same lost-update protection as the manifest, per file:
+// each read-modify-write waits for the previous one on that automation to land.
+// Without this, a run finishing while another starts (or two finishing close
+// together) would clobber each other's stamps. Different automations never
+// contend — each owns its own sidecar and its own chain.
+const runsChains = new Map<string, Promise<unknown>>()
+function mutateRuns<T>(id: string, mutate: (runs: AutomationRun[]) => T): Promise<T> {
+  const op = async () => {
+    const runs = await readRuns(id)
+    const result = mutate(runs)
+    await ensureRoot()
+    await writeJson(runsPath(id), runs.slice(-MAX_RUNS_PER_AUTOMATION))
+    return result
+  }
+  const next = (runsChains.get(id) ?? Promise.resolve()).then(op, op)
+  runsChains.set(id, next.catch(() => {}))
+  return next
+}
+
 /** Public accessor: newest first for the UI. */
 export async function listRuns(id: string): Promise<AutomationRun[]> {
   return (await readRuns(id)).reverse()
@@ -225,12 +294,7 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
     startedAt: new Date().toISOString(),
     status: 'running',
   }
-  // Each automation owns its own runs file, so concurrent fires of *different*
-  // automations never touch the same one.
-  const runs = await readRuns(automationId)
-  runs.push(run)
-  // Newest last; trim oldest beyond the cap.
-  await writeJson(runsPath(automationId), runs.slice(-MAX_RUNS_PER_AUTOMATION))
+  await mutateRuns(automationId, (runs) => runs.push(run))
 
   // Stamp the run onto the automation. Note we do NOT bump `updatedAt` here —
   // running is not an edit, so a fired automation (incl. background scheduler
@@ -242,6 +306,7 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
     a.lastRunStatus = 'running'
     a.lastRunAt = run.startedAt
     await persist()
+    emitChanged({ kind: 'run-started', automation: a, run })
   }
   return run
 }
@@ -250,20 +315,24 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
 export async function finishRun(
   automationId: string,
   runId: string,
-  outcome: Pick<AutomationRun, 'status' | 'output' | 'agentSessionId' | 'error'>,
+  outcome: Pick<AutomationRun, 'status' | 'output' | 'agentSessionId' | 'error' | 'branch'>,
 ): Promise<void> {
-  const runs = await readRuns(automationId)
-  const run = runs.find((r) => r.id === runId)
-  if (run) {
-    Object.assign(run, outcome, { finishedAt: new Date().toISOString() })
-    await writeJson(runsPath(automationId), runs)
+  if (outcome.output && outcome.output.length > MAX_RUN_OUTPUT_CHARS) {
+    outcome = { ...outcome, output: `${outcome.output.slice(0, MAX_RUN_OUTPUT_CHARS)}\n… [output truncated]` }
   }
+  const finished = await mutateRuns(automationId, (runs): AutomationRun | null => {
+    const run = runs.find((r) => r.id === runId)
+    if (!run) return null
+    Object.assign(run, outcome, { finishedAt: new Date().toISOString() })
+    return run
+  })
   const m = await getManifest()
   const a = m.automations[automationId]
   if (a && a.lastRunId === runId) {
     a.lastRunStatus = outcome.status
     await persist()
   }
+  if (a && finished) emitChanged({ kind: 'run-finished', automation: a, run: finished })
 }
 
 export async function loadRun(automationId: string, runId: string): Promise<AutomationRun | null> {

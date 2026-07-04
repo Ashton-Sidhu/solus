@@ -19,6 +19,7 @@ import { registerReviewHandlers } from './handlers/review-handlers'
 import { registerAutomationHandlers } from './handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from '../automations/automation-scheduler'
 import { setAutomationSessionDispatcher } from '../automations/automation-runner'
+import { setAutomationsChangedListener } from '../automations/automations-store'
 import { setSessionCreator } from '../sessions/session-tools'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerGoogleHandlers } from './handlers/google-handlers'
@@ -148,6 +149,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Let session-bound automations run their prompt inside the chat thread they
   // were created in (full conversation context), routed through the control plane.
   setAutomationSessionDispatcher((o) => opts.controlPlane.dispatchAutomationRun(o))
+  // Push every automation mutation (saves, deletes, run transitions — incl.
+  // background scheduler fires) to all connected clients so the UI stays live.
+  setAutomationsChangedListener((event) => server.broadcast('automations-changed', event))
   // Let the create_session tool spawn fresh background sessions via the control plane.
   setSessionCreator((req) => opts.controlPlane.createSession(req))
   // Local, in-process automation scheduler. Fires time-based triggers while the
