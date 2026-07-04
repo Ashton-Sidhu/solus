@@ -1,3 +1,4 @@
+import { Cron } from 'croner'
 import type { AutomationTrigger, AutomationRunStatus } from '../../../../shared/types'
 
 // Pure formatting + trigger <-> builder-preset mapping for the Automations UI.
@@ -18,14 +19,6 @@ export const WEEKDAYS: { value: number; label: string; short: string }[] = [
   { value: 6, label: 'Saturday', short: 'Sat' },
   { value: 0, label: 'Sunday', short: 'Sun' },
 ]
-
-export function systemTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -138,15 +131,42 @@ export function triggerSummary(trigger: AutomationTrigger): string {
   }
 }
 
+/** The next `count` fire instants of a draft trigger, for the builder's schedule
+ *  preview. Returns null for an invalid cron expression (doubling as instant
+ *  client-side validation), and [] for triggers with nothing to preview
+ *  (manual, or a one-time instant that already passed). */
+export function nextOccurrences(trigger: AutomationTrigger, count: number, from = new Date()): Date[] | null {
+  switch (trigger.type) {
+    case 'manual':
+      return []
+    case 'once': {
+      const at = Date.parse(trigger.runAt)
+      return Number.isFinite(at) && at > from.getTime() ? [new Date(at)] : []
+    }
+    case 'interval': {
+      const ms = Math.max(1, Math.floor(trigger.everyMinutes)) * 60_000
+      return Array.from({ length: count }, (_, i) => new Date(from.getTime() + (i + 1) * ms))
+    }
+    case 'cron': {
+      try {
+        return new Cron(trigger.expr).nextRuns(count, from)
+      } catch {
+        return null
+      }
+    }
+  }
+}
+
 /** Absolute, human-friendly instant for the detail view's Status block, e.g.
  *  "Today at 10:28 PM", "Tomorrow at 9:00 AM", "Friday at 2:27 AM", "Mar 4 at …".
- *  Used where relativeTime reads too vaguely (next/last run timestamps). */
-export function absoluteTime(iso: string | undefined): string {
+ *  Used where relativeTime reads too vaguely (next/last run timestamps).
+ *  `nowMs` is injectable so callers on a ticker re-derive as time passes. */
+export function absoluteTime(iso: string | undefined, nowMs = Date.now()): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const now = new Date()
+  const now = new Date(nowMs)
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const dayDiff = Math.round((startOfDay - startOfToday) / 86_400_000)
@@ -230,4 +250,6 @@ export const RUN_STATUS_META: Record<
   succeeded: { label: 'Succeeded', tone: 'success' },
   failed: { label: 'Failed', tone: 'error' },
   cancelled: { label: 'Cancelled', tone: 'cancelled' },
+  // In-session runs: handed to the chat thread, which owns the real outcome.
+  dispatched: { label: 'Sent to chat', tone: 'success' },
 }

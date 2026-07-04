@@ -298,6 +298,20 @@
     const unsubRunLog = window.solus.onRunLog((batch) =>
       runStore.applyLog(batch),
     );
+    // Live automation state: scheduler fires, run transitions, and agent-tool
+    // saves all land here. Failures get a toast — an unattended run breaking
+    // is otherwise invisible until the user happens to open the page.
+    const unsubAutomations = window.solus.onAutomationsChanged((event) => {
+      session.automationsStore.applyChange(event);
+      if (event.kind === "run-finished" && event.run.status === "failed") {
+        toasts.error(`Automation "${event.automation.name}" failed`, {
+          action: {
+            label: "View",
+            onAction: () => session.openAutomations(event.automation.id),
+          },
+        });
+      }
+    });
     const unsubMergeQueue = window.solus.onMergeQueueUpdate((state) =>
       session.mergeQueueStore.apply(state),
     );
@@ -317,6 +331,7 @@
     return () => {
       unsubRun();
       unsubRunLog();
+      unsubAutomations();
       unsubMergeQueue();
       unsubShown();
     };

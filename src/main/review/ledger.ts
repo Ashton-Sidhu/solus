@@ -127,6 +127,7 @@ export async function resolveReviewContext(
     branch,
     targetBranch,
     baseSha,
+    headSha: getHeadCommit(cwd) ?? baseSha,
     repoRoot,
     ...(prUrl ? { prUrl } : {}),
   }
