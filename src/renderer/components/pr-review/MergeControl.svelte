@@ -193,7 +193,7 @@
       <button
         type="button"
         bind:this={triggerEl}
-        class="inline-flex cursor-pointer items-center border-0 bg-transparent px-1.5 text-(--solus-on-accent,#fff) transition-[background-color] duration-100 hover:bg-white/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white/60 disabled:cursor-not-allowed disabled:opacity-60"
+        class="inline-flex cursor-pointer items-center border-0 bg-transparent px-2 text-(--solus-on-accent,#fff) transition-[background-color] duration-100 hover:bg-white/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white/60 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={blocked || queue.starting}
         aria-label="Merge method"
         onclick={() => (menuOpen = !menuOpen)}

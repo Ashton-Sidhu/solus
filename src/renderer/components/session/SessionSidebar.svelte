@@ -361,9 +361,9 @@
         {@const isProjectActive = projectTabIds.includes(session.activeTabId)}
         {@const showProjectActive = isProjectActive && collapsed}
         <div
-          class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 bg-transparent cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {focusRing} {showProjectActive
+          class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {focusRing} {showProjectActive
             ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
-            : 'hover:bg-[color-mix(in_srgb,var(--solus-accent)_5%,transparent)]'}"
+            : 'bg-transparent hover:bg-[color-mix(in_srgb,var(--solus-accent)_5%,transparent)]'}"
           role="button"
           tabindex="0"
           data-active={showProjectActive ? "true" : undefined}
@@ -401,9 +401,9 @@
                 session.activeTabId,
               )}
               <div
-                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border border-transparent bg-transparent cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {isActiveBranch
+                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {isActiveBranch
                   ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
-                  : rowHoverWash}"
+                  : `border-transparent bg-transparent ${rowHoverWash}`}"
                 style="--branch-kind-color:{branchKindColor(branch.kind)}"
                 role="button"
                 tabindex="0"
@@ -482,9 +482,9 @@
                   {@const child = sidebarStore.childForTab(tabId)}
                   {@const showChildActive = isActiveBranch && child.active}
                   <div
-                    class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border border-transparent bg-transparent cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
+                    class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                       ? `${rowActiveWash} text-(--solus-text-primary)`
-                      : rowHoverWash}"
+                      : `border-transparent bg-transparent ${rowHoverWash}`}"
                     role="button"
                     tabindex="0"
                     data-active={showChildActive ? "true" : undefined}
