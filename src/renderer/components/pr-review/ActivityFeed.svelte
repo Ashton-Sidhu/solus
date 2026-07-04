@@ -564,7 +564,7 @@
             {#if mergeability}
               {@const MergeabilityIcon = mergeability.Icon}
               <div
-                class="flex items-center gap-2 rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2"
+                class="flex items-center gap-2 rounded-xl border border-(--solus-art-border) bg-white px-3 py-2 dark:bg-white/3"
               >
                 <span
                   class="grid size-6 shrink-0 place-items-center rounded-full"
@@ -677,7 +677,7 @@
                     >{/if}
                 </p>
                 <ul
-                  class="mt-2.5 flex flex-col divide-y divide-(--solus-art-border) overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
+                  class="mt-2.5 flex flex-col divide-y divide-(--solus-art-border) overflow-hidden rounded-xl border border-(--solus-art-border) bg-white dark:bg-white/3"
                   role="list"
                 >
                   {#each commits as commit (commit.sha)}
@@ -722,7 +722,7 @@
 
               <div class="-mt-1 min-w-0 flex-1 pb-6">
                 <div
-                  class="overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
+                  class="overflow-hidden rounded-xl border border-(--solus-art-border) bg-white dark:bg-white/3"
                 >
                   <div
                     class="flex items-center gap-2 border-b border-(--solus-art-border) px-3 py-2"
@@ -942,7 +942,7 @@
 
         <!-- Composer -->
         <div
-          class="mt-3 flex items-center gap-2.5 rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2.5 focus-within:border-(--solus-accent)"
+          class="mt-3 flex items-center gap-2.5 rounded-xl border border-(--solus-art-border) bg-white px-3 py-2.5 focus-within:border-(--solus-accent) dark:bg-white/3"
         >
           {@render avatarImg(authorAvatarUrl, authorName, "size-6 text-[0.625rem]")}
           <MarkdownEditor
@@ -970,18 +970,11 @@
 
       <!-- ── Right rail: status + meta, changed files ── -->
       <aside class="hidden w-[16.5rem] shrink-0 lg:block">
-        <div class="sticky top-9 flex flex-col gap-3.5">
-          <!-- Status & meta card -->
-          <section
-            class="overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface)"
-          >
-            <!-- Status row -->
-            <div
-              class="flex items-center justify-between gap-3 px-3.5 pt-3 pb-3"
-            >
-              <span class="text-xs font-normal text-(--solus-text-secondary)"
-                >Status</span
-              >
+        <div class="sticky top-9 flex flex-col gap-6">
+          <!-- Status & merge -->
+          <section class="flex flex-col gap-3">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-xs text-(--solus-text-tertiary)">Status</span>
               {#if statusBadge}
                 {@const Badge = statusBadge.Icon}
                 <span
@@ -995,7 +988,7 @@
             </div>
 
             <!-- Mergeability row -->
-            <div class="border-t border-(--solus-art-border) px-3.5 py-3">
+            <div>
               {#if detailLoading}
                 <div class="flex animate-pulse items-center gap-2 motion-reduce:animate-none">
                   <span class="size-7 shrink-0 rounded-full bg-(--solus-art-border)"></span>
@@ -1024,19 +1017,16 @@
 
             <!-- Merge action -->
             {#if canMerge}
-              <div class="border-t border-(--solus-art-border) px-3.5 py-3">
-                <MergeControl {pr} />
-              </div>
+              <MergeControl {pr} />
             {/if}
+          </section>
 
-            <!-- Reviewers / Resolves rows -->
-            <dl
-              class="divide-y divide-(--solus-art-border) border-t border-(--solus-art-border)"
-            >
-              <div class="px-3.5 py-2.5">
-                <dt
-                  class="mb-1.5 text-xs font-normal text-(--solus-text-secondary)"
-                >
+          <!-- Properties -->
+          <dl
+            class="flex flex-col gap-4 border-t border-(--solus-art-border) pt-5"
+          >
+              <div>
+                <dt class="mb-1.5 text-xs text-(--solus-text-tertiary)">
                   Reviewers
                 </dt>
                 <dd>
@@ -1046,13 +1036,13 @@
                       <span class="h-3 w-24 rounded bg-(--solus-art-border)"></span>
                     </div>
                   {:else if reviewers.length === 0}
-                    <span class="text-[0.75rem] font-normal text-(--solus-text-tertiary)">None</span>
+                    <span class="text-[0.75rem] text-(--solus-text-tertiary)">None</span>
                   {:else}
                     <ul class="flex flex-col gap-1.5" role="list">
                       {#each reviewers as reviewer (reviewer.login)}
                         <li class="flex items-center gap-2">
                           {@render avatar(reviewer.login, "size-5 text-[0.5rem]")}
-                          <span class="min-w-0 flex-1 truncate text-[0.75rem] font-normal text-(--solus-text-secondary)">{reviewer.login}</span>
+                          <span class="min-w-0 flex-1 truncate text-[0.75rem] text-(--solus-text-secondary)">{reviewer.login}</span>
                           {@render reviewStateBadge(reviewer.state)}
                         </li>
                       {/each}
@@ -1060,40 +1050,29 @@
                   {/if}
                 </dd>
               </div>
-              <div class="flex items-center justify-between gap-3 px-3.5 py-2.5">
-                <dt
-                  class="shrink-0 text-xs font-normal text-(--solus-text-secondary)"
-                >
+              <div class="flex items-center justify-between gap-3">
+                <dt class="shrink-0 text-xs text-(--solus-text-tertiary)">
                   Resolves
                 </dt>
-                <dd class="text-[0.75rem] font-normal text-(--solus-text-tertiary)">
+                <dd class="text-[0.75rem] text-(--solus-text-secondary)">
                   None
                 </dd>
               </div>
               {#if openedTime}
-                <div
-                  class="flex items-center justify-between gap-3 px-3.5 py-2.5"
-                >
-                  <dt
-                    class="shrink-0 text-xs font-normal text-(--solus-text-secondary)"
-                  >
+                <div class="flex items-center justify-between gap-3">
+                  <dt class="shrink-0 text-xs text-(--solus-text-tertiary)">
                     Updated
                   </dt>
-                  <dd class="text-[0.75rem] font-normal text-(--solus-text-tertiary)">
+                  <dd class="text-[0.75rem] text-(--solus-text-secondary)">
                     {openedTime}
                   </dd>
                 </div>
               {/if}
-            </dl>
-          </section>
+          </dl>
 
-          <!-- Changed files card -->
-          <section
-            class="overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface)"
-          >
-            <div
-              class="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2.5"
-            >
+          <!-- Changed files -->
+          <section class="border-t border-(--solus-art-border) pt-5">
+            <div class="flex items-center justify-between gap-2">
               <h3
                 class="text-[0.6875rem] font-semibold tracking-wider text-(--solus-text-tertiary) uppercase"
               >
@@ -1113,7 +1092,7 @@
             </div>
 
             {#if totalAdds + totalDels > 0}
-              <div class="flex items-center gap-2 px-3.5 pb-3">
+              <div class="mt-2.5 flex items-center gap-2">
                 <div
                   class="flex h-1.5 flex-1 overflow-hidden rounded-full bg-(--solus-art-raised)"
                 >
@@ -1143,10 +1122,7 @@
               </div>
             {/if}
 
-            <ul
-              class="flex flex-col gap-px border-t border-(--solus-art-border) p-1.5"
-              role="list"
-            >
+            <ul class="-mx-2 mt-2 flex flex-col gap-px" role="list">
               {#if filesLoading}
                 {#each [0, 1, 2, 3] as i (i)}
                   <li
