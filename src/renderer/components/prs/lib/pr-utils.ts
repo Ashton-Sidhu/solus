@@ -1,7 +1,32 @@
+import { GitBranchIcon, GitMergeIcon, GitPullRequestIcon } from 'phosphor-svelte'
 import type { PullRequestSummary } from '../../../../shared/providers'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
 export type PrSortMode = 'updated' | 'created'
+
+export interface PrStatusBadge {
+  label: string
+  Icon: typeof GitPullRequestIcon
+  tone: string
+}
+
+/** Status chip facts for a PR — shared by the PRs page sidebar and the PR
+ *  review activity rail. */
+export function prStatusBadge(
+  detail: { state: 'open' | 'closed' | 'merged'; draft: boolean } | null,
+): PrStatusBadge | null {
+  if (!detail) return null
+  if (detail.draft && detail.state === 'open') {
+    return { label: 'Draft', Icon: GitBranchIcon, tone: 'var(--solus-text-tertiary)' }
+  }
+  if (detail.state === 'merged') {
+    return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--solus-accent)' }
+  }
+  if (detail.state === 'closed') {
+    return { label: 'Closed', Icon: GitPullRequestIcon, tone: 'var(--solus-art-negative)' }
+  }
+  return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--solus-art-positive)' }
+}
 
 export function filterPrs(
   items: PullRequestSummary[],
@@ -10,7 +35,10 @@ export function filterPrs(
 ): PullRequestSummary[] {
   const q = query.trim().toLowerCase()
   return items.filter((pr) => {
-    if (stateFilter !== 'all' && pr.state !== stateFilter) return false
+    // "Closed" includes merged: the server's closed fetch returns merged PRs
+    // (remapped to state 'merged'), and the tab counts group them as closed.
+    if (stateFilter === 'open' && pr.state !== 'open') return false
+    if (stateFilter === 'closed' && pr.state === 'open') return false
     if (!q) return true
     return (
       pr.title.toLowerCase().includes(q) ||

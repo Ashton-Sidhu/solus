@@ -3,6 +3,32 @@
 // (Per-file +/- counts come from the `prChangedFiles` numstat handler.)
 
 /**
+ * The minimal PR identity the Activity view needs to render. A full
+ * `PrReviewContext` (the worktree-backed review pane) satisfies this
+ * structurally, while the PRs list passes only the subset it has before a
+ * worktree exists — the view fetches everything else from `detail`. Keeping the
+ * required surface to `number`/`title` is what lets one component serve both.
+ */
+export interface PrActivityTarget {
+  number: number
+  title: string
+  /** Author login shown until `detail` loads (the list has it from the summary). */
+  owner?: string
+  /** Repo name for the `repo#number` meta chip; omitted in the list preview. */
+  repo?: string
+  /** Base branch for the meta line; falls back to `detail.baseRef`. */
+  baseRef?: string
+  /** Head branch for the meta line; falls back to `detail.headRef`. */
+  branch?: string
+  /** Diff base for the changed-files rail; falls back to `detail.baseSha`. */
+  baseSha?: string
+  /** New-comment anchor; falls back to `detail.headSha`. */
+  headSha?: string
+  /** Author avatar URL — rendered as a real image instead of initials. */
+  authorAvatarUrl?: string
+}
+
+/**
  * Wrap a GitHub `diffHunk` (a bare `@@ … @@` fragment with no file headers) in a
  * minimal `diff --git` envelope so `@pierre/diffs`' patch parser accepts it and
  * renders the snippet with the same engine the Diff tab uses.

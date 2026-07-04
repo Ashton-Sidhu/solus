@@ -359,6 +359,10 @@ export class SessionEventReducer {
         break
       }
 
+      case 'status_card':
+        session.statusCard = event.card
+        break
+
       case 'git_context':
         session.gitContext = event.gitContext
         if (event.gitContext.worktreePath) session.worktreeBaseBranch = null
@@ -434,6 +438,13 @@ export class SessionEventReducer {
 
       case 'status_change':
         session.status = event.status
+        // The status card tracks the pre-run setup phase (worktree creation,
+        // session handshake), which only lives while 'connecting'. Once we
+        // leave that state the card's job is done — clear it so the agent's
+        // output takes over. Keep failed cards so the error stays visible.
+        if (event.status !== 'connecting' && session.statusCard && session.statusCard.status !== 'error') {
+          session.statusCard = null
+        }
         if (event.status === 'interrupted') {
           session.serverQueuedPrompts.splice(0, session.serverQueuedPrompts.length)
           this.deps.closePlanModal()
@@ -677,8 +688,7 @@ export class SessionEventReducer {
     const subs = parent.subMessages
     const last = subs[subs.length - 1]
     if (last?.role === 'assistant' && !last.toolName) {
-      const separator = /\s$/.test(last.content) || /^\s|^[,.;:!?)}\]'"`]/.test(pending) ? '' : ' '
-      last.content += separator + pending
+      last.content += pending
     } else {
       subs.push({ id: nextMsgId(), role: 'assistant', content: pending, timestamp: Date.now() })
     }
@@ -699,8 +709,7 @@ export class SessionEventReducer {
     if (!session) return
     const lastMsg = session.messages[session.messages.length - 1]
     if (lastMsg?.role === 'assistant' && !lastMsg.toolName && !lastMsg.artifact && !lastMsg.workRef && !lastMsg.automationRef) {
-      const separator = /\s$/.test(lastMsg.content) || /^\s|^[,.;:!?)}\]'"`]/.test(pendingText) ? '' : ' '
-      lastMsg.content += separator + pendingText
+      lastMsg.content += pendingText
     } else {
       session.messages.push({
         id: nextMsgId(),

@@ -6,7 +6,7 @@
     MagnifyingGlassIcon,
     XIcon,
     BookmarkSimpleIcon,
-    CaretDownIcon,
+    MapTrifoldIcon,
   } from "phosphor-svelte";
   import type { PlanDescriptor } from "../../../shared/types";
   import { planKey } from "../../../shared/types";
@@ -21,8 +21,12 @@
   import PlanListRow from "./PlanListRow.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import PageShell from "../ui/PageShell.svelte";
+  import PageHeader from "../ui/PageHeader.svelte";
+  import SearchField from "../ui/SearchField.svelte";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SectionLabel from "../ui/SectionLabel.svelte";
+  import SortMenu from "../ui/SortMenu.svelte";
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -49,16 +53,10 @@
   let statusSet = $state<Set<StatusKind>>(new Set(defaultStatuses));
   let showBookmarked = $state(false);
   let sortMode = $state<SortMode>("newest");
-  let sortMenuOpen = $state(false);
-  let sortTriggerEl = $state<HTMLButtonElement | null>(null);
   let selectedIndex = $state(0);
   let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let scrollEl: HTMLDivElement | null = $state(null);
   let mouseHasMoved = $state(false);
-
-  const sortLabel = $derived(
-    SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? "",
-  );
 
   function sortPlans(a: PlanDescriptor, b: PlanDescriptor): number {
     if (sortMode === "title") return a.title.localeCompare(b.title);
@@ -153,6 +151,18 @@
       })
       .sort(sortPlans);
   });
+
+  const statusSegments = $derived([
+    { value: "all" as const, label: "All", count: scopedDescriptors.length },
+    { value: "pending" as const, label: "Pending", short: "Pend", count: counts.pending },
+    { value: "accepted" as const, label: "Accepted", short: "Acc", count: counts.accepted },
+    { value: "rejected" as const, label: "Rejected", short: "Rej", count: counts.rejected },
+  ]);
+
+  function onSegmentSelect(value: "all" | StatusKind) {
+    if (value === "all") toggleAll();
+    else toggleStatus(value);
+  }
 
   const bookmarked: PlanDescriptor[] = $derived(
     showBookmarked
@@ -411,21 +421,22 @@
 {/snippet}
 
 {#snippet editorGrid()}
-  <div bind:this={scrollEl} class="gallery-scroll" role="listbox" tabindex="-1" onmousemove={() => { mouseHasMoved = true; }}>
+  <div bind:this={scrollEl} class="outline-none" role="listbox" tabindex="-1" onmousemove={() => { mouseHasMoved = true; }}>
     {#if loading && descriptors.length === 0}
       <div class="empty"><p class="empty-sub">Loading plans…</p></div>
     {:else if filtered.length === 0}
       {@render emptyState()}
     {:else}
       {#if bookmarked.length > 0}
-        <div class="section-header">
-          <BookmarkSimpleIcon
-            size={12}
-            weight="fill"
-            class="text-(--solus-accent)"
-          />
-          <span>Bookmarked</span>
-        </div>
+        <SectionLabel label="Bookmarked" count={bookmarked.length}>
+          {#snippet icon()}
+            <BookmarkSimpleIcon
+              size={12}
+              weight="fill"
+              class="text-(--solus-accent)"
+            />
+          {/snippet}
+        </SectionLabel>
         <div class="card-grid">
           {#each bookmarked as d, i (d.sessionId)}
             <PlanCard
@@ -446,13 +457,10 @@
           dateGroups
             .slice(0, dateGroups.indexOf(group))
             .reduce((n, g) => n + g.items.length, 0)}
-        <div class="section-header">
-          <span
-            >{showBookmarked
-              ? "Bookmarked"
-              : group.label}</span
-          >
-        </div>
+        <SectionLabel
+          label={showBookmarked ? "Bookmarked" : group.label}
+          count={group.items.length}
+        />
         <div class="card-grid">
           {#each group.items as d, j (d.sessionId)}
             {@const i = groupOffset + j}
@@ -538,72 +546,74 @@
 
 {#if open && isEditorMode}
   <div
-    class="gallery-inline flex flex-col flex-1 min-h-0"
+    class="gallery-inline relative flex flex-col flex-1 min-h-0"
     role="dialog"
     aria-label="Plans gallery"
     tabindex="-1"
   >
-    <div class="gallery-top">
-      <div class="gallery-titlebar">
-        <div class="gallery-header-group">
-          <FrameExpandButton variant="sidebar" />
-          <span class="gallery-title">Plans</span>
-        </div>
-        <div class="gallery-header-group">
+    <PageShell onClose={close}>
+      {#snippet leading()}
+        <FrameExpandButton variant="sidebar" />
+      {/snippet}
+      {#snippet trailing()}
+        <FrameExpandButton variant="projectPanel" />
+      {/snippet}
+
+      <PageHeader
+        title="Plans"
+        subtitle="Plans the agent proposed — review, bookmark, resume."
+      >
+        {#snippet icon()}
+          <MapTrifoldIcon size={18} weight="fill" />
+        {/snippet}
+      </PageHeader>
+
+      <!-- ── Command bar: search + status segments + bookmarked + sort ── -->
+      <div class="flex flex-wrap items-center gap-2 pb-4">
+        <SearchField
+          bind:el={searchEl}
+          bind:value={query}
+          placeholder="Search plans…"
+          onkeydown={(e) => {
+            if (e.key === "Enter" && runtime.isMobileViewport) {
+              e.stopPropagation();
+              e.preventDefault();
+              (e.target as HTMLInputElement)?.blur();
+            }
+          }}
+        />
+        <SegmentedControl
+          options={statusSegments}
+          isActive={(v) => (v === "all" ? isAllSelected : statusSet.has(v))}
+          onSelect={onSegmentSelect}
+          ariaLabel="Filter by status"
+        />
+        <div class="ml-auto flex shrink-0 items-center gap-1">
           <button
             type="button"
-            class="close-btn"
-            onclick={close}
-            aria-label="Close"
+            class="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 transition-[background-color,color] duration-100 ease-in-out focus-visible:bg-(--solus-accent-light) focus-visible:outline-none [@media(pointer:coarse)]:size-10 {showBookmarked
+              ? 'bg-(--solus-accent-light) text-(--solus-accent)'
+              : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+            onclick={() => (showBookmarked = !showBookmarked)}
+            aria-pressed={showBookmarked}
+            aria-label="Bookmarked plans"
+            title="Bookmarked plans"
           >
-            <XIcon size={16} />
+            <BookmarkSimpleIcon
+              size={13}
+              weight={showBookmarked ? "fill" : "regular"}
+            />
           </button>
-          <FrameExpandButton variant="projectPanel" />
+          <SortMenu
+            bind:value={sortMode}
+            options={SORT_OPTIONS}
+            ariaLabel="Sort plans"
+          />
         </div>
       </div>
-      <div class="gallery-commandbar">
-        {@render searchBox(false)}
-        <div class="commandbar-sep" aria-hidden="true"></div>
-        {@render filterControls()}
-        <div class="commandbar-sep" aria-hidden="true"></div>
-        <div class="commandbar-right">
-          <button
-            type="button"
-            bind:this={sortTriggerEl}
-            class="sort-trigger"
-            aria-label="Sort plans"
-            aria-haspopup="listbox"
-            aria-expanded={sortMenuOpen}
-            onclick={() => (sortMenuOpen = !sortMenuOpen)}
-          >
-            <span>{sortLabel}</span>
-            <CaretDownIcon size={9} class="sort-trigger-caret" />
-          </button>
-          <Dropdown
-            bind:open={sortMenuOpen}
-            triggerEl={sortTriggerEl}
-            align="top"
-            anchor="right"
-            width={140}
-          >
-            <div class="py-1" role="listbox" aria-label="Sort plans">
-              {#each SORT_OPTIONS as opt (opt.value)}
-                <DropdownItem
-                  selected={sortMode === opt.value}
-                  onclick={() => {
-                    sortMode = opt.value;
-                    sortMenuOpen = false;
-                  }}
-                >
-                  {opt.label}
-                </DropdownItem>
-              {/each}
-            </div>
-          </Dropdown>
-        </div>
-      </div>
-    </div>
-    {@render editorGrid()}
+
+      {@render editorGrid()}
+    </PageShell>
   </div>
 {/if}
 
@@ -658,12 +668,6 @@
     font-weight: 600;
     color: var(--solus-text-primary);
   }
-  .gallery-header-group {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
   .close-btn {
     width: 1.5rem;
     height: 1.5rem;
@@ -684,139 +688,13 @@
     color: var(--solus-text-primary);
   }
 
-  /* Title row + command bar share one gutter so every left edge lines up. */
-  .gallery-titlebar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 1.25rem;
-  }
-  /* One control strip: search grows, status filters sit to its right. */
-  .gallery-commandbar {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.5rem 1.25rem;
-  }
-  .commandbar-sep {
-    flex-shrink: 0;
-    width: 0.0625rem;
-    height: 1rem;
-    background: var(--solus-container-border);
-  }
-  .commandbar-right {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    flex-shrink: 0;
-  }
-  .sort-trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.6875rem;
-    color: var(--solus-text-secondary);
-    background: var(--solus-input-bg-soft);
-    border: 0.0625rem solid var(--solus-container-border);
-    border-radius: 0.375rem;
-    padding: 0.1875rem 0.5rem;
-    cursor: pointer;
-    outline: none;
-    white-space: nowrap;
-    transition: border-color 0.1s ease;
-  }
-  .sort-trigger:focus-visible {
-    border-color: color-mix(in srgb, var(--solus-accent) 50%, transparent);
-  }
-  :global(.sort-trigger-caret) {
-    color: var(--solus-text-tertiary);
-    flex-shrink: 0;
-  }
-
+  /* Search row (pill mode): its own gutter. */
   .gallery-search {
     display: flex;
     align-items: center;
     gap: 0.625rem;
     min-width: 0;
     padding: 0.25rem 1rem 0.625rem 1rem;
-  }
-  /* In the editor command bar the search grows to fill the row instead. */
-  .gallery-commandbar .gallery-search {
-    flex: 1;
-    gap: 0.5rem;
-    padding: 0;
-  }
-  .gallery-commandbar .gallery-filters {
-    flex-shrink: 0;
-    flex-wrap: nowrap;
-    justify-content: flex-end;
-    padding: 0;
-  }
-
-  /* Narrow pane: the dense status tabs won't fit beside the search, so fall
-     back to the stacked search-over-filters layout (keyed to the pane width,
-     so it also covers desktop split panes — not just small viewports). */
-  @container plans-gallery (max-width: 48rem) {
-    .gallery-commandbar {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0;
-      padding: 0;
-    }
-    .gallery-commandbar .commandbar-sep {
-      display: none;
-    }
-    .gallery-commandbar .gallery-search {
-      flex: none;
-      padding: 0.25rem 1.25rem 0.625rem;
-    }
-    .gallery-commandbar .gallery-filters {
-      justify-content: space-between;
-      padding: 0 1.25rem 0.625rem;
-    }
-    .gallery-commandbar .commandbar-right {
-      justify-content: flex-end;
-      padding: 0 1.25rem 0.625rem;
-    }
-  }
-
-  /* Tighter still: collapse the status tabs to an even 4-up grid with short
-     labels and an icon-only bookmark chip so they never overflow their row. */
-  @container plans-gallery (max-width: 38rem) {
-    .gallery-commandbar .gallery-filters {
-      gap: 0.375rem;
-    }
-    .gallery-commandbar .status-tabs {
-      flex: 1 1 auto;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.125rem;
-    }
-    .gallery-commandbar .status-tab {
-      justify-content: center;
-      gap: 0.1875rem;
-      min-width: 0;
-      padding: 0.25rem 0.1875rem;
-      border-radius: 0.4375rem;
-      font-size: 0.6563rem;
-    }
-    .gallery-commandbar .status-label-full {
-      display: none;
-    }
-    .gallery-commandbar .status-label-short {
-      display: inline;
-    }
-    .gallery-commandbar .collection-chip {
-      justify-content: center;
-      width: 1.875rem;
-      padding: 0.25rem 0;
-      border-radius: 0.4375rem;
-    }
-    .gallery-commandbar .collection-chip-label {
-      display: none;
-    }
   }
 
   .gallery-filters {
@@ -942,18 +820,6 @@
     letter-spacing: 0.06em;
     color: var(--solus-text-tertiary);
     padding: 0.5rem 0.875rem 0.25rem 0.875rem;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--solus-text-tertiary);
-    padding: 0.625rem 0.125rem 0.5rem 0.125rem;
   }
 
   .card-grid {

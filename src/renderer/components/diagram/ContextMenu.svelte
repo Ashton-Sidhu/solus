@@ -18,6 +18,8 @@
     sentToBack?: boolean
     onSendToBack?: () => void
     onBringToFront?: () => void
+    /** Shown for nodes: open the comments panel with the composer anchored here. */
+    onAddComment?: () => void
   }
 
   let {
@@ -35,6 +37,7 @@
     sentToBack = false,
     onSendToBack,
     onBringToFront,
+    onAddComment,
   }: Props = $props()
 
   const isMac = navigator.platform.includes('Mac')
@@ -109,6 +112,20 @@
       </button>
     {/if}
 
+    {#if type === 'node' && onAddComment}
+      <button
+        type="button"
+        class="ctx-menu__item"
+        role="menuitem"
+        onclick={() => { onAddComment(); onClose() }}
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.5 7.5a5.5 5.5 0 01-7.9 5L2.5 13.5l1-3.1a5.5 5.5 0 1110-2.9z" />
+        </svg>
+        Add comment
+      </button>
+    {/if}
+
     {#if showRemoveFromGroup && onRemoveFromGroup}
       <button
         type="button"
@@ -160,7 +177,7 @@
         <path d="M6.5 7v4M9.5 7v4" />
       </svg>
       Delete
-      <span class="ctx-menu__shortcut">{navigator.platform.includes('Mac') ? '⌫' : 'Del'}</span>
+      <span class="ctx-menu__shortcut">{isMac ? '⌫' : 'Del'}</span>
     </button>
   </div>
 </div>
@@ -187,6 +204,21 @@
     border: 0.0625rem solid var(--solus-container-border);
     box-shadow: 0 0.25rem 1.5rem rgba(0, 0, 0, 0.18), 0 0.0625rem 0.25rem rgba(0, 0, 0, 0.08);
     outline: none;
+    transform-origin: top left;
+    animation: ctx-menu-in var(--duration-quick) var(--ease-premium);
+  }
+
+  @keyframes ctx-menu-in {
+    from {
+      opacity: 0;
+      scale: 0.98;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ctx-menu {
+      animation: none;
+    }
   }
 
   .ctx-menu__item {
@@ -202,7 +234,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background var(--duration-quick) var(--ease-premium), color var(--duration-quick) var(--ease-premium);
     text-align: left;
   }
 
@@ -214,8 +246,8 @@
   }
 
   .ctx-menu__item--danger:hover {
-    background: color-mix(in srgb, #f87171 12%, transparent);
-    color: #f87171;
+    background: color-mix(in srgb, var(--solus-status-error) 12%, transparent);
+    color: var(--solus-status-error);
   }
 
   .ctx-menu__shortcut {

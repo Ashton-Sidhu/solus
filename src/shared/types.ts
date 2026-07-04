@@ -229,6 +229,9 @@ export interface Session {
   sessionVersion: string | null
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
+  /** Live inline progress card for the current multi-step action (worktree
+   *  setup, etc.). Live-only — not persisted to the transcript. */
+  statusCard: StatusCardState | null
   changedFiles: string[]
   gitContext: TabGitContext | null
   workingDirectory: string
@@ -295,9 +298,12 @@ export interface SessionProgress {
 
 export interface PlanComment {
   id: string
+  /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
   selectedText: string
   comment: string
   textOffset?: number
+  /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
+  nodeId?: string
 }
 
 export interface DiffComment {
@@ -555,6 +561,30 @@ export interface RunResult {
   sessionId: string
 }
 
+// ─── Status Cards (inline progress for multi-step chat actions) ───
+
+export type StatusCardStepStatus = 'pending' | 'active' | 'done' | 'error'
+
+export interface StatusCardStep {
+  /** Stable key within the card. */
+  id: string
+  label: string
+  status: StatusCardStepStatus
+}
+
+/** A live, ordered checklist rendered inline in the conversation while a
+ *  multi-step action (e.g. creating a worktree-backed session) runs. Emitted
+ *  as a `status_card` event and replaced wholesale on each stage transition. */
+export interface StatusCardState {
+  /** Stable id so successive stage updates target the same card. */
+  id: string
+  title: string
+  /** Icon hint for the header; the renderer maps it to a component. */
+  icon?: 'git-branch'
+  status: 'active' | 'done' | 'error'
+  steps: StatusCardStep[]
+}
+
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
@@ -595,6 +625,7 @@ export type NormalizedEvent =
   | { type: 'artifact_created'; kind: 'html' | 'image'; html?: string; path?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'session_created'; agentSessionId: string; title: string; provider: AgentId; cwd: string }
+  | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
 
@@ -1149,7 +1180,12 @@ export interface WorktreeEntry {
 // run-now substrate. Scheduling is local-only — triggers fire while Solus is open
 // and catch up missed fires on the next launch.
 
-export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+/**
+ * Run outcomes. `dispatched` is the terminal state of an in-session run: the
+ * prompt was handed into its chat thread, whose turn owns the real outcome —
+ * we deliberately don't claim `succeeded` for work we didn't observe finish.
+ */
+export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'dispatched'
 
 /**
  * What causes an automation to run. Phase 2 ships time-based triggers only
@@ -1258,6 +1294,9 @@ export interface AutomationRun {
   output?: string
   /** Session id of the spawned agent run, for opening it as a session later. */
   agentSessionId?: string | null
+  /** Branch the run's isolated worktree was created on (useWorktree runs only),
+   *  so the user can find the work the run produced. */
+  branch?: string
   /** Populated when status is 'failed'. */
   error?: string
 }
@@ -1266,6 +1305,18 @@ export interface AutomationsManifest {
   version: 1
   automations: Record<string, Automation>
 }
+
+/**
+ * Pushed over the `automations-changed` RPC topic whenever the main-process
+ * automation store mutates — saves, deletes, scheduler fires, run transitions —
+ * so every client stays live without polling (scheduled runs fire with no
+ * renderer involvement at all).
+ */
+export type AutomationsChangedEvent =
+  | { kind: 'saved'; automation: Automation }
+  | { kind: 'deleted'; automationId: string }
+  | { kind: 'run-started'; automation: Automation; run: AutomationRun }
+  | { kind: 'run-finished'; automation: Automation; run: AutomationRun }
 
 // ─── Git provider integration ───
 // Renderer-facing surface for the code-host provider adapter (see
@@ -1292,6 +1343,7 @@ export interface DeviceCodePrompt {
 
 export * from './git-types'
 export * from './run-types'
+export * from './merge-queue-types'
 
 // IPC channel constants moved to `shared/rpc.ts` (RPC_INVOKE_METHODS,
 // RPC_SEND_METHODS, RPC_TOPICS). Both transports — Electron IPC and the

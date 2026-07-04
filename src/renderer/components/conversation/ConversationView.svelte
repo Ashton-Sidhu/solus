@@ -13,6 +13,7 @@
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
+  import StatusCard from "./StatusCard.svelte";
 
   import UserMessageBubble from "./UserMessageBubble.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
@@ -700,6 +701,10 @@ useKeybinding(
               {/if}
             {/each}
           </div>
+
+          {#if sess.statusCard}
+            <StatusCard card={sess.statusCard} />
+          {/if}
 
           {#if streamingText}
             <div class="py-2">

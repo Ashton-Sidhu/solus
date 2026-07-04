@@ -28,6 +28,47 @@ export const PlanRefExtension = Node.create({
   atom: true,
   selectable: true,
   draggable: false,
+  // A dedicated tokenizer (not markdownTokenName: 'link') because inline
+  // parsing dispatches each token type to a single handler — claiming `link`
+  // here would swallow every other link in the document. Marked tries
+  // extension tokenizers before its built-in link rule, so plan:// links
+  // become planReference tokens and everything else stays a normal link.
+  markdownTokenizer: {
+    name: 'planReference',
+    level: 'inline',
+    start: (src: string) =>
+      /\[(?:\\.|[^\]\\\n])*\]\(plan:\/\//.exec(src)?.index ?? -1,
+    tokenize(src: string) {
+      const m = /^\[((?:\\.|[^\]\\\n])*)\]\((plan:\/\/[^)\s]*)\)/.exec(src)
+      if (!m) return undefined
+      return { type: 'planReference', raw: m[0], text: m[1], href: m[2] }
+    },
+  },
+
+  parseMarkdown(token) {
+    const url = new URL(token.href as string)
+    return {
+      type: 'planReference',
+      attrs: {
+        planId: url.searchParams.get('planId'),
+        sessionId: url.searchParams.get('sessionId'),
+        planToolUseId: url.searchParams.get('planToolUseId'),
+        status: url.searchParams.get('status') || 'pending',
+        title: (token.text || '').replace(/\\([\[\]])/g, '$1'),
+      },
+    }
+  },
+
+  renderMarkdown(node) {
+    const params = new URLSearchParams({
+      planId: node.attrs?.planId,
+      sessionId: node.attrs?.sessionId,
+      planToolUseId: node.attrs?.planToolUseId,
+      status: node.attrs?.status,
+    })
+    const safeTitle = (node.attrs?.title ?? '').replace(/[\[\]]/g, '\\$&')
+    return `[${safeTitle}](plan://ref?${params})`
+  },
 
   addAttributes() {
     return {
@@ -72,21 +113,4 @@ export const PlanRefExtension = Node.create({
     ]
   },
 
-  addStorage() {
-    return {
-      markdown: {
-        serialize(state: any, node: any) {
-          const params = new URLSearchParams({
-            planId: node.attrs.planId,
-            sessionId: node.attrs.sessionId,
-            planToolUseId: node.attrs.planToolUseId,
-            status: node.attrs.status,
-          })
-          const safeTitle = node.attrs.title.replace(/[\[\]]/g, '\\$&')
-          state.write(`[${safeTitle}](plan://ref?${params})`)
-        },
-        parse: {},
-      },
-    }
-  },
 })

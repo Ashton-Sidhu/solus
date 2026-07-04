@@ -334,8 +334,19 @@ export function restoreWorktree(worktreePath: string, _options?: { includePr?: b
 
 export function listBranches(projectPath: string): string[] {
   try {
-    const output = git(['branch', '--format=%(refname:short)'], projectPath)
-    return output.split('\n').filter(Boolean)
+    const output = git(['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'], projectPath)
+    const branches = new Set<string>()
+    for (const ref of output.split('\n').filter(Boolean)) {
+      if (ref.startsWith('refs/heads/')) {
+        branches.add(ref.slice('refs/heads/'.length))
+        continue
+      }
+      if (!ref.startsWith('refs/remotes/')) continue
+      const remoteBranch = ref.slice('refs/remotes/'.length)
+      if (remoteBranch.endsWith('/HEAD')) continue
+      branches.add(remoteBranch.replace(/^[^/]+\//, ''))
+    }
+    return Array.from(branches)
   } catch {
     return []
   }
