@@ -5,6 +5,7 @@
     PlusIcon,
     TrashIcon,
     ListChecksIcon,
+    MegaphoneIcon,
   } from "phosphor-svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
   import { getRunStore } from "../../contexts/run.store.svelte";
@@ -33,6 +34,16 @@
     status = "saved";
   }
 
+  // Session-start write-back — on by default; the opt-out keeps an exploratory
+  // session from announcing itself on the shared tracker.
+  let taskWriteBack = $state(true);
+  async function onWriteBackChange(enabled: boolean) {
+    taskWriteBack = enabled;
+    status = "saving";
+    await projectConfig.save(cwd, { taskStartWriteBack: enabled });
+    status = "saved";
+  }
+
   interface Row {
     id: string;
     name: string;
@@ -54,6 +65,7 @@
     if (!cwd) return;
     void projectConfig.load(cwd).then((loaded) => {
       taskProvider = loaded?.taskProvider ?? "local";
+      taskWriteBack = loaded?.taskStartWriteBack !== false;
       rows = (loaded?.runCommands ?? []).map((entry) => ({
         id: entry.id,
         name: entry.name ?? "",
@@ -134,6 +146,25 @@
         <option value="local">Local</option>
         <option value="github">GitHub</option>
       </select>
+    </div>
+    <div class="flex items-center justify-between gap-4 py-3.5 pb-2.5">
+      <div class="flex items-center gap-3 min-w-0">
+        <MegaphoneIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+        <div>
+          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Announce session starts</div>
+          <div class="text-[0.6875rem] text-(--solus-text-tertiary) mt-px">
+            When a session starts from an open task, mark the ticket In Progress
+            and post a "started in Solus" comment so teammates see it picked up.
+          </div>
+        </div>
+      </div>
+      <input
+        type="checkbox"
+        class="size-4 shrink-0 cursor-pointer accent-(--solus-accent)"
+        aria-label="Announce session starts on the task"
+        checked={taskWriteBack}
+        onchange={(e) => onWriteBackChange(e.currentTarget.checked)}
+      />
     </div>
   </section>
 

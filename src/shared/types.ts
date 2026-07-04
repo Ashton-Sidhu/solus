@@ -295,9 +295,12 @@ export interface SessionProgress {
 
 export interface PlanComment {
   id: string
+  /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
   selectedText: string
   comment: string
   textOffset?: number
+  /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
+  nodeId?: string
 }
 
 export interface DiffComment {
@@ -1312,6 +1315,7 @@ export interface DeviceCodePrompt {
 
 export * from './git-types'
 export * from './run-types'
+export * from './merge-queue-types'
 
 // IPC channel constants moved to `shared/rpc.ts` (RPC_INVOKE_METHODS,
 // RPC_SEND_METHODS, RPC_TOPICS). Both transports — Electron IPC and the

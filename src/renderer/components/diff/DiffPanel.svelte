@@ -352,6 +352,32 @@
     allCollapsed = !allCollapsed;
     streamRef?.setAllCollapsed(allCollapsed);
   }
+  // ── External navigation (guide file chips, activity threads, pending tray).
+  // The stream may not be live yet — the Diff tab mounts lazily and the diff
+  // loads async — so the request is buffered and replayed once it is.
+  let pendingNavigate: { path: string; line?: number; side: "old" | "new" } | null =
+    $state(null);
+
+  export function navigateTo(
+    path: string,
+    line?: number,
+    side: "old" | "new" = "new",
+  ) {
+    pendingNavigate = { path, line, side };
+  }
+
+  $effect(() => {
+    const nav = pendingNavigate;
+    const stream = streamRef;
+    if (!nav || !stream || !diff) return;
+    pendingNavigate = null;
+    void tick().then(() => {
+      stream.ensureExpanded(nav.path);
+      if (nav.line != null) stream.scrollToLine(nav.path, nav.line, nav.side);
+      else stream.scrollToFile(nav.path);
+    });
+  });
+
   function openFileInEditor(path: string) {
     const fileRoot = worktreePath ?? projectPath;
     openInConfiguredEditor(session.ctxFor(tabId), {

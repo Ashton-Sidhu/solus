@@ -24,6 +24,7 @@ import { setSessionCreator } from '../sessions/session-tools'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
+import { registerMergeQueueHandlers } from './handlers/merge-queue-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
 import { registerRunHandlers } from './handlers/run-handlers'
@@ -161,6 +162,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerTasksHandlers(server)
   registerGoogleHandlers(server)
   registerProviderHandlers(server)
+  registerMergeQueueHandlers(server)
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
 

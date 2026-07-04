@@ -1,10 +1,18 @@
 import { createContext } from 'svelte'
-import type { GitProjectStatus } from '../../shared/types'
+import type { GitProjectStatus, IpcContext, WorktreeEntry } from '../../shared/types'
+
+export interface GitProjectRefs {
+  branches: string[]
+  worktrees: WorktreeEntry[]
+}
 
 export class GitStatusStore {
   byCwd = $state<Record<string, GitProjectStatus | null>>({})
+  refsByRoot = $state<Record<string, GitProjectRefs>>({})
   private inflight = new Map<string, Promise<boolean>>()
+  private refsInflight = new Map<string, Promise<boolean>>()
   private lastRefresh = new Map<string, number>()
+  private refsLastRefresh = new Map<string, number>()
 
   /** Resolves to true when the status fetch succeeded, false when it threw. */
   async refresh(cwd: string, opts: { force?: boolean } = {}): Promise<boolean> {
@@ -38,6 +46,36 @@ export class GitStatusStore {
   statusFor(cwd: string | null | undefined): GitProjectStatus | null | undefined {
     if (!cwd) return undefined
     return this.byCwd[cwd]
+  }
+
+  async refreshRefs(projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {
+    const now = Date.now()
+    const last = this.refsLastRefresh.get(projectRoot) ?? 0
+    if (!opts.force && now - last < 5_000) return true
+    const existing = this.refsInflight.get(projectRoot)
+    if (existing) return existing
+    const promise = Promise.all([
+      window.solus.worktreeListProject(ctx).catch(() => []),
+      window.solus.worktreeBranches(ctx).catch(() => []),
+    ])
+      .then(([worktrees, branches]) => {
+        this.refsByRoot[projectRoot] = { worktrees, branches }
+        this.refsLastRefresh.set(projectRoot, Date.now())
+        return true
+      })
+      .catch(() => {
+        this.refsByRoot[projectRoot] = { worktrees: [], branches: [] }
+        this.refsLastRefresh.set(projectRoot, Date.now())
+        return false
+      })
+      .finally(() => this.refsInflight.delete(projectRoot))
+    this.refsInflight.set(projectRoot, promise)
+    return promise
+  }
+
+  refsFor(projectRoot: string | null | undefined): GitProjectRefs {
+    if (!projectRoot) return { worktrees: [], branches: [] }
+    return this.refsByRoot[projectRoot] ?? { worktrees: [], branches: [] }
   }
 }
 

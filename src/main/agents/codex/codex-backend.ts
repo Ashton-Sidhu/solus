@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { BaseAgentBackend } from '../base-backend'
-import { getCodexAppServerClient } from './codex-agent'
+import { getCodexAppServerClient, isHeadlessCodexThread } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { loadAllAnnotations } from '../../plans/annotations'
@@ -55,7 +55,6 @@ import {
   latestCodexUpdatePlanMessageFromJsonl,
   planFromCompletedItem,
   planTextFromPlanUpdated,
-  sandboxFor,
   sandboxPolicyFor,
   scanCodexPlans,
   scanCodexThreadActivityTimestamp,
@@ -67,15 +66,45 @@ import {
 } from './codex-utils'
 import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
-import { WORK_TOOL_JSON_SCHEMAS, WORK_TOOL_NAMES, WORK_MUTATING_TOOLS, executeWorkTool } from '../../folio/work-tools'
-import { AUTOMATION_TOOL_JSON_SCHEMAS, AUTOMATION_TOOL_NAMES, AUTOMATION_MUTATING_TOOLS, executeAutomationTool } from '../../automations/automation-tools'
-import { SESSION_TOOL_JSON_SCHEMAS, SESSION_TOOL_NAMES, executeSessionTool } from '../../sessions/session-tools'
-import { TASK_TOOL_JSON_SCHEMAS, TASK_TOOL_NAMES, TASK_MUTATING_TOOLS, executeTaskTool } from '../../tasks/task-tools'
-import { ARTIFACT_TOOL_JSON_SCHEMA, ARTIFACT_TOOL_NAME, executeArtifactTool } from '../../folio/artifact-tools'
-import { RECORD_CHANGE_TOOL_JSON_SCHEMA, RECORD_CHANGE_TOOL_NAME, recordChange } from '../../review/ledger-tool'
+import {
+  classifyCodexSolusTool,
+  executeCodexSolusTool,
+  codexSolusToolSchemas,
+  bareToolName,
+  type CodexSolusToolCtx,
+  type CodexSolusToolKind,
+} from './codex-solus-tools'
 import { executeCodexReviewGuideTool, SUBMIT_REVIEW_GUIDE_TOOL_NAME } from '../../review/review-guide-tool'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
+
+// Per-kind copy for the permission UI when a mutating solus tool gates. Only the
+// mutating kinds (work/automation/task) reach these paths; the rest are covered
+// for exhaustiveness.
+const SOLUS_TOOL_DECLINE_TEXT: Record<CodexSolusToolKind, string> = {
+  work: 'The user declined this update.',
+  automation: 'The user declined this automation action.',
+  task: 'The user declined this task action.',
+  session: 'The user declined this action.',
+  artifact: 'The user declined this action.',
+  record_change: 'The user declined this action.',
+}
+const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
+  work: 'Cannot modify works in plan mode. Exit plan mode to apply changes.',
+  automation: 'Cannot modify automations in plan mode. Exit plan mode to apply changes.',
+  task: 'Cannot change task status in plan mode. Exit plan mode to apply changes.',
+  session: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
+  artifact: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
+  record_change: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
+}
+const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
+  work: 'Update a work the user has open',
+  automation: 'Create, modify, or run an automation',
+  task: "Update a task's status",
+  session: 'Create a session',
+  artifact: 'Render an artifact',
+  record_change: 'Record a change',
+}
 
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
 
@@ -264,7 +293,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         model,
         cwd: runInput.workingDirectory,
         approvalPolicy: approvalPolicyFor(runInput.permissionMode),
-        sandbox: sandboxFor(runInput.permissionMode),
         baseInstructions: options.systemPrompt ?? null,
         developerInstructions,
         experimentalRawEvents: false,
@@ -274,7 +302,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // capability — include them unless a prior start rejected them.
       const toolsConfig = this.dynamicToolsUnavailable
         ? threadConfig
-        : { ...threadConfig, dynamicTools: [...WORK_TOOL_JSON_SCHEMAS, ...AUTOMATION_TOOL_JSON_SCHEMAS, ...SESSION_TOOL_JSON_SCHEMAS, ...TASK_TOOL_JSON_SCHEMAS, ARTIFACT_TOOL_JSON_SCHEMA, RECORD_CHANGE_TOOL_JSON_SCHEMA] }
+        : { ...threadConfig, dynamicTools: codexSolusToolSchemas({ includeAutomationTools: true }) }
 
       const reasoningEffort = runInput.reasoningEffort ?? 'high'
 
@@ -322,7 +350,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         input,
         cwd: runInput.workingDirectory,
         approvalPolicy: approvalPolicyFor(runInput.permissionMode),
-        sandboxPolicy: sandboxPolicyFor(runInput.permissionMode, runInput.workingDirectory, runInput.additionalDirs),
+        sandboxPolicy: sandboxPolicyFor(runInput.permissionMode),
         model,
         reasoning_effort: reasoningEffort,
         collaborationMode: { mode: isPlanMode ? 'plan' : 'default', settings: {
@@ -731,6 +759,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     }
 
+    // A headless one-shot (automation/review run) owns its own thread's tool
+    // calls and responds to them directly on the shared client — skip so the two
+    // server-request listeners never both respond to the same request.
+    if (isHeadlessCodexThread(params?.threadId)) return
+
     const sessionId = this.sessionIdFor(params)
     this.logRawProviderMessage('server-request', msg, sessionId, params)
     if (!sessionId) {
@@ -760,73 +793,48 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return (rawArgs && typeof rawArgs === 'object') ? rawArgs as Record<string, unknown> : {}
       }
 
-      // render_artifact runs immediately (like reads) — no permission gate.
-      if (toolName === ARTIFACT_TOOL_NAME || toolName.endsWith(`.${ARTIFACT_TOOL_NAME}`)) {
-        void (async () => {
-          const result = await executeArtifactTool(parseToolArgs(), {
-            onArtifact: (artifact) => {
-              this.emit('normalized', sessionId, {
-                type: 'artifact_created',
-                kind: 'html',
-                html: artifact.html,
-              })
-            },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        })()
-        return
-      }
-
-      // record_change writes the branch review ledger — benign (only touches
-      // .solus/), so it runs immediately with no permission gate, like reads.
-      if (toolName === RECORD_CHANGE_TOOL_NAME || toolName.endsWith(`.${RECORD_CHANGE_TOOL_NAME}`)) {
-        void (async () => {
-          const result = await recordChange(parseToolArgs(), {
-            cwd: handle?.cwd ?? '~',
-            sessionId: () => sessionId,
-            now: () => new Date().toISOString(),
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        })()
-        return
-      }
-
-      if (WORK_TOOL_NAMES.has(toolName)) {
+      // All solus dynamic tools (works, tasks, automations, sessions, artifacts,
+      // review ledger) dispatch through the shared executor. This backend keeps
+      // the interactive concerns: gating mutating tools per permission mode and
+      // emitting cards; the shared module owns the routing + execution.
+      const cls = classifyCodexSolusTool(toolName)
+      if (cls) {
         const args = parseToolArgs()
+        const ctx: CodexSolusToolCtx = {
+          cwd: handle?.cwd ?? '~',
+          sessionId,
+          agentProvider: 'codex',
+          onWorkCreated: (work) => this.emit('normalized', sessionId, {
+            type: 'work_created', workId: work.workId, title: work.title, docType: work.docType, content: work.content,
+          }),
+          onWorkUpdated: (work) => this.emit('normalized', sessionId, {
+            type: 'work_updated', workId: work.workId, title: work.title, docType: work.docType, content: work.content, updatedAt: work.updatedAt,
+          }),
+          onArtifact: (artifact) => this.emit('normalized', sessionId, {
+            type: 'artifact_created', kind: 'html', html: artifact.html,
+          }),
+          onAutomationSaved: (automation) => this.emit('normalized', sessionId, {
+            type: 'automation_saved', automationId: automation.id, name: automation.name, trigger: automation.trigger, enabled: automation.enabled,
+          }),
+          onSessionCreated: (created) => this.emit('normalized', sessionId, {
+            type: 'session_created', agentSessionId: created.agentSessionId, title: created.title, provider: created.provider, cwd: created.cwd,
+          }),
+        }
 
         const respondWithResult = async (approved: boolean) => {
           if (!approved) {
-            respondWithWorkToolText('The user declined this update.', false)
+            respondWithWorkToolText(SOLUS_TOOL_DECLINE_TEXT[cls.kind], false)
             return
           }
-          const result = await executeWorkTool(toolName, args, {
-            onWorkUpdated: (work) => {
-              this.emit('normalized', sessionId, {
-                type: 'work_updated',
-                workId: work.workId,
-                title: work.title,
-                docType: work.docType,
-                content: work.content,
-                updatedAt: work.updatedAt,
-              })
-            },
-            onWorkCreated: (work) => {
-              this.emit('normalized', sessionId, {
-                type: 'work_created',
-                workId: work.workId,
-                title: work.title,
-                docType: work.docType,
-                content: work.content,
-              })
-            },
-            ctx: { sessionId, agentProvider: 'codex', cwd: handle?.cwd ?? '~' },
-          })
+          const result = await executeCodexSolusTool(toolName, args, ctx)
           respondWithWorkToolText(result.text, result.ok)
         }
 
-        if (!WORK_MUTATING_TOOLS.has(toolName)) { void respondWithResult(true); return }
+        // Pre-approved (reads, create_work, create_session, artifact, ledger) run
+        // immediately; mutating tools gate on the permission mode.
+        if (!cls.mutating) { void respondWithResult(true); return }
         if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText('Cannot modify works in plan mode. Exit plan mode to apply changes.', false)
+          respondWithWorkToolText(SOLUS_TOOL_PLAN_BLOCK_TEXT[cls.kind], false)
           return
         }
         if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
@@ -837,123 +845,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         this.emit('normalized', sessionId, {
           type: 'permission_request',
           questionId,
-          toolName: 'update_work',
-          toolDescription: 'Update a work the user has open',
+          toolName: cls.kind === 'work' ? 'update_work' : bareToolName(toolName),
+          toolDescription: SOLUS_TOOL_GATE_DESC[cls.kind],
           toolInput: args,
           options: [
             { id: 'accept', label: 'Allow', kind: 'allow' },
             { id: 'decline', label: 'Deny', kind: 'deny' },
           ],
         })
-        return
-      }
-
-      if (AUTOMATION_TOOL_NAMES.has(toolName)) {
-        const args = parseToolArgs()
-
-        const respondWithResult = async (approved: boolean) => {
-          if (!approved) {
-            respondWithWorkToolText('The user declined this automation action.', false)
-            return
-          }
-          const result = await executeAutomationTool(toolName, args, {
-            ctx: { agentProvider: 'codex', cwd: handle?.cwd ?? '~', sessionId },
-            onAutomationSaved: (automation) => {
-              this.emit('normalized', sessionId, {
-                type: 'automation_saved',
-                automationId: automation.id,
-                name: automation.name,
-                trigger: automation.trigger,
-                enabled: automation.enabled,
-              })
-            },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        }
-
-        // Read-only automation tools run immediately; mutating/triggering ones gate.
-        if (!AUTOMATION_MUTATING_TOOLS.has(toolName)) { void respondWithResult(true); return }
-        if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText('Cannot modify automations in plan mode. Exit plan mode to apply changes.', false)
-          return
-        }
-        if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
-
-        if (handle) handle.sawPermissionRequest = true
-        const questionId = `codex-${String(msg.id)}`
-        ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
-        this.emit('normalized', sessionId, {
-          type: 'permission_request',
-          questionId,
-          toolName,
-          toolDescription: 'Create, modify, or run an automation',
-          toolInput: args,
-          options: [
-            { id: 'accept', label: 'Allow', kind: 'allow' },
-            { id: 'decline', label: 'Deny', kind: 'deny' },
-          ],
-        })
-        return
-      }
-
-      if (TASK_TOOL_NAMES.has(toolName)) {
-        const args = parseToolArgs()
-
-        const respondWithResult = async (approved: boolean) => {
-          if (!approved) {
-            respondWithWorkToolText('The user declined this task action.', false)
-            return
-          }
-          const result = await executeTaskTool(toolName, args, {
-            ctx: { cwd: handle?.cwd ?? '~' },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        }
-
-        // get_task runs immediately; update_task_status gates like other writes.
-        if (!TASK_MUTATING_TOOLS.has(toolName)) { void respondWithResult(true); return }
-        if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText('Cannot change task status in plan mode. Exit plan mode to apply changes.', false)
-          return
-        }
-        if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
-
-        if (handle) handle.sawPermissionRequest = true
-        const questionId = `codex-${String(msg.id)}`
-        ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
-        this.emit('normalized', sessionId, {
-          type: 'permission_request',
-          questionId,
-          toolName,
-          toolDescription: 'Update a task\'s status',
-          toolInput: args,
-          options: [
-            { id: 'accept', label: 'Allow', kind: 'allow' },
-            { id: 'decline', label: 'Deny', kind: 'deny' },
-          ],
-        })
-        return
-      }
-
-      // create_session is pre-approved (no permission gate) — spawning a session
-      // is a first-class agent action, like create_work above.
-      if (SESSION_TOOL_NAMES.has(toolName)) {
-        const args = parseToolArgs()
-        void (async () => {
-          const result = await executeSessionTool(toolName, args, {
-            ctx: { agentProvider: 'codex', cwd: handle?.cwd ?? '~', sessionId },
-            onSessionCreated: (created) => {
-              this.emit('normalized', sessionId, {
-                type: 'session_created',
-                agentSessionId: created.agentSessionId,
-                title: created.title,
-                provider: created.provider,
-                cwd: created.cwd,
-              })
-            },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        })()
         return
       }
 

@@ -119,9 +119,19 @@ async function produceGuide(
   // to review" and to validate coverage.
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   const base = target.base
-  const diff = await getEpisodeDiff(workTree, review.repoRoot, base).catch(() => null)
-  const patch = diff?.patch?.trim() ?? ''
   const headSha = getHeadCommit(workTree) ?? review.baseSha
+
+  // A diff *failure* (unreachable base after a rebase, oversized patch) is not
+  // an *empty* diff — surface it as a retryable fallback, never as "nothing to
+  // review", and never cache it.
+  let patch: string
+  try {
+    const diff = await getEpisodeDiff(workTree, review.repoRoot, base)
+    patch = diff?.patch?.trim() ?? ''
+  } catch (err) {
+    log.warn(`episode diff failed for ${target.guideKey}: ${String(err)}`)
+    return { key: target.guideKey, guide: fallbackGuide(target.guideKey, headSha, base, DIFF_FAILED) }
+  }
 
   // Ledger is optional enrichment. The branch ledger is shared across sessions, so
   // a session walkthrough filters it to the records this session authored.
@@ -136,18 +146,27 @@ async function produceGuide(
     ? await runReviewAgent({ workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, onProgress: emit })
     : null
 
-  const guide: ReviewGuide = draft
-    ? {
-        version: 1,
-        key: target.guideKey,
-        headSha,
-        baseSha: base,
-        ...normalizeGuide(draft, {
-          changedFiles: changedFilesFromPatch(patch),
-          ledgerIds: (ledger?.records ?? []).map((r) => r.id),
-        }),
-      }
-    : fallbackGuide(target.guideKey, headSha, base, patch ? AGENT_FAILED : NOTHING_TO_REVIEW)
+  // Only a real guide is cached. Fallbacks (empty branch, agent failure) are
+  // returned for display but never persisted — a cached "no changes" / "retry"
+  // guide would keep shadowing the branch after it gains real changes, since
+  // readers prefer the cache.
+  if (!draft) {
+    return {
+      key: target.guideKey,
+      guide: fallbackGuide(target.guideKey, headSha, base, patch ? AGENT_FAILED : NOTHING_TO_REVIEW),
+    }
+  }
+
+  const guide: ReviewGuide = {
+    version: 1,
+    key: target.guideKey,
+    headSha,
+    baseSha: base,
+    ...normalizeGuide(draft, {
+      changedFiles: changedFilesFromPatch(patch),
+      ledgerIds: (ledger?.records ?? []).map((r) => r.id),
+    }),
+  }
 
   const ok = await writeGuide(review.repoRoot, guide)
   if (!ok) log.warn(`failed to cache review guide for ${target.guideKey}`)
@@ -156,6 +175,7 @@ async function produceGuide(
 
 const NOTHING_TO_REVIEW = 'No changes to review on this branch yet.'
 const AGENT_FAILED = "The review agent didn't return a guide. Regenerate to retry."
+const DIFF_FAILED = "Couldn't compute the diff for this change. Regenerate to retry."
 
 /** Minimal guide for the empty / agent-failed cases, so the renderer always has
  *  a well-formed `ReviewGuide` to show. */

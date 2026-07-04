@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { ELECTRON_RPC_CHANNEL, ELECTRON_RPC_SEND_CHANNEL, ELECTRON_EVENT_CHANNEL, RPC_INVOKE_METHODS, RPC_SEND_METHODS } from '../shared/rpc'
 import type { RpcInvokeMethod, RpcSendMethod, RpcEventEnvelope, RpcTopic } from '../shared/rpc'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState } from '../shared/types'
 import type { PrFilter, PrReviewer, PullRequestSummary, PullRequestDetail, PullRequestOverview, ReviewThread, ReviewComment, PrCommit, DraftReview } from '../shared/providers'
-import type { Task, TaskSessionLink } from '../shared/task-types'
+import type { Task, TaskListResult, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/claude-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent } from '../shared/review'
 
@@ -104,6 +104,14 @@ export interface SolusAPI {
   prResolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
   prUnresolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
 
+  // Merge queue
+  mergeQueueStart(ctx: IpcContext, items: MergeQueueStartItem[], options: MergeQueueStartOptions): Promise<MergeQueueStartResult>
+  /** Snapshot of the active queue, for late-joining renderers; null when idle. */
+  mergeQueueState(ctx: IpcContext): Promise<MergeQueueState | null>
+  mergeQueueSkip(ctx: IpcContext): Promise<void>
+  mergeQueueCancel(ctx: IpcContext): Promise<void>
+  onMergeQueueUpdate(callback: (state: MergeQueueState) => void): () => void
+
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
@@ -128,7 +136,7 @@ export interface SolusAPI {
   setWorkPinned(id: string, pinned: boolean, cwd?: string): Promise<void>
   getPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
 
-  tasksList(cwd: string, opts?: { query?: string; assignedToMe?: boolean }): Promise<Task[]>
+  tasksList(cwd: string, opts?: { assignedToMe?: boolean }): Promise<TaskListResult>
   tasksGet(cwd: string, id: string): Promise<Task>
   tasksCreate(cwd: string, input: Partial<Task>): Promise<Task>
   tasksUpdate(cwd: string, id: string, patch: Partial<Task>): Promise<Task>
@@ -136,6 +144,9 @@ export interface SolusAPI {
   tasksComment(cwd: string, id: string, body: string): Promise<Task>
   tasksLinkSession(cwd: string, taskId: string, sessionId: string): Promise<void>
   tasksSessions(cwd: string): Promise<Record<string, TaskSessionLink[]>>
+  /** Fires with the project cwd whenever any path (renderer, agent tool, session
+   *  write-back) mutates that project's tasks. */
+  onTasksChanged(callback: (cwd: string) => void): () => void
 
   automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>
@@ -256,6 +267,8 @@ const eventBindings: Record<string, RpcTopic> = {
   onRunLog: 'run-log',
   onAutomationsChanged: 'automations-changed',
   onProviderDeviceCode: 'provider-device-code',
+  onMergeQueueUpdate: 'merge-queue-update',
+  onTasksChanged: 'tasks-changed',
 }
 
 // Build the SolusAPI surface as a plain object. `Proxy` would also work, but

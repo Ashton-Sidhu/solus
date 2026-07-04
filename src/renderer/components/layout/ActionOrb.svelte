@@ -106,6 +106,13 @@
   let reviewGuideKey = $state<string | null>(null);
   let reviewPopoverOpen = $state(false);
   let reviewCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  // Fingerprint of the change set the current "done" guide covered. When the
+  // session keeps editing past it, drop back to "Review" instead of latching
+  // "View Review" on a walkthrough of an older change.
+  let reviewSnapshot = $state<string | null>(null);
+  const changesFingerprint = $derived(
+    changedFiles.map((f) => `${f.path}:${f.additions}:${f.deletions}`).join("|"),
+  );
 
   $effect(() => {
     if (!hasChangedFiles || tabId !== session.activeTabId) return;
@@ -116,11 +123,24 @@
       if (!rc) return;
       const key = sid ? `${rc.key}__session-${sid}` : rc.key;
       const cached = await window.solus.readGuide(ctx, key);
+      // A cached guide from an older HEAD is stale — leave the orb on "Review"
+      // so clicking generates a fresh walkthrough.
+      if (cached && cached.headSha && cached.headSha !== rc.headSha) return;
       if (cached && reviewStatus === "idle") {
         reviewGuideKey = key;
+        reviewSnapshot = changesFingerprint;
         reviewStatus = "done";
       }
     });
+  });
+
+  $effect(() => {
+    if (reviewStatus !== "done" || reviewSnapshot === null) return;
+    if (changesFingerprint !== reviewSnapshot) {
+      reviewStatus = "idle";
+      reviewGuideKey = null;
+      reviewSnapshot = null;
+    }
   });
 
   const reviewStepIndex = (step: ReviewProgressStep) =>
@@ -361,7 +381,11 @@
     reviewStatus = "generating";
     reviewProgressStep = "preparing";
 
+    // Progress events broadcast to every subscriber; only track this session's
+    // generation so a concurrent branch/other-tab run can't drive our steps.
+    const sid = sess?.agentSessionId;
     const unsubscribe = window.solus.onReviewProgress((event) => {
+      if (sid && !event.key.endsWith(`__session-${sid}`)) return;
       reviewProgressStep = event.step;
     });
 
@@ -374,6 +398,7 @@
         gen?.key ??
         (await window.solus.getReviewContext(session.ctxFor(tabId)))?.key ??
         null;
+      reviewSnapshot = changesFingerprint;
       reviewStatus = "done";
     } catch {
       reviewStatus = "idle";

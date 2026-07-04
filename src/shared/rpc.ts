@@ -162,6 +162,12 @@ export const RPC_INVOKE_METHODS = [
   'prResolveThread',
   'prUnresolveThread',
 
+  // Merge queue (sequentially merge queued PRs, pausing on conflicts)
+  'mergeQueueStart',
+  'mergeQueueState',
+  'mergeQueueSkip',
+  'mergeQueueCancel',
+
   // Review guide (agent code-review ledger + guided walkthrough)
   'readLedger',
   'writeLedger',
@@ -220,6 +226,8 @@ export const RPC_TOPICS = [
   'automations-changed',
   'provider-device-code',
   'review-progress',
+  'merge-queue-update',
+  'tasks-changed',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]
