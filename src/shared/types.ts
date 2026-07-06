@@ -13,33 +13,13 @@ export const AGENT_BIN: Record<AgentId, string> = {
 
 // ─── Shared primitive types used by NormalizedEvent and multiple layers ───
 
-export interface ContentBlock {
-  type: 'text' | 'tool_use'
-  text?: string
-  id?: string
-  name?: string
-  input?: Record<string, unknown>
-}
-
-export type ContentDelta =
-  | { type: 'text_delta'; text: string }
-  | { type: 'input_json_delta'; partial_json: string }
-
-export interface AssistantMessagePayload {
-  model: string
-  id: string
-  role: 'assistant'
-  content: ContentBlock[]
-  stop_reason: string | null
-  usage: UsageData
-}
-
 export interface UsageData {
-  input_tokens?: number
-  output_tokens?: number
-  cache_read_input_tokens?: number
-  cache_creation_input_tokens?: number
-  reasoning_output_tokens?: number
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  reasoningTokens?: number
+  contextWindowTokens?: number
 }
 
 /** A selectable response for a permission or plan prompt (main→renderer form). */
@@ -223,10 +203,7 @@ export interface Session {
   sessionUsage: UsageData | null
   latestCheckpointId: string | null
   sessionModel: string | null
-  sessionTools: string[]
-  sessionMcpServers: Array<{ name: string; status: string }>
   sessionSkills: string[]
-  sessionVersion: string | null
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
   /** Live inline progress card for the current multi-step action (worktree
@@ -364,8 +341,6 @@ export interface Message {
    *  (tool calls + assistant text) diverted out of the main thread by
    *  `parentToolUseId`. Presence === "render this tool as a sub-agent card." */
   subMessages?: Message[]
-  /** Live streaming text buffer for the sub-agent's current assistant block. */
-  subStreamText?: string
   /** Resolved `subagent_type` from the Agent tool input, for the card's chip. */
   subagentType?: string
   timestamp: number
@@ -381,10 +356,13 @@ export interface Message {
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
+  /** Reference to a task the agent created in this thread, rendered as a card
+   *  that opens the task board focused on the new task. */
+  taskRef?: { taskId: string; title: string; url: string | null }
   /** Reference to a session the agent spawned via create_session, rendered as a
    *  card that opens the new session in a tab. Live-only (not persisted to the
    *  transcript), so it's lost on a history reload. */
-  sessionRef?: { agentSessionId: string; title: string; provider: AgentId; cwd: string }
+  sessionRef?: { agentSessionId: string; title: string; provider: AgentId; cwd: string; verb?: 'Started' | 'Prompted' | 'Stopped' }
   /** Attachments submitted with this user message (name + preview dataUrl) */
   attachments?: Array<{ name: string; dataUrl?: string; mimeType?: string; type?: 'image' | 'file' | 'design-selection' }>
   /** Plan references attached via # autocomplete */
@@ -453,6 +431,8 @@ export interface PlanMessageRef {
   id?: string;
   title?: string;
   content?: string;
+  timestamp?: number;
+  updatedAt?: string;
   /** Only set when kind === 'document' — distinguishes diagram from doc/slides */
   workType?: 'doc' | 'slides' | 'diagram';
   /** True while a create_work tool call is still streaming content into the card. */
@@ -557,7 +537,6 @@ export interface RunResult {
   totalCostUsd: number
   durationMs: number
   numTurns: number
-  usage: UsageData
   sessionId: string
 }
 
@@ -588,13 +567,13 @@ export interface StatusCardState {
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
-  | { type: 'session_init'; sessionId: string; tools: string[]; model: string; mcpServers: Array<{ name: string; status: string }>; skills: string[]; version: string }
+  | { type: 'session_init'; sessionId: string; model: string; skills: string[] }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string }
-  | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string }
-  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; toolInputDelta?: boolean; content?: string; parentToolUseId?: string }
-  | { type: 'tool_call_complete'; index: number; toolId?: string; parentToolUseId?: string }
+  | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string }
+  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
+  | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string }
-  | { type: 'task_update'; message: AssistantMessagePayload; parentToolUseId?: string }
+  | { type: 'assistant_message'; text: string; parentToolUseId?: string }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   | { type: 'background_task_started'; taskId: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed' }
@@ -602,6 +581,7 @@ export type NormalizedEvent =
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string }
   | { type: 'usage'; usage: UsageData; sessionUsage?: UsageData }
+  | { type: 'changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[] }
   | { type: 'permission_resolved'; questionId: string }
   | { type: 'question_request'; questionId: string; questions: QuestionItem[] }
@@ -624,7 +604,10 @@ export type NormalizedEvent =
   | { type: 'work_updated'; workId: string; title: string; docType: 'doc' | 'slides' | 'diagram'; content: string; updatedAt: string }
   | { type: 'artifact_created'; kind: 'html' | 'image'; html?: string; path?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
+  | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'session_created'; agentSessionId: string; title: string; provider: AgentId; cwd: string }
+  | { type: 'session_prompted'; agentSessionId: string; promptPreview: string; provider: AgentId; cwd: string }
+  | { type: 'session_stopped'; agentSessionId: string; provider: AgentId; cwd: string }
   | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
@@ -703,6 +686,8 @@ export interface SettingsCtx {
   codeFontSize: number
   /** App-wide instructions appended to every agent system prompt. */
   extraInstructions: string
+  /** Extra instructions keyed by resolved model id, appended when that model runs. */
+  modelInstructions: Record<string, string>
 }
 
 export interface StatusBarCtx {
@@ -763,6 +748,8 @@ export interface SessionRunInput {
   rateLimitBehavior: SettingsCtx['rateLimitBehavior']
   /** App-wide instructions appended to every agent system prompt. */
   extraInstructions: string
+  /** Extra instructions scoped to the model in use, resolved from settings.modelInstructions at dispatch time. */
+  modelInstructions?: string
   /** PR review context — when set, the backend appends a PR-context system hint. */
   prReview?: PrReviewContext | null
 }

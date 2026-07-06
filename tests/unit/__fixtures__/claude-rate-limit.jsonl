@@ -1,0 +1,1 @@
+{"type":"rate_limit_event","session_id":"claude-session-1","uuid":"rate-limit-1","rate_limit_info":{"status":"limited","resetsAt":1767225900,"rateLimitType":"Claude","isUsingOverage":false}}

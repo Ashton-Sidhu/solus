@@ -47,6 +47,7 @@ export type SettingsFields = {
   codeFontFamily: AppCodeFontFamily
   codeFontSize: number
   extraInstructions: string
+  modelInstructions: Record<string, string>
   keybindings: Record<string, KeyCombo>
   analyticsEnabled: boolean
   projectPanelOpen: boolean
@@ -169,6 +170,18 @@ function sanitizeKeybindings(value: unknown): Record<string, KeyCombo> {
   return out
 }
 
+/**
+ * Drop non-string values so a hand-edited/stale blob can't break dispatch.
+ */
+function loadModelInstructions(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!value || typeof value !== 'object') return out
+  for (const [id, text] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof text === 'string') out[id] = text
+  }
+  return out
+}
+
 function loadProjectPanelCollapsed(value: unknown): Record<ProjectPanelSectionId, boolean> {
   const collapsed = { ...DEFAULT_PROJECT_PANEL_COLLAPSED }
   if (!value || typeof value !== 'object') return collapsed
@@ -202,6 +215,7 @@ function loadSettings(): SettingsFields {
         codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'sf-mono',
         codeFontSize: typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 8 ? parsed.codeFontSize : DEFAULT_CODE_FONT_SIZE,
         extraInstructions: typeof parsed.extraInstructions === 'string' ? parsed.extraInstructions : '',
+        modelInstructions: loadModelInstructions(parsed.modelInstructions),
         keybindings: sanitizeKeybindings(parsed.keybindings),
         analyticsEnabled: typeof parsed.analyticsEnabled === 'boolean' ? parsed.analyticsEnabled : true,
         projectPanelOpen: typeof parsed.projectPanelOpen === 'boolean' ? parsed.projectPanelOpen : false,
@@ -230,6 +244,7 @@ function loadSettings(): SettingsFields {
     codeFontFamily: 'sf-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
     extraInstructions: '',
+    modelInstructions: {},
     keybindings: {},
     analyticsEnabled: true,
     projectPanelOpen: false,
@@ -258,6 +273,7 @@ export class SettingsContext {
   codeFontFamily = $state<AppCodeFontFamily>('sf-mono')
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
   extraInstructions = $state('')
+  modelInstructions = $state<Record<string, string>>({})
   keybindings = $state<Record<string, KeyCombo>>({})
   analyticsEnabled = $state(true)
   projectPanelOpen = $state(false)
@@ -286,6 +302,7 @@ export class SettingsContext {
     this.codeFontFamily = saved.codeFontFamily
     this.codeFontSize = saved.codeFontSize
     this.extraInstructions = saved.extraInstructions
+    this.modelInstructions = saved.modelInstructions
     this.keybindings = saved.keybindings
     this.analyticsEnabled = saved.analyticsEnabled
     this.projectPanelOpen = saved.projectPanelOpen
@@ -323,6 +340,10 @@ export class SettingsContext {
       codeFontFamily: this.codeFontFamily,
       codeFontSize: this.codeFontSize,
       extraInstructions: this.extraInstructions,
+      // Plain-object snapshot: modelInstructions is a $state proxy and proxies
+      // aren't structured-cloneable, so passing it raw breaks every IPC call
+      // that embeds this ctx (e.g. sending a prompt).
+      modelInstructions: $state.snapshot(this.modelInstructions),
     }
   }
 
@@ -360,6 +381,7 @@ export class SettingsContext {
       applyCodeFontSize(this.codeFontSize)
     }
     if (patch.extraInstructions !== undefined) this.extraInstructions = patch.extraInstructions
+    if (patch.modelInstructions !== undefined) this.modelInstructions = patch.modelInstructions
     if (patch.keybindings !== undefined) this.keybindings = patch.keybindings
     if (patch.analyticsEnabled !== undefined) {
       this.analyticsEnabled = patch.analyticsEnabled
@@ -401,6 +423,7 @@ export class SettingsContext {
         codeFontFamily: this.codeFontFamily,
         codeFontSize: this.codeFontSize,
         extraInstructions: this.extraInstructions,
+        modelInstructions: this.modelInstructions,
         keybindings: this.keybindings,
         analyticsEnabled: this.analyticsEnabled,
         projectPanelOpen: this.projectPanelOpen,

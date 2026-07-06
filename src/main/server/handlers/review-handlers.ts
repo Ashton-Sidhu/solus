@@ -2,7 +2,7 @@ import type { SolusServer } from '../server'
 import type { IpcContext } from '../../../shared/types'
 import type { ReviewLedger, ReviewState } from '../../../shared/review'
 import { readGuideByKey, readLedger, writeLedger, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/ledger'
-import { generateGuide, type GenerateGuideOptions } from '../../review/guide-producer'
+import { cancelGenerateGuide, generateGuide, type GenerateGuideOptions } from '../../review/guide-producer'
 import { readReviewState, writeReviewState } from '../../review/review-state'
 
 export function registerReviewHandlers(server: SolusServer): void {
@@ -26,6 +26,11 @@ export function registerReviewHandlers(server: SolusServer): void {
   server.register('generateGuide', async (args) => {
     const [ctx, opts] = args as [IpcContext, GenerateGuideOptions | undefined]
     return generateGuide(ctx, opts, (event) => server.broadcast('review-progress', event))
+  })
+
+  server.register('cancelGenerateGuide', async (args) => {
+    const [ctx, opts] = args as [IpcContext, Pick<GenerateGuideOptions, 'scope'> | undefined]
+    return cancelGenerateGuide(ctx, opts)
   })
 
   server.register('readGuide', async (args) => {

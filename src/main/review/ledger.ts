@@ -110,7 +110,7 @@ export async function resolveReviewContext(
   const repoRoot = worktreeProjectRoot(checkoutRoot)
   const branch = getWorkingBranch(cwd)
   if (!branch) return null
-  const targetBranch = getDefaultBranch(cwd)
+  const targetBranch = await getDefaultBranch(cwd)
   const baseSha = await resolveBaseSha(cwd, repoRoot, branch, targetBranch, sessionId ?? null)
 
   const onDefault = branch === targetBranch

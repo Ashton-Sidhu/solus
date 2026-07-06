@@ -23,6 +23,7 @@
   import CommandPalette from "./components/command-palette/CommandPalette.svelte";
   import type { Command } from "./components/command-palette/lib/commands";
   import TaskComposer from "./components/tasks/TaskComposer.svelte";
+  import { projectsStore } from "./contexts/projects.store.svelte";
   import { toasts } from "./contexts/toast.store.svelte";
   import EditorLayout from "./components/layout/EditorLayout.svelte";
   import PillLayout from "./components/layout/PillLayout.svelte";
@@ -30,6 +31,7 @@
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
   import type {
+    AgentId,
     DesignAnnotation as DesignAnnotationType,
     PlanDescriptor,
     ProjectEntry,
@@ -44,6 +46,11 @@
     flushDrafts,
     type PersistedTabs,
   } from "./contexts/tab-persistence";
+  import {
+    writeActiveSessionPointer,
+    readActiveSessionPointer,
+    consumeSessionHandoff,
+  } from "./contexts/active-session-pointer";
   import { createAppCore } from "./contexts/app-core";
   import {
     useKeybinding,
@@ -70,9 +77,11 @@
     keybindings,
   } = createAppCore();
 
-  // Electron-only: analytics is desktop-side.
+  // Electron-only: analytics is desktop-side. appOpened fires from the pill
+  // window only — it's the boot window, so this counts once per app open even
+  // when the editor window is also up.
   initAnalytics(settings.analyticsEnabled);
-  analytics.appOpened();
+  if (windowCtx.viewMode === "pill") analytics.appOpened();
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
@@ -136,6 +145,108 @@
     };
   });
 
+  // ── Cross-window session pickup ───────────────────────────────────────────
+  // The latest session is simply the one the last message was sent in. The
+  // effect keys off lastPromptTabId (set only by a user send, so background
+  // windows never write) and that session's agentSessionId — which binds a
+  // moment after the first send, re-firing this effect once it's known.
+  $effect(() => {
+    const tabId = session.lastPromptTabId;
+    if (!tabId) return;
+    const sess = session.sessionFor(tabId);
+    const agentSessionId = sess?.agentSessionId;
+    if (!sess || !agentSessionId) return;
+    writeActiveSessionPointer({
+      sessionId: agentSessionId,
+      provider: sess.provider ?? settings.activeAgent,
+      cwd: sess.workingDirectory,
+      title: session.tabs[tabId]?.title ?? null,
+      writer: windowCtx.viewMode,
+    });
+  });
+
+  /** Focus (or attach) the session a pointer/handoff names. Reuses the resume
+   *  path, which loads history and splices the live stream if a run is going. */
+  function openSessionFromPointer(ptr: {
+    sessionId: string;
+    provider: AgentId;
+    cwd: string;
+    title: string | null;
+  }) {
+    const existingTab = session.tabOrder.find(
+      (id) => session.sessionFor(id)?.agentSessionId === ptr.sessionId,
+    );
+    if (existingTab) {
+      if (existingTab !== session.activeTabId) session.selectTab(existingTab);
+      else session.isExpanded = true;
+      return;
+    }
+    void session.resumeSession({
+      provider: ptr.provider,
+      sessionId: ptr.sessionId,
+      slug: ptr.title,
+      firstMessage: ptr.title,
+      lastTimestamp: "",
+      size: 0,
+      cwd: ptr.cwd,
+      projectPath: "",
+    });
+  }
+
+  // Pill: when summoned (hidden → visible), land on the session last touched
+  // in the editor. Visibility transitions only — clicking an already-visible
+  // pill must never yank the tab out from under the user. Each pointer stamp
+  // is handled once so pill-side tab switches aren't re-overridden later.
+  let lastHandledPointerStamp = 0;
+  $effect(() => {
+    if (isEditorMode) return;
+    const maybePickUp = () => {
+      if (document.hidden || session.hydrating) return;
+      const ptr = readActiveSessionPointer();
+      if (!ptr || ptr.writer !== "editor") return;
+      if (ptr.updatedAt <= lastHandledPointerStamp) return;
+      lastHandledPointerStamp = ptr.updatedAt;
+      openSessionFromPointer(ptr);
+    };
+    const onVisibility = () => {
+      if (!document.hidden) maybePickUp();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibility);
+  });
+
+  // Pill boot: the visibilitychange above only covers later summons; check the
+  // pointer once as soon as hydration settles for the visible-at-boot case.
+  let bootPickupDone = false;
+  $effect(() => {
+    if (isEditorMode || bootPickupDone || session.hydrating) return;
+    bootPickupDone = true;
+    if (document.hidden) return;
+    const ptr = readActiveSessionPointer();
+    if (!ptr || ptr.writer !== "editor") return;
+    lastHandledPointerStamp = ptr.updatedAt;
+    openSessionFromPointer(ptr);
+  });
+
+  // Both windows: consume a "continue in the other mode" (⌥⇧E) handoff
+  // addressed to this window's mode — one stashed before this window existed
+  // and any that arrive while it's open. Gated on hydration so a boot-time
+  // handoff doesn't race the tab bootstrap.
+  $effect(() => {
+    if (session.hydrating) return;
+    return consumeSessionHandoff(viewMode, (handoff) => {
+      if (!isEditorMode) {
+        // The explicit handoff outranks the ambient pull: mark the current
+        // pointer stamp handled so the summon pickup right after this window
+        // shows doesn't yank the tab to a different session.
+        const ptr = readActiveSessionPointer();
+        if (ptr) lastHandledPointerStamp = ptr.updatedAt;
+      }
+      openSessionFromPointer(handoff);
+    });
+  });
+
   // Slash command discovery is backend-scoped, so refresh when the active agent changes.
   // untrack the directory — explicit refreshPluginCommands calls in createTab/setBaseDirectory
   // already handle directory changes; tracking tabCtx here causes a storm on every session mutation.
@@ -146,15 +257,20 @@
     );
   });
 
-  if (windowCtx.viewMode === "editor") {
-    window.solus.notifyViewMode("editor");
-  }
-
   setupAgentEvents(session);
   // Refresh the key the project panel reads: the worktree path when the tab has one.
   session.onTurnSettled = (tabId, cwd) => {
-    const gitCwd = session.sessionFor(tabId)?.gitContext?.worktreePath ?? cwd;
-    if (gitCwd) void gitStatusStore.refresh(gitCwd, { force: true });
+    const sess = session.sessionFor(tabId);
+    const gitCwd = sess?.gitContext?.worktreePath ?? cwd;
+    if (!gitCwd) return;
+    // onTurnSettled fires on every completed Write/Edit/exec tool call (mid-turn)
+    // as well as at task_complete. By that point the backend has already emitted
+    // the status_change, so a still-running status means this is a mid-turn
+    // settle — respect the store's throttle so ~20 edits don't spawn ~20 git
+    // pipelines. When the turn actually completes (status reset off running),
+    // force one authoritative refresh.
+    const midTurn = sess?.status === "running" || sess?.status === "connecting";
+    void gitStatusStore.refresh(gitCwd, { force: !midTurn });
   };
 
   initRootScaling();
@@ -200,20 +316,11 @@
   });
 
   const isExpanded = $derived(session.isExpanded);
+  // Each Electron window is mode-locked (`?mode=` in its URL), so exactly one
+  // layout mounts for the window's lifetime — no dual trees, no display:none
+  // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
-
-  // Lazy-mount: only create the inactive layout's DOM subtree (and its full
-  // ConversationView pool) the first time the user switches to that mode.
-  // This halves the number of live component trees at 20 tabs from ~40 to ~20.
-  // Read windowCtx.viewMode directly here (not the $derived) to avoid a Svelte
-  // warning about capturing a derived's initial value in a $state initializer.
-  let hasMountedEditor = $state(windowCtx.viewMode === "editor");
-  let hasMountedPill = $state(windowCtx.viewMode !== "editor");
-  $effect(() => {
-    if (isEditorMode) hasMountedEditor = true;
-    else hasMountedPill = true;
-  });
   const activeTabId = $derived(session.activeTabId);
   // status/provider live on Session, not Tab — reading them off the tab always
   // yielded undefined, so isRunning was permanently false and the run-gated
@@ -226,12 +333,17 @@
   const visibleTabOrder = $derived(
     session.tabOrder.filter((id) => session.tabs[id]),
   );
-  const scopedSessionTabOrder = $derived.by(() => {
+  // Tabs of the active branch, in the same visual (grouped) order the tab strip
+  // shows — so next/prev-session cycles what the user sees. Filtering the raw
+  // backend tabOrder here would diverge from the strip whenever tabs are grouped
+  // by status/unread. Computed lazily on keypress (like navigateTab) rather than
+  // as a $derived that recomputes on every backend status tick.
+  function scopedSessionTabOrder(): string[] {
     const activeKey = branchKeyFor(session.sessionFor(activeTabId));
-    return visibleTabOrder.filter(
+    return visualTabOrder(visibleTabOrder).filter(
       (id) => branchKeyFor(session.sessionFor(id)) === activeKey,
     );
-  });
+  }
   const permissionMode = $derived(
     session.sessionFor(activeTabId)?.permissionMode ?? "auto",
   );
@@ -258,36 +370,106 @@
   });
 
   $effect(() => {
+    // Click-through only applies to the pill window's transparent canvas; the
+    // editor is an opaque, normal OS window.
+    if (isEditorMode) return;
     if (!window.solus?.setIgnoreMouseEvents) return;
     let lastIgnored: boolean = true;
     window.solus.setIgnoreMouseEvents(true, { forward: true });
+
+    const setIgnore = (shouldIgnore: boolean) => {
+      if (shouldIgnore === lastIgnored) return;
+      lastIgnored = shouldIgnore;
+      if (shouldIgnore) window.solus.setIgnoreMouseEvents(true, { forward: true });
+      else window.solus.setIgnoreMouseEvents(false, { focus: true });
+    };
+
+    // Cached bounding rects of the pill's interactive regions. Measured on a short
+    // interval while moving (and on resize / window-shown), so the per-move
+    // pre-check below is pure math — no forced layout, no elementFromPoint —
+    // until the pointer is actually over a UI region. A small edge tolerance
+    // keeps entry prompt even if a child overflows its region's box.
+    const EDGE = 4;
+    const RECT_TTL = 200;
+    let cachedRects: DOMRect[] = [];
+    let rectsAt = 0;
+    const recomputeRects = () => {
+      const rects: DOMRect[] = [];
+      for (const el of document.querySelectorAll("[data-solus-ui]")) {
+        // The full-screen click-through overlay is pointer-events:none — only its
+        // portaled popover children actually capture the mouse, so measure those.
+        if (el.classList.contains("click-through-shell")) {
+          for (const child of el.children)
+            rects.push(child.getBoundingClientRect());
+        } else {
+          rects.push(el.getBoundingClientRect());
+        }
+      }
+      cachedRects = rects;
+      rectsAt = performance.now();
+    };
+    const pointOverUiRegion = (x: number, y: number) =>
+      cachedRects.some(
+        (r) =>
+          x >= r.left - EDGE &&
+          x <= r.right + EDGE &&
+          y >= r.top - EDGE &&
+          y <= r.bottom + EDGE,
+      );
+
+    // The real hit-test (forced sync elementFromPoint) only runs when the cheap
+    // rect pre-check says the point might be over UI; outside every region the
+    // window is definitively click-through, so we update promptly on leave.
     const applyAt = (x: number, y: number) => {
+      if (!pointOverUiRegion(x, y)) {
+        setIgnore(true);
+        return;
+      }
       const el = document.elementFromPoint(x, y);
-      const isUI = !!(el && el.closest("[data-solus-ui]"));
-      const shouldIgnore = !isUI;
-      if (shouldIgnore !== lastIgnored) {
-        lastIgnored = shouldIgnore;
-        if (shouldIgnore)
-          window.solus.setIgnoreMouseEvents(true, { forward: true });
-        else window.solus.setIgnoreMouseEvents(false, { focus: true });
-      }
+      setIgnore(!(el && el.closest("[data-solus-ui]")));
     };
-    const onMouseMove = (e: MouseEvent) => applyAt(e.clientX, e.clientY);
+
+    // Coalesce to at most one hit-test per animation frame — the transparent
+    // pill canvas fires mousemove on all screen movement, and a sync hit-test
+    // per event stutters worst while streaming dirties the DOM.
+    let pendingX = 0;
+    let pendingY = 0;
+    let rafId = 0;
+    const flush = () => {
+      rafId = 0;
+      if (performance.now() - rectsAt > RECT_TTL) recomputeRects();
+      applyAt(pendingX, pendingY);
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      pendingX = e.clientX;
+      pendingY = e.clientY;
+      if (!rafId) rafId = requestAnimationFrame(flush);
+    };
     const onMouseLeave = () => {
-      if (lastIgnored !== true) {
-        lastIgnored = true;
-        window.solus.setIgnoreMouseEvents(true, { forward: true });
+      // Drop any queued hit-test so a stale in-flight frame can't re-enable
+      // capture just after the pointer has left the window.
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
       }
+      setIgnore(true);
     };
+    const onResize = () => recomputeRects();
     const unsubShown = window.solus.onWindowShown((pos) => {
-      if (pos) applyAt(pos.x, pos.y);
+      if (pos) {
+        recomputeRects();
+        applyAt(pos.x, pos.y);
+      }
     });
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseleave", onMouseLeave);
+    window.addEventListener("resize", onResize);
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       unsubShown();
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseleave", onMouseLeave);
+      window.removeEventListener("resize", onResize);
     };
   });
 
@@ -345,9 +527,10 @@
     let lastActive = false;
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      const text = sel?.toString().trim() ?? "";
       let active = false;
-      if (text && sel && sel.rangeCount > 0) {
+      // Bail before the O(selection) toString() on the common continuous-drag
+      // path where there's no real selection (collapsed caret / no range).
+      if (sel && !sel.isCollapsed && sel.rangeCount > 0 && sel.toString().trim()) {
         const node = sel.getRangeAt(0).commonAncestorContainer;
         const el =
           node.nodeType === Node.ELEMENT_NODE
@@ -405,11 +588,23 @@
   }
 
   function visualBranchTabOrder(): string[] {
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const tabId of visualTabOrder(visibleTabOrder)) {
+    const visualOrder = visualTabOrder(visibleTabOrder);
+    const fallbackByBranch = new Map<string, string>();
+    const targetByBranch = new Map<string, string>();
+    for (const tabId of visualOrder) {
       const key = branchKeyFor(session.sessionFor(tabId));
-      if (seen.has(key)) continue;
+      if (!fallbackByBranch.has(key)) fallbackByBranch.set(key, tabId);
+      const target = session.lastActiveTabForBranch(key);
+      if (target && visualOrder.includes(target)) {
+        targetByBranch.set(key, target);
+      }
+    }
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    for (const tabId of visualOrder) {
+      const key = branchKeyFor(session.sessionFor(tabId));
+      const target = targetByBranch.get(key) ?? fallbackByBranch.get(key);
+      if (!target || tabId !== target || seen.has(key)) continue;
       seen.add(key);
       ordered.push(tabId);
     }
@@ -447,29 +642,24 @@
   useKeybinding("global.next-session", () => {
     // Pill mode has no branch/session split — fall back to cycling tabs.
     if (!isEditorMode) return navigateTab(1);
-    const idx = scopedSessionTabOrder.indexOf(activeTabId);
+    const order = scopedSessionTabOrder();
+    const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
-      session.selectTab(
-        scopedSessionTabOrder[(idx + 1) % scopedSessionTabOrder.length],
-      );
+      session.selectTab(order[(idx + 1) % order.length]);
       requestInputFocus();
     }
   });
   useKeybinding("global.prev-session", () => {
     if (!isEditorMode) return navigateTab(-1);
-    const idx = scopedSessionTabOrder.indexOf(activeTabId);
+    const order = scopedSessionTabOrder();
+    const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
-      session.selectTab(
-        scopedSessionTabOrder[
-          (idx - 1 + scopedSessionTabOrder.length) %
-            scopedSessionTabOrder.length
-        ],
-      );
+      session.selectTab(order[(idx - 1 + order.length) % order.length]);
       requestInputFocus();
     }
   });
   useKeybinding("global.screenshot", handleScreenshot);
-  useKeybinding("global.toggle-mode", () => session.toggleViewMode());
+  useKeybinding("global.continue-in-mode", () => session.continueInOtherMode());
   useKeybinding("global.session-picker", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
   );
@@ -622,8 +812,8 @@
     ) {
       void session.tasksStore.load(taskCwd);
     }
-    window.solus
-      .listProjects()
+    projectsStore
+      .loadProjects({ force: true })
       .then((ps) => {
         paletteProjects = ps;
       })
@@ -1008,12 +1198,10 @@
       session.addAttachments([attachment]);
     }
     designModeScreenshot = null;
-    window.solus.notifyViewMode(windowCtx.viewMode);
   }
 
   function handleDesignCancel() {
     designModeScreenshot = null;
-    window.solus.notifyViewMode(windowCtx.viewMode);
   }
 
   async function cycleAgentProvider() {
@@ -1146,22 +1334,16 @@
   style="position:fixed;inset:0;z-index:10010;pointer-events:none"
 ></div>
 
-{#if hasMountedEditor}
-  <div
-    class="flex h-full w-full items-center justify-center mode-shell click-through-shell"
-    class:mode-hidden={!isEditorMode}
-    style="background:transparent;"
-  >
+{#if isEditorMode}
+  <div class="mode-shell h-full w-full">
     <EditorLayout
       onAttachFile={handleAttachFile}
       onScreenshot={handleScreenshot}
       onDesignMode={handleDesignMode}
     />
   </div>
-{/if}
-
-{#if hasMountedPill}
-  <div class="mode-shell" class:mode-hidden={isEditorMode}>
+{:else}
+  <div class="mode-shell">
     <PillLayout
       onAttachFile={handleAttachFile}
       onScreenshot={handleScreenshot}
@@ -1232,10 +1414,6 @@
 {/if}
 
 <style>
-  .mode-hidden {
-    display: none !important;
-  }
-
   .drop-overlay {
     position: fixed;
     inset: 0;

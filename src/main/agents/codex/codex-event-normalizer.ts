@@ -1,68 +1,32 @@
 import type { NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/types'
-import { codexImageArtifactPath, codexToolNameForItem } from './codex-utils'
+import { findResetTimestamp } from '../../rate-limits'
+import {
+  codexImageArtifactPath,
+  codexToolNameForItem,
+  isInterruptedTurnStatus,
+  planFromCompletedItem,
+  planTextFromPlanUpdated,
+} from './codex-utils'
+import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
+import type {
+  JsonRpcId,
+  JsonRpcMessage,
+  JsonRpcNotification,
+  JsonRpcRequest,
+  JsonRpcResponse,
+  CodexThreadStartResponse,
+  CodexTurnStartResponse,
+  CodexModelListResponse,
+} from './codex-protocol'
 
 const CODEX_RATE_LIMIT_WARNING_PERCENT = 80
 const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
-
-export type JsonRpcId = number | string
-
-export interface JsonRpcRequest {
-  jsonrpc: '2.0'
-  id: JsonRpcId
-  method: string
-  params?: unknown
-}
-
-export interface JsonRpcNotification {
-  jsonrpc: '2.0'
-  method: string
-  params?: any
-}
-
-export interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: JsonRpcId
-  result?: any
-  error?: { code: number; message: string; data?: unknown }
-}
-
-export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse
-
-export interface CodexThread {
-  id: string
-  sessionId?: string
-  forkedFromId?: string
-  cliVersion?: string
-  modelProvider?: string
-  cwd?: string
-  status?: string
-}
-
-export interface CodexTurn {
-  id: string
-  status?: string
-  durationMs?: number | null
-  error?: CodexErrorPayload | string | null
-}
 
 export interface CodexErrorPayload {
   message?: string
   code?: string
   codexErrorInfo?: unknown
   additionalDetails?: unknown
-}
-
-export interface CodexThreadStartResponse {
-  thread: CodexThread
-  model?: string
-}
-
-export interface CodexTurnStartResponse {
-  turn: CodexTurn
-}
-
-export interface CodexModelListResponse {
-  data?: Array<{ id?: string; model?: string; displayName?: string; hidden?: boolean; isDefault?: boolean }>
 }
 
 export interface CodexPendingServerRequest {
@@ -76,7 +40,7 @@ export interface CodexPendingServerRequest {
   execute?: (approved: boolean) => void | Promise<void>
 }
 
-export function normalizeCodexNotification(method: string, params: any, opts?: { planMode?: boolean }): NormalizedEvent[] {
+function normalizeCodexNotification(method: string, params: any, opts?: { planMode?: boolean }): NormalizedEvent[] {
   const usageEvent = normalizeCodexTokenCount(method, params)
   if (usageEvent) return [usageEvent]
 
@@ -90,11 +54,8 @@ export function normalizeCodexNotification(method: string, params: any, opts?: {
       return [{
         type: 'session_init',
         sessionId: thread.id,
-        tools: [],
         model: thread.model || 'codex',
-        mcpServers: [],
         skills: [],
-        version: thread.cliVersion || 'unknown',
       }]
     }
 
@@ -109,19 +70,17 @@ export function normalizeCodexNotification(method: string, params: any, opts?: {
     }
 
     case 'item/agentMessage/delta':
-      return typeof params?.delta === 'string' && params.delta
+      // Sub-agent text no longer streams — it arrives whole on item/completed.
+      return typeof params?.delta === 'string' && params.delta && !codexParentToolUseId(params)
         ? [{ type: 'text_chunk', text: params.delta }]
         : []
 
     case 'item/started':
       return normalizeItemStarted(params)
 
-    case 'command/exec/outputDelta':
-    case 'item/commandExecution/outputDelta':
-    case 'item/fileChange/outputDelta':
     case 'item/fileChange/patchUpdated':
     case 'item/mcpToolCall/progress':
-      return normalizeToolUpdate(method, params)
+      return normalizeToolUpdate(params)
 
     case 'item/completed':
       return normalizeItemCompleted(params)
@@ -144,6 +103,114 @@ export function normalizeCodexNotification(method: string, params: any, opts?: {
 
     default:
       return []
+  }
+}
+
+export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; params: any }> {
+  private interrupted = false
+  private streamedPlanText = ''
+  private completedPlan: { id: string; text: string } | null = null
+  private streamedPlanId: string | null = null
+  private turnId: string | null = null
+  private readonly planMode: boolean
+  private readonly turnSummary: TurnSummary = {
+    toolCallCount: 0,
+    sawRateLimit: false,
+    sawProtocolError: false,
+    permissionDenials: [],
+  }
+
+  constructor(opts: { planMode: boolean }) {
+    this.planMode = opts.planMode
+  }
+
+  get summary(): TurnSummary {
+    return this.turnSummary
+  }
+
+  push(raw: { method: string; params: any }): NormalizedEvent[] {
+    const { method, params } = raw
+    this.captureTurnId(params)
+    if (isInterruptedTurnStatus(params?.turn?.status)) this.interrupted = true
+    if (this.interrupted) return []
+
+    const events: NormalizedEvent[] = []
+    if (this.planMode) {
+      if (method === 'turn/plan/updated') {
+        const planText = planTextFromPlanUpdated(params)
+        if (planText) {
+          const planId = this.planId(params)
+          this.streamedPlanId = planId
+          events.push({
+            type: 'plan',
+            planContent: planText,
+            planFilePath: '',
+            questionId: planId,
+            options: [],
+            planToolUseId: planId,
+          })
+        }
+        return this.emit(events)
+      }
+
+      if (method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {
+        this.streamedPlanText += params.delta
+      }
+
+      if (method === 'item/completed') {
+        const completedPlan = planFromCompletedItem(params)
+        if (completedPlan) {
+          this.completedPlan = completedPlan
+          return []
+        }
+      }
+
+      if (method === 'turn/completed') {
+        const planText = this.completedPlan?.text.trim() || this.streamedPlanText.trim()
+        if (planText) {
+          const planId = this.completedPlan?.id || this.streamedPlanId || this.planId(params)
+          events.push({
+            type: 'plan',
+            planContent: planText,
+            planFilePath: '',
+            questionId: this.planId(params),
+            options: [],
+            planToolUseId: planId,
+          })
+        }
+      }
+    }
+
+    events.push(...normalizeCodexNotification(method, params, { planMode: this.planMode }))
+    return this.emit(events)
+  }
+
+  interrupt(): void {
+    this.interrupted = true
+  }
+
+  private emit(events: NormalizedEvent[]): NormalizedEvent[] {
+    for (const event of events) {
+      if (event.type === 'tool_call') this.turnSummary.toolCallCount++
+      if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning') {
+        this.turnSummary.sawRateLimit = true
+      }
+      if (event.type === 'error') this.turnSummary.sawProtocolError = true
+    }
+    return events
+  }
+
+  private captureTurnId(params: any): void {
+    const turnId = typeof params?.turnId === 'string'
+      ? params.turnId
+      : typeof params?.turn?.id === 'string'
+        ? params.turn.id
+        : null
+    if (turnId) this.turnId = turnId
+  }
+
+  private planId(params: any): string {
+    return `codex-plan-${this.turnId || params?.turnId || params?.turn?.id || Date.now()}`
   }
 }
 
@@ -243,11 +310,11 @@ function normalizedCodexUsage(
   // keeps cache tokens separate so the shared context meter can add them once.
   const freshInputTokens = Math.max(0, inputTokens - cachedInputTokens)
   const usage: UsageData = {
-    input_tokens: freshInputTokens,
-    output_tokens: outputTokens,
-    cache_read_input_tokens: cachedInputTokens,
-    reasoning_output_tokens: finiteTokenCount(rawReasoningOutputTokens) || undefined,
-    context_window_tokens: finiteTokenCount(rawContextWindowTokens) || undefined,
+    inputTokens: freshInputTokens,
+    outputTokens: outputTokens,
+    cacheReadTokens: cachedInputTokens,
+    reasoningTokens: finiteTokenCount(rawReasoningOutputTokens) || undefined,
+    contextWindowTokens: finiteTokenCount(rawContextWindowTokens) || undefined,
   }
 
   return { type: 'usage', usage }
@@ -345,39 +412,50 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
 
   const toolName = codexToolNameForItem(item)
   if (!toolName) return []
+  const isSubagent = item.type === 'collabAgentToolCall'
 
   return [{
     type: 'tool_call',
     toolName,
     toolId: item.id,
     index: 0,
-    toolInput: item.type === 'commandExecution' && typeof item.command === 'string' ? item.command : undefined,
+    toolInput: codexStartedToolInput(item),
+    parentToolUseId: codexParentToolUseId(params),
+    isSubagent,
+    subagentType: isSubagent ? toolName : undefined,
   }]
 }
 
-function normalizeToolUpdate(method: string, params: any): NormalizedEvent[] {
+function normalizeToolUpdate(params: any): NormalizedEvent[] {
   const text = params?.delta || params?.output || params?.diff || params?.patch || params?.message
   if ((typeof text !== 'string' || !text) && !Array.isArray(params?.changes)) return []
   const payload = typeof text === 'string' && text
     ? text
     : JSON.stringify({ changes: params.changes })
-  if (method === 'command/exec/outputDelta' || method === 'item/commandExecution/outputDelta') {
-    return [{
-      type: 'tool_call_update',
-      toolId: params?.itemId || '',
-      content: payload,
-    }]
-  }
   return [{
     type: 'tool_call_update',
     toolId: params?.itemId || '',
     toolInput: payload,
+    parentToolUseId: codexParentToolUseId(params),
   }]
 }
 
 function normalizeItemCompleted(params: any): NormalizedEvent[] {
   const item = params?.item
-  if (!item?.id || !codexToolNameForItem(item)) return []
+  if (!item?.id) return []
+  const parentToolUseId = codexParentToolUseId(params)
+
+  if (item.type === 'agentMessage') {
+    // Not parented: main-thread paragraph separator between streamed messages.
+    // Parented: sub-agent prose no longer streams, so deliver the full text here
+    // as the assembled assistant message the reducer lands in the sub-agent card.
+    if (!parentToolUseId) return [{ type: 'text_chunk', text: '\n\n' }]
+    return typeof item.text === 'string' && item.text
+      ? [{ type: 'assistant_message', text: item.text, parentToolUseId }]
+      : []
+  }
+
+  if (!codexToolNameForItem(item)) return []
 
   const updates: NormalizedEvent[] = []
   if (item.type === 'imageGeneration') {
@@ -419,7 +497,90 @@ function normalizeItemCompleted(params: any): NormalizedEvent[] {
     }
   }
   updates.push({ type: 'tool_call_complete', index: 0, toolId: item.id })
+  if (item.type === 'collabAgentToolCall') {
+    updates.push({
+      type: 'tool_result',
+      toolUseId: item.id,
+      content: codexItemResultText(item),
+      isError: item.status === 'failed' || !!item.error,
+    })
+  }
+  if (parentToolUseId) {
+    for (const update of updates) {
+      ;(update as NormalizedEvent & { parentToolUseId?: string }).parentToolUseId = parentToolUseId
+    }
+  }
   return updates
+}
+
+function codexItemResultText(item: any): string {
+  if (typeof item.aggregatedOutput === 'string' && item.aggregatedOutput) return item.aggregatedOutput
+  if (typeof item.result === 'string' && item.result) return item.result
+  if (item.result && typeof item.result === 'object') {
+    const content = item.result.contentItems ?? item.result.content
+    if (Array.isArray(content)) {
+      return content
+        .map((part: unknown) => {
+          if (typeof part === 'string') return part
+          if (!part || typeof part !== 'object') return ''
+          const record = part as Record<string, unknown>
+          return typeof record.text === 'string' ? record.text : ''
+        })
+        .filter(Boolean)
+        .join('\n')
+    }
+  }
+  if (typeof item.error === 'string' && item.error) return item.error
+  return typeof item.status === 'string' ? item.status : ''
+}
+
+function codexStartedToolInput(item: any): string | undefined {
+  if (item.type === 'commandExecution' && typeof item.command === 'string') return item.command
+  if (item.type !== 'collabAgentToolCall') return undefined
+
+  const args = item.arguments && typeof item.arguments === 'object'
+    ? item.arguments as Record<string, unknown>
+    : {}
+  const settings = args.settings && typeof args.settings === 'object'
+    ? args.settings as Record<string, unknown>
+    : {}
+  const prompt = stringField(args.prompt) || stringField(args.task) || stringField(args.instructions)
+  const description = stringField(args.description) || stringField(args.title) || prompt || stringField(item.name) || stringField(item.tool)
+  const model = stringField(args.model) || stringField(args.model_id) || stringField(settings.model)
+  const reasoningEffort =
+    stringField(args.reasoning_effort) ||
+    stringField(args.reasoningEffort) ||
+    stringField(settings.reasoning_effort) ||
+    stringField(settings.reasoningEffort)
+  return JSON.stringify({
+    subagent_type: stringField(item.tool) || stringField(item.name) || 'agent',
+    ...(description ? { description } : {}),
+    ...(prompt ? { prompt } : {}),
+    ...(model ? { model } : {}),
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+  })
+}
+
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function codexParentToolUseId(params: any): string | undefined {
+  for (const value of [
+    params?.parentToolUseId,
+    params?.parent_tool_use_id,
+    params?.parentItemId,
+    params?.parent_item_id,
+    params?.parentId,
+    params?.item?.parentToolUseId,
+    params?.item?.parent_tool_use_id,
+    params?.item?.parentItemId,
+    params?.item?.parent_item_id,
+    params?.item?.parentId,
+  ]) {
+    if (typeof value === 'string' && value) return value
+  }
+  return undefined
 }
 
 function normalizeTurnCompleted(params: any): NormalizedEvent[] {
@@ -504,61 +665,4 @@ function codexHttpStatusCode(info: unknown): number | null {
     }
   }
   return null
-}
-
-function findResetTimestamp(value: unknown): number | null {
-  if (value == null) return null
-
-  if (typeof value === 'number') return normalizeResetNumber(value)
-
-  if (typeof value === 'string') {
-    const numeric = Number(value)
-    if (Number.isFinite(numeric)) return normalizeResetNumber(numeric)
-
-    const parsedDate = Date.parse(value)
-    if (!Number.isNaN(parsedDate)) return Math.ceil(parsedDate / 1000)
-
-    // Parse "try again at H:MM AM/PM" from Codex usage-limit messages
-    const tryAgainMatch = value.match(/try again at (\d{1,2}):(\d{2})\s*(AM|PM)/i)
-    if (tryAgainMatch) {
-      let hours = parseInt(tryAgainMatch[1], 10)
-      const minutes = parseInt(tryAgainMatch[2], 10)
-      const meridiem = tryAgainMatch[3].toUpperCase()
-      if (meridiem === 'AM' && hours === 12) hours = 0
-      if (meridiem === 'PM' && hours !== 12) hours += 12
-      const now = new Date()
-      const reset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0)
-      if (reset.getTime() <= now.getTime()) reset.setDate(reset.getDate() + 1)
-      return Math.ceil(reset.getTime() / 1000)
-    }
-
-    return null
-  }
-
-  if (typeof value !== 'object') return null
-
-  const record = value as Record<string, unknown>
-  for (const key of [
-    'resetsAt',
-    'resetAt',
-    'reset_at',
-    'retryAfter',
-    'retry_after',
-    'retryAfterSeconds',
-    'secondsUntilReset',
-    'resetInSeconds',
-  ]) {
-    const found = findResetTimestamp(record[key])
-    if (found) return found
-  }
-
-  return null
-}
-
-function normalizeResetNumber(value: number): number | null {
-  if (!Number.isFinite(value) || value <= 0) return null
-  if (value > 10_000_000_000) return Math.ceil(value / 1000)
-  const nowSeconds = Date.now() / 1000
-  if (value > nowSeconds - 60) return Math.ceil(value)
-  return Math.ceil(nowSeconds + value)
 }

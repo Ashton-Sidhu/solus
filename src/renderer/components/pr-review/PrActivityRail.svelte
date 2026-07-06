@@ -48,35 +48,30 @@
     totalAdds + totalDels > 0 ? (totalAdds / (totalAdds + totalDels)) * 100 : 0,
   );
 
-  const sidebarPanelBg =
-    "bg-[color:color-mix(in_srgb,var(--solus-container-bg)_90%,color-mix(in_srgb,var(--solus-input-pill-bg)_70%,var(--solus-surface-primary))_10%)]";
 </script>
 
 <aside class="hidden w-[16.5rem] shrink-0 lg:block">
-  <div class="sticky top-9 flex flex-col gap-3.5">
-    <!-- Status & meta card -->
-    <section
-      class="overflow-hidden rounded-2xl border border-(--solus-art-border) {sidebarPanelBg} shadow-[var(--solus-card-shadow-collapsed)]"
-    >
-      <!-- Status row -->
-      <div class="flex items-center justify-between gap-3 px-3.5 pt-3 pb-3">
-        <span class="text-xs font-normal text-(--solus-text-secondary)">Status</span>
+  <div class="sticky top-9 flex flex-col gap-5">
+    <!-- Status / reviewers / opened — a flat properties list, no card chrome -->
+    <dl class="flex flex-col gap-4">
+      <div class="flex items-center justify-between gap-3">
+        <dt class="text-xs text-(--solus-text-tertiary)">Status</dt>
         {#if statusBadge}
           {@const Badge = statusBadge.Icon}
-          <span
-            class="inline-flex items-center gap-1.5 rounded-full py-1 pr-2 pl-1 text-[0.75rem] font-medium leading-none"
-            style={`color:${statusBadge.tone};background:color-mix(in srgb,${statusBadge.tone} 12%,transparent)`}
-          >
-            <Badge size={12} weight="fill" />
-            {statusBadge.label}
-          </span>
+          <dd>
+            <span
+              class="inline-flex items-center gap-1.5 rounded-full py-1 pr-2 pl-1 text-[0.75rem] font-medium leading-none"
+              style={`color:${statusBadge.tone};background:color-mix(in srgb,${statusBadge.tone} 12%,transparent)`}
+            >
+              <Badge size={12} weight="fill" class="shrink-0" />
+              {statusBadge.label}
+            </span>
+          </dd>
         {/if}
       </div>
 
-      <!-- Reviewers / opened rows -->
-      <dl class="divide-y divide-(--solus-art-border) border-t border-(--solus-art-border)">
-        <div class="px-3.5 py-2.5">
-          <dt class="mb-1.5 text-xs font-normal text-(--solus-text-secondary)">Reviewers</dt>
+      <div>
+        <dt class="mb-1.5 text-xs text-(--solus-text-tertiary)">Reviewers</dt>
           <dd>
             {#if reviewersLoading}
               <div class="flex animate-pulse items-center gap-2 motion-reduce:animate-none">
@@ -84,13 +79,13 @@
                 <span class="h-3 w-24 rounded bg-(--solus-art-border)"></span>
               </div>
             {:else if reviewers.length === 0}
-              <span class="text-[0.75rem] font-normal text-(--solus-text-tertiary)">None</span>
+              <span class="text-[0.75rem] text-(--solus-text-tertiary)">None</span>
             {:else}
-              <ul class="flex flex-col gap-1.5">
+              <ul class="flex flex-col gap-1.5" role="list">
                 {#each reviewers as reviewer (reviewer.login)}
                   <li class="flex items-center gap-2">
                     <PrAvatar name={reviewer.login} size="size-5 text-[0.5rem]" />
-                    <span class="min-w-0 flex-1 truncate text-[0.75rem] font-normal text-(--solus-text-secondary)"
+                    <span class="min-w-0 flex-1 truncate text-[0.75rem] text-(--solus-text-secondary)"
                       >{reviewer.login}</span
                     >
                     <PrReviewStateBadge state={reviewer.state} />
@@ -100,22 +95,19 @@
             {/if}
           </dd>
         </div>
-        {#if openedTime}
-          <div class="flex items-center justify-between gap-3 px-3.5 py-2.5">
-            <dt class="shrink-0 text-xs font-normal text-(--solus-text-secondary)">Opened</dt>
-            <dd class="text-[0.75rem] font-normal text-(--solus-text-tertiary)">
-              {openedTime}
-            </dd>
-          </div>
-        {/if}
-      </dl>
-    </section>
+      {#if openedTime}
+        <div class="flex items-center justify-between gap-3">
+          <dt class="shrink-0 text-xs text-(--solus-text-tertiary)">Opened</dt>
+          <dd class="text-[0.75rem] text-(--solus-text-secondary)">
+            {openedTime}
+          </dd>
+        </div>
+      {/if}
+    </dl>
 
-    <!-- Changed files card -->
-    <section
-      class="overflow-hidden rounded-2xl border border-(--solus-art-border) {sidebarPanelBg} shadow-[var(--solus-card-shadow-collapsed)]"
-    >
-      <div class="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2.5">
+    <!-- Changed files -->
+    <section class="border-t border-(--solus-art-border) pt-5">
+      <div class="flex items-center justify-between gap-2">
         <h3 class="text-[0.6875rem] font-semibold tracking-wider text-(--solus-text-tertiary) uppercase">
           Changed files
         </h3>
@@ -132,7 +124,7 @@
       </div>
 
       {#if totalAdds + totalDels > 0}
-        <div class="flex items-center gap-2 px-3.5 pb-3">
+        <div class="mt-2.5 flex items-center gap-2">
           <div class="flex h-1.5 flex-1 overflow-hidden rounded-full bg-(--solus-art-raised)">
             {#if totalAdds}
               <div class="h-full bg-(--solus-art-positive)" style={`width:${addPct}%`}></div>
@@ -148,7 +140,7 @@
         </div>
       {/if}
 
-      <ul class="flex flex-col gap-px border-t border-(--solus-art-border) p-1.5">
+      <ul class="-mx-2 mt-2 flex flex-col gap-px" role="list">
         {#if filesLoading}
           {#each [0, 1, 2, 3] as i (i)}
             <li class="flex animate-pulse items-center gap-2 px-2 py-1.5 motion-reduce:animate-none">
@@ -162,7 +154,7 @@
           <li>
             <button
               type="button"
-              class="group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-(--solus-accent-light)"
+              class="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-(--solus-accent-light)"
               onclick={() => onFileJump?.(file.path)}
             >
               {#if icon}
@@ -197,7 +189,7 @@
           <li>
             <button
               type="button"
-              class="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-secondary)"
+              class="flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-secondary)"
               onclick={() => (filesExpanded = !filesExpanded)}
             >
               <CaretRightIcon

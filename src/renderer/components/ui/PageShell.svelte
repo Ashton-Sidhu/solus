@@ -20,7 +20,11 @@
 </script>
 
 {#if leading}
-  <div class="absolute left-2.5 top-2.5 z-10 flex items-center gap-1">
+  <!-- Pinned to the top-left corner, so on the mac editor window this lands
+       under the traffic lights whenever this page is the leftmost chrome
+       (sidebar collapsed). Clear them with the shared lead inset; a no-op
+       otherwise and off-mac. -->
+  <div class="absolute left-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] top-2.5 z-10 flex items-center gap-1">
     {@render leading()}
   </div>
 {/if}

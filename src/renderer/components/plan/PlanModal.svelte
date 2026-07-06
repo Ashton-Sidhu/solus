@@ -428,7 +428,7 @@
               revisionDropdownOpen = true;
             }
           }}
-          class="plan-revision-trigger"
+          class="inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-(--solus-container-border) bg-transparent px-2 py-0.5 text-[0.6875rem] text-(--solus-text-secondary) transition-[background,color,border-color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) max-md:px-[0.3125rem] max-md:text-[0.625rem]"
         >
           v{currentRevisionIndex + 1} of {revisionCount}
           <CaretDownIcon size={10} />
@@ -508,7 +508,7 @@
             {/if}
           </DropdownItem>
           {#if uploadError}
-            <div class="plan-upload-error">{uploadError}</div>
+            <div class="px-3 pb-[0.375rem] pt-1 text-[0.6875rem] text-[var(--solus-error,#e55)]">{uploadError}</div>
           {/if}
         {/if}
         {#if googleUpload}
@@ -551,7 +551,7 @@
   {/snippet}
 
   {#snippet footer()}
-    <div class="plan-action-bar-sleeve shrink-0 border-t border-(--solus-tool-border)">
+    <div class="plan-action-bar-sleeve shrink-0 border-t border-(--solus-tool-border) px-5 py-2.5 max-md:px-3 max-md:py-1.5">
       <PlanActionBar
         planId={plan.id}
         inlineCommentCount={comments.length}
@@ -579,12 +579,12 @@
           type="button"
           onmousedown={(e) => e.preventDefault()}
           onclick={handleStartComment}
-          class="plan-floating-comment-btn"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-popover-border) bg-(--solus-popover-bg) px-[0.6875rem] py-1.5 text-[0.6875rem] font-medium text-(--solus-accent) shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] transition-[background,color,border-color,transform] duration-(--duration-quick) ease-(--ease-premium) hover:-translate-y-[0.0625rem] hover:border-(--solus-accent) hover:bg-(--solus-accent) hover:text-white active:translate-y-0 active:scale-[0.97] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100"
           title="Add comment (⌘M)"
         >
           <ChatCircleTextIcon size={13} />
           Comment
-          <Kbd variant="inline" class="opacity-45 ml-[0.1875rem]">⌘M</Kbd>
+          <Kbd variant="inline" class="ml-[0.1875rem] opacity-45 max-md:hidden">⌘M</Kbd>
         </button>
       </div>
     {/if}
@@ -599,7 +599,7 @@
         class="fixed plan-comment-form-in plan-comment-form-position"
         style="--cf-left:{commentFormAnchor.left}px;--cf-top:{commentFormAnchor.top}px;--cf-width:{commentFormAnchor.width}px;z-index:10001"
       >
-        <div class="plan-inline-comment-form">
+        <div class="plan-inline-comment-form flex flex-col gap-1.5 rounded-[0.625rem] border border-(--solus-accent-border) bg-(--solus-popover-bg) px-[0.625rem] pb-2 pt-2 shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] max-md:rounded-b-none">
           <Input
             bind:el={commentInputEl}
             bind:value={commentInput}
@@ -620,11 +620,11 @@ placeholder="Add comment…"
               }
             }}
           />
-          <div class="plan-inline-comment-form__actions">
+          <div class="flex items-center justify-end gap-1.5">
             <button
               type="button"
               onclick={clearCommentDraft}
-              class="plan-inline-comment-form__btn plan-inline-comment-form__btn--ghost"
+              class="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[background,color,opacity] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) motion-reduce:transition-none"
               title="Cancel (Esc)"
             >
               <XIcon size={13} />
@@ -653,7 +653,7 @@ placeholder="Add comment…"
         data-revision-panel
         transition:fly={{ y: -4, duration: 140, opacity: 0 }}
       >
-        <div class="plan-revision-panel-body">
+        <div class="min-w-[12.5rem] overflow-hidden rounded-[0.625rem] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] backdrop-saturate-[1.1]">
           {#each planRevisions as rev, i (rev.id)}
             <button
               type="button"
@@ -662,11 +662,14 @@ placeholder="Add comment…"
                 revisionDropdownOpen = false;
                 revisionPanelPos = null;
               }}
-              class="plan-revision-row"
-              class:plan-revision-row--active={rev.id === plan.id}
+              class="flex w-full cursor-pointer items-center gap-2 rounded-md px-[0.5625rem] py-1.5 text-left text-xs transition-[background] duration-(--duration-quick) ease-(--ease-premium) {rev.id === plan.id
+                ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-soft)'
+                : 'bg-transparent text-(--solus-text-primary) hover:bg-(--solus-surface-hover)'}"
             >
-              <span class="plan-revision-row__version">v{i + 1}</span>
-              <span class="plan-revision-row__time">
+              <span class="font-semibold tabular-nums">v{i + 1}</span>
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] {rev.id === plan.id
+                ? 'text-[color-mix(in_srgb,var(--solus-accent)_70%,var(--solus-text-secondary))]'
+                : 'text-(--solus-text-tertiary)'}">
                 {new Date(rev.timestamp).toLocaleString(undefined, {
                   month: "short",
                   day: "numeric",
@@ -687,4 +690,3 @@ placeholder="Add comment…"
 
   {/snippet}
 </DocumentShell>
-

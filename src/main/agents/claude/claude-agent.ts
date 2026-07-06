@@ -1,6 +1,6 @@
 import { execSync } from 'child_process'
 import { Options, PermissionMode, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { normalize } from './claude-event-normalizer'
+import { ClaudeTurnNormalizer } from './claude-event-normalizer'
 import { createLogger } from '../../logger'
 import { getCliEnv } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
@@ -72,7 +72,7 @@ export interface ClaudeRunOptions {
   /** Fires once when the SDK first reports a session id for this run. */
   onSessionInit?: (sessionId: string) => Promise<void>
   /** Fires after each `result` event and on abort. */
-  onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string }) => Promise<void>
+  onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string; editedFiles: string[] }) => Promise<void>
   /** When true, the SDK creates a new forked session branching from opts.sessionId. */
   forkSession?: boolean
 }
@@ -140,9 +140,8 @@ export class ClaudeAgent {
 
     const state = {
       sessionId: opts.sessionId ?? null,
-      toolCallCount: 0,
-      permissionDenials: [] as Array<{ tool_name: string; tool_use_id: string }>,
     }
+    const normalizer = new ClaudeTurnNormalizer()
 
     let resolveResult!: (v: ClaudeRunResult) => void
     let rejectResult!: (e: Error) => void
@@ -170,50 +169,35 @@ export class ClaudeAgent {
 
           logRawClaudeEvent(state.sessionId, msg)
 
-          if ((msg as any).type === 'user' && (msg as any).uuid) {
-            yield { type: 'checkpoint', checkpointId: (msg as any).uuid }
-          }
-
-          if (msg.type === 'result') {
-            const denials = (msg as any).permission_denials
-            if (Array.isArray(denials) && denials.length > 0) {
-              state.permissionDenials = denials.map((d: any) => ({
-                tool_name: d.tool_name || '',
-                tool_use_id: d.tool_use_id || '',
-              }))
-              log.info(`Permission denials: ${JSON.stringify(state.permissionDenials)}`)
-            }
-          }
-
-          for (const evt of normalize(msg)) {
-            if (evt.type === 'tool_call') state.toolCallCount++
+          for (const evt of normalizer.push(msg)) {
             yield evt
           }
 
           if (msg.type === 'result' && state.sessionId && opts.onTurnComplete) {
-            try { await opts.onTurnComplete(state.sessionId, { partial: false, userMessagePreview }) }
+            try { await opts.onTurnComplete(state.sessionId, { partial: false, userMessagePreview, editedFiles: normalizer.editedFiles }) }
             catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
           }
         }
 
         resolveResult({
           sessionId: state.sessionId,
-          toolCallCount: state.toolCallCount,
-          permissionDenials: state.permissionDenials,
+          toolCallCount: normalizer.summary.toolCallCount,
+          permissionDenials: normalizer.summary.permissionDenials,
           exitCode: 0,
           signal: null,
         })
       } catch (err: any) {
         const isAbort = abortController.signal.aborted || err?.name === 'AbortError'
         if (isAbort) {
+          normalizer.interrupt()
           if (state.sessionId && opts.onTurnComplete) {
-            try { await opts.onTurnComplete(state.sessionId, { partial: true, userMessagePreview }) }
+            try { await opts.onTurnComplete(state.sessionId, { partial: true, userMessagePreview, editedFiles: normalizer.editedFiles }) }
             catch (e) { log.warn(`onTurnComplete (abort) failed: ${e}`) }
           }
           resolveResult({
             sessionId: state.sessionId,
-            toolCallCount: state.toolCallCount,
-            permissionDenials: state.permissionDenials,
+            toolCallCount: normalizer.summary.toolCallCount,
+            permissionDenials: normalizer.summary.permissionDenials,
             exitCode: null,
             signal: 'SIGINT',
           })

@@ -19,7 +19,6 @@
     type TaskKind,
     type TaskPriority,
     type TaskProviderId,
-    type TaskProviderStatus,
   } from "../../../shared/task-types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
@@ -63,7 +62,7 @@
   // Resolved provider (unset defaults to local). Local + GitHub support create;
   // only local owns the epic/sub-task hierarchy, so epics + add-child are local.
   let configReady = $state(false);
-  let providerHealth = $state<TaskProviderStatus | null>(null);
+  const providerHealth = $derived(store.providerStatus(cwd));
   let taskLoadEpoch = 0;
   const provider = $derived<TaskProviderId | "unknown">(
     cwd ? (configReady ? (projectConfig.configFor(cwd)?.taskProvider ?? "local") : "unknown") : "local",
@@ -187,19 +186,16 @@
   $effect(() => {
     if (!open || !cwd) {
       configReady = false;
-      providerHealth = null;
       return;
     }
     const currentCwd = cwd;
     const mine = assignedToMe;
     const epoch = ++taskLoadEpoch;
     configReady = false;
-    providerHealth = null;
     void (async () => {
       await projectConfig.load(currentCwd);
-      const health = await window.solus.tasksProviderStatus(currentCwd);
+      const health = await store.loadProviderStatus(currentCwd);
       if (epoch !== taskLoadEpoch || !session.tasksOpen || session.tasksProjectCwd !== currentCwd) return;
-      providerHealth = health;
       configReady = true;
       if (!health.ok) return;
       await store.load(currentCwd, { assignedToMe: mine });
@@ -255,19 +251,16 @@
     const currentCwd = cwd;
     void (async () => {
       await projectConfig.load(currentCwd);
-      const health = await window.solus.tasksProviderStatus(currentCwd);
+      const health = await store.loadProviderStatus(currentCwd);
       if (cwd !== currentCwd) return;
-      providerHealth = health;
       configReady = true;
       if (health.ok) await store.load(currentCwd, { assignedToMe });
     })();
   }
 
-  function openProviderRepair() {
-    if (providerHealth?.reason === "github_not_connected") {
-      session.showSettings("git-providers");
-    } else if (cwd) {
-      session.showProjectSettings(cwd);
+  function openProviderRepair(health = providerHealth) {
+    if (health?.reason === "github_not_connected") {
+      session.showSettings("api-access");
     }
   }
 
@@ -276,9 +269,8 @@
     const currentCwd = cwd;
     await projectConfig.save(currentCwd, { taskProvider: next });
     await projectConfig.load(currentCwd);
-    const health = await window.solus.tasksProviderStatus(currentCwd);
+    const health = await store.loadProviderStatus(currentCwd);
     if (cwd !== currentCwd) return;
-    providerHealth = health;
     configReady = true;
     if (health.ok) {
       await store.load(currentCwd, { assignedToMe });
@@ -286,7 +278,7 @@
       store.tasks = [];
       store.loaded = true;
       store.error = null;
-      openProviderRepair();
+      openProviderRepair(health);
     }
   }
 
@@ -336,7 +328,7 @@
 
   function hydrateTask(id: string): Promise<Task> {
     if (!cwd) throw new Error("No project open");
-    return window.solus.tasksGet(cwd, id);
+    return store.get(cwd, id);
   }
 
   function deleteTasks(ids: string[], label: string) {
@@ -602,14 +594,16 @@
           <button
             type="button"
             class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
-            onclick={openProviderRepair}
+            onclick={providerHealth.reason === "github_not_connected"
+              ? () => openProviderRepair()
+              : refresh}
           >
             {#if providerHealth.reason === "github_not_connected"}
               <PlugIcon size={13} weight="bold" />
               Connect GitHub
             {:else}
-              <ListChecksIcon size={13} weight="bold" />
-              Open project settings
+              <ArrowClockwiseIcon size={13} />
+              Retry
             {/if}
           </button>
         </div>
@@ -628,7 +622,7 @@
             <button
               type="button"
               class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
-              onclick={() => session.showSettings("git-providers")}
+              onclick={() => session.showSettings("api-access")}
             >
               <PlugIcon size={13} weight="bold" />
               Connect GitHub

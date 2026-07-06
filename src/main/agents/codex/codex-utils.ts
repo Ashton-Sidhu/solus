@@ -8,7 +8,7 @@ import type { AnnotationIndex } from '../../plans/annotations'
 import { isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
 export { isSolusWorktreePath, worktreeProjectRoot }
 import type { AgentId, PlanDescriptor } from '../../../shared/types'
-import type { SessionLoadMessage } from '../../../shared/claude-types'
+import type { SessionLoadMessage } from '../../../shared/session-history'
 
 export const CODEX_CHANGE_PATH_KEYS = [
   'file_path',

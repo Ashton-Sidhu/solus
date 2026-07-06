@@ -12,12 +12,12 @@
     XIcon,
   } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
+  import { projectsStore } from "../../contexts/projects.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { abbreviateHome } from "../../lib/paths";
-  import type { RecentProject } from "../../../shared/types";
   import { runtime } from "../../contexts/runtime.svelte";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import Kbd from "../ui/Kbd.svelte";
@@ -40,13 +40,13 @@
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const layer = getPopoverLayer();
+  const projectMetadata = projectsStore;
 
   let currentPath = $state("");
   let entries = $state<DirEntry[]>([]);
   let loading = $state(false);
   let selectedIndex = $state(0);
   let filterQuery = $state("");
-  let recentProjects = $state<RecentProject[]>([]);
   let showHidden = $state(false);
   let popoverEl: HTMLDivElement | null = $state(null);
   let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
@@ -115,9 +115,7 @@
 
     blurActiveTextInputOnMobile();
 
-    window.solus.listRecentProjects().then((projects) => {
-      recentProjects = projects;
-    });
+    void projectMetadata.loadRecentProjects();
 
     if (shouldAutofocus) requestAnimationFrame(() => searchEl?.focus());
   });
@@ -331,8 +329,8 @@
 
           <div class="fn-sidebar-sep"></div>
 
-          {#if recentProjects.length > 0}
-            {#each recentProjects.slice(0, 6) as project (project.path)}
+          {#if projectMetadata.recentProjects.length > 0}
+            {#each projectMetadata.recentProjects.slice(0, 6) as project (project.path)}
               <button
                 class="fn-sidebar-item"
                 class:fn-sidebar-item-active={currentPath === project.path}

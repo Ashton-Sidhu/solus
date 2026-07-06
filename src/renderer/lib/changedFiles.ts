@@ -61,6 +61,28 @@ function addPathsFromText(paths: Set<string>, input: string, projectPath?: strin
   }
 }
 
+function collectMessagePaths(paths: Set<string>, m: Message, projectPath?: string): void {
+  if (
+    m.role !== "tool" ||
+    m.toolStatus !== "completed" ||
+    (m.toolName !== "Write" && m.toolName !== "Edit" && m.toolName !== "exec_command")
+  ) {
+    return;
+  }
+
+  if (m.toolInput) {
+    try {
+      addPathsFromParsed(paths, JSON.parse(m.toolInput), projectPath);
+    } catch {
+      addPathsFromText(paths, m.toolInput, projectPath);
+    }
+  }
+
+  if (m.toolName === "exec_command" && m.content && !isGitCommand(m.toolInput)) {
+    addPathsFromText(paths, m.content, projectPath);
+  }
+}
+
 export function extractChangedFilePaths(
   messages: readonly Message[],
   opts: { projectPath?: string } = {},
@@ -68,28 +90,23 @@ export function extractChangedFilePaths(
   const paths = new Set<string>();
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (
-      m.role !== "tool" ||
-      m.toolStatus !== "completed" ||
-      (m.toolName !== "Write" && m.toolName !== "Edit" && m.toolName !== "exec_command")
-    ) {
-      continue;
-    }
-
-    if (m.toolInput) {
-      try {
-        addPathsFromParsed(paths, JSON.parse(m.toolInput), opts.projectPath);
-      } catch {
-        addPathsFromText(paths, m.toolInput, opts.projectPath);
-      }
-    }
-
-    if (m.toolName === "exec_command" && m.content && !isGitCommand(m.toolInput)) {
-      addPathsFromText(paths, m.content, opts.projectPath);
-    }
+    collectMessagePaths(paths, messages[i], opts.projectPath);
   }
 
+  return [...paths];
+}
+
+/**
+ * Extract changed-file paths from a single completed tool message. Used for the
+ * incremental changedFiles path so a tool_call_complete doesn't rescan and
+ * re-JSON.parse every historical Write/Edit body (O(session²)).
+ */
+export function extractChangedFilePathsFromMessage(
+  message: Message,
+  opts: { projectPath?: string } = {},
+): string[] {
+  const paths = new Set<string>();
+  collectMessagePaths(paths, message, opts.projectPath);
   return [...paths];
 }
 

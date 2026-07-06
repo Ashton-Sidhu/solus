@@ -114,20 +114,17 @@
   );
   const editorCwd = $derived(session.tasksProjectCwd ?? undefined);
 
-  // ── Shared chrome (mirrors AutomationBuilder's sidebar card system) ──
-  // A hairline ring + soft lift floats each card; the title pairs micro-caps
-  // with a rule that fades out.
-  const CARD =
-    "flex flex-col gap-2.5 p-3.5 rounded-[0.875rem] " +
-    "border border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)] " +
-    "bg-(--solus-container-bg) shadow-[var(--solus-card-shadow-collapsed)]";
-  const CARD_TITLE =
-    "flex items-center gap-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.09em] " +
-    "text-(--solus-text-tertiary) after:content-[''] after:flex-1 after:h-px " +
-    "after:bg-[linear-gradient(to_right,color-mix(in_srgb,var(--solus-container-border)_70%,transparent),transparent)]";
+  // ── Shared chrome (mirrors PrActivityRail's Activity sidebar) ──
+  // A flat, card-less rail: sections are separated by a hairline art rule rather
+  // than boxed in card chrome. The first section carries no top border;
+  // SECTION_DIVIDED adds one. Titles are quiet uppercase micro-caps.
+  const SECTION = "flex flex-col gap-2.5";
+  const SECTION_DIVIDED =
+    "flex flex-col gap-2.5 border-t border-(--solus-art-border) pt-5";
+  const SECTION_TITLE =
+    "text-[0.6875rem] font-semibold uppercase tracking-wider text-(--solus-text-tertiary)";
   const ROW = "flex items-center justify-between gap-3 min-h-[1.875rem]";
-  const ROW_LABEL =
-    "shrink-0 text-xs font-medium text-(--solus-text-secondary)";
+  const ROW_LABEL = "shrink-0 text-xs text-(--solus-text-tertiary)";
   // Soft recessed full-width field (labels / branch / PR). rounded-md keeps the
   // inner corners closer to concentric with the card's 14px radius + padding.
   const FIELD =
@@ -781,10 +778,10 @@
       </section>
 
       <!-- ── Properties sidebar ── -->
-      <aside class="flex flex-col gap-3.5 min-w-0 @max-[52rem]:order-first">
+      <aside class="flex flex-col gap-5 min-w-0 @max-[52rem]:order-first">
         <!-- Properties -->
-        <section class={CARD}>
-          <h2 class={CARD_TITLE}>Properties</h2>
+        <section class={SECTION}>
+          <h2 class={SECTION_TITLE}>Properties</h2>
           <dl class="flex flex-col gap-0.5 [&_dt]:m-0 [&_dd]:m-0">
             <div class={ROW}>
               <dt class={ROW_LABEL}>Status</dt>
@@ -917,13 +914,13 @@
 
         <!-- Labels -->
         {#if canEdit || display.labels.length}
-          <section class={CARD}>
-            <h2 class={CARD_TITLE}>Labels</h2>
+          <section class={SECTION_DIVIDED}>
+            <h2 class={SECTION_TITLE}>Labels</h2>
             {#if display.labels.length}
               <div class="flex flex-wrap gap-1.5">
                 {#each display.labels as label (label)}
                   <span
-                    class="inline-flex items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.625rem] font-medium leading-none text-(--solus-text-secondary)"
+                    class="inline-flex items-center gap-1 rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 text-[0.625rem] font-medium leading-none text-(--solus-text-secondary)"
                   >
                     <span
                       class="size-1 shrink-0 rounded-full bg-(--solus-text-tertiary)"
@@ -964,8 +961,8 @@
 
         <!-- Git -->
         {#if canEditWork || display.branch || display.pr}
-          <section class={CARD}>
-            <h2 class={CARD_TITLE}>Git</h2>
+          <section class={SECTION_DIVIDED}>
+            <h2 class={SECTION_TITLE}>Git</h2>
             {#if canEditWork}
               <label
                 class="flex flex-col gap-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary)"
@@ -1007,7 +1004,7 @@
                 {/if}
                 {#if display.branch}
                   <span
-                    class="inline-flex max-w-full items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium leading-none text-(--solus-text-tertiary)"
+                    class="inline-flex max-w-full items-center gap-1 rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.625rem] font-medium leading-none text-(--solus-text-tertiary)"
                     title={display.branch}
                   >
                     <GitBranchIcon size={11} weight="bold" />

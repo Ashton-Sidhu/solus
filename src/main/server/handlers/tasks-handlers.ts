@@ -1,6 +1,6 @@
 import type { Task } from '../../../shared/task-types'
-import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment, setTasksChangedNotifier, taskProviderStatus } from '../../tasks/task-service'
-import { linkTaskSession, taskSessions } from '../../tasks/task-links'
+import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment, linkTaskSessionAndNotify, setTasksChangedNotifier, taskProviderStatus } from '../../tasks/task-service'
+import { taskSessions } from '../../tasks/task-links'
 import type { SolusServer } from '../server'
 
 /** RPC surface for the renderer to browse and mutate tasks through whichever
@@ -50,7 +50,7 @@ export function registerTasksHandlers(server: SolusServer): void {
   // so the card can show which tasks have live work and jump back to it.
   server.register('tasksLinkSession', (args) => {
     const [cwd, taskId, sessionId] = args as [string, string, string]
-    return linkTaskSession(cwd, taskId, sessionId)
+    return linkTaskSessionAndNotify(cwd, taskId, sessionId)
   })
 
   server.register('tasksSessions', (args) => {

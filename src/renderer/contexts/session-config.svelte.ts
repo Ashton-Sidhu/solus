@@ -87,10 +87,7 @@ export class SessionConfigController {
     session.agentSessionId = null
     session.modelConfig = { ...newModelConfig }
     session.sessionModel = null
-    session.sessionTools = []
-    session.sessionMcpServers = []
     session.sessionSkills = []
-    session.sessionVersion = null
     session.pluginCommands = { global: [], project: [] }
     this.deps.refreshPluginCommands(session.workingDirectory, this.deps.registry.activeTabId)
   }

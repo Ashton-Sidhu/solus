@@ -53,7 +53,6 @@
     onToggleSidebar?: () => void;
     projectPanelOpen?: boolean;
     onToggleProjectPanel?: () => void;
-    onStartWindowDrag?: (e: MouseEvent) => void;
   }
 
   let {
@@ -63,7 +62,6 @@
     onToggleSidebar,
     projectPanelOpen = true,
     onToggleProjectPanel,
-    onStartWindowDrag,
   }: Props = $props();
 
   // The bar only hosts a panel toggle while that panel is COLLAPSED — it's the
@@ -328,14 +326,6 @@
     session.closeTab(tabId);
   }
 
-  function handleMouseDown(e: MouseEvent) {
-    e.stopPropagation();
-    if (variant !== "editor" || !onStartWindowDrag) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest("button,[role='tab']")) return;
-    onStartWindowDrag(e);
-  }
-
   // Edge fades appear only on the side that can actually scroll, so the masked
   // edge always sits under the arrow overlay (and the strip reads as flush when
   // nothing is hidden in that direction).
@@ -347,15 +337,26 @@
     return `linear-gradient(to right, ${left}, ${right})`;
   });
 
+  // Stable signature of the tab order this effect actually lays out. groupedSections
+  // is a fresh array on ANY status/queue/hasUnread/plan change on any tab, so reading
+  // it directly re-ran the whole tick→scrollIntoView→forced-layout→setTimeout pass on
+  // every stream tick. Folding the laid-out ids into a string lets an unchanged layout
+  // short-circuit — Svelte skips dependents when a $derived value is === its previous.
+  const layoutKey = $derived.by(() => {
+    const sections = groupedSections;
+    if (!sections) return renderedTabIds.join("|");
+    return sections.map((g) => `${g.key}:${g.tabIds.join(",")}`).join("|");
+  });
+
   // Keep the active tab in view + seam gap synced when the active tab, order, or
   // grouping changes. A single tick→measure pass replaces the old
   // tick→rAF→scrollIntoView→setTimeout chain.
   let lastActiveId = "";
   $effect(() => {
     const activeId = session.activeTabId;
-    // Read order + grouped layout so a reorder/group-move re-runs this effect.
-    renderedTabIds.join("|");
-    groupedSections?.map((g) => `${g.key}:${g.tabIds.join(",")}`).join("|");
+    // Re-run on active-tab change or a real reorder/group-move — not on every
+    // background status tick (see layoutKey).
+    void layoutKey;
     const sc = tabScroll.el;
     if (!sc) return;
     const activeChanged = activeId !== lastActiveId;
@@ -405,7 +406,7 @@
   {@const pPercent = progressPercent(sess)}
   {@const pComplete = isTabComplete(sess)}
   {#if tab}
-    <div class="tab-row">
+    <div class="flex min-w-0 items-center gap-[0.3125rem]">
       {#if creatingWorktree}
         <TreeStructureIcon
           size={10}
@@ -424,7 +425,7 @@
           class={statusIcon.spin ? "tab-status-spin" : ""}
         />
       {/if}
-      <span class="tab-label">{tabLabel(tab, sess)}</span>
+      <span class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{tabLabel(tab, sess)}</span>
       <button
         onclick={(e) => {
           e.stopPropagation();
@@ -439,10 +440,10 @@
       </button>
     </div>
     {#if hasProgress}
-      <div class="tab-progress-track">
+      <div class="mx-[0.0625rem] mb-[0.0625rem] h-[0.0938rem] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-tertiary)_10%,transparent)]">
         <div
-          class="tab-progress-fill {pComplete
-            ? 'tab-progress-fill-complete'
+          class="h-full rounded-full bg-[color-mix(in_srgb,var(--solus-status-running)_72%,transparent)] transition-[width,background] [transition-duration:400ms,300ms] [transition-timing-function:ease,ease] {pComplete
+            ? 'bg-[color-mix(in_srgb,var(--solus-status-complete)_72%,transparent)]'
             : ''}"
           style="width:{pPercent}%"
         ></div>
@@ -451,11 +452,9 @@
   {/if}
 {/snippet}
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="no-drag flex flex-col"
   class:editor-variant={variant === "editor"}
-  onmousedown={handleMouseDown}
 >
   <div class="tab-bar-row flex items-center" bind:this={barEl}>
     <div class="tab-seam" aria-hidden="true"></div>
@@ -715,24 +714,24 @@
   {@const ctxSess = session.sessionFor(contextMenu.tabId)}
   <div
     bind:this={contextMenuEl}
-    class="tab-ctx-menu"
+    class="fixed z-[9999] flex min-w-40 flex-col gap-px rounded-lg border border-(--solus-container-border) bg-(--solus-popover-bg) p-1 shadow-[0_0.5rem_1.5rem_rgba(0,0,0,0.18)]"
     use:portal={popoverLayer.el}
     style="left:{contextMenu.x}px;top:{contextMenu.y}px"
     role="menu"
   >
     {#if ctxSess?.agentSessionId}
       <button
-        class="tab-ctx-item"
+        class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-text-primary) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
         role="menuitem"
         onclick={() => forkFromContextMenu(contextMenu!.tabId)}
       >
         <GitForkIcon size={12} />
         <span>Fork Session</span>
-        <span class="tab-ctx-kbd">⌥F</span>
+        <span class="ml-auto font-mono text-[0.625rem] opacity-45">⌥F</span>
       </button>
       {#if !ctxSess?.gitContext?.worktreePath}
         <button
-          class="tab-ctx-item"
+          class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-text-primary) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
           role="menuitem"
           disabled={session.isContinuingInWorktree(contextMenu.tabId)}
           onclick={() => continueWorktreeFromContextMenu(contextMenu!.tabId)}
@@ -743,14 +742,14 @@
           />
           <span>{session.isContinuingInWorktree(contextMenu.tabId) ? "Creating Worktree…" : "Continue in Worktree"}</span>
           {#if !session.isContinuingInWorktree(contextMenu.tabId)}
-            <span class="tab-ctx-kbd">⌥W</span>
+            <span class="ml-auto font-mono text-[0.625rem] opacity-45">⌥W</span>
           {/if}
         </button>
       {/if}
-      <div class="tab-ctx-sep"></div>
+      <div class="mx-1 my-0.5 h-px bg-(--solus-container-border)"></div>
     {/if}
     <button
-      class="tab-ctx-item tab-ctx-item-danger"
+      class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-status-error) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
       role="menuitem"
       onclick={() => closeFromContextMenu(contextMenu!.tabId)}
     >

@@ -6,7 +6,6 @@
   import {
     TASKS_AUTH_ERROR_PREFIX,
     type Task,
-    type TaskProviderStatus,
   } from "../../../shared/task-types";
 
   interface Props {
@@ -19,7 +18,7 @@
 
   const session = getWorkspaceContext();
   const store = session.tasksStore;
-  let providerStatus = $state<TaskProviderStatus | null>(null);
+  const providerStatus = $derived(store.providerStatus(cwd));
 
   // Load once per project when the panel is visible. The store is shared with
   // the full Tasks page and guards stale loads, so re-entering a loaded project
@@ -27,9 +26,7 @@
   $effect(() => {
     if (!active || !cwd) return;
     const currentCwd = cwd;
-    void window.solus.tasksProviderStatus(currentCwd).then((status) => {
-      if (cwd === currentCwd) providerStatus = status;
-    });
+    void store.loadProviderStatus(currentCwd);
     if (store.cwd !== currentCwd) void store.load(currentCwd);
   });
 
@@ -67,13 +64,8 @@
     requestInputFocus();
   }
 
-  function openProjectSettings() {
-    if (cwd) session.showProjectSettings(cwd);
-    requestInputFocus();
-  }
-
-  function openGitProviders() {
-    session.showSettings("git-providers");
+  function openConnections() {
+    session.showSettings("api-access");
     requestInputFocus();
   }
 
@@ -97,8 +89,8 @@
       {#if isAuthError || providerStatus?.reason === "github_not_connected"}
         <button
           type="button"
-          class="inline-flex cursor-pointer items-center gap-1 rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-medium text-(--solus-accent)"
-          onclick={openGitProviders}
+          class="inline-flex cursor-pointer items-center gap-1 rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-normal text-(--solus-accent)"
+          onclick={openConnections}
         >
           <PlugIcon size={11} />
           Connect
@@ -106,15 +98,15 @@
       {:else if providerStatus?.reason === "missing_github_repo"}
         <button
           type="button"
-          class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-medium text-(--solus-accent)"
-          onclick={openProjectSettings}
+          class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-normal text-(--solus-accent)"
+          onclick={retry}
         >
-          Fix repo
+          Retry
         </button>
       {:else}
         <button
           type="button"
-          class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-medium text-(--solus-accent)"
+          class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-normal text-(--solus-accent)"
           onclick={retry}
         >
           Retry
@@ -122,7 +114,7 @@
       {/if}
       <button
         type="button"
-        class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+        class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-normal text-(--solus-text-tertiary) hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
         onclick={openAll}
       >
         View
@@ -163,10 +155,13 @@
   </ul>
   <button
     type="button"
-    class="mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
     onclick={openAll}
   >
     View all {ranked.length}
-    <ArrowRightIcon size={11} />
+    <ArrowRightIcon
+      size={11}
+      class="motion-safe:transition-transform motion-safe:duration-150 group-hover:translate-x-0.5"
+    />
   </button>
 {/if}

@@ -17,7 +17,7 @@ const log = createLogger('main', 'electron-ipc')
  * The renderer keeps calling `window.solus.<method>(...args)`. The preload
  * Proxy translates each call into the envelope shape sent on these channels.
  */
-export function attachElectronIpcTransport(server: SolusServer, getMainWindow: () => BrowserWindow | null): () => void {
+export function attachElectronIpcTransport(server: SolusServer, getWindows: () => BrowserWindow[]): () => void {
   const HANDLER_CTX = { clientId: 'electron', deviceId: 'electron' }
 
   const invokeHandler = async (_event: Electron.IpcMainInvokeEvent, payload: RpcEnvelope) => {
@@ -40,14 +40,17 @@ export function attachElectronIpcTransport(server: SolusServer, getMainWindow: (
   }
   ipcMain.on(ELECTRON_RPC_SEND_CHANNEL, sendHandler)
 
-  // Bridge every server topic into the renderer via webContents.send.
+  // Bridge every server topic into the renderers via webContents.send. Fans
+  // out to every open Solus window (pill + editor) — each is an independent
+  // client of the same broadcast stream, like concurrent web clients.
   const unsubs: Array<() => void> = []
   for (const topic of RPC_TOPICS) {
     unsubs.push(
       server.subscribe(topic as RpcTopic, (payload, seq) => {
-        const win = getMainWindow()
-        if (!win || win.isDestroyed()) return
-        win.webContents.send(ELECTRON_EVENT_CHANNEL, { topic, seq, payload })
+        for (const win of getWindows()) {
+          if (win.isDestroyed()) continue
+          win.webContents.send(ELECTRON_EVENT_CHANNEL, { topic, seq, payload })
+        }
       })
     )
   }

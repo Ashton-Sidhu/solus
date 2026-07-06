@@ -9,8 +9,9 @@ import { createLogger } from '../logger'
 import { artifactTool, type ArtifactToolDeps } from './artifact-tools'
 import { reviewLedgerTool } from '../review/ledger-tool'
 import { automationSdkTools, type OnAutomationSaved } from '../automations/automation-tools'
-import { sessionSdkTools, type OnSessionCreated } from '../sessions/session-tools'
-import { taskSdkTools } from '../tasks/task-tools'
+import { sessionSdkTools, type OnSessionCreated, type OnSessionPrompted, type OnSessionStopped } from '../sessions/session-tools'
+import { taskSdkTools, type OnTaskCreated } from '../tasks/task-tools'
+import { prSdkTools } from '../providers/pr-tools'
 
 const log = createLogger('folio', 'work-tools.ts')
 
@@ -255,6 +256,10 @@ export interface SolusMcpDeps {
   /** Fires when the agent spawns a new session via create_session, so the thread
    *  can render a card that opens it in a tab. */
   onSessionCreated?: OnSessionCreated
+  onSessionPrompted?: OnSessionPrompted
+  onSessionStopped?: OnSessionStopped
+  /** Fires when the agent creates a task, so the thread can render a task card. */
+  onTaskCreated?: OnTaskCreated
   /** Origin context for create_work. `sessionId` is resolved lazily because a
    *  fresh session has no id until session_init, which lands before any tool runs. */
   createCtx: { agentProvider: AgentId; cwd: string; sessionId: () => string | undefined }
@@ -311,8 +316,15 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
         cwd: deps.createCtx.cwd,
         sessionId: deps.createCtx.sessionId,
         onSessionCreated: deps.onSessionCreated,
+        onSessionPrompted: deps.onSessionPrompted,
+        onSessionStopped: deps.onSessionStopped,
       }),
-      ...taskSdkTools({ cwd: deps.createCtx.cwd }),
+      ...taskSdkTools({
+        cwd: deps.createCtx.cwd,
+        sessionId: deps.createCtx.sessionId,
+        onTaskCreated: deps.onTaskCreated,
+      }),
+      ...prSdkTools({ cwd: deps.createCtx.cwd }),
     ],
   })
 }

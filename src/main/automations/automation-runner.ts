@@ -246,8 +246,22 @@ const HEADLESS_SOLUS_TOOLS = [
   'mcp__solus__render_artifact',
   'mcp__solus__record_change',
   'mcp__solus__get_task',
+  'mcp__solus__list_tasks',
   'mcp__solus__update_task_status',
+  'mcp__solus__create_task',
+  'mcp__solus__comment_task',
+  'mcp__solus__link_task_session',
   'mcp__solus__create_session',
+  'mcp__solus__list_sessions',
+  'mcp__solus__read_session',
+  'mcp__solus__prompt_session',
+  'mcp__solus__stop_session',
+  'mcp__solus__list_prs',
+  'mcp__solus__read_pr',
+  'mcp__solus__list_pr_threads',
+  'mcp__solus__reply_pr_thread',
+  'mcp__solus__resolve_pr_thread',
+  'mcp__solus__submit_pr_review',
 ]
 
 async function runViaClaude(action: Automation['action'], cwd: string, prompt: string, abortController: AbortController) {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { RobotIcon } from "phosphor-svelte";
-  import type { Message } from "../../../shared/types";
+  import { REASONING_EFFORT_LABELS, type Message, type ReasoningEffort } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { prettyToolName, solusToolKey } from "../../contexts/session.utils";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
@@ -20,7 +20,8 @@
 
   const markdownRenderers = { code: CodeBlock, codespan: CodeSpan, link: MarkdownLink };
   const session = getWorkspaceContext();
-  const workingDirectory = $derived(session.sessionFor(tabId)?.workingDirectory || undefined);
+  const sess = $derived(session.sessionFor(tabId));
+  const workingDirectory = $derived(sess?.workingDirectory || undefined);
 
   let expanded = $state(false);
 
@@ -31,6 +32,8 @@
         subagent_type?: string;
         description?: string;
         prompt?: string;
+        model?: string;
+        reasoning_effort?: string;
       };
     } catch {
       return {};
@@ -42,6 +45,15 @@
   const task = $derived(
     (parsedInput.description || parsedInput.prompt || "Sub-agent").trim(),
   );
+  const modelLabel = $derived(
+    (parsedInput.model || sess?.sessionModel || sess?.modelConfig.modelId || "").trim(),
+  );
+  const reasoningEffort = $derived(
+    (parsedInput.reasoning_effort || sess?.modelConfig.reasoningEffort || "").trim(),
+  );
+  const reasoningLabel = $derived(
+    REASONING_EFFORT_LABELS[reasoningEffort as ReasoningEffort] ?? reasoningEffort,
+  );
 
   // The card rests on the tool result, not on the call's JSON finishing: a
   // sub-agent runs long after its input has streamed.
@@ -50,15 +62,32 @@
 
   const subs = $derived(message.subMessages ?? []);
   const toolCount = $derived(subs.filter((m) => m.role === "tool").length);
+
+  // A sub-tool's toolInput carries whole file bodies (Write/Edit) and can still
+  // change while running (Codex patch updates replace it). Parse each sub message
+  // at most once, cached on the message object, and never while it's running —
+  // the cache would otherwise pin a stale parse. So a sub-agent event costs
+  // O(new message), not O(all sub-messages).
+  const subParseCache = new WeakMap<Message, Record<string, unknown> | null>();
+  function parseSubInput(m: Message): Record<string, unknown> | null {
+    if (!m.toolInput || m.toolStatus === "running") return null;
+    const cached = subParseCache.get(m);
+    if (cached !== undefined) return cached;
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(m.toolInput) as Record<string, unknown>;
+    } catch {}
+    subParseCache.set(m, parsed);
+    return parsed;
+  }
+
   const filesTouched = $derived.by(() => {
     const files = new Set<string>();
     for (const m of subs) {
       if (m.role !== "tool") continue;
       if (m.toolName !== "Write" && m.toolName !== "Edit") continue;
-      try {
-        const fp = (JSON.parse(m.toolInput || "{}") as { file_path?: string }).file_path;
-        if (fp) files.add(fp);
-      } catch {}
+      const fp = parseSubInput(m)?.file_path;
+      if (typeof fp === "string" && fp) files.add(fp);
     }
     return files.size;
   });
@@ -67,10 +96,9 @@
   function toolLabel(m: Message): string {
     const name = m.toolName || "Tool";
     if (solusToolKey(name)) return prettyToolName(name);
-    let parsed: Record<string, unknown> = {};
-    try {
-      parsed = JSON.parse(m.toolInput || "{}");
-    } catch {}
+    // Running / unparseable: cheap fallback, never parse the growing partial JSON.
+    const parsed = parseSubInput(m);
+    if (!parsed) return prettyToolName(name);
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     const arg =
       s(parsed.file_path) ||
@@ -133,6 +161,7 @@
       .filter(Boolean)
       .join(" · "),
   );
+
 </script>
 
 <ConversationRefCard
@@ -151,32 +180,52 @@
   {/snippet}
 
   {#snippet statusSlot()}
-    <span class="flex min-w-0 flex-col gap-1">
-      <span class="flex min-w-0 items-center gap-2">
-        <span
-          class="shrink-0 rounded-md bg-(--solus-accent-soft) px-1.5 py-px text-[0.625rem] font-medium text-(--solus-accent)"
-          >{subagentType}</span
-        >
+    <span class="flex min-w-0 flex-col gap-1.5">
+      <span class="flex min-w-0 items-baseline gap-2">
+        <span class="shrink-0 text-[0.6875rem] font-[560] text-(--solus-accent)">{subagentType}</span>
         {#if isRunning}
-          <span class="min-w-0 truncate text-xs text-(--solus-text-tertiary)">{ticker}</span>
+          <span class="min-w-0 truncate text-xs leading-snug text-(--solus-text-tertiary)">{ticker}</span>
         {:else}
           <span
-            class="min-w-0 truncate text-xs"
+            class="min-w-0 truncate text-xs leading-snug"
             style:color={isError ? "var(--solus-art-negative)" : "var(--solus-art-positive)"}
             >{isError ? "Failed" : resultSummary}</span
           >
         {/if}
-        {#if countLabel}
-          <span class="shrink-0 text-[0.625rem] text-(--solus-text-tertiary)">{countLabel}</span>
-        {/if}
       </span>
+      {#if modelLabel || reasoningLabel}
+        <span class="flex min-w-0 flex-wrap items-center gap-1">
+          {#if modelLabel}
+            <span
+              class="inline-flex items-center rounded-md bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.625rem] font-medium text-(--solus-text-secondary)"
+              >{modelLabel}</span
+            >
+          {/if}
+          {#if reasoningLabel}
+            <span
+              class="inline-flex items-center rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.625rem] font-medium text-(--solus-text-tertiary)"
+              >{reasoningLabel}</span
+            >
+          {/if}
+        </span>
+      {/if}
       {#if isRunning}
-        <span class="subagent-bar" aria-hidden="true"></span>
+        <span
+          class="relative block h-0.5 w-full overflow-hidden rounded-full bg-(--solus-accent-soft)"
+          aria-hidden="true"
+        >
+          <span
+            class="absolute inset-y-0 left-0 w-2/5 rounded-full bg-(--solus-accent) animate-[subagent-indeterminate_1.2s_ease-in-out_infinite] motion-reduce:animate-none"
+          ></span>
+        </span>
       {/if}
     </span>
   {/snippet}
 
-  <div class="space-y-2 px-3 py-2.5">
+  <div class="flex flex-col gap-2 px-4 pt-3 pb-3.5">
+    {#if countLabel}
+      <div class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary) tabular-nums">{countLabel}</div>
+    {/if}
     {#each grouped as item (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.message.id)}
       {#if item.kind === "tool-group"}
         <ToolGroupItem tools={item.messages} {tabId} {workingDirectory} skipMotion />
@@ -190,54 +239,8 @@
         </div>
       {/if}
     {/each}
-    {#if message.subStreamText}
-      <div class="prose-cloud prose-reading min-w-0 text-sm">
-        <SvelteMarkdown
-          source={message.subStreamText}
-          streaming
-          renderers={markdownRenderers}
-          sanitizeUrl={markdownSanitizeUrl}
-        />
-      </div>
-    {/if}
-    {#if grouped.length === 0 && !message.subStreamText}
+    {#if grouped.length === 0}
       <span class="text-xs text-(--solus-text-tertiary)">Starting up…</span>
     {/if}
   </div>
 </ConversationRefCard>
-
-<style>
-  /* Indeterminate progress sliver — the sub-agent runs for an unknown duration,
-     so we show motion rather than a fraction. */
-  .subagent-bar {
-    position: relative;
-    display: block;
-    height: 0.125rem;
-    width: 100%;
-    overflow: hidden;
-    border-radius: 9999px;
-    background: var(--solus-accent-soft);
-  }
-  .subagent-bar::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    width: 40%;
-    border-radius: 9999px;
-    background: var(--solus-accent);
-    animation: subagent-indeterminate 1.2s ease-in-out infinite;
-  }
-  @keyframes subagent-indeterminate {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(250%);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .subagent-bar::after {
-      animation: none;
-    }
-  }
-</style>
