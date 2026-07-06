@@ -159,46 +159,45 @@ export function insertSlashReference(
   );
 }
 
-export function extractPlanRefs(editor: Editor | null): PlanReference[] {
-  if (!editor) return [];
-  const refs: PlanReference[] = [];
-  const seen = new Set<string>();
+// Single combined walk for both reference kinds. syncRefs runs on every editor
+// update, so pull plan + work refs from one doc.descendants pass rather than
+// two independent full walks (each of which allocated its own Set + array).
+export function extractRefs(editor: Editor | null): {
+  planRefs: PlanReference[];
+  workRefs: WorkReference[];
+} {
+  const planRefs: PlanReference[] = [];
+  const workRefs: WorkReference[] = [];
+  if (!editor) return { planRefs, workRefs };
+  const seenPlans = new Set<string>();
+  const seenWorks = new Set<string>();
   editor.state.doc.descendants((node) => {
+    const name = node.type.name;
     if (
-      node.type.name === "planReference" &&
+      name === "planReference" &&
       node.attrs.planId &&
-      !seen.has(node.attrs.planId)
+      !seenPlans.has(node.attrs.planId)
     ) {
-      seen.add(node.attrs.planId);
-      refs.push({
+      seenPlans.add(node.attrs.planId);
+      planRefs.push({
         planId: node.attrs.planId,
         sessionId: node.attrs.sessionId,
         planToolUseId: node.attrs.planToolUseId,
         title: node.attrs.title,
         status: node.attrs.status,
       });
-    }
-  });
-  return refs;
-}
-
-export function extractWorkRefs(editor: Editor | null): WorkReference[] {
-  if (!editor) return [];
-  const refs: WorkReference[] = [];
-  const seen = new Set<string>();
-  editor.state.doc.descendants((node) => {
-    if (
-      node.type.name === "workReference" &&
+    } else if (
+      name === "workReference" &&
       node.attrs.workId &&
-      !seen.has(node.attrs.workId)
+      !seenWorks.has(node.attrs.workId)
     ) {
-      seen.add(node.attrs.workId);
-      refs.push({
+      seenWorks.add(node.attrs.workId);
+      workRefs.push({
         workId: node.attrs.workId,
         title: node.attrs.title,
         type: node.attrs.type,
       });
     }
   });
-  return refs;
+  return { planRefs, workRefs };
 }

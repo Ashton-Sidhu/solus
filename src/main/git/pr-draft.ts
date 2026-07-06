@@ -1,10 +1,13 @@
 import { createLogger } from '../logger'
-import { git } from './exec'
+import { runAsync } from './exec'
 
 const log = createLogger('PullRequestDraft', 'pr-draft.ts')
 
 const MAX_DIFF_CHARS = 100_000
 const MAX_CONTEXT_CHARS = 140_000
+/** Cap the raw diff spawn; we truncate to MAX_DIFF_CHARS anyway, and treat an
+ *  oversized diff as empty rather than letting execFile throw ENOBUFS. */
+const MAX_DIFF_BYTES = 5_000_000
 
 export interface PullRequestDraft {
   title: string
@@ -23,11 +26,20 @@ function truncateDiff(diff: string): string {
   return `${diff.slice(0, MAX_DIFF_CHARS)}\n\n[Diff truncated at ${MAX_DIFF_CHARS} characters.]`
 }
 
-function collectGitContext(input: PullRequestDraftInput): string | null {
-  const stat = git(['diff', '--stat', `${input.baseBranch}...HEAD`], input.cwd)
-  const nameStatus = git(['diff', '--name-status', `${input.baseBranch}...HEAD`], input.cwd)
-  const logOutput = git(['log', '--oneline', `${input.baseBranch}..HEAD`], input.cwd)
-  const diff = truncateDiff(git(['diff', `${input.baseBranch}...HEAD`], input.cwd))
+async function safeDiff(args: string[], cwd: string): Promise<string> {
+  try {
+    return await runAsync('git', args, cwd, { maxBuffer: MAX_DIFF_BYTES })
+  } catch (err: any) {
+    if (err?.code === 'ENOBUFS') return ''
+    throw err
+  }
+}
+
+async function collectGitContext(input: PullRequestDraftInput): Promise<string | null> {
+  const stat = await runAsync('git', ['diff', '--stat', `${input.baseBranch}...HEAD`], input.cwd)
+  const nameStatus = await runAsync('git', ['diff', '--name-status', `${input.baseBranch}...HEAD`], input.cwd)
+  const logOutput = await runAsync('git', ['log', '--oneline', `${input.baseBranch}..HEAD`], input.cwd)
+  const diff = truncateDiff(await safeDiff(['diff', `${input.baseBranch}...HEAD`], input.cwd))
 
   const context = [
     `Base branch: ${input.baseBranch}`,
@@ -106,7 +118,7 @@ function parseDraft(text: string): PullRequestDraft | null {
 
 export async function generatePullRequestDraft(input: PullRequestDraftInput): Promise<PullRequestDraft | null> {
   try {
-    const context = collectGitContext(input)
+    const context = await collectGitContext(input)
     if (!context) {
       log.warn('Skipping PR draft generation: git context exceeded size limit after truncation')
       return null

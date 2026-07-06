@@ -46,7 +46,19 @@ export function parseFileHref(href: string): FilePreviewRequest | null {
   return { path: rawPath, line };
 }
 
+// File previews render in the editor's pane system; the pill has no surface
+// for them, so preview requests are a no-op there.
+function isPillWindow(): boolean {
+  try {
+    if (window.solus.getPlatform() === "web") return false;
+    return new URLSearchParams(window.location.search).get("mode") !== "editor";
+  } catch {
+    return false;
+  }
+}
+
 export function requestFilePreview(request: FilePreviewRequest) {
+  if (isPillWindow()) return;
   window.dispatchEvent(
     new CustomEvent<FilePreviewRequest>(FILE_PREVIEW_EVENT, {
       detail: request,

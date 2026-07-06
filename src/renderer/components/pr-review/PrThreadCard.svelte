@@ -2,14 +2,17 @@
   import {
     CheckCircleIcon,
     CaretDownIcon,
+    CaretRightIcon,
     ArrowBendUpLeftIcon,
   } from "phosphor-svelte";
   import MarkdownEditor from "../MarkdownEditor.svelte";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import { hunkToPatch } from "./lib/activity-data";
+  import { hunkToPatch, fileName, dirName } from "./lib/activity-data";
   import { toasts } from "../../contexts/toast.store.svelte";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { tooltip } from "../../lib/tooltip";
   import type { ReviewThread, ReviewComment } from "../../../shared/providers";
 
   // One review thread in the activity timeline: anchored diff hunk, stacked
@@ -38,6 +41,7 @@
   // user re-expanded it; always re-collapses on resolve.
   let showResolved = $state(false);
   const collapsed = $derived(thread.isResolved && !showResolved);
+  let diffOpen = $state(true);
 
   // Markdown reply input styled like the message composer: forced 400 weight so
   // typed text never reads bold; bordered transparent field.
@@ -81,6 +85,11 @@
     }
   }
 
+  function toggleDiff() {
+    diffOpen = !diffOpen;
+    requestInputFocus();
+  }
+
   // Match the composer's affordances: ⌘↵ sends, Esc discards the reply.
   function onReplyKey(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -93,25 +102,43 @@
   }
 </script>
 
-<div class="overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)">
+<div class="overflow-hidden rounded-xl border border-(--solus-art-border) bg-white dark:bg-white/3">
   <div class="flex items-center gap-2 border-b border-(--solus-art-border) px-3 py-2">
+    {#if diffHunk && !collapsed}
+      <button
+        type="button"
+        class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[color,background-color,scale] duration-150 ease-out hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-[0.92]"
+        aria-expanded={diffOpen}
+        aria-label={diffOpen
+          ? `Collapse diff for ${fileName(thread.filePath)}`
+          : `Expand diff for ${fileName(thread.filePath)}`}
+        use:tooltip={diffOpen ? "Collapse diff" : "Expand diff"}
+        onclick={toggleDiff}
+      >
+        {#if diffOpen}
+          <CaretDownIcon size={13} weight="bold" />
+        {:else}
+          <CaretRightIcon size={13} weight="bold" />
+        {/if}
+      </button>
+    {/if}
     <button
       type="button"
-      class="min-w-0 flex-1 truncate text-left font-mono text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-accent)"
+      class="min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-accent)"
       onclick={() => onJump?.(thread.filePath, thread.line)}
     >
-      {thread.filePath}{thread.line !== null ? `:${thread.line}` : ""}
+      <span class="text-(--solus-text-tertiary)">{dirName(thread.filePath)}</span>{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}
     </button>
     {#if thread.isOutdated}
-      <span class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+      <span class="shrink-0 rounded-full bg-(--solus-art-raised) px-1.5 py-0.5 text-[0.625rem] font-medium text-(--solus-text-tertiary)"
         >Outdated</span
       >
     {/if}
     {#if thread.isResolved}
       <span
-        class="inline-flex shrink-0 items-center gap-1 rounded bg-[color:color-mix(in_srgb,var(--solus-art-positive)_16%,transparent)] px-1.5 py-0.5 text-[0.625rem] font-semibold text-(--solus-art-positive)"
+        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] py-0.5 pr-1.5 pl-1 text-[0.625rem] font-medium text-(--solus-art-positive)"
       >
-        <CheckCircleIcon size={11} weight="fill" /> Resolved
+        <CheckCircleIcon size={11} weight="fill" class="shrink-0" /> Resolved
       </span>
     {/if}
   </div>
@@ -119,7 +146,7 @@
   {#if collapsed}
     <button
       type="button"
-      class="flex w-full items-center gap-1.5 px-3 py-2.5 text-left transition-colors hover:bg-(--solus-accent-light)"
+      class="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2.5 text-left transition-colors hover:bg-(--solus-accent-light)"
       onclick={() => (showResolved = true)}
       aria-expanded="false"
     >
@@ -135,7 +162,7 @@
   {:else}
     <!-- The diff GitHub anchored the thread to (first comment's hunk),
          rendered through the same @pierre/diffs engine as the Diff tab. -->
-    {#if diffHunk}
+    {#if diffHunk && diffOpen}
       <div class="border-b border-(--solus-art-border)">
         <GuideFileDiff
           patch={hunkToPatch(thread.filePath, diffHunk)}
@@ -183,7 +210,7 @@
           <div class="flex justify-end gap-1.5">
             <button
               type="button"
-              class="rounded-md px-2.5 py-1 text-xs font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
+              class="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
               onclick={cancelReply}
             >
               Cancel
@@ -191,10 +218,10 @@
             <button
               type="button"
               disabled={busy || !replyText.trim()}
-              class="rounded-md bg-(--solus-accent) px-2.5 py-1 text-xs font-semibold text-(--solus-on-accent,#fff) disabled:opacity-50"
+              class="cursor-pointer rounded-md bg-(--solus-accent) px-2.5 py-1 text-xs font-semibold text-(--solus-on-accent,#fff) hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               onclick={submitReply}
             >
-              Reply
+              {busy ? "Replying…" : "Reply"}
             </button>
           </div>
         </div>
@@ -202,15 +229,15 @@
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
             onclick={() => (replying = true)}
           >
-            <ArrowBendUpLeftIcon size={13} /> Reply
+            <ArrowBendUpLeftIcon size={13} class="shrink-0" /> Reply
           </button>
           <button
             type="button"
             disabled={busy}
-            class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) disabled:opacity-50"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) disabled:cursor-not-allowed disabled:opacity-50"
             onclick={toggleResolved}
           >
             {thread.isResolved ? "Unresolve" : "Resolve"}
@@ -218,7 +245,7 @@
           {#if thread.isResolved}
             <button
               type="button"
-              class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+              class="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
               onclick={() => (showResolved = false)}
             >
               Hide

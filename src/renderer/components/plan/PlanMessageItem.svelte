@@ -3,18 +3,15 @@
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
   import {
-    ArrowLineRightIcon,
     FileTextIcon,
     GraphIcon,
     ClipboardTextIcon,
     CheckCircleIcon,
     XCircleIcon,
   } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
-  import PlanActionBar from "./PlanActionBar.svelte";
+  import DiagramThumbnail from "../diagram/DiagramThumbnail.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
   import { summarizeDiagram, parseDiagram } from "../../../shared/diagram-types";
   import type { PlanMessageRef } from "../../../shared/types";
@@ -25,16 +22,13 @@
   }
   let { ref, skipMotion = false }: Props = $props();
 
-  const theme = getSettingsContext();
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
-  const isEditorMode = $derived(windowCtx.viewMode === "editor");
   const content = $derived(ref.content || "");
   const comments = $derived(ref.comments || []);
   const planStatus = $derived(ref.status ?? "pending");
   const isPending = $derived(planStatus === "pending");
-  const previewLines = $derived(content.split("\n").slice(0, 8).join("\n"));
-  const hasMore = $derived(content.split("\n").length > 8);
+  const previewLines = $derived(content.split("\n").slice(0, 6).join("\n"));
+  const hasMore = $derived(content.split("\n").length > 6);
 
   const statusMeta = $derived(
     planStatus === "accepted"
@@ -47,36 +41,51 @@
   // Render enough lines to fill the page frame; the preview is clipped by height
   // (overflow + fade), not by line count, so this just needs to overflow it.
   const workPreviewLines = $derived(
-    ref.content ? ref.content.split("\n").slice(0, 24).join("\n") : null,
+    ref.content ? ref.content.split("\n").slice(0, 14).join("\n") : null,
   );
 
   const isDiagram = $derived(ref.workType === "diagram");
   const isStreaming = $derived(ref.streaming ?? false);
+  const workTypeLabel = $derived(
+    ref.workType === "slides" ? "Slide deck" : isDiagram ? "Architecture diagram" : "Document",
+  );
   const diagramSummary = $derived(
     isDiagram && ref.content
       ? (() => { try { return summarizeDiagram(parseDiagram(ref.content!)) } catch { return "" } })()
       : "",
   );
+  const documentMeta = $derived(compactMeta(workTypeLabel, ref.updatedAt ? `Updated ${formatDate(ref.updatedAt)}` : ""));
+  const planMeta = $derived(compactMeta(
+    planStatus === "pending" ? "Pending plan" : statusMeta.label,
+    ref.timestamp ? formatDate(ref.timestamp) : "",
+    comments.length > 0 ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "",
+  ));
 
   function openWork() {
     void session.openWorkModal(ref.id!, ref.title);
   }
 
-  function popWorkToSide(e: MouseEvent) {
-    e.stopPropagation();
-    session.artifactViewer.moveToSecondary({ kind: "work", workId: ref.id! });
+  function openWorkSecondary() {
+    if (ref.id) session.artifactViewer.moveToSecondary({ kind: "work", workId: ref.id });
   }
 
   function openPlan() {
     if (ref.id) void session.openPlanModal(ref.id);
   }
 
-  // Pop the plan into the secondary pane beside the conversation, mirroring the
-  // work/diagram cards' "pop out to side". Routed through openPlanModal so the
-  // plan is loaded/hydrated before the pane renders it.
-  function popPlanToSide(e: MouseEvent) {
-    e.stopPropagation();
+  function openPlanSecondary() {
     if (ref.id) void session.openPlanModal(ref.id, undefined, { secondary: true });
+  }
+
+  function formatDate(value: string | number): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  function compactMeta(...parts: Array<string | undefined>): string | undefined {
+    const text = parts.filter((part) => part && part.trim()).join(" · ");
+    return text || undefined;
   }
 </script>
 
@@ -85,9 +94,12 @@
 {:else if ref.kind === "document" && isDiagram}
   <ConversationRefCard
     title={ref.title ?? "Untitled diagram"}
-    subtitle={diagramSummary || "Diagram"}
+    subtitle={compactMeta("Architecture diagram", ref.updatedAt ? `Updated ${formatDate(ref.updatedAt)}` : "", diagramSummary)}
+    actionLabel="Open"
     ariaLabel={`Open diagram: ${ref.title ?? "Untitled diagram"}`}
     onOpen={openWork}
+    onOpenSecondary={openWorkSecondary}
+    secondaryActionLabel="Open diagram in side pane"
     data-testid="diagram-card"
     {skipMotion}
   >
@@ -95,65 +107,26 @@
       <GraphIcon size={18} />
     {/snippet}
 
-    {#snippet actions()}
-      <div class="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          onclick={popWorkToSide}
-          class="plan-icon-btn"
-          title="Pop out to side"
-          aria-label="Pop out to side"
-        >
-          <ArrowLineRightIcon size={14} />
-        </button>
-        <button
-          type="button"
-          onclick={(e) => {
-            e.stopPropagation();
-            openWork();
-          }}
-          class="shrink-0 cursor-pointer rounded-lg border border-(--solus-tool-border) bg-transparent px-3 py-1.5 text-xs font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
-        >
-          Open
-        </button>
+    {#if ref.content}
+      <div class="diagram-ref-preview">
+        <DiagramThumbnail content={ref.content} />
       </div>
-    {/snippet}
+    {/if}
   </ConversationRefCard>
 {:else if ref.kind === "document"}
   <ConversationRefCard
     title={ref.title ?? "Untitled document"}
-    subtitle={ref.workType === "slides" ? "Slide deck" : "Document"}
+    subtitle={documentMeta}
+    actionLabel="Open"
     ariaLabel={`Open document: ${ref.title ?? "Untitled document"}`}
     onOpen={openWork}
+    onOpenSecondary={openWorkSecondary}
+    secondaryActionLabel="Open document in side pane"
     data-testid="document-card"
     {skipMotion}
   >
     {#snippet icon()}
       <FileTextIcon size={18} weight="duotone" class="text-(--solus-accent)" />
-    {/snippet}
-
-    {#snippet actions()}
-      <div class="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          onclick={popWorkToSide}
-          class="plan-icon-btn"
-          title="Pop out to side"
-          aria-label="Pop out to side"
-        >
-          <ArrowLineRightIcon size={14} />
-        </button>
-        <button
-          type="button"
-          onclick={(e) => {
-            e.stopPropagation();
-            openWork();
-          }}
-          class="shrink-0 cursor-pointer rounded-lg border border-(--solus-tool-border) bg-transparent px-3 py-1.5 text-xs font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
-        >
-          Open
-        </button>
-      </div>
     {/snippet}
 
     {#if workPreviewLines}
@@ -187,10 +160,13 @@
 {:else}
   {@const StatusIcon = statusMeta.Icon}
   <ConversationRefCard
-    title={statusMeta.label}
-    subtitle={comments.length > 0 ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : undefined}
+    title={ref.title ?? statusMeta.label}
+    subtitle={planMeta}
+    actionLabel={isPending ? "Review" : "Open"}
     ariaLabel={ref.id ? `Open ${statusMeta.label.toLowerCase()}` : statusMeta.label}
     onOpen={openPlan}
+    onOpenSecondary={openPlanSecondary}
+    secondaryActionLabel="Open plan in side pane"
     data-testid="plan-card"
     {skipMotion}
   >
@@ -198,35 +174,9 @@
       <StatusIcon size={18} weight="fill" class={isPending ? "text-(--solus-accent)" : "text-(--solus-text-tertiary)"} />
     {/snippet}
 
-    {#snippet actions()}
-      {#if ref.id}
-        <div class="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onclick={popPlanToSide}
-            class="plan-icon-btn"
-            title="Pop out to side"
-            aria-label="Pop out to side"
-          >
-            <ArrowLineRightIcon size={14} />
-          </button>
-          <button
-            type="button"
-            onclick={(e) => {
-              e.stopPropagation();
-              openPlan();
-            }}
-            class="shrink-0 cursor-pointer rounded-lg border border-(--solus-tool-border) bg-transparent px-3 py-1.5 text-xs font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
-          >
-            Open
-          </button>
-        </div>
-      {/if}
-    {/snippet}
-
     <div
       class="plan-card-body prose-cloud text-(--solus-text-primary)"
-      style="max-height:12.5rem;overflow:hidden;font-size:0.75rem;line-height:1.6"
+      style="max-height:10rem;overflow:hidden;font-size:0.75rem;line-height:1.6"
     >
       <SvelteMarkdown
         source={previewLines}
@@ -237,51 +187,13 @@
         <div class="plan-card-fade"></div>
       {/if}
     </div>
-
-    {#if ref.id && isPending}
-      <div class="plan-card-actions">
-        <PlanActionBar
-          planId={ref.id}
-          inlineCommentCount={comments.length}
-          compact={!isEditorMode}
-        />
-      </div>
-    {/if}
   </ConversationRefCard>
 {/if}
 
 <style>
-  .plan-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.625rem;
-    height: 1.625rem;
-    border-radius: 0.4375rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      transform 80ms var(--ease-premium);
-  }
-  .plan-icon-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-secondary);
-  }
-  .plan-icon-btn:active {
-    transform: scale(0.96);
-  }
-  .plan-icon-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border-medium);
-    outline-offset: 0.125rem;
-  }
-
   .plan-card-body {
     position: relative;
-    padding: 0.75rem 0.875rem;
+    padding: 0.75rem 1rem 0.875rem;
   }
 
   .plan-card-placeholder {
@@ -329,11 +241,11 @@
     --work-ref-preview-bg: var(--solus-container-bg);
     position: relative;
     display: grid;
-    grid-template-columns: 0.125rem minmax(0, 1fr);
+    grid-template-columns: 0.0625rem minmax(0, 1fr);
     column-gap: 0.875rem;
-    max-height: 12rem;
+    max-height: 10rem;
     overflow: hidden;
-    padding: 0.875rem 1rem 1rem;
+    padding: 0.75rem 1rem 1rem;
     background: var(--work-ref-preview-bg);
   }
 
@@ -383,8 +295,8 @@
     background: linear-gradient(to bottom, transparent, var(--solus-container-bg));
   }
 
-  .plan-card-actions {
-    padding: 0.5rem 0.875rem 0.625rem;
-    border-top: 0.0625rem solid var(--solus-accent-border);
+  .diagram-ref-preview {
+    height: 12rem;
+    overflow: hidden;
   }
 </style>

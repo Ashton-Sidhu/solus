@@ -15,7 +15,7 @@ export const RPC_INVOKE_METHODS = [
   // Lifecycle / window
   'start',
   'isVisible',
-  'notifyViewMode',
+  'switchMode',
   'getAppGlobalShortcuts',
   'setAppGlobalShortcuts',
   'restartApp',
@@ -173,6 +173,7 @@ export const RPC_INVOKE_METHODS = [
   'writeLedger',
   'getReviewContext',
   'generateGuide',
+  'cancelGenerateGuide',
   'readGuide',
   'readReviewState',
   'writeReviewState',
@@ -229,6 +230,7 @@ export const RPC_TOPICS = [
   'review-progress',
   'merge-queue-update',
   'tasks-changed',
+  'prs-changed',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]

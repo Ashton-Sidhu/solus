@@ -17,7 +17,7 @@
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import type { PlanComment, SessionMeta, WorkAnnotations, WorkStorage } from "../../shared/types";
+  import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { formatInlineComments } from "../../contexts/session.utils";
   import { uuid } from "../../../shared/uuid";
@@ -180,12 +180,14 @@
   // DocumentModal).
   $effect(() => {
     const id = workId;
-    if (!id || id === loadedAnnotationsFor) return;
+    if (!id) {
+      loadedAnnotationsFor = null;
+      return;
+    }
+    if (id === loadedAnnotationsFor) return;
     loadedAnnotationsFor = id;
-    comments.splice(0, comments.length);
-    void window.solus.loadWorkAnnotations(id).then((ann) => {
-      if (loadedAnnotationsFor !== id) return; // a different work opened meanwhile
-      if (ann?.comments?.length) comments.splice(0, comments.length, ...ann.comments);
+    void session.worksStore.loadAnnotations(id).then(() => {
+      if (loadedAnnotationsFor !== id) return;
       applyTransientState();
     });
   });
@@ -195,10 +197,10 @@
     if (commentsSaveTimer) clearTimeout(commentsSaveTimer);
     const id = workId;
     commentsSaveTimer = setTimeout(() => {
-      const ann: WorkAnnotations = {
-        version: 1,
+      const ann = {
+        version: 1 as const,
         workId: id,
-        comments: $state.snapshot(comments) as PlanComment[],
+        comments: $state.snapshot(session.worksStore.annotationComments(id)) as PlanComment[],
         updatedAt: Date.now(),
       };
       void window.solus.saveWorkAnnotations(ann);
@@ -228,7 +230,8 @@
   }
 
   function addComment(text: string) {
-    comments.push({
+    if (!workId) return;
+    session.worksStore.addAnnotationComment(workId, {
       id: uuid(),
       selectedText: commentDraftNodeId
         ? (nodeLabelFor(commentDraftNodeId) ?? commentDraftNodeId)
@@ -241,14 +244,14 @@
   }
 
   function editComment(commentId: string, text: string) {
-    const c = comments.find((x) => x.id === commentId);
-    if (c) c.comment = text;
+    if (!workId) return;
+    session.worksStore.editAnnotationComment(workId, commentId, text);
     persistComments();
   }
 
   function deleteComment(commentId: string) {
-    const i = comments.findIndex((x) => x.id === commentId);
-    if (i !== -1) comments.splice(i, 1);
+    if (!workId) return;
+    session.worksStore.deleteAnnotationComment(workId, commentId);
     persistComments();
     applyTransientState();
   }
@@ -277,7 +280,7 @@
     if (!workId || comments.length === 0) return;
     const body = formatInlineComments($state.snapshot(comments) as PlanComment[]);
     const msg = `Please address these comments on the diagram "${title}" (work_id: ${workId}):\n${body}`;
-    comments.splice(0, comments.length);
+    session.worksStore.clearAnnotationComments(workId);
     persistComments();
     applyTransientState();
     const boundTabId = session.tabOrder.find(
@@ -350,7 +353,7 @@
   let drawerAutoFocus = $state(false);
   // Node-anchored comments, persisted to the work-annotations sidecar (same
   // store DocumentModal uses for docs) and surfaced to the agent via read_work.
-  let comments = $state<PlanComment[]>([]);
+  const comments = $derived(workId ? session.worksStore.annotationComments(workId) : []);
   let commentsOpen = $state(false);
   // Node the composer is pre-anchored to; null = whole-diagram comment.
   let commentDraftNodeId = $state<string | null>(null);

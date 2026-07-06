@@ -22,6 +22,7 @@ export interface SessionEventReducerDeps {
   workStreamTracker: WorkStreamTracker
   isTabVisible(tabId: string): boolean
   recomputeChangedFiles(tabId: string): void
+  addChangedFilesFromMessage(tabId: string, message: Message): void
   refreshTurnSnapshots(tabId: string): void
   setGitStatus(cwd: string, status: GitProjectStatus | null): void
   playNotificationIfHidden(): void
@@ -81,10 +82,7 @@ export class SessionEventReducer {
         session.provider = session.provider ?? this.deps.settings.activeAgent
         session.agentSessionId = event.sessionId
         session.sessionModel = event.model
-        session.sessionTools = event.tools
-        session.sessionMcpServers = event.mcpServers
         session.sessionSkills = event.skills
-        session.sessionVersion = event.version
         if (session.forked) session.forked = false
         if (session.boundWorkId) {
           this.deps.worksStore.linkSessionLocal(session.boundWorkId, event.sessionId)
@@ -107,6 +105,8 @@ export class SessionEventReducer {
           toolIndex: event.index,
           toolInput: event.toolInput ?? '',
           toolStatus: 'running',
+          subMessages: event.isSubagent ? [] : undefined,
+          subagentType: event.subagentType,
           timestamp: Date.now(),
         })
         this.deps.workStreamTracker.beginToolArtifacts(
@@ -127,9 +127,7 @@ export class SessionEventReducer {
             (!event.toolId || m.toolId === event.toolId) &&
             (event.index === undefined || m.toolIndex === event.index)
           ) {
-            if (event.toolInput !== undefined) {
-              m.toolInput = event.toolInputDelta ? `${m.toolInput ?? ''}${event.toolInput}` : event.toolInput
-            }
+            if (event.toolInput !== undefined) m.toolInput = event.toolInput
             if (event.content !== undefined) {
               m.content = event.content
             }
@@ -140,7 +138,7 @@ export class SessionEventReducer {
       }
 
       case 'tool_call_complete': {
-        let needsFileRecompute = false
+        let completedFileMsg: Message | null = null
         for (let i = session.messages.length - 1; i >= 0; i--) {
           const m = session.messages[i]
           if (
@@ -149,42 +147,43 @@ export class SessionEventReducer {
             (!event.toolId || m.toolId === event.toolId) &&
             (event.index === undefined || m.toolIndex === event.index)
           ) {
+            // A main-thread tool's input arrives whole here (it streamed as deltas
+            // the normalizer accumulated); set it before addChangedFilesFromMessage
+            // parses it below.
+            if (event.toolInput !== undefined) m.toolInput = event.toolInput
             m.toolStatus = 'completed'
             if (m.toolName === 'Write' || m.toolName === 'Edit' || m.toolName === 'exec_command') {
-              needsFileRecompute = true
+              completedFileMsg = m
             }
             break
           }
         }
-        if (needsFileRecompute) {
-          this.deps.recomputeChangedFiles(tabId)
+        if (completedFileMsg) {
+          // Incremental union from just this message — the full rescan runs at
+          // task_complete to reconcile. Avoids re-parsing every historical body.
+          this.deps.addChangedFilesFromMessage(tabId, completedFileMsg)
           this.deps.onTurnSettled(tabId, session.workingDirectory)
         }
         break
       }
 
-      case 'task_update': {
-        if (event.message?.content) {
-          const lastUserIdx = findLastUserIndex(session.messages)
-          const hasStreamedText = lastUserIdx >= 0 && session.messages
-            .slice(lastUserIdx + 1)
-            .some((m) => m.role === 'assistant' && !m.toolName)
-
-          if (!hasStreamedText) {
-            const textContent = event.message.content
-              .filter((b: { type: string; text?: string }) => b.type === 'text' && b.text)
-              .map((b: { type: string; text?: string }) => b.text!)
-              .join('')
-              .trim()
-            if (textContent) {
-              session.messages.push({
-                id: nextMsgId(),
-                role: 'assistant' as const,
-                content: textContent,
-                timestamp: Date.now(),
-              })
-            }
+      case 'assistant_message': {
+        const lastUserIdx = findLastUserIndex(session.messages)
+        let hasStreamedText = false
+        if (lastUserIdx >= 0) {
+          for (let i = lastUserIdx + 1; i < session.messages.length; i++) {
+            const m = session.messages[i]
+            if (m.role === 'assistant' && !m.toolName) { hasStreamedText = true; break }
           }
+        }
+
+        if (!hasStreamedText && event.text) {
+          session.messages.push({
+            id: nextMsgId(),
+            role: 'assistant' as const,
+            content: event.text,
+            timestamp: Date.now(),
+          })
         }
         break
       }
@@ -192,6 +191,16 @@ export class SessionEventReducer {
       case 'usage':
         if (event.sessionUsage) session.sessionUsage = event.sessionUsage
         break
+
+      case 'changed_files_updated': {
+        const prev = session.changedFiles.join('\n')
+        const next = event.paths.join('\n')
+        if (prev !== next) {
+          session.changedFiles.splice(0, session.changedFiles.length, ...event.paths)
+          this.deps.onTurnSettled(tabId, session.workingDirectory)
+        }
+        break
+      }
 
       case 'progress': {
         const todos = event.todos.map((todo) => ({
@@ -208,15 +217,18 @@ export class SessionEventReducer {
           totalCostUsd: event.costUsd,
           durationMs: event.durationMs,
           numTurns: event.numTurns,
-          usage: event.usage,
           sessionId: event.sessionId,
         }
         if (Object.keys(event.usage).length > 0) session.sessionUsage = event.usage
         if (event.result) {
           const lastUserIdx2 = findLastUserIndex(session.messages)
-          const hasAnyText = lastUserIdx2 >= 0 && session.messages
-            .slice(lastUserIdx2 + 1)
-            .some((m) => m.role === 'assistant' && !m.toolName)
+          let hasAnyText = false
+          if (lastUserIdx2 >= 0) {
+            for (let i = lastUserIdx2 + 1; i < session.messages.length; i++) {
+              const m = session.messages[i]
+              if (m.role === 'assistant' && !m.toolName) { hasAnyText = true; break }
+            }
+          }
           if (!hasAnyText) {
             session.messages.push({
               id: nextMsgId(),
@@ -234,7 +246,7 @@ export class SessionEventReducer {
             session.permissionDenied = null
           }
         }
-        this.deps.recomputeChangedFiles(tabId)
+        if (session.provider !== 'codex') this.deps.recomputeChangedFiles(tabId)
         this.deps.onTurnSettled(tabId, session.workingDirectory)
         this.deps.refreshTurnSnapshots(tabId)
         this.deps.workStreamTracker.sweep(tabId, session)
@@ -303,12 +315,8 @@ export class SessionEventReducer {
           if (event.isUsingOverage || session.rateLimitStrategy === 'continue') {
             content += ' Using overage.'
           } else if (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue') {
-            session.rateLimitInfo = event.info ?? {
-              resetsAt: event.resetsAt,
-              rateLimitType: event.rateLimitType,
-              prompt: 'Solus is taking a short breather before trying again.',
-              queuedPrompt: 'Queued safely. Solus will send it when the limit resets.',
-            }
+            if (!event.info) break
+            session.rateLimitInfo = event.info
             session.permissionQueue = []
             session.questionQueue = []
           } else if (session.rateLimitStrategy === 'stop') {
@@ -495,6 +503,22 @@ export class SessionEventReducer {
         break
       }
 
+      case 'task_created': {
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'assistant',
+          content: '',
+          taskRef: {
+            taskId: event.taskId,
+            title: event.title,
+            url: event.url,
+          },
+          timestamp: Date.now(),
+        })
+        this.deps.playNotificationIfHidden()
+        break
+      }
+
       case 'session_created': {
         session.messages.push({
           id: nextMsgId(),
@@ -505,6 +529,43 @@ export class SessionEventReducer {
             title: event.title,
             provider: event.provider,
             cwd: event.cwd,
+            verb: 'Started',
+          },
+          timestamp: Date.now(),
+        })
+        this.deps.playNotificationIfHidden()
+        break
+      }
+
+      case 'session_prompted': {
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'assistant',
+          content: '',
+          sessionRef: {
+            agentSessionId: event.agentSessionId,
+            title: event.promptPreview,
+            provider: event.provider,
+            cwd: event.cwd,
+            verb: 'Prompted',
+          },
+          timestamp: Date.now(),
+        })
+        this.deps.playNotificationIfHidden()
+        break
+      }
+
+      case 'session_stopped': {
+        session.messages.push({
+          id: nextMsgId(),
+          role: 'assistant',
+          content: '',
+          sessionRef: {
+            agentSessionId: event.agentSessionId,
+            title: event.agentSessionId,
+            provider: event.provider,
+            cwd: event.cwd,
+            verb: 'Stopped',
           },
           timestamp: Date.now(),
         })
@@ -588,9 +649,6 @@ export class SessionEventReducer {
     const list = parent?.subMessages ?? session.messages
     const target = this.findToolMsg(list, event.toolUseId)
     if (!target) return
-    // A sub-agent often ends on assistant text (no trailing tool call); flush any
-    // buffered final answer into the transcript before the card rests.
-    this.commitSubText(target)
     target.toolResult = event.content
     target.toolResultIsError = event.isError ?? false
     target.toolStatus = event.isError ? 'error' : 'completed'
@@ -607,15 +665,10 @@ export class SessionEventReducer {
     const subs = parent.subMessages
 
     switch (event.type) {
-      case 'text_chunk':
-        parent.subStreamText = (parent.subStreamText ?? '') + event.text
-        break
-
       case 'tool_call':
         // Sub-agent tool calls are synthesized from assembled assistant messages,
         // which can be re-delivered (resume/replay); skip if we already have it.
         if (event.toolId && subs.some((m) => m.role === 'tool' && m.toolId === event.toolId)) break
-        this.commitSubText(parent)
         subs.push({
           id: nextMsgId(),
           role: 'tool',
@@ -638,9 +691,7 @@ export class SessionEventReducer {
             (!event.toolId || m.toolId === event.toolId) &&
             (event.index === undefined || m.toolIndex === event.index)
           ) {
-            if (event.toolInput !== undefined) {
-              m.toolInput = event.toolInputDelta ? `${m.toolInput ?? ''}${event.toolInput}` : event.toolInput
-            }
+            if (event.toolInput !== undefined) m.toolInput = event.toolInput
             if (event.content !== undefined) m.content = event.content
             break
           }
@@ -656,41 +707,24 @@ export class SessionEventReducer {
             (!event.toolId || m.toolId === event.toolId) &&
             (event.index === undefined || m.toolIndex === event.index)
           ) {
+            if (event.toolInput !== undefined) m.toolInput = event.toolInput
             m.toolStatus = 'completed'
             break
           }
         }
         break
 
-      case 'task_update': {
-        // Streaming text (subStreamText → committed assistant blocks) is the
-        // primary path; only synthesize from task_update when nothing streamed.
-        if (!event.message?.content || parent.subStreamText) break
+      case 'assistant_message': {
+        // Sub-agent text no longer streams; the assembled assistant_message is the
+        // sole path. Dedup exact re-deliveries (resume/replay), but let consecutive
+        // distinct texts land as separate blocks.
+        if (!event.text) break
+        const text = event.text
         const lastSub = subs[subs.length - 1]
-        if (lastSub?.role === 'assistant' && !lastSub.toolName) break
-        const text = event.message.content
-          .filter((b: { type: string; text?: string }) => b.type === 'text' && b.text)
-          .map((b: { type: string; text?: string }) => b.text!)
-          .join('')
-          .trim()
-        if (text) subs.push({ id: nextMsgId(), role: 'assistant', content: text, timestamp: Date.now() })
+        if (lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.content === text) break
+        subs.push({ id: nextMsgId(), role: 'assistant', content: text, timestamp: Date.now() })
         break
       }
-    }
-  }
-
-  /** Flush a sub-agent parent's buffered stream text into its nested transcript. */
-  private commitSubText(parent: Message): void {
-    const pending = parent.subStreamText ?? ''
-    if (!pending) return
-    parent.subStreamText = ''
-    if (!parent.subMessages) parent.subMessages = []
-    const subs = parent.subMessages
-    const last = subs[subs.length - 1]
-    if (last?.role === 'assistant' && !last.toolName) {
-      last.content += pending
-    } else {
-      subs.push({ id: nextMsgId(), role: 'assistant', content: pending, timestamp: Date.now() })
     }
   }
 

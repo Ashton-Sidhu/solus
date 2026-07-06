@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, untrack } from "svelte";
   import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
   import { tooltip } from "../../lib/tooltip";
 
@@ -17,6 +18,34 @@
 
   let inputEl: HTMLInputElement | null = $state(null);
 
+  // Debounce committing the query upstream: every keystroke otherwise re-walks
+  // the entire diff (findMatches) and scrolls to the first hit. The local draft
+  // keeps typing responsive while the committed query — and its scan — trails
+  // ~120ms behind. Enter commits immediately so navigation uses the typed query;
+  // Escape/close unmounts this bar, and onDestroy cancels any pending commit so a
+  // stale query can't land after the find bar is gone.
+  const COMMIT_DEBOUNCE_MS = 120;
+  let draftValue = $state(untrack(() => query));
+  let commitTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function commit() {
+    if (commitTimer !== null) {
+      clearTimeout(commitTimer);
+      commitTimer = null;
+    }
+    if (draftValue !== query) onQueryChange(draftValue);
+  }
+
+  function handleInput(value: string) {
+    draftValue = value;
+    if (commitTimer !== null) clearTimeout(commitTimer);
+    commitTimer = setTimeout(commit, COMMIT_DEBOUNCE_MS);
+  }
+
+  onDestroy(() => {
+    if (commitTimer !== null) clearTimeout(commitTimer);
+  });
+
   export function focusInput() {
     inputEl?.focus();
     inputEl?.select();
@@ -25,6 +54,7 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
+      commit();
       if (e.shiftKey) onPrev();
       else onNext();
       return;
@@ -51,8 +81,8 @@
   <input
     bind:this={inputEl}
     type="text"
-    value={query}
-    oninput={(e) => onQueryChange(e.currentTarget.value)}
+    value={draftValue}
+    oninput={(e) => handleInput(e.currentTarget.value)}
     onkeydown={handleKeydown}
     placeholder="Find in diff"
     aria-label="Find in diff"

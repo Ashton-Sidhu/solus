@@ -2,7 +2,6 @@ import { createContext } from 'svelte'
 
 export type ViewMode = 'pill' | 'editor'
 
-const WINDOW_SETTINGS_KEY = 'solus-window'
 const WEB_MOBILE_QUERY = '(max-width: 767px)'
 
 export class WindowContext {
@@ -21,6 +20,13 @@ export class WindowContext {
   constructor() {
     this.platform = window.solus.getPlatform()
     this.viewMode = this.loadViewMode()
+    // Publish the macOS-editor flag once: it drives the titlebar safe-area vars
+    // (see --solus-traffic-light-inset in index.css) so all chrome reserves the
+    // window-control region from one place. Each Electron window is mode-locked,
+    // so this never has to change for the window's lifetime.
+    if (this.isMac && this.viewMode === 'editor') {
+      document.documentElement.classList.add('is-mac-editor')
+    }
     this.workAreaWidth = window.innerWidth
     this.workAreaHeight = window.innerHeight
     // Coalesce the burst of resize events into one $state update per frame so
@@ -55,25 +61,21 @@ export class WindowContext {
     if (this.isWeb) {
       return window.matchMedia(WEB_MOBILE_QUERY).matches ? 'pill' : 'editor'
     }
+    // On Electron each window is mode-locked: main puts `?mode=` in the URL
+    // and the mode never changes for the window's lifetime. Main persists the
+    // last-used mode itself for the next boot.
     try {
-      const parsed = JSON.parse(localStorage.getItem(WINDOW_SETTINGS_KEY) || '{}')
-      return parsed.viewMode === 'editor' ? 'editor' : 'pill'
+      return new URLSearchParams(window.location.search).get('mode') === 'editor' ? 'editor' : 'pill'
     } catch {
       return 'pill'
     }
   }
 
+  /** On Electron this doesn't change this window's mode — it asks main to
+   *  surface the other mode's window (creating it on first use). */
   async setViewMode(mode: ViewMode): Promise<void> {
     if (this.isWeb) return
-    await window.solus.notifyViewMode(mode)
-    this.viewMode = mode
-    this.save()
-  }
-
-  private save(): void {
-    try {
-      localStorage.setItem(WINDOW_SETTINGS_KEY, JSON.stringify({ viewMode: this.viewMode }))
-    } catch {}
+    await window.solus.switchMode(mode)
   }
 }
 

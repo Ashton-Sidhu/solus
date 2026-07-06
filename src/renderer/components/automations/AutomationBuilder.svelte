@@ -83,26 +83,26 @@
     onClose,
   }: Props = $props();
 
-  // Sidebar panel styling (shared across the three cards). A hairline ring + soft
-  // lift floats each card off the same-colored page; the title pairs micro-caps
-  // with a hairline rule that fades out.
+  // Sidebar background — also used by the inline pane container. Kept a hair
+  // warmer than the page so the rail reads as its own surface.
   const SIDEBAR_PANEL_BG =
     "bg-[color:color-mix(in_srgb,var(--solus-container-bg)_90%,color-mix(in_srgb,var(--solus-input-pill-bg)_70%,var(--solus-surface-primary))_10%)]";
-  const CARD =
-    "flex flex-col gap-3 py-4 px-[1.125rem] rounded-[0.875rem] " +
-    "border border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)] " +
-    `${SIDEBAR_PANEL_BG} shadow-[var(--solus-card-shadow-collapsed)]`;
-  const CARD_TITLE =
-    "flex items-center gap-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.09em] " +
-    "text-(--solus-text-tertiary) after:content-[''] after:flex-1 after:h-px " +
-    "after:bg-[linear-gradient(to_right,color-mix(in_srgb,var(--solus-container-border)_70%,transparent),transparent)]";
+  // Flat, card-less rail (mirrors PrActivityRail's Activity sidebar): sections
+  // are separated by a hairline art rule rather than boxed in card chrome. The
+  // first section carries no top border; SECTION_DIVIDED adds one. Titles are
+  // quiet uppercase micro-caps.
+  const SECTION = "flex flex-col gap-3";
+  const SECTION_DIVIDED =
+    "flex flex-col gap-3 border-t border-(--solus-art-border) pt-5";
+  const SECTION_TITLE =
+    "text-[0.6875rem] font-semibold uppercase tracking-wider text-(--solus-text-tertiary)";
 
   // Metadata rows: a muted label / prominent value hierarchy with whitespace
-  // separation (no dividers), so the card content reads aligned but uncluttered.
+  // separation (no dividers), so the content reads aligned but uncluttered.
   // ROW lays out one label↔value line; META_VALUE styles text values.
   const META =
     "flex flex-col gap-0.5 " +
-    "[&_dt]:shrink-0 [&_dt]:text-xs [&_dt]:font-medium [&_dt]:text-(--solus-text-secondary) " +
+    "[&_dt]:shrink-0 [&_dt]:text-xs [&_dt]:text-(--solus-text-tertiary) " +
     "[&_dd]:m-0 [&_dd]:min-w-0";
   const ROW = "flex items-center justify-between gap-3 min-h-[1.875rem]";
   const META_VALUE =
@@ -378,14 +378,6 @@
   // Upcoming fires of the draft schedule, shown under the fields so the user
   // can confirm the schedule means what they think before it ever fires.
   // Reads the same drafts buildTrigger does, so it tracks every edit.
-  const schedulePreview = $derived.by(() => {
-    void nowTick; // keep "Tomorrow"/"Today" phrasing honest over time
-    if (kind === "manual" || kind === "once") return [];
-    const t = buildTrigger();
-    if ("error" in t) return [];
-    const next = nextOccurrences(t, 3) ?? [];
-    return next.map((d) => absoluteTime(d.toISOString(), nowTick));
-  });
   const cronInvalid = $derived(
     kind === "cron" &&
       cronExpr.trim() !== "" &&
@@ -680,11 +672,11 @@
     <!-- Retarget the shared ghost-select hover to the brand accent wash within
            these cards (overrides Select.svelte's neutral hover via specificity). -->
     <aside
-      class="flex flex-col gap-[1.125rem] min-w-0 @max-[46rem]:order-first [&_.sel-trigger--ghost:hover:not(:disabled)]:bg-(--solus-accent-light)"
+      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-trigger--ghost:hover:not(:disabled)]:bg-(--solus-accent-light)"
     >
       <!-- Status -->
-      <section id="status" class={CARD}>
-        <h2 class={CARD_TITLE}>Status</h2>
+      <section id="status" class={SECTION}>
+        <h2 class={SECTION_TITLE}>Status</h2>
 
         <!-- Live state on the left, a switch to toggle it on the right. The card
              title already says "Status", so the row leads with the state itself. -->
@@ -719,44 +711,34 @@
           </button>
         </div>
 
-        <!-- Next run + Last ran as divider-separated meta rows (same as Details card) -->
-        <div
-          class="-mx-[1.125rem] border-t border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-        >
-          <dl
-            class="divide-y divide-[color-mix(in_srgb,var(--solus-container-border)_40%,transparent)]"
-          >
-            <div class={ROW + " px-[1.125rem] py-2"}>
-              <dt class="text-xs font-normal text-(--solus-text-secondary)">
-                Next run
-              </dt>
-              <dd class={META_VALUE}>
-                {#if enabled && current?.nextRunAt}
-                  {absoluteTime(current.nextRunAt, nowTick)}
-                {:else if kind === "manual"}
-                  Manual only
-                {:else}
-                  Not scheduled
-                {/if}
-              </dd>
-            </div>
-            <div class={ROW + " px-[1.125rem] py-2"}>
-              <dt class="text-xs font-normal text-(--solus-text-secondary)">
-                Last ran
-              </dt>
-              <dd class={META_VALUE}>
-                {current?.lastRunAt
-                  ? absoluteTime(current.lastRunAt, nowTick)
-                  : "Never"}
-              </dd>
-            </div>
-          </dl>
-        </div>
+        <!-- Next run + Last ran as quiet property rows -->
+        <dl class="flex flex-col">
+          <div class={ROW}>
+            <dt class="text-xs text-(--solus-text-tertiary)">Next run</dt>
+            <dd class={META_VALUE}>
+              {#if enabled && current?.nextRunAt}
+                {absoluteTime(current.nextRunAt, nowTick)}
+              {:else if kind === "manual"}
+                Manual only
+              {:else}
+                Not scheduled
+              {/if}
+            </dd>
+          </div>
+          <div class={ROW}>
+            <dt class="text-xs text-(--solus-text-tertiary)">Last ran</dt>
+            <dd class={META_VALUE}>
+              {current?.lastRunAt
+                ? absoluteTime(current.lastRunAt, nowTick)
+                : "Never"}
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <!-- Details -->
-      <section id="details" class={CARD}>
-        <h2 class={CARD_TITLE}>Details</h2>
+      <section id="details" class={SECTION_DIVIDED}>
+        <h2 class={SECTION_TITLE}>Details</h2>
         <dl class={META}>
           <div class={ROW}>
             <dt>Repeats</dt>
@@ -872,14 +854,6 @@
             </div>
           {/if}
 
-          {#if schedulePreview.length > 0}
-            <p
-              class="m-0 pb-1.5 text-[0.6875rem] leading-normal text-(--solus-text-tertiary)"
-            >
-              Next: {schedulePreview.join(" · ")}
-            </p>
-          {/if}
-
           <div class={ROW}>
             <dt>Project</dt>
             <dd>
@@ -956,36 +930,36 @@
               </dd>
             </div>
           {:else}
-          <div class={ROW}>
-            <dt>Worktree</dt>
-            <dd>
-              <label
-                class="group inline-flex items-center cursor-pointer pointer-coarse:min-h-11 pointer-coarse:px-1.5"
-                title="Run each fire on an isolated git branch"
-              >
-                <input
-                  type="checkbox"
-                  class="sr-only"
-                  bind:checked={useWorktree}
-                  onchange={commitAction}
-                />
-                <span
-                  class="relative w-7 h-4 shrink-0 rounded-full bg-(--solus-container-border) transition-colors duration-150 group-has-[:checked]:bg-(--solus-accent) group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:w-11 pointer-coarse:h-6"
+            <div class={ROW}>
+              <dt>Worktree</dt>
+              <dd>
+                <label
+                  class="group inline-flex items-center cursor-pointer pointer-coarse:min-h-11 pointer-coarse:px-1.5"
+                  title="Run each fire on an isolated git branch"
                 >
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    bind:checked={useWorktree}
+                    onchange={commitAction}
+                  />
                   <span
-                    class="absolute left-0.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.25)] transition-transform duration-150 group-has-[:checked]:translate-x-3 pointer-coarse:w-[1.125rem] pointer-coarse:h-[1.125rem] pointer-coarse:group-has-[:checked]:translate-x-5"
-                  ></span>
-                </span>
-              </label>
-            </dd>
-          </div>
+                    class="relative w-7 h-4 shrink-0 rounded-full bg-(--solus-container-border) transition-colors duration-150 group-has-[:checked]:bg-(--solus-accent) group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:w-11 pointer-coarse:h-6"
+                  >
+                    <span
+                      class="absolute left-0.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.25)] transition-transform duration-150 group-has-[:checked]:translate-x-3 pointer-coarse:w-[1.125rem] pointer-coarse:h-[1.125rem] pointer-coarse:group-has-[:checked]:translate-x-5"
+                    ></span>
+                  </span>
+                </label>
+              </dd>
+            </div>
           {/if}
         </dl>
       </section>
 
       <!-- Previous runs -->
-      <section id="previous-runs" class={CARD}>
-        <h2 class={CARD_TITLE}>Previous runs</h2>
+      <section id="previous-runs" class={SECTION_DIVIDED}>
+        <h2 class={SECTION_TITLE}>Previous runs</h2>
         {#if runs.length === 0}
           <p class="text-xs text-(--solus-text-tertiary) leading-normal">
             No runs yet. Use Run now to test it.
@@ -1065,7 +1039,7 @@
   <!-- ── Side-panel pane: fixed chrome header + scrolling form ── -->
   <div class="flex h-full min-h-0 flex-col {SIDEBAR_PANEL_BG}">
     <header
-      class="flex h-[var(--solus-chrome-row-h,2.9375rem)] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-3"
+      class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
     >
       <nav
         class="flex items-center gap-1.5 min-w-0 text-[0.8125rem]"

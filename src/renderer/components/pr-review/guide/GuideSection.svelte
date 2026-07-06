@@ -135,7 +135,9 @@
   class="grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
 >
   <!-- Left: the "why", pinned while the diffs scroll past. -->
-  <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
+  <div
+    class="guide-why flex min-h-0 flex-col gap-5 lg:sticky lg:top-12 lg:max-h-[calc(100dvh_-_var(--solus-chrome-row-h,2.5rem)_-_5rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+  >
     {#if index && total}
       <span
         class="tabular-nums text-[0.8125rem] font-semibold tracking-wide text-(--solus-text-tertiary)"
@@ -153,7 +155,7 @@
     <GuideExplanation {section} records={sectionRecords} />
 
     {#if section.files.length > 0}
-      <ul class="mt-1 flex flex-col gap-1.5">
+      <ul class="mt-1 flex flex-col gap-1.5" role="list">
         {#each section.files as file (file.path)}
           <li>
             <button
@@ -286,6 +288,18 @@
   }
   .guide-why > :global(*:nth-child(4)) {
     animation-delay: 0.18s;
+  }
+  .guide-why {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--solus-text-primary) 18%, transparent)
+      transparent;
+  }
+  .guide-why::-webkit-scrollbar {
+    width: 0.5rem;
+  }
+  .guide-why::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--solus-text-primary) 18%, transparent);
+    border-radius: 999px;
   }
 
   /* Diffs lazy-mount as they scroll near the viewport (and on expand); fade them

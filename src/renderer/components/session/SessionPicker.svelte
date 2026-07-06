@@ -28,12 +28,9 @@
     FrozenEntryOrder,
     type PickerRow,
   } from "../../lib/pickerEntries";
-  import { PreviewLoader } from "../../lib/preview.svelte";
-  import {
-    SessionHistoryLoader,
-    sessionHistorySourcesFromRoots,
-    sortedDedupedHistorySessions,
-  } from "../../lib/sessionPickerHistory";
+  import { createSessionPreviewStore } from "../../lib/preview.svelte";
+  import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
+  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
   import SessionPickerItem from "./SessionPickerItem.svelte";
   import SessionPickerSkeleton from "./SessionPickerSkeleton.svelte";
   import SessionPreview from "./SessionPreview.svelte";
@@ -61,19 +58,13 @@
   let selectedIndex = $state(0);
   let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let popoverEl: HTMLDivElement | null = $state(null);
-  let historySessions = $state<SessionMeta[]>([]);
-  let historyLoading = $state(false);
   let showHistorySkeleton = $state(false);
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
-  const historyLoader = new SessionHistoryLoader({
-    listSessions: window.solus.listSessions,
-    onSessionScan: window.solus.onSessionScan,
-  });
+  const history = createSessionHistoryStore();
+  const historySessions = $derived(history.sessions);
+  const historyLoading = $derived(history.loading);
 
-  const preview = new PreviewLoader({
-    loadSessionPreview: window.solus.loadSessionPreview,
-    getSessionInfo: window.solus.getSessionInfo,
-  });
+  const preview = createSessionPreviewStore();
   let listHeight = $state(0);
   let virtualList: VirtualList | null = $state(null);
   let wasOpen = false;
@@ -207,7 +198,7 @@
       wasOpen = false;
       lastHistoryScopeKey = null;
       historyLoadSeq++;
-      historyLoader.cancel();
+      history.cancel();
       preview.reset();
       return;
     }
@@ -231,7 +222,7 @@
 
     if (lastHistoryScopeKey !== scopeKey) {
       lastHistoryScopeKey = scopeKey;
-      historySessions = [];
+      history.clear();
       selectedIndex = 0;
       resetPickerCaches();
       void loadHistory(historySources, scopeKey);
@@ -259,23 +250,11 @@
     );
   });
 
-  // Patch a single history entry with freshly-read metadata (e.g. a `/rename`
-  // since the cached scan). Matched by the unique provider+sessionId; the frozen
-  // entry order keeps the row from jumping under the cursor.
-
-  function mergeHistorySessions(sessions: SessionMeta[]) {
-    historySessions = sortedDedupedHistorySessions([
-      ...historySessions,
-      ...sessions,
-    ]);
-  }
-
   async function loadHistory(
     sources = historySources,
     scopeKey = historyScopeKey,
   ) {
     const seq = ++historyLoadSeq;
-    historyLoading = true;
     showHistorySkeleton = false;
     if (skeletonTimer) clearTimeout(skeletonTimer);
     const timer = setTimeout(() => {
@@ -289,24 +268,20 @@
     skeletonTimer = timer;
 
     try {
-      const sessions = await historyLoader.load({
+      await history.load({
         sources,
         ctx: session.ctx,
-        onBatch: (batch) => {
-          if (seq !== historyLoadSeq) return;
-          mergeHistorySessions(batch);
-          if (showHistorySkeleton && historySessions.length > 0)
+        scopeKey,
+        onBatch: (sessions) => {
+          if (showHistorySkeleton && sessions.length > 0)
             showHistorySkeleton = false;
         },
       });
       if (seq !== historyLoadSeq || lastHistoryScopeKey !== scopeKey) return;
-      historySessions = sessions;
-    } catch {
-      if (seq !== historyLoadSeq || lastHistoryScopeKey !== scopeKey) return;
-      historySessions = [];
+      if (showHistorySkeleton && historySessions.length > 0)
+        showHistorySkeleton = false;
     } finally {
       if (seq === historyLoadSeq && lastHistoryScopeKey === scopeKey) {
-        historyLoading = false;
         showHistorySkeleton = false;
       }
       if (skeletonTimer === timer) {
@@ -329,7 +304,7 @@
 
   function close() {
     open = false;
-    historyLoader.cancel();
+    history.cancel();
     preview.reset();
     if (skeletonTimer) {
       clearTimeout(skeletonTimer);
@@ -380,7 +355,7 @@
 
   onDestroy(() => {
     historyLoadSeq++;
-    historyLoader.cancel();
+    history.cancel();
   });
 </script>
 

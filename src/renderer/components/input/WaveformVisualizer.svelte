@@ -2,15 +2,20 @@
   interface Props {
     rmsRef: { current: number }
     color: string
+    /** Drives the rAF loop. When false the loop stops (a parent that hides the
+     *  canvas with display:none instead of unmounting does NOT pause
+     *  requestAnimationFrame, so we must tear the loop down ourselves).
+     *  Defaults true for callers that unmount the canvas to stop it. */
+    active?: boolean
   }
 
-  let { rmsRef, color }: Props = $props()
+  let { rmsRef, color, active = true }: Props = $props()
 
   let canvasEl: HTMLCanvasElement | null = $state(null)
 
   $effect(() => {
     const canvas = canvasEl
-    if (!canvas) return
+    if (!canvas || !active) return
     const dpr = window.devicePixelRatio || 1
     const setSize = () => {
       const rect = canvas.getBoundingClientRect()
@@ -21,6 +26,13 @@
     const ctx = canvas.getContext('2d')!
     let frameId = 0
     let smoothRms = 0
+
+    // Resolve the accent color once per activation. `getComputedStyle` forces a
+    // style resolution; doing it per frame (60fps) against a possibly
+    // display:none subtree is pure waste — the color doesn't change mid-loop.
+    const resolvedColor = color.startsWith('var(')
+      ? getComputedStyle(canvas).getPropertyValue(color.slice(4, -1).trim()).trim()
+      : color
 
     // Three waves layered at different frequencies, speeds and opacities. Each
     // is tapered to zero at both ends (the sin() envelope) so the ribbon reads
@@ -49,9 +61,6 @@
       const breathe = 0.1 + 0.04 * Math.sin(t * 1.6)
       const energy = breathe + normalized
       const maxAmp = h / 2 - 1
-      const resolvedColor = color.startsWith('var(')
-        ? getComputedStyle(canvas).getPropertyValue(color.slice(4, -1).trim()).trim()
-        : color
       ctx.strokeStyle = resolvedColor
       ctx.lineWidth = 1.5
       ctx.lineCap = 'round'

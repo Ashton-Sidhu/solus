@@ -70,6 +70,7 @@ export interface ReviewAgentInput {
   reasoningEffort?: ReasoningEffort | null
   /** Phase callback so the producer can stream progress to the UI. */
   onProgress?: (step: ReviewProgressStep) => void
+  abortSignal?: AbortSignal
 }
 
 /**
@@ -98,6 +99,7 @@ export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGui
         cwd: input.workTree,
         model: input.model,
         reasoningEffort,
+        abortSignal: input.abortSignal,
         ephemeral: false,
         readOnly: true,
         dynamicTools: [SUBMIT_REVIEW_GUIDE_TOOL_JSON_SCHEMA],
@@ -119,6 +121,7 @@ export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGui
         permissionMode: 'ask',
         canUseTool: reviewReadOnlyGate,
         persistSession: false,
+        abortController: abortControllerFromSignal(input.abortSignal),
         mcpServers: { solus: reviewGuideMcpServer((g) => { captured = g }) },
         allowedTools: [...SAFE_TOOLS, SUBMIT_REVIEW_GUIDE_MCP_TOOL],
       })
@@ -145,6 +148,14 @@ export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGui
   return captured
 }
 
+function abortControllerFromSignal(signal?: AbortSignal): AbortController | undefined {
+  if (!signal) return undefined
+  const controller = new AbortController()
+  if (signal.aborted) controller.abort()
+  else signal.addEventListener('abort', () => controller.abort(), { once: true })
+  return controller
+}
+
 // ─── prompt ───
 
 function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
@@ -153,35 +164,28 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
   const parts: string[] = []
 
   parts.push(
-    'You are reviewing an agent-authored code change and producing a GUIDED REVIEW: an ordered',
-    'walkthrough that tells a human reviewer what to read first, next, and last, so they never have',
-    'to figure out where to start.',
+    'Use the pr-review-guide skill.',
     '',
-    `Branch: ${context.branch} (target: ${context.targetBranch}, base ${context.baseSha.slice(0, 8)})`,
-    `Reviewer: ${reviewer}`,
-    '',
-    'Organize the change into CONCERNS (sections), not one-section-per-file. A concern is a unit of',
-    'meaning that may span multiple files, and the same file may appear in more than one concern.',
-    'Order concerns the way a reviewer should actually read the PR: the core/entry-point concern first,',
-    'then what depends on it, then mechanical/peripheral edits (renames, formatting) as low-signal.',
-    'Be concise: prefer 4–8 focused concerns over one per file, and group trivial edits together.',
-    '',
-    'Per concern, write a short explanation of WHY it matters and the single thing the reviewer should',
-    'verify — lead with what matters, do not pad. Mark each concern `core`, `supporting`, or `low-signal`.',
-    '',
-    'INSPECT THE CHANGE YOURSELF — do this before composing the guide. The diff is NOT inlined below;',
-    'gather it with your tools so you can read it at the right altitude:',
-    `  • The change is everything between base commit ${input.base} and the current working tree.`,
-    `    Your working directory (${input.workTree}) is that worktree.`,
-    `  • Start with \`git diff ${input.base} --stat\` for the file list, then \`git diff ${input.base}\``,
-    '    (scope to a file with `-- <path>`) to read the hunks.',
-    '  • New files in this change are untracked and will NOT appear in `git diff`. List them with',
-    '    `git ls-files --others --exclude-standard` and Read each in full — they are part of the change.',
-    '  • Use Read/Grep/Glob to inspect surrounding code for the context a hunk needs.',
-    '  • You are strictly read-only: only read-only git commands and file reads are permitted.',
-    '  • Account for EVERY changed file: each one must appear in at least one concern (place purely',
-    '    mechanical files in a low-signal concern). For each file record its path exactly as it appears',
-    '    in the diff plus its added/removed line counts.',
+    // 'You are reviewing an agent-authored code change and producing a GUIDED REVIEW for Solus.',
+    // 'The skill defines the review workflow, concern ordering, ledger usage, and submit_review_guide output contract.',
+    // '',
+    // `Branch: ${context.branch} (target: ${context.targetBranch}, base ${context.baseSha.slice(0, 8)})`,
+    // `Reviewer: ${reviewer}`,
+    // '',
+    // 'INSPECT THE CHANGE YOURSELF — do this before composing the guide. The diff is NOT inlined below;',
+    // 'gather it with your tools so you can read it at the right altitude:',
+    // `  • The change is everything between base commit ${input.base} and the current working tree.`,
+    // `    Your working directory (${input.workTree}) is that worktree.`,
+    // `  • Start with \`git diff ${input.base} --stat\` for the file list, then \`git diff ${input.base}\``,
+    // '    (scope to a file with `-- <path>`) to read the hunks.',
+    // '  • New files in this change are untracked and will NOT appear in `git diff`. List them with',
+    // '    `git ls-files --others --exclude-standard` and Read each in full — they are part of the change.',
+    // '  • Use Read/Grep/Glob to inspect surrounding code for the context a hunk needs.',
+    // '  • You are strictly read-only: only read-only git commands and file reads are permitted.',
+    // '  • Account for EVERY changed file: each one must appear in at least one concern (place purely',
+    // '    mechanical files in a low-signal concern). For each file record its path exactly as it appears',
+    // '    in the diff plus its added/removed line counts.',
+    // '  • Follow the pr-review-guide skill when deciding section boundaries and significance.',
     '',
   )
 
@@ -198,11 +202,11 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
     )
   }
 
-  parts.push(
-    `When you are done, call the \`${SUBMIT_REVIEW_GUIDE_TOOL_NAME}\` tool EXACTLY ONCE with the whole`,
-    'guide as its arguments — title, summary, and the ordered sections. The tool arguments ARE the',
-    'deliverable; do not also write the guide as prose. Do not call the tool until you have inspected',
-    'the full change.',
-  )
+  // parts.push(
+  //   `When you are done, call the \`${SUBMIT_REVIEW_GUIDE_TOOL_NAME}\` tool EXACTLY ONCE with the whole`,
+  //   'guide as its arguments — title, summary, and the ordered sections. The tool arguments ARE the',
+  //   'deliverable; do not also write the guide as prose. Do not call the tool until you have inspected',
+  //   'the full change.',
+  // )
   return parts.join('\n')
 }

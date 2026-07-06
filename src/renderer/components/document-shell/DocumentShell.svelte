@@ -746,6 +746,10 @@
        row — match its height and seam so they read as one continuous bar. */
     min-height: var(--solus-chrome-row-h, auto);
     border-bottom-color: var(--solus-chrome-row-border, var(--solus-tool-border));
+    /* Clear the macOS traffic lights when this shell is the leftmost chrome
+       (maximized pane); no-op otherwise. The base 1.25rem matches the px-5 in
+       the header markup. */
+    padding-left: max(1.25rem, var(--solus-chrome-lead-inset, 0px));
   }
 
   .doc-shell-title--editable {

@@ -6,7 +6,7 @@
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
   import type { Message } from "../../../shared/types";
-  import type { SessionLoadMessage } from "../../../shared/claude-types";
+  import type { SessionLoadMessage } from "../../../shared/session-history";
 
   interface Props {
     messages: Array<SessionLoadMessage | Message> | null;

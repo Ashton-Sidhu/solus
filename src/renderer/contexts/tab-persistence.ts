@@ -1,7 +1,25 @@
 import type { AgentId, ModelConfig, TabGitContext } from '../../shared/types'
 
-const TABS_KEY = 'solus-open-tabs'
-const DRAFTS_KEY = 'solus-tab-drafts'
+// On Electron the pill and editor windows share one localStorage but each owns
+// its tab state, so keys are scoped by the window's mode (`?mode=` in its URL).
+// The web client is a separate origin with one window — keys stay unscoped.
+// Legacy unscoped Electron keys seed the editor (it's the workspace); the pill
+// starts fresh.
+const LEGACY_TABS_KEY = 'solus-open-tabs'
+const LEGACY_DRAFTS_KEY = 'solus-tab-drafts'
+
+function modeSuffix(): string {
+  try {
+    if (window.solus.getPlatform() === 'web') return ''
+    return new URLSearchParams(window.location.search).get('mode') === 'editor' ? ':editor' : ':pill'
+  } catch {
+    return ''
+  }
+}
+
+const KEY_SUFFIX = modeSuffix()
+const TABS_KEY = LEGACY_TABS_KEY + KEY_SUFFIX
+const DRAFTS_KEY = LEGACY_DRAFTS_KEY + KEY_SUFFIX
 
 export interface PersistedTab {
   tabId: string
@@ -26,7 +44,11 @@ export interface PersistedTabs {
 
 export function loadPersistedTabs(): PersistedTabs | null {
   try {
-    const raw = localStorage.getItem(TABS_KEY)
+    let raw = localStorage.getItem(TABS_KEY)
+    if (!raw && KEY_SUFFIX === ':editor') {
+      raw = localStorage.getItem(LEGACY_TABS_KEY)
+      if (raw) localStorage.removeItem(LEGACY_TABS_KEY)
+    }
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (
@@ -81,7 +103,11 @@ export interface TabDrafts {
 
 export function loadDrafts(): TabDrafts | null {
   try {
-    const raw = localStorage.getItem(DRAFTS_KEY)
+    let raw = localStorage.getItem(DRAFTS_KEY)
+    if (!raw && KEY_SUFFIX === ':editor') {
+      raw = localStorage.getItem(LEGACY_DRAFTS_KEY)
+      if (raw) localStorage.removeItem(LEGACY_DRAFTS_KEY)
+    }
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (typeof parsed?.activeInputText !== 'string' || typeof parsed?.tabs !== 'object') return null

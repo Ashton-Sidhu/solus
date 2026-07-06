@@ -3,7 +3,7 @@ import type { IpcContext, Message, SessionMeta } from '../../shared/types'
 import type {
   SessionLoadMessage,
   SessionPreviewResult,
-} from '../../shared/claude-types'
+} from '../../shared/session-history'
 import type { PickerEntry } from './sessionUtils'
 
 interface PreviewLoaderDeps {
@@ -126,4 +126,11 @@ export class PreviewLoader {
       }
     }, 140)
   }
+}
+
+export function createSessionPreviewStore(): PreviewLoader {
+  return new PreviewLoader({
+    loadSessionPreview: window.solus.loadSessionPreview,
+    getSessionInfo: window.solus.getSessionInfo,
+  })
 }

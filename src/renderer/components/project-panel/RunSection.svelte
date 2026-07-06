@@ -115,7 +115,7 @@
 {#snippet tools(run: RunStatus, active: boolean)}
   {#if active || run.state === "error"}
     <button
-      class="svc-icon"
+      class="svc-icon inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent"
       type="button"
       aria-label="Restart {runLabel(run)}"
       onclick={() => restartRun(run)}
@@ -126,7 +126,7 @@
   {/if}
   {#if run.state === "error"}
     <button
-      class="svc-icon svc-icon-agent"
+      class="svc-icon svc-icon-agent inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent"
       type="button"
       aria-label="Debug {runLabel(run)} with an agent"
       onclick={() => debugInNewSession(run)}
@@ -136,7 +136,7 @@
     </button>
   {/if}
   <button
-    class="svc-icon"
+    class="svc-icon inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent"
     type="button"
     aria-label="Show logs for {runLabel(run)}"
     onclick={() => openLogs(run)}
@@ -147,23 +147,34 @@
 {/snippet}
 
 {#if runs.length === 0}
-  <button class="empty-cta" type="button" onclick={onConfigure}>
-    <span class="empty-glyph"><PlayIcon size={12} weight="fill" /></span>
-    <span class="empty-copy">
-      <span class="empty-title">No run command yet</span>
-      <span class="empty-sub">Configure a command…</span>
+  <button
+    class="empty-cta flex w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] border-0 bg-transparent px-1 py-1.5 text-left"
+    type="button"
+    onclick={onConfigure}
+  >
+    <span
+      class="empty-glyph inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+      ><PlayIcon size={12} weight="fill" /></span
+    >
+    <span class="empty-copy flex min-w-0 flex-col gap-px">
+      <span class="empty-title text-[0.8125rem] font-medium"
+        >No run command yet</span
+      >
+      <span class="empty-sub text-[0.6875rem]">Configure a command…</span>
     </span>
   </button>
 {:else}
-  <div class="run-list">
+  <div class="run-list flex flex-col gap-px">
     {#each runs as run (run.commandId)}
       {@const active = isActive(run)}
       {@const ports = active ? run.ports : []}
-      <div class="service">
-        <div class="svc-row">
+      <div class="service rounded-[0.4375rem]">
+        <div
+          class="svc-row flex min-h-8 items-center gap-1.5 rounded-[0.4375rem] py-[0.1875rem] pr-1 pl-[0.1875rem]"
+        >
           <!-- Leading glyph IS the start / stop / cancel control. -->
           <button
-            class="svc-toggle state-{run.state}"
+            class="svc-toggle state-{run.state} relative inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent"
             type="button"
             aria-label={active
               ? `Stop ${runLabel(run)}`
@@ -174,13 +185,22 @@
               : `Start ${runLabel(run)}`}
           >
             {#if run.state === "starting"}
-              <span class="glyph-spin"><SpinnerGapIcon size={12} /></span>
+              <span class="glyph-spin inline-flex"
+                ><SpinnerGapIcon size={12} /></span
+              >
             {:else if run.state === "running"}
-              <span class="svc-dot"></span>
-              <span class="svc-stop"><StopIcon size={11} weight="fill" /></span>
+              <span class="svc-dot h-[0.4375rem] w-[0.4375rem] rounded-full"
+              ></span>
+              <span
+                class="svc-stop absolute inset-0 inline-flex items-center justify-center opacity-0"
+                ><StopIcon size={11} weight="fill" /></span
+              >
             {:else if run.state === "completed"}
-              <span class="svc-check"><CheckIcon size={12} weight="bold" /></span>
-              <span class="svc-replay"
+              <span class="svc-check inline-flex items-center justify-center"
+                ><CheckIcon size={12} weight="bold" /></span
+              >
+              <span
+                class="svc-replay absolute inset-0 inline-flex items-center justify-center opacity-0"
                 ><ArrowClockwiseIcon size={12} weight="bold" /></span
               >
             {:else}
@@ -190,25 +210,27 @@
 
           <!-- Name opens the log dock (progressive disclosure). -->
           <button
-            class="svc-main"
+            class="svc-main flex min-w-0 flex-1 cursor-pointer items-center rounded-md border-0 bg-transparent p-0.5 text-left"
             type="button"
             onclick={() => openLogs(run)}
           >
-            <span class="svc-name" title={run.command ?? undefined}
+            <span
+              class="svc-name min-w-0 overflow-hidden text-[0.8125rem] font-normal text-ellipsis whitespace-nowrap"
+              title={run.command ?? undefined}
               >{runLabel(run)}</span
             >
           </button>
 
-          <div class="svc-actions">
+          <div class="svc-actions flex shrink-0 items-center gap-[0.1875rem]">
             {#if ports.length > 0}
               <!-- Tools sit just left of the port and reveal on hover, so the
                    port link stays flush-right and nothing shifts. -->
-              <span class="svc-tools svc-tools--inflow">
+              <span class="svc-tools svc-tools--inflow inline-flex items-center gap-[0.1875rem] opacity-0">
                 {@render tools(run, active)}
               </span>
               {#each ports as port (port)}
                 <button
-                  class="svc-url"
+                  class="svc-url inline-flex cursor-pointer items-center gap-[0.1875rem] rounded-full border-0 px-1.5 py-0.5 text-[0.65625rem] font-[550] tabular-nums"
                   type="button"
                   aria-label="Open http://localhost:{port}"
                   onclick={() => openPort(port)}
@@ -220,10 +242,12 @@
             {:else}
               <!-- Status word sits flush-right at rest and cross-fades to the
                    row's tools on hover (same reveal as the other panel rows). -->
-              <span class="svc-trail">
+              <span
+                class="svc-trail relative inline-flex min-h-6 shrink-0 items-center"
+              >
                 {#if trailingText(run)}
                   <span
-                    class="svc-status"
+                    class="svc-status max-w-28 shrink-0 overflow-hidden text-[0.6875rem] text-ellipsis whitespace-nowrap tabular-nums"
                     class:err={run.state === "error"}
                     class:ok={run.state === "completed"}
                     title={run.state === "error"
@@ -233,7 +257,9 @@
                     {trailingText(run)}
                   </span>
                 {/if}
-                <span class="svc-tools svc-tools--abs">
+                <span
+                  class="svc-tools svc-tools--abs pointer-events-none absolute top-1/2 right-0 inline-flex -translate-y-1/2 items-center gap-[0.1875rem] opacity-0"
+                >
                   {@render tools(run, active)}
                 </span>
               </span>
@@ -252,22 +278,7 @@
      hover, 11px text / 12px icons, no heavy fills. State lives in
      the leading glyph and one trailing status word, not in chrome.
      ============================================================ */
-  .run-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.0625rem;
-  }
-
-  .service {
-    border-radius: 0.4375rem;
-  }
   .svc-row {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    min-height: 2rem;
-    padding: 0.1875rem 0.25rem 0.1875rem 0.1875rem;
-    border-radius: 0.4375rem;
     transition: background-color 0.15s ease;
   }
   .svc-row:hover {
@@ -276,18 +287,7 @@
 
   /* ── Leading toggle (start / stop / cancel) ── */
   .svc-toggle {
-    position: relative;
-    width: 1.5rem;
-    height: 1.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
     color: color-mix(in srgb, var(--project-icon-green) 78%, var(--solus-text-tertiary));
-    cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease,
@@ -319,9 +319,6 @@
 
   /* Running: a steady glow dot at rest, becomes a stop control on hover. */
   .svc-dot {
-    width: 0.4375rem;
-    height: 0.4375rem;
-    border-radius: 999px;
     background: var(--solus-status-live);
   }
   @media (prefers-reduced-motion: no-preference) {
@@ -339,12 +336,6 @@
     }
   }
   .svc-stop {
-    position: absolute;
-    inset: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
     color: var(--solus-status-error);
   }
   .svc-toggle.state-running:hover {
@@ -362,18 +353,7 @@
   .svc-toggle.state-completed {
     color: var(--solus-status-complete);
   }
-  .svc-check {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
   .svc-replay {
-    position: absolute;
-    inset: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
     color: var(--project-icon-blue);
   }
   .svc-toggle.state-completed:hover {
@@ -388,31 +368,13 @@
   }
 
   /* ── Body (label) opens the log dock ── */
-  .svc-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    padding: 0.125rem;
-    border: none;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-    border-radius: 0.375rem;
-  }
   .svc-main:focus-visible {
     outline: none;
     box-shadow: 0 0 0 0.125rem
       color-mix(in srgb, var(--solus-accent) 35%, transparent);
   }
   .svc-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--solus-text-secondary);
-    font-size: 0.8125rem;
-    font-weight: 400;
     transition: color 0.15s ease;
   }
   .svc-row:hover .svc-name {
@@ -420,14 +382,7 @@
   }
   /* Trailing status word — quiet at rest, fades out as the row's tools fade in. */
   .svc-status {
-    flex-shrink: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 7rem;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
-    font-variant-numeric: tabular-nums;
     transition: opacity 0.15s ease;
   }
   .svc-row:hover .svc-status,
@@ -447,25 +402,9 @@
   }
 
   /* ── Trailing actions ── */
-  .svc-actions {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.1875rem;
-  }
   .svc-url {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.1875rem;
-    padding: 0.125rem 0.375rem;
-    border: none;
-    border-radius: 999px;
     background: var(--solus-status-live-bg);
     color: var(--solus-status-live);
-    font-size: 0.65625rem;
-    font-weight: 550;
-    font-variant-numeric: tabular-nums;
-    cursor: pointer;
     transition: background-color 0.15s ease;
   }
   .svc-url:hover {
@@ -477,16 +416,7 @@
       color-mix(in srgb, var(--solus-accent) 35%, transparent);
   }
   .svc-icon {
-    width: 1.5rem;
-    height: 1.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
     color: color-mix(in srgb, var(--project-icon-blue) 70%, var(--solus-text-tertiary));
-    cursor: pointer;
     transition:
       background-color 0.15s ease,
       color 0.15s ease;
@@ -513,29 +443,10 @@
      on hover / keyboard focus — the same restraint as the Git section. The
      no-port variant overlays the status word (flush-right cross-fade); the
      port variant sits in-flow after the port pill. */
-  .svc-trail {
-    position: relative;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    min-height: 1.5rem;
-  }
-  .svc-tools {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.1875rem;
-  }
   .svc-tools--inflow {
-    opacity: 0;
     transition: opacity 0.15s ease;
   }
   .svc-tools--abs {
-    position: absolute;
-    top: 50%;
-    right: 0;
-    transform: translateY(-50%);
-    opacity: 0;
-    pointer-events: none;
     transition: opacity 0.15s ease;
   }
   .svc-row:hover .svc-tools--inflow,
@@ -556,16 +467,6 @@
 
   /* ── Empty state ── */
   .empty-cta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.375rem 0.25rem;
-    border: none;
-    border-radius: 0.4375rem;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
     transition: background-color 0.15s ease;
   }
   .empty-cta:hover {
@@ -577,36 +478,17 @@
       color-mix(in srgb, var(--solus-accent) 35%, transparent);
   }
   .empty-glyph {
-    width: 1.5rem;
-    height: 1.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border-radius: 999px;
     background: color-mix(in srgb, var(--solus-accent) 14%, transparent);
     color: var(--solus-accent);
   }
-  .empty-copy {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.0625rem;
-  }
   .empty-title {
     color: var(--solus-text-primary);
-    font-size: 0.8125rem;
-    font-weight: 500;
   }
   .empty-sub {
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
   }
 
   /* Shared glyph spin */
-  .glyph-spin {
-    display: inline-flex;
-  }
   @media (prefers-reduced-motion: no-preference) {
     .glyph-spin {
       animation: glyph-spin 0.7s linear infinite;

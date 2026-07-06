@@ -1,7 +1,7 @@
 import type { PaneViewStore, SplitOpenOptions } from './pane-view.store.svelte'
 import type { PlanStore } from './plan.store.svelte'
 
-export type SettingsTab = 'general' | 'review' | 'api-access' | 'git-providers' | 'tools' | 'skills' | 'voice' | 'projects' | 'keybindings'
+export type SettingsTab = 'general' | 'review' | 'api-access' | 'tools' | 'skills' | 'voice' | 'projects' | 'keybindings'
 
 export class WorkspaceUiStore {
   isExpanded = $state(false)

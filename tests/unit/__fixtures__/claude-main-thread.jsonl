@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"claude-session-1","tools":["Read","Bash"],"model":"claude-test","mcp_servers":[],"skills":[],"claude_code_version":"1.0.0"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello "}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tool-1","name":"Bash"}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"pwd\"}"}}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":1}}
+{"type":"result","subtype":"success","result":"done","total_cost_usd":0.01,"duration_ms":42,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":3},"session_id":"claude-session-1"}

@@ -11,6 +11,9 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 1rem;
+    /* Clear the macOS traffic lights when this shell is the leftmost chrome
+       (maximized pane); collapses to the base 1rem otherwise and off-mac. */
+    padding-left: max(1rem, var(--solus-chrome-lead-inset, 0px));
     gap: 0.375rem;
     /* In the editor's secondary pane the header shares the tab strip's chrome
        row — match its height and seam so they read as one continuous bar. */

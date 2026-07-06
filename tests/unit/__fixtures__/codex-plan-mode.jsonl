@@ -1,0 +1,4 @@
+{"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-plan-1","plan":[{"step":"Inspect files","status":"completed"},{"step":"Patch normalizer","status":"in_progress"}]}}
+{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-plan-1","itemId":"msg-1","delta":"Streamed plan text"}}
+{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-plan-1","item":{"id":"plan-item-1","type":"plan","content":"# Final Plan\n\nCompleted plan wins."}}}
+{"method":"turn/completed","params":{"threadId":"thread-1","turnId":"turn-plan-1","turn":{"id":"turn-plan-1","status":"completed","durationMs":10}}}
