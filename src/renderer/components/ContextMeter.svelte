@@ -34,11 +34,11 @@
 
   const rows = $derived(
     [
-      { label: "Input", value: usage?.input_tokens ?? 0 },
-      { label: "Cache read", value: usage?.cache_read_input_tokens ?? 0 },
-      { label: "Cache write", value: usage?.cache_creation_input_tokens ?? 0 },
-      { label: "Output", value: usage?.output_tokens ?? 0 },
-      { label: "Reasoning output", value: usage?.reasoning_output_tokens ?? 0 },
+      { label: "Input", value: usage?.inputTokens ?? 0 },
+      { label: "Cache read", value: usage?.cacheReadTokens ?? 0 },
+      { label: "Cache write", value: usage?.cacheCreationTokens ?? 0 },
+      { label: "Output", value: usage?.outputTokens ?? 0 },
+      { label: "Reasoning output", value: usage?.reasoningTokens ?? 0 },
     ].filter((r) => r.value > 0),
   );
 </script>

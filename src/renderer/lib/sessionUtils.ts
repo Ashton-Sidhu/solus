@@ -51,7 +51,18 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
   // actually exists. The cheap O(plans) pre-check short-circuits the common case
   // (long chats with no pending plan) where the scan would otherwise walk every
   // message and find nothing.
-  if (plans && hasPendingPlanQuestion(plans) && sess.messages.some((m) => m.role === 'plan' && m.planId && plans[m.planId]?.status === 'pending' && plans[m.planId]?.questionId)) return 'awaiting_plan'
+  if (plans && hasPendingPlanQuestion(plans)) {
+    // Scan tail-first with an early break: a pending plan question is an active
+    // prompt, so its plan message sits near the end of the transcript. Same
+    // result as a forward .some(), but it exits fast in the common match case
+    // instead of walking the whole (potentially huge) messages array.
+    for (let i = sess.messages.length - 1; i >= 0; i--) {
+      const m = sess.messages[i]
+      if (m.role !== 'plan' || !m.planId) continue
+      const p = plans[m.planId]
+      if (p?.status === 'pending' && p.questionId) return 'awaiting_plan'
+    }
+  }
   if (sess.status === 'rate_limited') return 'queued'
   if (sess.status === 'failed' || sess.status === 'dead') return 'error'
   if (sess.status === 'completed' && tab.hasUnread) return 'unread'

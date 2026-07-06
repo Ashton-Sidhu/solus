@@ -5,7 +5,6 @@
     gutterWidth,
     hasRoomForRail,
     pickActiveIndex,
-    previewText,
     railRightOffset,
     type NavItem,
   } from "./lib/minimap";
@@ -36,28 +35,53 @@
     typeof window !== "undefined" &&
     !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
+  // id→element index, built once per items/DOM change with a single querySelectorAll
+  // rather than one full-subtree querySelector per user message per scroll frame. A
+  // stale (disconnected) node is re-queried lazily and re-cached.
+  let nodeMap = new Map<string, HTMLElement>();
+
+  function rebuildNodeMap() {
+    nodeMap = new Map();
+    if (!scrollEl) return;
+    for (const node of scrollEl.querySelectorAll<HTMLElement>("[data-nav-msg-id]")) {
+      const id = node.dataset.navMsgId;
+      if (id) nodeMap.set(id, node);
+    }
+  }
+
   function nodeFor(id: string): HTMLElement | null {
     if (!scrollEl) return null;
-    return scrollEl.querySelector(`[data-nav-msg-id="${CSS.escape(id)}"]`);
+    let node = nodeMap.get(id);
+    if (!node || !node.isConnected) {
+      node =
+        scrollEl.querySelector<HTMLElement>(`[data-nav-msg-id="${CSS.escape(id)}"]`) ??
+        undefined;
+      if (node) nodeMap.set(id, node);
+      else nodeMap.delete(id);
+    }
+    return node ?? null;
   }
 
   function recompute() {
     const el = scrollEl;
     if (!el) return;
     paneWidth = el.clientWidth;
+    // At the very bottom the last message is "current" even if its top never
+    // crossed the active line (e.g. a short final message) — no rects needed.
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+    if (atBottom) {
+      activeIndex = Math.max(0, items.length - 1);
+      return;
+    }
     const containerTop = el.getBoundingClientRect().top;
-    const tops = items.map((it) => {
-      const node = nodeFor(it.id);
+    // Lazy top reads: pickActiveIndex stops at the first message below the active
+    // line, so getBoundingClientRect is never called for messages past the fold.
+    activeIndex = pickActiveIndex(items.length, (i) => {
+      const node = nodeFor(items[i].id);
       return node
         ? node.getBoundingClientRect().top - containerTop
         : Number.POSITIVE_INFINITY;
     });
-    // At the very bottom the last message is "current" even if its top never
-    // crossed the active line (e.g. a short final message).
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
-    activeIndex = atBottom
-      ? Math.max(0, items.length - 1)
-      : pickActiveIndex(tops);
   }
 
   // Observe size + scroll on the container only (stable across streaming ticks).
@@ -86,9 +110,13 @@
   });
 
   // Recompute when the set of user messages changes (new prompt added/removed).
+  // The DOM changed too, so rebuild the id→element index in the same pass.
   $effect(() => {
     void items.length;
-    untrack(recompute);
+    untrack(() => {
+      rebuildNodeMap();
+      recompute();
+    });
   });
 
   function animateScrollTo(el: HTMLElement, target: number) {
@@ -139,12 +167,12 @@
         type="button"
         class="msg-nav-row"
         class:active={i === activeIndex}
-        title={previewText(it.text)}
-        aria-label={previewText(it.text)}
+        title={it.preview}
+        aria-label={it.preview}
         aria-current={i === activeIndex ? "true" : undefined}
         onclick={() => goTo(it.id)}
       >
-        <span class="msg-nav-label">{previewText(it.text)}</span>
+        <span class="msg-nav-label">{it.preview}</span>
         <span class="msg-nav-dash" aria-hidden="true"></span>
       </button>
     {/each}

@@ -11,9 +11,9 @@ const DEFAULT_CONTEXT_WINDOW = 200_000
  */
 export function contextTokensUsed(usage: UsageData | null | undefined): number {
   if (!usage) return 0
-  return (usage.input_tokens ?? 0)
-    + (usage.cache_read_input_tokens ?? 0)
-    + (usage.cache_creation_input_tokens ?? 0)
+  return (usage.inputTokens ?? 0)
+    + (usage.cacheReadTokens ?? 0)
+    + (usage.cacheCreationTokens ?? 0)
 }
 
 /**
@@ -22,6 +22,9 @@ export function contextTokensUsed(usage: UsageData | null | undefined): number {
  */
 export function resolveContextWindow(session: Session | null | undefined): number {
   if (!session) return DEFAULT_CONTEXT_WINDOW
+  if (session.sessionUsage?.contextWindowTokens && session.sessionUsage.contextWindowTokens > 0) {
+    return session.sessionUsage.contextWindowTokens
+  }
   if (session.modelConfig.contextWindow && session.modelConfig.contextWindow > 0) {
     return session.modelConfig.contextWindow
   }

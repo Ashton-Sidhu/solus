@@ -15,7 +15,7 @@ export const KEYBINDINGS = {
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
   'global.design-mode':       { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Design mode',              group: 'Compose' },
-  'global.toggle-mode':       { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Toggle editor / pill',     group: 'View' },
+  'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },

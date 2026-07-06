@@ -11,7 +11,6 @@
     CaretDownIcon,
     CheckIcon,
     ClockCountdownIcon,
-    SidebarIcon,
     GitBranchIcon,
     RobotIcon,
     LinkIcon,
@@ -25,17 +24,18 @@
   import { getAgentContext } from "../contexts/agent.context.svelte";
   import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
   import { getWindowContext } from "../contexts/window.context.svelte";
+  import { toolsStore } from "../contexts/tools.store.svelte";
   import { agentLabel, buildAgentAvailabilityRows } from "../lib/agentAvailability";
   import { getPopoverLayer, useClickOutside } from "./popoverLayer.svelte";
   import { portal } from "./portal";
   import { tooltip } from "../lib/tooltip";
   import { requestInputFocus } from "../lib/inputFocus";
-  import type { DetectedEditor, DetectedTerminal } from "../../shared/types";
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
+  const tools = toolsStore;
   const layer = getPopoverLayer();
   const rateLimitStrats = [
     ["ask", "Ask"],
@@ -48,8 +48,6 @@
   const agentRows = $derived(allAgentRows.filter((agent) => agent.enabled));
 
   let open = $state(false);
-  let detectedEditors = $state<DetectedEditor[]>([]);
-  let detectedTerminals = $state<DetectedTerminal[]>([]);
   let agentOpen = $state(false);
   let editorOpen = $state(false);
   let terminalOpen = $state(false);
@@ -128,9 +126,7 @@
     }
     if (!open) {
       updatePos();
-      const result = await window.solus.detectEditors();
-      detectedEditors = result.editors;
-      detectedTerminals = result.terminals;
+      await tools.loadDetectedTools();
     } else {
       agentOpen = false;
       editorOpen = false;
@@ -193,31 +189,6 @@
       "
   >
     <div class="p-3 flex flex-col gap-2.5">
-      {#if !windowCtx.isWeb}
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2 min-w-0">
-            <SidebarIcon size={14} class="text-(--solus-text-tertiary)" />
-            <div>
-              <div class="text-[0.75rem] font-medium text-(--solus-text-primary)">
-                Editor mode
-              </div>
-              <div class="text-[0.625rem] text-(--solus-text-tertiary)">
-                ⌥⇧E to toggle
-              </div>
-            </div>
-          </div>
-          {@render rowToggle(
-            windowCtx.viewMode === "editor",
-            () => {
-              session.toggleViewMode();
-            },
-            "Toggle editor mode",
-          )}
-        </div>
-
-        <div class="h-px bg-(--solus-popover-border)"></div>
-      {/if}
-
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <BellIcon size={14} class="text-(--solus-text-tertiary)" />
@@ -489,7 +460,7 @@
         )}
       </div>
 
-      {#if detectedEditors.length > 0}
+      {#if tools.detectedEditors.length > 0}
         <div class="h-px bg-(--solus-popover-border)"></div>
 
         <div class="flex items-center justify-between gap-3">
@@ -509,7 +480,7 @@
               }}
               class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
-              {detectedEditors.find((e) => e.id === theme.defaultEditor)
+              {tools.detectedEditors.find((e) => e.id === theme.defaultEditor)
                 ?.name ?? "None"}
               <CaretDownIcon size={9} style="opacity:0.6" />
             </button>
@@ -529,7 +500,7 @@
                   "
               >
                 <div class="py-1">
-                  {#each detectedEditors as editor (editor.id)}
+                  {#each tools.detectedEditors as editor (editor.id)}
                     <button
                       onclick={() => selectEditor(editor.id)}
                       class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
@@ -554,7 +525,7 @@
         </div>
       {/if}
 
-      {#if detectedTerminals.length > 0}
+      {#if tools.detectedTerminals.length > 0}
         <div class="h-px bg-(--solus-popover-border)"></div>
 
         <div class="flex items-center justify-between gap-3">
@@ -577,7 +548,7 @@
               }}
               class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
-              {detectedTerminals.find(
+              {tools.detectedTerminals.find(
                 (t) => t.id === (theme.defaultTerminal ?? "default-terminal"),
               )?.name ?? "Default"}
               <CaretDownIcon size={9} style="opacity:0.6" />
@@ -598,7 +569,7 @@
                   "
               >
                 <div class="py-1">
-                  {#each detectedTerminals as terminal (terminal.id)}
+                  {#each tools.detectedTerminals as terminal (terminal.id)}
                     <button
                       onclick={() => selectTerminal(terminal.id)}
                       class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"

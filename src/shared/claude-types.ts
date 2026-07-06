@@ -2,7 +2,36 @@
 // These are specific to the Claude Agent SDK stream format.
 // Shared/canonical types (NormalizedEvent, etc.) stay in types.ts.
 
-import type { AssistantMessagePayload, ContentBlock, ContentDelta, PermissionOption, UsageData } from './types'
+import type { PermissionOption } from './types'
+
+export interface ContentBlock {
+  type: 'text' | 'tool_use'
+  text?: string
+  id?: string
+  name?: string
+  input?: Record<string, unknown>
+}
+
+export type ContentDelta =
+  | { type: 'text_delta'; text: string }
+  | { type: 'input_json_delta'; partial_json: string }
+
+export interface ClaudeUsageData {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  reasoning_output_tokens?: number
+}
+
+export interface AssistantMessagePayload {
+  model: string
+  id: string
+  role: 'assistant'
+  content: ContentBlock[]
+  stop_reason: string | null
+  usage: ClaudeUsageData
+}
 
 export interface InitEvent {
   type: 'system'
@@ -34,7 +63,7 @@ export type StreamSubEvent =
   | { type: 'content_block_start'; index: number; content_block: ContentBlock }
   | { type: 'content_block_delta'; index: number; delta: ContentDelta }
   | { type: 'content_block_stop'; index: number }
-  | { type: 'message_delta'; delta: { stop_reason: string | null }; usage: UsageData; context_management?: unknown }
+  | { type: 'message_delta'; delta: { stop_reason: string | null }; usage: ClaudeUsageData; context_management?: unknown }
   | { type: 'message_stop' }
 
 export interface AssistantEvent {
@@ -86,7 +115,7 @@ export interface ResultEvent {
   result: string
   total_cost_usd: number
   session_id: string
-  usage: UsageData & {
+  usage: ClaudeUsageData & {
     input_tokens: number
     output_tokens: number
     cache_read_input_tokens?: number
@@ -119,28 +148,4 @@ export type ClaudeEvent = InitEvent | StatusEvent | StreamEvent | AssistantEvent
 export interface UnknownEvent {
   type: string
   [key: string]: unknown
-}
-
-// ─── Claude Session History ───
-
-export interface SessionLoadMessage {
-  role: string
-  content: string
-  toolName?: string
-  toolId?: string
-  toolInput?: string
-  toolResultForId?: string
-  planContent?: string
-  planFilePath?: string
-  planToolUseId?: string
-  /** Set on sub-agent tool-result/text lines so history replay can divert them
-   *  into the parent tool's `subMessages` instead of the flat thread. */
-  parentToolUseId?: string
-  timestamp: number
-}
-
-export interface SessionPreviewResult {
-  head: SessionLoadMessage[]
-  tail: SessionLoadMessage[]
-  totalMessages: number
 }

@@ -214,6 +214,65 @@ async function resolveScope(repoRoot: string, sessionId: string, scope: DiffScop
   return { from: fromSha, to: turn.sha }
 }
 
+// Keep each batched `git add` argv comfortably under the OS arg-length limit —
+// a single turn can touch thousands of paths.
+const PATHSPEC_CHUNK_CHARS = 100_000
+
+function chunkPathspecs(paths: string[]): string[][] {
+  const chunks: string[][] = []
+  let current: string[] = []
+  let size = 0
+  for (const path of paths) {
+    if (current.length > 0 && size + path.length + 1 > PATHSPEC_CHUNK_CHARS) {
+      chunks.push(current)
+      current = []
+      size = 0
+    }
+    current.push(path)
+    size += path.length + 1
+  }
+  if (current.length > 0) chunks.push(current)
+  return chunks
+}
+
+/**
+ * Stage each live path's current worktree state into the temp index. One batched
+ * `git add` (chunked under the arg-length limit) replaces the per-path spawn that
+ * dominated live-refresh latency. A path that no longer matches — created then
+ * deleted within the session, or gitignored — makes a batched add abort *before*
+ * it writes the index, so we fall back to the original resilient per-path loop,
+ * which re-derives the identical index from the still-intact base tree (add
+ * stages edits/deletions of matched paths; rm --cached drops paths that vanished).
+ * The env — carrying the temp GIT_INDEX_FILE — is passed through exactly as the
+ * per-path calls did.
+ */
+async function stageLivePaths(
+  treeArgs: string[],
+  livePaths: string[],
+  repoRoot: string,
+  indexEnv: NodeJS.ProcessEnv,
+): Promise<void> {
+  try {
+    for (const chunk of chunkPathspecs(livePaths)) {
+      await runAsync('git', [...treeArgs, 'add', '--', ...chunk], repoRoot, { env: indexEnv })
+    }
+    return
+  } catch {
+    /* fall through to the per-path loop below */
+  }
+  for (const file of livePaths) {
+    try {
+      await runAsync('git', [...treeArgs, 'add', '--', file], repoRoot, { env: indexEnv })
+    } catch {
+      try {
+        await runAsync('git', [...treeArgs, 'rm', '--cached', '--ignore-unmatch', '--', file], repoRoot, { env: indexEnv })
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+}
+
 async function buildLiveTree(
   workTree: string,
   repoRoot: string,
@@ -238,17 +297,7 @@ async function buildLiveTree(
   try {
     const baseTree = await runAsync('git', ['rev-parse', `${baseSha}^{tree}`], repoRoot)
     await runAsync('git', [...treeArgs, 'read-tree', baseTree], repoRoot, { env: indexEnv })
-    for (const file of livePaths) {
-      try {
-        await runAsync('git', [...treeArgs, 'add', '--', file], repoRoot, { env: indexEnv })
-      } catch {
-        try {
-          await runAsync('git', [...treeArgs, 'rm', '--cached', '--ignore-unmatch', '--', file], repoRoot, { env: indexEnv })
-        } catch {
-          /* best-effort */
-        }
-      }
-    }
+    await stageLivePaths(treeArgs, livePaths, repoRoot, indexEnv)
     const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
     return {
       baseSha,

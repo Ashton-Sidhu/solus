@@ -12,11 +12,11 @@ import { TasksStore } from './tasks.store.svelte'
 import { PrsStore } from './prs.store.svelte'
 import { MergeQueueStore } from './merge-queue.store.svelte'
 import { type Task } from '../../shared/task-types'
+import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from './toast.store.svelte'
 import { PaneViewStore, type SplitOpenOptions } from './pane-view.store.svelte'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { WorkspaceUiStore, type SettingsTab } from './workspace-ui.store.svelte'
-import { writeSessionHandoff } from './active-session-pointer'
 import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
 import { TabRegistry } from './tab-registry.svelte'
@@ -41,16 +41,17 @@ import { disposeGitActions } from '../lib/git-actions.svelte'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
-function logDevSessionState(tab: Tab, eventType: string, session: Session, _streamingText?: string): void {
+function logDevSessionState(tab: Tab, eventType: string, session: Session): void {
   if (!devSessionLogging) return
-  const state = $state.snapshot(session) as Session
-  const tabState = $state.snapshot(tab)
+  // Log a shallow summary only — never $state.snapshot(session), which deep-clones
+  // every message on each event and dominates the reducer's per-event cost.
   console.debug('[Solus][SessionState]', {
-    tab: tabState,
-    sessionId: state.agentSessionId,
-    provider: state.provider,
+    tabId: tab.id,
+    sessionId: session.agentSessionId,
+    provider: session.provider,
+    status: session.status,
     eventType,
-    state,
+    messageCount: session.messages.length,
   })
 }
 
@@ -145,6 +146,7 @@ export class WorkspaceContext {
       workStreamTracker: this.workStreamTracker,
       isTabVisible: (tabId) => this.isTabVisible(tabId),
       recomputeChangedFiles: (tabId) => this.recomputeChangedFiles(tabId),
+      addChangedFilesFromMessage: (tabId, message) => this.env.addChangedFilesFromMessage(tabId, message),
       refreshTurnSnapshots: (tabId) => { void this.refreshTurnSnapshots(tabId) },
       setGitStatus: (cwd, status) => this.gitStatus.set(cwd, status),
       playNotificationIfHidden: () => { void this.playNotificationIfHidden() },
@@ -634,26 +636,26 @@ export class WorkspaceContext {
     }
   }
 
-  /** Surfaces the other mode's OS window; this window keeps its own mode.
-   *  Toggling pill→editor carries the active session so the editor continues
-   *  it (the pill picks editor sessions up automatically via the ambient
-   *  pointer on summon, so the reverse direction needs no handoff). */
-  async toggleViewMode(): Promise<void> {
-    const newMode = this.window.viewMode === 'pill' ? 'editor' : 'pill'
-    if (newMode === 'editor') {
-      const sess = this.activeSession
-      if (sess?.agentSessionId) {
-        writeSessionHandoff({
-          sessionId: sess.agentSessionId,
-          provider: sess.provider ?? this.settings.activeAgent,
-          cwd: sess.workingDirectory,
-          title: this.activeTab?.title ?? null,
-        })
-      }
+  /** ⌥⇧E: continue the active session in the other mode's window. Writes a
+   *  handoff addressed to that mode (when a session has started — otherwise
+   *  this is a bare window switch) and surfaces its window; main hides this
+   *  one per switchMode's asymmetric visibility rules. */
+  async continueInOtherMode(): Promise<void> {
+    const target = this.window.viewMode === 'pill' ? 'editor' : 'pill'
+    const sess = this.activeSession
+    if (sess?.agentSessionId) {
+      writeSessionHandoff({
+        sessionId: sess.agentSessionId,
+        provider: sess.provider ?? this.settings.activeAgent,
+        cwd: sess.workingDirectory,
+        title: this.activeTab?.title ?? null,
+        target,
+      })
     }
-    analytics.modeToggled({ mode: newMode })
-    await this.window.setViewMode(newMode)
+    analytics.modeToggled({ mode: target })
+    await this.window.setViewMode(target)
   }
+
 
   private createTabFromDefaults(): string {
     const inheritedGitContext = this.globalDefaults.gitContext
@@ -689,6 +691,7 @@ export class WorkspaceContext {
     // unbounded (patchActiveDraft only ever adds/updates, never removes).
     removeDraft(tabId)
     disposeGitActions(tabId)
+    this.env.disposeTab(tabId)
 
     // Clean up session if no other tabs point to it
     if (sessionId && !Object.values(this.tabs).some((t) => t.sessionId === sessionId)) {
@@ -1445,7 +1448,7 @@ export class WorkspaceContext {
 
   // ─── Settings page ───
 
-  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' | 'git-providers' = 'general') {
+  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' = 'general') {
     this.ui.showSettings(tab)
     analytics.settingsOpened()
   }

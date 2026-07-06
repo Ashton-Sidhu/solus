@@ -1,5 +1,7 @@
-import type { NormalizedEvent, ContentDelta } from '../../../shared/types'
-import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent } from '../../../shared/claude-types'
+import type { NormalizedEvent, UsageData } from '../../../shared/types'
+import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '../../../shared/claude-types'
+import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
+import { normalizeResetNumber } from '../../rate-limits'
 
 const SDK_TO_UI_PERMISSION_MODE: Record<string, 'ask' | 'auto' | 'plan'> = {
   default: 'ask',
@@ -9,15 +11,19 @@ const SDK_TO_UI_PERMISSION_MODE: Record<string, 'ask' | 'auto' | 'plan'> = {
 
 /**
  * Maps raw Claude stream-json events to canonical SOLUS events.
- * Stateless: one raw in, zero or more normalized out. Sequencing/routing lives in ClaudeAgent.
+ * Mostly stateless (one raw in, zero or more normalized out), except that a
+ * main-thread tool's input arrives only as `input_json_delta` stream events —
+ * those accumulate into `pendingToolInputs` (keyed by content-block index) so the
+ * complete input can ride out on `tool_call_complete`. Sequencing/routing lives
+ * in ClaudeAgent.
  */
-export function normalize(raw: ClaudeEvent): NormalizedEvent[] {
+function normalize(raw: ClaudeEvent, pendingToolInputs: Map<number, string>): NormalizedEvent[] {
   switch (raw.type) {
     case 'system':
       return normalizeSystem(raw as InitEvent)
 
     case 'stream_event':
-      return normalizeStreamEvent(raw as StreamEvent)
+      return normalizeStreamEvent(raw as StreamEvent, pendingToolInputs)
 
     case 'assistant':
       return normalizeAssistant(raw as AssistantEvent)
@@ -36,6 +42,82 @@ export function normalize(raw: ClaudeEvent): NormalizedEvent[] {
 
     default:
       return []
+  }
+}
+
+export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
+  private interrupted = false
+  private readonly turnSummary: TurnSummary = {
+    toolCallCount: 0,
+    sawRateLimit: false,
+    sawProtocolError: false,
+    permissionDenials: [],
+  }
+  private readonly editedFileSet = new Set<string>()
+  // A main-thread tool's input arrives only as input_json_delta stream events;
+  // accumulate per content-block index so the assembled input rides out on
+  // tool_call_complete. Cleared on message_start so indexes never leak.
+  private readonly pendingToolInputs = new Map<number, string>()
+
+  get summary(): TurnSummary {
+    return this.turnSummary
+  }
+
+  get editedFiles(): string[] {
+    return [...this.editedFileSet]
+  }
+
+  push(raw: ClaudeEvent): NormalizedEvent[] {
+    if (this.interrupted) return []
+
+    const events: NormalizedEvent[] = []
+    if ((raw as any).type === 'user' && (raw as any).uuid) {
+      events.push({ type: 'checkpoint', checkpointId: (raw as any).uuid })
+    }
+
+    if (raw.type === 'result') {
+      const denials = (raw as any).permission_denials
+      if (Array.isArray(denials) && denials.length > 0) {
+        this.turnSummary.permissionDenials = denials.map((d: any) => ({
+          tool_name: d.tool_name || '',
+          tool_use_id: d.tool_use_id || '',
+        }))
+      }
+    }
+
+    if (raw.type === 'assistant') this.collectEditedFiles(raw.message?.content)
+
+    events.push(...normalize(raw, this.pendingToolInputs))
+    return this.emit(events)
+  }
+
+  interrupt(): void {
+    this.interrupted = true
+  }
+
+  private emit(events: NormalizedEvent[]): NormalizedEvent[] {
+    for (const event of events) {
+      if (event.type === 'tool_call') this.turnSummary.toolCallCount++
+      if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning') {
+        this.turnSummary.sawRateLimit = true
+      }
+    }
+    return events
+  }
+
+  private collectEditedFiles(content: ContentBlock[] | undefined): void {
+    if (!Array.isArray(content)) return
+    for (const block of content) {
+      if (block.type !== 'tool_use') continue
+      if (block.name !== 'Write' && block.name !== 'Edit' && block.name !== 'NotebookEdit') continue
+      const input = block.input
+      const filePath = typeof input?.file_path === 'string'
+        ? input.file_path
+        : typeof input?.notebook_path === 'string'
+          ? input.notebook_path
+          : null
+      if (filePath) this.editedFileSet.add(filePath)
+    }
   }
 }
 
@@ -74,11 +156,8 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
     return [{
       type: 'session_init',
       sessionId: init.session_id,
-      tools: init.tools || [],
       model: init.model || 'unknown',
-      mcpServers: init.mcp_servers || [],
       skills: init.skills || [],
-      version: init.claude_code_version || 'unknown',
     }]
   }
 
@@ -93,26 +172,31 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
   return []
 }
 
-function normalizeStreamEvent(event: StreamEvent): NormalizedEvent[] {
+function normalizeStreamEvent(event: StreamEvent, pendingToolInputs: Map<number, string>): NormalizedEvent[] {
   const sub = event.event
   if (!sub) return []
 
-  // Sub-agent (Agent/Task) tool calls and text stream through the same query
-  // tagged with the originating tool call. Thread it onto every emitted event so
-  // the reducer can divert them into the parent tool's nested transcript.
+  // Sub-agent (Agent/Task) tool calls stream through the same query tagged with
+  // the originating tool call. Thread it onto every emitted event so the reducer
+  // can divert them into the parent tool's nested transcript. Sub-agent prose no
+  // longer streams — it arrives complete via the parented `assistant_message` that
+  // `normalizeAssistant` emits — so drop any parented `text_chunk` here.
   const parentToolUseId = event.parent_tool_use_id || undefined
 
-  const events = normalizeStreamSub(sub)
+  const events = normalizeStreamSub(sub, pendingToolInputs)
   if (parentToolUseId) {
-    for (const e of events) (e as { parentToolUseId?: string }).parentToolUseId = parentToolUseId
+    const parented = events.filter((e) => e.type !== 'text_chunk')
+    for (const e of parented) (e as { parentToolUseId?: string }).parentToolUseId = parentToolUseId
+    return parented
   }
   return events
 }
 
-function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>): NormalizedEvent[] {
+function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>, pendingToolInputs: Map<number, string>): NormalizedEvent[] {
   switch (sub.type) {
     case 'content_block_start': {
       if (sub.content_block.type === 'tool_use') {
+        pendingToolInputs.set(sub.index, '')
         return [{
           type: 'tool_call',
           toolName: sub.content_block.name || 'unknown',
@@ -130,25 +214,28 @@ function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>): NormalizedE
         return [{ type: 'text_chunk', text: delta.text }]
       }
       if (delta.type === 'input_json_delta') {
-        return [{
-          type: 'tool_call_update',
-          toolId: '',
-          index: sub.index,
-          toolInput: delta.partial_json,
-          toolInputDelta: true,
-        }]
+        // Accumulate the tool's input; it's delivered whole on content_block_stop.
+        pendingToolInputs.set(sub.index, (pendingToolInputs.get(sub.index) ?? '') + delta.partial_json)
+        return []
       }
       return []
     }
 
     case 'content_block_stop': {
+      const toolInput = pendingToolInputs.get(sub.index)
+      pendingToolInputs.delete(sub.index)
       return [{
         type: 'tool_call_complete',
         index: sub.index,
+        ...(toolInput ? { toolInput } : {}),
       }]
     }
 
     case 'message_start':
+      // A fresh message resets content-block indexes; clear any stragglers.
+      pendingToolInputs.clear()
+      return []
+
     case 'message_delta':
     case 'message_stop':
       // Structural only; the assembled `assistant` event carries message-level state.
@@ -161,10 +248,21 @@ function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>): NormalizedE
 
 function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {
   const parentToolUseId = event.parent_tool_use_id || undefined
-  const events: NormalizedEvent[] = [{ type: 'task_update', message: event.message, parentToolUseId }]
+  const events: NormalizedEvent[] = []
 
   const content = event.message?.content
   if (Array.isArray(content)) {
+    const text = content
+      .filter((block) => block.type === 'text' && block.text)
+      .map((block) => block.text!)
+      .join('')
+      .trim()
+    if (text) {
+      events.push(parentToolUseId
+        ? { type: 'assistant_message', text, parentToolUseId }
+        : { type: 'assistant_message', text })
+    }
+
     content.forEach((block, index) => {
       // A sub-agent's TodoWrite must not hijack the main progress tracker — only
       // the top-level agent (no parent) drives it.
@@ -255,10 +353,21 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
     costUsd: event.total_cost_usd || 0,
     durationMs: event.duration_ms || 0,
     numTurns: event.num_turns || 0,
-    usage: event.usage || {},
+    usage: normalizeClaudeUsage(event.usage),
     sessionId: event.session_id,
     ...(denials && denials.length > 0 ? { permissionDenials: denials } : {}),
   }]
+}
+
+function normalizeClaudeUsage(usage: ClaudeUsageData | undefined): UsageData {
+  if (!usage) return {}
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheReadTokens: usage.cache_read_input_tokens,
+    cacheCreationTokens: usage.cache_creation_input_tokens,
+    reasoningTokens: usage.reasoning_output_tokens,
+  }
 }
 
 function normalizeRateLimit(event: RateLimitEvent): NormalizedEvent[] {
@@ -274,14 +383,6 @@ function normalizeRateLimit(event: RateLimitEvent): NormalizedEvent[] {
     rateLimitType: info.rateLimitType,
     isUsingOverage: info.isUsingOverage,
   }]
-}
-
-function normalizeResetNumber(value: number): number | null {
-  if (!Number.isFinite(value) || value <= 0) return null
-  if (value > 10_000_000_000) return Math.ceil(value / 1000)
-  const nowSeconds = Date.now() / 1000
-  if (value > nowSeconds - 60) return Math.ceil(value)
-  return Math.ceil(nowSeconds + value)
 }
 
 function normalizePermission(event: PermissionEvent): NormalizedEvent[] {

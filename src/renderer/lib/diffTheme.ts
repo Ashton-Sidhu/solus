@@ -33,6 +33,15 @@ export const DIFFS_THEME_CSS = `
     --diffs-bg-selection-override: var(--solus-diff-selection-bg);
     --diffs-bg-selection-number-override: var(--solus-diff-selection-bg);
 
+    /* The editable-file tokenizer writes --diffs-editor-selection-bg via its
+       own unlayered style tag, falling back to the (unset at :host)
+       --diffs-line-bg whenever the active theme has no editor.selectionBackground
+       (true for both github-*-default themes) — so the text-selection highlight
+       renders fully transparent. Our unsafeCSS lives in the "unsafe" layer,
+       which always loses to unlayered rules regardless of source order, so only
+       !important can out-prioritize it here. */
+    --diffs-editor-selection-bg: var(--solus-diff-selection-bg) !important;
+
     --diffs-gap-inline: 1px;
     --diffs-gap-block: 8px;
     --diffs-gap-style: none;

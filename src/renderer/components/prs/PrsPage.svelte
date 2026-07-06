@@ -137,18 +137,6 @@
     });
   });
 
-  // A finished run changes PR states (merged PRs leave the open list) — reload.
-  let lastRunStatus: string | null = null;
-  $effect(() => {
-    const status = mergeQueue.state?.status ?? null;
-    if (status === lastRunStatus) return;
-    const wasActive = lastRunStatus === "running" || lastRunStatus === "waiting";
-    lastRunStatus = status;
-    if (wasActive && (status === "done" || status === "cancelled")) {
-      void store.loadAll(session.ctx, { force: true });
-    }
-  });
-
   function toggleQueued(pr: PullRequestSummary) {
     if (pr.state !== "open" || pr.draft) return;
     mergeQueue.toggle(pr.number);
@@ -156,9 +144,9 @@
 
   // Existing inline review threads for the mounted PR, shared with <ActivityFeed>
   // (which owns reply/resolve, mutating these in place — same as the review pane).
-  function loadThreads(n: number) {
-    void window.solus
-      .prListThreads(session.ctx, n)
+  function loadThreads(n: number, force = false) {
+    void store
+      .loadThreads(session.ctx, n, { force })
       .then((t) => {
         if (activeNumber === n) reviewThreads = t;
       })
@@ -168,6 +156,24 @@
     const n = activeNumber;
     reviewThreads = [];
     if (n) loadThreads(n);
+  });
+
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = window.solus.onPrsChanged((changedCwd) => {
+      if (!open) return;
+      const ctxCwd = session.ctx.session.projectPath || session.ctx.session.workingDirectory;
+      if (changedCwd !== ctxCwd) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        refreshList();
+        if (activeNumber) loadThreads(activeNumber, true);
+      }, 500);
+    });
+    return () => {
+      unsub();
+      clearTimeout(timer);
+    };
   });
 
   // Mounting <ActivityFeed> fires its own GitHub fetches. Arrow nav fires one
@@ -312,7 +318,7 @@
       class="flex w-[20rem] shrink-0 flex-col border-r border-(--solus-popover-border) @max-[44rem]:w-full {selectedNumber || queueViewOpen ? '@max-[44rem]:hidden' : ''}"
     >
       <!-- Header -->
-      <div class="shrink-0 border-b border-(--solus-popover-border) px-3 pt-3 pb-3">
+      <div class="shrink-0 border-b border-(--solus-popover-border) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] pt-3 pb-3">
         <div class="flex items-center justify-between gap-3 pb-2.5 pl-1">
           <div class="flex min-w-0 items-center gap-2.5">
             <span
@@ -597,7 +603,7 @@
               pr={activityTarget}
               threads={reviewThreads}
               onRefreshThreads={() =>
-                activeNumber !== null && loadThreads(activeNumber)}
+                activeNumber !== null && loadThreads(activeNumber, true)}
               onJump={() => openReview()}
             />
           {/key}

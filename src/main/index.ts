@@ -12,6 +12,7 @@ import { ControlPlane } from './control-plane'
 import { RunManager } from './run/run-manager'
 import { createBackends } from './agents/backend-registry'
 import { syncBundledPlugins } from './agents/plugins'
+import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
 import type { AgentId, IpcContext, AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
 import { comboToAccelerator } from '../renderer/lib/keybindings/match'
@@ -87,7 +88,7 @@ let screenshotCounter = 0
 let designModeCounter = 0
 let pasteCounter = 0
 let toggleSequence = 0
-let currentViewMode: 'pill' | 'editor' = 'pill'
+let currentViewMode: 'pill' | 'editor' = 'editor'
 let booted: BootedServer | null = null
 // True while the renderer's current text selection lives inside the conversation
 // view. Pushed from the renderer on selectionchange so the native context menu
@@ -371,8 +372,7 @@ function createPillWindow(): void {
   }
 
   mainWindow.once('ready-to-show', () => {
-    if (!isTestMode) mainWindow?.show()
-    booted?.server.broadcast('window-shown', windowCursorRelative())
+    booted?.server.broadcast('window-hidden')
     if (!isTestMode) {
       void warmupTranscription()
     }
@@ -409,21 +409,6 @@ function editorDefaultBounds(): Electron.Rectangle {
   }
 }
 
-/** The app boots dock-hidden (the pill is a menu-bar-style overlay). The Dock
- *  item appears while the editor window is visible — it's the "traditional
- *  app" surface — and goes away when the editor hides, leaving the pill
- *  summonable without Dock/cmd-tab presence. Dock click lands on the app
- *  `activate` event, which surfaces the current mode's window. */
-function updateDockVisibility(): void {
-  if (process.platform !== 'darwin' || !app.dock) return
-  const editorVisible = isLive(editorWindow) && editorWindow.isVisible()
-  if (editorVisible) {
-    if (!app.dock.isVisible()) void app.dock.show()
-  } else {
-    app.dock.hide()
-  }
-}
-
 /** Create the editor window: a standard OS window (resizable, Dock/alt-tab
  *  presence, native shadow), lazily on first switch to editor mode. Closing it
  *  hides it — the window (and its bounds) live for the rest of the app run,
@@ -451,9 +436,7 @@ function createEditorWindow(): BrowserWindow {
       editorWindow?.hide()
     }
   })
-  editorWindow.on('show', updateDockVisibility)
   editorWindow.on('hide', () => {
-    updateDockVisibility()
     booted?.server.broadcast('window-hidden')
   })
 
@@ -533,8 +516,7 @@ function togglePillWindow(source = 'unknown'): void {
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
-  const shouldHide = mainWindow.isVisible() && (mainWindow.isFocused() || mainWindow.webContents.isFocused())
-  if (shouldHide) {
+  if (mainWindow.isVisible()) {
     hidePillWindow(source)
     if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
   } else {
@@ -542,22 +524,20 @@ function togglePillWindow(source = 'unknown'): void {
   }
 }
 
-/** Secondary summon key: always the editor, creating it on first use.
- *  Visible-but-unfocused means focus it, not hide it. */
+/** Secondary summon key: always the editor, creating it on first use. */
 function toggleEditorWindow(_source = 'unknown'): void {
   if (hiddenUntilTrayShow || isTestMode) return
   if (!isLive(editorWindow)) {
     createEditorWindow() // shows + focuses on ready-to-show
     return
   }
-  const shouldHide = editorWindow.isVisible() && (editorWindow.isFocused() || editorWindow.webContents.isFocused())
-  if (shouldHide) hideEditorWindow()
+  if (editorWindow.isVisible()) hideEditorWindow()
   else showEditorWindow()
 }
 
 /** Tray "Show Solus" / app activate: surface the current mode's window. */
 function showCurrentModeWindow(source: string, options: { fromTrayShow?: boolean } = {}): void {
-  if (currentViewMode === 'editor' && isLive(editorWindow)) {
+  if (currentViewMode === 'editor') {
     if (hiddenUntilTrayShow && !options.fromTrayShow) return
     if (options.fromTrayShow) hiddenUntilTrayShow = false
     showEditorWindow()
@@ -567,9 +547,10 @@ function showCurrentModeWindow(source: string, options: { fromTrayShow?: boolean
 }
 
 /** Switch to the given mode's window (toggles when omitted). Shows/creates the
- *  target and hides the window being left unless both were already visible —
- *  then this is just a focus change. No caller until the renderer bootstraps
- *  per-window modes via `?mode=` (Phase 2 of the two-window split). */
+ *  target and hides the window being left. Asymmetric when both are visible:
+ *  entering the editor always hides the pill (promotion is substitutive — a
+ *  pill lingering over the workspace is clutter), while entering the pill
+ *  leaves the editor visible (it's a place; the pill floats above it). */
 function switchMode(target?: 'pill' | 'editor'): void {
   const next = target ?? (currentViewMode === 'pill' ? 'editor' : 'pill')
   const leaving = next === 'editor' ? mainWindow : editorWindow
@@ -578,7 +559,7 @@ function switchMode(target?: 'pill' | 'editor'): void {
   // Direct hide, not hidePill/hideEditorWindow: the entering window keeps (or
   // is about to take) focus, so no app.hide() focus-return is wanted here.
   const hideLeaving = () => {
-    if (!bothVisible && isLive(leaving) && leaving.isVisible()) leaving.hide()
+    if ((next === 'editor' || !bothVisible) && isLive(leaving) && leaving.isVisible()) leaving.hide()
   }
 
   currentViewMode = next
@@ -785,9 +766,13 @@ if (isPairUrl) {
   app.whenReady().then(async () => {
     protocol.handle('solus-artifact', handleArtifactRequest)
 
-    // Install app-bundled plugins into ~/.solus/plugins before any agent runs,
-    // so Claude Code and Codex can load them from a real filesystem path.
-    syncBundledPlugins()
+    // Link app-bundled plugins into ~/.solus/plugins before any agent can run.
+    await syncBundledPlugins()
+
+    // Resolve the login-shell PATH off the main thread now, so it's warm before
+    // the first RPC (agent-binary lookup) needs it instead of paying up to three
+    // sequential login-shell probes synchronously on that first call.
+    void warmCliPath()
 
     if (process.platform === 'darwin' && app.dock) {
       app.dock.hide()
@@ -852,6 +837,10 @@ if (isPairUrl) {
       })
 
       createPillWindow()
+      // The pill boots hidden (summon-as-needed overlay). The editor is the
+      // default surface, so create it at boot too — it shows itself on
+      // ready-to-show. Without this, nothing is visible at launch.
+      if (currentViewMode === 'editor' && !isTestMode) createEditorWindow()
       snapshotWindowState('after createWindow')
       initAutoUpdater(() => { forceQuit = true })
 

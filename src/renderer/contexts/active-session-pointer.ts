@@ -6,11 +6,11 @@ import type { AgentId } from '../../shared/types'
 //
 //  - POINTER_KEY: the latest session = the session the last message was sent
 //    in, whichever window sent it. The pill reads it on summon so it lands on
-//    what the user was just working on (automatic, pull-based).
-//  - HANDOFF_KEY: explicit pill→editor handoff — written when the user toggles
-//    pill→editor, consumed once by the editor window (on mount or via the
-//    cross-window `storage` event). The editor never follows the ambient
-//    pointer; its tab strip is a curated workspace.
+//    what the user was just working on (automatic, pull-based). The editor
+//    never follows the pointer; its tab strip is a curated workspace.
+//  - HANDOFF_KEY: explicit "continue in the other mode" (⌥⇧E) — written by the
+//    window being left, addressed to a target mode, consumed once by that
+//    mode's window (on mount or via the cross-window `storage` event).
 
 export interface ActiveSessionPointer {
   sessionId: string
@@ -21,7 +21,14 @@ export interface ActiveSessionPointer {
   updatedAt: number
 }
 
-export type SessionHandoff = Omit<ActiveSessionPointer, 'writer'>
+export interface SessionHandoff {
+  sessionId: string
+  provider: AgentId
+  cwd: string
+  title: string | null
+  target: 'pill' | 'editor'
+  updatedAt: number
+}
 
 const POINTER_KEY = 'solus-active-session'
 const HANDOFF_KEY = 'solus-session-handoff'
@@ -59,16 +66,21 @@ export function writeSessionHandoff(handoff: Omit<SessionHandoff, 'updatedAt'>):
   } catch {}
 }
 
-/** Editor window: deliver a pending pill→editor handoff — one already stashed
- *  when this runs (the toggle may have just created this window) and any that
- *  arrive later while it stays open. Returns an unsubscribe. */
-export function consumeSessionHandoff(onSession: (handoff: SessionHandoff) => void): () => void {
+/** Deliver pending handoffs addressed to `target` — one already stashed when
+ *  this runs (the switch may have just created this window) and any that
+ *  arrive later while it stays open. Handoffs addressed to the other mode are
+ *  left in place for that window's consumer. Returns an unsubscribe. */
+export function consumeSessionHandoff(
+  target: 'pill' | 'editor',
+  onSession: (handoff: SessionHandoff) => void,
+): () => void {
   const consume = () => {
     try {
       const raw = localStorage.getItem(HANDOFF_KEY)
       if (!raw) return
-      localStorage.removeItem(HANDOFF_KEY)
       const parsed = JSON.parse(raw)
+      if (parsed?.target !== target) return
+      localStorage.removeItem(HANDOFF_KEY)
       if (typeof parsed?.sessionId !== 'string') return
       if (Date.now() - (parsed.updatedAt ?? 0) > HANDOFF_TTL_MS) return
       onSession(parsed as SessionHandoff)

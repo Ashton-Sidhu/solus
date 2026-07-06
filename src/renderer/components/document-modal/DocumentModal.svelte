@@ -9,7 +9,7 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { formatInlineComments } from "../../contexts/session.utils";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import type { PlanComment, SessionMeta, WorkAnnotations, WorkStorage } from "../../shared/types";
+  import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
 
   interface DocumentModalProps {
     document: { title: string; content: string };
@@ -49,20 +49,20 @@
   let scrollContainer: HTMLDivElement | null = $state(null);
   let suppressSave = $state(false);
 
-  let comments = $state<PlanComment[]>([]);
+  const comments = $derived(workId ? session.worksStore.annotationComments(workId) : []);
   let loadedForWorkId: string | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Load the annotation sidecar whenever the open work changes.
   $effect(() => {
     const id = workId;
-    if (!id || id === loadedForWorkId) return;
+    if (!id) {
+      loadedForWorkId = null;
+      return;
+    }
+    if (id === loadedForWorkId) return;
     loadedForWorkId = id;
-    comments.splice(0, comments.length);
-    void window.solus.loadWorkAnnotations(id).then((ann) => {
-      if (loadedForWorkId !== id) return; // a different work opened meanwhile
-      if (ann?.comments?.length) comments.splice(0, comments.length, ...ann.comments);
-    });
+    void session.worksStore.loadAnnotations(id);
   });
 
   function persist() {
@@ -70,23 +70,29 @@
     if (saveTimer) clearTimeout(saveTimer);
     const id = workId;
     saveTimer = setTimeout(() => {
-      const ann: WorkAnnotations = { version: 1, workId: id, comments: $state.snapshot(comments) as PlanComment[], updatedAt: Date.now() };
+      const ann = {
+        version: 1 as const,
+        workId: id,
+        comments: $state.snapshot(session.worksStore.annotationComments(id)) as PlanComment[],
+        updatedAt: Date.now(),
+      };
       void window.solus.saveWorkAnnotations(ann);
     }, 400);
   }
 
   function addComment(c: PlanComment) {
-    comments.push(c);
+    if (!workId) return;
+    session.worksStore.addAnnotationComment(workId, c);
     persist();
   }
   function editComment(commentId: string, text: string) {
-    const c = comments.find((x) => x.id === commentId);
-    if (c) c.comment = text;
+    if (!workId) return;
+    session.worksStore.editAnnotationComment(workId, commentId, text);
     persist();
   }
   function deleteComment(commentId: string) {
-    const i = comments.findIndex((x) => x.id === commentId);
-    if (i !== -1) comments.splice(i, 1);
+    if (!workId) return;
+    session.worksStore.deleteAnnotationComment(workId, commentId);
     persist();
   }
 
@@ -103,7 +109,7 @@
       for (const c of comments) removeCommentMark(tiptapEditor, c.id);
       suppressSave = false;
     }
-    comments.splice(0, comments.length);
+    session.worksStore.clearAnnotationComments(workId);
     persist();
 
     const boundTabId = session.tabOrder.find((t) => session.sessionFor(t)?.boundWorkId === workId);

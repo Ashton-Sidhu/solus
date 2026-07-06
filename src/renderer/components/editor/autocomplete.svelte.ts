@@ -482,10 +482,10 @@ export class AutocompleteController {
   };
 
   syncRefs() {
-    this.deps.onRefsChange()?.(
-      refs.extractPlanRefs(this.deps.getEditor()),
-      refs.extractWorkRefs(this.deps.getEditor()),
-    );
+    const onRefsChange = this.deps.onRefsChange();
+    if (!onRefsChange) return;
+    const { planRefs, workRefs } = refs.extractRefs(this.deps.getEditor());
+    onRefsChange(planRefs, workRefs);
   }
 
   // ─── Core handlers ───

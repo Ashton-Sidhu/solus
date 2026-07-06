@@ -54,17 +54,18 @@
       </summary>
       <div class="detail-body mt-2.5 flex flex-col gap-3">
         {#each detailRecords as record (record.id)}
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[0.875rem] font-semibold text-(--solus-text-primary)">{record.title}</span>
+          <div class="flex flex-col gap-2.5">
+            <p class="text-[0.875rem] font-semibold text-(--solus-text-primary)">{record.title}</p>
             {#each DETAIL_FIELDS as field (field.key)}
-              {#if record[field.key]}
-                <div class="flex flex-col gap-0.5">
-                  <span class="text-[0.6875rem] font-semibold tracking-wide text-(--solus-text-tertiary) uppercase">
+              {@const detail = record[field.key]}
+              {#if detail}
+                <div class="flex flex-col gap-1">
+                  <p class="font-mono text-[0.6875rem] font-semibold tracking-wide text-(--solus-text-tertiary) uppercase">
                     {field.label}
-                  </span>
-                  <span class="text-[0.875rem] leading-relaxed text-(--solus-text-secondary)">
-                    {record[field.key]}
-                  </span>
+                  </p>
+                  <div class="prose-cloud prose-reading text-(--solus-text-secondary)">
+                    <SvelteMarkdown source={detail} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+                  </div>
                 </div>
               {/if}
             {/each}

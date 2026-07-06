@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { CopyIcon, CheckIcon } from "phosphor-svelte";
   import { highlightCode } from "../../lib/highlight";
 
@@ -10,7 +11,32 @@
 
   // Strip a single trailing newline so the block doesn't render an empty last line.
   let code = $derived(text.replace(/\n$/, ""));
-  let highlighted = $derived(highlightCode(code, lang));
+
+  // While a fenced block streams in, `code` grows every rAF frame and each grow is
+  // a highlight cache miss (full lowlight re-tokenization + whole-block innerHTML
+  // swap) at ~60Hz. Throttle: re-highlight at most every THROTTLE_MS, keeping the
+  // last highlight on screen in between, and always fire a trailing highlight so
+  // the settled text ends up fully tokenized. Static (completed) blocks highlight
+  // once at init and cache-hit thereafter — visually identical, no extra cost.
+  const THROTTLE_MS = 250;
+  let highlighted = $state(untrack(() => highlightCode(code, lang)));
+  let lastHighlightAt = 0;
+
+  $effect(() => {
+    const c = code;
+    const l = lang;
+    const elapsed = performance.now() - lastHighlightAt;
+    if (elapsed >= THROTTLE_MS) {
+      lastHighlightAt = performance.now();
+      highlighted = highlightCode(c, l);
+      return;
+    }
+    const timer = setTimeout(() => {
+      lastHighlightAt = performance.now();
+      highlighted = highlightCode(c, l);
+    }, THROTTLE_MS - elapsed);
+    return () => clearTimeout(timer);
+  });
 
   let copied = $state(false);
 

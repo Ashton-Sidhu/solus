@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
+  import { CaretDownIcon } from "phosphor-svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -23,108 +24,45 @@
   }
 </script>
 
-<section class="panel-section" class:panel-section-grow={grow && !collapsed}>
-  <div class="section-header">
-    <button class="section-toggle" type="button" aria-expanded={!collapsed} onclick={toggle}>
-      <span class="section-title">{title}</span>
+<section
+  class="group/section relative min-h-0 shrink-0 not-first:before:content-[''] not-first:before:absolute not-first:before:top-0 not-first:before:inset-x-3.5 not-first:before:h-px not-first:before:bg-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] {grow &&
+  !collapsed
+    ? 'flex flex-1 flex-col'
+    : ''}"
+>
+  <div
+    class="group/header flex min-h-8 items-center justify-between gap-2 px-3.5 pt-2 pb-1 group-first/section:min-h-6 group-first/section:pt-0"
+  >
+    <button
+      class="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-1 border-none bg-transparent text-[0.625rem] font-semibold tracking-[0.09em] text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      type="button"
+      aria-expanded={!collapsed}
+      onclick={toggle}
+    >
+      <span class="inline-flex min-w-0 items-center truncate">{title}</span>
+      <!-- Disclosure caret: always visible while collapsed (so the closed state
+           stays discoverable), revealed on hover while open. -->
+      <span
+        class="inline-flex shrink-0 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
+          ? '-rotate-90 opacity-70'
+          : 'opacity-0 group-hover/header:opacity-60'}"
+        aria-hidden="true"
+      >
+        <CaretDownIcon size={9} weight="bold" />
+      </span>
     </button>
     {#if headerExtra}
-      <span class="section-extra">
+      <span class="min-w-0 font-medium text-(--solus-text-tertiary)">
         {@render headerExtra()}
       </span>
     {/if}
   </div>
   {#if !collapsed}
     <div
-      class="section-body"
-      class:section-body-grow={grow}
+      class="min-h-0 px-3.5 pb-3.5 {grow ? 'flex flex-1 overflow-hidden' : 'overflow-y-auto'}"
       transition:slide={{ duration: reduceMotion ? 0 : 180, easing: cubicOut }}
     >
       {@render children()}
     </div>
   {/if}
 </section>
-
-<style>
-  .panel-section {
-    position: relative;
-    flex-shrink: 0;
-    min-height: 0;
-  }
-  .panel-section:not(:first-child)::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0.875rem;
-    right: 0.875rem;
-    height: 1px;
-    background: color-mix(in srgb, var(--solus-container-border) 60%, transparent);
-  }
-  .panel-section-grow {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-  .section-header {
-    min-height: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.5rem 0.875rem 0.25rem;
-  }
-  .panel-section:first-child .section-header {
-    min-height: 1.5rem;
-    padding-top: 0;
-  }
-  .section-toggle {
-    min-width: 0;
-    min-height: 1.5rem;
-    flex: 1;
-    display: flex;
-    align-items: center;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    transition: color 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .section-toggle:hover {
-    color: var(--solus-text-primary);
-  }
-  .section-toggle:active {
-    transform: scale(0.996);
-  }
-  .section-toggle:focus-visible {
-    outline: none;
-    border-radius: 0.375rem;
-    box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-  .section-title {
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .section-extra {
-    min-width: 0;
-    color: var(--solus-text-tertiary);
-    font-weight: 500;
-  }
-  .section-body {
-    min-height: 0;
-    overflow-y: auto;
-    padding: 0 0.875rem 0.875rem;
-  }
-  .section-body-grow {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-  }
-</style>

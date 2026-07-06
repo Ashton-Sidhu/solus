@@ -12,10 +12,11 @@
 
   const session = getWorkspaceContext();
 
-  const HTML_ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
-  const decodeHtml = (s: string) => s.replace(/&(?:amp|lt|gt|quot|#39);/g, m => HTML_ENTITIES[m]);
-
-  const copyText = $derived(decodeHtml(text ?? raw.replace(/^`+|`+$/g, "")));
+  // No entity decoding here: marked ≥13 hands codespan token text through
+  // literally, so `&amp;` in a code span is content the author typed and
+  // CommonMark requires it to display as-is. (An older marked escaped codespan
+  // tokens, which is what the decode this replaced was compensating for.)
+  const copyText = $derived(text ?? raw.replace(/^`+|`+$/g, ""));
 
   const FILE_PATH_RE = /^(?!@)(?:\.{0,2}\/)?(?:[\w.@~-]+\/)+[\w.@~-]+(?::(\d+))?$/;
 

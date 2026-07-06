@@ -1,6 +1,6 @@
 ---
 name: visual-artifacts
-description: Author and render visual, interactive local HTML artifacts flush in the Solus conversation. Use when visual or interactive output is a better medium than chat text, including charts, dashboards, annotated PR/design walkthroughs, side-by-side alternatives, simulations, visualizations, tuning controls, progress trackers, decision editors, copy-back workflows, and explicit "show/render/visualize/make an interactive" requests. This skill owns artifact product patterns, the Solus design system, sandbox constraints, and the render_artifact call. For public web images, use a markdown image link instead.
+description: Author and render visual, interactive local HTML artifacts flush in the Solus conversation. Use when visual or interactive output is a better medium than chat text, including charts, dashboards, annotated PR/design walkthroughs, side-by-side alternatives, simulations, visualizations, tuning controls, progress trackers, decision editors, copy-back workflows, and explicit "show/render/visualize/make" requests. This skill owns artifact product patterns, the Solus design system, sandbox constraints, and the render_artifact call. For public web images, use a markdown image link instead.
 ---
 
 # Visual artifacts
@@ -30,6 +30,50 @@ This skill does NOT produce images. Generated images arrive only from a native i
 - **Copy-back editor:** a local decision surface whose output can be pasted back into chat, such as a triage board, ordering tool, checklist, JSON builder, or prompt composer.
 - **Progress tracker:** a checklist or timeline updated by rendering a fresh local artifact snapshot as work proceeds. Local HTML artifacts do not have a stable update id, so make each snapshot self-contained and clearly supersede the previous one in chat.
 
+## Playground explorers
+
+A playground is the richest copy-back pattern: interactive **controls** drive a **live preview**, and a **prompt output** panel builds a natural-language instruction the user copies back into chat. The user tunes visually, then pastes the generated prompt to act on it — no need to describe a large, visual, or structural input space in words.
+
+Reach for a playground when the input space is large, visual, or structural and hard to express as text. Six templates cover the common shapes — load the matching one from `templates/` and adapt it:
+
+- `templates/design-playground.md` — visual design decisions (components, layout, spacing, color, type)
+- `templates/data-explorer.md` — queries and structured config (SQL, APIs, pipelines, regex, cron)
+- `templates/concept-map.md` — learning and relationship mapping (concept maps, scope, dependencies)
+- `templates/document-critique.md` — document review with approve/reject/comment
+- `templates/diff-review.md` — code diffs with line-by-line comments
+- `templates/code-map.md` — codebase architecture with click-to-comment
+
+If the request doesn't fit a template cleanly, use the closest one and adapt. Every playground still obeys the runtime contract and design philosophy below — the templates give Solus-specific structure, not an exception to them. Two panels side by side with the prompt output flowing beneath is the default shape; use normal flow (no fixed positioning, no nested scrolling) so it renders correctly as content streams in.
+
+### State pattern
+
+Keep a single state object. Every control writes to it; every render reads from it. One `updateAll()` re-renders the preview and rebuilds the prompt on every change — no "Apply" button.
+
+```js
+const state = { /* all configurable values */ };
+const DEFAULTS = { ...state };
+function updateAll() { renderPreview(); updatePrompt(); }
+// every control calls updateAll() on change
+```
+
+### Prompt output
+
+The prompt is a natural-language instruction, not a value dump. Mention only non-default choices, add qualitative language alongside numbers, and include enough context to act on without seeing the playground. Put it in a selectable readonly `<textarea>` (required by the runtime contract) with a copy button as a convenience on top.
+
+```js
+function updatePrompt() {
+  const parts = [];
+  if (state.radius !== DEFAULTS.radius) parts.push(`${state.radius}px corner radius`);
+  if (state.shadow > 16) parts.push('a pronounced shadow');
+  else if (state.shadow > 0) parts.push('a subtle shadow');
+  out.value = `Update the card to use ${parts.join(', ')}.`;
+}
+```
+
+### Presets
+
+Look good on first load with sensible defaults, then offer 3–5 named presets that snap every control to a cohesive combination.
+
 ## Runtime contract (required — the artifact breaks if you ignore this)
 
 Pass a single self-contained HTML document.
@@ -55,5 +99,15 @@ The render must feel like a native part of the chat, not something embedded from
 - **Motion:** animate by default so the artifact feels alive. Add purposeful entrance transitions (fade/slide/scale in), let bars/lines/arcs grow or draw on load, count numbers up, and transition every interaction (hover, toggle, slider) smoothly. Use CSS transitions/keyframes or requestAnimationFrame; keep it subtle and premium (~200–600ms, ease-out, no bounce or flashing), stagger multiple elements, and honour `@media (prefers-reduced-motion: reduce)` by disabling non-essential motion.
 
 Do not design around cloud sharing, organization permissions, public links, or hosted export. Solus artifacts are local, in-chat renders.
+
+## Common mistakes to avoid
+
+- Prompt output is a value dump → write it as a natural instruction with enough context to act on alone.
+- Too many controls at once → group by concern; collapse advanced options.
+- Preview lags behind → every control change re-renders immediately; no "Apply" button.
+- Empty or broken on first load → ship sensible defaults and named presets.
+- Grey or hardcoded hex → drive every colour off the Solus variables (warm neutrals, not grey; accent for single-series).
+- Clipboard-only copy → always include the selectable `<textarea>`/`<pre>` fallback.
+- Emoji or icon characters in output → use an icon font glyph if you need one, never an emoji.
 
 When the HTML is ready, call `render_artifact` with it as the final step, after you have explained what you built.

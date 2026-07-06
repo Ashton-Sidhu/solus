@@ -51,7 +51,7 @@
   const railItems = $derived(mainSections.map((s) => ({ id: s.id, title: s.title })));
 </script>
 
-<div class="relative h-full">
+<div class="relative min-h-0 flex-1">
   <GuideRail items={railItems} {scrollEl} />
 
   <div bind:this={scrollEl} class="h-full overflow-y-auto">

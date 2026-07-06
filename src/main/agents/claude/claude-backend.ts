@@ -29,7 +29,7 @@ import type {
   SessionRunInput,
 } from '../../../shared/types'
 import type { ClaudeRunResult } from './claude-agent'
-import type { SessionLoadMessage, SessionPreviewResult } from '../../../shared/claude-types'
+import type { SessionLoadMessage, SessionPreviewResult } from '../../../shared/session-history'
 import {
   _sessionListCache,
   parseJsonlLine,
@@ -165,8 +165,6 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     }
 
     const workTree = input.gitContext?.worktreePath ?? input.workingDirectory
-    const trackedFiles = new Set<string>()
-
     const baseModel = input.model
     const model = input.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
 
@@ -218,6 +216,31 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
           cwd: created.cwd,
         })
       },
+      onSessionPrompted: (prompted) => {
+        this.emit('normalized', handle.sessionId, {
+          type: 'session_prompted',
+          agentSessionId: prompted.agentSessionId,
+          promptPreview: prompted.promptPreview,
+          provider: prompted.provider,
+          cwd: prompted.cwd,
+        })
+      },
+      onSessionStopped: (stopped) => {
+        this.emit('normalized', handle.sessionId, {
+          type: 'session_stopped',
+          agentSessionId: stopped.agentSessionId,
+          provider: stopped.provider,
+          cwd: stopped.cwd,
+        })
+      },
+      onTaskCreated: (task) => {
+        this.emit('normalized', handle.sessionId, {
+          type: 'task_created',
+          taskId: task.taskId,
+          title: task.title,
+          url: task.url,
+        })
+      },
       createCtx: {
         agentProvider: 'claude-code',
         cwd: input.workingDirectory,
@@ -232,6 +255,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         agent: 'claude',
         general,
         extraInstructions: input.extraInstructions,
+        modelInstructions: input.modelInstructions,
         prReview: input.prReview,
       })
 
@@ -249,8 +273,8 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         // Reads + create + render + the review ledger are pre-approved; update_work falls through to the prompt.
         // Automation reads are pre-approved; mutating/triggering ones (create/update/delete/set_enabled/run) fall through to the permission prompt.
         // create_session is pre-approved — spawning a session is a first-class agent action.
-        // get_task is a pre-approved read; update_task_status (write-back) falls through to the prompt.
-        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__record_change', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__get_task'],
+        // Session/task reads are pre-approved; writes fall through to the prompt.
+        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__record_change', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
         systemPromptAppend,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
@@ -269,12 +293,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
           if (!repoRoot) return
           await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
-            changedFiles: [...trackedFiles],
+            changedFiles: snapOpts.editedFiles,
           })
         },
       })
 
-      await this._runLoop(handle, events, result, trackedFiles, sessionRef)
+      await this._runLoop(handle, events, result, sessionRef)
     })().catch((err: any) => {
       const sessionId = handle.sessionId
       log.error(`Run failed to start [${sessionId ?? 'pending'}]: ${err?.message}`)
@@ -289,7 +313,6 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     handle: RunHandle,
     events: AsyncIterable<NormalizedEvent>,
     result: Promise<ClaudeRunResult>,
-    trackedFiles: Set<string>,
     sessionRef: { current: string | null },
   ): Promise<void> {
     try {
@@ -298,23 +321,13 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
           this.promoteToActive(handle, evt.sessionId)
           sessionRef.current = evt.sessionId
         }
-        if (evt.type === 'tool_call') handle.toolCallCount++
-        if (evt.type === 'task_update' && evt.message?.content) {
-          for (const block of evt.message.content) {
-            if (block.type !== 'tool_use') continue
-            if (block.name === 'Write' || block.name === 'Edit' || block.name === 'NotebookEdit') {
-              const input = block.input as Record<string, unknown> | undefined
-              const fp = (input?.file_path ?? input?.notebook_path) as string | undefined
-              if (fp) trackedFiles.add(fp)
-            }
-          }
-        }
 
         this.emit('normalized', handle.sessionId, evt)
       }
 
       const final = await result
       handle.sessionId = final.sessionId
+      handle.toolCallCount = final.toolCallCount
       handle.permissionDenials = final.permissionDenials
       const sessionId = handle.sessionId
       this.finishRun(handle)

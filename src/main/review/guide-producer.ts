@@ -60,7 +60,12 @@ export type EmitProgress = (step: ReviewProgressStep) => void
  * cache and kick off a duplicate agent run that races to write the same file.
  * Coalescing onto the live promise means concurrent callers share one run.
  */
-const inFlight = new Map<string, Promise<GeneratedGuide | null>>()
+type InFlightGuide = {
+  promise: Promise<GeneratedGuide | null>
+  abortController: AbortController
+}
+
+const inFlight = new Map<string, InFlightGuide>()
 
 /**
  * The producer. Always reviews the diff; enriches with the ledger when one
@@ -89,7 +94,7 @@ export async function generateGuide(
   const running = inFlight.get(dedupeKey)
   if (running) {
     log.info(`review generation already in flight for ${target.guideKey}; joining it`)
-    return running
+    return running.promise
   }
 
   // Stamp the (scope-resolved) key onto every phase event so the renderer can
@@ -98,9 +103,25 @@ export async function generateGuide(
     ? (step) => onProgress({ key: target.guideKey, step })
     : undefined
 
-  const run = produceGuide(ctx, opts, review, target, emit).finally(() => inFlight.delete(dedupeKey))
-  inFlight.set(dedupeKey, run)
+  const abortController = new AbortController()
+  const run = produceGuide(ctx, opts, review, target, abortController.signal, emit).finally(() => inFlight.delete(dedupeKey))
+  inFlight.set(dedupeKey, { promise: run, abortController })
   return run
+}
+
+export async function cancelGenerateGuide(
+  ctx: IpcContext,
+  opts: Pick<GenerateGuideOptions, 'scope'> = {},
+): Promise<boolean> {
+  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  if (!review) return false
+  const target = resolveTarget(ctx, review, opts)
+  const dedupeKey = `${review.repoRoot}::${target.guideKey}`
+  const running = inFlight.get(dedupeKey)
+  if (!running) return false
+  running.abortController.abort()
+  inFlight.delete(dedupeKey)
+  return true
 }
 
 async function produceGuide(
@@ -108,6 +129,7 @@ async function produceGuide(
   opts: GenerateGuideOptions,
   review: ReviewContext,
   target: GuideTarget,
+  abortSignal: AbortSignal,
   emit?: EmitProgress,
 ): Promise<GeneratedGuide | null> {
   emit?.('preparing')
@@ -143,8 +165,10 @@ async function produceGuide(
 
   if (patch) emit?.('analyzing')
   const draft = patch
-    ? await runReviewAgent({ workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, onProgress: emit })
+    ? await runReviewAgent({ workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, onProgress: emit, abortSignal })
     : null
+
+  if (abortSignal.aborted) return null
 
   // Only a real guide is cached. Fallbacks (empty branch, agent failure) are
   // returned for display but never persisted — a cached "no changes" / "retry"
