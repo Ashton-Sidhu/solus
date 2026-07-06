@@ -27,11 +27,15 @@ import {
 } from '../../automations/automation-tools'
 import {
   SESSION_TOOL_JSON_SCHEMAS,
+  SESSION_MUTATING_TOOLS,
   SESSION_TOOL_NAMES,
   executeSessionTool,
   type OnSessionCreated,
+  type OnSessionPrompted,
+  type OnSessionStopped,
 } from '../../sessions/session-tools'
-import { TASK_TOOL_JSON_SCHEMAS, TASK_TOOL_NAMES, TASK_MUTATING_TOOLS, executeTaskTool } from '../../tasks/task-tools'
+import { TASK_TOOL_JSON_SCHEMAS, TASK_TOOL_NAMES, TASK_MUTATING_TOOLS, executeTaskTool, type OnTaskCreated } from '../../tasks/task-tools'
+import { PR_TOOL_JSON_SCHEMAS, PR_TOOL_NAMES, PR_MUTATING_TOOLS, executePrTool } from '../../providers/pr-tools'
 
 /**
  * Single source of truth for dispatching Codex dynamicTools (the "solus" tool
@@ -42,7 +46,7 @@ import { TASK_TOOL_JSON_SCHEMAS, TASK_TOOL_NAMES, TASK_MUTATING_TOOLS, executeTa
  * the headless run auto-runs everything with no UI callbacks).
  */
 
-export type CodexSolusToolKind = 'work' | 'automation' | 'task' | 'session' | 'artifact' | 'record_change'
+export type CodexSolusToolKind = 'work' | 'automation' | 'task' | 'session' | 'pr' | 'artifact' | 'record_change'
 
 export interface CodexSolusToolClass {
   kind: CodexSolusToolKind
@@ -64,7 +68,8 @@ export function classifyCodexSolusTool(name: string): CodexSolusToolClass | null
   if (WORK_TOOL_NAMES.has(n)) return { kind: 'work', mutating: WORK_MUTATING_TOOLS.has(n) }
   if (AUTOMATION_TOOL_NAMES.has(n)) return { kind: 'automation', mutating: AUTOMATION_MUTATING_TOOLS.has(n) }
   if (TASK_TOOL_NAMES.has(n)) return { kind: 'task', mutating: TASK_MUTATING_TOOLS.has(n) }
-  if (SESSION_TOOL_NAMES.has(n)) return { kind: 'session', mutating: false }
+  if (SESSION_TOOL_NAMES.has(n)) return { kind: 'session', mutating: SESSION_MUTATING_TOOLS.has(n) }
+  if (PR_TOOL_NAMES.has(n)) return { kind: 'pr', mutating: PR_MUTATING_TOOLS.has(n) }
   return null
 }
 
@@ -79,6 +84,9 @@ export interface CodexSolusToolCtx {
   onArtifact?: OnArtifact
   onAutomationSaved?: OnAutomationSaved
   onSessionCreated?: OnSessionCreated
+  onSessionPrompted?: OnSessionPrompted
+  onSessionStopped?: OnSessionStopped
+  onTaskCreated?: OnTaskCreated
   now?: () => string
 }
 
@@ -122,12 +130,19 @@ export async function executeCodexSolusTool(
         onAutomationSaved: ctx.onAutomationSaved,
       })
     case 'task':
-      return executeTaskTool(n, args, { ctx: { cwd: ctx.cwd } })
+      return executeTaskTool(n, args, {
+        ctx: { cwd: ctx.cwd, sessionId: ctx.sessionId },
+        onTaskCreated: ctx.onTaskCreated,
+      })
     case 'session':
       return executeSessionTool(n, args, {
         ctx: { agentProvider: ctx.agentProvider, cwd: ctx.cwd, sessionId: ctx.sessionId },
         onSessionCreated: ctx.onSessionCreated,
+        onSessionPrompted: ctx.onSessionPrompted,
+        onSessionStopped: ctx.onSessionStopped,
       })
+    case 'pr':
+      return executePrTool(n, args, { ctx: { cwd: ctx.cwd } })
   }
 }
 
@@ -140,6 +155,7 @@ export function codexSolusToolSchemas(opts: { includeAutomationTools: boolean })
     ...(opts.includeAutomationTools ? AUTOMATION_TOOL_JSON_SCHEMAS : []),
     ...SESSION_TOOL_JSON_SCHEMAS,
     ...TASK_TOOL_JSON_SCHEMAS,
+    ...PR_TOOL_JSON_SCHEMAS,
     ARTIFACT_TOOL_JSON_SCHEMA,
     RECORD_CHANGE_TOOL_JSON_SCHEMA,
   ]

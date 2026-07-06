@@ -30,7 +30,9 @@ export const RAIL_WIDTH = 30;
 
 export interface NavItem {
   id: string;
-  text: string;
+  /** Single-line hover preview, precomputed at build time so the rail rows never
+   *  re-derive it (see previewText). */
+  preview: string;
 }
 
 /** Width (px) of one side gutter between the centered reading column and the pane edge. */
@@ -55,15 +57,16 @@ export function railRightOffset(paneWidth: number): number {
 }
 
 /**
- * Pick the active index from each message's top offset (px, relative to the
- * scroll container's top), in document order. The active message is the last one
- * whose top has scrolled above the active line; once a message sits below the
- * line every later one does too, so we can stop early.
+ * Pick the active index from message top offsets (px, relative to the scroll
+ * container's top), read lazily and in document order via `topAt(i)`. The active
+ * message is the last one whose top has scrolled above the active line; once a
+ * message sits below the line every later one does too, so we stop early — the
+ * caller's `topAt` (a getBoundingClientRect read) is never invoked past the fold.
  */
-export function pickActiveIndex(tops: number[]): number {
+export function pickActiveIndex(count: number, topAt: (i: number) => number): number {
   let active = 0;
-  for (let i = 0; i < tops.length; i++) {
-    if (tops[i] - ACTIVE_LINE <= 0) active = i;
+  for (let i = 0; i < count; i++) {
+    if (topAt(i) - ACTIVE_LINE <= 0) active = i;
     else break;
   }
   return active;

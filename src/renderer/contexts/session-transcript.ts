@@ -1,6 +1,6 @@
 import type { AgentId, AutomationTrigger, IpcContext, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../shared/types'
 import { encodePathAsFolder } from '../../shared/types'
-import type { SessionLoadMessage } from '../../shared/claude-types'
+import type { SessionLoadMessage } from '../../shared/session-history'
 import { uuid } from '../../shared/uuid'
 import { nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import type { WorkspaceContext } from './workspace.context.svelte'

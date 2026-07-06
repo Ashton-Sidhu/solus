@@ -65,11 +65,11 @@
   // heaviest read isn't duplicated across the two surfaces.
   let reviewThreads = $state<ReviewThread[]>([]);
   let threadsLoadFailed = $state(false);
-  function loadThreads() {
+  function loadThreads(force = false) {
     const number = pr.number;
     threadsLoadFailed = false;
-    void window.solus
-      .prListThreads(session.ctx, number)
+    void session.prsStore
+      .loadThreads(session.ctx, number, { force })
       .then((t) => {
         if (pr.number === number) reviewThreads = t;
       })
@@ -82,6 +82,26 @@
   $effect(() => {
     void pr.number;
     loadThreads();
+  });
+
+  $effect(() => {
+    const currentNumber = pr.number;
+    const prCwd = pr.worktreePath;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = window.solus.onPrsChanged((changedCwd) => {
+      const ctxCwd = session.ctx.session.projectPath || session.ctx.session.workingDirectory;
+      if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (pr.number !== currentNumber) return;
+        loadThreads(true);
+        activityFeedRef?.refresh();
+      }, 500);
+    });
+    return () => {
+      unsub();
+      clearTimeout(timer);
+    };
   });
 
   // Reply / resolve for the threads rendered inline in the Diff tab. Mirrors the
@@ -128,7 +148,7 @@
   function onReviewSubmitted() {
     reviewDrafts.clear();
     if (activityFeedRef) activityFeedRef.refresh();
-    else loadThreads();
+    else loadThreads(true);
   }
 
   // Keep each visited tab mounted (DiffState / scroll / derived chains survive
@@ -217,7 +237,7 @@
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   <header
-    class="flex h-[var(--solus-chrome-row-h,2.9375rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-3"
+    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <div
       class="inline-flex items-center gap-0.5 rounded-lg bg-(--solus-accent-light) p-0.5"
@@ -332,7 +352,7 @@
           {pr}
           threads={reviewThreads}
           threadsFailed={threadsLoadFailed}
-          onRefreshThreads={loadThreads}
+          onRefreshThreads={() => loadThreads(true)}
           onJump={jumpToDiff}
         />
       </div>

@@ -13,7 +13,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../../shared/types'
-import type { SessionLoadMessage, SessionPreviewResult } from '../../shared/claude-types'
+import type { SessionLoadMessage, SessionPreviewResult } from '../../shared/session-history'
 
 export interface PermissionResponder {
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined

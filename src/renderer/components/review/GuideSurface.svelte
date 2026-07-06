@@ -29,7 +29,7 @@
   } = $props();
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto">
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
   {#if loader.loading && loader.guide !== null}
     <!-- Regenerating over an existing guide: the old guide stays readable below,
          but say so — silence here reads as a dead Regenerate button. -->

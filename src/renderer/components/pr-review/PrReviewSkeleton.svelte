@@ -12,7 +12,7 @@
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   <header
-    class="flex h-[var(--solus-chrome-row-h,2.9375rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-3"
+    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <FrameExpandButton variant="sidebar" />
 

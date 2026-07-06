@@ -11,6 +11,7 @@ import { resolveRepoRef } from '../git/git-helpers'
 import { GitHubAuth } from '../providers/github/auth'
 import { GitHubReauthRequiredError } from '../providers/github/octokit'
 import { getExistingPR } from '../git/worktree-manager'
+import { linkTaskSession } from './task-links'
 import type { RepoRef } from '../../shared/providers'
 import {
   TASKS_AUTH_ERROR_PREFIX,
@@ -366,6 +367,11 @@ export async function postTaskComment(cwd: string, id: string, body: string): Pr
   }
   notify(cwd)
   return task
+}
+
+export async function linkTaskSessionAndNotify(cwd: string, taskId: string, sessionId: string): Promise<void> {
+  await linkTaskSession(cwd, taskId, sessionId)
+  notify(cwd)
 }
 
 /** Narrow type guard for the GitHub `raw` payload, so formatting stays off `unknown`. */

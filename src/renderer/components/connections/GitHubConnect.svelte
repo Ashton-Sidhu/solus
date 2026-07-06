@@ -8,100 +8,63 @@
     SpinnerGapIcon,
   } from "phosphor-svelte";
   import { onMount } from "svelte";
-  import type { AuthStatus, DeviceCodePrompt } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { connectionsStore } from "../../contexts/connections.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
 
   const session = getWorkspaceContext();
+  const connections = connectionsStore;
 
-  let status = $state<AuthStatus | null>(null);
-  let loading = $state(true);
-  let connecting = $state(false);
-  let prompt = $state<DeviceCodePrompt | null>(null);
-  let error = $state<string | null>(null);
   let copied = $state(false);
   let modalEl = $state<HTMLDivElement | null>(null);
 
   // Tokens minted before the `project` scope existed can't read/write Projects v2
   // fields (due date, priority, status). Prompt those users to reconnect.
   const needsProjectScope = $derived(
-    !!status?.connected && !status.scopes?.includes("project"),
+    !!connections.providerStatus?.connected && !connections.providerStatus.scopes?.includes("project"),
   );
-  // Set just before we ask main to abort, so connect()'s rejection is swallowed
-  // rather than shown as an error.
-  let cancelling = false;
 
   // Focus-trap the prompt modal so Esc reaches its keydown handler immediately.
   $effect(() => {
-    if (prompt) Promise.resolve().then(() => modalEl?.focus());
+    if (connections.providerPrompt) Promise.resolve().then(() => modalEl?.focus());
   });
 
   async function refresh() {
-    try {
-      status = await window.solus.providerStatus(session.ctx);
-    } catch (e) {
-      console.error("providerStatus failed", e);
-    }
-    loading = false;
+    await connections.refreshProviderStatus(session.ctx);
   }
 
   // The device code arrives mid-`providerConnect` as a broadcast, so the modal
   // can show it while the connect promise keeps polling.
   onMount(() => {
     void refresh();
-    return window.solus.onProviderDeviceCode((p) => {
-      prompt = p;
-    });
+    return connections.listenForProviderDeviceCodes();
   });
 
   async function connect() {
-    if (connecting) return;
-    error = null;
-    cancelling = false;
-    connecting = true;
-    try {
-      status = await window.solus.providerConnect(session.ctx);
-    } catch (e) {
-      if (!cancelling) error = e instanceof Error ? e.message : String(e);
-    } finally {
-      connecting = false;
-      prompt = null;
-      cancelling = false;
-    }
+    await connections.connectProvider(session.ctx);
   }
 
-  // Esc/Cancel aborts the main-side poll immediately; connect()'s rejection is
-  // then swallowed via the `cancelling` flag.
+  // Esc/Cancel aborts the main-side poll immediately; the store swallows the
+  // expected cancellation rejection from connect().
   async function cancel() {
-    cancelling = true;
-    prompt = null;
-    try {
-      await window.solus.providerCancelConnect(session.ctx);
-    } catch (e) {
-      console.error("providerCancelConnect failed", e);
-    }
+    await connections.cancelProviderConnect(session.ctx);
     requestInputFocus();
   }
 
   async function disconnect() {
-    try {
-      await window.solus.providerDisconnect(session.ctx);
-      status = { connected: false };
-    } catch (e) {
-      console.error("providerDisconnect failed", e);
-    }
+    await connections.disconnectProvider(session.ctx);
     requestInputFocus();
   }
 
   function copyCode() {
-    if (!prompt) return;
-    void navigator.clipboard.writeText(prompt.userCode);
+    if (!connections.providerPrompt) return;
+    void navigator.clipboard.writeText(connections.providerPrompt.userCode);
     copied = true;
     setTimeout(() => { copied = false; }, 1500);
   }
 
   function openVerification() {
-    if (prompt) void window.solus.openExternal(prompt.verificationUri);
+    if (connections.providerPrompt) void window.solus.openExternal(connections.providerPrompt.verificationUri);
   }
 
   function onModalKeydown(e: KeyboardEvent) {
@@ -119,18 +82,18 @@
     </div>
     <div class="flex-1 min-w-0">
       <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">GitHub</p>
-      {#if loading}
+      {#if !connections.providerLoaded || connections.providerLoading}
         <p class="text-[0.6875rem] text-(--solus-text-tertiary)">Checking…</p>
-      {:else if status?.connected}
+      {:else if connections.providerStatus?.connected}
         <p class="text-[0.6875rem] text-(--solus-text-tertiary) truncate">
-          Connected{status.login ? ` as @${status.login}` : ""}
+          Connected{connections.providerStatus.login ? ` as @${connections.providerStatus.login}` : ""}
         </p>
       {:else}
         <p class="text-[0.6875rem] text-(--solus-text-tertiary)">Review pull requests, manage project boards, and comment as yourself.</p>
       {/if}
     </div>
 
-    {#if status?.connected}
+    {#if connections.providerStatus?.connected}
       <button
         type="button"
         onclick={disconnect}
@@ -143,10 +106,10 @@
       <button
         type="button"
         onclick={connect}
-        disabled={connecting}
+        disabled={connections.providerConnecting}
         class="flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-[0.8125rem] font-medium bg-(--solus-accent) text-(--solus-text-on-accent) hover:opacity-90 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
       >
-        {#if connecting}
+        {#if connections.providerConnecting}
           <SpinnerGapIcon size={14} class="animate-spin" />
           Connecting…
         {:else}
@@ -165,7 +128,7 @@
       <button
         type="button"
         onclick={connect}
-        disabled={connecting}
+        disabled={connections.providerConnecting}
         class="shrink-0 py-1 px-2.5 rounded-lg text-[0.75rem] font-medium text-(--solus-text-secondary) border border-(--solus-container-border) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-active) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
       >
         Reconnect
@@ -173,13 +136,13 @@
     </div>
   {/if}
 
-  {#if error}
-    <p class="text-[0.6875rem] text-red-500">{error}</p>
+  {#if connections.providerError}
+    <p class="text-[0.6875rem] text-red-500">{connections.providerError}</p>
   {/if}
 </div>
 
 <!-- Device-code prompt -->
-{#if prompt}
+{#if connections.providerPrompt}
   <div
     class="fixed inset-0 z-50 flex items-center justify-center p-4"
     role="dialog"
@@ -202,7 +165,7 @@
         <code
           class="text-[1.625rem] font-semibold tracking-[0.18em] text-(--solus-text-primary) tabular-nums"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
-        >{prompt.userCode}</code>
+        >{connections.providerPrompt.userCode}</code>
         <button
           type="button"
           onclick={copyCode}

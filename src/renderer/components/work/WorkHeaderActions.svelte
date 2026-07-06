@@ -21,6 +21,7 @@
   import DropdownItem from "../ui/DropdownItem.svelte";
   import { portal } from "../portal";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
 
   interface Props {
@@ -82,6 +83,8 @@
     uploadError = null,
   }: Props = $props();
 
+  const session = getWorkspaceContext();
+
   let chatMenuOpen = $state(false);
   let chatButtonEl: HTMLDivElement | null = $state(null);
 
@@ -118,22 +121,17 @@
   }
 
   // "View changes": the single previous version snapshotted on agent saves.
-  let previous = $state<{ content: string; updatedAt: string } | null>(null);
+  const previous = $derived(workId ? (session.worksStore.previousSnapshots[workId] ?? null) : null);
   let showDiff = $state(false);
-  let loadedPrevFor: string | null = null;
 
   // Reload the snapshot when the work changes or its content advances (an agent
   // save both writes a new snapshot and bumps the store content we read here).
   $effect(() => {
     const id = workId;
-    const _ = currentContent; // re-run when content advances
-    if (!id) { previous = null; return; }
-    const key = `${id}`;
-    loadedPrevFor = key;
+    const contentKey = currentContent; // re-run when content advances
+    if (!id) return;
     const cwd = workStorage?.kind === "project" ? workStorage.projectRoot : undefined;
-    void window.solus.loadWorkPrevious(id, cwd).then((p) => {
-      if (loadedPrevFor === key) previous = p;
-    });
+    void session.worksStore.loadPrevious(id, cwd, contentKey);
   });
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);

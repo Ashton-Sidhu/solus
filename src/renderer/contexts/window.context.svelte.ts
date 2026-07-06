@@ -20,6 +20,13 @@ export class WindowContext {
   constructor() {
     this.platform = window.solus.getPlatform()
     this.viewMode = this.loadViewMode()
+    // Publish the macOS-editor flag once: it drives the titlebar safe-area vars
+    // (see --solus-traffic-light-inset in index.css) so all chrome reserves the
+    // window-control region from one place. Each Electron window is mode-locked,
+    // so this never has to change for the window's lifetime.
+    if (this.isMac && this.viewMode === 'editor') {
+      document.documentElement.classList.add('is-mac-editor')
+    }
     this.workAreaWidth = window.innerWidth
     this.workAreaHeight = window.innerHeight
     // Coalesce the burst of resize events into one $state update per frame so

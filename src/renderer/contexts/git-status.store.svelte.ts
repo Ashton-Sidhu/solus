@@ -39,6 +39,15 @@ export class GitStatusStore {
 
   /** Land a status pushed from the main-process git watcher into the same store the panel reads. */
   set(cwd: string, status: GitProjectStatus | null): void {
+    // The watcher re-broadcasts on every fs event, frequently with a byte-identical
+    // status. Reassigning would invalidate every downstream $derived (branch bar,
+    // file counts, badges) even when nothing changed, so skip the write when the
+    // payload is structurally identical — but still refresh the throttle stamp.
+    const prev = this.byCwd[cwd]
+    if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(status)) {
+      this.lastRefresh.set(cwd, Date.now())
+      return
+    }
     this.byCwd[cwd] = status
     this.lastRefresh.set(cwd, Date.now())
   }
@@ -55,8 +64,8 @@ export class GitStatusStore {
     const existing = this.refsInflight.get(projectRoot)
     if (existing) return existing
     const promise = Promise.all([
-      window.solus.worktreeListProject(ctx).catch(() => []),
-      window.solus.worktreeBranches(ctx).catch(() => []),
+      window.solus.worktreeListProject($state.snapshot(ctx)).catch(() => []),
+      window.solus.worktreeBranches($state.snapshot(ctx)).catch(() => []),
     ])
       .then(([worktrees, branches]) => {
         this.refsByRoot[projectRoot] = { worktrees, branches }

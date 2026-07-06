@@ -20,10 +20,11 @@ import { registerAutomationHandlers } from './handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from '../automations/automation-scheduler'
 import { setAutomationSessionDispatcher } from '../automations/automation-runner'
 import { setAutomationsChangedListener } from '../automations/automations-store'
-import { setSessionCreator } from '../sessions/session-tools'
+import { setSessionController, setSessionCreator } from '../sessions/session-tools'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
+import { setPrsChangedNotifier } from '../providers/pr-tools'
 import { registerMergeQueueHandlers } from './handlers/merge-queue-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
@@ -152,8 +153,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
   setAutomationsChangedListener((event) => server.broadcast('automations-changed', event))
+  setPrsChangedNotifier((cwd) => server.broadcast('prs-changed', cwd))
   // Let the create_session tool spawn fresh background sessions via the control plane.
   setSessionCreator((req) => opts.controlPlane.createSession(req))
+  setSessionController({
+    listSessions: (providers, projectPath) => opts.controlPlane.listSessionsForProviders(providers, projectPath),
+    getSessionInfo: (provider, sessionId, projectPath) => opts.controlPlane.getSessionInfo(provider, sessionId, projectPath),
+    loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
+    liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
+    promptSession: (sessionId, prompt) => opts.controlPlane.promptSession(sessionId, prompt),
+    stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
+  })
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
   startAutomationScheduler()

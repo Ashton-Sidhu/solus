@@ -1,6 +1,7 @@
-import { cpSync, existsSync, rmSync } from 'node:fs'
+import { existsSync } from 'node:fs'
+import { cp, mkdir, rm, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createLogger } from '../logger'
 
 const log = createLogger('Plugins', 'plugins.ts')
@@ -16,19 +17,24 @@ export const PLUGINS_DIR = join(homedir(), '.solus', 'plugins')
 export const SOLUS_PLUGINS_DIR = join(PLUGINS_DIR, 'solus')
 
 /**
- * Copy the app-bundled plugins into ~/.solus/plugins. Runs once on startup,
- * before any agent is invoked. A clean replace (rm + copy) keeps the installed
- * plugins in lockstep with the app version — these are app-managed, not user
- * content. Best-effort: a failure here just leaves agents running without the
- * bundled plugins rather than blocking startup.
+ * Link the app-bundled plugins into ~/.solus/plugins. Runs once on startup,
+ * before any agent is invoked. In dev this keeps agents pointed at the working
+ * tree so plugin changes are immediately testable. Packaged builds still copy
+ * from app.asar because external CLIs cannot follow a symlink into asar.
+ * Best-effort: a failure here just leaves agents running without the bundled
+ * plugins rather than blocking startup.
  */
-export function syncBundledPlugins(): void {
+export async function syncBundledPlugins(): Promise<void> {
   if (!existsSync(BUNDLED_PLUGINS_DIR)) return
   try {
-    rmSync(PLUGINS_DIR, { recursive: true, force: true })
-    cpSync(BUNDLED_PLUGINS_DIR, PLUGINS_DIR, { recursive: true })
+    await rm(PLUGINS_DIR, { recursive: true, force: true })
+    await mkdir(dirname(PLUGINS_DIR), { recursive: true })
+    if (BUNDLED_PLUGINS_DIR.includes('.asar')) {
+      await cp(BUNDLED_PLUGINS_DIR, PLUGINS_DIR, { recursive: true })
+      return
+    }
+    await symlink(BUNDLED_PLUGINS_DIR, PLUGINS_DIR, 'dir')
   } catch (err) {
     log.warn(`Failed to sync bundled plugins: ${(err as Error).message}`)
   }
 }
-

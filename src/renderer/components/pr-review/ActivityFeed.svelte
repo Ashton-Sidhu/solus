@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ArrowsClockwiseIcon,
+    CheckCircleIcon,
     GitPullRequestIcon,
     GitBranchIcon,
     ChatCircleIcon,
@@ -26,7 +27,12 @@
   import CodeSpan from "../ui/CodeSpan.svelte";
   import { tooltip } from "../../lib/tooltip";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import type { PrActivityTarget } from "./lib/activity-data";
+  import type { PrActivityTarget, PostedComment } from "./lib/activity-data";
+  import {
+    buildActivityTimeline,
+    activityEventKey,
+    commitRunAuthorLabel,
+  } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
   import PrThreadCard from "./PrThreadCard.svelte";
 
@@ -76,9 +82,7 @@
   // Comments posted from the composer this session — appended optimistically so
   // they show in the timeline even though listReviewThreads only returns inline
   // threads (not conversation-level comments).
-  let posted = $state<
-    { id: string; author: string; body: string; ts: number }[]
-  >([]);
+  let posted = $state<PostedComment[]>([]);
 
   let composer = $state("");
   let posting = $state(false);
@@ -95,22 +99,6 @@
       ? formatTimeAgoFromTimestamp(new Date(detail.createdAt).getTime())
       : null,
   );
-  // The commit group is stamped with its most recent commit, like GitHub's "added N commits".
-  const commitsTime = $derived(
-    commits.length
-      ? formatTimeAgoFromTimestamp(
-          new Date(commits[commits.length - 1].committedAt).getTime(),
-        )
-      : null,
-  );
-  // Attribute the commit group to who actually authored the commits, not the
-  // PR author (forks and co-authored branches routinely differ).
-  const commitsAuthorLabel = $derived.by(() => {
-    const authors = [...new Set(commits.map((c) => c.author))].filter(Boolean);
-    if (authors.length === 0) return detail?.author ?? pr.owner ?? "";
-    if (authors.length === 1) return authors[0];
-    return `${authors[0]} and ${authors.length - 1} other${authors.length > 2 ? "s" : ""}`;
-  });
   const authorName = $derived(detail?.author ?? pr.owner ?? "");
   const authorAvatarUrl = $derived(
     detail?.authorAvatarUrl ?? pr.authorAvatarUrl ?? "",
@@ -118,9 +106,15 @@
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
   const headBranch = $derived(pr.branch ?? detail?.headRef ?? "");
   const headSha = $derived(pr.headSha ?? detail?.headSha ?? "");
-  const hasTimelineAfterOpened = $derived(
-    commits.length > 0 || threads.length > 0 || posted.length > 0,
-  );
+  // Commits, review threads, and this session's comments, merged into one
+  // chronological timeline (see buildActivityTimeline). The opened event is
+  // rendered separately as the fixed first row and always leads.
+  const timeline = $derived(buildActivityTimeline(commits, threads, posted));
+
+  function markLoadFailed(n: number) {
+    if (pr.number === n) loadFailed = true;
+  }
+
   // Fire each request independently and let its section fill in on resolve — no
   // shared gate, so a slow call (threads, the change set) never holds back the
   // fast ones. `n` guards against a PR switch mid-flight clobbering newer data.
@@ -133,19 +127,15 @@
     loadFailed = false;
     detailLoading = commitsLoading = reviewersLoading = filesLoading = true;
 
-    const failed = () => {
-      if (pr.number === n) loadFailed = true;
-    };
-
     session.prsStore
       .loadDetail(session.ctx, n, { force })
       .then((d) => {
         if (pr.number !== n) return;
         detail = d;
-        if (!pr.baseSha) loadChangedFiles(d.baseSha, n);
+        if (!pr.baseSha) loadChangedFiles(d.baseSha, n, force);
       })
       .catch(() => {
-        failed();
+        markLoadFailed(n);
         if (pr.number === n && !pr.baseSha) filesLoading = false;
       })
       .finally(() => {
@@ -156,7 +146,7 @@
       .then((c) => {
         if (pr.number === n) commits = c;
       })
-      .catch(failed)
+      .catch(() => markLoadFailed(n))
       .finally(() => {
         if (pr.number === n) commitsLoading = false;
       });
@@ -165,22 +155,28 @@
       .then((r) => {
         if (pr.number === n) reviewers = r;
       })
-      .catch(failed)
+      .catch(() => markLoadFailed(n))
       .finally(() => {
         if (pr.number === n) reviewersLoading = false;
       });
-    if (pr.baseSha) loadChangedFiles(pr.baseSha, n);
+    if (pr.baseSha) loadChangedFiles(pr.baseSha, n, force);
   }
 
-  function loadChangedFiles(sha: string, n: number) {
-    window.solus
-      .prChangedFiles(session.ctx, sha)
+  function isCurrentChangedFilesLoad(sha: string, n: number) {
+    return pr.number === n && (pr.baseSha || detail?.baseSha) === sha;
+  }
+
+  function loadChangedFiles(sha: string, n: number, force = false) {
+    session.prsStore
+      .loadChangedFiles(session.ctx, sha, { force })
       .then((f) => {
-        if (pr.number === n) changedFiles = f;
+        if (isCurrentChangedFilesLoad(sha, n)) changedFiles = f;
       })
-      .catch(failed)
+      .catch(() => {
+        if (isCurrentChangedFilesLoad(sha, n)) loadFailed = true;
+      })
       .finally(() => {
-        if (pr.number === n) filesLoading = false;
+        if (isCurrentChangedFilesLoad(sha, n)) filesLoading = false;
       });
   }
 
@@ -275,10 +271,10 @@
           </span>
           <button
             type="button"
-            class="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-accent-light)"
+            class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-accent-light)"
             onclick={refresh}
           >
-            <ArrowsClockwiseIcon size={12} weight="bold" />
+            <ArrowsClockwiseIcon size={12} weight="bold" class="shrink-0" />
             Retry
           </button>
         </div>
@@ -289,13 +285,13 @@
       <main class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-start justify-between gap-3">
           <h1
-            class="text-[1.35rem] leading-tight font-semibold tracking-tight text-(--solus-text-primary)"
+            class="text-xl font-semibold tracking-tight text-balance text-(--solus-text-primary)"
           >
             {pr.title}
           </h1>
           <button
             type="button"
-            class="flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
             aria-label="Refresh activity"
             use:tooltip={"Refresh"}
             onclick={refresh}
@@ -317,15 +313,24 @@
             >{authorName}</span
           >
           <span aria-hidden="true">·</span>
-          <span class="font-mono">{pr.repo ? `${pr.repo}#` : "#"}{pr.number}</span>
+          <span class="font-mono text-[0.75rem]">{pr.repo ? `${pr.repo}#` : "#"}{pr.number}</span>
           {#if baseRef}
             <span aria-hidden="true">·</span>
-            <GitBranchIcon size={13} class="shrink-0" />
-            <span class="font-mono">{baseRef}</span>
-            {#if headBranch}
-              <span aria-hidden="true">←</span>
-              <span class="font-mono truncate">{headBranch}</span>
-            {/if}
+            <span class="inline-flex min-w-0 items-center gap-1.5">
+              <span
+                class="inline-flex items-center gap-1 rounded-md bg-(--solus-art-raised) py-0.5 pr-1.5 pl-1 font-mono text-[0.6875rem] text-(--solus-text-secondary)"
+              >
+                <GitBranchIcon size={11} class="shrink-0" />
+                {baseRef}
+              </span>
+              {#if headBranch}
+                <span aria-hidden="true">←</span>
+                <span
+                  class="truncate rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.6875rem] text-(--solus-text-secondary)"
+                  >{headBranch}</span
+                >
+              {/if}
+            </span>
           {/if}
         </div>
 
@@ -351,7 +356,7 @@
               Description
             </summary>
             <div
-              class="prose-cloud mt-3 text-[0.9375rem] leading-relaxed text-(--solus-text-primary) [--solus-font-weight-body:400]"
+              class="prose-cloud mt-3 text-base leading-relaxed text-(--solus-text-primary) [--solus-font-weight-body:400]"
             >
               <SvelteMarkdown
                 source={detail.body}
@@ -369,21 +374,21 @@
           Activity
         </h2>
 
-        <ol class="flex flex-col">
+        <ol class="flex flex-col" role="list">
           <!-- Opened event -->
           <li class="relative flex gap-3">
             <div class="flex flex-col items-center">
               <span
-                class="grid size-5 shrink-0 place-items-center text-(--solus-art-positive)"
+                class="grid size-6 shrink-0 place-items-center rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] text-(--solus-art-positive)"
               >
-                <GitPullRequestIcon size={15} weight="bold" />
+                <GitPullRequestIcon size={13} weight="bold" />
               </span>
-              {#if hasTimelineAfterOpened}
-                <span class="w-px flex-1 bg-(--solus-art-border)"></span>
+              {#if timeline.length > 0}
+                <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
               {/if}
             </div>
             <p
-              class="-mt-0.5 pb-5 text-[0.8125rem] text-(--solus-text-secondary)"
+              class="mt-0.5 pb-6 text-[0.8125rem] text-(--solus-text-secondary)"
             >
               <span class="font-medium text-(--solus-text-primary)"
                 >{authorName}</span
@@ -396,114 +401,122 @@
             </p>
           </li>
 
-          <!-- Commits pushed to the PR, grouped like GitHub's "added N commits" -->
-          {#if commits.length > 0}
-            <li class="relative flex gap-3">
-              <div class="flex flex-col items-center">
-                <span
-                  class="grid size-5 shrink-0 place-items-center text-(--solus-text-tertiary)"
-                >
-                  <GitCommitIcon size={15} weight="bold" />
-                </span>
-                {#if threads.length > 0 || posted.length > 0}
-                  <span class="w-px flex-1 bg-(--solus-art-border)"></span>
-                {/if}
-              </div>
-              <div class="-mt-0.5 min-w-0 flex-1 pb-5">
-                <p class="text-[0.8125rem] text-(--solus-text-secondary)">
-                  <span class="font-medium text-(--solus-text-primary)"
-                    >{commitsAuthorLabel}</span
+          <!-- Commits, review threads, and session comments, interleaved by
+               time (see buildActivityTimeline). The connector threads through
+               every row but the last. -->
+          {#each timeline as event, i (activityEventKey(event))}
+            {@const isLast = i === timeline.length - 1}
+            {#if event.kind === "commits"}
+              <li class="relative flex gap-3">
+                <div class="flex flex-col items-center">
+                  <span
+                    class="grid size-6 shrink-0 place-items-center rounded-full bg-(--solus-art-raised) text-(--solus-text-tertiary)"
                   >
-                  added {commits.length}
-                  {commits.length === 1
-                    ? "commit"
-                    : "commits"}{#if commitsTime}<span
-                      class="text-(--solus-text-tertiary)"
-                    >
-                      · {commitsTime}</span
-                    >{/if}
-                </p>
-                <ul
-                  class="mt-2.5 flex flex-col gap-px overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
-                >
-                  {#each commits as commit (commit.sha)}
-                    <li class="flex items-center gap-2.5 px-3 py-2">
-                      <GitCommitIcon
-                        size={13}
-                        weight="bold"
-                        class="shrink-0 text-(--solus-text-tertiary)"
-                      />
-                      <span
-                        class="min-w-0 flex-1 truncate text-[0.8125rem] text-(--solus-text-secondary)"
-                        >{commit.message}</span
-                      >
-                      <code
-                        class="shrink-0 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
-                        >{commit.sha.slice(0, 7)}</code
-                      >
-                    </li>
-                  {/each}
-                </ul>
-              </div>
-            </li>
-          {/if}
-
-          <!-- Existing review threads, repliable / resolvable -->
-          {#each threads as thread, ti (thread.id)}
-            <li class="relative flex gap-3">
-              <div class="flex flex-col items-center">
-                <span
-                  class="grid size-5 shrink-0 place-items-center text-(--solus-text-tertiary)"
-                >
-                  <ChatCircleIcon size={14} weight="fill" />
-                </span>
-                {#if ti < threads.length - 1 || posted.length > 0}
-                  <span class="w-px flex-1 bg-(--solus-art-border)"></span>
-                {/if}
-              </div>
-
-              <div class="-mt-0.5 min-w-0 flex-1 pb-5">
-                <PrThreadCard
-                  {thread}
-                  onJump={jumpToFile}
-                  onReply={replyToThread}
-                  onResolve={resolveThread}
-                />
-              </div>
-            </li>
-          {/each}
-
-          <!-- Comments posted this session -->
-          {#each posted as p, pi (p.id)}
-            <li class="relative flex gap-3">
-              <div class="flex flex-col items-center">
-                <PrAvatar name={p.author} size="size-5 text-[0.5625rem]" />
-                {#if pi < posted.length - 1}
-                  <span class="w-px flex-1 bg-(--solus-art-border)"></span>
-                {/if}
-              </div>
-              <div class="-mt-0.5 min-w-0 flex-1 pb-5">
-                <div class="mb-1 text-[0.8125rem]">
-                  <span class="font-medium text-(--solus-text-primary)"
-                    >{p.author}</span
-                  >
-                  <span class="text-(--solus-text-tertiary)">
-                    · {formatTimeAgoFromTimestamp(p.ts)}</span
-                  >
+                    <GitCommitIcon size={13} weight="bold" />
+                  </span>
+                  {#if !isLast}
+                    <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
+                  {/if}
                 </div>
-                <p
-                  class="text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-(--solus-text-secondary)"
-                >
-                  {p.body}
-                </p>
-              </div>
-            </li>
+                <div class="mt-0.5 min-w-0 flex-1 pb-6">
+                  <p class="text-[0.8125rem] text-(--solus-text-secondary)">
+                    <span class="font-medium text-(--solus-text-primary)"
+                      >{commitRunAuthorLabel(event.commits, authorName)}</span
+                    >
+                    added {event.commits.length}
+                    {event.commits.length === 1
+                      ? "commit"
+                      : "commits"}<span class="text-(--solus-text-tertiary)">
+                      · {formatTimeAgoFromTimestamp(event.ts)}</span
+                    >
+                  </p>
+                  <ul
+                    class="mt-2.5 flex flex-col divide-y divide-(--solus-art-border) overflow-hidden rounded-xl border border-(--solus-art-border) bg-white dark:bg-white/3"
+                    role="list"
+                  >
+                    {#each event.commits as commit (commit.sha)}
+                      <li class="flex items-center gap-2.5 px-3 py-2">
+                        <GitCommitIcon
+                          size={13}
+                          weight="bold"
+                          class="shrink-0 text-(--solus-text-tertiary)"
+                        />
+                        <span
+                          class="min-w-0 flex-1 truncate text-[0.8125rem] text-(--solus-text-secondary)"
+                          >{commit.message}</span
+                        >
+                        <span
+                          class="max-w-36 shrink truncate text-[0.75rem] font-medium text-(--solus-text-tertiary)"
+                          >{commit.author || authorName}</span
+                        >
+                        <code
+                          class="shrink-0 rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                          >{commit.sha.slice(0, 7)}</code
+                        >
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              </li>
+            {:else if event.kind === "thread"}
+              <li class="relative flex gap-3">
+                <div class="flex flex-col items-center">
+                  <span
+                    class={event.thread.isResolved
+                      ? "grid size-6 shrink-0 place-items-center rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] text-(--solus-art-positive)"
+                      : "grid size-6 shrink-0 place-items-center rounded-full bg-(--solus-art-raised) text-(--solus-text-tertiary)"}
+                  >
+                    {#if event.thread.isResolved}
+                      <CheckCircleIcon size={13} weight="fill" />
+                    {:else}
+                      <ChatCircleIcon size={13} weight="fill" />
+                    {/if}
+                  </span>
+                  {#if !isLast}
+                    <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
+                  {/if}
+                </div>
+
+                <div class="-mt-1 min-w-0 flex-1 pb-6">
+                  <PrThreadCard
+                    thread={event.thread}
+                    onJump={jumpToFile}
+                    onReply={replyToThread}
+                    onResolve={resolveThread}
+                  />
+                </div>
+              </li>
+            {:else}
+              <li class="relative flex gap-3">
+                <div class="flex flex-col items-center">
+                  <PrAvatar name={event.comment.author} size="size-6 text-[0.625rem]" />
+                  {#if !isLast}
+                    <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
+                  {/if}
+                </div>
+                <div class="mt-0.5 min-w-0 flex-1 pb-6">
+                  <div class="mb-1 text-[0.8125rem]">
+                    <span class="font-medium text-(--solus-text-primary)"
+                      >{event.comment.author}</span
+                    >
+                    <span class="text-(--solus-text-tertiary)">
+                      · {formatTimeAgoFromTimestamp(event.comment.ts)}</span
+                    >
+                  </div>
+                  <p
+                    class="text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-(--solus-text-secondary)"
+                  >
+                    {event.comment.body}
+                  </p>
+                </div>
+              </li>
+            {/if}
           {/each}
         </ol>
 
         <!-- Composer -->
         <div
-          class="mt-3 flex items-center gap-2.5 rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2.5 focus-within:border-(--solus-accent)"
+          class="mt-3 flex items-center gap-2.5 rounded-xl border border-(--solus-art-border) bg-white px-3 py-2.5 focus-within:border-(--solus-accent) dark:bg-white/3"
         >
           <PrAvatar name="You" size="size-6 text-[0.625rem]" />
           <MarkdownEditor
@@ -519,7 +532,7 @@
           <button
             type="button"
             disabled={!composer.trim() || posting}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-opacity disabled:opacity-40"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Post comment"
             use:tooltip={"Comment · ⌘↵"}
             onclick={postComment}

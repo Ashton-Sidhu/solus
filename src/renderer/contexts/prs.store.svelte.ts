@@ -5,8 +5,9 @@ import type {
   PrCommit,
   PrFilter,
   PrReviewer,
+  ReviewThread,
 } from '../../shared/providers'
-import type { IpcContext } from '../../shared/types'
+import type { ChangedFileStat, IpcContext } from '../../shared/types'
 
 const PR_CACHE_TTL_MS = 30_000
 
@@ -27,6 +28,8 @@ export class PrsStore {
   private readonly detailCache = new Map<string, CacheEntry<PullRequestDetail>>()
   private readonly commitsCache = new Map<string, CacheEntry<PrCommit[]>>()
   private readonly reviewersCache = new Map<string, CacheEntry<PrReviewer[]>>()
+  private readonly threadsCache = new Map<string, CacheEntry<ReviewThread[]>>()
+  private readonly changedFilesCache = new Map<string, CacheEntry<ChangedFileStat[]>>()
 
   private contextKey(ctx: IpcContext): string {
     return ctx.session.projectPath || ctx.session.workingDirectory || ''
@@ -38,6 +41,10 @@ export class PrsStore {
 
   private prKey(ctx: IpcContext, number: number): string {
     return `${this.contextKey(ctx)}::${number}`
+  }
+
+  private changedFilesKey(ctx: IpcContext, baseSha: string): string {
+    return `${this.contextKey(ctx)}::${baseSha}`
   }
 
   private isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> & { value: T } {
@@ -150,6 +157,26 @@ export class PrsStore {
     }
     const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
     return this.readCached(this.reviewersCache, key, !!opts.force, () => window.solus.prListReviewers(safeCtx, number))
+  }
+
+  async loadThreads(ctx: IpcContext, number: number, opts: { force?: boolean } = {}): Promise<ReviewThread[]> {
+    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    return this.readCached(
+      this.threadsCache,
+      this.prKey(ctx, number),
+      !!opts.force,
+      () => window.solus.prListThreads(safeCtx, number),
+    )
+  }
+
+  async loadChangedFiles(ctx: IpcContext, baseSha: string, opts: { force?: boolean } = {}): Promise<ChangedFileStat[]> {
+    const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    return this.readCached(
+      this.changedFilesCache,
+      this.changedFilesKey(ctx, baseSha),
+      !!opts.force,
+      () => window.solus.prChangedFiles(safeCtx, baseSha),
+    )
   }
 
   get(number: number): PullRequestSummary | undefined {

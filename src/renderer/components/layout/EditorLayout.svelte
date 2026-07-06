@@ -70,8 +70,9 @@
 <div class="editor-shell flex flex-col h-full w-full overflow-hidden">
   {#if windowCtx.isMac}
     <!-- Native drag strip under the hiddenInset traffic lights; also gives the
-         standard double-click-to-zoom behavior. -->
-    <div class="titlebar-strip drag-region flex-shrink-0" aria-hidden="true"></div>
+         standard double-click-to-zoom behavior without pushing the editor
+         chrome below the titlebar area. -->
+    <div class="titlebar-drag-zone drag-region" aria-hidden="true"></div>
   {/if}
   <div class="flex flex-1 min-h-0">
     <WorkspaceBody active enableProjectPanel enableRunDock>
@@ -94,9 +95,15 @@
 
 <style>
   .editor-shell {
+    position: relative;
     background: var(--solus-container-bg);
   }
-  .titlebar-strip {
-    height: 2.375rem;
+  .titlebar-drag-zone {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    width: var(--solus-traffic-light-inset);
+    height: var(--solus-titlebar-height);
   }
 </style>

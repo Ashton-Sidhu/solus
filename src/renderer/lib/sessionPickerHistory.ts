@@ -6,12 +6,12 @@ export interface SessionHistorySource {
   provider?: AgentId
 }
 
-interface SessionHistoryLoaderOptions {
+export interface SessionHistoryLoaderOptions {
   listSessions: Window['solus']['listSessions']
   onSessionScan: Window['solus']['onSessionScan']
 }
 
-interface LoadHistoryOptions {
+export interface LoadHistoryOptions {
   sources: SessionHistorySource[]
   ctx: IpcContext
   onBatch: (sessions: SessionMeta[]) => void

@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { Task, TaskStatus, TaskKind, TaskSessionLink, TaskPr, TaskPriority } from '../../shared/task-types'
+import type { Task, TaskStatus, TaskKind, TaskSessionLink, TaskPr, TaskPriority, TaskProviderStatus } from '../../shared/task-types'
 
 // Renderer-side cache + RPC wrapper for tasks. Mirrors AutomationsStore, but
 // scoped to a single project cwd at a time: a task provider is bound to one
@@ -25,6 +25,19 @@ export class TasksStore {
   /** task id → sessions started from it. Persisted in a local sidecar so the
    *  back-link survives reloads even though a session's `boundTaskId` doesn't. */
   sessionsByTask = new SvelteMap<string, TaskSessionLink[]>()
+  /** cwd → provider preflight. Keyed so stale responses from an old project
+   *  can't overwrite the status shown for the current one. */
+  providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
+
+  providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
+    return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
+  }
+
+  async loadProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus> {
+    const status = await window.solus.tasksProviderStatus(cwd, opts)
+    this.providerStatusByCwd.set(cwd, status)
+    return status
+  }
 
   async load(cwd: string, opts: { assignedToMe?: boolean } = {}): Promise<void> {
     this.cwd = cwd
@@ -97,6 +110,14 @@ export class TasksStore {
     const updated = await window.solus.tasksUpdate(cwd, id, patch)
     this.replace(id, updated)
     return updated
+  }
+
+  /** Hydrate a single ticket and reconcile the current project list when the
+   *  result still belongs to the active cwd. */
+  async get(cwd: string, id: string): Promise<Task> {
+    const task = await window.solus.tasksGet(cwd, id)
+    if (this.cwd === cwd) this.replace(id, task)
+    return task
   }
 
   private replace(id: string, updated: Task): void {

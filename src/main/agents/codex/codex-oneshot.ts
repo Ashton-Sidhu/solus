@@ -1,11 +1,17 @@
 import { getCodexAppServerClient, registerHeadlessThread, unregisterHeadlessThread } from './codex-agent'
 import {
-  normalizeCodexNotification,
-  type CodexThreadStartResponse,
-  type CodexTurnStartResponse,
-  type JsonRpcNotification,
-  type JsonRpcRequest,
+  CodexTurnNormalizer,
 } from './codex-event-normalizer'
+import type {
+  CodexDynamicTool,
+  CodexThreadReadResponse,
+  CodexThreadStartParams,
+  CodexThreadStartResponse,
+  CodexTurnStartParams,
+  CodexTurnStartResponse,
+  JsonRpcNotification,
+  JsonRpcRequest,
+} from './codex-protocol'
 import { classifyCodexSolusTool, executeCodexSolusTool, codexSolusToolSchemas } from './codex-solus-tools'
 import {
   approvalPolicyFor,
@@ -23,10 +29,6 @@ import type { ReasoningEffort } from '../../../shared/types'
 
 const log = createLogger('CodexOneShot', 'codex-oneshot.ts')
 
-interface CodexThreadReadResponse {
-  thread?: CodexThreadSummary & { turns?: CodexTurnHistory[] }
-}
-
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
 const DEFAULT_CODEX_MODEL =
   Object.entries(codexProfiles).find(([, p]) => p.isDefault)?.[0] ??
@@ -37,13 +39,6 @@ const DEFAULT_CODEX_MODEL =
 // semantics as the 'auto' permission mode in the interactive backend:
 // approvals are never requested and the sandbox is unrestricted.
 const PERMISSION = 'auto' as const
-
-/** A Codex dynamicTools JSON-schema descriptor (same shape work-tools use). */
-export interface CodexDynamicTool {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
 
 export interface CodexOneShotOptions {
   prompt: string
@@ -151,7 +146,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     ...(opts.dynamicTools ?? []),
   ]
 
-  const start = await client.request<CodexThreadStartResponse>('thread/start', {
+  const startParams: CodexThreadStartParams = {
     model,
     cwd: opts.cwd,
     approvalPolicy: approvalPolicyFor(PERMISSION),
@@ -162,7 +157,8 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     reasoning_effort: reasoningEffort,
     ephemeral: opts.ephemeral,
     ...(dynamicTools.length ? { dynamicTools } : {}),
-  })
+  }
+  const start = await client.request<CodexThreadStartResponse>('thread/start', startParams)
   const threadId = start.thread.id
   opts.onThreadStart?.(threadId)
 
@@ -181,6 +177,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
 
   let turnId = ''
   let settled = false
+  const normalizer = new CodexTurnNormalizer({ planMode: false })
 
   try {
   await new Promise<void>((resolve, reject) => {
@@ -209,7 +206,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     const onNotification = (msg: JsonRpcNotification) => {
       const params: any = msg.params || {}
       if (!isOurs(params)) return
-      for (const evt of normalizeCodexNotification(msg.method, params)) {
+      for (const evt of normalizer.push({ method: msg.method, params })) {
         if (evt.type === 'task_complete') done()
         else if (evt.type === 'error' && evt.isError) done(new Error(evt.message || 'Codex turn failed'))
       }
@@ -220,6 +217,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     // Cancellation: interrupt the turn (best-effort — only possible once it has
     // started) and reject so the caller finalizes the run as cancelled.
     const onAbort = () => {
+      normalizer.interrupt()
       if (turnId) {
         client.request('turn/interrupt', { threadId, turnId }).catch(() => {})
       }
@@ -233,8 +231,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
       else opts.abortSignal.addEventListener('abort', onAbort, { once: true })
     }
 
-    client
-      .request<CodexTurnStartResponse>('turn/start', {
+    const turnParams: CodexTurnStartParams = {
         threadId,
         input: [{ type: 'text', text: opts.prompt, text_elements: [] }],
         cwd: opts.cwd,
@@ -246,7 +243,9 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
           mode: 'default',
           settings: { model, reasoning_effort: reasoningEffort, developer_instructions: developerInstructions },
         },
-      })
+      }
+    client
+      .request<CodexTurnStartResponse>('turn/start', turnParams)
       .then((turn) => {
         turnId = turn.turn.id
       })
