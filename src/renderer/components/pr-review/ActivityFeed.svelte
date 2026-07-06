@@ -35,6 +35,7 @@
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
   import PrThreadCard from "./PrThreadCard.svelte";
+  import MergeControl from "./MergeControl.svelte";
 
   // The Activity tab: a Linear-style PR overview. The centered main column shows
   // the title, author/branch meta, the PR description, and an activity timeline
@@ -289,15 +290,20 @@
           >
             {pr.title}
           </h1>
-          <button
-            type="button"
-            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
-            aria-label="Refresh activity"
-            use:tooltip={"Refresh"}
-            onclick={refresh}
-          >
-            <ArrowsClockwiseIcon size={15} />
-          </button>
+          <div class="flex shrink-0 items-start gap-2">
+            {#if detail?.state === "open" && !detail.draft}
+              <MergeControl pr={{ number: pr.number, title: pr.title }} />
+            {/if}
+            <button
+              type="button"
+              class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
+              aria-label="Refresh activity"
+              use:tooltip={"Refresh"}
+              onclick={refresh}
+            >
+              <ArrowsClockwiseIcon size={15} />
+            </button>
+          </div>
         </div>
 
         <!-- Author / branch meta -->
