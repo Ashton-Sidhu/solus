@@ -204,6 +204,12 @@ export const SearchExtension = Extension.create({
               | Partial<SearchState>
               | undefined;
 
+            // Selection-only transactions — and edits with no active search —
+            // can't change the match set. Reuse the previous state instead of
+            // rescanning the doc and rebuilding the DecorationSet on every
+            // keystroke/click.
+            if (!meta && (!tr.docChanged || !value.searchTerm)) return value;
+
             let searchTerm = value.searchTerm;
             let replaceTerm = value.replaceTerm;
             let caseSensitive = value.caseSensitive;

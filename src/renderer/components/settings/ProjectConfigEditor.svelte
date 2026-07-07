@@ -4,12 +4,9 @@
     PlayCircleIcon,
     PlusIcon,
     TrashIcon,
-    ListChecksIcon,
   } from "phosphor-svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
   import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import type { TaskProviderId } from "../../../shared/task-types";
 
   interface Props {
     cwd: string;
@@ -18,20 +15,6 @@
 
   const projectConfig = getProjectConfigStore();
   const runStore = getRunStore();
-  const session = getWorkspaceContext();
-
-  // Task provider — `local` (default) is the built-in store; `github` reads
-  // issues from the repo's `origin` remote (no extra config, just a connection).
-  let taskProvider = $state<TaskProviderId>("local");
-  async function onProviderChange(next: TaskProviderId) {
-    taskProvider = next;
-    status = "saving";
-    await projectConfig.save(cwd, { taskProvider: next });
-    if (session.tasksProjectCwd === cwd) {
-      await session.tasksStore.load(cwd);
-    }
-    status = "saved";
-  }
 
   interface Row {
     id: string;
@@ -53,7 +36,6 @@
   $effect(() => {
     if (!cwd) return;
     void projectConfig.load(cwd).then((loaded) => {
-      taskProvider = loaded?.taskProvider ?? "local";
       rows = (loaded?.runCommands ?? []).map((entry) => ({
         id: entry.id,
         name: entry.name ?? "",
@@ -107,43 +89,27 @@
     if (saveTimer) void save();
   });
 
-  const inputClass = "min-h-8 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-primary) px-2.5 text-[0.75rem] outline-none placeholder:text-(--solus-text-tertiary) placeholder:opacity-70 focus:border-(--solus-accent) focus:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]";
+  const inputClass =
+    "min-h-8 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-primary) px-2.5 text-[0.75rem] outline-none placeholder:text-(--solus-text-tertiary) placeholder:opacity-70 focus:border-(--solus-accent) focus:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]";
 </script>
 
 <div class="flex flex-col">
-  <section class="flex flex-col border-(--solus-container-border)/50 pb-2">
-    <h2 class="text-(--solus-text-tertiary) text-[0.65625rem] font-semibold tracking-[0.05em] uppercase">Tasks</h2>
+  <section class="flex flex-col">
+    <h2
+      class="text-(--solus-text-tertiary) text-[0.65625rem] font-semibold tracking-[0.05em] uppercase"
+    >
+      Runs
+    </h2>
     <div class="flex items-center justify-between gap-4 py-3.5 pb-2.5">
       <div class="flex items-center gap-3 min-w-0">
-        <ListChecksIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+        <PlayCircleIcon
+          size={16}
+          class="shrink-0 text-(--solus-text-tertiary)"
+        />
         <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Task provider</div>
-          <div class="text-[0.6875rem] text-(--solus-text-tertiary) mt-px">
-            Where this project's tasks come from. GitHub reads issues from the
-            repo's <code>origin</code> remote — connect GitHub in Git providers.
+          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+            Run commands
           </div>
-        </div>
-      </div>
-      <select
-        class="{inputClass} w-36 shrink-0 cursor-pointer"
-        aria-label="Task provider"
-        value={taskProvider}
-        onchange={(e) =>
-          onProviderChange(e.currentTarget.value as TaskProviderId)}
-      >
-        <option value="local">Local</option>
-        <option value="github">GitHub</option>
-      </select>
-    </div>
-  </section>
-
-  <section class="mt-5 flex flex-col">
-    <h2 class="text-(--solus-text-tertiary) text-[0.65625rem] font-semibold tracking-[0.05em] uppercase">Runs</h2>
-    <div class="flex items-center justify-between gap-4 py-3.5 pb-2.5">
-      <div class="flex items-center gap-3 min-w-0">
-        <PlayCircleIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Run commands</div>
           <div class="text-[0.6875rem] text-(--solus-text-tertiary) mt-px">
             Commands shown in the Run panel. Each gets its own logs and detected
             ports; set a port to override auto-detection.
@@ -191,7 +157,11 @@
           </button>
         </div>
       {/each}
-      <button type="button" class="self-start inline-flex items-center gap-1.5 min-h-7 px-2.5 border border-dashed border-(--solus-container-border) rounded-lg bg-transparent text-(--solus-text-tertiary) text-[0.71875rem] cursor-pointer hover:text-(--solus-text-primary) hover:border-(--solus-accent) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]" onclick={addRow}>
+      <button
+        type="button"
+        class="self-start inline-flex items-center gap-1.5 min-h-7 px-2.5 border border-dashed border-(--solus-container-border) rounded-lg bg-transparent text-(--solus-text-tertiary) text-[0.71875rem] cursor-pointer hover:text-(--solus-text-primary) hover:border-(--solus-accent) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+        onclick={addRow}
+      >
         <PlusIcon size={12} /> Add command
       </button>
     </div>
@@ -201,7 +171,9 @@
     {#if status === "saving"}
       <span class="text-[0.75rem] text-(--solus-text-tertiary)">Saving…</span>
     {:else if status === "saved"}
-      <span class="text-[0.75rem] text-(--solus-text-tertiary)">All changes saved</span>
+      <span class="text-[0.75rem] text-(--solus-text-tertiary)"
+        >All changes saved</span
+      >
     {/if}
     {#if anyRunning}
       <span class="text-[0.75rem] text-(--solus-text-tertiary)">

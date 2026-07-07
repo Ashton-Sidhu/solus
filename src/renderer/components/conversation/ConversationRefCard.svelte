@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { ArrowLineRightIcon, CaretRightIcon } from "phosphor-svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
 
@@ -19,6 +19,8 @@
     expandable?: boolean;
     expanded?: boolean;
     onOpen: () => void;
+    onOpenSecondary?: () => void;
+    secondaryActionLabel?: string;
     icon: Snippet;
     actions?: Snippet;
     /** Rich second line under the title; replaces `subtitle` when present. */
@@ -37,6 +39,8 @@
     expandable = false,
     expanded = false,
     onOpen,
+    onOpenSecondary,
+    secondaryActionLabel = "Open in side pane",
     icon,
     actions,
     statusSlot,
@@ -65,7 +69,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="conversation-ref-card group mx-auto w-4/5 rounded-xl border border-(--solus-tool-border) {extraClass}"
+    class="conversation-ref-card group mx-auto w-4/5 rounded-lg {extraClass}"
     data-testid={dataTestId}
     onclick={handleClick}
     role="button"
@@ -74,21 +78,21 @@
     aria-expanded={expandable ? expanded : undefined}
     onkeydown={handleKeydown}
   >
-    <div class="flex items-center gap-3 p-3">
+    <div class="conversation-ref-card__header flex items-center gap-3">
       <span
-        class="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-(--solus-accent-light)"
+        class="conversation-ref-card__icon inline-flex shrink-0 items-center justify-center"
         aria-hidden="true"
       >
         {@render icon()}
       </span>
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="min-w-0 truncate text-sm font-semibold text-(--solus-text-primary)">
+        <span class="conversation-ref-card__title min-w-0 truncate text-sm font-semibold text-(--solus-text-primary)">
           {title}
         </span>
         {#if statusSlot}
           {@render statusSlot()}
         {:else if subtitle}
-          <span class="truncate text-xs text-(--solus-text-tertiary)">
+          <span class="conversation-ref-card__subtitle truncate text-xs text-(--solus-text-tertiary)">
             {subtitle}
           </span>
         {/if}
@@ -100,19 +104,35 @@
           size={14}
           weight="bold"
           aria-hidden="true"
-          class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 ease-(--ease-premium) group-hover:text-(--solus-text-secondary) {expanded ? 'rotate-90' : ''}"
+          class="conversation-ref-card__caret shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 ease-(--ease-premium) group-hover:text-(--solus-text-secondary) {expanded ? 'rotate-90' : ''}"
         />
       {:else}
-        <button
-          type="button"
-          class="shrink-0 cursor-pointer rounded-lg border border-(--solus-tool-border) bg-transparent px-3 py-1.5 text-xs font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
-          onclick={(e) => {
-            e.stopPropagation();
-            onOpen();
-          }}
-        >
-          {actionLabel}
-        </button>
+        <span class="conversation-ref-card__actions">
+          {#if onOpenSecondary}
+            <button
+              type="button"
+              class="conversation-ref-card__secondary-action cursor-pointer"
+              title={secondaryActionLabel}
+              aria-label={secondaryActionLabel}
+              onclick={(e) => {
+                e.stopPropagation();
+                onOpenSecondary();
+              }}
+            >
+              <ArrowLineRightIcon size={14} />
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="conversation-ref-card__action shrink-0 cursor-pointer"
+            onclick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+          >
+            {actionLabel}
+          </button>
+        </span>
       {/if}
     </div>
     {#if children}
@@ -136,17 +156,146 @@
 
 <style>
   .conversation-ref-card {
-    background: var(--solus-container-bg);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--solus-container-bg) 96%, var(--solus-surface-primary)),
+        var(--solus-container-bg)
+      );
     cursor: pointer;
     overflow: hidden;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--solus-tool-border) 72%, transparent),
+      0 0.0625rem 0.125rem color-mix(in srgb, black 5%, transparent),
+      0 0.625rem 1.75rem -1.5rem color-mix(in srgb, black 28%, transparent);
+    transition:
+      box-shadow var(--duration-base) var(--ease-premium),
+      transform var(--duration-quick) var(--ease-premium),
+      background var(--duration-base) var(--ease-premium);
   }
 
   .conversation-ref-card:hover {
-    border-color: var(--solus-accent-border);
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--solus-accent-border) 68%, var(--solus-tool-border)),
+      0 0.125rem 0.375rem color-mix(in srgb, black 7%, transparent),
+      0 0.875rem 2.25rem -1.625rem color-mix(in srgb, black 34%, transparent);
+  }
+
+  .conversation-ref-card:active {
+    transform: scale(0.996);
+  }
+
+  .conversation-ref-card:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border-medium);
+    outline-offset: 0.1875rem;
+  }
+
+  .conversation-ref-card__header {
+    padding: 0.75rem;
+  }
+
+  .conversation-ref-card__icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--solus-accent-light) 72%, transparent);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-accent-border) 42%, transparent);
+  }
+
+  .conversation-ref-card__title {
+    letter-spacing: 0;
+    text-wrap: balance;
+  }
+
+  .conversation-ref-card__subtitle {
+    text-wrap: pretty;
+  }
+
+  .conversation-ref-card__actions {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .conversation-ref-card__action,
+  .conversation-ref-card__secondary-action {
+    min-width: 2.5rem;
+    height: 2rem;
+    border: none;
+    border-radius: 0.4375rem;
+    background: transparent;
+    padding: 0 0.625rem;
+    color: var(--solus-text-tertiary);
+    font-size: 0.75rem;
+    font-weight: 550;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium),
+      opacity var(--duration-quick) var(--ease-premium),
+      transform 80ms var(--ease-premium);
+  }
+
+  .conversation-ref-card__secondary-action {
+    display: inline-flex;
+    min-width: 2rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .conversation-ref-card:hover .conversation-ref-card__action,
+  .conversation-ref-card:hover .conversation-ref-card__secondary-action,
+  .conversation-ref-card:focus-within .conversation-ref-card__secondary-action,
+  .conversation-ref-card:focus-within .conversation-ref-card__action {
+    color: var(--solus-text-secondary);
+  }
+
+  .conversation-ref-card__action:hover,
+  .conversation-ref-card__secondary-action:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .conversation-ref-card__action:active,
+  .conversation-ref-card__secondary-action:active {
+    transform: scale(0.96);
+  }
+
+  .conversation-ref-card__action:focus-visible,
+  .conversation-ref-card__secondary-action:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border-medium);
+    outline-offset: 0.125rem;
+  }
+
+  .conversation-ref-card__caret {
+    margin-right: 0.375rem;
   }
 
   .conversation-ref-card__body {
-    border-top: 0.0625rem solid var(--solus-tool-border);
-    background: var(--solus-code-tint);
+    box-shadow: inset 0 0.0625rem 0 color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--solus-code-tint) 54%, transparent),
+        color-mix(in srgb, var(--solus-container-bg) 88%, var(--solus-code-tint))
+      );
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .conversation-ref-card__action {
+      opacity: 0.64;
+    }
+
+    .conversation-ref-card__secondary-action {
+      opacity: 0;
+    }
+
+    .conversation-ref-card:hover .conversation-ref-card__action,
+    .conversation-ref-card:hover .conversation-ref-card__secondary-action,
+    .conversation-ref-card:focus-within .conversation-ref-card__action,
+    .conversation-ref-card:focus-within .conversation-ref-card__secondary-action {
+      opacity: 1;
+    }
   }
 </style>

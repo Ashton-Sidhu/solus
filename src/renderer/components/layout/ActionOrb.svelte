@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
+  import { parsePatchFiles } from "@pierre/diffs";
   import {
     SparkleIcon,
     FilesIcon,
     TerminalWindowIcon,
     ArrowsOutSimpleIcon,
     ArrowsClockwiseIcon,
+    ArrowSquareOutIcon,
+    FileTextIcon,
     GitForkIcon,
     TreeStructureIcon,
     SquareIcon,
@@ -24,6 +27,8 @@
   import { formatCombo } from "../../lib/keybindings/match";
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
+  import { diffFilePath, diffFileStats } from "../../lib/diffTreeAdapter";
+  import { requestFilePreview } from "../../lib/filePreview";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import Kbd from "../ui/Kbd.svelte";
@@ -53,6 +58,7 @@
     label: string;
     title: string;
   };
+  type FileStat = { additions: number; deletions: number };
 
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
@@ -67,10 +73,18 @@
   const sess = $derived(session.sessionFor(tabId));
 
   const changedFiles = $derived(sess?.changedFiles ?? []);
+  const projectRoot = $derived.by(() => {
+    const ctxProjectPath = session.ctxFor(tabId).session.projectPath;
+    return ctxProjectPath || sess?.gitContext?.repoRoot || sess?.workingDirectory || "";
+  });
+  const displayRoot = $derived(
+    sess?.gitContext?.worktreePath || sess?.gitContext?.repoRoot || projectRoot,
+  );
   const showDesktopActions = $derived(!runtime.isMobileViewport);
   const showNativeDesktopActions = $derived(
     showDesktopActions && !windowCtx.isWeb,
   );
+  const canPreviewFiles = $derived(windowCtx.viewMode === "editor");
 
   const isBranchDiff = $derived(
     !!sess?.gitContext &&
@@ -83,9 +97,7 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isCreatingWorktree = $derived(session.isContinuingInWorktree(tabId));
-  const showOpenFiles = $derived(
-    showNativeDesktopActions && hasChangedFiles && !!theme.defaultEditor,
-  );
+  const showOpenFiles = $derived(showNativeDesktopActions && hasChangedFiles);
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
   const showFork = $derived(!!sess?.agentSessionId && !isRunning);
   const showContinueWorktree = $derived(
@@ -106,21 +118,53 @@
   let reviewGuideKey = $state<string | null>(null);
   let reviewPopoverOpen = $state(false);
   let reviewCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  let reviewRunId = 0;
+  // Fingerprint of the change set the current "done" guide covered. When the
+  // session keeps editing past it, drop back to "Review" instead of latching
+  // "View Review" on a walkthrough of an older change.
+  let reviewSnapshot = $state<string | null>(null);
+  const changesFingerprint = $derived(
+    changedFiles.join("|"),
+  );
 
+  // Latch keyed by tabId → the change-set fingerprint we last probed for a cached
+  // guide. Without it, every re-activation of a dirty tab whose probe found no
+  // guide (status stays "idle") repeats getReviewContext + readGuide — a git
+  // round-trip in main per tab switch. Plain (non-reactive) Map: it's a memo, not
+  // rendered state, so it must not itself invalidate the effect. Fingerprint read
+  // via untrack for the same reason — the probe is scoped to activation, not to
+  // every mid-turn file change.
+  const reviewCheckedFingerprint = new Map<string, string>();
   $effect(() => {
     if (!hasChangedFiles || tabId !== session.activeTabId) return;
     if (reviewStatus !== "idle") return;
+    const fp = untrack(() => changesFingerprint);
+    if (reviewCheckedFingerprint.get(tabId) === fp) return;
+    reviewCheckedFingerprint.set(tabId, fp);
     const ctx = session.ctxFor(tabId);
     const sid = sess?.agentSessionId;
     window.solus.getReviewContext(ctx).then(async (rc) => {
       if (!rc) return;
       const key = sid ? `${rc.key}__session-${sid}` : rc.key;
       const cached = await window.solus.readGuide(ctx, key);
+      // A cached guide from an older HEAD is stale — leave the orb on "Review"
+      // so clicking generates a fresh walkthrough.
+      if (cached && cached.headSha && cached.headSha !== rc.headSha) return;
       if (cached && reviewStatus === "idle") {
         reviewGuideKey = key;
+        reviewSnapshot = changesFingerprint;
         reviewStatus = "done";
       }
     });
+  });
+
+  $effect(() => {
+    if (reviewStatus !== "done" || reviewSnapshot === null) return;
+    if (changesFingerprint !== reviewSnapshot) {
+      reviewStatus = "idle";
+      reviewGuideKey = null;
+      reviewSnapshot = null;
+    }
   });
 
   const reviewStepIndex = (step: ReviewProgressStep) =>
@@ -177,6 +221,8 @@
   // Steps detail reveals on hover/focus of the progress pill. A short close
   // delay lets the pointer cross the gap into the popover without it dismissing.
   let stepsOpen = $state(false);
+  let reviewFilesOpen = $state(false);
+  let fileStats = $state<Record<string, FileStat>>({});
   let stepsCloseTimer: ReturnType<typeof setTimeout> | null = null;
   function openSteps() {
     if (stepsCloseTimer) {
@@ -236,6 +282,16 @@
       ? focusedAction
       : preferredAction,
   );
+  const totalFileStats = $derived.by(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const path of changedFiles) {
+      const stats = statsFor(path);
+      additions += stats?.additions ?? 0;
+      deletions += stats?.deletions ?? 0;
+    }
+    return { additions, deletions };
+  });
   const orbBadge = $derived.by((): OrbBadge | null => {
     if (hasActionInFlight)
       return { kind: "running", label: "", title: "Action running" };
@@ -266,6 +322,8 @@
 
   let rootEl: HTMLDivElement | null = $state(null);
   let panelEl: HTMLDivElement | null = $state(null);
+  let filesPopoverEl: HTMLDivElement | null = $state(null);
+  let filesButtonEl: HTMLButtonElement | null = $state(null);
   let compactByWidth = $state(false);
   const compact = $derived(compactByWidth || av.secondaryOpen);
   let medium = $state(false);
@@ -328,6 +386,56 @@
     rootEl.style.setProperty("--orb-window-scale", isUltrawide ? "1" : "1");
   });
 
+  $effect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      if (detail?.tabId && detail.tabId !== tabId) return;
+      if (tabId !== session.activeTabId || !showOpenFiles) return;
+      openExpanded();
+      reviewFilesOpen = true;
+    };
+    window.addEventListener("solus:review-changed-files", handler);
+    return () => window.removeEventListener("solus:review-changed-files", handler);
+  });
+
+  $effect(() => {
+    if (!reviewFilesOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (filesPopoverEl?.contains(target) || filesButtonEl?.contains(target)) return;
+      reviewFilesOpen = false;
+      requestInputFocus();
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  });
+
+  $effect(() => {
+    if (!hasChangedFiles || tabId !== session.activeTabId) {
+      fileStats = {};
+      return;
+    }
+    const fingerprint = changesFingerprint;
+    const livePaths = [...changedFiles];
+    const ctx = session.ctxFor(tabId);
+    let cancelled = false;
+    window.solus.diff(ctx, { scope: { kind: "session" }, livePaths }).then((diff) => {
+      if (cancelled || fingerprint !== changesFingerprint) return;
+      const nextStats: Record<string, FileStat> = {};
+      if (diff?.patch) {
+        const files = parsePatchFiles(diff.patch).flatMap((parsed) => parsed.files);
+        for (const file of files) nextStats[diffFilePath(file)] = diffFileStats(file);
+      }
+      fileStats = nextStats;
+    }).catch(() => {
+      if (!cancelled) fileStats = {};
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
   function handleOpenFiles() {
     const opened = openInConfiguredEditor(session.ctxFor(tabId), {
       filePaths: changedFiles,
@@ -335,7 +443,69 @@
       terminalId: theme.defaultTerminal,
       cwd: sess?.workingDirectory,
     });
-    if (opened) requestInputFocus();
+    if (opened) closeExpanded();
+  }
+
+  function handleOpenFile(path: string) {
+    if (!canPreviewFiles) return;
+    requestFilePreview({ path, tabId });
+    closeExpanded(false);
+  }
+
+  function handleOpenFileInEditor(path: string) {
+    const opened = openInConfiguredEditor(session.ctxFor(tabId), {
+      filePaths: [path],
+      editorId: theme.defaultEditor,
+      terminalId: theme.defaultTerminal,
+      cwd: sess?.workingDirectory,
+    });
+    if (opened) closeExpanded();
+  }
+
+  function stripPathBase(path: string, base?: string | null): string {
+    if (!base || !path.startsWith("/")) return path;
+    const normalizedBase = base.replace(/\/$/, "");
+    if (!normalizedBase) return path;
+    if (path === normalizedBase) return "";
+    return path.startsWith(`${normalizedBase}/`) ? path.slice(normalizedBase.length + 1) : path;
+  }
+
+  function displayPath(path: string): string {
+    const trimmed = path.replace(/^\.\//, "");
+    if (!trimmed.startsWith("/")) {
+      const cwd = sess?.workingDirectory?.replace(/\/$/, "") ?? "";
+      const root = displayRoot.replace(/\/$/, "");
+      if (cwd && root && cwd !== root && cwd.startsWith(`${root}/`)) {
+        const cwdRelative = cwd.slice(root.length + 1);
+        if (trimmed === cwdRelative || trimmed.startsWith(`${cwdRelative}/`)) return trimmed;
+        return `${cwdRelative}/${trimmed}`.replace(/^\.\//, "");
+      }
+      return trimmed;
+    }
+    const withoutWorktree = stripPathBase(trimmed, sess?.gitContext?.worktreePath);
+    if (withoutWorktree !== trimmed) return withoutWorktree;
+    const withoutProject = stripPathBase(trimmed, projectRoot);
+    if (withoutProject !== trimmed) return withoutProject;
+    const withoutRepo = stripPathBase(trimmed, sess?.gitContext?.repoRoot);
+    if (withoutRepo !== trimmed) return withoutRepo;
+    return stripPathBase(trimmed, sess?.workingDirectory).replace(/^\.\//, "");
+  }
+
+  function fileName(path: string): string {
+    const relativePath = displayPath(path);
+    const parts = relativePath.split("/").filter(Boolean);
+    return parts[parts.length - 1] ?? relativePath;
+  }
+
+  function fileDir(path: string): string {
+    const relativePath = displayPath(path);
+    const idx = relativePath.lastIndexOf("/");
+    return idx > 0 ? relativePath.slice(0, idx + 1) : "";
+  }
+
+  function statsFor(path: string): FileStat {
+    const relativePath = displayPath(path);
+    return fileStats[path] ?? fileStats[relativePath] ?? { additions: 0, deletions: 0 };
   }
 
   function handleOpenTerminal() {
@@ -358,10 +528,15 @@
     }
     if (reviewStatus === "generating") return;
 
+    const runId = ++reviewRunId;
     reviewStatus = "generating";
     reviewProgressStep = "preparing";
 
+    // Progress events broadcast to every subscriber; only track this session's
+    // generation so a concurrent branch/other-tab run can't drive our steps.
+    const sid = sess?.agentSessionId;
     const unsubscribe = window.solus.onReviewProgress((event) => {
+      if (sid && !event.key.endsWith(`__session-${sid}`)) return;
       reviewProgressStep = event.step;
     });
 
@@ -370,17 +545,29 @@
         session.ctxFor(tabId),
         { ...resolveReviewAgent(theme, agentContext), scope: "session" },
       );
+      if (runId !== reviewRunId) return;
       reviewGuideKey =
         gen?.key ??
         (await window.solus.getReviewContext(session.ctxFor(tabId)))?.key ??
         null;
+      reviewSnapshot = changesFingerprint;
       reviewStatus = "done";
     } catch {
-      reviewStatus = "idle";
+      if (runId === reviewRunId) reviewStatus = "idle";
     } finally {
       unsubscribe();
+      if (runId !== reviewRunId) return;
       requestInputFocus();
     }
+  }
+
+  function handleCancelReview() {
+    if (reviewStatus !== "generating") return;
+    reviewRunId += 1;
+    reviewStatus = "idle";
+    reviewPopoverOpen = false;
+    void window.solus.cancelGenerateGuide(session.ctxFor(tabId), { scope: "session" });
+    requestInputFocus();
   }
 
   function handleRegenerate() {
@@ -394,6 +581,7 @@
     expanded = false;
     focusedAction = null;
     stepsOpen = false;
+    reviewFilesOpen = false;
     if (focusInput) requestInputFocus();
   }
 
@@ -430,9 +618,13 @@
     if (!expanded) return;
     if (e.key === "Escape") {
       e.preventDefault();
-      // Escape dismisses the steps popover first, then closes the orb.
+      // Escape dismisses popovers first, then closes the orb.
       if (stepsOpen) {
         stepsOpen = false;
+        return;
+      }
+      if (reviewFilesOpen) {
+        reviewFilesOpen = false;
         return;
       }
       closeExpanded();
@@ -511,6 +703,7 @@
   class:pill-mode={isPillMode}
   class:compact
   class:medium
+  class:orb-streaming={isRunning}
 >
   <!-- Trigger: always bottom-right, compact status button -->
   <button
@@ -545,13 +738,13 @@
     bind:this={panelEl}
     class="orb-panel"
     class:orb-panel-visible={expanded}
-    class:orb-panel-overflow={allowOverflow}
+    class:overflow-visible={allowOverflow}
     onkeydown={handlePanelKeydown}
     tabindex="-1"
     role="toolbar"
     aria-label="Quick actions"
   >
-    <div class="dock-actions">
+    <div class="dock-actions inline-flex items-center justify-center gap-(--orb-gap)">
       {#if showPin}
         <button
           class="dock-btn dock-btn-icon stagger-item"
@@ -610,22 +803,96 @@
       {/if}
 
       {#if showOpenFiles}
-        <button
-          class="dock-btn stagger-item"
-          data-orb-action="files"
-          tabindex={tabIndexFor("files")}
-          style="--item-index:{itemIndices.files}"
-          onclick={handleOpenFiles}
-          title={`Open ${changedFiles.length} file${changedFiles.length !== 1 ? "s" : ""} in editor`}
-          aria-label={`Open ${changedFiles.length} file${changedFiles.length !== 1 ? "s" : ""} in editor`}
-          use:tooltip={`Open ${changedFiles.length} file${changedFiles.length !== 1 ? "s" : ""} in editor`}
-        >
-          <FilesIcon size={13} weight="regular" />
-          <span>Open Files ({changedFiles.length})</span>
-          <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
-            >{shortcutLabel("conversation.open-files")}</Kbd
+        <span class="inline-flex">
+          {#if reviewFilesOpen}
+            <div
+              bind:this={filesPopoverEl}
+              class="files-pop progress-popover"
+              role="dialog"
+              aria-label="Review changed files"
+            >
+              <div class="files-pop-head">
+                <span class="files-pop-icon" aria-hidden="true">
+                  <FilesIcon size={18} weight="regular" />
+                </span>
+                <div class="files-pop-title-block">
+                  <span class="files-pop-title"
+                    >Edited {changedFiles.length} file{changedFiles.length !== 1 ? "s" : ""}</span
+                  >
+                  <span class="files-pop-subtitle">
+                    <span class="files-pop-add">+{totalFileStats.additions}</span>
+                    <span class="files-pop-del">-{totalFileStats.deletions}</span>
+                  </span>
+                </div>
+                <button
+                  class="files-pop-primary"
+                  onclick={handleOpenFiles}
+                  disabled={!theme.defaultEditor}
+                  title={theme.defaultEditor ? "Open files in editor" : "Choose a default editor in settings"}
+                  aria-label="Open files in editor"
+                  use:tooltip={theme.defaultEditor ? "Open files in editor" : "Choose a default editor in settings"}
+                >
+                  <ArrowSquareOutIcon size={15} weight="regular" />
+                  <span>Open files in editor</span>
+                </button>
+              </div>
+              <div class="files-pop-list">
+                {#each changedFiles as path (path)}
+                  {@const stats = statsFor(path)}
+                  <div class="files-pop-row">
+                    <span class="files-pop-path">
+                      <span class="files-pop-dir">{fileDir(path)}</span>{fileName(path)}
+                    </span>
+                    <span class="files-pop-stats" aria-label={`${stats.additions} additions, ${stats.deletions} deletions`}>
+                      <span class="files-pop-add">+{stats.additions}</span>
+                      <span class="files-pop-del">-{stats.deletions}</span>
+                    </span>
+                    <span class="files-pop-actions">
+                      <button
+                        class="files-pop-icon-btn"
+                        onclick={() => handleOpenFile(path)}
+                        disabled={!canPreviewFiles}
+                        title={canPreviewFiles ? "Open file" : "Open files in editor from pill mode"}
+                        aria-label={`Open ${path}`}
+                        use:tooltip={canPreviewFiles ? "Open file" : "Open files in editor from pill mode"}
+                      >
+                        <FileTextIcon size={15} weight="regular" />
+                      </button>
+                      <button
+                        class="files-pop-icon-btn"
+                        onclick={() => handleOpenFileInEditor(path)}
+                        disabled={!theme.defaultEditor}
+                        title={theme.defaultEditor ? "Open file in editor" : "Choose a default editor in settings"}
+                        aria-label={`Open ${path} in editor`}
+                        use:tooltip={theme.defaultEditor ? "Open file in editor" : "Choose a default editor in settings"}
+                      >
+                        <ArrowSquareOutIcon size={15} weight="regular" />
+                      </button>
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          <button
+            bind:this={filesButtonEl}
+            class="dock-btn stagger-item"
+            data-orb-action="files"
+            tabindex={tabIndexFor("files")}
+            style="--item-index:{itemIndices.files}"
+            onclick={() => (reviewFilesOpen = !reviewFilesOpen)}
+            title={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
+            aria-label={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
+            aria-expanded={reviewFilesOpen}
+            use:tooltip={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
           >
-        </button>
+            <FilesIcon size={13} weight="regular" />
+            <span>Review Files ({changedFiles.length})</span>
+            <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
+              >{shortcutLabel("conversation.open-files")}</Kbd
+            >
+          </button>
+        </span>
       {/if}
 
       {#if showNativeDesktopActions}
@@ -706,7 +973,7 @@
       {/if}
 
       {#if showReview}
-        <span class="review-btn-wrap">
+        <span class="relative inline-flex">
           {#if reviewPopoverOpen && reviewStatus === "generating"}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
@@ -770,6 +1037,18 @@
               use:tooltip={"Regenerate review"}
             >
               <ArrowsClockwiseIcon size={13} weight="regular" />
+            </button>
+          {:else if reviewStatus === "generating"}
+            <button
+              class="dock-btn dock-btn-icon dock-btn-stop stagger-item"
+              style="--item-index:{itemIndices.review}"
+              tabindex={expanded ? 0 : -1}
+              onclick={handleCancelReview}
+              title="Cancel review"
+              aria-label="Cancel review"
+              use:tooltip={"Cancel review"}
+            >
+              <SquareIcon size={9} weight="fill" />
             </button>
           {/if}
         </span>

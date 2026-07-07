@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { BaseAgentBackend } from '../base-backend'
-import { getCodexAppServerClient } from './codex-agent'
+import { getCodexAppServerClient, isHeadlessCodexThread } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { loadAllAnnotations } from '../../plans/annotations'
@@ -20,17 +20,25 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../../../shared/types'
-import type { SessionLoadMessage } from '../../../shared/claude-types'
+import type { SessionLoadMessage } from '../../../shared/session-history'
 import { MODEL_PROFILES } from '../../../shared/types'
 import { MemoryCache } from '../../../shared/cache'
 import {
-  normalizeCodexNotification,
+  CodexTurnNormalizer,
   normalizeThreadGoal,
-  type CodexThreadStartResponse,
-  type CodexTurnStartResponse,
-  type JsonRpcNotification,
-  type JsonRpcRequest,
 } from './codex-event-normalizer'
+import type {
+  CodexThreadGoalClearResponse,
+  CodexThreadGoalResponse,
+  CodexThreadListResponse,
+  CodexThreadReadResponse,
+  CodexThreadStartParams,
+  CodexThreadStartResponse,
+  CodexTurnStartParams,
+  CodexTurnStartResponse,
+  JsonRpcNotification,
+  JsonRpcRequest,
+} from './codex-protocol'
 import {
   CodexPermissionResponder,
   autoApprovalResponse,
@@ -53,9 +61,6 @@ import {
   isNormalStreamingTextNotification,
   isSolusWorktreePath,
   latestCodexUpdatePlanMessageFromJsonl,
-  planFromCompletedItem,
-  planTextFromPlanUpdated,
-  sandboxFor,
   sandboxPolicyFor,
   scanCodexPlans,
   scanCodexThreadActivityTimestamp,
@@ -67,15 +72,48 @@ import {
 } from './codex-utils'
 import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
-import { WORK_TOOL_JSON_SCHEMAS, WORK_TOOL_NAMES, WORK_MUTATING_TOOLS, executeWorkTool } from '../../folio/work-tools'
-import { AUTOMATION_TOOL_JSON_SCHEMAS, AUTOMATION_TOOL_NAMES, AUTOMATION_MUTATING_TOOLS, executeAutomationTool } from '../../automations/automation-tools'
-import { SESSION_TOOL_JSON_SCHEMAS, SESSION_TOOL_NAMES, executeSessionTool } from '../../sessions/session-tools'
-import { TASK_TOOL_JSON_SCHEMAS, TASK_TOOL_NAMES, TASK_MUTATING_TOOLS, executeTaskTool } from '../../tasks/task-tools'
-import { ARTIFACT_TOOL_JSON_SCHEMA, ARTIFACT_TOOL_NAME, executeArtifactTool } from '../../folio/artifact-tools'
-import { RECORD_CHANGE_TOOL_JSON_SCHEMA, RECORD_CHANGE_TOOL_NAME, recordChange } from '../../review/ledger-tool'
+import {
+  classifyCodexSolusTool,
+  executeCodexSolusTool,
+  codexSolusToolSchemas,
+  bareToolName,
+  type CodexSolusToolCtx,
+  type CodexSolusToolKind,
+} from './codex-solus-tools'
 import { executeCodexReviewGuideTool, SUBMIT_REVIEW_GUIDE_TOOL_NAME } from '../../review/review-guide-tool'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
+
+// Per-kind copy for the permission UI when a mutating solus tool gates. Only the
+// mutating kinds (work/automation/task) reach these paths; the rest are covered
+// for exhaustiveness.
+const SOLUS_TOOL_DECLINE_TEXT: Record<CodexSolusToolKind, string> = {
+  work: 'The user declined this update.',
+  automation: 'The user declined this automation action.',
+  task: 'The user declined this task action.',
+  session: 'The user declined this action.',
+  pr: 'The user declined this PR review action.',
+  artifact: 'The user declined this action.',
+  record_change: 'The user declined this action.',
+}
+const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
+  work: 'Cannot modify works in plan mode. Exit plan mode to apply changes.',
+  automation: 'Cannot modify automations in plan mode. Exit plan mode to apply changes.',
+  task: 'Cannot change task status in plan mode. Exit plan mode to apply changes.',
+  session: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
+  pr: 'Cannot modify PR review state in plan mode. Exit plan mode to apply changes.',
+  artifact: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
+  record_change: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
+}
+const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
+  work: 'Update a work the user has open',
+  automation: 'Create, modify, or run an automation',
+  task: "Update a task's status",
+  session: 'Create a session',
+  pr: 'Modify PR review state',
+  artifact: 'Render an artifact',
+  record_change: 'Record a change',
+}
 
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
 
@@ -98,43 +136,19 @@ type CodexRunHandle = RunHandle & {
   turnId: string | null
   permissionMode: 'ask' | 'auto' | 'plan'
   interrupted: boolean
-  completedPlan?: {
-    id: string
-    text: string
-  }
-  streamedPlanId?: string
-  streamedPlanText: string
-  sawRateLimit: boolean
-  sawProtocolError: boolean
+  normalizer: CodexTurnNormalizer
   workTree: string | null
   repoRoot: string | null
   /** Real project working directory — origin cwd recorded on created works. */
   cwd: string
   userMessagePreview: string
+  baseChangedFiles: Set<string>
+  turnDiffFiles: Set<string>
   trackedFiles: Set<string>
-}
-
-interface CodexThreadListResponse {
-  data?: CodexThreadSummary[]
-  nextCursor?: string | null
-}
-
-interface CodexThreadReadResponse {
-  thread?: {
-    turns?: CodexTurnHistory[]
-  }
 }
 
 interface CodexSkillsListResponse {
   data?: CodexSkillsByCwd[]
-}
-
-interface CodexThreadGoalResponse {
-  goal?: unknown
-}
-
-interface CodexThreadGoalClearResponse {
-  cleared?: boolean
 }
 
 interface CodexSkillsByCwd {
@@ -230,13 +244,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       _rejectRun,
       permissionMode: runInput.permissionMode,
       interrupted: false,
-      streamedPlanText: '',
-      sawRateLimit: false,
-      sawProtocolError: false,
+      normalizer: new CodexTurnNormalizer({ planMode: runInput.permissionMode === 'plan' }),
       workTree,
       repoRoot: null as string | null,
       cwd: runInput.workingDirectory,
       userMessagePreview: (options.prompt ?? '').slice(0, 80),
+      baseChangedFiles: new Set(runInput.changedFiles),
+      turnDiffFiles: new Set(),
       trackedFiles: new Set(runInput.changedFiles),
     }
 
@@ -258,13 +272,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         agent: 'codex',
         general,
         extraInstructions: runInput.extraInstructions,
+        modelInstructions: runInput.modelInstructions,
         prReview: runInput.prReview,
       })
-      const threadConfig = {
+      const threadConfig: CodexThreadStartParams = {
         model,
         cwd: runInput.workingDirectory,
         approvalPolicy: approvalPolicyFor(runInput.permissionMode),
-        sandbox: sandboxFor(runInput.permissionMode),
         baseInstructions: options.systemPrompt ?? null,
         developerInstructions,
         experimentalRawEvents: false,
@@ -274,7 +288,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // capability — include them unless a prior start rejected them.
       const toolsConfig = this.dynamicToolsUnavailable
         ? threadConfig
-        : { ...threadConfig, dynamicTools: [...WORK_TOOL_JSON_SCHEMAS, ...AUTOMATION_TOOL_JSON_SCHEMAS, ...SESSION_TOOL_JSON_SCHEMAS, ...TASK_TOOL_JSON_SCHEMAS, ARTIFACT_TOOL_JSON_SCHEMA, RECORD_CHANGE_TOOL_JSON_SCHEMA] }
+        : { ...threadConfig, dynamicTools: codexSolusToolSchemas({ includeAutomationTools: true }) }
 
       const reasoningEffort = runInput.reasoningEffort ?? 'high'
 
@@ -317,12 +331,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       const isPlanMode = runInput.permissionMode === 'plan'
       const input = await this.buildTurnInput(options.prompt, runInput.workingDirectory, options.imageAttachments)
-      const turn = await this.client.request<CodexTurnStartResponse>('turn/start', {
+      const turnParams: CodexTurnStartParams = {
         threadId,
         input,
         cwd: runInput.workingDirectory,
         approvalPolicy: approvalPolicyFor(runInput.permissionMode),
-        sandboxPolicy: sandboxPolicyFor(runInput.permissionMode, runInput.workingDirectory, runInput.additionalDirs),
+        sandboxPolicy: sandboxPolicyFor(runInput.permissionMode),
         model,
         reasoning_effort: reasoningEffort,
         collaborationMode: { mode: isPlanMode ? 'plan' : 'default', settings: {
@@ -332,11 +346,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
             agent: 'codex',
             general,
             extraInstructions: runInput.extraInstructions,
+            modelInstructions: runInput.modelInstructions,
             planMode: isPlanMode,
             prReview: runInput.prReview,
           }),
         }}
-      })
+      }
+      const turn = await this.client.request<CodexTurnStartResponse>('turn/start', turnParams)
 
       handle.turnId = turn.turn.id
       this.sessionByTurn.set(turn.turn.id, threadId)
@@ -358,11 +374,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.emit('normalized', sessionId, {
       type: 'session_init',
       sessionId: threadId,
-      tools: [],
       model: response?.model || model,
-      mcpServers: [],
       skills: [],
-      version: response?.thread.cliVersion || 'unknown',
     } satisfies NormalizedEvent)
   }
 
@@ -371,6 +384,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (!handle) return false
     handle.abortController.abort()
     handle.interrupted = true
+    handle.normalizer.interrupt()
     if (handle.threadId && handle.turnId) {
       this.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
         .catch((err) => log.warn(`Codex turn interrupt failed: ${err.message}`))
@@ -577,72 +591,28 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (msg.method === 'thread/started') return
 
-    this.cacheFileChanges(params, handle)
-    const isPlanMode = handle?.permissionMode === 'plan'
+    this.cacheFileChanges(params)
+    if (msg.method === 'turn/diff/updated' && handle) {
+      this.emit('normalized', sessionId, {
+        type: 'changed_files_updated',
+        paths: this.updateTrackedFilesFromTurnDiff(handle, params?.diff),
+      })
+    }
     const wasInterrupted = !!handle?.interrupted || isInterruptedTurnStatus(params?.turn?.status)
 
-    if (isPlanMode && !wasInterrupted && msg.method === 'turn/plan/updated' && handle) {
-      const planText = planTextFromPlanUpdated(params)
-      if (planText) {
-        const planId = `codex-plan-${handle.turnId || params?.turnId || params?.turn?.id || Date.now()}`
-        handle.streamedPlanId = planId
-        this.emit('normalized', sessionId, {
-          type: 'plan',
-          planContent: planText,
-          planFilePath: '',
-          questionId: planId,
-          options: [],
-          planToolUseId: planId,
-        })
-      }
-      return
-    }
-
-    if (isPlanMode && !wasInterrupted && msg.method === 'item/agentMessage/delta' && typeof params?.delta === 'string') {
-      handle.streamedPlanText += params.delta
-    }
-
-    if (isPlanMode && !wasInterrupted && msg.method === 'item/completed' && handle) {
-      const completedPlan = planFromCompletedItem(params)
-      if (completedPlan) {
-        handle.completedPlan = completedPlan
-        return
-      }
-    }
-
-    if (isPlanMode && !wasInterrupted && msg.method === 'turn/completed' && handle) {
-      const completedPlan = handle.completedPlan
-      const planText = completedPlan?.text.trim() || handle.streamedPlanText.trim()
-      if (planText) {
-        const planId = completedPlan?.id || handle.streamedPlanId || `codex-plan-${handle.turnId || params?.turnId || params?.turn?.id || Date.now()}`
-        this.emit('normalized', sessionId, {
-          type: 'plan',
-          planContent: planText,
-          planFilePath: '',
-          questionId: `codex-plan-${handle.turnId || params?.turnId || params?.turn?.id || Date.now()}`,
-          options: [],
-          planToolUseId: planId,
-        })
-      }
-    }
-
-    if (!wasInterrupted) {
-      for (const event of normalizeCodexNotification(msg.method, params, {
-        planMode: handle?.permissionMode === 'plan',
-      })) {
-        if (event.type === 'tool_call' && handle) handle.toolCallCount++
-        if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning' && handle) handle.sawRateLimit = true
-        if (event.type === 'error' && handle) handle.sawProtocolError = true
-
+    if (handle) {
+      for (const event of handle.normalizer.push({ method: msg.method, params })) {
         this.emit('normalized', sessionId, event)
       }
+      handle.toolCallCount = handle.normalizer.summary.toolCallCount
     }
 
     if (msg.method === 'turn/completed') {
       // A turn just created or updated a thread — drop the cached session lists
       // so the next listSessions reflects the new activity.
       this.sessionListCache.clear()
-      const exitCode = params?.turn?.status === 'failed' && !handle?.sawRateLimit ? 1 : wasInterrupted ? null : 0
+      const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
+      const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
       const exitSignal = wasInterrupted ? 'SIGINT' : null
       if (handle) {
         void this.snapshotOnTurnComplete(handle, wasInterrupted)
@@ -657,21 +627,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private emitAccountRateLimitUpdate(params: any): void {
-    const events = normalizeCodexNotification('account/rateLimits/updated', params)
-    if (events.length === 0) return
-
     for (const [sessionId, handle] of this.activeRuns) {
       if (handle.interrupted) continue
-      for (const event of events) {
-        if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning') {
-          handle.sawRateLimit = true
-        }
+      for (const event of handle.normalizer.push({ method: 'account/rateLimits/updated', params })) {
         this.emit('normalized', sessionId, event)
       }
     }
   }
 
-  private cacheFileChanges(params: any, handle?: CodexRunHandle): void {
+  private cacheFileChanges(params: any): void {
     const itemId = typeof params?.itemId === 'string' ? params.itemId : params?.item?.id
     const changes = Array.isArray(params?.changes)
       ? params.changes
@@ -683,21 +647,22 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       this.fileChangesByItem.set(itemId, changes)
       if (typeof params?.turnId === 'string') this.fileChangeTurnByItem.set(itemId, params.turnId)
     }
-
-    if (handle) {
-      if (changes) this.trackCodexChangedFiles(handle, changes)
-      this.trackCodexChangedFiles(handle, params?.diff)
-      this.trackCodexChangedFiles(handle, params?.patch)
-      this.trackCodexChangedFiles(handle, params?.item?.diff)
-      this.trackCodexChangedFiles(handle, params?.item?.patch)
-      this.trackCodexChangedFiles(handle, params?.item?.arguments)
-    }
   }
 
-  private trackCodexChangedFiles(handle: CodexRunHandle, source: unknown): void {
-    for (const filePath of extractCodexChangedFilePaths(source)) {
+  private updateTrackedFilesFromTurnDiff(handle: CodexRunHandle, diff: unknown): string[] {
+    handle.turnDiffFiles.clear()
+    for (const filePath of extractCodexChangedFilePaths(diff)) {
+      handle.turnDiffFiles.add(filePath)
+    }
+
+    handle.trackedFiles.clear()
+    for (const filePath of handle.baseChangedFiles) {
       handle.trackedFiles.add(filePath)
     }
+    for (const filePath of handle.turnDiffFiles) {
+      handle.trackedFiles.add(filePath)
+    }
+    return [...handle.trackedFiles]
   }
 
   private clearFileChangesForTurn(turnId: unknown): void {
@@ -731,6 +696,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     }
 
+    // A headless one-shot (automation/review run) owns its own thread's tool
+    // calls and responds to them directly on the shared client — skip so the two
+    // server-request listeners never both respond to the same request.
+    if (isHeadlessCodexThread(params?.threadId)) return
+
     const sessionId = this.sessionIdFor(params)
     this.logRawProviderMessage('server-request', msg, sessionId, params)
     if (!sessionId) {
@@ -740,7 +710,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const handle = this.activeRuns.get(sessionId)
     this.rememberSessionRouting(params, sessionId)
-    this.cacheFileChanges(params, handle)
+    this.cacheFileChanges(params)
 
     // dynamicTools work-tool call (experimental). Reads run immediately;
     // update_work routes through permissions in ask mode, is denied in plan mode.
@@ -760,73 +730,57 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return (rawArgs && typeof rawArgs === 'object') ? rawArgs as Record<string, unknown> : {}
       }
 
-      // render_artifact runs immediately (like reads) — no permission gate.
-      if (toolName === ARTIFACT_TOOL_NAME || toolName.endsWith(`.${ARTIFACT_TOOL_NAME}`)) {
-        void (async () => {
-          const result = await executeArtifactTool(parseToolArgs(), {
-            onArtifact: (artifact) => {
-              this.emit('normalized', sessionId, {
-                type: 'artifact_created',
-                kind: 'html',
-                html: artifact.html,
-              })
-            },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        })()
-        return
-      }
-
-      // record_change writes the branch review ledger — benign (only touches
-      // .solus/), so it runs immediately with no permission gate, like reads.
-      if (toolName === RECORD_CHANGE_TOOL_NAME || toolName.endsWith(`.${RECORD_CHANGE_TOOL_NAME}`)) {
-        void (async () => {
-          const result = await recordChange(parseToolArgs(), {
-            cwd: handle?.cwd ?? '~',
-            sessionId: () => sessionId,
-            now: () => new Date().toISOString(),
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        })()
-        return
-      }
-
-      if (WORK_TOOL_NAMES.has(toolName)) {
+      // All solus dynamic tools (works, tasks, automations, sessions, artifacts,
+      // review ledger) dispatch through the shared executor. This backend keeps
+      // the interactive concerns: gating mutating tools per permission mode and
+      // emitting cards; the shared module owns the routing + execution.
+      const cls = classifyCodexSolusTool(toolName)
+      if (cls) {
         const args = parseToolArgs()
+        const ctx: CodexSolusToolCtx = {
+          cwd: handle?.cwd ?? '~',
+          sessionId,
+          agentProvider: 'codex',
+          onWorkCreated: (work) => this.emit('normalized', sessionId, {
+            type: 'work_created', workId: work.workId, title: work.title, docType: work.docType, content: work.content,
+          }),
+          onWorkUpdated: (work) => this.emit('normalized', sessionId, {
+            type: 'work_updated', workId: work.workId, title: work.title, docType: work.docType, content: work.content, updatedAt: work.updatedAt,
+          }),
+          onArtifact: (artifact) => this.emit('normalized', sessionId, {
+            type: 'artifact_created', kind: 'html', html: artifact.html,
+          }),
+          onAutomationSaved: (automation) => this.emit('normalized', sessionId, {
+            type: 'automation_saved', automationId: automation.id, name: automation.name, trigger: automation.trigger, enabled: automation.enabled,
+          }),
+          onSessionCreated: (created) => this.emit('normalized', sessionId, {
+            type: 'session_created', agentSessionId: created.agentSessionId, title: created.title, provider: created.provider, cwd: created.cwd,
+          }),
+          onSessionPrompted: (prompted) => this.emit('normalized', sessionId, {
+            type: 'session_prompted', agentSessionId: prompted.agentSessionId, promptPreview: prompted.promptPreview, provider: prompted.provider, cwd: prompted.cwd,
+          }),
+          onSessionStopped: (stopped) => this.emit('normalized', sessionId, {
+            type: 'session_stopped', agentSessionId: stopped.agentSessionId, provider: stopped.provider, cwd: stopped.cwd,
+          }),
+          onTaskCreated: (task) => this.emit('normalized', sessionId, {
+            type: 'task_created', taskId: task.taskId, title: task.title, url: task.url,
+          }),
+        }
 
         const respondWithResult = async (approved: boolean) => {
           if (!approved) {
-            respondWithWorkToolText('The user declined this update.', false)
+            respondWithWorkToolText(SOLUS_TOOL_DECLINE_TEXT[cls.kind], false)
             return
           }
-          const result = await executeWorkTool(toolName, args, {
-            onWorkUpdated: (work) => {
-              this.emit('normalized', sessionId, {
-                type: 'work_updated',
-                workId: work.workId,
-                title: work.title,
-                docType: work.docType,
-                content: work.content,
-                updatedAt: work.updatedAt,
-              })
-            },
-            onWorkCreated: (work) => {
-              this.emit('normalized', sessionId, {
-                type: 'work_created',
-                workId: work.workId,
-                title: work.title,
-                docType: work.docType,
-                content: work.content,
-              })
-            },
-            ctx: { sessionId, agentProvider: 'codex', cwd: handle?.cwd ?? '~' },
-          })
+          const result = await executeCodexSolusTool(toolName, args, ctx)
           respondWithWorkToolText(result.text, result.ok)
         }
 
-        if (!WORK_MUTATING_TOOLS.has(toolName)) { void respondWithResult(true); return }
+        // Pre-approved (reads, create_work, create_session, artifact, ledger) run
+        // immediately; mutating tools gate on the permission mode.
+        if (!cls.mutating) { void respondWithResult(true); return }
         if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText('Cannot modify works in plan mode. Exit plan mode to apply changes.', false)
+          respondWithWorkToolText(SOLUS_TOOL_PLAN_BLOCK_TEXT[cls.kind], false)
           return
         }
         if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
@@ -837,123 +791,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         this.emit('normalized', sessionId, {
           type: 'permission_request',
           questionId,
-          toolName: 'update_work',
-          toolDescription: 'Update a work the user has open',
+          toolName: cls.kind === 'work' ? 'update_work' : bareToolName(toolName),
+          toolDescription: SOLUS_TOOL_GATE_DESC[cls.kind],
           toolInput: args,
           options: [
             { id: 'accept', label: 'Allow', kind: 'allow' },
             { id: 'decline', label: 'Deny', kind: 'deny' },
           ],
         })
-        return
-      }
-
-      if (AUTOMATION_TOOL_NAMES.has(toolName)) {
-        const args = parseToolArgs()
-
-        const respondWithResult = async (approved: boolean) => {
-          if (!approved) {
-            respondWithWorkToolText('The user declined this automation action.', false)
-            return
-          }
-          const result = await executeAutomationTool(toolName, args, {
-            ctx: { agentProvider: 'codex', cwd: handle?.cwd ?? '~', sessionId },
-            onAutomationSaved: (automation) => {
-              this.emit('normalized', sessionId, {
-                type: 'automation_saved',
-                automationId: automation.id,
-                name: automation.name,
-                trigger: automation.trigger,
-                enabled: automation.enabled,
-              })
-            },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        }
-
-        // Read-only automation tools run immediately; mutating/triggering ones gate.
-        if (!AUTOMATION_MUTATING_TOOLS.has(toolName)) { void respondWithResult(true); return }
-        if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText('Cannot modify automations in plan mode. Exit plan mode to apply changes.', false)
-          return
-        }
-        if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
-
-        if (handle) handle.sawPermissionRequest = true
-        const questionId = `codex-${String(msg.id)}`
-        ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
-        this.emit('normalized', sessionId, {
-          type: 'permission_request',
-          questionId,
-          toolName,
-          toolDescription: 'Create, modify, or run an automation',
-          toolInput: args,
-          options: [
-            { id: 'accept', label: 'Allow', kind: 'allow' },
-            { id: 'decline', label: 'Deny', kind: 'deny' },
-          ],
-        })
-        return
-      }
-
-      if (TASK_TOOL_NAMES.has(toolName)) {
-        const args = parseToolArgs()
-
-        const respondWithResult = async (approved: boolean) => {
-          if (!approved) {
-            respondWithWorkToolText('The user declined this task action.', false)
-            return
-          }
-          const result = await executeTaskTool(toolName, args, {
-            ctx: { cwd: handle?.cwd ?? '~' },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        }
-
-        // get_task runs immediately; update_task_status gates like other writes.
-        if (!TASK_MUTATING_TOOLS.has(toolName)) { void respondWithResult(true); return }
-        if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText('Cannot change task status in plan mode. Exit plan mode to apply changes.', false)
-          return
-        }
-        if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
-
-        if (handle) handle.sawPermissionRequest = true
-        const questionId = `codex-${String(msg.id)}`
-        ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
-        this.emit('normalized', sessionId, {
-          type: 'permission_request',
-          questionId,
-          toolName,
-          toolDescription: 'Update a task\'s status',
-          toolInput: args,
-          options: [
-            { id: 'accept', label: 'Allow', kind: 'allow' },
-            { id: 'decline', label: 'Deny', kind: 'deny' },
-          ],
-        })
-        return
-      }
-
-      // create_session is pre-approved (no permission gate) — spawning a session
-      // is a first-class agent action, like create_work above.
-      if (SESSION_TOOL_NAMES.has(toolName)) {
-        const args = parseToolArgs()
-        void (async () => {
-          const result = await executeSessionTool(toolName, args, {
-            ctx: { agentProvider: 'codex', cwd: handle?.cwd ?? '~', sessionId },
-            onSessionCreated: (created) => {
-              this.emit('normalized', sessionId, {
-                type: 'session_created',
-                agentSessionId: created.agentSessionId,
-                title: created.title,
-                provider: created.provider,
-                cwd: created.cwd,
-              })
-            },
-          })
-          respondWithWorkToolText(result.text, result.ok)
-        })()
         return
       }
 

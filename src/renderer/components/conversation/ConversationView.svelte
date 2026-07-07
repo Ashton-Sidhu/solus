@@ -6,19 +6,21 @@
   import { computeCurrentActivity } from "../../contexts/session.utils";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
+  import StatusCard from "./StatusCard.svelte";
 
   import UserMessageBubble from "./UserMessageBubble.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import SubagentCard from "./SubagentCard.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
+  import TaskRefCard from "./TaskRefCard.svelte";
   import SessionRefCard from "./SessionRefCard.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import CopyButton from "../ui/CopyButton.svelte";
@@ -27,11 +29,11 @@
   import MarkdownLink from "./MarkdownLink.svelte";
   import ProgressTracker from "./ProgressTracker.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
+  import { previewText } from "./lib/minimap";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { formatMessageTime } from "../../lib/sessionUtils";
 
   const markdownRenderers = {
@@ -47,12 +49,14 @@
   type GroupedItem =
     | { kind: "user"; message: Message }
     | { kind: "assistant"; message: Message }
+    | { kind: "live-assistant"; id: string; content: string; settledMessageId?: string }
     | { kind: "system"; message: Message }
     | { kind: "tool-group"; messages: Message[] }
     | { kind: "subagent"; message: Message }
     | { kind: "plan"; message: Message }
     | { kind: "document"; message: Message }
     | { kind: "automation"; message: Message }
+    | { kind: "task"; message: Message }
     | { kind: "session"; message: Message }
     | { kind: "artifact"; message: Message };
 
@@ -66,7 +70,7 @@
       }
     };
     for (const msg of messages) {
-      if (msg.role === "tool" && msg.subMessages?.length) {
+      if (msg.role === "tool" && msg.subMessages) {
         // A sub-agent tool call renders as its own card, not bundled into the
         // generic tool group.
         flushTools();
@@ -78,6 +82,7 @@
         if (msg.role === "user") result.push({ kind: "user", message: msg });
         else if (msg.workRef) result.push({ kind: "document", message: msg });
         else if (msg.automationRef) result.push({ kind: "automation", message: msg });
+        else if (msg.taskRef) result.push({ kind: "task", message: msg });
         else if (msg.sessionRef) result.push({ kind: "session", message: msg });
         else if (msg.artifact) result.push({ kind: "artifact", message: msg });
         else if (msg.role === "assistant")
@@ -91,10 +96,11 @@
     return result;
   }
 
-  const theme = getSettingsContext();
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const windowCtx = getWindowContext();
+  const sourceSessionHistory = createSessionHistoryStore();
+  $effect(() => () => sourceSessionHistory.cancel());
   const isEditorMode = $derived(
     windowCtx.viewMode === "editor" || windowCtx.isWeb,
   );
@@ -202,6 +208,17 @@
   $effect(() => () => stopReveal());
 
   const displayedText = $derived(streamingText.slice(0, revealLen));
+  // Hold the streaming renderer across the commit boundary so finalization
+  // doesn't look like the assistant message was removed and re-inserted.
+  let lastStreamingText = "";
+  let settlingText = $state("");
+  let settlingTimer: ReturnType<typeof setTimeout> | null = null;
+  let finalizedStreamMessageIds = $state<Record<string, true>>({});
+
+  function clearSettlingTimer() {
+    if (settlingTimer) clearTimeout(settlingTimer);
+    settlingTimer = null;
+  }
 
   let scrollEl: HTMLDivElement | null = $state(null);
   let hovered = $state(false);
@@ -331,6 +348,70 @@
   });
 
   const grouped = $derived(groupMessages(visibleMessages));
+  const settlingCommittedId = $derived.by(() => {
+    if (!settlingText.trim()) return "";
+    const settled = settlingText.trim();
+    for (let i = grouped.length - 1; i >= 0; i--) {
+      const item = grouped[i];
+      if (item.kind === "assistant") {
+        if (item.message.content.trim() === settled) return item.message.id;
+        continue;
+      }
+      if (item.kind === "user") break;
+    }
+    return "";
+  });
+  const liveStreamContent = $derived(streamingText ? displayedText : settlingText);
+  const displayGrouped = $derived.by(() => {
+    if (!liveStreamContent) return grouped;
+    if (settlingCommittedId) {
+      return grouped.map((item) =>
+        item.kind === "assistant" && item.message.id === settlingCommittedId
+          ? {
+              kind: "live-assistant" as const,
+              id: `live-${settlingCommittedId}`,
+              content: liveStreamContent,
+              settledMessageId: settlingCommittedId,
+            }
+          : item,
+      );
+    }
+    return [
+      ...grouped,
+      {
+        kind: "live-assistant" as const,
+        id: "live-stream",
+        content: liveStreamContent,
+      },
+    ];
+  });
+
+  $effect(() => {
+    const text = streamingText;
+    if (text) {
+      lastStreamingText = text;
+      if (settlingText) settlingText = "";
+      clearSettlingTimer();
+      return;
+    }
+
+    if (!lastStreamingText) return;
+    settlingText = lastStreamingText;
+    lastStreamingText = "";
+    const delay = prefersReducedMotion ? 0 : 180;
+    clearSettlingTimer();
+    settlingTimer = setTimeout(() => {
+      settlingText = "";
+      settlingTimer = null;
+    }, delay);
+  });
+
+  $effect(() => {
+    const id = settlingCommittedId;
+    if (id) finalizedStreamMessageIds[id] = true;
+  });
+
+  $effect(() => () => clearSettlingTimer());
 
   // Message navigator (right-gutter rail) is editor-shell only — not the pill or
   // web layouts. The rail itself hides when the gutter is too narrow.
@@ -339,7 +420,9 @@
   // tab on every message change even in pill/web mode where it's never rendered.
   const navItems = $derived(
     isEditorShell
-      ? (sess?.messages ?? []).filter((m) => m.role === "user").map((m) => ({ id: m.id, text: m.content }))
+      ? (sess?.messages ?? [])
+          .filter((m) => m.role === "user")
+          .map((m) => ({ id: m.id, preview: previewText(m.content) }))
       : [],
   );
 
@@ -423,12 +506,11 @@ useKeybinding(
   useKeybinding(
     "conversation.open-files",
     () => {
-      openInConfiguredEditor(session.ctxFor(tabId), {
-        filePaths: changedFiles,
-        editorId: theme.defaultEditor,
-        terminalId: theme.defaultTerminal,
-        cwd: sess?.workingDirectory,
-      });
+      window.dispatchEvent(
+        new CustomEvent("solus:review-changed-files", {
+          detail: { tabId },
+        }),
+      );
     },
     { enabled: () => tabId === session.activeTabId },
   );
@@ -498,12 +580,12 @@ useKeybinding(
       session.selectTab(matchingTabId);
       return;
     }
-    // Not open — scan history and resume it
-    const allSessions = await window.solus.listSessions(
-      sess?.workingDirectory || "~",
+    // Not open — scan history and resume it.
+    const meta = await sourceSessionHistory.findSession(
+      agentSessionId,
+      { projectPath: sess?.workingDirectory || "~" },
       session.ctx,
     );
-    const meta = allSessions.find((m) => m.sessionId === agentSessionId);
     if (meta) {
       await session.resumeSession(meta);
     }
@@ -571,14 +653,34 @@ useKeybinding(
           {/if}
 
           <div class="relative messages-list cv-list {runtime.isMobileViewport ? 'space-y-3' : 'space-y-2'}">
-            {#each grouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.message.id)}
+            {#each displayGrouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.kind === "live-assistant" ? item.id : item.message.id)}
               {@const msgIndex = startIndex + idx}
               {@const skipMotion = msgIndex < historicalThreshold}
               {#if item.kind === "user"}
                 <UserMessageBubble message={item.message} {skipMotion} />
+              {:else if item.kind === "live-assistant"}
+                <div
+                  class="py-2 group/msg relative cv-stamp-host {skipMotion || item.settledMessageId ? '' : 'animate-msg-in-side'}"
+                  data-testid="assistant-message"
+                >
+                  <div class="cv-msg-body">
+                    <div
+                      class="pl-3 relative z-[1] border-l-2 border-(--solus-assistant-left-border) min-w-0"
+                    >
+                      <div class="prose-cloud prose-reading min-w-0">
+                        <SvelteMarkdown
+                          source={item.content}
+                          streaming
+                          renderers={markdownRenderers}
+                          sanitizeUrl={markdownSanitizeUrl}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               {:else if item.kind === "assistant"}
                 {@const displayContent = item.message.content.trim()}
-                {#if displayContent}
+                {#if displayContent && item.message.id !== settlingCommittedId}
                   <!-- Timestamp lives in the reading column's left margin (outside
                        the panel) so the assistant text lines up flush with
                        tool-call rows in both modes. The gutter room comes from the
@@ -587,7 +689,7 @@ useKeybinding(
                        opts out of content-visibility (which would clip the margin
                        stamp); the heavy markdown keeps it via .cv-msg-body. -->
                   <div
-                    class="py-2 group/msg relative cv-stamp-host {skipMotion ? '' : 'animate-msg-in-side'}"
+                    class="py-2 group/msg relative cv-stamp-host {skipMotion || finalizedStreamMessageIds[item.message.id] ? '' : 'animate-msg-in-side'}"
                     data-testid="assistant-message"
                   >
                     {#if !runtime.isMobileViewport}
@@ -672,7 +774,9 @@ useKeybinding(
                   ref={{
                     kind: "plan",
                     id: plan?.id,
+                    title: plan?.title,
                     content: plan?.content,
+                    timestamp: plan?.timestamp,
                     comments: plan?.comments,
                     status: plan?.status,
                     bookmarked: plan?.bookmarked,
@@ -689,6 +793,7 @@ useKeybinding(
                     id: item.message.workRef?.workId,
                     title: work?.title ?? item.message.workRef?.title,
                     content: work?.content,
+                    updatedAt: work?.updatedAt,
                     workType: work?.type ?? item.message.workRef?.workType,
                     streaming: item.message.workRef?.workId
                       ? session.worksStore.streaming[item.message.workRef.workId]
@@ -701,6 +806,8 @@ useKeybinding(
                   ref={item.message.automationRef}
                   {skipMotion}
                 />
+              {:else if item.kind === "task" && item.message.taskRef}
+                <TaskRefCard ref={item.message.taskRef} {skipMotion} />
               {:else if item.kind === "session" && item.message.sessionRef}
                 <SessionRefCard ref={item.message.sessionRef} {skipMotion} />
               {:else if item.kind === "artifact" && item.message.artifact}
@@ -709,24 +816,8 @@ useKeybinding(
             {/each}
           </div>
 
-          {#if streamingText}
-            <div class="py-2">
-              <div
-                class="pl-3 border-l-2 border-(--solus-assistant-left-border)"
-              >
-                <div class="prose-cloud prose-reading min-w-0">
-                  <!-- streaming: displayedText is append-only (typewriter reveal), so the
-                     library reuses its IncrementalParser and only diffs changed tokens to
-                     the DOM instead of rebuilding the markdown tree on every rAF frame. -->
-                  <SvelteMarkdown
-                    source={displayedText}
-                    streaming
-                    renderers={markdownRenderers}
-                    sanitizeUrl={markdownSanitizeUrl}
-                  />
-                </div>
-              </div>
-            </div>
+          {#if sess.statusCard}
+            <StatusCard card={sess.statusCard} />
           {/if}
 
           {#if sess.permissionQueue.length > 0}

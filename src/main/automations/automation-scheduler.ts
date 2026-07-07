@@ -1,6 +1,6 @@
 import { createLogger } from '../logger'
 import { claimDueAutomations } from './automations-store'
-import { triggerAutomationRun } from './automation-runner'
+import { hasActiveRun, triggerAutomationRun } from './automation-runner'
 
 const log = createLogger('automations', 'automation-scheduler.ts')
 
@@ -22,10 +22,13 @@ async function tick(): Promise<void> {
   if (ticking) return
   ticking = true
   try {
-    const due = await claimDueAutomations()
+    // Skip automations still running a previous fire: they keep their past-due
+    // nextRunAt and get claimed on the first tick after the run finishes,
+    // instead of stacking overlapping runs on the same working directory.
+    const due = await claimDueAutomations(new Date(), hasActiveRun)
     for (const a of due) {
       log.info(`firing scheduled automation ${a.id} ("${a.name}") trigger=${a.trigger.type}`)
-      void triggerAutomationRun(a)
+      triggerAutomationRun(a).catch((err) => log.error(`scheduled fire of ${a.id} failed: ${String(err)}`))
     }
   } catch (err: any) {
     log.error(`scheduler tick failed: ${String(err)}`)

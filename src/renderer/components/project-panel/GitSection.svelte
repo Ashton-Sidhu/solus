@@ -30,7 +30,6 @@
   import {
     worktreeProjectRoot,
     type IpcContext,
-    type WorktreeEntry,
   } from "../../../shared/types";
 
   interface Props {
@@ -361,12 +360,22 @@
   // an explicit second click before opening the companion in the main pane.
   let reviewing = $state(false);
   let reviewKey = $state<string | null>(null);
+  let reviewRunId = 0;
+
+  // The panel survives branch switches; a key latched for the previous branch
+  // would open that branch's guide. Reset so "View report" never crosses over.
+  $effect(() => {
+    void currentBranch;
+    reviewKey = null;
+  });
+
   let branchPickerOpen = $state(false);
   let branchTriggerEl: HTMLButtonElement | null = $state(null);
   let branchPickerRef: SearchablePickerList | null = $state(null);
-  let branches = $state<string[]>([]);
-  let worktrees = $state<WorktreeEntry[]>([]);
 
+  const branchRefs = $derived(gitStatus.refsFor(branchRepoRoot));
+  const branches = $derived(branchRefs.branches);
+  const worktrees = $derived(branchRefs.worktrees);
   const worktreeBranches = $derived(worktrees.map((wt) => wt.branch));
   const localBranchItems = $derived(
     branches.filter((branch) => !worktreeBranches.includes(branch)),
@@ -377,19 +386,11 @@
 
   $effect(() => {
     if (!branchPickerOpen || !branchRepoCtx) return;
-    void Promise.all([
-      window.solus.worktreeBranches(branchRepoCtx).catch(() => []),
-      window.solus.worktreeListProject(branchRepoCtx).catch(() => []),
-    ]).then(([nextBranches, nextWorktrees]) => {
-      branches = nextBranches;
-      worktrees = nextWorktrees;
-    });
+    void gitStatus.refreshRefs(branchRepoRoot, branchRepoCtx, { force: true });
   });
 
   $effect(() => {
     if (!branchPickerOpen) {
-      branches = [];
-      worktrees = [];
       return;
     }
     const onKeydown = (e: KeyboardEvent) => {
@@ -406,20 +407,32 @@
       return;
     }
     if (reviewing) return;
+    const runId = ++reviewRunId;
     reviewing = true;
     try {
       const gen = await window.solus.generateGuide(
         session.ctx,
         resolveReviewAgent(settings, agentContext),
       );
+      if (runId !== reviewRunId) return;
       reviewKey =
         gen?.key ??
         (await window.solus.getReviewContext(session.ctx))?.key ??
         null;
     } finally {
-      reviewing = false;
-      requestInputFocus();
+      if (runId === reviewRunId) {
+        reviewing = false;
+        requestInputFocus();
+      }
     }
+  }
+
+  function cancelReview() {
+    if (!reviewing) return;
+    reviewRunId += 1;
+    reviewing = false;
+    void window.solus.cancelGenerateGuide(session.ctx);
+    requestInputFocus();
   }
 
   function openBranchPicker() {
@@ -561,7 +574,20 @@
 
 {#snippet groupRow(group: ActionGroup)}
   <div class="row-wrap">
-    {#if group.secondary.length === 0}
+    {#if group.primary.key === "review" && reviewing}
+      <div class="split-row">
+        {@render menuButton(group.primary, true)}
+        <button
+          type="button"
+          class="split-caret is-danger"
+          aria-label="Cancel report generation"
+          title="Cancel report generation"
+          onclick={cancelReview}
+        >
+          <XIcon size={11} />
+        </button>
+      </div>
+    {:else if group.secondary.length === 0}
       {@render menuButton(group.primary, false)}
     {:else}
       <div class="split-row">
@@ -695,12 +721,15 @@
   .branch-row:hover .branch-row-icon {
     color: var(--solus-text-primary);
   }
+  /* The branch is the section's anchor — a constant half-step heavier than
+     the action rows beneath it. */
   .branch-row-name {
     min-width: 0;
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 500;
   }
   /* Trailing slot: stats sit in the right-hand icon column (aligned with the
      refresh button above and the Run section's action icons below). The copy
@@ -790,6 +819,13 @@
     background: var(--solus-accent-light);
     color: var(--solus-text-primary);
   }
+  .split-caret.is-danger {
+    color: var(--solus-status-error);
+  }
+  .split-caret.is-danger:hover {
+    background: var(--solus-status-error-bg);
+    color: var(--solus-status-error);
+  }
   .split-caret:focus-visible {
     outline: none;
     box-shadow: 0 0 0 0.125rem
@@ -864,7 +900,7 @@
   /* Primary: differentiate with accent ink, not a heavy fill */
   .menu-row.is-primary {
     color: var(--solus-text-primary);
-    font-weight: 600;
+    font-weight: 500;
   }
   .menu-row.is-primary .menu-icon {
     color: var(--solus-text-primary);

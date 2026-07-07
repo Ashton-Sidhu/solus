@@ -29,7 +29,7 @@ async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
 
 /** Resolve the `{ repo, provider }` pair PR-review handlers need. Throws with a
  *  user-facing message when the repo host isn't supported or auth is missing. */
-async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef; provider: Provider }> {
+export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef; provider: Provider }> {
   const cwd = ctx.session.projectPath || ctx.session.workingDirectory
   const repo = cwd ? await resolveRepoRef(cwd) : null
   if (!repo) throw new Error('This folder has no recognizable git remote to review PRs from.')

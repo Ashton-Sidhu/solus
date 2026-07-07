@@ -146,13 +146,45 @@ export function parseDiagram(json: string): DiagramDoc {
   if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
     throw new Error('Invalid diagram: missing nodes or edges arrays')
   }
-  normalizeNodes(parsed.nodes, true)
-  // Edges aren't normalized like nodes; strip any cardinality outside the
-  // supported set so the renderer only ever sees a known value.
-  for (const edge of parsed.edges) {
+  normalizeDoc(parsed, true)
+  return parsed
+}
+
+// Normalize one doc level (the root or a node's `detail`): repair anything
+// recoverable rather than throwing, because this also runs on persisted
+// content at load time — a throw there blanks the canvas.
+function normalizeDoc(doc: DiagramDoc, allowDetail: boolean): void {
+  // xyflow requires unique, non-empty node ids and crashes rendering on
+  // duplicates — keep the first occurrence, drop the rest. A non-string label
+  // would throw inside layout's width estimate, so coerce it.
+  const ids = new Set<string>()
+  doc.nodes = doc.nodes.filter((n) => {
+    if (!n || typeof n.id !== 'string' || !n.id || ids.has(n.id)) return false
+    ids.add(n.id)
+    if (typeof n.label !== 'string') n.label = ''
+    return true
+  })
+  // A parentId pointing at a node that doesn't exist would never resolve in
+  // xyflow's relative positioning — detach to top level.
+  for (const node of doc.nodes) {
+    if (node.parentId && !ids.has(node.parentId)) delete node.parentId
+  }
+  normalizeNodes(doc.nodes, allowDetail)
+  // Drop edges whose endpoints aren't declared nodes (they'd error in the
+  // renderer; mermaid export already skips them) and duplicate edge ids; strip
+  // any cardinality outside the supported set.
+  const edgeIds = new Set<string>()
+  doc.edges = doc.edges.filter((e) => {
+    if (!e || !ids.has(e.source) || !ids.has(e.target)) return false
+    if (typeof e.id === 'string' && e.id) {
+      if (edgeIds.has(e.id)) return false
+      edgeIds.add(e.id)
+    }
+    return true
+  })
+  for (const edge of doc.edges) {
     if (edge.cardinality && !VALID_CARDINALITY.has(edge.cardinality)) delete edge.cardinality
   }
-  return parsed
 }
 
 // Ids of nodes whose `parentId` closes a cycle (e.g. two groups each nested in
@@ -217,7 +249,9 @@ function normalizeNodes(nodes: DiagramNode[], allowDetail: boolean): void {
       delete node.detail
       continue
     }
-    normalizeNodes(node.detail.nodes, false)
+    // Full normalization, not just nodes — detail edges need the same
+    // dangling-ref and cardinality treatment as root edges.
+    normalizeDoc(node.detail, false)
   }
 }
 

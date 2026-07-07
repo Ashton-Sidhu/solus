@@ -1,113 +1,4 @@
 /* Revision dropdown */
-  .plan-revision-trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    flex-shrink: 0;
-    font-size: 0.6875rem;
-    padding: 0.125rem 0.5rem;
-    border-radius: 0.375rem;
-    border: 0.0625rem solid var(--solus-container-border);
-    color: var(--solus-text-secondary);
-    background: transparent;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      border-color var(--duration-quick) var(--ease-premium);
-  }
-  .plan-revision-trigger:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .plan-revision-panel-body {
-    min-width: 12.5rem;
-    border-radius: 0.625rem;
-    border: 0.0625rem solid var(--solus-popover-border);
-    background: var(--solus-popover-bg);
-    box-shadow: var(--solus-popover-shadow);
-    backdrop-filter: blur(1.25rem) saturate(1.1);
-    -webkit-backdrop-filter: blur(1.25rem) saturate(1.1);
-    overflow: hidden;
-    padding: 0.25rem;
-  }
-  .plan-revision-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.375rem 0.5625rem;
-    border-radius: 0.375rem;
-    text-align: left;
-    font-size: 0.75rem;
-    color: var(--solus-text-primary);
-    background: transparent;
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  .plan-revision-row:hover {
-    background: var(--solus-surface-hover);
-  }
-  .plan-revision-row--active {
-    background: var(--solus-accent-light);
-    color: var(--solus-accent);
-  }
-  .plan-revision-row--active:hover {
-    background: var(--solus-accent-soft);
-  }
-  .plan-revision-row__version {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .plan-revision-row__time {
-    flex: 1;
-    color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .plan-revision-row--active .plan-revision-row__time {
-    color: color-mix(
-      in srgb,
-      var(--solus-accent) 70%,
-      var(--solus-text-secondary)
-    );
-  }
-
-  /* Floating comment button */
-  .plan-floating-comment-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.6875rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    border-radius: 0.5rem;
-    background: var(--solus-popover-bg);
-    border: 0.0625rem solid var(--solus-popover-border);
-    color: var(--solus-accent);
-    box-shadow: var(--solus-popover-shadow);
-    backdrop-filter: blur(1.25rem);
-    -webkit-backdrop-filter: blur(1.25rem);
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      border-color var(--duration-quick) var(--ease-premium),
-      transform 100ms var(--ease-premium);
-  }
-  .plan-floating-comment-btn:hover {
-    background: var(--solus-accent);
-    color: #fff;
-    border-color: var(--solus-accent);
-    transform: translateY(-0.0625rem);
-  }
-  .plan-floating-comment-btn:active {
-    transform: translateY(0) scale(0.97);
-  }
-
   /* Comment form positioning — desktop: at selection, mobile: bottom sheet */
   .plan-comment-form-position {
     left: var(--cf-left);
@@ -116,51 +7,6 @@
   }
 
   /* Inline comment form */
-  .plan-inline-comment-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.5rem 0.625rem 0.5rem;
-    border-radius: 0.625rem;
-    border: 0.0625rem solid var(--solus-accent-border);
-    background: var(--solus-popover-bg);
-    box-shadow: var(--solus-popover-shadow);
-    backdrop-filter: blur(1.25rem);
-    -webkit-backdrop-filter: blur(1.25rem);
-  }
-  .plan-inline-comment-form__actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.375rem;
-  }
-  .plan-inline-comment-form__btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: none;
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      opacity var(--duration-quick) var(--ease-premium);
-  }
-  .plan-inline-comment-form__btn--ghost {
-    width: 1.5rem;
-    height: 1.5rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-  }
-  .plan-inline-comment-form__btn--ghost:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  .plan-action-bar-sleeve {
-    padding: 0.625rem 1.25rem;
-  }
-
   /* Rail width scales with the shell (container), not the viewport, so a narrow
      split pane gets a proportionally narrow rail instead of one sized off the
      full screen. The lower floor lets it shrink before crowding the editor. */
@@ -178,12 +24,6 @@
      open or closed — only the scrollbar slides out to the modal edge. */
   .plan-shell .plan-editor-scroll--no-rail {
     padding-right: var(--plan-rail-w);
-  }
-
-  .plan-upload-error {
-    padding: 0.25rem 0.75rem 0.375rem;
-    font-size: 0.6875rem;
-    color: var(--solus-error, #e55);
   }
 
   /* Soft pills */
@@ -441,18 +281,11 @@
       font-size: calc(1rem * var(--solus-font-scale, 1));
       line-height: 1.64;
     }
-    .plan-action-bar-sleeve {
-      padding: 0.375rem 0.75rem;
-    }
     /* Text fields read at the mobile minimum (16px) so they line up with the
        document body and iOS doesn't zoom the viewport when they're focused. */
     .plan-action-bar-sleeve .inp,
     .plan-inline-comment-form .inp {
       font-size: 1rem;
-    }
-    .plan-revision-trigger {
-      font-size: 0.625rem;
-      padding: 0.125rem 0.3125rem;
     }
     .plan-comment-form-position {
       left: 0 !important;
@@ -461,24 +294,12 @@
       width: 100% !important;
       padding: 0.5rem;
     }
-    .plan-inline-comment-form {
-      border-radius: 0.625rem 0.625rem 0 0;
-    }
-    .plan-floating-comment-btn kbd {
-      display: none;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .plan-revision-trigger,
-    .plan-revision-row,
-    .plan-floating-comment-btn,
-    .plan-inline-comment-form__btn,
     .plan-soft-pill {
       transition: none !important;
     }
-    .plan-floating-comment-btn:hover,
-    .plan-floating-comment-btn:active,
     .plan-soft-pill:active {
       transform: none !important;
     }

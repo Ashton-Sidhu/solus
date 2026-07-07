@@ -15,7 +15,7 @@ export const KEYBINDINGS = {
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
   'global.design-mode':       { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Design mode',              group: 'Compose' },
-  'global.toggle-mode':       { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Toggle editor / pill',     group: 'View' },
+  'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
@@ -142,6 +142,8 @@ export const KEYBINDINGS = {
 
   // ── Pull Requests ──────────────────────────────────────────────────────────
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
+  'prs.queue':                    { combo: { alt: true, code: 'KeyQ' },                    scope: 'prs',                label: 'Queue for merge',          group: 'Pull Requests' },
+  'prs.queueView':                { combo: { alt: true, code: 'KeyM' },                    scope: 'prs',                label: 'Open merge queue',         group: 'Pull Requests' },
 
   // ── Design annotation ──────────────────────────────────────────────────────
   'annotation.cancel':            { combo: { code: 'Escape' },                             scope: 'design-annotation',  label: 'Cancel / dismiss',         group: 'Annotation' },
@@ -169,6 +171,7 @@ export const KEYBINDINGS = {
   'diagram.send-to-back':         { combo: { mod: true, shift: true, code: 'BracketLeft' }, scope: 'diagram',            label: 'Send to back',             group: 'Canvas' },
   'diagram.bring-to-front':       { combo: { mod: true, shift: true, code: 'BracketRight' }, scope: 'diagram',           label: 'Bring to front',           group: 'Canvas' },
   'diagram.search':               { combo: { mod: true, code: 'KeyF' },                     scope: 'diagram',            label: 'Search nodes',             group: 'Canvas' },
+  'diagram.comments':             { combo: { alt: true, code: 'KeyC' },                     scope: 'diagram',            label: 'Toggle comments',          group: 'Canvas' },
   'diagram.dismiss':              { combo: { code: 'Escape' },                              scope: 'diagram',            label: 'Close search / drawer / focus', group: 'Canvas' },
   'diagram.zoom-in':              { combo: { code: 'PageUp' },                              scope: 'diagram',            label: 'Zoom in',                  group: 'Canvas' },
   'diagram.zoom-out':             { combo: { code: 'PageDown' },                            scope: 'diagram',            label: 'Zoom out',                 group: 'Canvas' },

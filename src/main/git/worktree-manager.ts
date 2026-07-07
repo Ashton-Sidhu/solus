@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'fs'
+import { existsSync, statSync } from 'fs'
+import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
 import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCommitPushResult, type GitSyncResult, type TabGitContext, type WorktreeEntry, type WorktreePRResult } from '../../shared/types'
 import { createLogger } from '../logger'
@@ -8,6 +9,9 @@ import { generatePullRequestDraft } from './pr-draft'
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
 
 const MAX_COMMIT_DIFF_CHARS = 20_000
+/** Cap the raw diff spawn so a huge working tree can't blow up memory; we slice to
+ *  MAX_COMMIT_DIFF_CHARS afterward anyway, and treat an oversized diff as empty. */
+const MAX_COMMIT_DIFF_BYTES = 2_000_000
 
 export const COMMIT_MESSAGE_SYSTEM_PROMPT = [
   'You write concise git commit messages.',
@@ -39,22 +43,60 @@ export function getHeadCommit(cwd: string): string | null {
   }
 }
 
-export function getDefaultBranch(cwd: string): string {
+// The default branch is fixed for a repo's lifetime, but resolving it can hit the
+// network: a repo not created by `git clone` has no local `origin/HEAD`, so we fall
+// back to `git ls-remote`. Cache per cwd — storing the in-flight promise dedupes
+// concurrent callers and the resolved value is reused for the process lifetime — so
+// the network probe happens at most once. Hot callers (computeGitProjectStatus on
+// every prompt dispatch / watcher fire / status refresh) then pay nothing.
+const defaultBranchCache = new Map<string, string | Promise<string>>()
+
+async function resolveDefaultBranch(cwd: string): Promise<string> {
+  try {
+    const ref = await runAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], cwd)
+    return ref.replace('origin/', '')
+  } catch {}
+  try {
+    // Lighter than `git remote show origin`: a single symref round-trip.
+    const symref = await runAsync('git', ['ls-remote', '--symref', 'origin', 'HEAD'], cwd)
+    const match = symref.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m)
+    if (match?.[1]) return match[1]
+  } catch {}
+  try {
+    await runAsync('git', ['rev-parse', '--verify', 'main'], cwd)
+    return 'main'
+  } catch {
+    return 'master'
+  }
+}
+
+export function getDefaultBranch(cwd: string): Promise<string> {
+  const cached = defaultBranchCache.get(cwd)
+  if (cached) return Promise.resolve(cached)
+  const pending = resolveDefaultBranch(cwd).then((branch) => {
+    defaultBranchCache.set(cwd, branch)
+    return branch
+  })
+  defaultBranchCache.set(cwd, pending)
+  return pending
+}
+
+/** Synchronous, local-only default-branch resolution for `restoreWorktree`, which
+ *  returns a plain value by contract. Reuses a warm cache entry when the async
+ *  resolver already ran for this cwd; otherwise reads LOCAL refs only (never the
+ *  network) and falls back to main/master. */
+function getDefaultBranchLocalSync(cwd: string): string {
+  const cached = defaultBranchCache.get(cwd)
+  if (typeof cached === 'string') return cached
   try {
     const ref = git(['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], cwd)
     return ref.replace('origin/', '')
+  } catch {}
+  try {
+    git(['rev-parse', '--verify', 'main'], cwd)
+    return 'main'
   } catch {
-    try {
-      const remote = git(['remote', 'show', 'origin'], cwd)
-      const match = remote.match(/HEAD branch:\s*(\S+)/)
-      if (match?.[1] && match[1] !== '(unknown)') return match[1]
-    } catch {}
-    try {
-      git(['rev-parse', '--verify', 'main'], cwd)
-      return 'main'
-    } catch {
-      return 'master'
-    }
+    return 'master'
   }
 }
 
@@ -118,48 +160,59 @@ export async function createWorktree(
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
 ): Promise<TabGitContext> {
-  const targetBranch = baseBranch || getDefaultBranch(projectPath)
+  const targetBranch = baseBranch || await getDefaultBranch(projectPath)
   const branch = await resolveBranchName(prompt, options)
   const worktreePath = path.join(projectPath, SOLUS_WORKTREE_DIR, branch.replace(/\//g, '-'))
 
   log.info(`Creating worktree: ${branch} at ${worktreePath}`)
-  git(['worktree', 'add', '-b', branch, worktreePath, targetBranch], projectPath)
-  copyIncludedWorktreeFiles(projectPath, worktreePath)
+  await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, targetBranch], projectPath)
+  await copyIncludedWorktreeFiles(projectPath, worktreePath)
 
   return { branch, targetBranch, worktreePath }
 }
 
-function copyIncludedWorktreeFiles(projectPath: string, worktreePath: string): void {
+async function copyIncludedWorktreeFiles(projectPath: string, worktreePath: string): Promise<void> {
   const includePath = path.join(projectPath, '.worktreeinclude')
   if (!existsSync(includePath)) return
 
-  const ignoredFiles = git(['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], projectPath)
+  const ignoredFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], projectPath))
     .split('\0')
     .filter(Boolean)
   if (ignoredFiles.length === 0) return
 
   const ignoredFileSet = new Set(ignoredFiles)
-  const matchedFiles = git(['ls-files', '--others', '--ignored', `--exclude-from=${includePath}`, '-z'], projectPath)
+  const matchedFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', `--exclude-from=${includePath}`, '-z'], projectPath))
     .split('\0')
     .filter((relativePath) => relativePath && ignoredFileSet.has(relativePath))
 
   for (const relativePath of matchedFiles) {
     const source = path.join(projectPath, relativePath)
     const target = path.join(worktreePath, relativePath)
-    if (!statSync(source).isFile()) continue
+    if (!(await fsStat(source)).isFile()) continue
 
-    mkdirSync(path.dirname(target), { recursive: true })
-    copyFileSync(source, target)
+    await mkdir(path.dirname(target), { recursive: true })
+    await copyFile(source, target)
   }
 }
 
-export function buildCommitMessagePrompt(cwd: string): string {
-  const status = git(['status', '--porcelain'], cwd)
-  const stat = git(['diff', '--stat'], cwd)
-  const stagedStat = git(['diff', '--cached', '--stat'], cwd)
+/** A full unified diff can be enormous; cap the buffer and treat an oversized diff
+ *  as empty (status + --stat still inform the message) rather than throwing. */
+async function safeCommitDiff(args: string[], cwd: string): Promise<string> {
+  try {
+    return await runAsync('git', args, cwd, { maxBuffer: MAX_COMMIT_DIFF_BYTES })
+  } catch (err: any) {
+    if (err?.code === 'ENOBUFS') return ''
+    throw err
+  }
+}
+
+export async function buildCommitMessagePrompt(cwd: string): Promise<string> {
+  const status = await runAsync('git', ['status', '--porcelain'], cwd)
+  const stat = await runAsync('git', ['diff', '--stat'], cwd)
+  const stagedStat = await runAsync('git', ['diff', '--cached', '--stat'], cwd)
   const diff = [
-    git(['diff', '--no-ext-diff', '--unified=3'], cwd),
-    git(['diff', '--cached', '--no-ext-diff', '--unified=3'], cwd),
+    await safeCommitDiff(['diff', '--no-ext-diff', '--unified=3'], cwd),
+    await safeCommitDiff(['diff', '--cached', '--no-ext-diff', '--unified=3'], cwd),
   ].filter(Boolean).join('\n\n').slice(0, MAX_COMMIT_DIFF_CHARS)
 
   return [
@@ -306,13 +359,27 @@ export async function syncWithOrigin(
   }
 }
 
-export async function getExistingPR(branch: string, cwd: string): Promise<string | null> {
-  try {
-    const url = await runAsync('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], cwd, { timeout: 10_000 })
-    return url || null
-  } catch {
-    return null
-  }
+const EXISTING_PR_TTL_MS = 60_000
+const existingPrCache = new Map<string, { at: number; url: Promise<string | null> }>()
+
+/** `gh pr view` is a network call fired from computeGitProjectStatus for any
+ *  non-default branch — i.e. per watcher fire / edit. TTL-cache the result per
+ *  (cwd, branch) for both hits and misses, and share the in-flight promise so
+ *  concurrent status refreshes collapse to a single spawn. */
+export function getExistingPR(branch: string, cwd: string): Promise<string | null> {
+  const key = `${cwd}\0${branch}`
+  const cached = existingPrCache.get(key)
+  if (cached && Date.now() - cached.at < EXISTING_PR_TTL_MS) return cached.url
+  const url = (async () => {
+    try {
+      const result = await runAsync('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], cwd, { timeout: 10_000 })
+      return result || null
+    } catch {
+      return null
+    }
+  })()
+  existingPrCache.set(key, { at: Date.now(), url })
+  return url
 }
 
 export function restoreWorktree(worktreePath: string, _options?: { includePr?: boolean }): TabGitContext | null {
@@ -323,7 +390,7 @@ export function restoreWorktree(worktreePath: string, _options?: { includePr?: b
     if (!branch) return null
 
     const projectPath = worktreeProjectRoot(worktreePath)
-    const targetBranch = getDefaultBranch(projectPath)
+    const targetBranch = getDefaultBranchLocalSync(projectPath)
     log.info(`Restored worktree: ${branch} at ${worktreePath}`)
     return { branch, targetBranch, worktreePath }
   } catch (e) {
@@ -334,8 +401,19 @@ export function restoreWorktree(worktreePath: string, _options?: { includePr?: b
 
 export function listBranches(projectPath: string): string[] {
   try {
-    const output = git(['branch', '--format=%(refname:short)'], projectPath)
-    return output.split('\n').filter(Boolean)
+    const output = git(['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'], projectPath)
+    const branches = new Set<string>()
+    for (const ref of output.split('\n').filter(Boolean)) {
+      if (ref.startsWith('refs/heads/')) {
+        branches.add(ref.slice('refs/heads/'.length))
+        continue
+      }
+      if (!ref.startsWith('refs/remotes/')) continue
+      const remoteBranch = ref.slice('refs/remotes/'.length)
+      if (remoteBranch.endsWith('/HEAD')) continue
+      branches.add(remoteBranch.replace(/^[^/]+\//, ''))
+    }
+    return Array.from(branches)
   } catch {
     return []
   }
@@ -380,7 +458,7 @@ export async function fetchAndCheckoutPr(
   } else {
     log.info(`Creating PR worktree ${branch} at ${worktreePath}`)
     git(['worktree', 'add', '-b', branch, worktreePath, 'FETCH_HEAD'], projectPath)
-    copyIncludedWorktreeFiles(projectPath, worktreePath)
+    await copyIncludedWorktreeFiles(projectPath, worktreePath)
   }
 
   // Ensure the base ref is present locally, then anchor the diff at the divergence point.

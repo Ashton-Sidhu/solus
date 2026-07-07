@@ -9,14 +9,19 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
+  import { formatDiffInlineComments } from "../../contexts/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
+  import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
+  import PendingReviewTray from "../pr-review/PendingReviewTray.svelte";
   import GuideSurface from "./GuideSurface.svelte";
   import { GuideLoader } from "./lib/guide-loader.svelte";
+  import { ReviewDrafts } from "./lib/review-drafts.svelte";
 
   // The standalone guided-review surface (branch "Review changes" + session
-  // walkthrough): own header + chrome over a read-only GuideView. The PR-review
-  // host renders its own chrome and uses GuideLoader/GuideSurface directly.
+  // walkthrough): own header + chrome over a GuideView whose draft comments
+  // submit back to the agent as feedback. The PR-review host renders its own
+  // chrome and uses GuideLoader/GuideSurface directly.
   let {
     guideKey,
     scope = "branch",
@@ -47,11 +52,33 @@
     void guideKey;
     void loader.load(false);
   });
+
+  // Inline draft comments on the guide's diff cards. Unlike the PR review
+  // surface (drafts → GitHub review), these submit back to the agent as
+  // feedback on the change, closing the review → fix loop.
+  const reviewDrafts = new ReviewDrafts({
+    getCtx: () => session.ctx,
+    getKey: () => guideKey,
+  });
+  $effect(() => {
+    void guideKey;
+    void reviewDrafts.load();
+  });
+
+  function sendToAgent() {
+    if (reviewDrafts.drafts.length === 0) return;
+    session.sendMessage(
+      `Please address this review feedback on the current changes:\n\n` +
+        `Inline comments:\n${formatDiffInlineComments(reviewDrafts.diffComments)}`,
+    );
+    reviewDrafts.clear();
+    requestInputFocus();
+  }
 </script>
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   <header
-    class="flex h-[var(--solus-chrome-row-h,2.9375rem)] shrink-0 items-center justify-between border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-4"
+    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <span class="text-[0.8125rem] font-semibold text-(--solus-text-primary)"
       >{scope === "session" ? "Session walkthrough" : "Review guide"}</span
@@ -90,5 +117,19 @@
     </div>
   </header>
 
-  <GuideSurface {loader} />
+  <GuideSurface
+    {loader}
+    comments={reviewDrafts.diffComments}
+    onCommentSave={(c) => reviewDrafts.save(c)}
+    onCommentDelete={(id) => reviewDrafts.remove(id)}
+  />
+
+  {#if reviewDrafts.drafts.length > 0}
+    <PendingReviewTray
+      drafts={reviewDrafts.drafts}
+      submitLabel="Send to agent"
+      onSubmit={sendToAgent}
+      onRemove={(id) => reviewDrafts.remove(id)}
+    />
+  {/if}
 </section>

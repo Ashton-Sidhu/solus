@@ -11,6 +11,7 @@
       title: string;
       provider: AgentId;
       cwd: string;
+      verb?: "Started" | "Prompted" | "Stopped";
     };
     skipMotion?: boolean;
   }
@@ -34,7 +35,7 @@
 
 <ConversationRefCard
   title={ref.title}
-  subtitle={agentLabel(ref.provider)}
+  subtitle={`${ref.verb ?? "Started"} · ${agentLabel(ref.provider)}`}
   ariaLabel={`Open session: ${ref.title}`}
   onOpen={open}
   {skipMotion}

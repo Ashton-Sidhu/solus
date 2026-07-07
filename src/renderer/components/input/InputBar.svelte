@@ -686,7 +686,11 @@
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}
     <div style="padding:0.75rem 0" style:display={showWaveform ? null : "none"}>
-      <WaveformVisualizer rmsRef={voice.rmsRef} color="var(--solus-accent)" />
+      <WaveformVisualizer
+        rmsRef={voice.rmsRef}
+        color="var(--solus-accent)"
+        active={showWaveform}
+      />
     </div>
   {/if}
   <div style:display={showWaveform ? "none" : null}>

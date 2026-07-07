@@ -138,6 +138,8 @@ export interface SystemPromptOptions {
   general: boolean
   /** App-wide user instructions appended after Solus' built-in instructions. */
   extraInstructions?: string
+  /** Instructions scoped to the model currently running, appended after the app-wide block. */
+  modelInstructions?: string
   /** Codex-only plan mode. */
   planMode?: boolean
   /** When set, appends a PR-review context hint (the session's chat tab reviews this PR). */
@@ -168,6 +170,8 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
   }
   const extra = userInstructionBlock('User extra instructions:', opts.extraInstructions ?? '')
   if (extra) parts.push(extra)
+  const modelExtra = userInstructionBlock('Model-specific instructions:', opts.modelInstructions ?? '')
+  if (modelExtra) parts.push(modelExtra)
   if (opts.prReview) parts.push(prReviewGuidance(opts.prReview))
   return parts.join('\n\n')
 }

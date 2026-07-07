@@ -8,9 +8,9 @@
   import Dropdown from "../ui/Dropdown.svelte";
   import DropdownItem from "../ui/DropdownItem.svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { toolsStore } from "../../contexts/tools.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { onMount } from "svelte";
-  import type { DetectedEditor, DetectedTerminal } from "../../../shared/types";
 
   interface Props {
     searchQuery?: string;
@@ -19,20 +19,15 @@
   let { searchQuery = "" }: Props = $props();
 
   const theme = getSettingsContext();
+  const tools = toolsStore;
 
-  let detectedEditors = $state<DetectedEditor[]>([]);
-  let detectedTerminals = $state<DetectedTerminal[]>([]);
   let editorOpen = $state(false);
   let terminalOpen = $state(false);
   let editorTriggerEl: HTMLButtonElement | null = $state(null);
   let terminalTriggerEl: HTMLButtonElement | null = $state(null);
 
   onMount(async () => {
-    if (typeof window.solus?.detectEditors === "function") {
-      const result = await window.solus.detectEditors();
-      detectedEditors = result.editors;
-      detectedTerminals = result.terminals;
-    }
+    await tools.loadDetectedTools();
   });
 
   function selectEditor(editorId: string) {
@@ -71,7 +66,7 @@
 </script>
 
 <div class="flex flex-col">
-  {#if isVisible("code-editor") && detectedEditors.length > 0}
+  {#if isVisible("code-editor") && tools.detectedEditors.length > 0}
     <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
       <div class="flex items-center gap-3 min-w-0">
         <CodeIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
@@ -89,12 +84,12 @@
           onclick={() => { editorOpen = !editorOpen; terminalOpen = false }}
           class={dropdownTriggerClass}
         >
-          <span class="max-w-28 truncate">{detectedEditors.find((e) => e.id === theme.defaultEditor)?.name ?? "None"}</span>
+          <span class="max-w-28 truncate">{tools.detectedEditors.find((e) => e.id === theme.defaultEditor)?.name ?? "None"}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
         </button>
         <Dropdown bind:open={editorOpen} triggerEl={editorTriggerEl} align="top" anchor="right" width={160}>
           <div class="py-1">
-            {#each detectedEditors as editor (editor.id)}
+            {#each tools.detectedEditors as editor (editor.id)}
               <DropdownItem selected={(theme.defaultEditor ?? "") === editor.id} onclick={() => selectEditor(editor.id)}>
                 <span class="truncate">{editor.name}</span>
                 {#if (theme.defaultEditor ?? "") === editor.id}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
@@ -106,7 +101,7 @@
     </div>
   {/if}
 
-  {#if isVisible("terminal") && detectedTerminals.length > 0}
+  {#if isVisible("terminal") && tools.detectedTerminals.length > 0}
     <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
       <div class="flex items-center gap-3 min-w-0">
         <TerminalWindowIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
@@ -124,12 +119,12 @@
           onclick={() => { terminalOpen = !terminalOpen; editorOpen = false }}
           class={dropdownTriggerClass}
         >
-          <span class="max-w-28 truncate">{detectedTerminals.find((t) => t.id === (theme.defaultTerminal ?? "default-terminal"))?.name ?? "Default"}</span>
+          <span class="max-w-28 truncate">{tools.detectedTerminals.find((t) => t.id === (theme.defaultTerminal ?? "default-terminal"))?.name ?? "Default"}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
         </button>
         <Dropdown bind:open={terminalOpen} triggerEl={terminalTriggerEl} align="top" anchor="right" width={160}>
           <div class="py-1">
-            {#each detectedTerminals as terminal (terminal.id)}
+            {#each tools.detectedTerminals as terminal (terminal.id)}
               <DropdownItem selected={(theme.defaultTerminal ?? "default-terminal") === terminal.id} onclick={() => selectTerminal(terminal.id)}>
                 <span class="truncate">{terminal.name}</span>
                 {#if (theme.defaultTerminal ?? "default-terminal") === terminal.id}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}

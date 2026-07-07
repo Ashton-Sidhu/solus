@@ -1,10 +1,12 @@
-import type { BrowserWindow } from 'electron'
 import type { SolusServer } from '../server'
 import type { AppGlobalShortcuts, SetAppGlobalShortcutsResult } from '../../../shared/types'
 
 export interface WindowDeps {
-  getMainWindow(): BrowserWindow | null
-  applyViewMode(mode: 'pill' | 'editor'): void
+  /** Whether any Solus window (pill or editor) is currently visible. */
+  isAppVisible(): boolean
+  /** Show the given mode's window (toggles when omitted), hiding the other
+   *  unless both were already visible. */
+  switchMode(mode?: 'pill' | 'editor'): void
   /** Current OS summon shortcuts (desktop-only). */
   getAppGlobalShortcuts(): AppGlobalShortcuts
   /** Apply + persist OS summon shortcuts live; returns accelerators that failed. */
@@ -15,12 +17,12 @@ export interface WindowDeps {
 
 export function registerWindowHandlers(server: SolusServer, deps: WindowDeps): void {
   server.register('isVisible', () => {
-    return deps.getMainWindow()?.isVisible() ?? false
+    return deps.isAppVisible()
   })
 
-  server.register('notifyViewMode', (args) => {
-    const [mode] = args as ['pill' | 'editor']
-    deps.applyViewMode(mode)
+  server.register('switchMode', (args) => {
+    const [mode] = args as ['pill' | 'editor' | undefined]
+    deps.switchMode(mode)
   })
 
   server.register('getAppGlobalShortcuts', () => {

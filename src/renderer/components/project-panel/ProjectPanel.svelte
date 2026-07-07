@@ -27,6 +27,8 @@
   import { sessionWorks } from "./lib/session-works";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { tabGitContextFromStatus } from "../../../shared/types";
+  import { getRunStore } from "../../contexts/run.store.svelte";
 
   interface Props {
     open?: boolean;
@@ -36,6 +38,7 @@
   let { open = true, width, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
+  const runs = getRunStore();
   const settings = getSettingsContext();
   const gitStatus = getGitStatusStore();
   const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
@@ -48,7 +51,6 @@
   const gitCwd = $derived(gitCtx?.worktreePath ?? cwd);
   const runCwd = $derived(gitCtx?.worktreePath ?? cwd);
   const activeTabId = $derived(session.activeTabId);
-  const git = $derived(gitStatus.statusFor(gitCwd));
   const projectName = $derived(() => {
     const dir = cwd?.replace(/\/$/, "");
     if (!dir || dir === "~") return "~";
@@ -72,9 +74,9 @@
   // so the panel shows what runs for this project. Reloaded whenever the panel
   // opens so agent-created automations appear without a manual refresh.
   const automationsStore = session.automationsStore;
-  const automationScopeRoots = $derived(
-    [...new Set([gitCwd, cwd].filter(Boolean))] as string[],
-  );
+  const automationScopeRoots = $derived([
+    ...new Set([gitCwd, cwd].filter(Boolean)),
+  ] as string[]);
   // A glanceable status board, not the full catalog: only automations that need
   // attention right now (running, failed, pinned, soonest-scheduled) surface here.
   const automationBoard = $derived(
@@ -128,6 +130,18 @@
       gitStatus.refresh(gitCwd, { force: true }),
       new Promise((resolve) => setTimeout(resolve, 600)),
     ]);
+    if (ok) {
+      const refreshedStatus = gitStatus.statusFor(gitCwd);
+      const refreshedGitCtx = tabGitContextFromStatus(refreshedStatus);
+      if (activeSession && !activeSession.gitContext?.worktreePath) {
+        activeSession.gitContext = refreshedGitCtx;
+      } else if (
+        !activeSession &&
+        !session.globalDefaults.gitContext?.worktreePath
+      ) {
+        session.globalDefaults.gitContext = refreshedGitCtx;
+      }
+    }
     refreshState = ok ? "success" : "error";
     refreshResetTimer = setTimeout(() => {
       refreshState = "idle";
@@ -149,7 +163,7 @@
 
   function newTask() {
     if (!gitCwd) return;
-    session.ui.openTaskComposer(gitCwd);
+    session.ui.openTasks();
     requestInputFocus();
   }
 </script>
@@ -223,6 +237,7 @@
   actionTooltip={`Close project panel (${comboHint("global.toggle-project-panel")})`}
   actionAriaLabel="Close project panel"
   background="color-mix(in srgb, var(--solus-container-bg) 90%, color-mix(in srgb, var(--solus-input-pill-bg) 70%, var(--solus-surface-primary)) 10%)"
+  headerTopPadding="compact"
   {headerActions}
 >
   <div class="project-sections">
@@ -234,13 +249,15 @@
     >
       <GitSection cwd={gitCwd} tabId={activeTabId} onOpenFiles={openFiles} />
     </PanelSection>
-    <PanelSection
-      title="Run"
-      collapsed={settings.projectPanelCollapsed.run}
-      onToggle={() => toggleSection("run")}
-    >
-      <RunSection cwd={runCwd} onConfigure={openSettings} />
-    </PanelSection>
+    {#if runs.runsFor(runCwd)?.length > 0}
+      <PanelSection
+        title="Run"
+        collapsed={settings.projectPanelCollapsed.run}
+        onToggle={() => toggleSection("run")}
+      >
+        <RunSection cwd={runCwd} onConfigure={openSettings} />
+      </PanelSection>
+    {/if}
     {#if sessionWorkItems.length > 0}
       <PanelSection
         title="Works"
@@ -275,8 +292,6 @@
     --project-icon-blue: oklch(0.62 0.18 252);
     --project-icon-green: oklch(0.65 0.16 148);
     --project-icon-amber: oklch(0.74 0.17 75);
-    --project-icon-red: oklch(0.62 0.2 25);
-    --project-icon-slate: oklch(0.58 0.04 255);
     display: flex;
     flex: 1;
     min-height: 0;
@@ -290,8 +305,11 @@
     justify-content: center;
     border: none;
     background: transparent;
-    color: color-mix(in srgb, var(--project-icon-slate) 82%, var(--solus-text-tertiary));
+    color: var(--solus-text-tertiary);
     cursor: pointer;
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease;
   }
 
   .panel-header-btn {
@@ -309,8 +327,12 @@
 
   .panel-header-btn:hover,
   .tiny-icon:hover {
-    color: var(--project-icon-blue);
-    background: color-mix(in srgb, var(--project-icon-blue) 10%, transparent);
+    color: var(--solus-text-primary);
+    background: color-mix(in srgb, var(--solus-accent) 7%, transparent);
+  }
+  .panel-header-btn:active,
+  .tiny-icon:active {
+    background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
   }
 
   .panel-header-btn:focus-visible,

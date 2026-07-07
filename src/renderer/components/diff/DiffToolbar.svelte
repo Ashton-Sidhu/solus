@@ -490,7 +490,11 @@
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    padding-inline: 0.75rem;
+    padding-right: 0.75rem;
+    /* Left padding clears the macOS traffic lights when this toolbar is the
+       leftmost chrome (maximized diff pane); collapses to the normal 0.75rem
+       otherwise and off-mac (lead inset is 0 there). */
+    padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px));
     /* In the editor's secondary pane the toolbar shares the tab strip's chrome
        row — match its height and seam so they read as one continuous bar. */
     height: var(--solus-chrome-row-h, var(--solus-tap-target-lg));

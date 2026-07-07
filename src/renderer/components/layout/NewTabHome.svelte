@@ -1,16 +1,8 @@
 <script lang="ts" module>
-  import type {
-    RecentProject,
-    SessionMeta,
-    WorktreeEntry,
-  } from "../../../shared/types";
-
-  let _prefetchedProjects: Promise<RecentProject[]> | null = null;
-  let _cacheVersion = $state(0);
+  import { projectsStore } from "../../contexts/projects.store.svelte";
 
   export function invalidateHomeCache(): void {
-    _prefetchedProjects = null;
-    _cacheVersion++;
+    projectsStore.invalidateRecentProjects();
   }
 </script>
 
@@ -29,18 +21,27 @@
     ArrowSquareInIcon,
   } from "phosphor-svelte";
   import { untrack } from "svelte";
+  import { getGitStatusStore } from "../../contexts/git-status.store.svelte";
+  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
   import { abbreviateHome } from "../../lib/paths";
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
   import {
     formatBranchDisplayName,
     sessionEnvironment,
   } from "../../lib/git-context";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import type { Tab, Automation } from "../../../shared/types";
+  import type {
+    Tab,
+    Automation,
+    RecentProject,
+    SessionMeta,
+  } from "../../../shared/types";
+  import { worktreeProjectRoot } from "../../../shared/types";
   import type { Task } from "../../../shared/task-types";
   import {
     recentAutomationActivity,
@@ -65,6 +66,7 @@
   let { tab }: Props = $props();
 
   const session = getWorkspaceContext();
+  const gitStatus = getGitStatusStore();
   const windowCtx = getWindowContext();
   const sess = $derived(tab ? session.sessionFor(tab.id) : undefined);
   const isEditorMode = $derived(
@@ -73,18 +75,24 @@
   const isMobile = $derived(runtime.isMobileViewport);
   // On laptop-width screens, trim the recent-sessions list to reclaim vertical
   // space — reuse the app's 1800px laptop/desktop cutoff (see InputBarRow).
-  const isLaptopWidth = $derived(windowCtx.workAreaWidth < 1800);
 
-  let projectsLoaded = $state(false);
   let sessionsLoaded = $state(false);
-  let projects = $state<RecentProject[]>([]);
-  let sessions = $state<SessionMeta[]>([]);
-  let worktrees = $state<WorktreeEntry[]>([]);
   let worktreesLoaded = $state(false);
+  let sessionsLoadSeq = 0;
+  const projectMetadata = projectsStore;
+  const projects = $derived(projectMetadata.recentProjects.slice(0, 3));
+  const projectsLoaded = $derived(projectMetadata.recentProjectsLoaded);
+  const recentSessions = createSessionHistoryStore();
+  const sessions = $derived(recentSessions.sessions);
 
   const currentDir = $derived(
     sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
   );
+  const projectRoot = $derived(
+    currentDir && currentDir !== "~" ? worktreeProjectRoot(currentDir) : null,
+  );
+  const gitRefs = $derived(gitStatus.refsFor(projectRoot));
+  const worktrees = $derived(gitRefs.worktrees);
   // One environment model so the hero matches the sidebar/panel. No live status
   // needed here — the hero is about identity (branch name) and worktree intent.
   const env = $derived(
@@ -142,67 +150,59 @@
 
   const visibleWorktrees = $derived(worktrees.slice(0, 3));
 
+  // Every empty tab mounts its own NewTabHome (hidden ones via display:none still
+  // run their effects), so all the home fetches below are gated on isActiveTab:
+  // an inactive instance does nothing, and re-fetches when its tab is activated.
+  // Loaded flags start false, so a just-activated home shows its skeleton rather
+  // than flashing empty while the first fetch resolves.
   $effect(() => {
-    void _cacheVersion;
-    if (!_prefetchedProjects) {
-      _prefetchedProjects = window.solus.listRecentProjects().catch(() => {
-        _prefetchedProjects = null;
-        return [] as RecentProject[];
-      });
-    }
-    _prefetchedProjects.then((p) => {
-      projects = p.slice(0, 3);
-      projectsLoaded = true;
+    if (!isActiveTab) return;
+    void projectMetadata.recentVersion;
+    untrack(() => {
+      void projectMetadata.loadRecentProjects();
     });
   });
 
   // Recent sessions for the launch-target directory — refetches whenever the
   // target cwd changes so the list reflects where the next session will run.
   $effect(() => {
-    void _cacheVersion;
+    if (!isActiveTab) return;
+    const cacheVersion = projectMetadata.recentVersion;
     const dir = currentDir;
     if (!dir || dir === "~") {
-      sessions = [];
+      sessionsLoadSeq++;
+      recentSessions.cancel({ clear: true });
       sessionsLoaded = true;
       return;
     }
+    const seq = ++sessionsLoadSeq;
     sessionsLoaded = false;
-    window.solus
-      .listSessions(dir)
-      .then((list) => {
-        if (currentDir !== dir) return;
-        sessions = [...list].sort(
-          (a, b) =>
-            new Date(b.lastTimestamp).getTime() -
-            new Date(a.lastTimestamp).getTime(),
-        );
-        sessionsLoaded = true;
+    const ctx = untrack(() => session.ctxForDirectory(dir));
+    void recentSessions
+      .load({
+        sources: sessionHistorySourcesFromRoots([dir]),
+        ctx,
+        scopeKey: `home:${cacheVersion}:${dir}`,
       })
-      .catch(() => {
-        if (currentDir !== dir) return;
-        sessions = [];
+      .finally(() => {
+        if (seq !== sessionsLoadSeq || currentDir !== dir) return;
         sessionsLoaded = true;
       });
   });
 
   $effect(() => {
-    if (currentDir && currentDir !== "~") {
-      const dir = currentDir;
-      const ctx = untrack(() => session.ctxForDirectory(dir));
-      window.solus
-        .worktreeListProject(ctx)
-        .then((wts) => {
-          worktrees = wts;
-          worktreesLoaded = true;
-        })
-        .catch(() => {
-          worktrees = [];
-          worktreesLoaded = true;
-        });
-    } else {
-      worktrees = [];
+    if (!isActiveTab) return;
+    if (!projectRoot) {
       worktreesLoaded = true;
+      return;
     }
+    worktreesLoaded = false;
+    const root = projectRoot;
+    const ctx = untrack(() => session.ctxForDirectory(root));
+    gitStatus.refreshRefs(root, ctx).finally(() => {
+      if (projectRoot !== root) return;
+      worktreesLoaded = true;
+    });
   });
 
   // ── Control hub: automations + tasks ──
@@ -210,18 +210,21 @@
   const tasksStore = session.tasksStore;
 
   $effect(() => {
+    if (!isActiveTab) return;
     void automationsStore.loadAll();
   });
 
   const automationActivity = $derived(
-    recentAutomationActivity(automationsStore.items, 4),
+    recentAutomationActivity(automationsStore.items, 3),
   );
 
   // Lazily pull run history for the shown automations so each row can preview
   // its latest output — the whole reason they're surfaced ("what did it do?").
   $effect(() => {
+    if (!isActiveTab) return;
     for (const a of automationActivity) {
-      if (!automationsStore.runs.has(a.id)) void automationsStore.loadRuns(a.id);
+      if (!automationsStore.runs.has(a.id))
+        void automationsStore.loadRuns(a.id);
     }
   });
 
@@ -233,6 +236,7 @@
   // Tasks for the launch-target directory. The store is project-scoped and
   // shared, so reads are guarded on cwd to never render a stale project.
   $effect(() => {
+    if (!isActiveTab) return;
     const dir = currentDir;
     if (dir && dir !== "~") void tasksStore.load(dir).catch(() => {});
   });
@@ -264,10 +268,7 @@
   const anyLoaded = $derived(projectsLoaded || sessionsLoaded);
   const totalItems = $derived(projects.length + visibleSessions.length);
   const hasHomeItems = $derived(
-    totalItems > 0 ||
-      visibleWorktrees.length > 0 ||
-      hasAutomations ||
-      hasTasks,
+    totalItems > 0 || visibleWorktrees.length > 0 || hasAutomations || hasTasks,
   );
   const showEmptyHome = $derived(allLoaded && worktreesLoaded && !hasHomeItems);
 
@@ -576,7 +577,7 @@
       weight="fill"
       class="shrink-0 text-(--solus-status-error)"
     />
-  {:else if a.lastRunStatus === "succeeded"}
+  {:else if a.lastRunStatus === "succeeded" || a.lastRunStatus === "dispatched"}
     <CheckCircleIcon
       size={13}
       weight="fill"
@@ -614,7 +615,8 @@
         </span>
       </div>
       <div
-        class="truncate text-[0.6875rem] sm:text-[0.625rem] mt-0.5 {a.lastRunStatus === 'failed'
+        class="truncate text-[0.6875rem] sm:text-[0.625rem] mt-0.5 {a.lastRunStatus ===
+        'failed'
           ? 'text-(--solus-status-error)'
           : 'text-(--solus-text-tertiary)'}"
       >
@@ -682,7 +684,8 @@
       >
         {#if t.priority}<span class="uppercase tracking-wide font-medium"
             >{t.priority}</span
-          > · {/if}{STATUS_META[t.status].label}
+          > ·
+        {/if}{STATUS_META[t.status].label}
       </span>
     </div>
     <ArrowSquareInIcon
@@ -764,8 +767,9 @@
                 {formatTimeAgo(meta.lastTimestamp)}
               </div>
             </div>
-            <Kbd variant="standalone" class="shrink-0 mt-0.5 hidden sm:inline-flex"
-              >⌥⇧{shortcut}</Kbd
+            <Kbd
+              variant="standalone"
+              class="shrink-0 mt-0.5 hidden sm:inline-flex">⌥⇧{shortcut}</Kbd
             >
           </button>
         {/each}
@@ -855,7 +859,8 @@
             >
               {proj.folderName}
             </span>
-            <Kbd variant="standalone" class="ml-auto shrink-0">⌥⇧{shortcut}</Kbd>
+            <Kbd variant="standalone" class="ml-auto shrink-0">⌥⇧{shortcut}</Kbd
+            >
           </div>
           <div
             class="text-[0.6875rem] font-mono truncate text-(--solus-text-tertiary)"

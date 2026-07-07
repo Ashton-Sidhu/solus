@@ -10,7 +10,9 @@ import { WorksStore } from './works.store.svelte'
 import { AutomationsStore } from './automations.store.svelte'
 import { TasksStore } from './tasks.store.svelte'
 import { PrsStore } from './prs.store.svelte'
+import { MergeQueueStore } from './merge-queue.store.svelte'
 import { type Task } from '../../shared/task-types'
+import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from './toast.store.svelte'
 import { PaneViewStore, type SplitOpenOptions } from './pane-view.store.svelte'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
@@ -39,16 +41,17 @@ import { disposeGitActions } from '../lib/git-actions.svelte'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
-function logDevSessionState(tab: Tab, eventType: string, session: Session, _streamingText?: string): void {
+function logDevSessionState(tab: Tab, eventType: string, session: Session): void {
   if (!devSessionLogging) return
-  const state = $state.snapshot(session) as Session
-  const tabState = $state.snapshot(tab)
+  // Log a shallow summary only — never $state.snapshot(session), which deep-clones
+  // every message on each event and dominates the reducer's per-event cost.
   console.debug('[Solus][SessionState]', {
-    tab: tabState,
-    sessionId: state.agentSessionId,
-    provider: state.provider,
+    tabId: tab.id,
+    sessionId: session.agentSessionId,
+    provider: session.provider,
+    status: session.status,
     eventType,
-    state,
+    messageCount: session.messages.length,
   })
 }
 
@@ -71,11 +74,16 @@ export class WorkspaceContext {
   /** True while bootstrapRuntimeTabs is running; prevents persist effect from clobbering saved snapshot. */
   hydrating = $state(true)
 
+  /** Tab that last sent a prompt — that tab's session is "the latest session"
+   *  for the cross-window pickup pointer (see active-session-pointer.ts). */
+  lastPromptTabId = $state<string | null>(null)
+
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
+  mergeQueueStore = new MergeQueueStore()
   /** Global two-pane view state — not per-tab. */
   artifactViewer = new PaneViewStore()
   ui: WorkspaceUiStore
@@ -113,6 +121,7 @@ export class WorkspaceContext {
       ctx: () => this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
+      refreshGitRefs: (projectRoot, ctx) => { void this.gitStatus.refreshRefs(projectRoot, ctx, { force: true }) },
       fetchGitContext: (tabId, dir) => { void this.fetchGitContext(tabId, dir) },
     })
     this.env = new EnvironmentStore({
@@ -137,6 +146,7 @@ export class WorkspaceContext {
       workStreamTracker: this.workStreamTracker,
       isTabVisible: (tabId) => this.isTabVisible(tabId),
       recomputeChangedFiles: (tabId) => this.recomputeChangedFiles(tabId),
+      addChangedFilesFromMessage: (tabId, message) => this.env.addChangedFilesFromMessage(tabId, message),
       refreshTurnSnapshots: (tabId) => { void this.refreshTurnSnapshots(tabId) },
       setGitStatus: (cwd, status) => this.gitStatus.set(cwd, status),
       playNotificationIfHidden: () => { void this.playNotificationIfHidden() },
@@ -578,6 +588,8 @@ export class WorkspaceContext {
       // it with --fork-session in the worktree cwd (see control-plane dispatch).
       session.gitContext = result.gitContext
       session.worktreeBaseBranch = null
+      const projectRoot = worktreeProjectRoot(result.gitContext.worktreePath ?? session.workingDirectory)
+      void this.gitStatus.refreshRefs(projectRoot, this.ctxForDirectory(projectRoot), { force: true })
       session.forkedFromSessionId = session.agentSessionId
       session.forked = true
       session.messages.push({
@@ -662,19 +674,26 @@ export class WorkspaceContext {
     requestInputFocus()
   }
 
-  async toggleViewMode(): Promise<void> {
-    const currentMode = this.window.viewMode
-    const newMode = currentMode === 'pill' ? 'editor' : 'pill'
-    if (newMode === 'editor') {
-      this.isExpanded = true
-      const { activeTabId } = this
-      if (this.tabs[activeTabId]) {
-        this.tabs[activeTabId].hasUnread = false
-      }
+  /** ⌥⇧E: continue the active session in the other mode's window. Writes a
+   *  handoff addressed to that mode (when a session has started — otherwise
+   *  this is a bare window switch) and surfaces its window; main hides this
+   *  one per switchMode's asymmetric visibility rules. */
+  async continueInOtherMode(): Promise<void> {
+    const target = this.window.viewMode === 'pill' ? 'editor' : 'pill'
+    const sess = this.activeSession
+    if (sess?.agentSessionId) {
+      writeSessionHandoff({
+        sessionId: sess.agentSessionId,
+        provider: sess.provider ?? this.settings.activeAgent,
+        cwd: sess.workingDirectory,
+        title: this.activeTab?.title ?? null,
+        target,
+      })
     }
-    analytics.modeToggled({ mode: newMode })
-    await this.window.setViewMode(newMode)
+    analytics.modeToggled({ mode: target })
+    await this.window.setViewMode(target)
   }
+
 
   private createTabFromDefaults(): string {
     const inheritedGitContext = this.globalDefaults.gitContext
@@ -714,6 +733,7 @@ export class WorkspaceContext {
     // unbounded (patchActiveDraft only ever adds/updates, never removes).
     removeDraft(tabId)
     disposeGitActions(tabId)
+    this.env.disposeTab(tabId)
 
     // Clean up session if no other tabs point to it
     if (sessionId && !Object.values(this.tabs).some((t) => t.sessionId === sessionId)) {
@@ -1014,6 +1034,8 @@ export class WorkspaceContext {
     const agent = session.provider ?? this.settings.activeAgent
     if (isFirstMessage) analytics.conversationStarted({ agent })
     analytics.messageSent({ agent, isFirstMessage })
+
+    this.lastPromptTabId = targetTabId
 
     if (session.status === 'rate_limited' && (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue')) {
       tab.title = title
@@ -1437,7 +1459,7 @@ export class WorkspaceContext {
     this.artifactViewer.enterPrReviewLoading(number, title)
     try {
       const pr = await window.solus.prOpenReview(this.ctx, number)
-      const tabId = await this.createTab(pr.worktreePath)
+      const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath))
       const session = this.sessionFor(tabId)
       if (session) {
         session.gitContext = { branch: pr.branch, targetBranch: pr.baseRef, worktreePath: pr.worktreePath }
@@ -1470,7 +1492,7 @@ export class WorkspaceContext {
 
   // ─── Settings page ───
 
-  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' | 'git-providers' = 'general') {
+  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' = 'general') {
     this.ui.showSettings(tab)
     analytics.settingsOpened()
   }

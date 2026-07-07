@@ -65,6 +65,10 @@
     return idx === -1 ? stripped : stripped.slice(idx + 1);
   }
 
+  function isMarkdownPath(path: string): boolean {
+    return /\.(md|mdx|markdown)$/i.test(path.split(/[?#]/, 1)[0] ?? path);
+  }
+
   function handleClick(e: MouseEvent) {
     if (isPlanRef && planParams) {
       e.preventDefault();
@@ -124,7 +128,11 @@
     onclick={handleClick}
   >
     <span class="solus-token__icon">
-      <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(fileRef.path))} /></svg>
+      {#if isMarkdownPath(fileRef.path)}
+        <FileTextIcon size={12} />
+      {:else}
+        <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(fileRef.path))} /></svg>
+      {/if}
     </span>
     <span>{@render children?.()}{#if fileRef.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>

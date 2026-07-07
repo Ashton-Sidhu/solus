@@ -9,12 +9,13 @@
     TreeStructureIcon,
     XIcon,
   } from "phosphor-svelte";
+  import { getGitStatusStore } from "../contexts/git-status.store.svelte";
   import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
   import SearchablePickerList from "./pickers/SearchablePickerList.svelte";
   import Dropdown from "./ui/Dropdown.svelte";
   import Kbd from "./ui/Kbd.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
-  import type { IpcContext, WorktreeEntry } from "../../shared/types";
+  import { worktreeProjectRoot, type IpcContext } from "../../shared/types";
   import { getWindowContext } from "../contexts/window.context.svelte";
 
   type View = "menu" | "worktrees" | "branches";
@@ -43,10 +44,9 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const gitStatus = getGitStatusStore();
   const windowCtx = getWindowContext();
 
-  let branches = $state<string[]>([]);
-  let worktrees = $state<WorktreeEntry[]>([]);
   let copied = $state(false);
   let view = $state<View>("menu");
   let pickerRef: SearchablePickerList | null = $state(null);
@@ -55,29 +55,33 @@
     !!session.sessionFor(tabId)?.agentSessionId,
   );
   const showBranchPicker = $derived(!!worktreeBaseBranch && !worktreePath);
-  const repoCtx = $derived<IpcContext | null>(
+  const projectRoot = $derived(
     workingDirectory && workingDirectory !== "~"
-      ? session.ctxForDirectory(workingDirectory)
+      ? worktreeProjectRoot(workingDirectory)
       : null,
   );
+  const repoCtx = $derived<IpcContext | null>(
+    projectRoot ? session.ctxForDirectory(projectRoot) : null,
+  );
+  const gitRefs = $derived(gitStatus.refsFor(projectRoot));
+  const worktrees = $derived(gitRefs.worktrees);
+  const worktreeBranches = $derived(worktrees.map((w) => w.branch));
+  const branches = $derived([
+    ...worktreeBranches,
+    ...gitRefs.branches.filter((branch) => !worktreeBranches.includes(branch)),
+  ]);
   const tabCtx = $derived<IpcContext | null>(
     tabId ? session.ctxFor(tabId) : null,
   );
 
   $effect(() => {
-    if (open && repoCtx) {
-      window.solus.worktreeListProject(repoCtx).then((wts) => {
-        worktrees = wts;
-      });
-    }
+    if (open && projectRoot && repoCtx) void gitStatus.refreshRefs(projectRoot, repoCtx, { force: true });
   });
 
   $effect(() => {
     if (open) {
       view = initialView;
     } else {
-      worktrees = [];
-      branches = [];
       view = "menu";
     }
   });
@@ -110,14 +114,7 @@
   function enableWorktreeMode() {
     if (!tabId || !sess || !tabCtx) return;
     session.setWorktreeBaseBranch(sess.gitContext?.targetBranch ?? null);
-    window.solus.worktreeBranches(tabCtx).then((b) => {
-      const worktreeBranches = worktrees.map((w) => w.branch);
-      const combined = [
-        ...worktreeBranches,
-        ...b.filter((br) => !worktreeBranches.includes(br)),
-      ];
-      branches = combined;
-    });
+    if (projectRoot) void gitStatus.refreshRefs(projectRoot, tabCtx, { force: true });
     view = "branches";
   }
 
@@ -146,14 +143,7 @@
 
   function openBranchView() {
     if (!repoCtx) return;
-    window.solus.worktreeBranches(repoCtx).then((b) => {
-      const worktreeBranches = worktrees.map((w) => w.branch);
-      const combined = [
-        ...worktreeBranches,
-        ...b.filter((br) => !worktreeBranches.includes(br)),
-      ];
-      branches = combined;
-    });
+    if (projectRoot) void gitStatus.refreshRefs(projectRoot, repoCtx, { force: true });
     view = "branches";
   }
 
