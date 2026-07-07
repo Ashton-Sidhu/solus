@@ -14,6 +14,7 @@
     ClockIcon,
     CaretLeftIcon,
     CaretRightIcon,
+    ColumnsIcon,
     GitForkIcon,
     TreeStructureIcon,
     FunnelSimpleIcon,
@@ -319,6 +320,11 @@
   async function continueWorktreeFromContextMenu(tabId: string) {
     closeContextMenu();
     await session.continueInWorktree(tabId);
+  }
+
+  function openInSplitFromContextMenu(tabId: string) {
+    closeContextMenu();
+    session.openTabInSplit(tabId);
   }
 
   function closeFromContextMenu(tabId: string) {
@@ -747,6 +753,16 @@
         </button>
       {/if}
       <div class="mx-1 my-0.5 h-px bg-(--solus-container-border)"></div>
+    {/if}
+    {#if variant === "editor"}
+      <button
+        class="tab-ctx-item"
+        role="menuitem"
+        onclick={() => openInSplitFromContextMenu(contextMenu!.tabId)}
+      >
+        <ColumnsIcon size={12} />
+        <span>Open in Split</span>
+      </button>
     {/if}
     <button
       class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-status-error) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
