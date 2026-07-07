@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { PaneContent, PaneSlot } from '../../contexts/pane-view.store.svelte'
+  import type { Component } from 'svelte'
+  import {
+    isMovableContent,
+    isPageContent,
+    type PageKind,
+    type PaneContent,
+    type PaneSlot,
+  } from '../../contexts/pane-view.store.svelte'
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
   import { getPlanStore } from '../../contexts/plan.store.svelte'
   import PlanModal from '../plan/PlanModal.svelte'
@@ -12,7 +19,25 @@
   import PrReviewPane from '../pr-review/PrReviewPane.svelte'
   import PrReviewSkeleton from '../pr-review/PrReviewSkeleton.svelte'
   import AutomationBuilder from '../automations/AutomationBuilder.svelte'
+  import ConversationPane from '../conversation/ConversationPane.svelte'
+  import TasksPage from '../tasks/TasksPage.svelte'
+  import PrsPage from '../prs/PrsPage.svelte'
+  import SettingsPage from '../settings/SettingsPage.svelte'
+  import PlanGallery from '../plan/PlanGallery.svelte'
+  import FolioGallery from '../artifact/FolioGallery.svelte'
+  import AutomationsPage from '../automations/AutomationsPage.svelte'
   import { requestInputFocus } from '../../lib/inputFocus'
+
+  // Full-page views take no props — they read their open state and data from
+  // the workspace context, so any of them can render in either slot.
+  const PAGE_COMPONENTS: Record<PageKind, Component> = {
+    tasks: TasksPage,
+    prs: PrsPage,
+    settings: SettingsPage,
+    'plans-gallery': PlanGallery,
+    'folio-gallery': FolioGallery,
+    'automations-list': AutomationsPage,
+  }
 
   interface Props {
     content: PaneContent
@@ -136,7 +161,7 @@
   )
 
   function handleOpenInSplit() {
-    if (content.kind !== 'plan' && content.kind !== 'work' && content.kind !== 'automation' && content.kind !== 'review') return
+    if (!isMovableContent(content)) return
     av.moveToOppositeSlot(content, slot)
     if (slot === 'primary') requestInputFocus()
   }
@@ -335,6 +360,18 @@
     file={content.file}
     onClose={() => av.closeSlot(slot)}
   />
+{:else if content.kind === 'conversation' && content.tabId}
+  <!-- A chat pinned beside the primary conversation. Only ever reaches the
+       secondary slot: a primary conversation renders through the pool. -->
+  <ConversationPane tabId={content.tabId} onClose={() => av.closeSlot(slot)} />
+{:else if isPageContent(content)}
+  {@const Page = PAGE_COMPONENTS[content.kind]}
+  <!-- Pages size themselves with `flex-1` (they used to be children of the
+       content column); the secondary slot's wrapper is a block, so it needs the
+       explicit height instead. -->
+  <div class="flex min-h-0 flex-col {slot === 'secondary' ? 'h-full' : 'flex-1'}">
+    <Page />
+  </div>
 {/if}
 
 <style>
