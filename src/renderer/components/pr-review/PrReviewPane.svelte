@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { XIcon, ArrowsClockwiseIcon, ChatCircleIcon, ArrowSquareOutIcon } from "phosphor-svelte";
-  import type { PrReviewContext, DiffScope, DiffComment } from "../../../shared/types";
-  import type { ReviewThread } from "../../../shared/providers";
-  import type { ReviewDraftComment, ReviewState } from "../../../shared/review";
+  import type { PrReviewContext, DiffScope } from "../../../shared/types";
+  import type { DraftReview, ReviewThread } from "../../../shared/providers";
+  import type { GuideDiffCommentSave } from "./guide/lib/guide-data";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
@@ -12,21 +12,11 @@
   import { tooltip } from "../../lib/tooltip";
   import GuideSurface from "../review/GuideSurface.svelte";
   import { GuideLoader } from "../review/lib/guide-loader.svelte";
+  import { ReviewDrafts } from "../review/lib/review-drafts.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import ActivityFeed from "./ActivityFeed.svelte";
   import PendingReviewTray from "./PendingReviewTray.svelte";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
-
-  type ReviewDiffCommentSave = {
-    id?: string;
-    filePath: string;
-    startLine: number;
-    endLine: number;
-    side: "old" | "new";
-    selectedCode: string;
-    comment: string;
-    createdAt?: number;
-  };
 
   // The review surface (M3–M5): Activity · Guide · Diff content tabs over a PR's
   // change, living maximized in the secondary pane. The worktree-rooted chat is
@@ -74,18 +64,44 @@
   // (which owns reply / resolve, mutating these objects in place) — so the
   // heaviest read isn't duplicated across the two surfaces.
   let reviewThreads = $state<ReviewThread[]>([]);
-  function loadThreads() {
+  let threadsLoadFailed = $state(false);
+  function loadThreads(force = false) {
     const number = pr.number;
-    void window.solus
-      .prListThreads(session.ctx, number)
+    threadsLoadFailed = false;
+    void session.prsStore
+      .loadThreads(session.ctx, number, { force })
       .then((t) => {
         if (pr.number === number) reviewThreads = t;
       })
-      .catch(() => {});
+      .catch(() => {
+        // Surfaced through the Activity tab's error banner rather than a toast,
+        // so a dead provider doesn't read as "no threads".
+        if (pr.number === number) threadsLoadFailed = true;
+      });
   }
   $effect(() => {
     void pr.number;
     loadThreads();
+  });
+
+  $effect(() => {
+    const currentNumber = pr.number;
+    const prCwd = pr.worktreePath;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = window.solus.onPrsChanged((changedCwd) => {
+      const ctxCwd = session.ctx.session.projectPath || session.ctx.session.workingDirectory;
+      if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (pr.number !== currentNumber) return;
+        loadThreads(true);
+        activityFeedRef?.refresh();
+      }, 500);
+    });
+    return () => {
+      unsub();
+      clearTimeout(timer);
+    };
   });
 
   // Reply / resolve for the threads rendered inline in the Diff tab. Mirrors the
@@ -103,90 +119,37 @@
     }
   }
 
-  let drafts = $state<ReviewDraftComment[]>([]);
-  let loadedDraftKey = $state<string | null>(null);
-
+  // GitHub-bound draft comments, persisted per guide key (shared store with the
+  // local review guide surface, where drafts become agent feedback instead).
+  const reviewDrafts = new ReviewDrafts({
+    getCtx: () => session.ctx,
+    getKey: () => guideKey,
+  });
   $effect(() => {
     void guideKey;
-    void loadDrafts();
+    void reviewDrafts.load();
   });
 
-  async function loadDrafts(): Promise<void> {
-    const key = guideKey;
-    if (key === loadedDraftKey) return;
-    loadedDraftKey = key;
-    const state = await window.solus.readReviewState(session.ctx, key);
-    if (guideKey !== key) return;
-    drafts = state?.drafts ?? [];
-  }
-
-  function persistDrafts(): Promise<boolean> {
-    const state: ReviewState = { version: 1, key: guideKey, drafts: [...drafts] };
-    return window.solus.writeReviewState(session.ctx, state);
-  }
-
-  function upsertDraft(input: Omit<ReviewDraftComment, "id" | "createdAt">): void {
-    const anchor = `${input.path}::${input.side}::${input.line}`;
-    const existing = drafts.find((d) => `${d.path}::${d.side}::${d.line}` === anchor);
-    if (existing) {
-      existing.body = input.body;
-      existing.startLine = input.startLine;
-    } else {
-      drafts.push({ id: crypto.randomUUID(), createdAt: Date.now(), ...input });
-    }
-    void persistDrafts();
-  }
-
-  function updateDraftBody(id: string, body: string): void {
-    const draft = drafts.find((d) => d.id === id);
-    if (!draft) return;
-    draft.body = body;
-    void persistDrafts();
-  }
-
-  function removeDraft(id: string): void {
-    const index = drafts.findIndex((d) => d.id === id);
-    if (index === -1) return;
-    drafts.splice(index, 1);
-    void persistDrafts();
-  }
-
-  function clearDrafts(): void {
-    if (drafts.length === 0) return;
-    drafts.splice(0, drafts.length);
-    void persistDrafts();
-  }
-
-  function draftToDiffComment(draft: ReviewDraftComment): DiffComment {
-    return {
-      id: draft.id,
-      filePath: draft.path,
-      startLine: draft.startLine ?? draft.line,
-      endLine: draft.line,
-      side: draft.side,
-      selectedCode: "",
-      comment: draft.body,
-      createdAt: draft.createdAt,
-    };
-  }
-
-  const diffComments = $derived(drafts.map(draftToDiffComment));
-
-  function saveDiffComment(comment: ReviewDiffCommentSave): void {
-    if (comment.id) {
-      updateDraftBody(comment.id, comment.comment);
-      return;
-    }
-    upsertDraft({
-      path: comment.filePath,
-      line: comment.endLine,
-      startLine: comment.startLine !== comment.endLine ? comment.startLine : undefined,
-      side: comment.side,
-      body: comment.comment,
-    });
-  }
+  const drafts = $derived(reviewDrafts.drafts);
+  const diffComments = $derived(reviewDrafts.diffComments);
+  const saveDiffComment = (c: GuideDiffCommentSave) => reviewDrafts.save(c);
+  const removeDraft = (id: string) => reviewDrafts.remove(id);
 
   let showSubmit = $state(false);
+  let activityFeedRef: ActivityFeed | null = $state(null);
+  // Owned here so a typed summary survives closing/reopening the submit modal.
+  let submitEvent = $state<DraftReview["event"]>("COMMENT");
+  let submitBody = $state("");
+
+  // A submitted review creates threads and flips the viewer's review state —
+  // reload so the result is visible without a manual refresh. The feed's
+  // refresh() covers detail/reviewers and re-triggers loadThreads; when the
+  // Activity tab was never mounted, reload the shared threads directly.
+  function onReviewSubmitted() {
+    reviewDrafts.clear();
+    if (activityFeedRef) activityFeedRef.refresh();
+    else loadThreads(true);
+  }
 
   // Keep each visited tab mounted (DiffState / scroll / derived chains survive
   // toggles) and hide the inactive ones via display:none, per the Svelte perf rule.
@@ -212,11 +175,30 @@
     requestInputFocus();
   }
 
+  // Roving tablist focus (WAI-ARIA tabs pattern): arrows move and activate,
+  // and focus follows onto the newly selected tab instead of the input bar.
+  async function onTablistKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const tablist = e.currentTarget as HTMLElement;
+    const idx = TABS.findIndex((t) => t.id === sub);
+    const step = e.key === "ArrowRight" ? 1 : TABS.length - 1;
+    av.prReviewTab = TABS[(idx + step) % TABS.length].id;
+    await tick();
+    tablist.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+  }
+
   // File chips in the Guide / threads in Activity jump to the Diff tab rather
   // than spawning a separate diff pane (which would clobber this surface).
-  function jumpToDiff() {
+  let diffPanelRef: DiffPanel | null = $state(null);
+
+  function jumpToDiff(path?: string, line?: number | null, side: "old" | "new" = "new") {
     av.prReviewTab = "diff";
     mountedDiff = true;
+    if (path) {
+      // First visit mounts the panel on this tick; navigate once it exists.
+      void tick().then(() => diffPanelRef?.navigateTo(path, line ?? undefined, side));
+    }
     requestInputFocus();
   }
 
@@ -255,18 +237,21 @@
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   <header
-    class="flex h-[var(--solus-chrome-row-h,2.9375rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-3"
+    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <div
       class="inline-flex items-center gap-0.5 rounded-lg bg-(--solus-accent-light) p-0.5"
       role="tablist"
       aria-label="PR review tabs"
+      tabindex="-1"
+      onkeydown={onTablistKeydown}
     >
       {#each TABS as t (t.id)}
         <button
           type="button"
           role="tab"
           aria-selected={sub === t.id}
+          tabindex={sub === t.id ? 0 : -1}
           class={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${sub === t.id ? "bg-(--solus-container-bg) text-(--solus-text-primary) shadow-sm" : "text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"}`}
           onclick={() => select(t.id)}
         >
@@ -340,6 +325,7 @@
     {#if mountedDiff}
       <div class="absolute inset-0" class:hidden={sub !== "diff"}>
         <DiffPanel
+          bind:this={diffPanelRef}
           tabId={chatTabId}
           projectPath={chatSession?.workingDirectory ?? pr.worktreePath}
           worktreePath={pr.worktreePath}
@@ -362,10 +348,12 @@
     {#if mountedActivity}
       <div class="absolute inset-0" class:hidden={sub !== "activity"}>
         <ActivityFeed
+          bind:this={activityFeedRef}
           {pr}
           threads={reviewThreads}
-          onRefreshThreads={loadThreads}
-          onJump={() => jumpToDiff()}
+          threadsFailed={threadsLoadFailed}
+          onRefreshThreads={() => loadThreads(true)}
+          onJump={jumpToDiff}
         />
       </div>
     {/if}
@@ -376,7 +364,7 @@
       {drafts}
       onSubmit={() => (showSubmit = true)}
       onRemove={removeDraft}
-      onJump={() => jumpToDiff()}
+      onJump={jumpToDiff}
     />
   {/if}
 </section>
@@ -385,7 +373,9 @@
   <SubmitReviewModal
     {pr}
     {drafts}
+    bind:event={submitEvent}
+    bind:body={submitBody}
     onClose={() => (showSubmit = false)}
-    onSubmitted={clearDrafts}
+    onSubmitted={onReviewSubmitted}
   />
 {/if}

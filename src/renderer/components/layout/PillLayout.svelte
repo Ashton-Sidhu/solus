@@ -108,7 +108,7 @@
       style="
       width:100%;
       margin-bottom:{isExpanded ? 10 : -14}px;
-      background:{isExpanded ? 'var(--solus-input-pill-bg)' : 'transparent'};
+      background:{isExpanded ? 'var(--solus-pill-opaque-bg)' : 'transparent'};
       box-shadow:{isExpanded ? 'var(--solus-card-shadow)' : 'none'};
       border:0.0625rem solid {isExpanded
         ? 'var(--solus-container-border)'
@@ -116,8 +116,8 @@
       border-radius:1.25rem;
       position:relative;
       z-index:{isExpanded ? 20 : 10};
-      backdrop-filter:blur(1rem) saturate(1.6);
-      -webkit-backdrop-filter:blur(1rem) saturate(1.6);
+      backdrop-filter:none;
+      -webkit-backdrop-filter:none;
       transition:background 0.28s cubic-bezier(0.16,1,0.3,1), box-shadow 0.28s cubic-bezier(0.16,1,0.3,1), margin-bottom 0.28s cubic-bezier(0.16,1,0.3,1), border-color 0.28s cubic-bezier(0.16,1,0.3,1);
     "
     >
@@ -215,7 +215,7 @@
 
     <div class="relative" style="z-index:15;margin-bottom:0.625rem">
       <div
-        class="w-full overflow-hidden bg-(--solus-input-pill-bg)"
+        class="w-full overflow-hidden bg-(--solus-pill-opaque-bg)"
         onfocusin={() => (inputFocused = true)}
         onfocusout={() => (inputFocused = false)}
         style="
@@ -227,8 +227,8 @@
           ? `0 0 0 0.1875rem var(--solus-input-focus-ring), var(--solus-card-shadow)`
           : 'var(--solus-card-shadow)'};
         transition:box-shadow 0.18s ease, border-color 0.18s ease;
-        backdrop-filter:blur(1rem) saturate(1.6);
-        -webkit-backdrop-filter:blur(1rem) saturate(1.6);
+        backdrop-filter:none;
+        -webkit-backdrop-filter:none;
       "
       >
         <TabStrip />

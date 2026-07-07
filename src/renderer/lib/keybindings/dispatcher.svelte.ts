@@ -6,6 +6,20 @@ import type { BindingDef, Handler, KeyCombo, RegisterOptions, Scope } from './ty
 type ScopeEntry = { scope: Scope; exclusive: boolean }
 type HandlerEntry = { handler: Handler; opts: RegisterOptions }
 
+// Group the (static) manifest by scope once at module init. dispatch() then
+// iterates only the current scope's bindings — no Object.entries() allocation
+// per scope per keydown. Overrides only swap a binding's combo, never its
+// scope, so this grouping never needs rebuilding.
+const BINDINGS_BY_SCOPE = new Map<Scope, Array<[BindingId, BindingDef]>>()
+for (const [id, def] of Object.entries(KEYBINDINGS) as Array<[BindingId, BindingDef]>) {
+  let arr = BINDINGS_BY_SCOPE.get(def.scope)
+  if (!arr) {
+    arr = []
+    BINDINGS_BY_SCOPE.set(def.scope, arr)
+  }
+  arr.push([id, def])
+}
+
 // macOS dead keys: ⌥+these start an IME composition (e.g. ⌥N → ˜) that
 // preventDefault() can't suppress, so the accent leaks into the focused editor.
 // Don't bind ⌥ shortcuts to these codes — pick another letter instead.
@@ -74,6 +88,10 @@ export class KeybindingsContext {
       isEditableTarget(e.target) &&
       eventCombo !== null &&
       comboIsTextInput(eventCombo)
+    // A printable-key keystroke on an editable target yields to the field: no
+    // binding may fire (any combo it could match is itself a text-input combo,
+    // skipped below). Bail before the scan so typing costs zero iteration.
+    if (swallowsTyping) return
 
     // Determine which scopes are in play: if any exclusive scope is active,
     // only check that scope; otherwise check all active scopes newest-first.
@@ -83,16 +101,15 @@ export class KeybindingsContext {
 
     for (let i = start; i >= end; i--) {
       const { scope } = this.scopeStack[i]
-      for (const [id, def] of Object.entries(KEYBINDINGS) as Array<[BindingId, BindingDef]>) {
-        if (def.scope !== scope) continue
+      const bindings = BINDINGS_BY_SCOPE.get(scope)
+      if (!bindings) continue
+      for (const [id, def] of bindings) {
         const combo = (this.overrides[id] as KeyCombo | undefined) ?? defaultCombo(def)
         // An override replaces the primary combo but keeps the built-in aliases.
         const matched =
           eventMatches(e, combo) ||
           (def.aliases?.some((a) => eventMatches(e, a)) ?? false)
         if (!matched) continue
-        // Let printable-key keystrokes fall through to the focused editable field.
-        if (swallowsTyping) continue
         // Auto-repeat (held key) only fires bindings that opt in (e.g. palette
         // navigation); everything else ignores repeats so toggles/actions don't
         // double-fire while a key is held.

@@ -126,6 +126,19 @@
      weight (see APP_FONT_FAMILIES in settings.context). */
   --solus-font-weight-body: 500;
   --solus-font-weight-secondary: 500;
+  /* macOS traffic-light safe area — single source of truth.
+     `titleBarStyle: 'hiddenInset'` floats the real window controls over the
+     top-left of our content, so every piece of chrome that can land in that
+     corner (the editor drag strip, the tab-strip lead spacer, the left
+     side-panel header, full-page view headers) must reserve space from it.
+     These are 0 wherever the controls aren't overlaid (Windows / Linux / web,
+     and the frameless pill window), so consumers reference them unconditionally
+     and the reservation self-collapses off-mac. Overridden to the real inset by
+     `html.is-mac-editor` (set from the window context on the editor window).
+       - height: the controls' vertical band.
+       - traffic-light-inset: window-left edge → first safe x for content. */
+  --solus-titlebar-height: 0px;
+  --solus-traffic-light-inset: 0px;
   /* Container */
   --solus-edge-bg: #fbfaf6;
   --solus-container-bg: #fefefc;
@@ -148,6 +161,7 @@
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
   --solus-input-pill-bg: rgba(255, 255, 255, 0.99);
+  --solus-pill-opaque-bg: #ffffff;
   /* Text — darker than original for better contrast */
   --solus-text-primary: #2a2618;
   --solus-text-secondary: #484538;
@@ -400,6 +414,7 @@
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
   --solus-input-pill-bg: rgba(24, 23, 20, 0.98);
+  --solus-pill-opaque-bg: #181714;
   /* Text */
   --solus-text-primary: #f0ece3;
   --solus-text-secondary: #bfb9aa;
@@ -1264,6 +1279,12 @@ button.solus-token {
   from { opacity: 0; transform: translate(-0.25rem, 0.375rem); }
   to   { opacity: 1; transform: translate(0, 0); }
 }
+/* Indeterminate sliver for the sub-agent progress bar — motion, not a fraction,
+   because the sub-agent runs for an unknown duration. */
+@keyframes subagent-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
 .animate-msg-in-up {
   /* `backwards` (not `both`) so no transform lingers after the animation —
      a retained transform keeps the element on its own GPU layer and renders text blurry. */
@@ -1668,6 +1689,14 @@ button.solus-token {
 }
 .click-through-shell > * {
   pointer-events: auto;
+}
+
+/* Real macOS traffic lights are overlaid only on the editor window. Set from
+   the window context (platform === darwin && editor mode); resolves the safe
+   area vars above so every consumer's reservation switches on together. */
+html.is-mac-editor {
+  --solus-titlebar-height: 2.375rem;
+  --solus-traffic-light-inset: 5.75rem;
 }
 
 /* ─── Drag region for frameless window ─── */

@@ -66,7 +66,7 @@ export async function computeGitProjectStatus(cwd: string): Promise<GitProjectSt
       .split('\n')
       .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
     const status = parseStatus(statusRaw)
-    const targetBranch = getDefaultBranch(cwd)
+    const targetBranch = await getDefaultBranch(cwd)
     const prUrl = status.branch && status.branch !== targetBranch
       ? await getExistingPR(status.branch, cwd)
       : null

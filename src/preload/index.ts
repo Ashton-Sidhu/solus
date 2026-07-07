@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { ELECTRON_RPC_CHANNEL, ELECTRON_RPC_SEND_CHANNEL, ELECTRON_EVENT_CHANNEL, RPC_INVOKE_METHODS, RPC_SEND_METHODS } from '../shared/rpc'
 import type { RpcInvokeMethod, RpcSendMethod, RpcEventEnvelope, RpcTopic } from '../shared/rpc'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState } from '../shared/types'
 import type { PrFilter, PrReviewer, PullRequestSummary, PullRequestDetail, PullRequestOverview, ReviewThread, ReviewComment, PrCommit, DraftReview } from '../shared/providers'
-import type { Task, TaskSessionLink } from '../shared/task-types'
-import type { SessionLoadMessage, SessionPreviewResult } from '../shared/claude-types'
+import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
+import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent } from '../shared/review'
 
 // Renderer-facing surface. Each method dispatches over a single IPC channel
@@ -77,6 +77,12 @@ export interface SolusAPI {
   googleUploadDoc(args: { title: string; markdown: string }): Promise<{ docUrl: string } | { error: string }>
   googleDisconnect(): Promise<void>
 
+  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string }>
+  connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
+  connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>
+  connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number }>>
+  connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
+
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
   providerConnect(ctx: IpcContext): Promise<AuthStatus>
   /** Abort an in-flight providerConnect; its promise rejects with a cancellation. */
@@ -104,10 +110,19 @@ export interface SolusAPI {
   prResolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
   prUnresolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
 
+  // Merge queue
+  mergeQueueStart(ctx: IpcContext, items: MergeQueueStartItem[], options: MergeQueueStartOptions): Promise<MergeQueueStartResult>
+  /** Snapshot of the active queue, for late-joining renderers; null when idle. */
+  mergeQueueState(ctx: IpcContext): Promise<MergeQueueState | null>
+  mergeQueueSkip(ctx: IpcContext): Promise<void>
+  mergeQueueCancel(ctx: IpcContext): Promise<void>
+  onMergeQueueUpdate(callback: (state: MergeQueueState) => void): () => void
+
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
   generateGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null; scope?: 'branch' | 'session' }): Promise<{ key: string; guide: ReviewGuide } | null>
+  cancelGenerateGuide(ctx: IpcContext, opts?: { scope?: 'branch' | 'session' }): Promise<boolean>
   readGuide(ctx: IpcContext, key: string): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
   writeReviewState(ctx: IpcContext, state: ReviewState): Promise<boolean>
@@ -128,7 +143,8 @@ export interface SolusAPI {
   setWorkPinned(id: string, pinned: boolean, cwd?: string): Promise<void>
   getPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
 
-  tasksList(cwd: string, opts?: { query?: string; assignedToMe?: boolean }): Promise<Task[]>
+  tasksProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus>
+  tasksList(cwd: string, opts?: { assignedToMe?: boolean }): Promise<TaskListResult>
   tasksGet(cwd: string, id: string): Promise<Task>
   tasksCreate(cwd: string, input: Partial<Task>): Promise<Task>
   tasksUpdate(cwd: string, id: string, patch: Partial<Task>): Promise<Task>
@@ -136,6 +152,11 @@ export interface SolusAPI {
   tasksComment(cwd: string, id: string, body: string): Promise<Task>
   tasksLinkSession(cwd: string, taskId: string, sessionId: string): Promise<void>
   tasksSessions(cwd: string): Promise<Record<string, TaskSessionLink[]>>
+  /** Fires with the project cwd whenever any path (renderer, agent tool, session
+   *  write-back) mutates that project's tasks. */
+  onTasksChanged(callback: (cwd: string) => void): () => void
+  /** Fires with the project cwd whenever an agent mutates PR review state. */
+  onPrsChanged(callback: (cwd: string) => void): () => void
 
   automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>
@@ -147,6 +168,9 @@ export interface SolusAPI {
   automationCancel(id: string): Promise<boolean>
   automationListRuns(id: string): Promise<AutomationRun[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
+  /** Fires on every automation mutation in main — saves, deletes, and run
+   *  transitions, including background scheduler fires. */
+  onAutomationsChanged(callback: (event: AutomationsChangedEvent) => void): () => void
 
   skillsSearch(query: string): Promise<RemoteSkill[]>
   skillsInstall(id: string): Promise<SkillInstallResult>
@@ -176,7 +200,9 @@ export interface SolusAPI {
   deleteProject(projectPath: string): Promise<void>
   isVisible(ctx?: IpcContext): Promise<boolean>
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
-  notifyViewMode(mode: 'pill' | 'editor'): Promise<void>
+  /** Switch to the given mode's window (toggles when omitted). Shows/creates the
+   *  target window and hides the current one unless both were visible. */
+  switchMode(mode?: 'pill' | 'editor'): Promise<void>
   getAppGlobalShortcuts(): Promise<AppGlobalShortcuts>
   setAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): Promise<SetAppGlobalShortcutsResult>
   restartApp(): Promise<void>
@@ -251,7 +277,11 @@ const eventBindings: Record<string, RpcTopic> = {
   onSeqWatermark: 'seq-watermark',
   onRunStatus: 'run-status',
   onRunLog: 'run-log',
+  onAutomationsChanged: 'automations-changed',
   onProviderDeviceCode: 'provider-device-code',
+  onMergeQueueUpdate: 'merge-queue-update',
+  onTasksChanged: 'tasks-changed',
+  onPrsChanged: 'prs-changed',
 }
 
 // Build the SolusAPI surface as a plain object. `Proxy` would also work, but

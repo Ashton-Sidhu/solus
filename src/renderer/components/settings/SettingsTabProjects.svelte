@@ -1,15 +1,16 @@
 <script lang="ts">
   import { FolderIcon, TrashIcon, CheckIcon, XIcon } from "phosphor-svelte";
+  import { untrack } from "svelte";
   import type { ProjectEntry } from "../../../shared/types";
+  import { projectsStore } from "../../contexts/projects.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import ProjectConfigEditor from "./ProjectConfigEditor.svelte";
 
   const session = getWorkspaceContext();
+  const projectMetadata = projectsStore;
 
-  let projects = $state<ProjectEntry[]>([]);
   let selected = $state<string | null>(null);
   let confirming = $state<string | null>(null);
-  let loaded = $state(false);
 
   function folderName(path: string): string {
     const dir = path.replace(/\/$/, "");
@@ -17,25 +18,30 @@
     return parts[parts.length - 1] || dir;
   }
 
+  function withPresetProject(list: ProjectEntry[], preset: string | null | undefined): ProjectEntry[] {
+    if (!preset || list.some((p) => p.path === preset)) return list;
+    return [{ key: "", path: preset, folderName: folderName(preset), addedAt: "" }, ...list];
+  }
+
+  const projects = $derived(withPresetProject(projectMetadata.projects, session.settingsProjectCwd));
+  const loaded = $derived(projectMetadata.projectsLoaded);
+
   async function refresh(preferred?: string | null) {
-    const list = await window.solus.listProjects().catch(() => [] as ProjectEntry[]);
+    const list = await projectMetadata.loadProjects({ force: true });
     const preset = preferred ?? session.settingsProjectCwd;
-    if (preset && !list.some((p) => p.path === preset)) {
-      list.unshift({ key: "", path: preset, folderName: folderName(preset), addedAt: "" });
-    }
-    projects = list;
-    selected = preset ?? list[0]?.path ?? null;
-    loaded = true;
+    selected = preset ?? withPresetProject(list, preset)[0]?.path ?? null;
   }
 
   $effect(() => {
     // Re-read whenever the deep-linked project changes (e.g. opened via the panel gear).
-    void session.settingsProjectCwd;
-    void refresh();
+    const preset = session.settingsProjectCwd;
+    untrack(() => {
+      void refresh(preset);
+    });
   });
 
   async function remove(path: string) {
-    await window.solus.deleteProject(path).catch(() => {});
+    await projectMetadata.deleteProject(path).catch(() => {});
     confirming = null;
     const nextSelect = selected === path ? null : selected;
     await refresh(nextSelect);

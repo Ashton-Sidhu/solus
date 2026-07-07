@@ -5,9 +5,11 @@
     CircleNotchIcon,
     CheckIcon,
     CheckCircleIcon,
+    ChatCircleDotsIcon,
     WarningCircleIcon,
     ProhibitIcon,
     CaretRightIcon,
+    GitBranchIcon,
     ArrowSquareOutIcon,
     ArrowsOutSimpleIcon,
     XIcon,
@@ -48,8 +50,8 @@
     intervalParts,
     INTERVAL_UNIT_MINUTES,
     toLocalInputValue,
-    systemTimezone,
     absoluteTime,
+    nextOccurrences,
     relativeTime,
     runDate,
     runDuration,
@@ -81,26 +83,26 @@
     onClose,
   }: Props = $props();
 
-  // Sidebar panel styling (shared across the three cards). A hairline ring + soft
-  // lift floats each card off the same-colored page; the title pairs micro-caps
-  // with a hairline rule that fades out.
+  // Sidebar background — also used by the inline pane container. Kept a hair
+  // warmer than the page so the rail reads as its own surface.
   const SIDEBAR_PANEL_BG =
     "bg-[color:color-mix(in_srgb,var(--solus-container-bg)_90%,color-mix(in_srgb,var(--solus-input-pill-bg)_70%,var(--solus-surface-primary))_10%)]";
-  const CARD =
-    "flex flex-col gap-3 py-4 px-[1.125rem] rounded-[0.875rem] " +
-    "border border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)] " +
-    `${SIDEBAR_PANEL_BG} shadow-[var(--solus-card-shadow-collapsed)]`;
-  const CARD_TITLE =
-    "flex items-center gap-2.5 text-[0.625rem] font-semibold uppercase tracking-[0.09em] " +
-    "text-(--solus-text-tertiary) after:content-[''] after:flex-1 after:h-px " +
-    "after:bg-[linear-gradient(to_right,color-mix(in_srgb,var(--solus-container-border)_70%,transparent),transparent)]";
+  // Flat, card-less rail (mirrors PrActivityRail's Activity sidebar): sections
+  // are separated by a hairline art rule rather than boxed in card chrome. The
+  // first section carries no top border; SECTION_DIVIDED adds one. Titles are
+  // quiet uppercase micro-caps.
+  const SECTION = "flex flex-col gap-3";
+  const SECTION_DIVIDED =
+    "flex flex-col gap-3 border-t border-(--solus-art-border) pt-5";
+  const SECTION_TITLE =
+    "text-[0.6875rem] font-semibold uppercase tracking-wider text-(--solus-text-tertiary)";
 
   // Metadata rows: a muted label / prominent value hierarchy with whitespace
-  // separation (no dividers), so the card content reads aligned but uncluttered.
+  // separation (no dividers), so the content reads aligned but uncluttered.
   // ROW lays out one label↔value line; META_VALUE styles text values.
   const META =
     "flex flex-col gap-0.5 " +
-    "[&_dt]:shrink-0 [&_dt]:text-xs [&_dt]:font-medium [&_dt]:text-(--solus-text-secondary) " +
+    "[&_dt]:shrink-0 [&_dt]:text-xs [&_dt]:text-(--solus-text-tertiary) " +
     "[&_dd]:m-0 [&_dd]:min-w-0";
   const ROW = "flex items-center justify-between gap-3 min-h-[1.875rem]";
   const META_VALUE =
@@ -185,10 +187,17 @@
   const agentContext = getAgentContext();
   const planStore = getPlanStore();
 
-  // The live automation: starts from the prop and is replaced by the persisted
-  // copy after every save. A brand-new automation (prop === null) is created
-  // lazily on the first edit, so an untouched "New" view leaves nothing behind.
-  let current = $derived<Automation | null>(automation);
+  // The live automation, read from the store by id so pushed changes (scheduler
+  // fires, run transitions) update this view without a save. A brand-new
+  // automation (prop === null) is created lazily on the first edit, so an
+  // untouched "New" view leaves nothing behind.
+  let currentId = $state<string | null>(untrack(() => automation?.id ?? null));
+  // Fallback for the window between a save and the store echoing it (and for
+  // rows the store list hasn't loaded).
+  let savedSnapshot = $state<Automation | null>(untrack(() => automation));
+  const current = $derived<Automation | null>(
+    currentId ? (store.get(currentId) ?? savedSnapshot) : null,
+  );
 
   // Only providers with a headless runner can back an automation.
   const RUNNABLE: AgentId[] = ["claude-code", "codex"];
@@ -247,9 +256,6 @@
     t0?.type === "interval" ? intervalParts(t0.everyMinutes).unit : "hours",
   );
   let cronExpr = $state(t0?.type === "cron" ? t0.expr : "0 9 * * *");
-  let timezone = $state(
-    t0?.type === "cron" ? (t0.timezone ?? systemTimezone()) : systemTimezone(),
-  );
   let onceLocal = $state(
     toLocalInputValue(t0?.type === "once" ? t0.runAt : undefined),
   );
@@ -267,12 +273,10 @@
   const modelSelectOptions = $derived(
     models.map((m) => ({ value: m.id as string | null, label: m.label })),
   );
-  $effect(() => {
-    if (modelId === null && models.length > 0) {
-      modelId = models[0].id;
-      commitAction();
-    }
-  });
+  // `modelId: null` means "the provider's default model" — display it as the
+  // first model without writing it back. Pinning + saving here used to fire on
+  // mount, creating a ghost "Untitled automation" the moment the New view opened.
+  const effectiveModelId = $derived(modelId ?? models[0]?.id ?? null);
   const reasoningSelectOptions = REASONING_OPTIONS.map((r) => ({
     value: r,
     label: REASONING_EFFORT_LABELS[r] ?? r,
@@ -295,31 +299,28 @@
     value: d.value,
     label: d.label,
   }));
-  const timezoneOptions = $derived.by(() => {
-    const local = systemTimezone();
-    const opts = [
-      { value: local, label: "Local" },
-      { value: "UTC", label: "UTC" },
-    ];
-    if (timezone && timezone !== local && timezone !== "UTC")
-      opts.push({ value: timezone, label: timezone });
-    return opts;
+
+  const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
+  // In-session ("heartbeat") automations run inside the chat thread they were
+  // created in. The builder can't create them (agent-only), but it must show
+  // what they are — and hide the worktree toggle, which is ignored for them.
+  const inSession = $derived(!!current?.action.sessionId);
+
+  // Run history for the live automation. Keyed on the id (not `current`, which
+  // is replaced on every save/push) so history only reloads when the id changes;
+  // subsequent run updates arrive over the automations-changed push.
+  const runsKey = $derived(current?.id ?? null);
+  const runs = $derived(runsKey ? (store.runs.get(runsKey) ?? []) : []);
+  $effect(() => {
+    if (runsKey) void store.loadRuns(runsKey);
   });
 
-  // Timezone only affects cron-derived schedules.
-  const isCronSchedule = $derived(
-    kind === "daily" ||
-      kind === "weekly" ||
-      kind === "monthly" ||
-      kind === "cron",
-  );
-  const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
-
-  // Run history for the live automation.
-  const runs = $derived(current ? (store.runs.get(current.id) ?? []) : []);
+  // Minute-ish ticker so "Next run" / "Last ran" stay truthful while the
+  // builder sits open (a fired schedule also pushes a fresh nextRunAt).
+  let nowTick = $state(Date.now());
   $effect(() => {
-    const id = current?.id;
-    if (id) void store.loadRuns(id);
+    const t = setInterval(() => (nowTick = Date.now()), 30_000);
+    return () => clearInterval(t);
   });
 
   // ── Trigger / action assembly ──
@@ -359,17 +360,29 @@
         return { type: "interval", everyMinutes };
       }
       case "daily":
-        return { type: "cron", expr: dailyCron(hh, mm), timezone };
+        return { type: "cron", expr: dailyCron(hh, mm) };
       case "weekly":
-        return { type: "cron", expr: weeklyCron(hh, mm, weekday), timezone };
+        return { type: "cron", expr: weeklyCron(hh, mm, weekday) };
       case "monthly":
-        return { type: "cron", expr: monthlyCron(hh, mm, monthDay), timezone };
+        return { type: "cron", expr: monthlyCron(hh, mm, monthDay) };
       case "cron": {
-        if (!cronExpr.trim()) return { error: "Enter a cron expression." };
-        return { type: "cron", expr: cronExpr.trim(), timezone };
+        const expr = cronExpr.trim();
+        if (!expr) return { error: "Enter a cron expression." };
+        if (nextOccurrences({ type: "cron", expr }, 1) === null)
+          return { error: `Invalid cron expression: "${expr}".` };
+        return { type: "cron", expr };
       }
     }
   }
+
+  // Upcoming fires of the draft schedule, shown under the fields so the user
+  // can confirm the schedule means what they think before it ever fires.
+  // Reads the same drafts buildTrigger does, so it tracks every edit.
+  const cronInvalid = $derived(
+    kind === "cron" &&
+      cronExpr.trim() !== "" &&
+      nextOccurrences({ type: "cron", expr: cronExpr.trim() }, 1) === null,
+  );
 
   function currentAction(): AutomationAction {
     const planRefs = resolvePlanRefs();
@@ -449,7 +462,8 @@
       "error" in trigger ? { type: "manual" } : trigger,
       enabled,
     );
-    current = created;
+    savedSnapshot = created;
+    currentId = created.id;
     return created.id;
   }
 
@@ -459,6 +473,10 @@
     action?: Partial<AutomationAction>;
     trigger?: AutomationTrigger;
   }) {
+    // A new automation with no name and no prompt is an untouched draft —
+    // don't materialize it just because a field blurred or a select changed.
+    // (Run now still creates via ensureCreated: running IS an intent to keep it.)
+    if (!current && !name.trim() && !prompt.trim()) return;
     error = null;
     isSaving = true;
     try {
@@ -467,7 +485,7 @@
         await ensureCreated();
       } else {
         await store.update(current.id, patch);
-        current = store.get(current.id) ?? current;
+        savedSnapshot = store.get(current.id) ?? savedSnapshot;
       }
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
@@ -514,7 +532,6 @@
     running = true;
     try {
       await store.runNow(id);
-      current = store.get(id) ?? current;
     } catch (e: any) {
       error = String(e?.message ?? e);
     } finally {
@@ -529,7 +546,6 @@
     cancelling = true;
     try {
       await store.cancel(id);
-      current = store.get(id) ?? current;
     } catch (e: any) {
       error = String(e?.message ?? e);
     } finally {
@@ -656,11 +672,11 @@
     <!-- Retarget the shared ghost-select hover to the brand accent wash within
            these cards (overrides Select.svelte's neutral hover via specificity). -->
     <aside
-      class="flex flex-col gap-[1.125rem] min-w-0 @max-[46rem]:order-first [&_.sel-trigger--ghost:hover:not(:disabled)]:bg-(--solus-accent-light)"
+      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-trigger--ghost:hover:not(:disabled)]:bg-(--solus-accent-light)"
     >
       <!-- Status -->
-      <section id="status" class={CARD}>
-        <h2 class={CARD_TITLE}>Status</h2>
+      <section id="status" class={SECTION}>
+        <h2 class={SECTION_TITLE}>Status</h2>
 
         <!-- Live state on the left, a switch to toggle it on the right. The card
              title already says "Status", so the row leads with the state itself. -->
@@ -695,42 +711,34 @@
           </button>
         </div>
 
-        <!-- Next run + Last ran as divider-separated meta rows (same as Details card) -->
-        <div
-          class="-mx-[1.125rem] border-t border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-        >
-          <dl
-            class="divide-y divide-[color-mix(in_srgb,var(--solus-container-border)_40%,transparent)]"
-          >
-            <div class={ROW + " px-[1.125rem] py-2"}>
-              <dt class="text-xs font-normal text-(--solus-text-secondary)">
-                Next run
-              </dt>
-              <dd class={META_VALUE}>
-                {#if enabled && current?.nextRunAt}
-                  {absoluteTime(current.nextRunAt)}
-                {:else if kind === "manual"}
-                  Manual only
-                {:else}
-                  Not scheduled
-                {/if}
-              </dd>
-            </div>
-            <div class={ROW + " px-[1.125rem] py-2"}>
-              <dt class="text-xs font-normal text-(--solus-text-secondary)">
-                Last ran
-              </dt>
-              <dd class={META_VALUE}>
-                {current?.lastRunAt ? absoluteTime(current.lastRunAt) : "Never"}
-              </dd>
-            </div>
-          </dl>
-        </div>
+        <!-- Next run + Last ran as quiet property rows -->
+        <dl class="flex flex-col">
+          <div class={ROW}>
+            <dt class="text-xs text-(--solus-text-tertiary)">Next run</dt>
+            <dd class={META_VALUE}>
+              {#if enabled && current?.nextRunAt}
+                {absoluteTime(current.nextRunAt, nowTick)}
+              {:else if kind === "manual"}
+                Manual only
+              {:else}
+                Not scheduled
+              {/if}
+            </dd>
+          </div>
+          <div class={ROW}>
+            <dt class="text-xs text-(--solus-text-tertiary)">Last ran</dt>
+            <dd class={META_VALUE}>
+              {current?.lastRunAt
+                ? absoluteTime(current.lastRunAt, nowTick)
+                : "Never"}
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <!-- Details -->
-      <section id="details" class={CARD}>
-        <h2 class={CARD_TITLE}>Details</h2>
+      <section id="details" class={SECTION_DIVIDED}>
+        <h2 class={SECTION_TITLE}>Details</h2>
         <dl class={META}>
           <div class={ROW}>
             <dt>Repeats</dt>
@@ -825,7 +833,7 @@
               />
             </div>
           {:else if kind === "cron"}
-            <div class="flex pb-1.5">
+            <div class="flex flex-col gap-1 pb-1.5">
               <input
                 class="{FIELD} w-full font-mono"
                 type="text"
@@ -833,24 +841,16 @@
                 onchange={commitTrigger}
                 placeholder="0 9 * * 1-5"
                 aria-label="Cron expression"
+                aria-invalid={cronInvalid}
                 autocomplete="off"
               />
-            </div>
-          {/if}
-
-          {#if isCronSchedule}
-            <div class={ROW}>
-              <dt>Runs in</dt>
-              <dd>
-                <Select
-                  bind:value={timezone}
-                  options={timezoneOptions}
-                  onChange={commitTrigger}
-                  ariaLabel="Timezone"
-                  anchor="right"
-                  variant="ghost"
-                />
-              </dd>
+              {#if cronInvalid}
+                <p
+                  class="m-0 text-[0.6875rem] text-[var(--solus-status-error,#e53e3e)]"
+                >
+                  Invalid cron expression.
+                </p>
+              {/if}
             </div>
           {/if}
 
@@ -886,9 +886,12 @@
             <dt>Model</dt>
             <dd>
               <Select
-                bind:value={modelId}
+                value={effectiveModelId}
                 options={modelSelectOptions}
-                onChange={commitAction}
+                onChange={(v) => {
+                  modelId = v;
+                  commitAction();
+                }}
                 ariaLabel="Model"
                 anchor="right"
                 variant="ghost"
@@ -910,35 +913,53 @@
             </dd>
           </div>
 
-          <div class={ROW}>
-            <dt>Worktree</dt>
-            <dd>
-              <label
-                class="group inline-flex items-center cursor-pointer pointer-coarse:min-h-11 pointer-coarse:px-1.5"
-                title="Run each fire on an isolated git branch"
-              >
-                <input
-                  type="checkbox"
-                  class="sr-only"
-                  bind:checked={useWorktree}
-                  onchange={commitAction}
-                />
+          {#if inSession}
+            <!-- Agent-created heartbeat automation: runs resume its chat thread
+                 (full context) instead of spawning isolated background runs.
+                 Worktree doesn't apply — the thread runs where it runs. -->
+            <div class={ROW}>
+              <dt>Runs in</dt>
+              <dd>
                 <span
-                  class="relative w-7 h-4 shrink-0 rounded-full bg-(--solus-container-border) transition-colors duration-150 group-has-[:checked]:bg-(--solus-accent) group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:w-11 pointer-coarse:h-6"
+                  class="{META_VALUE} inline-flex items-center gap-1.5"
+                  title="Each run resumes the chat thread this automation was created in, with full conversation context"
                 >
-                  <span
-                    class="absolute left-0.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.25)] transition-transform duration-150 group-has-[:checked]:translate-x-3 pointer-coarse:w-[1.125rem] pointer-coarse:h-[1.125rem] pointer-coarse:group-has-[:checked]:translate-x-5"
-                  ></span>
+                  <ChatCircleDotsIcon size={13} class="shrink-0" />
+                  Chat thread
                 </span>
-              </label>
-            </dd>
-          </div>
+              </dd>
+            </div>
+          {:else}
+            <div class={ROW}>
+              <dt>Worktree</dt>
+              <dd>
+                <label
+                  class="group inline-flex items-center cursor-pointer pointer-coarse:min-h-11 pointer-coarse:px-1.5"
+                  title="Run each fire on an isolated git branch"
+                >
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    bind:checked={useWorktree}
+                    onchange={commitAction}
+                  />
+                  <span
+                    class="relative w-7 h-4 shrink-0 rounded-full bg-(--solus-container-border) transition-colors duration-150 group-has-[:checked]:bg-(--solus-accent) group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:w-11 pointer-coarse:h-6"
+                  >
+                    <span
+                      class="absolute left-0.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.25)] transition-transform duration-150 group-has-[:checked]:translate-x-3 pointer-coarse:w-[1.125rem] pointer-coarse:h-[1.125rem] pointer-coarse:group-has-[:checked]:translate-x-5"
+                    ></span>
+                  </span>
+                </label>
+              </dd>
+            </div>
+          {/if}
         </dl>
       </section>
 
       <!-- Previous runs -->
-      <section id="previous-runs" class={CARD}>
-        <h2 class={CARD_TITLE}>Previous runs</h2>
+      <section id="previous-runs" class={SECTION_DIVIDED}>
+        <h2 class={SECTION_TITLE}>Previous runs</h2>
         {#if runs.length === 0}
           <p class="text-xs text-(--solus-text-tertiary) leading-normal">
             No runs yet. Use Run now to test it.
@@ -977,9 +998,27 @@
                     <span class="text-xs text-(--solus-text-primary) truncate"
                       >{name || "Automation run"}</span
                     >
-                    <span class="text-[0.6875rem] text-(--solus-text-tertiary)"
-                      >{projectName}</span
-                    >
+                    {#if r.status === "failed" && r.error}
+                      <!-- Failed runs often have no session to open, so this line
+                           is the only diagnostic the user gets — show it here. -->
+                      <span
+                        class="text-[0.6875rem] leading-snug text-[var(--solus-status-error,#e53e3e)] line-clamp-2"
+                        title={r.error}>{r.error}</span
+                      >
+                    {:else if r.branch}
+                      <span
+                        class="inline-flex items-center gap-1 text-[0.6875rem] text-(--solus-text-tertiary)"
+                        title="Changes from this run live on branch {r.branch}"
+                      >
+                        <GitBranchIcon size={10} class="shrink-0" />
+                        <span class="truncate">{r.branch}</span>
+                      </span>
+                    {:else}
+                      <span
+                        class="text-[0.6875rem] text-(--solus-text-tertiary)"
+                        >{projectName}</span
+                      >
+                    {/if}
                   </span>
                   <span
                     class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)"
@@ -1000,7 +1039,7 @@
   <!-- ── Side-panel pane: fixed chrome header + scrolling form ── -->
   <div class="flex h-full min-h-0 flex-col {SIDEBAR_PANEL_BG}">
     <header
-      class="flex h-[var(--solus-chrome-row-h,2.9375rem)] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-3"
+      class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
     >
       <nav
         class="flex items-center gap-1.5 min-w-0 text-[0.8125rem]"

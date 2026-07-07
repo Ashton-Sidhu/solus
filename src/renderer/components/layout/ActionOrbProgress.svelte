@@ -354,20 +354,16 @@
     transform: translateX(-50%);
     /* Scales with the orb (text size / pane width) but always stays within the
        viewport, so it works from the narrow pill window to wide editor mode. */
-    width: min(calc(27rem * var(--orb-scale)), calc(100vw - 1.5rem));
-    max-height: min(calc(20rem * var(--orb-scale)), 60vh);
+    width: min(calc(30rem * var(--orb-scale)), calc(100vw - 1.5rem));
+    max-height: min(calc(22rem * var(--orb-scale)), 60vh);
     overflow-y: auto;
     pointer-events: auto;
-    padding: calc(0.75rem * var(--orb-scale)) calc(0.9375rem * var(--orb-scale))
-      calc(0.625rem * var(--orb-scale));
+    padding: calc(0.875rem * var(--orb-scale)) calc(1rem * var(--orb-scale))
+      calc(0.375rem * var(--orb-scale));
     border-radius: calc(1rem * var(--orb-scale));
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--solus-popover-bg) 96%, transparent) 0%,
-      color-mix(in srgb, var(--solus-popover-bg) 92%, transparent) 100%
-    );
-    backdrop-filter: blur(1.25rem) saturate(1.6);
-    -webkit-backdrop-filter: blur(1.25rem) saturate(1.6);
+    background: var(--solus-popover-bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border: 0.0313rem solid var(--solus-popover-border);
     box-shadow:
       inset 0 0.0625rem 0 0 color-mix(in srgb, white 14%, transparent),
@@ -390,22 +386,23 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 0.5rem;
-    padding-bottom: 0.375rem;
+    margin-bottom: calc(0.5rem * var(--orb-scale));
+    padding-bottom: calc(0.5rem * var(--orb-scale));
     border-bottom: 0.0313rem solid
-      color-mix(in srgb, var(--solus-container-border) 30%, transparent);
+      color-mix(in srgb, var(--solus-container-border) 32%, transparent);
   }
   .steps-head-label {
-    font-size: calc(0.625rem * var(--orb-scale));
+    font-size: calc(0.75rem * var(--orb-scale));
     font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--solus-text-tertiary);
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--solus-text-primary);
   }
   .steps-head-count {
     font-size: calc(0.75rem * var(--orb-scale));
-    font-weight: 600;
-    color: var(--solus-text-secondary);
+    font-weight: 550;
+    color: var(--solus-text-tertiary);
+    font-variant-numeric: tabular-nums;
   }
   .steps-list {
     display: flex;
@@ -416,8 +413,9 @@
   }
   .step-row {
     display: flex;
-    gap: calc(0.625rem * var(--orb-scale));
+    gap: calc(0.75rem * var(--orb-scale));
     align-items: stretch;
+    min-height: calc(2.125rem * var(--orb-scale));
   }
   .step-marker {
     display: flex;
@@ -429,7 +427,7 @@
   .step-dot {
     width: calc(0.5625rem * var(--orb-scale));
     height: calc(0.5625rem * var(--orb-scale));
-    margin-top: 0.1875rem;
+    margin-top: calc(0.25rem * var(--orb-scale));
     border-radius: 50%;
     flex-shrink: 0;
   }
@@ -471,14 +469,18 @@
     position: relative;
     flex: 1;
     min-width: 0;
-    font-size: calc(0.8125rem * var(--orb-scale));
+    font-size: calc(0.75rem * var(--orb-scale));
+    font-weight: 500;
     line-height: 1.35;
-    padding-bottom: calc(0.5625rem * var(--orb-scale));
+    padding-bottom: calc(0.5rem * var(--orb-scale));
     overflow: hidden;
     white-space: nowrap;
   }
   .step-row:last-child .step-label {
     padding-bottom: 0;
+  }
+  .step-row:last-child {
+    min-height: auto;
   }
   .sl-inner {
     display: inline-block;
@@ -511,14 +513,16 @@
   .step-label-completed {
     color: var(--solus-text-tertiary);
     opacity: 0.6;
+    font-weight: 400;
   }
   .step-label-in_progress {
     color: var(--solus-accent);
-    font-weight: 500;
-    letter-spacing: -0.01em;
+    font-weight: 550;
+    letter-spacing: 0;
   }
   .step-label-pending {
     color: var(--solus-text-secondary);
     opacity: 0.8;
+    font-weight: 400;
   }
 </style>

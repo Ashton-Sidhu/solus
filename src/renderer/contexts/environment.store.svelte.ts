@@ -1,6 +1,6 @@
 import { parsePatchFiles } from '@pierre/diffs'
-import { tabGitContextFromStatus, type AgentId, type GitProjectStatus, type IpcContext, type QueuedPromptSnapshot, type Session, type TurnSnapshot } from '../../shared/types'
-import { extractChangedFilePaths } from '../lib/changedFiles'
+import { tabGitContextFromStatus, type AgentId, type GitProjectStatus, type IpcContext, type Message, type QueuedPromptSnapshot, type Session, type TurnSnapshot } from '../../shared/types'
+import { extractChangedFilePaths, extractChangedFilePathsFromMessage } from '../lib/changedFiles'
 import type { AgentContext } from './agent.context.svelte'
 import type { PlanStore } from './plan.store.svelte'
 import type { SessionConfigController } from './session-config.svelte'
@@ -69,7 +69,7 @@ export class EnvironmentStore {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const ctx = this.deps.ctxFor(targetTabId)
     ctx.session.provider = this.deps.settings.activeAgent as AgentId
-    const result = await window.solus.getPluginCommands(workingDirectory, ctx)
+    const result = await window.solus.getPluginCommands(workingDirectory, $state.snapshot(ctx))
     this.pluginCommands = result
     const session = this.deps.registry.sessionFor(targetTabId)
     if (session) session.pluginCommands = result
@@ -93,6 +93,20 @@ export class EnvironmentStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session) return
     session.changedFiles.splice(0, session.changedFiles.length, ...extractChangedFilePaths(session.messages))
+  }
+
+  /**
+   * Incremental changed-files update for a single just-completed tool message.
+   * Unions its paths into the session's existing list instead of rescanning and
+   * re-parsing every historical Write/Edit body. The full-scan recomputeChangedFiles
+   * still runs at turn boundaries (task_complete) and on hydration to reconcile.
+   */
+  addChangedFilesFromMessage(tabId: string, message: Message): void {
+    const session = this.deps.registry.sessionFor(tabId)
+    if (!session) return
+    for (const path of extractChangedFilePathsFromMessage(message)) {
+      if (!session.changedFiles.includes(path)) session.changedFiles.push(path)
+    }
   }
 
   async expandHistory(tabId: string): Promise<void> {
@@ -145,5 +159,10 @@ export class EnvironmentStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session) return
     reconcileQueuedPromptsForSession(session, queuedPrompts)
+  }
+
+  /** Drop a closed tab's cached turn snapshots so the map can't grow unbounded. */
+  disposeTab(tabId: string): void {
+    if (tabId in this.turnSnapshots) delete this.turnSnapshots[tabId]
   }
 }

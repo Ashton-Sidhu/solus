@@ -23,6 +23,9 @@ export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'
  *  and editable for local tasks. Distinct from a GitHub ticket's read-only
  *  `linkedPrs` (those describe the upstream issue, this describes our work). */
 export interface TaskPr {
+  /** In an `updateTask` patch, an empty url is the clear sentinel (mirrors the
+   *  `""` convention the other clearable fields use — `undefined` keys don't
+   *  survive JSON transports, so absence can't mean "clear"). */
   url: string
   /** Parsed from the URL for compact display (`#123`); 0 if unparseable. */
   number: number
@@ -63,6 +66,74 @@ export interface Task {
   raw: unknown
 }
 
+/** One comment on a task, as providers surface it (also the shape stored in a
+ *  task's `raw.comments`). Returned from `postComment` so callers can patch a
+ *  just-posted comment into a stale re-read (GitHub's GraphQL reads lag its
+ *  REST writes). */
+export interface TaskCommentData {
+  id?: string
+  author: { login: string } | null
+  body: string
+  createdAt: string
+}
+
+/** A provider's list read. `truncated` marks a capped result (GitHub stops at
+ *  its page budget) so the UI can say the list is partial instead of implying
+ *  it is everything. */
+export interface TaskList {
+  tasks: Task[]
+  truncated?: boolean
+}
+
+/** What `tasksList` returns to the renderer: the provider list plus how it was
+ *  obtained — `fromCache` (+ `fetchedAt`) when a live fetch failed and the
+ *  last-seen snapshot was served instead. */
+export interface TaskListResult extends TaskList {
+  fromCache?: boolean
+  /** Epoch ms the served list was actually fetched from the provider. */
+  fetchedAt?: number
+}
+
+export interface TaskProviderRepoRef {
+  owner: string
+  repo: string
+}
+
+export type TaskProviderStatusReason =
+  | 'ok'
+  | 'missing_github_repo'
+  | 'github_not_connected'
+  | 'github_access_failed'
+  | 'unsupported_provider'
+
+/** Project-scoped provider health for onboarding and repair UI. This is a
+ *  lightweight preflight: it reports the configured provider, the resolved repo
+ *  binding, auth state, and whether tasks can be listed without falling back. */
+export interface TaskProviderStatus {
+  provider: TaskProviderId
+  ok: boolean
+  reason: TaskProviderStatusReason
+  message: string
+  repo?: TaskProviderRepoRef & { source: 'config' | 'origin' }
+  detectedRepo?: TaskProviderRepoRef
+  auth?: {
+    connected: boolean
+    login?: string
+    hasProjectScope?: boolean
+  }
+  liveCheck?: {
+    checkedAt: number
+    issueCount: number
+    truncated?: boolean
+    planningFieldsDetected?: boolean
+  }
+  warning?: string
+}
+
+/** Stable marker prepended to auth/connection failures from remote providers,
+ *  so the renderer can offer "Connect GitHub" without sniffing error prose. */
+export const TASKS_AUTH_ERROR_PREFIX = '[tasks-auth] '
+
 /**
  * The interface the rest of the app depends on. `local` implements all of it;
  * third-party providers implement read + status-update and omit the optional
@@ -71,8 +142,8 @@ export interface Task {
  */
 export interface TaskProvider {
   readonly id: TaskProviderId
-  /** `query` is a free-text title filter; `assignedToMe` scopes to the viewer. */
-  listTasks(opts?: { query?: string; assignedToMe?: boolean }): Promise<Task[]>
+  /** `assignedToMe` scopes to the viewer. */
+  listTasks(opts?: { assignedToMe?: boolean }): Promise<TaskList>
   /** Hydrated: full body, comments, linked PRs, sub-issue links (in `raw`). */
   getTask(id: string): Promise<Task>
   createTask?(input: Partial<Task>): Promise<Task>
@@ -80,9 +151,9 @@ export interface TaskProvider {
   /** Local-only; upstream providers omit it (we don't delete remote tickets). */
   deleteTask?(id: string): Promise<boolean>
   /** Post a comment upstream — used by the "started in Solus" write-back when a
-   *  session binds to a task. Only providers with a comment model implement it
-   *  (GitHub); local tasks have no comments, so they omit it. */
-  postComment?(id: string, body: string): Promise<void>
+   *  session binds to a task and by the detail view's composer. Only providers
+   *  with a comment model implement it; returns the created comment. */
+  postComment?(id: string, body: string): Promise<TaskCommentData>
 }
 
 /** A Solus session linked to a task, surfaced on the task card as a back-link so

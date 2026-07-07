@@ -1,9 +1,11 @@
-import type { AgentId, Work, WorkMeta } from '../../shared/types'
+import type { AgentId, PlanComment, Work, WorkAnnotations, WorkMeta, WorkPrevious } from '../../shared/types'
 import { workPreview } from '../../shared/work-preview'
 
 export class WorksStore {
   works = $state<Record<string, Work>>({})
   activeCwd = $state<string | undefined>(undefined)
+  annotations = $state<Record<string, WorkAnnotations>>({})
+  previousSnapshots = $state<Record<string, WorkPrevious | null>>({})
   /** Per-work counter, bumped only on agent-driven (mid-turn) updates. Open
    *  viewers watch this to decide when to live-refresh vs. surface a conflict. */
   agentRevisions = $state<Record<string, number>>({})
@@ -11,6 +13,13 @@ export class WorksStore {
    *  (provisional, not yet persisted). The card renders a generating skeleton
    *  while this is true; cleared on finalize. */
   streaming = $state<Record<string, boolean>>({})
+  private annotationLoadTokens = new Map<string, number>()
+  private previousLoadTokens = new Map<string, number>()
+  private nextLoadToken = 0
+  /** In-flight ensureContent loads, keyed by workId. Concurrent callers (a
+   *  grouped-invalidation burst re-runs the hydration effect while a load is
+   *  pending) share the same promise instead of firing duplicate loadWork IPC. */
+  private contentLoads = new Map<string, Promise<Work | null>>()
 
   /** Register a provisional work while a create_work tool call is in flight. The
    *  card shows a generating skeleton (content is not streamed in); on
@@ -71,6 +80,68 @@ export class WorksStore {
     delete this.streaming[tempId]
   }
 
+  annotationComments(workId: string): PlanComment[] {
+    return this.annotations[workId]?.comments ?? []
+  }
+
+  async loadAnnotations(workId: string): Promise<WorkAnnotations | null> {
+    const token = ++this.nextLoadToken
+    this.annotationLoadTokens.set(workId, token)
+    try {
+      const ann = await window.solus.loadWorkAnnotations(workId)
+      if (this.annotationLoadTokens.get(workId) !== token) return this.annotations[workId] ?? null
+      const entry = this.ensureAnnotationsEntry(workId)
+      entry.updatedAt = ann?.updatedAt ?? Date.now()
+      entry.comments.splice(0, entry.comments.length, ...(ann?.comments ?? []))
+      return entry
+    } catch (err) {
+      logWorkLoad('error', 'annotation load failed', { workId, error: formatError(err) })
+      return this.annotations[workId] ?? null
+    }
+  }
+
+  addAnnotationComment(workId: string, comment: PlanComment): void {
+    const entry = this.ensureAnnotationsEntry(workId)
+    entry.comments.push(comment)
+    entry.updatedAt = Date.now()
+  }
+
+  editAnnotationComment(workId: string, commentId: string, text: string): void {
+    const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
+    if (!comment) return
+    comment.comment = text
+    this.annotations[workId].updatedAt = Date.now()
+  }
+
+  deleteAnnotationComment(workId: string, commentId: string): void {
+    const comments = this.annotations[workId]?.comments
+    if (!comments) return
+    const index = comments.findIndex((x) => x.id === commentId)
+    if (index === -1) return
+    comments.splice(index, 1)
+    this.annotations[workId].updatedAt = Date.now()
+  }
+
+  clearAnnotationComments(workId: string): void {
+    const entry = this.ensureAnnotationsEntry(workId)
+    entry.comments.splice(0, entry.comments.length)
+    entry.updatedAt = Date.now()
+  }
+
+  async loadPrevious(workId: string, cwd?: string, contentKey = ''): Promise<WorkPrevious | null> {
+    const token = ++this.nextLoadToken
+    this.previousLoadTokens.set(workId, token)
+    try {
+      const previous = await window.solus.loadWorkPrevious(workId, cwd)
+      if (this.previousLoadTokens.get(workId) !== token) return this.previousSnapshots[workId] ?? null
+      this.previousSnapshots[workId] = previous
+      return previous
+    } catch (err) {
+      logWorkLoad('error', 'previous snapshot load failed', { workId, contentKey, error: formatError(err) })
+      return this.previousSnapshots[workId] ?? null
+    }
+  }
+
   async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<void> {
     const updated = await window.solus.saveWork(workId, updates, this.activeCwd)
     const existing = this.works[workId]
@@ -124,16 +195,26 @@ export class WorksStore {
       if (liveIds.has(id) || this.streaming[id]) continue
       delete this.works[id]
       delete this.agentRevisions[id]
+      this.clearCachedSidecars(id)
     }
   }
 
   async ensureContent(workId: string, source = 'unknown', cwd?: string): Promise<Work | null> {
     if (cwd) this.activeCwd = cwd
     const existing = this.works[workId]
-    if (existing?.content) {
-      logWorkLoad('debug', 'content already loaded', { workId, source, title: existing.title })
-      return existing
+    if (existing?.content) return existing
+    const pending = this.contentLoads.get(workId)
+    if (pending) return pending
+    const load = this.loadContentFromDisk(workId, source, existing)
+    this.contentLoads.set(workId, load)
+    try {
+      return await load
+    } finally {
+      this.contentLoads.delete(workId)
     }
+  }
+
+  private async loadContentFromDisk(workId: string, source: string, existing: Work | undefined): Promise<Work | null> {
     logWorkLoad('info', 'loading content from disk', {
       workId,
       source,
@@ -181,6 +262,7 @@ export class WorksStore {
     } finally {
       await this.loadAll(this.activeCwd)
       delete this.streaming[workId]
+      this.clearCachedSidecars(workId)
     }
   }
 
@@ -222,6 +304,22 @@ export class WorksStore {
 
   get(workId: string): Work | undefined {
     return this.works[workId]
+  }
+
+  private ensureAnnotationsEntry(workId: string): WorkAnnotations {
+    let entry = this.annotations[workId]
+    if (!entry) {
+      entry = { version: 1, workId, comments: [], updatedAt: 0 }
+      this.annotations[workId] = entry
+    }
+    return entry
+  }
+
+  private clearCachedSidecars(workId: string): void {
+    delete this.annotations[workId]
+    delete this.previousSnapshots[workId]
+    this.annotationLoadTokens.delete(workId)
+    this.previousLoadTokens.delete(workId)
   }
 }
 

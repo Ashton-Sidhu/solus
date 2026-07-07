@@ -9,6 +9,7 @@ import { GitWatcher } from './git/git-watcher'
 import { warmFinder } from './server/file-finder'
 import { TextGenerator } from './agents/text-generator'
 import { runInputFromContext } from './agents/run-input'
+import { RateLimitState } from './rate-limits'
 import { getTask, formatTaskContext, startTaskWork } from './tasks/task-service'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
 import type {
@@ -25,17 +26,18 @@ import type {
   PluginCommandsResult,
   QueuedPromptSnapshot,
   QueuedPromptReason,
-  RateLimitInfo,
   RateLimitDecisionAction,
   SessionMeta,
   SessionRunInput,
   ReasoningEffort,
   RuntimeSessionInfo,
+  StatusCardState,
+  StatusCardStep,
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../shared/types'
 import { tabGitContextFromStatus } from '../shared/types'
-import type { SessionLoadMessage, SessionPreviewResult } from '../shared/claude-types'
+import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { Task } from '../shared/task-types'
 
 const MAX_QUEUE_DEPTH = 32
@@ -85,7 +87,6 @@ interface PendingStart {
   reject: (reason: Error) => void
 }
 
-
 /**
  * ControlPlane: the single backend authority for tab/session lifecycle.
  *
@@ -102,8 +103,13 @@ export class ControlPlane extends EventEmitter {
   private pendingStarts = new Map<RunHandle, PendingStart>()
   private backends: Map<AgentId, AgentBackend>
 
-  /** Per-tab pending text_chunk accumulator. Flushed on interval or before any non-text event for that tab. */
-  private pendingText = new Map<string, string>()
+  /**
+   * Per-tab pending buffer of streaming main-thread text (tabId → buffered text;
+   * the key's presence marks an active stream, so '' is meaningful). Flushed on the
+   * 300ms interval and before any non-buffered event for that tab. The first chunk
+   * emits immediately for latency; the rest batch into one event per flush.
+   */
+  private pendingFlush = new Map<string, string>()
   /** Per-session accumulator for all text in the current streaming turn. Read by bindRuntimeSession so late joiners see in-flight text. */
   // Chunks for the in-flight turn, kept as an array so accumulation is O(1) per
   // token instead of O(n²) string concatenation. Joined once if a late-joining
@@ -113,8 +119,7 @@ export class ControlPlane extends EventEmitter {
   private runWatchdogTimer: ReturnType<typeof setInterval> | null = null
   private rateLimitTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private missingRunCounts = new Map<string, number>()
-  private sessionRateLimits = new Map<string, NormalizedEvent>()
-  private rateLimitWarningKeys = new Map<string, Set<string>>()
+  private rateLimits = new RateLimitState()
   /** questionId → sessionId index so we can resolve which backend owns a question without iterating all backends. */
   private questionIdToSession = new Map<string, string>()
 
@@ -122,6 +127,9 @@ export class ControlPlane extends EventEmitter {
   private gitWatcher: GitWatcher
   /** tabId → repoRoot currently registered with the watcher, for correct ref-counted teardown. */
   private tabWatchKeys = new Map<string, string>()
+  /** cwd → last broadcast git_status (serialized), so an unchanged watcher fire
+   *  doesn't re-broadcast identical status to every (possibly hidden) window. */
+  private lastGitStatusByCwd = new Map<string, string>()
 
   constructor(backends: Map<AgentId, AgentBackend>) {
     super()
@@ -238,17 +246,26 @@ export class ControlPlane extends EventEmitter {
           }
         }
 
+        if (event.type === 'rate_limit') {
+          const rateLimitEvent = this.rateLimits.record(session.sessionId, event)
+          if (!rateLimitEvent) return
+          event = rateLimitEvent
+        }
+
         if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning' && !event.isUsingOverage) {
-          const rateLimitEvent = this._withRateLimitDisplay(event)
-          this.sessionRateLimits.set(session.sessionId, rateLimitEvent)
           this._setStatus({ sessionId: session.sessionId }, 'rate_limited')
           const run = this.activeRunRequests.get(session.sessionId)
           if (run?.input.rateLimitBehavior === 'queue') {
             this._queueActiveRateLimitedRequest(session.sessionId)
           }
-          this._scheduleRateLimitRelease(session.sessionId, rateLimitEvent.resetsAt)
-          event = rateLimitEvent
+          this._scheduleRateLimitRelease(session.sessionId, event.resetsAt)
         }
+      }
+
+      if (!session && event.type === 'rate_limit') {
+        const rateLimitEvent = this.rateLimits.record(sessionId, event)
+        if (!rateLimitEvent) return
+        event = rateLimitEvent
       }
 
       // ─── Tab-level routing ───
@@ -280,56 +297,31 @@ export class ControlPlane extends EventEmitter {
       }
 
       if (event.type === 'text_chunk') {
-        // Sub-agent text is tagged with its spawning tool. It belongs in that
-        // tool's nested card — not the main thread's coalesced buffer (which
-        // would strip parentToolUseId) nor the turn's accumulated result text.
-        // Forward it straight through after flushing any pending main text so
-        // ordering holds.
-        if (event.parentToolUseId) {
-          for (const tabId of tabIds) {
-            this._flushPendingText(tabId)
-            this.emit('event', tabId, event)
-          }
-          return
-        }
-        const isFirstChunk = tabIds.every((tabId) => !this.pendingText.has(tabId))
+        // Coalesce main-thread streaming text per tab; the first chunk emits
+        // immediately for latency and the rest batch on the flush timer.
+        const isFirstChunk = tabIds.every((tabId) => !this.pendingFlush.has(tabId))
         for (const tabId of tabIds) {
-          const existing = this.pendingText.get(tabId) || ''
-          this.pendingText.set(tabId, existing + event.text)
+          this.pendingFlush.set(tabId, (this.pendingFlush.get(tabId) ?? '') + event.text)
         }
+        // Text is part of the turn's replayable result, so late-joining tabs see it.
         if (sessionId) {
           const chunks = this.turnText.get(sessionId)
           if (chunks) chunks.push(event.text)
           else this.turnText.set(sessionId, [event.text])
         }
         if (isFirstChunk) {
-          for (const tabId of tabIds) {
-            this._flushPendingText(tabId)
-          }
+          for (const tabId of tabIds) this._flushPendingText(tabId)
         }
         this._ensureTextFlushTimer()
         return
       }
 
+      // Any other event is a flush boundary: drain this tab's pending text first
+      // so the reducer never sees a later event before its buffered text.
       for (const tabId of tabIds) {
-        this._flushPendingText(tabId)
+        this._flushPendingTab(tabId, false)
       }
       if (sessionId) this.turnText.delete(sessionId)
-
-      if (event.type === 'rate_limit' && !event.info) {
-        event = this._withRateLimitDisplay(event)
-      }
-
-      if (event.type === 'rate_limit' && event.status === 'allowed_warning' && sessionId) {
-        const warningKey = `${event.rateLimitType}:${event.resetsAt}`
-        let sessionWarnings = this.rateLimitWarningKeys.get(sessionId)
-        if (!sessionWarnings) {
-          sessionWarnings = new Set()
-          this.rateLimitWarningKeys.set(sessionId, sessionWarnings)
-        }
-        if (sessionWarnings.has(warningKey)) return
-        sessionWarnings.add(warningKey)
-      }
 
       for (const tabId of tabIds) {
         this.emit('event', tabId, event)
@@ -358,7 +350,7 @@ export class ControlPlane extends EventEmitter {
       if (sessionId) this.turnText.delete(sessionId)
 
       for (const tabId of listeningTabIds) {
-        this._flushPendingText(tabId)
+        this._flushPendingTab(tabId, false)
         const tab = this.tabs.get(tabId)
         if (!tab) continue
         if (sessionId) {
@@ -504,7 +496,7 @@ export class ControlPlane extends EventEmitter {
     const backend = this._backendFor(session.backendId)
     const pendingRateLimitEvent = this._currentRateLimitEvent(sessionId)
     const rateLimitInfo = pendingRateLimitEvent?.type === 'rate_limit'
-      ? (pendingRateLimitEvent.info ?? this._rateLimitInfo(pendingRateLimitEvent))
+      ? (pendingRateLimitEvent.info ?? null)
       : null
     const hasQueuedRateLimitRequest = (this.requestQueue.get(sessionId) ?? []).some(
       (request) => request.rateLimitSessionId === sessionId,
@@ -552,8 +544,7 @@ export class ControlPlane extends EventEmitter {
     if (!tab) return
     log.info(`Resetting session for tab ${ctx.session.tabId} (was: ${tab.sessionId})`)
     if (tab.sessionId) {
-      this.sessionRateLimits.delete(tab.sessionId)
-      this.rateLimitWarningKeys.delete(tab.sessionId)
+      this.rateLimits.clear(tab.sessionId)
     }
     tab.sessionId = null
     tab.status = 'idle'
@@ -595,6 +586,12 @@ export class ControlPlane extends EventEmitter {
   getSessionInfo(agentId: AgentId, sessionId: string, projectPath?: string): Promise<SessionMeta | null> {
     const backend = this._backendFor(agentId)
     return backend.getSessionInfo ? backend.getSessionInfo(sessionId, projectPath) : Promise.resolve(null)
+  }
+
+  liveSessionStatus(agentSessionId: string): SessionStatus | null {
+    const pendingRateLimit = this._currentRateLimitEvent(agentSessionId)
+    if (pendingRateLimit) return 'rate_limited'
+    return this.activeSessions.get(agentSessionId)?.status ?? null
   }
 
   loadSessionPreview(agentId: AgentId, sessionId: string, projectPath?: string): Promise<SessionPreviewResult> {
@@ -655,7 +652,7 @@ export class ControlPlane extends EventEmitter {
       }
     }
 
-    this.pendingText.delete(tabId)
+    this.pendingFlush.delete(tabId)
     this._syncGitWatcher(tabId, null)
     this.tabs.delete(tabId)
     log.info(`Tab closed: ${tabId}`)
@@ -830,6 +827,66 @@ export class ControlPlane extends EventEmitter {
     })
   }
 
+  async promptSession(agentSessionId: string, prompt: string): Promise<{ queued: boolean }> {
+    const resident = this.activeSessions.get(agentSessionId)
+    let input: SessionRunInput | undefined
+    if (resident?.runInput) {
+      input = { ...resident.runInput, tabId: undefined, agentSessionId, forked: false }
+    } else {
+      let meta: SessionMeta | null = null
+      for (const agentId of this.backends.keys()) {
+        meta = await this.getSessionInfo(agentId, agentSessionId)
+        if (meta) break
+      }
+      if (!meta) throw new Error(`Session ${agentSessionId} not found`)
+      input = {
+        provider: meta.provider,
+        agentSessionId,
+        forked: false,
+        workingDirectory: meta.cwd,
+        projectPath: meta.cwd,
+        additionalDirs: [],
+        gitContext: null,
+        worktreeBaseBranch: null,
+        changedFiles: [],
+        contextWindow: null,
+        model: '',
+        preferredModel: null,
+        reasoningEffort: 'medium',
+        fastMode: false,
+        permissionMode: 'ask',
+        rateLimitBehavior: 'queue',
+        extraInstructions: '',
+      }
+    }
+
+    const queued = !!resident && (this._isBusyStatus(resident.status) || (this.requestQueue.get(agentSessionId)?.length ?? 0) > 0)
+    await this.runSession(input, { prompt, displayPrompt: prompt })
+    return { queued }
+  }
+
+  stopSession(agentSessionId: string): boolean {
+    const session = this.activeSessions.get(agentSessionId)
+    if (!session || !this._isBusyStatus(session.status)) return false
+
+    const queue = this.requestQueue.get(agentSessionId)
+    if (queue) {
+      for (let i = queue.length - 1; i >= 0; i--) {
+        const req = queue[i]
+        queue.splice(i, 1)
+        req.reject(new Error('Interrupted'))
+        this._broadcastToSessionId('event', req.agentSessionId, { type: 'prompt_dequeued', queueId: req.queueId })
+        if (req.rateLimitSessionId) this._cleanupRateLimitTimerIfUnused(req.rateLimitSessionId)
+      }
+      this.requestQueue.delete(agentSessionId)
+    }
+
+    const cancelled = this._backendFor(session.backendId).cancelSession(agentSessionId)
+    if (!cancelled) return false
+    this._setStatus({ sessionId: agentSessionId }, 'interrupted')
+    return true
+  }
+
   /**
    * Start a fresh background session running `prompt` on the given agent/model —
    * the entry for the `create_session` MCP tool. Builds a plain run input (no tab)
@@ -843,6 +900,7 @@ export class ControlPlane extends EventEmitter {
     reasoningEffort: ReasoningEffort
     contextWindow: number | null
     cwd: string
+    worktreeBaseBranch?: string | null
   }): Promise<{ agentSessionId: string }> {
     const input: SessionRunInput = {
       provider: req.provider,
@@ -852,7 +910,7 @@ export class ControlPlane extends EventEmitter {
       projectPath: req.cwd,
       additionalDirs: [],
       gitContext: null,
-      worktreeBaseBranch: null,
+      worktreeBaseBranch: req.worktreeBaseBranch ?? null,
       changedFiles: [],
       contextWindow: req.contextWindow,
       model: req.modelId ?? '',
@@ -982,7 +1040,7 @@ export class ControlPlane extends EventEmitter {
     if (!tab && targetAgentSessionId === undefined && !existingSession) throw new Error(`Tab ${tabId} disappeared`)
 
     const existingSessionId = targetAgentSessionId ?? tab?.sessionId ?? headlessSessionId
-    if (existingSessionId) this.sessionRateLimits.delete(existingSessionId)
+    if (existingSessionId) this.rateLimits.clear(existingSessionId)
     if (tab) tab.lastActivityAt = Date.now()
 
     if (existingSession) {
@@ -1002,30 +1060,52 @@ export class ControlPlane extends EventEmitter {
     }
 
     const worktreeBaseBranch = input.worktreeBaseBranch
-    if (worktreeBaseBranch) {
-      if (!effectiveGitCtx?.worktreePath && resolvedProjectPath) {
-        try {
-          const branchModel = input.provider === 'codex'
-            ? 'gpt-5.4-mini'
-            : 'claude-haiku-4-5-20251001'
-          const gitContext: TabGitContext = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
-            generateName: (prompt) => textGenerator.generate({
-              provider: input.provider,
-              cwd: resolvedProjectPath,
-              prompt: buildBranchNamePrompt(prompt),
-              model: branchModel,
-              reasoningEffort: 'none',
-              maxTurns: 1,
-              timeoutMs: 30_000,
-            }),
-          })
-          if (existingSession) existingSession.gitContext = gitContext
-          effectiveGitCtx = gitContext
-          log.info(`Worktree created for tab ${tabId}: ${gitContext.branch} at ${gitContext.worktreePath}`)
-          this._broadcastToSession('event', tabId, { type: 'git_context', gitContext })
-        } catch (e) {
-          log.error(`Worktree creation failed for tab ${tabId}: ${e}`)
-        }
+    // Inline status card mirroring the pre-run worktree setup. The renderer
+    // clears it once the session leaves 'connecting'; a failed card is kept so
+    // the (otherwise swallowed) error stays visible.
+    let worktreeCardActive = false
+    const buildWorktreeCard = (activeIndex: number, errored = false): StatusCardState => ({
+      id: `worktree-${tabId}`,
+      title: errored ? 'Worktree setup failed' : 'Preparing worktree…',
+      icon: 'git-branch',
+      status: errored ? 'error' : 'active',
+      steps: ([
+        { id: 'worktree', label: 'Creating branch & worktree' },
+        { id: 'workspace', label: 'Linking workspace' },
+        { id: 'session', label: 'Starting agent session' },
+      ]).map((s, i): StatusCardStep => ({
+        id: s.id,
+        label: s.label,
+        status: i < activeIndex ? 'done' : i === activeIndex ? (errored ? 'error' : 'active') : 'pending',
+      })),
+    })
+    if (worktreeBaseBranch && !effectiveGitCtx?.worktreePath && resolvedProjectPath) {
+      worktreeCardActive = true
+      this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(0) })
+      try {
+        const branchModel = input.provider === 'codex'
+          ? 'gpt-5.4-mini'
+          : 'claude-haiku-4-5-20251001'
+        const gitContext: TabGitContext = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
+          generateName: (prompt) => textGenerator.generate({
+            provider: input.provider,
+            cwd: resolvedProjectPath,
+            prompt: buildBranchNamePrompt(prompt),
+            model: branchModel,
+            reasoningEffort: 'none',
+            maxTurns: 1,
+            timeoutMs: 30_000,
+          }),
+        })
+        if (existingSession) existingSession.gitContext = gitContext
+        effectiveGitCtx = gitContext
+        log.info(`Worktree created for tab ${tabId}: ${gitContext.branch} at ${gitContext.worktreePath}`)
+        this._broadcastToSession('event', tabId, { type: 'git_context', gitContext })
+        // Worktree done → advance to "Linking thread workspace".
+        this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(1) })
+      } catch (e) {
+        log.error(`Worktree creation failed for tab ${tabId}: ${e}`)
+        this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(0, true) })
       }
     }
 
@@ -1040,6 +1120,12 @@ export class ControlPlane extends EventEmitter {
     // (worktree root when present, else the project) so its first open hits a
     // ready index instead of paying for the initial filesystem scan.
     if (effectiveCwd && effectiveCwd !== '~') warmFinder(effectiveCwd)
+
+    // Workspace linked (git watcher + file index warmed) → advance to the final
+    // "Starting session" step; the reducer clears the card once the run begins.
+    if (worktreeCardActive) {
+      this._broadcastToSession('event', tabId, { type: 'status_card', card: buildWorktreeCard(2) })
+    }
 
     const effectiveAdditionalDirs = useWorktree && resolvedProjectPath
       ? [...new Set([...(input.additionalDirs || []), resolvedProjectPath])]
@@ -1349,7 +1435,7 @@ export class ControlPlane extends EventEmitter {
 
     if (action === 'stop') {
       this._clearRateLimitTimer(sessionId)
-      this.sessionRateLimits.delete(sessionId)
+      this.rateLimits.clear(sessionId)
       this._setStatus({ sessionId }, 'idle')
       this._rejectRateLimitQueue(sessionId, new Error('Rate-limited prompts stopped'))
       this._broadcastRateLimitResolved(sessionId, action)
@@ -1377,37 +1463,16 @@ export class ControlPlane extends EventEmitter {
     return result
   }
 
-  private _currentRateLimitEvent(sessionId: string | null | undefined): NormalizedEvent | null {
+  private _currentRateLimitEvent(sessionId: string | null | undefined): Extract<NormalizedEvent, { type: 'rate_limit' }> | null {
     if (!sessionId) return null
-    const event = this.sessionRateLimits.get(sessionId)
-    if (!event || event.type !== 'rate_limit' || event.status === 'allowed' || event.status === 'allowed_warning') {
-      return null
-    }
-
-    if (event.resetsAt * 1000 <= Date.now()) {
+    const hadActive = this.rateLimits.hasActive(sessionId)
+    const event = this.rateLimits.current(sessionId, Date.now() / 1000)
+    if (!event && hadActive) {
       this._releaseRateLimitQueue(sessionId, 'wait')
       return null
     }
 
     return event
-  }
-
-  private _withRateLimitDisplay(event: Extract<NormalizedEvent, { type: 'rate_limit' }>): Extract<NormalizedEvent, { type: 'rate_limit' }> {
-    const info = this._rateLimitInfo(event)
-    const used = typeof event.usedPercent === 'number' ? `, ${Math.round(event.usedPercent)}% used` : ''
-    const message = event.status === 'allowed_warning'
-      ? `Rate limit warning (${event.rateLimitType}).${used ? ` ${used.slice(2)}.` : ''} Resets at ${new Date(event.resetsAt * 1000).toLocaleString()}.`
-      : `Rate limited (${event.rateLimitType}${used}). Resets at ${new Date(event.resetsAt * 1000).toLocaleString()}.`
-    return { ...event, info, message }
-  }
-
-  private _rateLimitInfo(event: Extract<NormalizedEvent, { type: 'rate_limit' }>): RateLimitInfo {
-    return {
-      resetsAt: event.resetsAt,
-      rateLimitType: event.rateLimitType,
-      prompt: 'Solus is taking a short breather before trying again.',
-      queuedPrompt: 'Queued safely. Solus will send it when the limit resets.',
-    }
   }
 
   // ─── Worktree registry helpers (used by main's worktree IPC handlers) ───
@@ -1452,6 +1517,9 @@ export class ControlPlane extends EventEmitter {
     if (!tabIds.length) return
 
     const statusByCwd = new Map<string, Awaited<ReturnType<typeof computeGitProjectStatus>>>()
+    // Whether each cwd's status actually changed since its last broadcast —
+    // decided once per cwd so tabs sharing a cwd all deliver (or all skip) together.
+    const changedByCwd = new Map<string, boolean>()
     for (const tabId of tabIds) {
       const tab = this.tabs.get(tabId)
       const session = tab ? this._sessionFor(tab) : undefined
@@ -1460,7 +1528,14 @@ export class ControlPlane extends EventEmitter {
       const cwd = session.gitContext.worktreePath ?? session.runInput?.workingDirectory ?? session.gitContext.repoRoot ?? null
       if (!cwd || cwd === '~') continue
 
-      if (!statusByCwd.has(cwd)) statusByCwd.set(cwd, await computeGitProjectStatus(cwd))
+      if (!statusByCwd.has(cwd)) {
+        const computed = await computeGitProjectStatus(cwd)
+        statusByCwd.set(cwd, computed)
+        const serialized = JSON.stringify(computed)
+        const changed = this.lastGitStatusByCwd.get(cwd) !== serialized
+        if (changed) this.lastGitStatusByCwd.set(cwd, serialized)
+        changedByCwd.set(cwd, changed)
+      }
       const status = statusByCwd.get(cwd) ?? null
 
       const liveBranch = status?.branch
@@ -1469,7 +1544,11 @@ export class ControlPlane extends EventEmitter {
         session.gitContext = gitContext
         this._broadcastToSession('event', tabId, { type: 'git_context', gitContext })
       }
-      this._broadcastToSession('event', tabId, { type: 'git_status', cwd, status })
+      // Skip the git_status broadcast when nothing changed since the last fire —
+      // belt-and-braces to cut IPC to hidden windows (the renderer diffs too).
+      if (changedByCwd.get(cwd)) {
+        this._broadcastToSession('event', tabId, { type: 'git_status', cwd, status })
+      }
     }
   }
 
@@ -1490,8 +1569,8 @@ export class ControlPlane extends EventEmitter {
   private _isQueuedRequestReady(req: QueuedRequest): boolean {
     if (req.reason !== 'rate_limit') return true
     if (!req.rateLimitSessionId) return true
-    const event = this.sessionRateLimits.get(req.rateLimitSessionId)
-    if (!event || event.type !== 'rate_limit') return true
+    const event = this.rateLimits.current(req.rateLimitSessionId, Date.now() / 1000)
+    if (!event) return true
     return event.resetsAt * 1000 <= Date.now()
   }
 
@@ -1515,7 +1594,7 @@ export class ControlPlane extends EventEmitter {
     const queue = this.requestQueue.get(sessionId) ?? []
     if (queue.some((r) => r.rateLimitSessionId === sessionId)) return
     this._clearRateLimitTimer(sessionId)
-    this.sessionRateLimits.delete(sessionId)
+    this.rateLimits.clear(sessionId)
   }
 
   private _queueActiveRateLimitedRequest(sessionId: string): boolean {
@@ -1543,7 +1622,7 @@ export class ControlPlane extends EventEmitter {
 
   private _releaseRateLimitQueue(sessionId: string, action: RateLimitDecisionAction): void {
     this._clearRateLimitTimer(sessionId)
-    this.sessionRateLimits.delete(sessionId)
+    this.rateLimits.clear(sessionId)
 
     for (const req of this.requestQueue.get(sessionId) ?? []) {
       if (req.rateLimitSessionId !== sessionId) continue
@@ -1694,7 +1773,7 @@ export class ControlPlane extends EventEmitter {
       ? this._backendFor(this.activeSessions.get(sessionId)!.backendId)
       : undefined
     backend?.permissions.clearPendingForSession(sessionId)
-    this._flushPendingText(tabId)
+    this._flushPendingTab(tabId, false)
 
     const tab = this.tabs.get(tabId)
     if (!tab) return
@@ -1786,6 +1865,7 @@ export class ControlPlane extends EventEmitter {
     }
     for (const timer of this.rateLimitTimers.values()) clearTimeout(timer)
     this.rateLimitTimers.clear()
+    this.rateLimits.clearAll()
 
     for (const [sessionId, session] of this.activeSessions) {
       const backend = this._backendFor(session.backendId)
@@ -1815,12 +1895,15 @@ export class ControlPlane extends EventEmitter {
   private _ensureTextFlushTimer(): void {
     if (this.textFlushTimer) return
     this.textFlushTimer = setInterval(() => {
-      if (this.pendingText.size === 0) {
+      if (this.pendingFlush.size === 0) {
         this._stopTextFlushTimer()
         return
       }
-      for (const tabId of this.pendingText.keys()) {
-        this._flushPendingText(tabId)
+      // keep=true: a streaming tool/turn is still in flight, so retain the buffer
+      // markers to keep coalescing subsequent deltas instead of re-emitting each
+      // one immediately.
+      for (const tabId of [...this.pendingFlush.keys()]) {
+        this._flushPendingTab(tabId, true)
       }
     }, TEXT_FLUSH_INTERVAL_MS)
   }
@@ -1885,10 +1968,25 @@ export class ControlPlane extends EventEmitter {
     }
   }
 
+  /** Emit a tab's buffered text immediately (first-chunk latency), keeping the marker so the rest batch. */
   private _flushPendingText(tabId: string): void {
-    const text = this.pendingText.get(tabId)
+    const text = this.pendingFlush.get(tabId)
     if (!text) return
-    this.pendingText.delete(tabId)
     this.emit('event', tabId, { type: 'text_chunk', text })
+    this.pendingFlush.set(tabId, '')
+  }
+
+  /**
+   * Drain a tab's buffered text. `keep=true` (interval tick) resets the marker to ''
+   * when there was data so an active stream keeps batching, and drops the idle marker
+   * so the timer can settle; `keep=false` (boundary/exit) drops it so ordering with
+   * the triggering event holds.
+   */
+  private _flushPendingTab(tabId: string, keep: boolean): void {
+    const text = this.pendingFlush.get(tabId)
+    if (text === undefined) return
+    if (text) this.emit('event', tabId, { type: 'text_chunk', text })
+    if (keep && text) this.pendingFlush.set(tabId, '')
+    else this.pendingFlush.delete(tabId)
   }
 }

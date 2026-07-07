@@ -16,7 +16,7 @@ import type {
   SessionMeta,
   UsageData,
 } from '../../../src/shared/types'
-import type { SessionLoadMessage } from '../../../src/shared/claude-types'
+import type { SessionLoadMessage } from '../../../src/shared/session-history'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
@@ -117,11 +117,8 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this.emit('normalized', MOCK_SESSION_ID, {
       type: 'session_init',
       sessionId: MOCK_SESSION_ID,
-      tools: [],
       model: 'mock-model',
-      mcpServers: [],
       skills: [],
-      version: '0.0.0',
     } satisfies NormalizedEvent)
 
     // Emit a plan event for plan-triggering prompts.
@@ -303,14 +300,13 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       return
     }
 
-    // Report token usage for the context meter. _completeRun emits the assistant
-    // message (carrying per-call usage) after the text stream, mirroring real Claude.
+    // Report token usage for the context meter.
     if (prompt.includes('__MOCK_USAGE__')) {
       this._completeRun(handle, responseText, [], {
-        input_tokens: 50_000,
-        output_tokens: 1_200,
-        cache_read_input_tokens: 10_000,
-        cache_creation_input_tokens: 0,
+        inputTokens: 50_000,
+        outputTokens: 1_200,
+        cacheReadTokens: 10_000,
+        cacheCreationTokens: 0,
       })
       return
     }
@@ -336,21 +332,14 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       index: 0,
     } satisfies NormalizedEvent)
 
-    // Emit the tool-input JSON in chunks; the _SLOW_ pacing keeps the skeleton up.
+    // Pace the running phase in a few steps so _SLOW_ keeps the skeleton up; the
+    // full tool input now lands on completion, mirroring the real Claude/Codex flow.
     const inputJson = JSON.stringify({ title: opts.title, doc_type: opts.docType, content: opts.content })
-    const chunkSize = Math.max(1, Math.ceil(inputJson.length / 4))
-    for (let i = 0; i < inputJson.length; i += chunkSize) {
+    for (let i = 0; i < 4; i++) {
       if (handle.abortController.signal.aborted) return
       await pace()
-      this.emit('normalized', MOCK_SESSION_ID, {
-        type: 'tool_call_update',
-        toolId: '',
-        index: 0,
-        toolInput: inputJson.slice(i, i + chunkSize),
-        toolInputDelta: true,
-      } satisfies NormalizedEvent)
     }
-    this.emit('normalized', MOCK_SESSION_ID, { type: 'tool_call_complete', index: 0, toolId } satisfies NormalizedEvent)
+    this.emit('normalized', MOCK_SESSION_ID, { type: 'tool_call_complete', index: 0, toolId, toolInput: inputJson } satisfies NormalizedEvent)
     await pace()
 
     // Persist under the fixed id so later update_work calls target the same work.
@@ -444,23 +433,6 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       this.emit('normalized', sessionId, {
         type: 'text_chunk',
         text: (i === 0 ? '' : ' ') + words[i],
-      } satisfies NormalizedEvent)
-    }
-
-    // Mirror Claude's order: the assistant message (with per-call usage) follows the
-    // streamed text and precedes the result. Empty content so it carries usage only,
-    // without duplicating the message the renderer builds from the stream.
-    if ((usage.input_tokens ?? 0) > 0) {
-      this.emit('normalized', sessionId, {
-        type: 'task_update',
-        message: {
-          model: 'mock-model',
-          id: 'mock-msg-usage',
-          role: 'assistant',
-          content: [],
-          stop_reason: 'end_turn',
-          usage,
-        },
       } satisfies NormalizedEvent)
     }
 

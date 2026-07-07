@@ -6,7 +6,6 @@
   import {
     BellIcon,
     MoonIcon,
-    SidebarIcon,
     TextAaIcon,
     ClockCountdownIcon,
     GitBranchIcon,
@@ -23,7 +22,6 @@
   } from "../../contexts/settings.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ChartBarIcon } from "phosphor-svelte";
@@ -37,7 +35,6 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
 
   const rateLimitStrats: [string, string][] = [
     ["ask", "Ask"],
@@ -58,6 +55,32 @@
   let rateLimitTriggerEl: HTMLButtonElement | null = $state(null);
   let appFontOpen = $state(false);
   let codeFontOpen = $state(false);
+
+  // Models across all available agents, deduped by id — instructions are keyed
+  // by resolved model id alone (matching statusBar.model), not per-agent.
+  const modelRows = $derived(
+    agentRows
+      .flatMap((agent) => (agentContext.metadata[agent.id]?.models ?? []))
+      .filter((model, i, all) => all.findIndex((o) => o.id === model.id) === i),
+  );
+
+  let modelInstructionsTriggerEl: HTMLButtonElement | null = $state(null);
+  let modelInstructionsOpen = $state(false);
+  let selectedModelId = $state(agentContext.metadata[theme.activeAgent]?.defaultModel ?? "");
+
+  $effect(() => {
+    if (!selectedModelId && modelRows.length > 0) selectedModelId = modelRows[0].id;
+  });
+
+  const selectedModelLabel = $derived(
+    modelRows.find((m) => m.id === selectedModelId)?.label ?? selectedModelId,
+  );
+
+  function selectModelForInstructions(id: string) {
+    selectedModelId = id;
+    modelInstructionsOpen = false;
+    requestInputFocus();
+  }
 
   const appFontLabel = $derived(
     APP_FONT_FAMILIES.find((font) => font.id === theme.fontFamily)?.label ?? "System",
@@ -103,7 +126,6 @@
   const settingItems: SettingItem[] = [
     { id: "theme", keywords: ["dark", "theme", "light", "appearance", "mode"] },
     { id: "agent", keywords: ["agent", "default", "claude", "ai", "model"] },
-    { id: "editor-mode", keywords: ["editor", "mode", "layout", "fullscreen", "full-screen", "sidebar"] },
     { id: "notification", keywords: ["notification", "sound", "alert", "bell", "audio"] },
     { id: "font-family", keywords: ["font", "family", "typeface", "inter", "dm sans", "system", "geist", "lora", "serif"] },
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
@@ -113,6 +135,7 @@
     { id: "worktree", keywords: ["git", "worktree", "branch", "isolate", "session"] },
     { id: "analytics", keywords: ["analytics", "telemetry", "tracking", "privacy", "data"] },
     { id: "extra-instructions", keywords: ["extra", "instructions", "system", "prompt", "agent"] },
+    { id: "model-instructions", keywords: ["model", "instructions", "system", "prompt", "per-model", "specific"] },
   ];
 
   function isVisible(id: string): boolean {
@@ -185,23 +208,6 @@
           </div>
         </Dropdown>
       </div>
-    </div>
-  {/if}
-
-  {#if isVisible("editor-mode")}
-    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
-      <div class="flex items-center gap-3 min-w-0">
-        <SidebarIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Editor mode</div>
-          <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Full-screen editor layout (⌥⇧E)</div>
-        </div>
-      </div>
-      {@render toggle(
-        windowCtx.viewMode === "editor",
-        () => session.toggleViewMode(),
-        "Toggle editor mode",
-      )}
     </div>
   {/if}
 
@@ -464,6 +470,60 @@
         hidePlaceholderOnFocus
         maxHeight={220}
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
+        class={mdFieldClass}
+      />
+    </div>
+  {/if}
+
+  {#if isVisible("model-instructions")}
+    <div class="flex flex-col gap-3 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
+      <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3 min-w-0">
+          <NotePencilIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+          <div>
+            <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Per-model instructions</div>
+            <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Appended only when this model is running, on top of the extra instructions above</div>
+          </div>
+        </div>
+        <div>
+          <button
+            bind:this={modelInstructionsTriggerEl}
+            type="button"
+            aria-label="Model"
+            aria-haspopup="menu"
+            aria-expanded={modelInstructionsOpen}
+            disabled={modelRows.length === 0}
+            onclick={() => { modelInstructionsOpen = !modelInstructionsOpen }}
+            class="{dropdownTriggerClass} min-w-32 disabled:opacity-50"
+          >
+            <span class="truncate">{selectedModelLabel || "Select model"}</span>
+            <CaretDownIcon size={11} style="opacity:0.6" />
+          </button>
+          <Dropdown bind:open={modelInstructionsOpen} triggerEl={modelInstructionsTriggerEl} align="top" anchor="right" width={220}>
+            <div class="py-1">
+              {#each modelRows as model (model.id)}
+                <DropdownItem selected={model.id === selectedModelId} onclick={() => selectModelForInstructions(model.id)}>
+                  <span class="flex items-center gap-1.5 min-w-0">
+                    {#if theme.modelInstructions[model.id]?.trim()}
+                      <span class="w-1.5 h-1.5 rounded-full bg-(--solus-accent) shrink-0"></span>
+                    {/if}
+                    <span class="truncate">{model.label}</span>
+                  </span>
+                  {#if model.id === selectedModelId}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
+                </DropdownItem>
+              {/each}
+            </div>
+          </Dropdown>
+        </div>
+      </div>
+      <MarkdownEditor
+        value={theme.modelInstructions[selectedModelId] ?? ""}
+        onValueChange={(md) => theme.update({ modelInstructions: { ...theme.modelInstructions, [selectedModelId]: md } })}
+        onBlur={() => requestInputFocus()}
+        enterInsertsNewline
+        hidePlaceholderOnFocus
+        maxHeight={220}
+        placeholder="Instructions that only apply when {selectedModelLabel || 'this model'} is running."
         class={mdFieldClass}
       />
     </div>

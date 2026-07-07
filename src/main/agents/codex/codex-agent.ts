@@ -4,7 +4,15 @@ import { join } from 'node:path'
 import { getCliEnv } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { createLogger } from '../../logger'
-import type { JsonRpcId, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse } from './codex-event-normalizer'
+import type {
+  CodexResponseFor,
+  CodexTypedMethod,
+  JsonRpcId,
+  JsonRpcMessage,
+  JsonRpcNotification,
+  JsonRpcRequest,
+  JsonRpcResponse,
+} from './codex-protocol'
 
 const log = createLogger('CodexAppServerClient', 'codex-agent.ts')
 const REQUEST_TIMEOUT_MS = 120_000
@@ -24,6 +32,8 @@ export class CodexAppServerClient extends EventEmitter {
   private didRestart = false
   private stopped = false
 
+  async request<M extends CodexTypedMethod>(method: M, params?: unknown, timeoutMs?: number): Promise<CodexResponseFor<M>>
+  async request<T = any>(method: string, params?: unknown, timeoutMs?: number): Promise<T>
   async request<T = any>(method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     await this.ensureStarted()
     const proc = this.proc
@@ -187,4 +197,16 @@ let sharedClient: CodexAppServerClient | null = null
 export function getCodexAppServerClient(): CodexAppServerClient {
   if (!sharedClient) sharedClient = new CodexAppServerClient()
   return sharedClient
+}
+
+// ─── Headless thread registry ───
+// Thread ids of in-flight headless one-shot runs (see codex-oneshot) that own
+// their own dynamic-tool dispatch on the shared client. The interactive
+// CodexBackend skips server-requests for these threads so the two listeners on
+// the shared client never both respond to the same request.
+const headlessThreadIds = new Set<string>()
+export function registerHeadlessThread(id: string): void { headlessThreadIds.add(id) }
+export function unregisterHeadlessThread(id: string): void { headlessThreadIds.delete(id) }
+export function isHeadlessCodexThread(id: unknown): boolean {
+  return typeof id === 'string' && headlessThreadIds.has(id)
 }

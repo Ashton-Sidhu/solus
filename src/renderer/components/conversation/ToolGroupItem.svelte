@@ -21,7 +21,6 @@
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { prettyToolName, solusToolKey } from "../../contexts/session.utils";
   import type { Message } from "../../../shared/types";
-  import Diff from "../diff/Diff.svelte";
 
   interface Props {
     tools: Message[];
@@ -53,6 +52,9 @@
 
   const parseCache = new WeakMap<Message, Record<string, unknown> | null>();
 
+  // A running tool's toolInput is empty/absent — the full input lands only at
+  // completion. Parsing (and caching) it while running would pin a stale null, so
+  // skip until it's done, then parse each tool at most once, cached on the message.
   const parsedInputs = $derived(
     tools.map((tool) => {
       if (!tool.toolInput || tool.toolStatus === "running") return null;
@@ -67,6 +69,54 @@
     }),
   );
 
+  const CHANGE_PATH_KEYS = [
+    "file_path",
+    "filePath",
+    "path",
+    "file",
+    "fileName",
+    "filename",
+    "old_path",
+    "new_path",
+    "oldPath",
+    "newPath",
+  ];
+
+  function addToolPath(paths: Set<string>, value: unknown): void {
+    if (typeof value !== "string") return;
+    let path = value.trim();
+    if (!path || path === "/dev/null") return;
+    if (
+      (path.startsWith('"') && path.endsWith('"')) ||
+      (path.startsWith("'") && path.endsWith("'"))
+    ) {
+      path = path.slice(1, -1);
+    }
+    paths.add(path);
+  }
+
+  function toolPathsFromParsed(parsed: Record<string, unknown>): string[] {
+    const paths = new Set<string>();
+    for (const key of CHANGE_PATH_KEYS) addToolPath(paths, parsed[key]);
+
+    const changes = parsed.changes;
+    if (Array.isArray(changes)) {
+      for (const change of changes) {
+        if (!change || typeof change !== "object") continue;
+        const record = change as Record<string, unknown>;
+        for (const key of CHANGE_PATH_KEYS) addToolPath(paths, record[key]);
+      }
+    }
+
+    return [...paths];
+  }
+
+  function describeFilePaths(action: string, paths: string[]): string {
+    if (paths.length === 0) return `${action} file`;
+    if (paths.length === 1) return `${action} ${paths[0]}`;
+    return `${action} ${paths[0]} and ${paths.length - 1} more file${paths.length > 2 ? "s" : ""}`;
+  }
+
   function getToolDescriptionFromParsed(
     name: string,
     parsed: Record<string, unknown>,
@@ -80,9 +130,9 @@
       case "Read":
         return `Read ${s(parsed.file_path) || s(parsed.path) || "file"}`;
       case "Edit":
-        return `Edit ${s(parsed.file_path) || "file"}`;
+        return describeFilePaths("Edit", toolPathsFromParsed(parsed));
       case "Write":
-        return `Write ${s(parsed.file_path) || "file"}`;
+        return describeFilePaths("Write", toolPathsFromParsed(parsed));
       case "Glob":
         return `Search files: ${s(parsed.pattern)}`;
       case "Grep":
@@ -158,9 +208,12 @@
           {@const isRunning = tool.toolStatus === "running"}
           {@const toolName = tool.toolName || "Tool"}
           {@const parsedInput = parsedInputs[i]}
-          {@const fullDesc = parsedInput
-            ? getToolDescriptionFromParsed(toolName, parsedInput, { truncate: false })
-            : getToolDescription(toolName, tool.toolInput, { truncate: false })}
+          {@const fullDesc = isRunning
+            ? prettyToolName(toolName)
+            : parsedInput
+              ? getToolDescriptionFromParsed(toolName, parsedInput, { truncate: false })
+              : getToolDescription(toolName, tool.toolInput, { truncate: false })}
+          {@const filePaths = parsedInput ? toolPathsFromParsed(parsedInput) : []}
           {@const ToolIcon = TOOL_ICONS[toolName] || (solusToolKey(toolName) ? FileTextIcon : WrenchIcon)}
           <div class="group/tool relative">
             <div
@@ -186,11 +239,11 @@
                   class:text-(--solus-text-tertiary)={!isRunning}
                   >{fullDesc}</span
                 >
-                {#if !isRunning && (toolName === "Write" || toolName === "Edit") && parsedInput?.file_path && theme.defaultEditor}
+                {#if !isRunning && (toolName === "Write" || toolName === "Edit") && filePaths.length > 0 && theme.defaultEditor}
                   <button
                     onclick={() =>
                       openInConfiguredEditor(session.ctxFor(tabId), {
-                        filePaths: [String(parsedInput.file_path)],
+                        filePaths,
                         editorId: theme.defaultEditor,
                         terminalId: theme.defaultTerminal,
                         cwd: workingDirectory,
@@ -200,27 +253,6 @@
                   >
                 {/if}
               </div>
-
-              {#if !isRunning && parsedInput}
-                {#if toolName === "Edit" && ("old_string" in parsedInput || "new_string" in parsedInput)}
-                  {@const oldStr = typeof parsedInput.old_string === "string" ? parsedInput.old_string : ""}
-                  {@const newStr = typeof parsedInput.new_string === "string" ? parsedInput.new_string : ""}
-                  {@const filePath = typeof parsedInput.file_path === "string" ? parsedInput.file_path : "file"}
-                  <div class="mt-1" aria-label="Edit diff">
-                    <Diff
-                      oldFile={{ name: filePath, contents: oldStr }}
-                      newFile={{ name: filePath, contents: newStr }}
-                    />
-                  </div>
-                {:else if toolName === "Write" && typeof parsedInput.content === "string"}
-                  {@const filePath = typeof parsedInput.file_path === "string" ? parsedInput.file_path : "file"}
-                  <div class="mt-1" aria-label="Write content preview">
-                    <Diff
-                      newFile={{ name: filePath, contents: parsedInput.content as string }}
-                    />
-                  </div>
-                {/if}
-              {/if}
 
               {#if isRunning}
                 <span class="text-[0.625rem] mt-0.5 block text-(--solus-text-tertiary)">in progress</span>

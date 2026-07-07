@@ -17,6 +17,7 @@ export interface SessionConfigControllerDeps {
   ctx(): IpcContext
   ctxForDirectory(dir: string): IpcContext
   refreshPluginCommands(dir: string, tabId?: string): void
+  refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   fetchGitContext(tabId: string, dir: string): void
 }
 
@@ -86,10 +87,7 @@ export class SessionConfigController {
     session.agentSessionId = null
     session.modelConfig = { ...newModelConfig }
     session.sessionModel = null
-    session.sessionTools = []
-    session.sessionMcpServers = []
     session.sessionSkills = []
-    session.sessionVersion = null
     session.pluginCommands = { global: [], project: [] }
     this.deps.refreshPluginCommands(session.workingDirectory, this.deps.registry.activeTabId)
   }
@@ -161,6 +159,7 @@ export class SessionConfigController {
     if (!restored && session) {
       this.deps.fetchGitContext(this.deps.registry.activeTabId, session.workingDirectory)
     }
+    this.deps.refreshGitRefs(projectRoot, repoCtx)
   }
 
   async switchToBranch(branch: string): Promise<boolean> {
@@ -195,6 +194,7 @@ export class SessionConfigController {
       this.deps.planStore.preloadDescriptors(projectRoot, this.deps.ctxForDirectory(projectRoot))
       this.deps.refreshPluginCommands(projectRoot)
     }
+    this.deps.refreshGitRefs(projectRoot, ctx)
     return true
   }
 

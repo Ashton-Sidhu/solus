@@ -1,5 +1,6 @@
 import { GitHubAuth } from './auth'
 import { buildClient, type GitHubClient } from './octokit'
+import type { MergeMethod } from '../../../shared/types'
 import type {
   DraftReview,
   PrCommit,
@@ -126,11 +127,15 @@ function githubApiErrorMessage(err: unknown, fallback: string): string {
     : []
 
   const parts = [bodyMessage, ...details].filter(Boolean)
-  if (parts.length > 0) return `GitHub rejected the review${status ? ` (${status})` : ''}: ${parts.join('; ')}`
+  if (parts.length > 0) return `${fallback}${status ? ` (${status})` : ''}: ${parts.join('; ')}`
 
   const message = err instanceof Error ? err.message : String(err)
   return message ? `${fallback}: ${message}` : fallback
 }
+
+/** Pagination sanity cap for the PR list — enough for any real review queue
+ *  without letting a monorepo's backlog turn one load into dozens of pages. */
+const MAX_LISTED_PRS = 500
 
 // ─── Mappers (Octokit/GraphQL → host-neutral DTOs) ────────────────────────────
 
@@ -202,15 +207,21 @@ class GitHubProvider implements ReviewProvider {
 
   async listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequestSummary[]> {
     const { rest } = await this.client()
-    const { data } = await rest.pulls.list({
+    const data: unknown[] = []
+    // Paginate (sorted by most recently updated) up to a sanity cap — one page
+    // silently truncated busy repos at 100 PRs.
+    for await (const page of rest.paginate.iterator(rest.pulls.list, {
       owner: repo.owner,
       repo: repo.repo,
       state: filter?.state ?? 'open',
       sort: 'updated',
       direction: 'desc',
       per_page: 100,
-    })
-    let summaries = data.map((pr) => toSummary(pr as unknown as RestPull))
+    })) {
+      data.push(...page.data)
+      if (data.length >= MAX_LISTED_PRS) break
+    }
+    let summaries = data.slice(0, MAX_LISTED_PRS).map((pr) => toSummary(pr as unknown as RestPull))
     // GitHub's list endpoint has no author filter (that's the search API); filter ourselves.
     if (filter?.author) {
       const author = filter.author.toLowerCase()
@@ -245,6 +256,7 @@ class GitHubProvider implements ReviewProvider {
       baseSha: pr.base.sha,
       headSha: pr.head.sha,
       changedFiles: (pr as any).changed_files ?? 0,
+      mergeable: pr.mergeable ?? null,
       headRepo: {
         owner: pr.head.repo?.owner?.login ?? repo.owner,
         repo: pr.head.repo?.name ?? repo.repo,
@@ -276,8 +288,8 @@ class GitHubProvider implements ReviewProvider {
 
   async listCommits(repo: RepoRef, number: number): Promise<PrCommit[]> {
     const { rest } = await this.client()
-    // Up to 250 commits per the REST endpoint — far past any PR we'd render.
-    const { data } = await rest.pulls.listCommits({
+    // Paginated; the REST endpoint itself caps a PR's commit list at 250.
+    const data = await rest.paginate(rest.pulls.listCommits, {
       owner: repo.owner,
       repo: repo.repo,
       pull_number: number,
@@ -294,16 +306,23 @@ class GitHubProvider implements ReviewProvider {
 
   async listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]> {
     const { rest } = await this.client()
-    const [{ data: reviews }, { data: requested }] = await Promise.all([
-      rest.pulls.listReviews({ owner: repo.owner, repo: repo.repo, pull_number: number, per_page: 100 }),
+    const [reviews, { data: requested }] = await Promise.all([
+      rest.paginate(rest.pulls.listReviews, { owner: repo.owner, repo: repo.repo, pull_number: number, per_page: 100 }),
       rest.pulls.listRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number }),
     ])
-    // Build map of latest review state per user.
+    // Fold each user's chronological reviews into their standing state, matching
+    // GitHub's semantics: an approval / change request holds until dismissed or
+    // replaced by another approval / change request — a later COMMENTED review
+    // does not demote it. PENDING is the viewer's own unsubmitted draft, not a
+    // review state at all.
     const map = new Map<string, PrReviewer>()
     for (const r of reviews) {
       const login = r.user?.login
       if (!login) continue
       const state = r.state as PrReviewer['state']
+      if (state === 'PENDING') continue
+      const prev = map.get(login)?.state
+      if (state === 'COMMENTED' && (prev === 'APPROVED' || prev === 'CHANGES_REQUESTED')) continue
       map.set(login, { login, state })
     }
     // Users who are requested but haven't reviewed yet.
@@ -338,6 +357,36 @@ class GitHubProvider implements ReviewProvider {
     } catch (err) {
       throw new Error(githubApiErrorMessage(err, 'Could not submit the review'))
     }
+  }
+
+  async mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }> {
+    const { rest } = await this.client()
+    try {
+      const { data } = await rest.pulls.merge({
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        merge_method: method,
+      })
+      return { merged: data.merged, message: data.message }
+    } catch (err) {
+      // 405/409 = not mergeable (conflicts, protection, stale head) — the merge
+      // queue treats this as "resolve locally", not as a failure.
+      return { merged: false, message: githubApiErrorMessage(err, 'GitHub could not merge the pull request') }
+    }
+  }
+
+  async listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]> {
+    const { rest } = await this.client()
+    // One page of 100 is plenty for the ordering heuristic — overlap on the
+    // first 100 files is representative even for giant PRs.
+    const { data } = await rest.pulls.listFiles({
+      owner: repo.owner,
+      repo: repo.repo,
+      pull_number: number,
+      per_page: 100,
+    })
+    return data.map((f) => f.filename)
   }
 
   async replyToThread(_repo: RepoRef, threadId: string, body: string): Promise<ReviewComment> {

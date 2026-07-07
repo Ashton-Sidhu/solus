@@ -16,11 +16,11 @@ export interface WorktreeDeps {
   controlPlane: ControlPlane
 }
 
-function resolveTabGitContext(ctx: IpcContext) {
+async function resolveTabGitContext(ctx: IpcContext) {
   let gitContext = ctx.session.gitContext ?? undefined
   if (!gitContext && ctx.session.workingDirectory && ctx.session.workingDirectory !== '~') {
     const branch = getWorkingBranch(ctx.session.workingDirectory)
-    const targetBranch = getDefaultBranch(ctx.session.workingDirectory)
+    const targetBranch = await getDefaultBranch(ctx.session.workingDirectory)
     if (branch) {
       gitContext = { branch, targetBranch }
     }
@@ -28,13 +28,13 @@ function resolveTabGitContext(ctx: IpcContext) {
   return gitContext
 }
 
-function workTreeForCtx(ctx: IpcContext): string | null {
-  const gitContext = resolveTabGitContext(ctx)
+async function workTreeForCtx(ctx: IpcContext): Promise<string | null> {
+  const gitContext = await resolveTabGitContext(ctx)
   return gitContext?.worktreePath || ctx.session.workingDirectory || null
 }
 
 async function repoRootForCtx(ctx: IpcContext): Promise<string | null> {
-  const gitContext = resolveTabGitContext(ctx)
+  const gitContext = await resolveTabGitContext(ctx)
   const workTree = gitContext?.worktreePath || ctx.session.workingDirectory
   if (!workTree || workTree === '~') return null
   return resolveRepoRoot(workTree)
@@ -55,7 +55,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     log.info(`RPC diff: tab=${ctx.session.tabId} scope=${request.scope.kind}`)
     const repoRoot = await repoRootForCtx(ctx)
     if (!repoRoot) return null
-    const workTree = workTreeForCtx(ctx)
+    const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.agentSessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
     return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
@@ -66,7 +66,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('prChangedFiles', async (args) => {
     const [ctx, baseSha] = args as [IpcContext, string]
     const repoRoot = await repoRootForCtx(ctx)
-    const workTree = workTreeForCtx(ctx)
+    const workTree = await workTreeForCtx(ctx)
     if (!repoRoot || !workTree) return []
     return await getEpisodeNumstat(workTree, repoRoot, baseSha)
   })
@@ -86,11 +86,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (!ctx.session.gitContext) return { success: false, error: 'No active git branch for this tab' }
     const cwd = ctx.session.gitContext.worktreePath || ctx.session.workingDirectory
     return createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
-      generateCommitMessage: (commitCwd) => textGenerator.generate({
+      generateCommitMessage: async (commitCwd) => textGenerator.generate({
         provider: ctx.session.provider ?? ctx.settings.activeAgent,
         model: ctx.statusBar.model,
         cwd: commitCwd,
-        prompt: buildCommitMessagePrompt(commitCwd),
+        prompt: await buildCommitMessagePrompt(commitCwd),
         systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
         disableReasoning: true,
         maxTurns: 1,
@@ -111,14 +111,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('gitCommitPush', async (args) => {
     const [ctx] = args as [IpcContext]
     log.info(`RPC gitCommitPush: tab=${ctx.session.tabId}`)
-    const gitContext = resolveTabGitContext(ctx)
+    const gitContext = await resolveTabGitContext(ctx)
     if (!gitContext) return { success: false, error: 'No active git branch for this tab' }
     return commitAndPushChanges(gitContext, ctx.session.workingDirectory, {
-      generateCommitMessage: (cwd) => textGenerator.generate({
+      generateCommitMessage: async (cwd) => textGenerator.generate({
         provider: ctx.session.provider ?? ctx.settings.activeAgent,
         model: ctx.statusBar.model,
         cwd,
-        prompt: buildCommitMessagePrompt(cwd),
+        prompt: await buildCommitMessagePrompt(cwd),
         systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
         disableReasoning: true,
         maxTurns: 1,
@@ -130,7 +130,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   server.register('gitSync', async (args) => {
     const [ctx] = args as [IpcContext]
     log.info(`RPC gitSync: tab=${ctx.session.tabId}`)
-    const gitContext = resolveTabGitContext(ctx)
+    const gitContext = await resolveTabGitContext(ctx)
     if (!gitContext) return { success: false, error: 'No active git branch for this tab' }
     return syncWithOrigin(gitContext, ctx.session.workingDirectory)
   })
@@ -154,9 +154,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     }
   })
 
-  server.register('worktreeBranches', (args) => {
+  server.register('worktreeBranches', async (args) => {
     const [ctx] = args as [IpcContext]
-    return listBranches(ctx.session.workingDirectory)
+    const cwd = ctx.session.workingDirectory
+    if (!cwd || cwd === '~') return []
+    await runAsync('git', ['fetch', '--all', '--prune'], cwd).catch((err) => {
+      log.warn(`Failed to fetch branches before listing: ${err?.message ?? err}`)
+    })
+    return listBranches(cwd)
   })
 
   server.register('worktreeRestore', (args) => {

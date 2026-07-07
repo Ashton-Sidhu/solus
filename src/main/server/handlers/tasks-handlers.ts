@@ -1,14 +1,23 @@
 import type { Task } from '../../../shared/task-types'
-import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment } from '../../tasks/task-service'
-import { linkTaskSession, taskSessions } from '../../tasks/task-links'
+import { listTasks, getTask, createTask, updateTask, deleteTask, postTaskComment, linkTaskSessionAndNotify, setTasksChangedNotifier, taskProviderStatus } from '../../tasks/task-service'
+import { taskSessions } from '../../tasks/task-links'
 import type { SolusServer } from '../server'
 
 /** RPC surface for the renderer to browse and mutate tasks through whichever
  *  provider the project is bound to. All calls take the project `cwd` so the
  *  service can resolve the provider; the renderer never sees a provider type. */
 export function registerTasksHandlers(server: SolusServer): void {
+  // Every task mutation (renderer, agent tool, or session write-back) funnels
+  // through task-service; fan it out so open task views can refresh live.
+  setTasksChangedNotifier((cwd) => server.broadcast('tasks-changed', cwd))
+
+  server.register('tasksProviderStatus', (args) => {
+    const [cwd, opts] = args as [string, { checkAccess?: boolean } | undefined]
+    return taskProviderStatus(cwd, opts ?? {})
+  })
+
   server.register('tasksList', (args) => {
-    const [cwd, opts] = args as [string, { query?: string; assignedToMe?: boolean } | undefined]
+    const [cwd, opts] = args as [string, { assignedToMe?: boolean } | undefined]
     return listTasks(cwd, opts ?? {})
   })
 
@@ -41,7 +50,7 @@ export function registerTasksHandlers(server: SolusServer): void {
   // so the card can show which tasks have live work and jump back to it.
   server.register('tasksLinkSession', (args) => {
     const [cwd, taskId, sessionId] = args as [string, string, string]
-    return linkTaskSession(cwd, taskId, sessionId)
+    return linkTaskSessionAndNotify(cwd, taskId, sessionId)
   })
 
   server.register('tasksSessions', (args) => {

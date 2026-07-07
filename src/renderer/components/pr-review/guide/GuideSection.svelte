@@ -85,27 +85,35 @@
 
   // Per-file collapse for the diff cards; diffs are open by default.
   const collapsed = new SvelteSet<string>();
+  const visibleFiles = new SvelteSet<string>();
   function toggleCard(path: string): void {
     if (collapsed.has(path)) collapsed.delete(path);
     else collapsed.add(path);
   }
 
-  let sectionEl: HTMLElement | undefined = $state();
-  let visible = $state(false);
-  $effect(() => {
-    if (!sectionEl || visible) return;
+  function lazyDiffCard(node: HTMLElement, path: string) {
+    if (visibleFiles.has(path)) return {};
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          visible = true;
+          visibleFiles.add(path);
           observer.disconnect();
         }
       },
-      { rootMargin: "300px" },
+      { rootMargin: "500px" },
     );
-    observer.observe(sectionEl);
-    return () => observer.disconnect();
-  });
+    observer.observe(node);
+    return {
+      update(nextPath: string) {
+        if (nextPath === path) return;
+        path = nextPath;
+        if (visibleFiles.has(path)) observer.disconnect();
+      },
+      destroy() {
+        observer.disconnect();
+      },
+    };
+  }
 </script>
 
 <!-- Vibrant brand icon for known languages; monochrome extension badge otherwise. -->
@@ -123,12 +131,13 @@
 {/snippet}
 
 <section
-  bind:this={sectionEl}
   data-guide-section-id={section.id}
   class="grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
 >
   <!-- Left: the "why", pinned while the diffs scroll past. -->
-  <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
+  <div
+    class="guide-why flex min-h-0 flex-col gap-5 lg:sticky lg:top-12 lg:max-h-[calc(100dvh_-_var(--solus-chrome-row-h,2.5rem)_-_5rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+  >
     {#if index && total}
       <span
         class="tabular-nums text-[0.8125rem] font-semibold tracking-wide text-(--solus-text-tertiary)"
@@ -146,7 +155,7 @@
     <GuideExplanation {section} records={sectionRecords} />
 
     {#if section.files.length > 0}
-      <ul class="mt-1 flex flex-col gap-1.5">
+      <ul class="mt-1 flex flex-col gap-1.5" role="list">
         {#each section.files as file (file.path)}
           <li>
             <button
@@ -189,8 +198,10 @@
     {#each section.files as file (file.path)}
       {@const patch = patchByPath.get(file.path)}
       {@const open = !collapsed.has(file.path)}
+      {@const fileVisible = visibleFiles.has(file.path)}
       <div
         bind:this={cards[file.path]}
+        use:lazyDiffCard={file.path}
         class="scroll-mt-6 overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
       >
         <div
@@ -235,7 +246,7 @@
         </div>
         {#if open}
           <div class="overflow-x-auto">
-            {#if visible && patch}
+            {#if fileVisible && patch}
               <div class="guide-diff-in">
                 <GuideFileDiff
                   {patch}
@@ -245,7 +256,7 @@
                   onDeleteComment={onCommentDelete}
                 />
               </div>
-            {:else if visible}
+            {:else if fileVisible}
               <p
                 class="guide-diff-in px-3 py-3 text-[0.75rem] text-(--solus-text-tertiary)"
               >
@@ -277,6 +288,18 @@
   }
   .guide-why > :global(*:nth-child(4)) {
     animation-delay: 0.18s;
+  }
+  .guide-why {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--solus-text-primary) 18%, transparent)
+      transparent;
+  }
+  .guide-why::-webkit-scrollbar {
+    width: 0.5rem;
+  }
+  .guide-why::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--solus-text-primary) 18%, transparent);
+    border-radius: 999px;
   }
 
   /* Diffs lazy-mount as they scroll near the viewport (and on expand); fade them

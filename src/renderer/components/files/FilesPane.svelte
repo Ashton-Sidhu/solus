@@ -333,7 +333,7 @@
   bind:clientWidth={panelWidth}
 >
   <header
-    class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) px-3"
+    class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <button
       type="button"

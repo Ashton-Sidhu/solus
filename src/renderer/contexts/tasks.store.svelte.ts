@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { Task, TaskStatus, TaskKind, TaskSessionLink, TaskPr, TaskPriority } from '../../shared/task-types'
+import type { Task, TaskStatus, TaskKind, TaskSessionLink, TaskPr, TaskPriority, TaskProviderStatus } from '../../shared/task-types'
 
 // Renderer-side cache + RPC wrapper for tasks. Mirrors AutomationsStore, but
 // scoped to a single project cwd at a time: a task provider is bound to one
@@ -13,24 +13,45 @@ export class TasksStore {
   error = $state<string | null>(null)
   /** The cwd the current `tasks` belong to, so a stale project never renders. */
   cwd = $state<string | null>(null)
-  /** Epoch ms of the last successful load — drives the "updated Xm ago" hint so
-   *  the user can judge how fresh the list is (the provider may be cached). */
+  /** Epoch ms the shown list was fetched from the provider — drives the
+   *  "updated Xm ago" hint. For an offline (cached) serve this is the cache's
+   *  original fetch time, not the load time, so the hint never claims stale
+   *  data is fresh. Null when unknown (legacy cache with no timestamp). */
   refreshedAt = $state<number | null>(null)
+  /** True when the last load served the offline cache after a failed live fetch. */
+  fromCache = $state(false)
+  /** True when the provider capped the list (GitHub stops at its page budget). */
+  truncated = $state(false)
   /** task id → sessions started from it. Persisted in a local sidecar so the
    *  back-link survives reloads even though a session's `boundTaskId` doesn't. */
   sessionsByTask = new SvelteMap<string, TaskSessionLink[]>()
+  /** cwd → provider preflight. Keyed so stale responses from an old project
+   *  can't overwrite the status shown for the current one. */
+  providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
+
+  providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
+    return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
+  }
+
+  async loadProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus> {
+    const status = await window.solus.tasksProviderStatus(cwd, opts)
+    this.providerStatusByCwd.set(cwd, status)
+    return status
+  }
 
   async load(cwd: string, opts: { assignedToMe?: boolean } = {}): Promise<void> {
     this.cwd = cwd
     this.loading = true
     this.error = null
     try {
-      const list = await window.solus.tasksList(cwd, opts)
+      const result = await window.solus.tasksList(cwd, opts)
       // Guard against a slower earlier load resolving after a project switch.
       if (this.cwd !== cwd) return
-      this.tasks = list
+      this.tasks = result.tasks
       this.loaded = true
-      this.refreshedAt = Date.now()
+      this.fromCache = result.fromCache ?? false
+      this.truncated = result.truncated ?? false
+      this.refreshedAt = result.fetchedAt ?? (result.fromCache ? null : Date.now())
       void this.loadLinks(cwd)
     } catch (err) {
       if (this.cwd !== cwd) return
@@ -89,6 +110,14 @@ export class TasksStore {
     const updated = await window.solus.tasksUpdate(cwd, id, patch)
     this.replace(id, updated)
     return updated
+  }
+
+  /** Hydrate a single ticket and reconcile the current project list when the
+   *  result still belongs to the active cwd. */
+  async get(cwd: string, id: string): Promise<Task> {
+    const task = await window.solus.tasksGet(cwd, id)
+    if (this.cwd === cwd) this.replace(id, task)
+    return task
   }
 
   private replace(id: string, updated: Task): void {
@@ -154,10 +183,21 @@ export class TasksStore {
     this.pendingDelete = []
   }
 
-  /** Commit: actually delete the stashed rows through the provider. */
+  /** Commit: actually delete the stashed rows through the provider. Runs every
+   *  delete before failing so one bad row can't strand the rest, then throws
+   *  with the failed tasks restored — the caller surfaces the toast. */
   async commitPending(cwd: string): Promise<void> {
     const pending = this.pendingDelete
     this.pendingDelete = []
-    await Promise.all(pending.map((t) => window.solus.tasksDelete(cwd, t.id)))
+    const results = await Promise.allSettled(pending.map((t) => window.solus.tasksDelete(cwd, t.id)))
+    const failed = pending.filter((_, i) => results[i].status === 'rejected')
+    if (failed.length) {
+      // Resurface the rows that still exist rather than leaving them hidden
+      // until the next reload.
+      this.tasks.push(...failed)
+      this.tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      const first = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      throw first?.reason ?? new Error('Delete failed')
+    }
   }
 }

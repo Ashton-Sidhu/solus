@@ -161,6 +161,15 @@
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
+  const TREE_MIN_WIDTH = 192;
+  const DIFF_CONTENT_MIN_WIDTH = 360;
+  const TREE_WIDTH_KEY = "solus-diff-tree-width";
+  let treeWidth = $state(Number(localStorage.getItem(TREE_WIDTH_KEY)) || 272);
+  let isTreeResizing = $state(false);
+  let resizeStartX = 0;
+  let resizeStartWidth = 0;
+  let pendingTreeWidth = 0;
+  let resizeRaf = 0;
   let diffStyleState = $state<"unified" | "split">(
     (localStorage.getItem("solus-diff-style") as "unified" | "split") ||
       "unified",
@@ -171,6 +180,71 @@
     localStorage.getItem("solus-diff-token-highlight") !== "off",
   );
   const treeMaxWidth = $derived(Math.floor(panelWidth * 0.4));
+
+  function clampTreeWidth(width: number) {
+    const responsiveMax =
+      panelWidth > 0
+        ? Math.max(
+            TREE_MIN_WIDTH,
+            Math.min(treeMaxWidth, panelWidth - DIFF_CONTENT_MIN_WIDTH),
+          )
+        : 360;
+    return Math.min(responsiveMax, Math.max(TREE_MIN_WIDTH, width));
+  }
+
+  function persistTreeWidth() {
+    localStorage.setItem(TREE_WIDTH_KEY, String(treeWidth));
+  }
+
+  function startTreeResize(e: MouseEvent) {
+    isTreeResizing = true;
+    resizeStartX = e.clientX;
+    resizeStartWidth = treeWidth;
+    pendingTreeWidth = treeWidth;
+    e.preventDefault();
+    window.addEventListener("mousemove", onTreeResizeMove);
+    window.addEventListener("mouseup", onTreeResizeEnd);
+  }
+
+  function onTreeResizeMove(e: MouseEvent) {
+    pendingTreeWidth = clampTreeWidth(resizeStartWidth + (e.clientX - resizeStartX));
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      treeWidth = pendingTreeWidth;
+    });
+  }
+
+  function onTreeResizeEnd() {
+    if (resizeRaf) {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = 0;
+    }
+    treeWidth = pendingTreeWidth;
+    isTreeResizing = false;
+    persistTreeWidth();
+    window.removeEventListener("mousemove", onTreeResizeMove);
+    window.removeEventListener("mouseup", onTreeResizeEnd);
+  }
+
+  function handleTreeResizeKey(e: KeyboardEvent) {
+    const step = e.shiftKey ? 40 : 16;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      treeWidth = clampTreeWidth(treeWidth - step);
+      persistTreeWidth();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      treeWidth = clampTreeWidth(treeWidth + step);
+      persistTreeWidth();
+    }
+  }
+
+  $effect(() => {
+    if (panelWidth <= 0) return;
+    const clamped = clampTreeWidth(treeWidth);
+    if (clamped !== treeWidth) treeWidth = clamped;
+  });
 
   const TREE_AUTO_OPEN_WIDTH = 640;
   let prevAboveTreeThreshold: boolean | null = null;
@@ -224,7 +298,11 @@
     void session.refreshTurnSnapshots(tabId);
     void startLoad();
     restoreDraftIfAny();
-    return () => diffState.dispose();
+    return () => {
+      diffState.dispose();
+      window.removeEventListener("mousemove", onTreeResizeMove);
+      window.removeEventListener("mouseup", onTreeResizeEnd);
+    };
   });
 
   // Refresh when the snapshot list grows (a new turn was just snapshotted).
@@ -352,6 +430,32 @@
     allCollapsed = !allCollapsed;
     streamRef?.setAllCollapsed(allCollapsed);
   }
+  // ── External navigation (guide file chips, activity threads, pending tray).
+  // The stream may not be live yet — the Diff tab mounts lazily and the diff
+  // loads async — so the request is buffered and replayed once it is.
+  let pendingNavigate: { path: string; line?: number; side: "old" | "new" } | null =
+    $state(null);
+
+  export function navigateTo(
+    path: string,
+    line?: number,
+    side: "old" | "new" = "new",
+  ) {
+    pendingNavigate = { path, line, side };
+  }
+
+  $effect(() => {
+    const nav = pendingNavigate;
+    const stream = streamRef;
+    if (!nav || !stream || !diff) return;
+    pendingNavigate = null;
+    void tick().then(() => {
+      stream.ensureExpanded(nav.path);
+      if (nav.line != null) stream.scrollToLine(nav.path, nav.line, nav.side);
+      else stream.scrollToFile(nav.path);
+    });
+  });
+
   function openFileInEditor(path: string) {
     const fileRoot = worktreePath ?? projectPath;
     openInConfiguredEditor(session.ctxFor(tabId), {
@@ -933,10 +1037,26 @@
     <div class="flex flex-1 min-h-0 min-w-0">
       {#if !treeCollapsed && !runtime.isMobileViewport}
         <DiffFileTreeColumn
+          {treeWidth}
           {treeMaxWidth}
           {mountFileTree}
           onToggleTree={toggleTreeCollapsed}
         />
+        <div
+          class="diff-tree-resize-handle"
+          class:is-resizing={isTreeResizing}
+          onmousedown={startTreeResize}
+          onkeydown={handleTreeResizeKey}
+          role="slider"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="Resize file tree"
+          aria-valuenow={treeWidth}
+          aria-valuemin={TREE_MIN_WIDTH}
+          aria-valuemax={treeMaxWidth}
+        >
+          <span class="diff-tree-resize-grip" aria-hidden="true"></span>
+        </div>
       {/if}
       <div class="relative flex flex-1 min-h-0 min-w-0">
         {#if findOpen}
@@ -1020,6 +1140,49 @@
   :global(.diff-panel-border) {
     border-left: 0.0625rem solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);
+  }
+  .diff-tree-resize-handle {
+    width: 0;
+    flex-shrink: 0;
+    cursor: col-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: visible;
+    z-index: 11;
+  }
+  .diff-tree-resize-handle::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -3px;
+    width: 6px;
+  }
+  .diff-tree-resize-handle:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.125rem;
+  }
+  .diff-tree-resize-grip {
+    position: relative;
+    width: 2px;
+    height: 28px;
+    border-radius: 2px;
+    background: var(--solus-text-tertiary);
+    opacity: 0;
+    transform: scaleY(0.6);
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease,
+      background-color 0.15s ease;
+    pointer-events: none;
+  }
+  .diff-tree-resize-handle:hover .diff-tree-resize-grip,
+  .diff-tree-resize-handle.is-resizing .diff-tree-resize-grip {
+    opacity: 1;
+    transform: scaleY(1);
+    background: var(--solus-accent);
   }
   @media (max-width: 767px) {
     :global(.diff-panel-border) {

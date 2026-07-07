@@ -3,17 +3,18 @@
   import { tooltip } from "../../lib/tooltip";
 
   interface Props {
+    treeWidth: number;
     treeMaxWidth: number;
     mountFileTree: (node: HTMLDivElement) => { destroy: () => void };
     onToggleTree: () => void;
   }
 
-  let { treeMaxWidth, mountFileTree, onToggleTree }: Props = $props();
+  let { treeWidth, treeMaxWidth, mountFileTree, onToggleTree }: Props = $props();
 </script>
 
 <div
   class="diff-tree-column relative flex flex-col border-r border-(--solus-container-border)"
-  style="max-width:{treeMaxWidth}px"
+  style="width:{treeWidth}px;max-width:{treeMaxWidth}px"
 >
   <button
     type="button"
@@ -38,7 +39,6 @@
 
 <style>
   .diff-tree-column {
-    width: clamp(12rem, 34vw, 22.5rem);
     min-width: min(12rem, 45vw);
     flex-shrink: 0;
   }

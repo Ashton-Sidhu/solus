@@ -2,7 +2,6 @@
   import { tick } from "svelte";
   import {
     PlusIcon,
-    XIcon,
     PlayIcon,
     PauseIcon,
     StopIcon,
@@ -10,9 +9,6 @@
     PencilSimpleIcon,
     StarIcon,
     LightningIcon,
-    CircleNotchIcon,
-    MagnifyingGlassIcon,
-    CaretDownIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
@@ -24,12 +20,16 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
-  import { triggerSummary } from "./lib/automation-format";
+  import { PAGE_PRIMARY_BTN, PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import { triggerSummary, relativeTime } from "./lib/automation-format";
   import { toasts } from "../../contexts/toast.store.svelte";
   import AutomationBuilder from "./AutomationBuilder.svelte";
-  import Input from "../ui/Input.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import PageShell from "../ui/PageShell.svelte";
+  import PageHeader from "../ui/PageHeader.svelte";
+  import SearchField from "../ui/SearchField.svelte";
+  import SegmentedControl from "../ui/SegmentedControl.svelte";
+  import SectionLabel from "../ui/SectionLabel.svelte";
+  import SortMenu from "../ui/SortMenu.svelte";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -74,20 +74,11 @@
   let statusFilter = $state<StatusFilter>("all");
   let showStarred = $state(false);
   let sortMode = $state<SortMode>("recent");
-  let sortMenuOpen = $state(false);
-  let sortTriggerEl = $state<HTMLButtonElement | null>(null);
   let searchEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
-  const sortLabel = $derived(
-    SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? "",
-  );
-  const newBtnClass =
-    "inline-flex cursor-pointer items-center gap-[0.3125rem] rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-2.5 py-[0.3125rem] text-[0.6875rem] font-semibold text-(--solus-accent) transition-[background-color] duration-[var(--duration-quick,0.12s)] ease-in-out hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-[0.8125rem]";
-  const iconBtnClass =
-    "relative inline-flex size-[1.625rem] cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out disabled:cursor-not-allowed disabled:opacity-35 [&:hover:not(:disabled)]:bg-(--solus-surface-hover) [&:hover:not(:disabled)]:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none [@media(pointer:coarse)]:size-11";
-  const dangerIconBtnClass = `${iconBtnClass} [&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_14%,transparent)] [&:hover:not(:disabled)]:text-[var(--solus-status-error,#e53e3e)]`;
   const stateBtnClass =
     "grid size-7 shrink-0 cursor-pointer place-items-center rounded-[0.4375rem] border-0 bg-transparent text-(--solus-text-tertiary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none [@media(pointer:coarse)]:size-11";
+  const dangerIconBtnClass = `${PAGE_ICON_BTN} [&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_14%,transparent)] [&:hover:not(:disabled)]:text-[var(--solus-status-error,#e53e3e)]`;
 
   // The visible universe: automations under a currently-open project.
   const scoped = $derived(
@@ -100,6 +91,17 @@
     for (const a of scoped) a.enabled ? active++ : paused++;
     return { all: scoped.length, active, paused };
   });
+
+  const statusSegments = $derived([
+    { value: "all" as StatusFilter, label: "All", count: counts.all },
+    { value: "active" as StatusFilter, label: "Active", short: "On", count: counts.active },
+    { value: "paused" as StatusFilter, label: "Paused", short: "Off", count: counts.paused },
+  ]);
+
+  const isInitialLoading = $derived(!store.loaded && store.loading);
+  // The zero-state owns the primary CTA, so the header hides its New button and
+  // the command bar (search/filter noise with nothing to filter) while it shows.
+  const showEmpty = $derived(!isInitialLoading && counts.all === 0);
 
   // Flat, filtered, sorted list. Sections are built from this result so search,
   // starred-only, and status tabs still apply before grouping.
@@ -221,6 +223,13 @@
     view = { kind: "list" };
   }
 
+  function clearFilters() {
+    query = "";
+    statusFilter = "all";
+    showStarred = false;
+    searchEl?.focus();
+  }
+
   async function toggleEnabled(a: Automation, e: Event) {
     e.stopPropagation();
     await store.setEnabled(a.id, !a.enabled);
@@ -263,204 +272,100 @@
       <!-- ── Full-page automation detail / editor ── -->
       <AutomationBuilder automation={view.automation} onDone={backToList} />
     {:else}
-      <!-- ── Header: title row + command bar ── -->
-      <div class="shrink-0 border-b border-(--solus-popover-border)">
-        <div class="flex items-center justify-between gap-3 px-5 py-2">
-          <div class="flex min-w-0 items-center gap-2">
-            <LightningIcon
-              size={15}
-              weight="fill"
-              class="text-(--solus-accent)"
-            />
-            <span
-              class="whitespace-nowrap text-[0.8125rem] font-semibold text-(--solus-text-primary)"
-              >Automations</span
-            >
-          </div>
-          <div class="flex items-center gap-1.5">
-            <button
-              type="button"
-              class={newBtnClass}
-              onclick={startCreate}
-              data-testid="automation-new"
-            >
-              <PlusIcon size={13} weight="bold" />
-              <span>New</span>
-            </button>
-            <button
-              type="button"
-              class={iconBtnClass}
-              onclick={close}
-              aria-label="Close"
-            >
-              <XIcon size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="flex items-center gap-2.5 px-5 pb-2.5 pt-1 @max-[44rem]:flex-col @max-[44rem]:items-stretch @max-[44rem]:gap-0 @max-[44rem]:p-0"
+      <PageShell onClose={close}>
+        <PageHeader
+          title="Automations"
+          subtitle="Saved prompts that run on a schedule."
         >
-          <div
-            class="flex min-w-0 flex-1 items-center gap-2 @max-[44rem]:flex-none @max-[44rem]:px-5 @max-[44rem]:pb-2 @max-[44rem]:pt-1"
-          >
-            <MagnifyingGlassIcon
-              size={15}
-              class="text-(--solus-text-tertiary) flex-shrink-0"
-            />
-            <Input
+          {#snippet icon()}
+            <LightningIcon size={18} weight="fill" />
+          {/snippet}
+          {#snippet actions()}
+            {#if !showEmpty}
+              <button
+                type="button"
+                class={PAGE_PRIMARY_BTN}
+                onclick={startCreate}
+                data-testid="automation-new"
+              >
+                <PlusIcon size={13} weight="bold" />
+                <span>New</span>
+              </button>
+            {/if}
+          {/snippet}
+        </PageHeader>
+
+        <!-- ── Command bar: search + status segments + starred + sort ── -->
+        {#if !showEmpty}
+          <div class="flex flex-wrap items-center gap-2 pb-4">
+            <SearchField
               bind:el={searchEl}
               bind:value={query}
-              type="text"
-              variant="bare"
-              size="lg"
               placeholder="Search automations…"
-              class="[@media(pointer:coarse)]:text-[16px]"
             />
-          </div>
-          <div
-            class="h-4 w-px shrink-0 bg-(--solus-container-border) @max-[44rem]:hidden"
-            aria-hidden="true"
-          ></div>
-          <div
-            class="flex shrink-0 items-center gap-2.5 @max-[44rem]:justify-between @max-[44rem]:px-5 @max-[44rem]:pb-2.5 @max-[44rem]:pt-0 @max-[32rem]:gap-1.5"
-          >
-            <div
-              class="flex min-w-0 gap-0.5 @max-[32rem]:grid @max-[32rem]:flex-1 @max-[32rem]:grid-cols-3"
-            >
+            <SegmentedControl
+              options={statusSegments}
+              isActive={(v) => statusFilter === v}
+              onSelect={(v) => (statusFilter = v)}
+              ariaLabel="Filter by status"
+            />
+            <div class="ml-auto flex shrink-0 items-center gap-1">
               <button
                 type="button"
-                class="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border-0 px-[0.5625rem] py-1 text-[0.6875rem] transition-[background-color,color] duration-100 ease-in-out @max-[32rem]:min-w-0 @max-[32rem]:justify-center @max-[32rem]:gap-[0.1875rem] @max-[32rem]:px-[0.1875rem] {statusFilter ===
-                'all'
-                  ? 'bg-(--solus-accent-light) text-(--solus-accent)'
+                class="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 transition-[background-color,color] duration-100 ease-in-out focus-visible:bg-(--solus-accent-light) focus-visible:outline-none [@media(pointer:coarse)]:size-10 {showStarred
+                  ? 'bg-[color-mix(in_srgb,var(--solus-art-2,#c9883f)_14%,transparent)] text-[var(--solus-art-2,#c9883f)]'
                   : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
-                onclick={() => (statusFilter = "all")}
-                aria-pressed={statusFilter === "all"}
-                aria-label={`All automations (${counts.all})`}
-              >
-                All <span class="tabular-nums opacity-70">{counts.all}</span>
-              </button>
-              <button
-                type="button"
-                class="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border-0 px-[0.5625rem] py-1 text-[0.6875rem] transition-[background-color,color] duration-100 ease-in-out @max-[32rem]:min-w-0 @max-[32rem]:justify-center @max-[32rem]:gap-[0.1875rem] @max-[32rem]:px-[0.1875rem] {statusFilter ===
-                'active'
-                  ? 'bg-(--solus-accent-light) text-(--solus-accent)'
-                  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
-                onclick={() => (statusFilter = "active")}
-                aria-pressed={statusFilter === "active"}
-                aria-label={`Active automations (${counts.active})`}
-              >
-                <span
-                  class="size-[0.4375rem] shrink-0 rounded-full {statusFilter ===
-                  'active'
-                    ? 'bg-(--solus-accent)'
-                    : 'bg-(--solus-text-secondary)'}"
-                ></span>
-                <span class="@max-[32rem]:hidden">Active</span>
-                <span class="hidden @max-[32rem]:inline" aria-hidden="true"
-                  >On</span
-                >
-                <span class="tabular-nums opacity-70">{counts.active}</span>
-              </button>
-              <button
-                type="button"
-                class="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border-0 px-[0.5625rem] py-1 text-[0.6875rem] transition-[background-color,color] duration-100 ease-in-out @max-[32rem]:min-w-0 @max-[32rem]:justify-center @max-[32rem]:gap-[0.1875rem] @max-[32rem]:px-[0.1875rem] {statusFilter ===
-                'paused'
-                  ? 'bg-(--solus-accent-light) text-(--solus-accent)'
-                  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
-                onclick={() => (statusFilter = "paused")}
-                aria-pressed={statusFilter === "paused"}
-                aria-label={`Paused automations (${counts.paused})`}
-              >
-                <span
-                  class="size-[0.4375rem] shrink-0 rounded-full border border-(--solus-text-tertiary)"
-                ></span>
-                <span class="@max-[32rem]:hidden">Paused</span>
-                <span class="hidden @max-[32rem]:inline" aria-hidden="true"
-                  >Off</span
-                >
-                <span class="tabular-nums opacity-70">{counts.paused}</span>
-              </button>
-            </div>
-            <div class="flex shrink-0 gap-1">
-              <button
-                type="button"
-                class="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[0.6875rem] transition-[background-color,border-color,color] duration-100 ease-in-out hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) @max-[32rem]:w-[1.875rem] @max-[32rem]:justify-center @max-[32rem]:px-0 {showStarred
-                  ? 'border-(--solus-accent-border) bg-(--solus-accent-light) text-(--solus-accent)'
-                  : 'border-(--solus-container-border) bg-transparent text-(--solus-text-secondary)'}"
                 onclick={() => (showStarred = !showStarred)}
                 aria-pressed={showStarred}
                 aria-label="Starred automations"
                 title="Starred automations"
               >
-                <StarIcon size={11} weight={showStarred ? "fill" : "regular"} />
-                <span class="@max-[32rem]:hidden">Starred</span>
+                <StarIcon size={13} weight={showStarred ? "fill" : "regular"} />
               </button>
+              <SortMenu
+                bind:value={sortMode}
+                options={SORT_OPTIONS}
+                ariaLabel="Sort automations"
+              />
             </div>
           </div>
-          <div
-            class="h-4 w-px shrink-0 bg-(--solus-container-border) @max-[44rem]:hidden"
-            aria-hidden="true"
-          ></div>
-          <div
-            class="relative flex shrink-0 items-center gap-1.5 @max-[44rem]:justify-end @max-[44rem]:px-5 @max-[44rem]:pb-2.5 @max-[44rem]:pt-0"
-          >
-            <button
-              type="button"
-              bind:this={sortTriggerEl}
-              class="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-[0.1875rem] text-[0.6875rem] text-(--solus-text-secondary) outline-none transition-[border-color] duration-100 ease-in-out focus-visible:border-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-              aria-label="Sort automations"
-              aria-haspopup="listbox"
-              aria-expanded={sortMenuOpen}
-              onclick={() => (sortMenuOpen = !sortMenuOpen)}
-            >
-              <span>{sortLabel}</span>
-              <CaretDownIcon
-                size={9}
-                class="shrink-0 text-(--solus-text-tertiary)"
-              />
-            </button>
-            <Dropdown
-              bind:open={sortMenuOpen}
-              triggerEl={sortTriggerEl}
-              align="top"
-              anchor="right"
-              width={140}
-            >
-              <div class="py-1" role="listbox" aria-label="Sort automations">
-                {#each SORT_OPTIONS as opt (opt.value)}
-                  <DropdownItem
-                    selected={sortMode === opt.value}
-                    onclick={() => {
-                      sortMode = opt.value;
-                      sortMenuOpen = false;
-                    }}
-                  >
-                    {opt.label}
-                  </DropdownItem>
-                {/each}
-              </div>
-            </Dropdown>
-          </div>
-        </div>
-      </div>
+        {/if}
 
-      <!-- ── Body: the list ── -->
-      <div
-        class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pb-6 pt-3 [scrollbar-width:thin]"
-      >
-        {#if !store.loaded && store.loading}
+        <!-- ── Body: the list ── -->
+        {#if isInitialLoading}
           <div
-            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-16 text-center"
+            class="-mx-3 flex flex-col gap-1 pt-1"
+            role="status"
+            aria-label="Loading automations"
           >
-            <CircleNotchIcon
-              size={20}
-              class="animate-spin text-(--solus-text-tertiary) [animation-duration:0.9s]"
-            />
+            {#each [28, 38, 22, 32] as width, i (i)}
+              <div
+                class="flex animate-pulse items-center gap-3 rounded-[0.625rem] px-3 py-3"
+                style="animation-delay: {i * 120}ms"
+                aria-hidden="true"
+              >
+                <span
+                  class="size-2 shrink-0 rounded-full bg-(--solus-surface-hover)"
+                ></span>
+                <span class="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <span
+                    class="h-2.5 rounded-full bg-(--solus-surface-hover)"
+                    style="width: {width}%"
+                  ></span>
+                  <span
+                    class="h-2 rounded-full bg-(--solus-surface-hover) opacity-60"
+                    style="width: {Math.round(width * 0.6)}%"
+                  ></span>
+                </span>
+                <span
+                  class="ml-auto h-2.5 w-20 shrink-0 rounded-full bg-(--solus-surface-hover)"
+                ></span>
+              </div>
+            {/each}
           </div>
         {:else if counts.all === 0}
           <div
-            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-16 text-center"
+            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-14 text-center"
           >
             <div
               class="relative mb-3.5 grid size-[7.25rem] place-items-center"
@@ -491,8 +396,9 @@
             </p>
             <button
               type="button"
-              class="{newBtnClass} mt-3.5 px-3.5 py-[0.4375rem] text-xs"
+              class="{PAGE_PRIMARY_BTN} mt-4"
               onclick={startCreate}
+              data-testid="automation-new"
             >
               <PlusIcon size={13} weight="bold" />
               <span>New automation</span>
@@ -500,7 +406,7 @@
           </div>
         {:else if automations.length === 0}
           <div
-            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-16 text-center"
+            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-14 text-center"
           >
             <p
               class="text-base font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
@@ -512,196 +418,222 @@
             >
               Try a different search or filter.
             </p>
+            <button
+              type="button"
+              class="mt-1.5 inline-flex cursor-pointer items-center rounded-lg border-0 bg-transparent px-2.5 py-1 text-xs font-medium text-(--solus-accent) transition-[background-color] duration-100 ease-in-out hover:bg-(--solus-accent-light) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+              onclick={clearFilters}
+            >
+              Clear filters
+            </button>
           </div>
         {:else}
-          {#each automationSections as section (section.id)}
-            <div
-              class="flex items-center gap-1.5 px-0.5 pb-2 pt-2.5 text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-(--solus-text-tertiary)"
-            >
-              <span>{section.label}</span>
-              <span class="tabular-nums opacity-70">{section.items.length}</span
+          <div class="flex flex-col">
+            {#each automationSections as section (section.id)}
+              <SectionLabel label={section.label} count={section.items.length} />
+              <ul
+                class="-mx-3 flex flex-col"
+                role="list"
+                aria-label={section.label}
               >
-            </div>
-            <ul
-              class="flex flex-col gap-0"
-              role="list"
-              aria-label={section.label}
-            >
-              {#each section.items as a (a.id)}
-                {@const dotTone = !a.enabled
-                  ? "paused"
-                  : a.lastRunStatus === "failed"
-                    ? "error"
-                    : a.lastRunStatus === "running"
-                      ? "running"
-                      : "on"}
-                <li>
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div
-                    class="group relative flex items-center gap-3 rounded-[0.625rem] px-3 py-2.5 cursor-pointer transition-colors duration-150 ease-in-out hover:bg-(--solus-accent-light) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none {a.enabled
-                      ? ''
-                      : 'opacity-60'}"
-                    role="button"
-                    tabindex="0"
-                    onclick={() => startEdit(a)}
-                    onkeydown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        startEdit(a);
-                      }
-                    }}
-                  >
-                    <!-- Status dot — pure indicator (state is changed via the
-                         explicit pause/resume control on the right). -->
-                    <span
-                      class="flex-shrink-0 grid place-items-center w-3.5 h-3.5"
-                      role="img"
-                      aria-label={dotTone === "running"
-                        ? "Running"
-                        : dotTone === "error"
-                          ? "Last run failed"
-                          : dotTone === "paused"
-                            ? "Paused"
-                            : "Active"}
-                      title={dotTone === "running"
-                        ? "Running"
-                        : dotTone === "error"
-                          ? "Last run failed"
-                          : dotTone === "paused"
-                            ? "Paused"
-                            : "Active"}
+                {#each section.items as a (a.id)}
+                  {@const dotTone = !a.enabled
+                    ? "paused"
+                    : a.lastRunStatus === "failed"
+                      ? "error"
+                      : a.lastRunStatus === "running"
+                        ? "running"
+                        : "on"}
+                  {@const lastRunLabel =
+                    a.lastRunStatus === "running"
+                      ? "Running now"
+                      : a.lastRunStatus === "failed" && a.lastRunAt
+                        ? `Failed ${relativeTime(a.lastRunAt)}`
+                        : a.lastRunAt
+                          ? `Last ran ${relativeTime(a.lastRunAt)}`
+                          : ""}
+                  <li>
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <div
+                      class="group relative flex items-center gap-3 rounded-[0.625rem] px-3 py-3 cursor-pointer transition-colors duration-150 ease-in-out hover:bg-(--solus-accent-light) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none {a.enabled
+                        ? ''
+                        : 'opacity-60'}"
+                      role="button"
+                      tabindex="0"
+                      onclick={() => startEdit(a)}
+                      onkeydown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          startEdit(a);
+                        }
+                      }}
                     >
+                      <!-- Status dot — pure indicator (state is changed via the
+                           explicit pause/resume control on the right). -->
                       <span
-                        class="block w-2 h-2 rounded-full {dotTone === 'paused'
-                          ? 'border border-(--solus-text-tertiary)'
-                          : dotTone === 'error'
-                            ? 'bg-(--solus-status-error)'
-                            : dotTone === 'running'
-                              ? 'bg-(--solus-accent) animate-pulse'
-                              : 'bg-(--solus-text-secondary)'}"
-                      ></span>
-                    </span>
-
-                    <!-- Name + source folder -->
-                    <div class="flex-1 min-w-0 flex items-baseline gap-2">
-                      <span
-                        class="text-[0.8125rem] font-medium tracking-[-0.01em] text-(--solus-text-primary) truncate"
-                        >{a.name}</span
+                        class="flex-shrink-0 grid place-items-center w-3.5 h-3.5"
+                        role="img"
+                        aria-label={dotTone === "running"
+                          ? "Running"
+                          : dotTone === "error"
+                            ? "Last run failed"
+                            : dotTone === "paused"
+                              ? "Paused"
+                              : "Active"}
+                        title={dotTone === "running"
+                          ? "Running"
+                          : dotTone === "error"
+                            ? "Last run failed"
+                            : dotTone === "paused"
+                              ? "Paused"
+                              : "Active"}
                       >
-                      <span
-                        class="flex-shrink-0 text-[0.75rem] text-(--solus-text-tertiary)"
-                        >{folderLabel(a.action.cwd)}</span
-                      >
-                      {#if a.createdBy.kind === "agent"}
                         <span
-                          class="shrink-0 rounded bg-(--solus-surface-hover) px-1 py-px text-[0.5625rem] font-semibold uppercase tracking-[0.06em] text-(--solus-text-tertiary)"
-                          title="Created by an agent">agent</span
-                        >
-                      {/if}
-                    </div>
+                          class="block w-2 h-2 rounded-full {dotTone === 'paused'
+                            ? 'border border-(--solus-text-tertiary)'
+                            : dotTone === 'error'
+                              ? 'bg-(--solus-status-error)'
+                              : dotTone === 'running'
+                                ? 'bg-(--solus-accent) animate-pulse'
+                                : 'bg-(--solus-text-secondary)'}"
+                        ></span>
+                      </span>
 
-                    <!-- Right: schedule + secondary actions, then the always-visible
-                         pause / resume / stop state control. -->
-                    <div class="flex-shrink-0 flex items-center gap-1.5">
-                      <div class="relative flex items-center justify-end">
-                        <span
-                          class="text-[0.75rem] text-(--solus-text-tertiary) whitespace-nowrap transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
-                        >
-                          {triggerSummary(a.trigger)}
-                        </span>
+                      <!-- Name + agent badge, with folder and last-run state
+                           on a quieter second line. -->
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-baseline gap-2">
+                          <span
+                            class="text-[0.8125rem] font-medium tracking-[-0.01em] text-(--solus-text-primary) truncate"
+                            >{a.name}</span
+                          >
+                          {#if a.createdBy.kind === "agent"}
+                            <span
+                              class="shrink-0 rounded bg-(--solus-surface-hover) px-1 py-px text-[0.5625rem] font-semibold uppercase tracking-[0.06em] text-(--solus-text-tertiary)"
+                              title="Created by an agent">agent</span
+                            >
+                          {/if}
+                        </div>
                         <div
-                          class="absolute right-0 flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+                          class="mt-0.5 flex items-center gap-1.5 text-xs text-(--solus-text-tertiary)"
                         >
-                          <button
-                            type="button"
-                            class="{iconBtnClass} {a.favorite
-                              ? 'text-[var(--solus-art-2,#c9883f)] [&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--solus-art-2,#c9883f)_14%,transparent)] [&:hover:not(:disabled)]:text-[var(--solus-art-2,#c9883f)]'
-                              : ''}"
-                            onclick={(e) => toggleFavorite(a, e)}
-                            aria-label={a.favorite ? "Unstar" : "Star"}
-                            aria-pressed={a.favorite}
-                            title={a.favorite ? "Unstar" : "Star"}
+                          <span class="truncate">{folderLabel(a.action.cwd)}</span
                           >
-                            <StarIcon
-                              size={13}
-                              weight={a.favorite ? "fill" : "regular"}
-                            />
-                          </button>
-                          <button
-                            type="button"
-                            class={iconBtnClass}
-                            onclick={(e) => runNow(a, e)}
-                            disabled={!a.enabled ||
-                              a.lastRunStatus === "running"}
-                            aria-label="Run now"
-                            title="Run now"
-                          >
-                            <PlayIcon size={13} weight="fill" />
-                          </button>
-                          <button
-                            type="button"
-                            class={iconBtnClass}
-                            onclick={(e) => {
-                              e.stopPropagation();
-                              startEdit(a);
-                            }}
-                            aria-label="Edit"
-                            title="Edit"
-                          >
-                            <PencilSimpleIcon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            class={dangerIconBtnClass}
-                            onclick={(e) => deleteAutomation(a, e)}
-                            aria-label="Delete"
-                            title="Delete"
-                          >
-                            <TrashIcon size={13} />
-                          </button>
+                          {#if lastRunLabel}
+                            <span class="opacity-50" aria-hidden="true">·</span>
+                            <span
+                              class="shrink-0 {a.lastRunStatus === 'failed'
+                                ? 'text-[var(--solus-status-error,#e53e3e)]'
+                                : a.lastRunStatus === 'running'
+                                  ? 'text-(--solus-accent)'
+                                  : ''}">{lastRunLabel}</span
+                            >
+                          {/if}
                         </div>
                       </div>
 
-                      {#if a.lastRunStatus === "running"}
-                        <button
-                          type="button"
-                          class="{stateBtnClass} bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_12%,transparent)] text-[var(--solus-status-error,#e53e3e)] hover:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_20%,transparent)] hover:text-[var(--solus-status-error,#e53e3e)] focus-visible:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_20%,transparent)] focus-visible:text-[var(--solus-status-error,#e53e3e)]"
-                          onclick={(e) => cancelRun(a, e)}
-                          aria-label="Stop run"
-                          title="Stop this run"
-                        >
-                          <StopIcon size={13} weight="fill" />
-                        </button>
-                      {:else if a.enabled}
-                        <button
-                          type="button"
-                          class={stateBtnClass}
-                          onclick={(e) => toggleEnabled(a, e)}
-                          aria-label="Pause automation"
-                          title="Pause — stop running on schedule"
-                        >
-                          <PauseIcon size={13} weight="fill" />
-                        </button>
-                      {:else}
-                        <button
-                          type="button"
-                          class="{stateBtnClass} text-(--solus-accent) hover:bg-(--solus-accent-light) hover:text-(--solus-accent) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-accent)"
-                          onclick={(e) => toggleEnabled(a, e)}
-                          aria-label="Resume automation"
-                          title="Resume — run on schedule again"
-                        >
-                          <PlayIcon size={13} weight="fill" />
-                        </button>
-                      {/if}
+                      <!-- Right: schedule + secondary actions, then the always-visible
+                           pause / resume / stop state control. -->
+                      <div class="flex-shrink-0 flex items-center gap-1.5">
+                        <div class="relative flex items-center justify-end">
+                          <span
+                            class="text-[0.75rem] text-(--solus-text-tertiary) whitespace-nowrap transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+                          >
+                            {triggerSummary(a.trigger)}
+                          </span>
+                          <div
+                            class="absolute right-0 flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+                          >
+                            <button
+                              type="button"
+                              class="{PAGE_ICON_BTN} {a.favorite
+                                ? 'text-[var(--solus-art-2,#c9883f)] [&:hover:not(:disabled)]:bg-[color-mix(in_srgb,var(--solus-art-2,#c9883f)_14%,transparent)] [&:hover:not(:disabled)]:text-[var(--solus-art-2,#c9883f)]'
+                                : ''}"
+                              onclick={(e) => toggleFavorite(a, e)}
+                              aria-label={a.favorite ? "Unstar" : "Star"}
+                              aria-pressed={a.favorite}
+                              title={a.favorite ? "Unstar" : "Star"}
+                            >
+                              <StarIcon
+                                size={13}
+                                weight={a.favorite ? "fill" : "regular"}
+                              />
+                            </button>
+                            <button
+                              type="button"
+                              class={PAGE_ICON_BTN}
+                              onclick={(e) => runNow(a, e)}
+                              disabled={!a.enabled ||
+                                a.lastRunStatus === "running"}
+                              aria-label="Run now"
+                              title="Run now"
+                            >
+                              <PlayIcon size={13} weight="fill" />
+                            </button>
+                            <button
+                              type="button"
+                              class={PAGE_ICON_BTN}
+                              onclick={(e) => {
+                                e.stopPropagation();
+                                startEdit(a);
+                              }}
+                              aria-label="Edit"
+                              title="Edit"
+                            >
+                              <PencilSimpleIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              class={dangerIconBtnClass}
+                              onclick={(e) => deleteAutomation(a, e)}
+                              aria-label="Delete"
+                              title="Delete"
+                            >
+                              <TrashIcon size={13} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {#if a.lastRunStatus === "running"}
+                          <button
+                            type="button"
+                            class="{stateBtnClass} bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_12%,transparent)] text-[var(--solus-status-error,#e53e3e)] hover:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_20%,transparent)] hover:text-[var(--solus-status-error,#e53e3e)] focus-visible:bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_20%,transparent)] focus-visible:text-[var(--solus-status-error,#e53e3e)]"
+                            onclick={(e) => cancelRun(a, e)}
+                            aria-label="Stop run"
+                            title="Stop this run"
+                          >
+                            <StopIcon size={13} weight="fill" />
+                          </button>
+                        {:else if a.enabled}
+                          <button
+                            type="button"
+                            class={stateBtnClass}
+                            onclick={(e) => toggleEnabled(a, e)}
+                            aria-label="Pause automation"
+                            title="Pause — stop running on schedule"
+                          >
+                            <PauseIcon size={13} weight="fill" />
+                          </button>
+                        {:else}
+                          <button
+                            type="button"
+                            class="{stateBtnClass} text-(--solus-accent) hover:bg-(--solus-accent-light) hover:text-(--solus-accent) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-accent)"
+                            onclick={(e) => toggleEnabled(a, e)}
+                            aria-label="Resume automation"
+                            title="Resume — run on schedule again"
+                          >
+                            <PlayIcon size={13} weight="fill" />
+                          </button>
+                        {/if}
+                      </div>
                     </div>
-                  </div>
-                </li>
-              {/each}
-            </ul>
-          {/each}
+                  </li>
+                {/each}
+              </ul>
+            {/each}
+          </div>
         {/if}
-      </div>
+      </PageShell>
     {/if}
   </div>
 {/if}

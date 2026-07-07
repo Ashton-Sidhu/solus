@@ -34,9 +34,6 @@
     enableProjectPanel: boolean;
     /** Allow the floating run-log dock + its keybinding. */
     enableRunDock: boolean;
-    /** Optional window-drag hooks — the desktop shell passes these; web omits them. */
-    onStartWindowDrag?: (e: MouseEvent) => void;
-    onResetWindowPosition?: () => void;
     /** Action buttons + InputBar row (varies between editor and web). */
     inputRow: Snippet;
     /** Status bar contents (StatusBarControls, plus web extras). */
@@ -46,8 +43,6 @@
     active,
     enableProjectPanel,
     enableRunDock,
-    onStartWindowDrag,
-    onResetWindowPosition,
     inputRow,
     statusBar,
   }: Props = $props();
@@ -603,12 +598,7 @@
   </div>
 
   {#snippet dragBar()}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="drag-bar flex-shrink-0"
-      onmousedown={onStartWindowDrag}
-      ondblclick={onResetWindowPosition}
-    >
+    <div class="drag-bar flex-shrink-0">
       {#if !inputDockHidden}
         <TabStrip
           variant="editor"
@@ -619,13 +609,10 @@
           onToggleProjectPanel={enableProjectPanel
             ? toggleProjectPanel
             : undefined}
-          {onStartWindowDrag}
         />
       {:else}
-        <!-- Slim drag handle for full-page views (settings / plans / folio /
-             document). The frame-level expand controls now live inline in each
-             page's own header (see FrameExpandButton); this just preserves a
-             grabbable strip so the shell can still be moved. -->
+        <!-- Full-page views own their page chrome. The OS header now provides
+             the draggable titlebar space, so don't reserve an internal row. -->
         <div class="page-drag-strip" aria-hidden="true"></div>
       {/if}
     </div>
@@ -647,7 +634,7 @@
         />
 
         <div class="flex-1 flex min-w-0 relative">
-          <div class="flex-1 flex flex-col min-w-0">
+          <div class="primary-column flex-1 flex flex-col min-w-0">
             {@render dragBar()}
             <!-- Pages, artifacts, and reviews render through the primary Pane
                  below. The conversation pool stays mounted underneath (hidden
@@ -797,7 +784,6 @@
   }
   .drag-bar {
     height: auto;
-    cursor: grab;
     flex-shrink: 0;
     position: relative;
   }
@@ -805,7 +791,7 @@
      the same chrome row as the tab strip. Pane headers consume these vars to
      match the tab bar's height and continue its bottom seam as one line. */
   .secondary-pane-wrap {
-    --solus-chrome-row-h: 2.9375rem;
+    --solus-chrome-row-h: 2.5rem;
     --solus-chrome-row-border: color-mix(
       in srgb,
       var(--solus-container-border) 50%,
@@ -834,6 +820,11 @@
     inset: 0;
     z-index: 10040;
     background: var(--solus-container-bg);
+    /* Maximized panes cover the whole window (inset:0), so their header lands at
+       the top-left under the macOS traffic lights. Publish the lead inset so the
+       pane's chrome-row header clears them — this is the "diff fully expanded"
+       and "PR review" case. */
+    --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
   }
   .secondary-pane-wrap--framed {
     border-left: 1px solid
@@ -844,6 +835,15 @@
   }
   .workspace-body.sidebar-collapsed .content-column {
     padding-left: 8px;
+  }
+  /* With the sidebar collapsed the primary column is the leftmost chrome, so a
+     primary-slot pane header or full-page view header sits under the traffic
+     lights. Publish the lead inset here (not on the whole content column, which
+     also holds the right-hand secondary pane) so only the leftmost surface
+     reserves the space. The secondary pane provides its own inset when
+     maximized. No-op off the mac editor window (the inset var is 0). */
+  .workspace-body.sidebar-collapsed .primary-column {
+    --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
   }
   .workspace-body.project-panel-open .content-column {
     padding-right: 0;
@@ -928,7 +928,7 @@
   }
   /* Slim drag handle shown on full-page views in place of the tab strip. */
   .page-drag-strip {
-    height: 0.75rem;
+    height: 0;
   }
   .sidebar-resize-handle {
     width: 0;

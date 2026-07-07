@@ -1,5 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
@@ -49,6 +51,11 @@
   const collapsedGroups = new SvelteSet<string>();
   const expandedBranches = new SvelteSet<string>();
 
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  const expandDur = reduceMotion ? 0 : 180;
+
   // Shared utility-class clusters migrated from SessionSidebar.css. Kept as
   // consts only where reused across multiple rows; single-use clusters are
   // inlined on the element.
@@ -56,6 +63,11 @@
     "focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]";
   const dividerAfter =
     "after:content-[''] after:absolute after:bottom-0 after:left-3.5 after:right-3.5 after:h-px after:bg-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)]";
+  // Accent rail marking the current row: a 2px pill on the row's left edge
+  // that grows in when the row gains `data-active`, so switching sessions
+  // reads as the rail travelling rather than a background swap alone.
+  const activeRail =
+    "relative before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-3.5 before:w-0.5 before:rounded-full before:bg-(--solus-accent) before:scale-y-0 before:opacity-0 before:transition-[transform,opacity] before:duration-200 before:ease-[cubic-bezier(0.16,1,0.3,1)] data-active:before:scale-y-100 data-active:before:opacity-100";
   // Active / hover accent washes shared by pinned, branch and child rows.
   const rowActiveWash =
     "bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)] border-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]";
@@ -65,17 +77,20 @@
     "hover:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)] hover:border-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)]";
   // Top-nav card cluster (Plans / Folio / Automations / …).
   const navCardBase =
-    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]";
+    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] " +
+    activeRail;
   const navCardActive =
     "text-(--solus-text-primary) bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]";
   const navCardIcon =
-    "flex items-center flex-shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)";
+    "flex items-center flex-shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-accent) group-data-active:text-(--solus-accent)";
   const navLabel =
-    "text-[0.8125rem] font-medium tracking-[-0.01em] flex-1 text-left";
+    "text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left";
   const navHint =
     "text-[0.5938rem] text-(--solus-text-tertiary) font-mono flex-shrink-0 opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70";
   const navBeta =
-    "inline-flex items-center ml-1.5 px-1 py-px rounded text-[0.5313rem] font-semibold tracking-[0.02em] uppercase leading-none align-middle text-(--solus-accent) bg-[color-mix(in_srgb,var(--solus-accent)_14%,transparent)]";
+    "inline-flex items-center ml-1.5 px-1 py-px rounded text-[0.5313rem] font-normal tracking-[0.02em] uppercase leading-none align-middle text-(--solus-accent) bg-[color-mix(in_srgb,var(--solus-accent)_14%,transparent)]";
+  const sectionLabel =
+    "text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-(--solus-text-tertiary)";
 
   function toggleExpand(branchKey: string) {
     if (expandedBranches.has(branchKey)) expandedBranches.delete(branchKey);
@@ -151,10 +166,7 @@
   {#if sidebarStore.pinnedSessions.length > 0}
     <div class="flex-shrink-0 relative {dividerAfter}">
       <div class="px-4 pt-3 pb-1.5 flex items-center gap-1.5">
-        <span
-          class="text-[0.625rem] uppercase tracking-wider font-semibold text-(--solus-text-tertiary)"
-          style="letter-spacing:0.06em; opacity: 0.8"
-        >
+        <span class={sectionLabel}>
           Pinned
         </span>
       </div>
@@ -163,7 +175,7 @@
           {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
           {@const isActive = !!openTabId && openTabId === session.activeTabId}
           <div
-            class="group relative flex items-center gap-1.5 h-8 px-2 rounded-[0.4375rem] cursor-pointer select-none border border-transparent outline-none transition-[background,border-color] duration-150 {focusRing} {isActive
+            class="group flex items-center gap-1.5 h-8 px-2 rounded-[0.4375rem] cursor-pointer select-none border border-transparent outline-none transition-[background,border-color] duration-150 {activeRail} {focusRing} {isActive
               ? rowActiveWash
               : rowHoverWash}"
             data-active={isActive ? "true" : undefined}
@@ -197,7 +209,7 @@
               <PushPinIcon size={11} weight="fill" />
             </button>
             <span
-              class="flex-1 min-w-0 text-[0.8125rem] font-medium leading-[1.2] tracking-[-0.01em] overflow-hidden text-ellipsis whitespace-nowrap {isActive
+              class="flex-1 min-w-0 text-[0.8125rem] font-normal leading-[1.2] tracking-[-0.01em] overflow-hidden text-ellipsis whitespace-nowrap {isActive
                 ? 'text-(--solus-text-primary)'
                 : 'text-[color-mix(in_srgb,var(--solus-text-primary)_62%,var(--solus-text-secondary))]'}"
               >{pin.title}</span
@@ -235,6 +247,7 @@
       </button>
       <button
         class="{navCardBase} {session.automationsOpen ? navCardActive : ''}"
+        data-active={session.automationsOpen ? "true" : undefined}
         onclick={() => session.toggleAutomations()}
       >
         <span class={navCardIcon}><LightningIcon size={13} /></span>
@@ -243,6 +256,7 @@
       </button>
       <button
         class="{navCardBase} {session.prsOpen ? navCardActive : ''}"
+        data-active={session.prsOpen ? "true" : undefined}
         onclick={() => session.togglePrs()}
       >
         <span class={navCardIcon}><GitPullRequestIcon size={13} /></span>
@@ -252,6 +266,7 @@
       </button>
       <button
         class="{navCardBase} {session.tasksOpen ? navCardActive : ''}"
+        data-active={session.tasksOpen ? "true" : undefined}
         onclick={() => session.toggleTasks()}
       >
         <span class={navCardIcon}><ListChecksIcon size={13} /></span>
@@ -271,10 +286,7 @@
   </div>
   {@render pinnedSection()}
   <div class="flex-shrink-0 flex items-center justify-between px-4 pt-3 pb-2">
-    <span
-      class="text-[0.625rem] uppercase tracking-wider font-semibold text-(--solus-text-tertiary)"
-      style="letter-spacing:0.06em; opacity: 0.8"
-    >
+    <span class={sectionLabel}>
       Projects
     </span>
     <div class="flex items-center gap-0.5">
@@ -358,13 +370,12 @@
         {@const groupKey = `project:${pg.projectKey}`}
         {@const collapsed = collapsedGroups.has(groupKey)}
         {@const projectTabIds = pg.branches.flatMap((b) => b.tabIds)}
-        {@const isProjectActive =
-          pg.projectKey === sidebarStore.activeProjectKey}
+        {@const isProjectActive = projectTabIds.includes(session.activeTabId)}
         {@const showProjectActive = isProjectActive && collapsed}
         <div
-          class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 bg-transparent cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {focusRing} {showProjectActive
+          class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {activeRail} {focusRing} {showProjectActive
             ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
-            : 'hover:bg-[color-mix(in_srgb,var(--solus-accent)_5%,transparent)]'}"
+            : 'bg-transparent hover:bg-[color-mix(in_srgb,var(--solus-accent)_5%,transparent)]'}"
           role="button"
           tabindex="0"
           data-active={showProjectActive ? "true" : undefined}
@@ -385,7 +396,7 @@
             <CaretRightIcon size={10} />
           </span>
           <span
-            class="text-[0.6875rem] font-semibold uppercase tracking-[0.05em] flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left {showProjectActive
+            class="text-[0.6875rem] font-normal uppercase tracking-[0.05em] flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left {showProjectActive
               ? 'text-(--solus-text-primary)'
               : 'text-(--solus-text-tertiary)'}">{pg.projectLabel}</span
           >
@@ -395,26 +406,26 @@
           {@render rowActions(projectTabIds, pg.projectLabel, true)}
         </div>
         {#if !collapsed}
-          <div class="flex flex-col gap-px pl-4 pb-1">
+          <div
+            class="flex flex-col gap-px pl-4 pb-1"
+            transition:slide={{ duration: expandDur, easing: cubicOut }}
+          >
             {#each pg.branches as branch (branch.key)}
               {@const isExpanded = expandedBranches.has(branch.key)}
-              {@const isActiveBranch =
-                isProjectActive && branch.key === sidebarStore.activeBranchKey}
-              {@const showBranchActive =
-                isActiveBranch && (!isExpanded || branch.tabIds.length === 1)}
+              {@const isActiveBranch = branch.tabIds.includes(
+                session.activeTabId,
+              )}
               <div
-                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border border-transparent bg-transparent cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
+                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {activeRail} {focusRing} {isActiveBranch
                   ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
-                  : rowHoverWash}"
+                  : `border-transparent bg-transparent ${rowHoverWash}`}"
                 style="--branch-kind-color:{branchKindColor(branch.kind)}"
                 role="button"
                 tabindex="0"
-                data-active={showBranchActive ? "true" : undefined}
+                data-active={isActiveBranch && !isExpanded ? "true" : undefined}
                 onclick={() => selectBranch(branch.key, branch.tabIds)}
-                aria-current={showBranchActive ? "page" : undefined}
-                aria-expanded={branch.tabIds.length > 1
-                  ? isExpanded
-                  : undefined}
+                aria-current={isActiveBranch ? "page" : undefined}
+                aria-expanded={isExpanded}
                 aria-label={branch.attention && branch.attention !== "running"
                   ? `${branch.label} — ${attentionLabel(branch.attention)}`
                   : branch.label}
@@ -451,46 +462,48 @@
                   />
                 {/if}
                 <span
-                  class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium text-left"
+                  class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-normal text-left"
                 >
                   {branch.label}
                 </span>
                 {@render rowActions(branch.tabIds, branch.label, true)}
-                {#if branch.attention && !(isExpanded && branch.tabIds.length > 1)}
+                {#if branch.attention && !isExpanded}
                   {@render attentionMark(branch.attention)}
                 {/if}
-                {#if branch.tabIds.length > 1}
-                  <button
-                    class="flex-shrink-0 flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background,transform] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_10%,transparent)] {focusRing} {isExpanded
-                      ? 'rotate-90'
-                      : ''}"
-                    aria-label={isExpanded
-                      ? "Collapse sessions"
-                      : "Expand sessions"}
-                    onclick={(e) => {
+                <button
+                  class="flex-shrink-0 flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background,transform] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_10%,transparent)] {focusRing} {isExpanded
+                    ? 'rotate-90'
+                    : ''}"
+                  aria-label={isExpanded
+                    ? "Collapse sessions"
+                    : "Expand sessions"}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    toggleExpand(branch.key);
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
                       e.stopPropagation();
                       toggleExpand(branch.key);
-                    }}
-                    onkeydown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleExpand(branch.key);
-                      }
-                    }}
-                  >
-                    <CaretRightIcon size={9} />
-                  </button>
-                {/if}
+                    }
+                  }}
+                >
+                  <CaretRightIcon size={9} />
+                </button>
               </div>
-              {#if isExpanded && branch.tabIds.length > 1}
+              {#if isExpanded}
+                <div
+                  class="flex flex-col gap-px"
+                  transition:slide={{ duration: expandDur, easing: cubicOut }}
+                >
                 {#each branch.tabIds as tabId (tabId)}
                   {@const child = sidebarStore.childForTab(tabId)}
                   {@const showChildActive = isActiveBranch && child.active}
                   <div
-                    class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border border-transparent bg-transparent cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
+                    class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {activeRail} {focusRing} {showChildActive
                       ? `${rowActiveWash} text-(--solus-text-primary)`
-                      : rowHoverWash}"
+                      : `border-transparent bg-transparent ${rowHoverWash}`}"
                     role="button"
                     tabindex="0"
                     data-active={showChildActive ? "true" : undefined}
@@ -521,6 +534,7 @@
                     {@render rowActions([tabId], child.label, false)}
                   </div>
                 {/each}
+                </div>
               {/if}
             {/each}
           </div>
@@ -533,19 +547,20 @@
     class="flex-shrink-0 relative px-2 pt-1.5 pb-2 before:content-[''] before:absolute before:top-0 before:left-3.5 before:right-3.5 before:h-px before:bg-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)]"
   >
     <button
-      class="group flex items-center gap-2 w-full h-[1.875rem] px-2.5 rounded-lg bg-transparent cursor-pointer text-(--solus-text-tertiary) outline-none select-none transition-[background] duration-150 hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] {focusRing} {session.settingsOpen
+      class="group flex items-center gap-2 w-full h-[1.875rem] px-2.5 rounded-lg bg-transparent cursor-pointer text-(--solus-text-tertiary) outline-none select-none transition-[background] duration-150 hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] {activeRail} {focusRing} {session.settingsOpen
         ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
         : ''}"
+      data-active={session.settingsOpen ? "true" : undefined}
       onclick={() => session.showSettings()}
     >
       <span
-        class="flex items-center flex-shrink-0 {session.settingsOpen
+        class="flex items-center flex-shrink-0 motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90 {session.settingsOpen
           ? 'text-(--solus-accent)'
           : 'text-(--solus-text-tertiary) group-hover:text-(--solus-accent)'}"
         ><GearIcon size={14} /></span
       >
       <span
-        class="text-xs font-medium tracking-[-0.01em] flex-1 text-left {session.settingsOpen
+        class="text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left {session.settingsOpen
           ? 'text-(--solus-text-primary)'
           : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
         >Settings</span
