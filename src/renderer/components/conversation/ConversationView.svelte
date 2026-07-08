@@ -115,8 +115,18 @@
   const isEditorMode = $derived(
     windowCtx.viewMode === "editor" || windowCtx.isWeb,
   );
-  let { tabId, onDiffToggle }: { tabId: string; onDiffToggle?: () => void } =
+  let {
+    tabId,
+    onDiffToggle,
+    forceVisible = false,
+  }: { tabId: string; onDiffToggle?: () => void; forceVisible?: boolean } =
     $props();
+
+  // The pool instance is on screen only while its tab is active; the split-pane
+  // instance (forceVisible) is always on screen. Visibility gates autoscroll and
+  // streaming work; keybindings stay gated on the ACTIVE tab so the two visible
+  // instances never both respond to one shortcut.
+  const isVisible = $derived(forceVisible || tabId === session.activeTabId);
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
@@ -152,7 +162,7 @@
   // settled layout read, not one interleaved with the markdown mutations.
   function pinToBottom() {
     const el = scrollEl;
-    if (el && tabId === session.activeTabId && isNearBottom) {
+    if (el && isVisible && isNearBottom) {
       el.scrollTop = el.scrollHeight;
     }
   }
@@ -187,7 +197,7 @@
 
   $effect(() => {
     const target = streamingText;
-    const animate = tabId === session.activeTabId && !prefersReducedMotion;
+    const animate = isVisible && !prefersReducedMotion;
     // Snap (no animation) for hidden tabs, reduced-motion users,
     // or whenever the buffer reset/committed (target shorter than shown).
     if (!animate || target.length < revealExact) {
@@ -312,7 +322,7 @@
 
   $effect(() => {
     void scrollTrigger;
-    if (tabId === session.activeTabId && isNearBottom) {
+    if (isVisible && isNearBottom) {
       requestAnimationFrame(pinToBottom);
     }
   });
@@ -321,7 +331,7 @@
   $effect(() => {
     const mode = isEditorMode;
     if (prevEditorMode !== undefined && prevEditorMode !== mode) {
-      if (tabId === session.activeTabId && scrollEl) {
+      if (isVisible && scrollEl) {
         requestAnimationFrame(() => {
           if (scrollEl) {
             scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -446,7 +456,7 @@
     // Every tab stays mounted (hidden via display:none), so without this guard the
     // effect would re-scan `grouped` for all tabs on every message tick. Hidden
     // tabs don't need their work content eagerly hydrated — load on activation.
-    if (tabId !== session.activeTabId) return;
+    if (!isVisible) return;
     for (const item of grouped) {
       if (item.kind !== "document") continue;
       const workId = item.message.workRef?.workId;
@@ -544,7 +554,7 @@
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ tabId?: string }>).detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
-      if (tabId !== session.activeTabId) return;
+      if (!isVisible) return;
       const snap = () => {
         if (scrollEl) {
           scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -570,7 +580,7 @@
     const el = scrollEl;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      if (isNearBottom && tabId === session.activeTabId) {
+      if (isNearBottom && isVisible) {
         el.scrollTop = el.scrollHeight;
       }
     });
@@ -903,7 +913,7 @@
         <ConversationMinimap
           items={navItems}
           {scrollEl}
-          isActive={tabId === session.activeTabId}
+          isActive={isVisible}
           prepareNavigate={prepareMinimapNavigate}
         />
       {/if}
