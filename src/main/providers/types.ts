@@ -1,4 +1,4 @@
-import type { AuthStatus, DeviceCodePrompt, MergeMethod, ProviderId } from '../../shared/types'
+import type { AuthStatus, ChangedFileStat, DeviceCodePrompt, MergeMethod, ProviderId } from '../../shared/types'
 import type {
   DraftReview,
   DraftReviewComment,
@@ -72,6 +72,8 @@ export interface ReviewProvider {
    *  refuses (conflicts, branch protection) — not an exception, so the merge
    *  queue can fall back to local conflict resolution. */
   mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }>
+  /** Changed files with host-reported per-file add/delete counts. */
+  listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]>
   /** Changed file paths, for the merge queue's overlap-based auto-ordering. */
   listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]>
 }

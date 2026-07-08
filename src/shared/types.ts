@@ -140,6 +140,13 @@ export interface DesignAnnotation {
   label?: string
 }
 
+export interface VoiceModelStatus {
+  state: 'checking' | 'downloading' | 'installing' | 'ready' | 'error'
+  receivedBytes?: number
+  totalBytes?: number
+  error?: string
+}
+
 export interface DesignModeSelection {
   /** Cropped element screenshot as data URL */
   screenshot: string

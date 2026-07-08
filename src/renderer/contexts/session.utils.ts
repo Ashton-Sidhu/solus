@@ -12,6 +12,7 @@ const SOLUS_TOOL_LABELS: Record<string, string> = {
   update_work: 'Update work',
   render_artifact: 'Render artifact',
   create_session: 'Create session',
+  codex_subagent: 'Codex subagent',
 }
 
 /** Returns the bare Solus tool key (e.g. "create_work") if `name` is a Solus tool, else null. */

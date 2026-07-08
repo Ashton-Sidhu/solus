@@ -492,5 +492,5 @@
       inset -0.0625rem 0 0
         color-mix(in srgb, var(--solus-container-border) 60%, transparent),
       inset 0 0.0938rem 0
-        color-mix(in srgb, var(--solus-accent) 45%, transparent);
+        color-mix(in srgb, var(--solus-container-border) 60%, transparent);
   }

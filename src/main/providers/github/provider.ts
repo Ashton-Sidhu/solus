@@ -1,6 +1,6 @@
 import { GitHubAuth } from './auth'
 import { buildClient, type GitHubClient } from './octokit'
-import type { MergeMethod } from '../../../shared/types'
+import type { ChangedFileStat, MergeMethod } from '../../../shared/types'
 import type {
   DraftReview,
   PrCommit,
@@ -170,6 +170,10 @@ function toSummary(pr: RestPull): PullRequestSummary {
   }
 }
 
+function withBaseRepo(summary: PullRequestSummary, repo: RepoRef): PullRequestSummary {
+  return { ...summary, baseRepo: repo }
+}
+
 function toComment(c: GqlComment): ReviewComment {
   return {
     id: c.id,
@@ -221,7 +225,9 @@ class GitHubProvider implements ReviewProvider {
       data.push(...page.data)
       if (data.length >= MAX_LISTED_PRS) break
     }
-    let summaries = data.slice(0, MAX_LISTED_PRS).map((pr) => toSummary(pr as unknown as RestPull))
+    let summaries = data
+      .slice(0, MAX_LISTED_PRS)
+      .map((pr) => withBaseRepo(toSummary(pr as unknown as RestPull), repo))
     // GitHub's list endpoint has no author filter (that's the search API); filter ourselves.
     if (filter?.author) {
       const author = filter.author.toLowerCase()
@@ -249,7 +255,7 @@ class GitHubProvider implements ReviewProvider {
     const baseFull = pr.base.repo?.full_name
     const headFull = pr.head.repo?.full_name
     return {
-      ...toSummary(pr as unknown as RestPull),
+      ...withBaseRepo(toSummary(pr as unknown as RestPull), repo),
       body: pr.body ?? '',
       baseRef: pr.base.ref,
       headRef: pr.head.ref,
@@ -257,6 +263,7 @@ class GitHubProvider implements ReviewProvider {
       headSha: pr.head.sha,
       changedFiles: (pr as any).changed_files ?? 0,
       mergeable: pr.mergeable ?? null,
+      mergeStateStatus: (pr as any).mergeable_state ?? null,
       headRepo: {
         owner: pr.head.repo?.owner?.login ?? repo.owner,
         repo: pr.head.repo?.name ?? repo.repo,
@@ -374,6 +381,21 @@ class GitHubProvider implements ReviewProvider {
       // queue treats this as "resolve locally", not as a failure.
       return { merged: false, message: githubApiErrorMessage(err, 'GitHub could not merge the pull request') }
     }
+  }
+
+  async listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]> {
+    const { rest } = await this.client()
+    const files = await rest.paginate(rest.pulls.listFiles, {
+      owner: repo.owner,
+      repo: repo.repo,
+      pull_number: number,
+      per_page: 100,
+    })
+    return files.map((f) => ({
+      path: f.filename,
+      additions: f.additions,
+      deletions: f.deletions,
+    }))
   }
 
   async listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]> {

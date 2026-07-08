@@ -54,7 +54,8 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist/main',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts')
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'transcription-worker': resolve(__dirname, 'src/main/transcription/worker.ts')
         },
         external: [
           'electron',

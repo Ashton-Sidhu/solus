@@ -110,7 +110,9 @@
   const canToggleWorktree = $derived(
     !!sess?.gitContext?.targetBranch && !sess?.gitContext?.worktreePath,
   );
-  const isActiveTab = $derived(!!tab && session.activeTabId === tab.id);
+  const isActiveHome = $derived(
+    tab ? session.activeTabId === tab.id : session.tabOrder.length === 0,
+  );
 
   function toggleWorktree() {
     if (!canToggleWorktree) return;
@@ -150,13 +152,12 @@
 
   const visibleWorktrees = $derived(worktrees.slice(0, 3));
 
-  // Every empty tab mounts its own NewTabHome (hidden ones via display:none still
-  // run their effects), so all the home fetches below are gated on isActiveTab:
-  // an inactive instance does nothing, and re-fetches when its tab is activated.
+  // Empty-session tabs and the zero-tab home both mount NewTabHome. Hidden tab
+  // homes stay quiet, while the zero-tab home loads against the global defaults.
   // Loaded flags start false, so a just-activated home shows its skeleton rather
   // than flashing empty while the first fetch resolves.
   $effect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveHome) return;
     void projectMetadata.recentVersion;
     untrack(() => {
       void projectMetadata.loadRecentProjects();
@@ -166,7 +167,7 @@
   // Recent sessions for the launch-target directory — refetches whenever the
   // target cwd changes so the list reflects where the next session will run.
   $effect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveHome) return;
     const cacheVersion = projectMetadata.recentVersion;
     const dir = currentDir;
     if (!dir || dir === "~") {
@@ -191,7 +192,7 @@
   });
 
   $effect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveHome) return;
     if (!projectRoot) {
       worktreesLoaded = true;
       return;
@@ -210,7 +211,7 @@
   const tasksStore = session.tasksStore;
 
   $effect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveHome) return;
     void automationsStore.loadAll();
   });
 
@@ -221,7 +222,7 @@
   // Lazily pull run history for the shown automations so each row can preview
   // its latest output — the whole reason they're surfaced ("what did it do?").
   $effect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveHome) return;
     for (const a of automationActivity) {
       if (!automationsStore.runs.has(a.id))
         void automationsStore.loadRuns(a.id);
@@ -236,7 +237,7 @@
   // Tasks for the launch-target directory. The store is project-scoped and
   // shared, so reads are guarded on cwd to never render a stale project.
   $effect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveHome) return;
     const dir = currentDir;
     if (dir && dir !== "~") void tasksStore.load(dir).catch(() => {});
   });

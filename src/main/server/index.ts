@@ -31,6 +31,8 @@ import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handl
 import { registerRunHandlers } from './handlers/run-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
+import { setVoiceModelStatusListener } from '../model-downloader'
+import { setVoicePartialListener } from '../transcription'
 import { createLogger } from '../logger'
 import type { RunManager } from '../run/run-manager'
 
@@ -175,6 +177,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerMergeQueueHandlers(server)
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
+  setVoiceModelStatusListener((status) => server.broadcast('voice-model-status', status))
+  setVoicePartialListener((event) => server.broadcast('voice-partial', event))
 
   opts.controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
     server.broadcast('normalized-event', tabId, event)

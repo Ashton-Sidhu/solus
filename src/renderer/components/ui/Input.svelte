@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { dictation, isDictationTarget } from "../../lib/dictation.svelte";
+  import { getVoiceModelStore } from "../../contexts/voice-model.store.svelte";
   import RecordingControls from "../input/RecordingControls.svelte";
 
   interface Props {
@@ -68,6 +69,17 @@
     onblur,
   }: Props = $props();
 
+  const voiceModel = getVoiceModelStore();
+  const micDisabled = $derived(disabled || !voiceModel.ready);
+  const idleMicTooltip = $derived.by(() => {
+    if (voiceModel.ready) return "Voice input";
+    if (voiceModel.status.state === "downloading" && voiceModel.progressPct !== null) {
+      return `Downloading voice model - ${voiceModel.progressPct}%`;
+    }
+    if (voiceModel.status.state === "error") return "Voice model failed to download - retry in Settings";
+    return "Voice model is preparing";
+  });
+
   $effect(() => {
     if (autofocus) el?.focus({ preventScroll: true });
   });
@@ -134,7 +146,10 @@
     rmsRef={dictation.rmsRef}
     showMic={mic}
     micTextarea={type === "textarea" && rows > 1}
-    {disabled}
+    disabled={micDisabled}
+    idleTooltip={idleMicTooltip}
+    progressPct={!voiceModel.ready ? voiceModel.progressPct : null}
+    partialText={dictation.partialText}
     onCancel={() => dictation.cancel()}
     onConfirm={() => dictation.stop()}
     onToggle={() => {

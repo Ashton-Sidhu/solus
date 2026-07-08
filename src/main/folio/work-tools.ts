@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
 import { loadWorkAnnotations } from './work-annotations'
 import { workPreview } from '../../shared/work-preview'
@@ -267,6 +268,11 @@ export interface SolusMcpDeps {
    *  automation run can't create or trigger more automations (the fork-bomb
    *  guard). Defaults to true (interactive sessions get the full suite). */
   includeAutomationTools?: boolean
+  /** The codex_subagent tool, built by the caller (the interactive Claude backend
+   *  needs the run's cwd + abort signal). Built by the caller — not imported here —
+   *  to avoid the cycle work-tools → codex-oneshot → codex-solus-tools → work-tools.
+   *  Headless runs never pass it, so a subagent can't spawn subagents (fork-bomb guard). */
+  codexSubagentTool?: SdkMcpToolDefinition<any>
 }
 
 export function createSolusMcpServer(deps: SolusMcpDeps) {
@@ -325,6 +331,7 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
         onTaskCreated: deps.onTaskCreated,
       }),
       ...prSdkTools({ cwd: deps.createCtx.cwd }),
+      ...(deps.codexSubagentTool ? [deps.codexSubagentTool] : []),
     ],
   })
 }

@@ -29,7 +29,6 @@
     matchesOpenProjects,
     type DateGroup,
   } from "../../lib/sessionUtils";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import { PAGE_PRIMARY_BTN } from "../../lib/page-chrome";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
@@ -385,13 +384,6 @@
     tabindex="-1"
   >
     <PageShell onClose={close}>
-      {#snippet leading()}
-        <FrameExpandButton variant="sidebar" />
-      {/snippet}
-      {#snippet trailing()}
-        <FrameExpandButton variant="projectPanel" />
-      {/snippet}
-
       <PageHeader
         title="Folio"
         subtitle="Documents and diagrams from your sessions."

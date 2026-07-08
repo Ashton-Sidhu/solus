@@ -9,6 +9,7 @@
   import RunDock from "../run/RunDock.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SessionSidebar from "../session/SessionSidebar.svelte";
+  import FrameExpandButton from "./FrameExpandButton.svelte";
   import TabStrip from "./TabStrip.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import PlanGallery from "../plan/PlanGallery.svelte";
@@ -666,8 +667,23 @@
         />
 
         <div class="flex-1 flex min-w-0 relative">
-          <div class="primary-column flex-1 flex flex-col min-w-0">
+          <div class="primary-column relative flex-1 flex flex-col min-w-0">
             {@render dragBar()}
+            <!-- Frame-level session-expand affordance. Rendered once here so
+                 every full-page view (settings + galleries + PRs) shows it in
+                 the identical top-left spot instead of each page placing its
+                 own. Self-gates via frameChrome (hidden unless the sidebar is
+                 collapsed); the lead inset var — published on the collapsed
+                 primary-column — clears the mac traffic lights. Scoped to
+                 poolHidden so it never overlaps the conversation's TabStrip,
+                 which carries its own sidebar toggle. -->
+            {#if poolHidden}
+              <div
+                class="no-drag absolute left-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] top-2.5 z-20"
+              >
+                <FrameExpandButton variant="sidebar" />
+              </div>
+            {/if}
             <!-- Settings and the galleries are cheap to mount and render as
                  overlays. The conversation pool below stays mounted underneath
                  them (hidden via display:none) so dismissing settings/an

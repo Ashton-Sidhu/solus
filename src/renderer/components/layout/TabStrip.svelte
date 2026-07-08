@@ -398,7 +398,6 @@
 {#snippet tabInner(tabId: string, showStatus: boolean)}
   {@const tab = session.tabs[tabId]}
   {@const sess = session.sessionFor(tabId)}
-  {@const creatingWorktree = session.isContinuingInWorktree(tabId)}
   {@const statusIcon =
     showStatus && tab && sess ? getStatusIcon(sess.status) : null}
   {@const hasProgress =
@@ -407,15 +406,7 @@
   {@const pComplete = isTabComplete(sess)}
   {#if tab}
     <div class="flex min-w-0 items-center gap-[0.3125rem]">
-      {#if creatingWorktree}
-        <TreeStructureIcon
-          size={10}
-          data-testid="tab-status-icon"
-          data-status="worktree-creating"
-          style="color:var(--solus-accent);flex-shrink:0"
-          class="tab-status-spin"
-        />
-      {:else if statusIcon}
+      {#if statusIcon}
         {@const Icon = statusIcon.component}
         <Icon
           size={10}
@@ -425,7 +416,10 @@
           class={statusIcon.spin ? "tab-status-spin" : ""}
         />
       {/if}
-      <span class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{tabLabel(tab, sess)}</span>
+      <span
+        class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+        >{tabLabel(tab, sess)}</span
+      >
       <button
         onclick={(e) => {
           e.stopPropagation();
@@ -440,7 +434,9 @@
       </button>
     </div>
     {#if hasProgress}
-      <div class="mx-[0.0625rem] mb-[0.0625rem] h-[0.0938rem] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-tertiary)_10%,transparent)]">
+      <div
+        class="mx-[0.0625rem] mb-[0.0625rem] h-[0.0938rem] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-tertiary)_10%,transparent)]"
+      >
         <div
           class="h-full rounded-full bg-[color-mix(in_srgb,var(--solus-status-running)_72%,transparent)] transition-[width,background] [transition-duration:400ms,300ms] [transition-timing-function:ease,ease] {pComplete
             ? 'bg-[color-mix(in_srgb,var(--solus-status-complete)_72%,transparent)]'
@@ -452,10 +448,7 @@
   {/if}
 {/snippet}
 
-<div
-  class="no-drag flex flex-col"
-  class:editor-variant={variant === "editor"}
->
+<div class="no-drag flex flex-col" class:editor-variant={variant === "editor"}>
   <div class="tab-bar-row flex items-center" bind:this={barEl}>
     <div class="tab-seam" aria-hidden="true"></div>
     {#if showSidebarToggle}
@@ -738,9 +731,15 @@
         >
           <TreeStructureIcon
             size={12}
-            class={session.isContinuingInWorktree(contextMenu.tabId) ? "tab-status-spin" : ""}
+            class={session.isContinuingInWorktree(contextMenu.tabId)
+              ? "tab-status-spin"
+              : ""}
           />
-          <span>{session.isContinuingInWorktree(contextMenu.tabId) ? "Creating Worktree…" : "Continue in Worktree"}</span>
+          <span
+            >{session.isContinuingInWorktree(contextMenu.tabId)
+              ? "Creating Worktree…"
+              : "Continue in Worktree"}</span
+          >
           {#if !session.isContinuingInWorktree(contextMenu.tabId)}
             <span class="ml-auto font-mono text-[0.625rem] opacity-45">⌥W</span>
           {/if}

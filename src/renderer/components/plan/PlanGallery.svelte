@@ -20,7 +20,6 @@
   import PlanCard from "./PlanCard.svelte";
   import PlanListRow from "./PlanListRow.svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
   import SearchField from "../ui/SearchField.svelte";
@@ -552,13 +551,6 @@
     tabindex="-1"
   >
     <PageShell onClose={close}>
-      {#snippet leading()}
-        <FrameExpandButton variant="sidebar" />
-      {/snippet}
-      {#snippet trailing()}
-        <FrameExpandButton variant="projectPanel" />
-      {/snippet}
-
       <PageHeader
         title="Plans"
         subtitle="Plans the agent proposed — review, bookmark, resume."
