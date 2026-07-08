@@ -143,6 +143,12 @@ export function registerProviderHandlers(server: SolusServer): void {
     return provider.review.listReviewers(repo, number)
   })
 
+  server.register('prChangedFiles', async (args) => {
+    const [ctx, number] = args as [IpcContext, number]
+    const { repo, provider } = await reviewTargetFor(ctx)
+    return provider.review.listPullRequestFileStats(repo, number)
+  })
+
   server.register('prSubmitReview', async (args) => {
     const [ctx, number, review] = args as [IpcContext, number, DraftReview]
     const { repo, provider } = await reviewTargetFor(ctx)

@@ -1,6 +1,6 @@
 // Private logic for the Activity overview: shaping GitHub diff hunks for the
 // inline thread previews, and the initials shown in author/comment avatars.
-// (Per-file +/- counts come from the `prChangedFiles` numstat handler.)
+// (Per-file +/- counts come from the provider-backed `prChangedFiles` handler.)
 
 import type { PrCommit, ReviewThread } from '../../../../shared/providers'
 
@@ -100,6 +100,10 @@ export function buildActivityTimeline(
 export interface PrActivityTarget {
   number: number
   title: string
+  /** Remote host for a direct PR link; present in the full review pane. */
+  host?: string
+  /** Base repo owner for a direct PR link when `owner` is being used as author. */
+  remoteOwner?: string
   /** Author login shown until `detail` loads (the list has it from the summary). */
   owner?: string
   /** Repo name for the `repo#number` meta chip; omitted in the list preview. */
@@ -108,7 +112,7 @@ export interface PrActivityTarget {
   baseRef?: string
   /** Head branch for the meta line; falls back to `detail.headRef`. */
   branch?: string
-  /** Diff base for the changed-files rail; falls back to `detail.baseSha`. */
+  /** Diff base for the review worktree; the files rail is loaded by PR number. */
   baseSha?: string
   /** New-comment anchor; falls back to `detail.headSha`. */
   headSha?: string

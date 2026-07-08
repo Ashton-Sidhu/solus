@@ -1,7 +1,12 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { RobotIcon } from "phosphor-svelte";
-  import { REASONING_EFFORT_LABELS, type Message, type ReasoningEffort } from "../../../shared/types";
+  import {
+    MODEL_PROFILES,
+    REASONING_EFFORT_LABELS,
+    type Message,
+    type ReasoningEffort,
+  } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { prettyToolName, solusToolKey } from "../../contexts/session.utils";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
@@ -18,7 +23,11 @@
   }
   let { message, tabId, skipMotion = false }: Props = $props();
 
-  const markdownRenderers = { code: CodeBlock, codespan: CodeSpan, link: MarkdownLink };
+  const markdownRenderers = {
+    code: CodeBlock,
+    codespan: CodeSpan,
+    link: MarkdownLink,
+  };
   const session = getWorkspaceContext();
   const sess = $derived(session.sessionFor(tabId));
   const workingDirectory = $derived(sess?.workingDirectory || undefined);
@@ -45,14 +54,27 @@
   const task = $derived(
     (parsedInput.description || parsedInput.prompt || "Sub-agent").trim(),
   );
-  const modelLabel = $derived(
-    (parsedInput.model || sess?.sessionModel || sess?.modelConfig.modelId || "").trim(),
-  );
+  // A codex subagent runs Codex, not the parent Claude session — so when its
+  // input omits model/effort, fall back to the Codex defaults, not the parent's.
+  const isCodexSubagent = $derived(message.subagentType === "codex");
+  const modelLabel = $derived.by(() => {
+    if (parsedInput.model) return parsedInput.model.trim();
+    if (isCodexSubagent) {
+      const profiles = MODEL_PROFILES["codex"] ?? {};
+      return Object.entries(profiles).find(([, p]) => p.isDefault)?.[0] ?? "";
+    }
+    return (sess?.sessionModel || sess?.modelConfig.modelId || "").trim();
+  });
   const reasoningEffort = $derived(
-    (parsedInput.reasoning_effort || sess?.modelConfig.reasoningEffort || "").trim(),
+    (
+      parsedInput.reasoning_effort ||
+      (isCodexSubagent ? "high" : sess?.modelConfig.reasoningEffort) ||
+      ""
+    ).trim(),
   );
   const reasoningLabel = $derived(
-    REASONING_EFFORT_LABELS[reasoningEffort as ReasoningEffort] ?? reasoningEffort,
+    REASONING_EFFORT_LABELS[reasoningEffort as ReasoningEffort] ??
+      reasoningEffort,
   );
 
   // The card rests on the tool result, not on the call's JSON finishing: a
@@ -156,12 +178,13 @@
   const countLabel = $derived(
     [
       toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool" : "tools"}` : "",
-      filesTouched > 0 ? `${filesTouched} ${filesTouched === 1 ? "file" : "files"}` : "",
+      filesTouched > 0
+        ? `${filesTouched} ${filesTouched === 1 ? "file" : "files"}`
+        : "",
     ]
       .filter(Boolean)
       .join(" · "),
   );
-
 </script>
 
 <ConversationRefCard
@@ -182,13 +205,20 @@
   {#snippet statusSlot()}
     <span class="flex min-w-0 flex-col gap-1.5">
       <span class="flex min-w-0 items-baseline gap-2">
-        <span class="shrink-0 text-[0.6875rem] font-[560] text-(--solus-accent)">{subagentType}</span>
+        <span class="shrink-0 text-[0.6875rem] font-[560] text-(--solus-accent)"
+          >{subagentType}</span
+        >
         {#if isRunning}
-          <span class="min-w-0 truncate text-xs leading-snug text-(--solus-text-tertiary)">{ticker}</span>
+          <span
+            class="min-w-0 truncate text-xs leading-snug text-(--solus-text-tertiary)"
+            >{ticker}</span
+          >
         {:else}
           <span
             class="min-w-0 truncate text-xs leading-snug"
-            style:color={isError ? "var(--solus-art-negative)" : "var(--solus-art-positive)"}
+            style:color={isError
+              ? "var(--solus-art-negative)"
+              : "var(--solus-art-positive)"}
             >{isError ? "Failed" : resultSummary}</span
           >
         {/if}
@@ -224,11 +254,15 @@
 
   <div class="flex flex-col gap-2 px-4 pt-3 pb-3.5">
     {#if countLabel}
-      <div class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary) tabular-nums">{countLabel}</div>
+      <div
+        class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary) tabular-nums"
+      >
+        {countLabel}
+      </div>
     {/if}
     {#each grouped as item (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.message.id)}
       {#if item.kind === "tool-group"}
-        <ToolGroupItem tools={item.messages} {tabId} {workingDirectory} skipMotion />
+        <ToolGroupItem tools={item.messages} skipMotion />
       {:else}
         <div class="prose-cloud prose-reading min-w-0 text-sm">
           <SvelteMarkdown
@@ -240,7 +274,17 @@
       {/if}
     {/each}
     {#if grouped.length === 0}
-      <span class="text-xs text-(--solus-text-tertiary)">Starting up…</span>
+      {#if message.toolResult}
+        <div class="prose-cloud prose-reading min-w-0 text-sm">
+          <SvelteMarkdown
+            source={message.toolResult.trim()}
+            renderers={markdownRenderers}
+            sanitizeUrl={markdownSanitizeUrl}
+          />
+        </div>
+      {:else}
+        <span class="text-xs text-(--solus-text-tertiary)">Starting up…</span>
+      {/if}
     {/if}
   </div>
 </ConversationRefCard>

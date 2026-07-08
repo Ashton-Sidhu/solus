@@ -92,6 +92,9 @@ export class MergeQueue {
   private cancelled = false
   private skipRequested = false
   private running: Promise<void> | null = null
+  /** Resolves the current resolution-poll sleep early so skip/cancel take effect
+   *  immediately instead of waiting out the poll interval. Null when not sleeping. */
+  private wakeResolver: (() => void) | null = null
 
   constructor(
     private readonly deps: MergeQueueDeps,
@@ -126,11 +129,13 @@ export class MergeQueue {
 
   cancel(): void {
     this.cancelled = true
+    this.wakeResolver?.()
   }
 
   /** Give up on the entry the queue is paused on and move to the next PR. */
   skipCurrent(): void {
     this.skipRequested = true
+    this.wakeResolver?.()
   }
 
   private publish(): void {
@@ -317,8 +322,22 @@ export class MergeQueue {
         entry.conflictFiles = conflicted
         this.publish()
       }
-      await new Promise((resolve) => setTimeout(resolve, RESOLUTION_POLL_MS))
+      await this.sleep(RESOLUTION_POLL_MS)
     }
+  }
+
+  /** Poll-interval sleep that skip/cancel can cut short via `wakeResolver`, so a
+   *  user action is observed on the next loop check rather than after the wait. */
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        this.wakeResolver = null
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      this.wakeResolver = done
+    })
   }
 
   /**

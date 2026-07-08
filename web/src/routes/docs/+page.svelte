@@ -217,7 +217,7 @@
 			<p class="text-base sm:text-[15px] max-[1440px]:sm:text-[14px] text-[#6B6158] leading-relaxed max-w-[560px]">
 				Everything you need to know — keybindings, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated June 27, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 1, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">

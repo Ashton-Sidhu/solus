@@ -48,6 +48,10 @@ export const RPC_INVOKE_METHODS = [
   'takeScreenshot',
   'pasteImage',
   'transcribeAudio',
+  'voiceModelStatus',
+  'voiceModelRetry',
+  'voiceStreamStart',
+  'voiceStreamEnd',
   'logVoiceTranscription',
   'searchFiles',
   'listDirectory',
@@ -206,6 +210,8 @@ export const RPC_INVOKE_METHODS = [
 export const RPC_SEND_METHODS = [
   'resetTabSession',
   'designModeReady',
+  'voiceStreamAudio',
+  'voiceStreamCancel',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
@@ -225,6 +231,8 @@ export const RPC_TOPICS = [
   'session-scan',
   'run-status',
   'run-log',
+  'voice-model-status',
+  'voice-partial',
   'automations-changed',
   'provider-device-code',
   'review-progress',

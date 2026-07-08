@@ -4,6 +4,7 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getVoiceModelStore } from "../../contexts/voice-model.store.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
   import type { PlanReference, WorkReference } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -17,6 +18,7 @@
   import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
   import { requestFilePreview } from "../../lib/filePreview";
   import { runtime } from "../../contexts/runtime.svelte";
+  import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
 
   const HISTORY_KEY = "solus-prompt-history";
   const MAX_HISTORY = 100;
@@ -32,6 +34,7 @@
   const INPUT_MAX_HEIGHT = $derived(mode === "editor" ? 260 : 140);
 
   const theme = getSettingsContext();
+  const voiceModel = getVoiceModelStore();
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const windowCtx = getWindowContext();
@@ -114,6 +117,8 @@
   // The app-wide voice controller owns the single recorder, shared with plain
   // fields' dictation. This bar drives its conversational ('message') mode.
   const voice = dictation;
+  const voiceRetry = new VoiceRetryTracker();
+  let retryClock = $state(Date.now());
 
   // The recorder is shared, so gate this bar's voice UI on conversational mode:
   // a plain field dictating elsewhere must not light up the input bar.
@@ -186,7 +191,26 @@
     composerEl?.focus();
   }
   const isVoiceWaiting = $derived(
-    voiceModeEnabled && isBusy && !isReadOnly && voiceState === "idle",
+    voiceModeEnabled && voiceModel.ready && isBusy && !isReadOnly && voiceState === "idle",
+  );
+  const voiceModelTooltip = $derived.by(() => {
+    if (voiceModel.ready) return null;
+    if (voiceModel.status.state === "downloading" && voiceModel.progressPct !== null) {
+      return `Downloading voice model - ${voiceModel.progressPct}%`;
+    }
+    if (voiceModel.status.state === "error") return "Voice model failed to download - retry in Settings";
+    return "Voice model is preparing";
+  });
+  const voicePausedTooltip = $derived.by(() => {
+    if (!voice.error) return null;
+    if (voice.errorKind === "transient" && voiceRetry.exhausted) return `Voice paused: ${voice.error}`;
+    if (voice.errorKind && voice.errorKind !== "transient") return `Voice paused: ${voice.error}`;
+    return null;
+  });
+  const idleVoiceTooltip = $derived(
+    isReadOnly
+      ? "Read-only session"
+      : (voiceModelTooltip ?? voicePausedTooltip ?? (isVoiceWaiting ? "Voice mode waiting..." : "Voice input")),
   );
   const placeholder = $derived(
     isReadOnly
@@ -300,17 +324,40 @@
   // user can keep dictating follow-ups, which queue as messages. We yield the
   // mic whenever a plain-input field owns dictation (dictation.focusedTarget).
   function canAutoStart(): boolean {
+    const errorAllowsStart =
+      voice.errorKind === null ||
+      (voice.errorKind === "transient" && voiceRetry.canRetry(retryClock));
     return (
       voiceModeEnabled &&
+      voiceModel.ready &&
       isActiveMode &&
       windowCtx.visible &&
       !isReadOnly &&
-      !voice.error &&
+      errorAllowsStart &&
       voice.state === "idle" &&
       inputText.trim().length === 0 &&
       dictation.focusedTarget === null
     );
   }
+
+  let prevVoiceErrorKind = untrack(() => voice.errorKind);
+  $effect(() => {
+    const kind = voice.errorKind;
+    if (kind === prevVoiceErrorKind) return;
+    prevVoiceErrorKind = kind;
+    if (kind === null) voiceRetry.reset();
+    else voiceRetry.note(kind);
+  });
+
+  $effect(() => {
+    const nextRetryAt = voiceRetry.nextRetryAt;
+    if (!nextRetryAt) return;
+    const delayMs = Math.max(0, nextRetryAt - Date.now());
+    const timer = window.setTimeout(() => {
+      retryClock = Date.now();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  });
 
   $effect(() => {
     // Only the active bar cancels; the inactive instance must not touch the
@@ -348,19 +395,28 @@
   let prevIsBusy = untrack(() => isBusy);
   let prevVoiceState = untrack(() => voiceState);
   let prevDictationFocus = untrack(() => dictation.focusedTarget);
+  let prevVoiceModelReady = untrack(() => voiceModel.ready);
   $effect(() => {
     const enabled = voiceModeEnabled;
     const visible = windowCtx.visible;
     const busy = isBusy;
     const vstate = voiceState;
     const dictationFocus = dictation.focusedTarget;
+    const modelReady = voiceModel.ready;
+    const retryReady = voice.errorKind === "transient" && voiceRetry.canRetry(retryClock);
 
     if (prevVoiceMode && !enabled && vstate === "recording") voice.cancel();
+    if (!prevVoiceMode && enabled) {
+      voiceRetry.reset();
+      voice.clearError();
+    }
 
     const shouldArm =
       (enabled && !prevVoiceMode) ||
       (visible && !prevVisible) ||
       (prevIsBusy && !busy) ||
+      (!prevVoiceModelReady && modelReady) ||
+      retryReady ||
       (prevVoiceState === "transcribing" && vstate === "idle") ||
       (prevDictationFocus !== null && dictationFocus === null); // plain field released the mic
 
@@ -369,6 +425,7 @@
     prevIsBusy = busy;
     prevVoiceState = vstate;
     prevDictationFocus = dictationFocus;
+    prevVoiceModelReady = modelReady;
 
     if (shouldArm && canAutoStart()) voice.startConversational();
   });
@@ -686,11 +743,17 @@
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}
     <div style="padding:0.75rem 0" style:display={showWaveform ? null : "none"}>
-      <WaveformVisualizer
-        rmsRef={voice.rmsRef}
-        color="var(--solus-accent)"
-        active={showWaveform}
-      />
+      {#if voice.partialText}
+        <div class="overflow-hidden text-ellipsis whitespace-nowrap text-left text-[0.8125rem] text-(--solus-accent) [direction:rtl]">
+          {voice.partialText}
+        </div>
+      {:else}
+        <WaveformVisualizer
+          rmsRef={voice.rmsRef}
+          color="var(--solus-accent)"
+          active={showWaveform}
+        />
+      {/if}
     </div>
   {/if}
   <div style:display={showWaveform ? "none" : null}>
@@ -749,12 +812,10 @@
     state={stableVoiceState}
     rmsRef={voice.rmsRef}
     waiting={isVoiceWaiting}
-    disabled={isConnecting || isReadOnly}
-    idleTooltip={isReadOnly
-      ? "Read-only session"
-      : isVoiceWaiting
-        ? "Voice mode waiting..."
-        : "Voice input"}
+    disabled={isConnecting || isReadOnly || !voiceModel.ready}
+    progressPct={!voiceModel.ready ? voiceModel.progressPct : null}
+    partialText={voice.partialText}
+    idleTooltip={idleVoiceTooltip}
     onCancel={() => voice.cancel()}
     onConfirm={() => voice.stop()}
     onToggle={() => voice.toggleConversational()}

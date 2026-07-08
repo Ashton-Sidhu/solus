@@ -20,6 +20,8 @@ export interface PrFilter {
 export interface PullRequestSummary {
   number: number
   title: string
+  /** Base repository remote identity for opening the PR on its host. */
+  baseRepo?: RepoRef
   author: string
   authorAvatarUrl: string
   state: 'open' | 'closed' | 'merged'
@@ -40,6 +42,8 @@ export interface PullRequestDetail extends PullRequestSummary {
   changedFiles: number
   /** Host-computed mergeability; null while the host is still computing it. */
   mergeable: boolean | null
+  /** Host-specific merge state, e.g. GitHub REST's `dirty` for merge conflicts. */
+  mergeStateStatus: string | null
   /** Where the head branch lives; `isFork` true when it differs from the base repo. */
   headRepo: { owner: string; repo: string; isFork: boolean }
 }

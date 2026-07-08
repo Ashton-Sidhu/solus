@@ -1,5 +1,6 @@
 import { createContext } from 'svelte'
-import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, TabGitContext, Work } from '../../shared/types'
+import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, TabGitContext, Work, StatusCardState, MergeQueueEntry } from '../../shared/types'
+import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard, type ConflictResolverPhase } from '../lib/merge-queue-utils'
 import { branchKeyFor } from '../lib/sessionUtils'
 import { uuid } from '../../shared/uuid'
 import { workPreview } from '../../shared/work-preview'
@@ -566,6 +567,19 @@ export class WorkspaceContext {
     const namePrompt = typeof firstUser?.content === 'string' ? firstUser.content.slice(0, 200) : ''
 
     this.continuingWorktreeTabs[tabId] = true
+    // Live status card while the (eager, ~1-2s) worktree setup runs — branch-name
+    // generation + `git worktree add` — mirroring the backend's new-session card
+    // so the wait shows progress instead of a bare "Creating Worktree…" label.
+    session.statusCard = {
+      id: `continue-worktree-${tabId}`,
+      title: 'Moving into a new worktree…',
+      icon: 'git-branch',
+      status: 'active',
+      steps: [
+        { id: 'worktree', label: 'Naming & creating the worktree', status: 'active' },
+        { id: 'session', label: 'Moving this session in', status: 'pending' },
+      ],
+    }
     try {
       const result = await window.solus.continueInWorktree(this.ctxFor(tabId), namePrompt)
       if (!result.success || !result.gitContext) {
@@ -590,6 +604,10 @@ export class WorkspaceContext {
       })
       requestInputFocus()
     } finally {
+      // Clear the setup card whether we succeeded (the "Continued in worktree"
+      // divider now marks completion) or failed (toast already shown). Nothing
+      // runs here, so no status_change will clear it for us.
+      if (session.statusCard?.id === `continue-worktree-${tabId}`) session.statusCard = null
       this.continuingWorktreeTabs[tabId] = false
     }
   }
@@ -1389,14 +1407,140 @@ export class WorkspaceContext {
     return submitDiffFeedbackToNewSession(this, opts)
   }
 
-  async startNewSessionWithPrompt(prompt: string, workingDirectory: string, gitContext?: TabGitContext | null): Promise<void> {
+  async startNewSessionWithPrompt(
+    prompt: string,
+    workingDirectory: string,
+    gitContext?: TabGitContext | null,
+    statusCard?: StatusCardState | null,
+  ): Promise<void> {
     const tabId = await this.createTab(workingDirectory)
     const session = this.sessionFor(tabId)
     if (session && gitContext !== undefined) {
       session.gitContext = gitContext ? { ...gitContext } : null
       session.worktreeBaseBranch = null
     }
+    if (session && statusCard) session.statusCard = statusCard
     this.sendMessage(prompt)
+  }
+
+  /**
+   * Resolve a PR's merge conflicts in a fresh agent session. Opens the session
+   * tab immediately — the click lands in a new window right away — then prepares
+   * the conflict worktree behind a live status card and, once it's ready, sends
+   * the resolution prompt. Agents bind their cwd at prompt time (see promptTab),
+   * so we can re-point this tab to the worktree before the first message.
+   *
+   * The merge queue owns the worktree + base merge, so we drive it as a run of
+   * one (unless it's already paused on conflicts, e.g. mid batch-run or from
+   * MergeControl), poll it to conflicts, and mirror its progress in the card.
+   */
+  async startConflictResolverSession(pr: { number: number; title: string }): Promise<void> {
+    const queue = this.mergeQueueStore
+    const existing = queue.entryFor(pr.number)
+    // A different run owns the queue and this PR isn't part of it — can't prepare
+    // its worktree yet. Toast rather than open a session that can never fill in.
+    if (queue.active && !existing) {
+      toasts.error('A merge queue run is already in progress. Try again once it finishes.')
+      return
+    }
+
+    // 1. Open the session immediately with a setup card. The placeholder cwd is
+    //    only cosmetic until we re-point to the worktree below; nothing runs yet.
+    const placeholderDir = this.mergeQueueStore.state?.repoRoot
+      ?? this.activeSession?.gitContext?.repoRoot
+      ?? (this.activeSession?.workingDirectory && this.activeSession.workingDirectory !== '~'
+        ? worktreeProjectRoot(this.activeSession.workingDirectory)
+        : undefined)
+    const tabId = await this.createTab(placeholderDir)
+    const session = this.sessionFor(tabId)
+    if (!session) return
+    const tab = this.tabs[tabId]
+    if (tab) tab.title = `Resolve #${pr.number}`
+    session.statusCard = buildConflictResolverCard(pr.number, 'worktree')
+
+    // Show the resolution prompt right away, exactly like a new worktree session
+    // renders the user's message the moment it's sent (with the setup card below).
+    // The message is pushed now — its base branch + conflicted files are filled in
+    // once the merge surfaces them — but it's only dispatched to the agent in step
+    // 4, after the worktree exists. On failure (steps 2/3) we drop it so the error
+    // card stands alone.
+    const promptMsgId = nextMsgId()
+    session.messages.push({
+      id: promptMsgId,
+      role: 'user',
+      content: buildConflictResolutionPrompt({ number: pr.number, title: pr.title }),
+      timestamp: Date.now(),
+    })
+    session.status = 'connecting'
+    session.latestCheckpointId = null
+    session.progress = null
+    const abandonPrompt = () => {
+      const idx = session.messages.findIndex((m) => m.id === promptMsgId)
+      if (idx >= 0) session.messages.splice(idx, 1)
+      session.status = 'idle'
+    }
+
+    // 2. Kick off a run of one to build the worktree + merge the base, unless a
+    //    prior/batch run already paused this PR on conflicts.
+    if (existing?.status !== 'conflicts') {
+      await queue.startSingle(this.ctx, { number: pr.number, title: pr.title }, 'merge').catch(() => {})
+      if (queue.error) {
+        abandonPrompt()
+        session.statusCard = buildConflictResolverErrorCard(pr.number, queue.error)
+        return
+      }
+    }
+
+    // 3. Wait for the queue to reach conflicts with a ready worktree, advancing
+    //    the card only when the phase actually changes (the poll ticks faster).
+    let cardPhase: ConflictResolverPhase = 'worktree'
+    const entry = await this.awaitMergeConflicts(pr.number, (phase) => {
+      if (phase !== cardPhase && session.statusCard?.status !== 'error') {
+        cardPhase = phase
+        session.statusCard = buildConflictResolverCard(pr.number, phase)
+      }
+    })
+    if (!entry) {
+      abandonPrompt()
+      session.statusCard = buildConflictResolverErrorCard(
+        pr.number,
+        queue.error ?? 'The merge finished without conflicts to resolve.',
+      )
+      return
+    }
+
+    // 4. Re-point the tab into the conflict worktree and dispatch the prompt —
+    //    now that the base branch + conflicted files are known, fill in the
+    //    message shown in step 1. The backend runs the agent in the worktree and
+    //    the reducer clears the card on start.
+    session.workingDirectory = worktreeProjectRoot(entry.worktreePath!)
+    session.gitContext = { branch: entry.branch!, targetBranch: entry.baseRef!, worktreePath: entry.worktreePath! }
+    session.worktreeBaseBranch = null
+    session.statusCard = buildConflictResolverCard(pr.number, 'session')
+    const prompt = buildConflictResolutionPrompt(entry)
+    const promptMsg = session.messages.find((m) => m.id === promptMsgId)
+    if (promptMsg) promptMsg.content = prompt
+    this.promptTab(tabId, { prompt, displayPrompt: prompt })
+    requestInputFocus()
+  }
+
+  /** Poll the merge queue until this PR's entry is paused on conflicts with a
+   *  worktree (resolved), or reaches a terminal non-conflict state / the queue
+   *  errors (both → null). `onPhase` mirrors interim status into the setup card. */
+  private async awaitMergeConflicts(
+    prNumber: number,
+    onPhase: (phase: ConflictResolverPhase) => void,
+  ): Promise<MergeQueueEntry | null> {
+    const deadline = Date.now() + 3 * 60_000
+    while (Date.now() < deadline) {
+      const entry = this.mergeQueueStore.entryFor(prNumber)
+      if (entry?.status === 'conflicts' && entry.worktreePath) return entry
+      if (this.mergeQueueStore.error) return null
+      if (entry && (entry.status === 'failed' || entry.status === 'merged' || entry.status === 'skipped')) return null
+      onPhase(entry?.status === 'merging' ? 'merge' : 'worktree')
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    return null
   }
 
   /**

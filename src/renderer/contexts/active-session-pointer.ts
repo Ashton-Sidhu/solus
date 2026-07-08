@@ -1,25 +1,8 @@
 import type { AgentId } from '../../shared/types'
 
-// Cross-window session pickup. Both Electron windows share one localStorage;
-// these two keys are the only state that crosses windows (tab stores stay
-// per-window):
-//
-//  - POINTER_KEY: the latest session = the session the last message was sent
-//    in, whichever window sent it. The pill reads it on summon so it lands on
-//    what the user was just working on (automatic, pull-based). The editor
-//    never follows the pointer; its tab strip is a curated workspace.
-//  - HANDOFF_KEY: explicit "continue in the other mode" (⌥⇧E) — written by the
-//    window being left, addressed to a target mode, consumed once by that
-//    mode's window (on mount or via the cross-window `storage` event).
-
-export interface ActiveSessionPointer {
-  sessionId: string
-  provider: AgentId
-  cwd: string
-  title: string | null
-  writer: 'pill' | 'editor'
-  updatedAt: number
-}
+// Explicit "continue in the other mode" (⌥⇧E) handoff. Both Electron windows
+// share one localStorage; tab stores stay per-window, and this one-shot key
+// lets the target window attach only the session the user explicitly sent.
 
 export interface SessionHandoff {
   sessionId: string
@@ -30,7 +13,6 @@ export interface SessionHandoff {
   updatedAt: number
 }
 
-const POINTER_KEY = 'solus-active-session'
 const HANDOFF_KEY = 'solus-session-handoff'
 const HANDOFF_TTL_MS = 30_000
 
@@ -39,23 +21,6 @@ function isElectron(): boolean {
     return window.solus.getPlatform() !== 'web'
   } catch {
     return false
-  }
-}
-
-export function writeActiveSessionPointer(pointer: Omit<ActiveSessionPointer, 'updatedAt'>): void {
-  if (!isElectron()) return
-  try {
-    localStorage.setItem(POINTER_KEY, JSON.stringify({ ...pointer, updatedAt: Date.now() }))
-  } catch {}
-}
-
-export function readActiveSessionPointer(): ActiveSessionPointer | null {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(POINTER_KEY) || 'null')
-    if (typeof parsed?.sessionId !== 'string' || typeof parsed?.updatedAt !== 'number') return null
-    return parsed as ActiveSessionPointer
-  } catch {
-    return null
   }
 }
 

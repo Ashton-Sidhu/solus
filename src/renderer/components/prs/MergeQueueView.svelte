@@ -30,10 +30,7 @@
     PAGE_ICON_BTN,
     PAGE_PRIMARY_BTN,
   } from "../../lib/page-chrome";
-  import {
-    buildConflictResolutionPrompt,
-    ENTRY_STATUS_LABELS,
-  } from "../../lib/merge-queue-utils";
+  import { ENTRY_STATUS_LABELS } from "../../lib/merge-queue-utils";
 
   // The merge queue's dedicated surface, shown in the PRs page's main pane.
   // Three states: an empty explainer, the staged list (reorder / remove /
@@ -120,18 +117,14 @@
   }
 
   async function resolveWithAgent(entry: MergeQueueEntry) {
-    if (!entry.worktreePath || !entry.branch || !entry.baseRef || !run) return;
     spawningResolver = true;
     try {
-      await session.startNewSessionWithPrompt(
-        buildConflictResolutionPrompt(entry),
-        run.repoRoot,
-        {
-          branch: entry.branch,
-          targetBranch: entry.baseRef,
-          worktreePath: entry.worktreePath,
-        },
-      );
+      // Entry is already paused on conflicts with a ready worktree, so this opens
+      // straight into the resolver session.
+      await session.startConflictResolverSession({
+        number: entry.number,
+        title: entry.title,
+      });
     } finally {
       spawningResolver = false;
     }
