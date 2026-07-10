@@ -97,7 +97,7 @@
   // needed here — the hero is about identity (branch name) and worktree intent.
   const env = $derived(
     sessionEnvironment(
-      sess?.gitContext ?? null,
+      sess?.gitContext ?? session.globalDefaults.gitContext,
       sess?.worktreeBaseBranch ?? null,
     ),
   );

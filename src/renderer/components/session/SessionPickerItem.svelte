@@ -90,7 +90,7 @@
   <div
     class="relative flex w-full items-center rounded-[0.625rem] px-3 py-1.5 group-focus-visible:shadow-[inset_0.125rem_0_0_var(--solus-accent),0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]
       {isSelected
-      ? 'bg-[var(--solus-accent-light)] shadow-[inset_0.125rem_0_0_var(--solus-accent)] group-hover:bg-[var(--solus-accent-soft)]'
+      ? 'bg-[var(--solus-accent-light)] group-hover:bg-[var(--solus-accent-soft)]'
       : 'group-hover:bg-[color-mix(in_srgb,var(--solus-accent)_6%,transparent)]'}"
   >
     <span

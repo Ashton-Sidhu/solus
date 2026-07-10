@@ -4,6 +4,7 @@
 	const sections = [
 		{ id: 'overview',    label: 'Overview' },
 		{ id: 'keybindings', label: 'Keybindings' },
+		{ id: 'panes',       label: 'Workspace Panes' },
 		{ id: 'works',       label: 'Works' },
 		{ id: 'document-editor', label: 'Document Editor' },
 		{ id: 'plans',       label: 'Working with Plans' },
@@ -71,7 +72,7 @@
 
 <svelte:head>
 	<title>Documentation — Solus</title>
-	<meta name="description" content="Solus documentation. Learn about keybindings, plans, diff review, Review Companion, automations, tasks, voice input, remote connections, settings, and more." />
+	<meta name="description" content="Solus documentation. Learn about keybindings, workspace panes, plans, diff review, Review Companion, automations, tasks, voice input, remote connections, settings, and more." />
 </svelte:head>
 
 {#snippet kbd(text: string)}
@@ -215,9 +216,9 @@
 				Solus Reference
 			</h1>
 			<p class="text-base sm:text-[15px] max-[1440px]:sm:text-[14px] text-[#6B6158] leading-relaxed max-w-[560px]">
-				Everything you need to know — keybindings, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
+				Everything you need to know — keybindings, workspace panes, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 1, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 8, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -232,6 +233,7 @@
 				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Multi-tab sessions', 'Run independent agent sessions side by side, each with its own working directory and permission mode.'],
+						['Workspace panes', 'Open plans, Works, automations, reviews, changed files, and diffs as focused panes or beside the active conversation. Closing a pane returns to the same chat with scroll position and drafts preserved.'],
 						['Plan mode', "Review your agent's plan before it executes. Annotate with inline comments, then approve or reject. Pin or save plans for later reference and browse revision history when the plan changes."],
 						['Diff panel', 'Review every file your agent touched in a side panel. Navigate between files, leave line-level comments, and send annotated feedback back in one click.'],
 						['Review companion', "A second agent reviews your branch's changes and writes an inline report — grouped findings you can click to jump straight to the relevant hunk in the diff."],
@@ -265,6 +267,7 @@
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">General</h3>
 				{@render kbTable([
+					['⌘O', 'Select project'],
 					['⌥⇧,', 'Open settings'],
 					['⌥L', 'Focus input'],
 					['⌥⇧Q', 'Toggle quick actions'],
@@ -293,15 +296,16 @@
 					['⌥⇧U', 'Cycle sidebar view'],
 					['⌥⇧=', 'Expand / collapse input'],
 					['⌥H', 'Scroll to top'],
+					['⌥⇧\\', 'Move supported pane between focus and split'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Compose</h3>
 				{@render kbTable([
-					['⌥⇧O', 'Select working directory'],
 					['⌥⇧A', 'Attach file'],
 					['⌥⇧S', 'Take screenshot'],
 					['⌥⇧I', 'Design annotation mode'],
-					['⌥⇧F', 'Open all changed files in editor'],
+					['⌥⇧O', 'Open files pane'],
+					['⌥⇧F', 'Open changed files'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Agent</h3>
@@ -414,6 +418,30 @@
 					['⌘⇧↵ / Ctrl⇧↵', 'Send feedback to a new session from feedback box'],
 					['Esc', 'Close panel / clear selection'],
 				])}
+			</section>
+
+			<section id="panes" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Workspace Panes</h2>
+				<p>
+					In editor mode, Solus keeps the active conversation mounted while other surfaces open as panes.
+					That means plans, Works, automations, reviews, changed files, and diffs can cover the chat for
+					focused reading or sit beside it for side-by-side work.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How panes behave</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Focus or split', `Use the pane header action or ${kbdHtml('⌥⇧\\')} to move supported plans, Works, automations, and reviews between the focused primary pane and the split side pane.`],
+						['Diffs and files', `Open the diff with ${kbdHtml('⌥⇧D')}, the files pane with ${kbdHtml('⌥⇧O')}, or changed files with ${kbdHtml('⌥⇧F')}; they appear beside the active conversation so you can inspect code and keep prompting.`],
+						['PR review', 'Opening a pull request starts with the review surface maximized. Use the Chat control to reveal the worktree-rooted conversation beside Activity, Guide, and Diff.'],
+						['State stays put', 'Closing a pane restores the conversation underneath without resetting scroll position, mounted tabs, or prompt drafts.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
 			</section>
 
 			<section id="works" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">

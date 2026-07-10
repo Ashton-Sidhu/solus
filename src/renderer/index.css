@@ -1279,12 +1279,6 @@ button.solus-token {
   from { opacity: 0; transform: translate(-0.25rem, 0.375rem); }
   to   { opacity: 1; transform: translate(0, 0); }
 }
-/* Indeterminate sliver for the sub-agent progress bar — motion, not a fraction,
-   because the sub-agent runs for an unknown duration. */
-@keyframes subagent-indeterminate {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(250%); }
-}
 .animate-msg-in-up {
   /* `backwards` (not `both`) so no transform lingers after the animation —
      a retained transform keeps the element on its own GPU layer and renders text blurry. */

@@ -22,7 +22,7 @@
 
   import UserMessageBubble from "./UserMessageBubble.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
-  import SubagentCard from "./SubagentCard.svelte";
+  import SubagentGroup from "./SubagentGroup.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
@@ -62,7 +62,7 @@
       }
     | { kind: "system"; message: Message }
     | { kind: "tool-group"; messages: Message[] }
-    | { kind: "subagent"; message: Message }
+    | { kind: "subagent-group"; messages: Message[] }
     | { kind: "plan"; message: Message }
     | { kind: "document"; message: Message }
     | { kind: "automation"; message: Message }
@@ -73,22 +73,31 @@
   function groupMessages(messages: Message[]): GroupedItem[] {
     const result: GroupedItem[] = [];
     let toolBuf: Message[] = [];
+    let subagentBuf: Message[] = [];
     const flushTools = () => {
       if (toolBuf.length > 0) {
         result.push({ kind: "tool-group", messages: [...toolBuf] });
         toolBuf = [];
       }
     };
+    const flushSubagents = () => {
+      if (subagentBuf.length > 0) {
+        result.push({ kind: "subagent-group", messages: [...subagentBuf] });
+        subagentBuf = [];
+      }
+    };
     for (const msg of messages) {
       if (msg.role === "tool" && msg.subMessages) {
-        // A sub-agent tool call renders as its own card, not bundled into the
-        // generic tool group.
+        // Consecutive sub-agents share one compact surface instead of repeating
+        // card chrome for every member of an orchestrated batch.
         flushTools();
-        result.push({ kind: "subagent", message: msg });
+        subagentBuf.push(msg);
       } else if (msg.role === "tool") {
+        flushSubagents();
         toolBuf.push(msg);
       } else {
         flushTools();
+        flushSubagents();
         if (msg.role === "user") result.push({ kind: "user", message: msg });
         else if (msg.workRef) result.push({ kind: "document", message: msg });
         else if (msg.automationRef)
@@ -104,6 +113,7 @@
       }
     }
     flushTools();
+    flushSubagents();
     return result;
   }
 
@@ -753,8 +763,8 @@
                 {/if}
               {:else if item.kind === "tool-group"}
                 <ToolGroupItem tools={item.messages} {skipMotion} />
-              {:else if item.kind === "subagent"}
-                <SubagentCard message={item.message} {tabId} {skipMotion} />
+              {:else if item.kind === "subagent-group"}
+                <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "system"}
                 {#if item.message.forkSourceSessionId}
                   <div class="fork-divider" data-testid="fork-session-message">

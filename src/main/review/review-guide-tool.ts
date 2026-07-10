@@ -17,6 +17,15 @@ const fileRefShape = z.object({
   path: z.string().describe('Repo-relative path EXACTLY as it appears in the diff (the b/ post-image path).'),
   additions: z.number().int().min(0).describe('Lines added to this file in the change.'),
   deletions: z.number().int().min(0).describe('Lines removed from this file in the change.'),
+  hunks: z
+    .string()
+    .describe(
+      'The unified-diff hunks for THIS file that are relevant to THIS concern — a valid single-file ' +
+        'patch: the `diff --git`/`---`/`+++` header lines for the file followed by only the `@@ … @@` ' +
+        'hunks that matter to this concern. Copy them VERBATIM from `git diff` output; keep each hunk ' +
+        'whole (never edit or trim lines inside a hunk, or the diff will render wrong). Include only the ' +
+        "hunks the concern is about, not the file's entire diff, and omit the rest.",
+    ),
 })
 
 const sectionShape = z.object({
@@ -65,6 +74,10 @@ const SUBMIT_REVIEW_GUIDE_DESC = [
   'Order sections the way a reviewer should read the PR: the core/entry-point concern first,',
   'then what depends on it, then mechanical/peripheral edits as low-signal. A concern may span',
   'several files, and the same file may appear in more than one concern.',
+  '',
+  "For each file in a concern, embed the relevant diff hunks in the file's `hunks` field —",
+  'copied verbatim from `git diff`, trimmed to just the hunks that concern is about — so the',
+  "reader sees only what matters, not the file's entire diff.",
 ].join('\n')
 
 export interface ParseGuideResult {

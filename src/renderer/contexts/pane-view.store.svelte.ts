@@ -28,6 +28,10 @@ export type PaneContent =
   | { kind: 'diff'; scope?: DiffScope }
   | { kind: 'files' }
   | { kind: 'file-editor'; file: FilePreviewRequest }
+  // A sub-agent's nested transcript, popped out of its conversation card. Not a
+  // session/tab — `messageId` locates the parent tool message within `tabId`'s
+  // conversation, whose `subMessages` hold the run.
+  | { kind: 'subagent'; tabId: string; messageId: string }
   | PagePaneContent
   | { kind: 'empty' }
 
@@ -210,6 +214,11 @@ export class PaneViewStore {
 
   openFilePreview(file: FilePreviewRequest): void {
     this.moveToSecondary({ kind: 'file-editor', file }, { secondaryRatio: DIFF_SECONDARY_RATIO })
+  }
+
+  /** Pop a sub-agent's nested transcript out of its card into the secondary pane. */
+  openSubagent(tabId: string, messageId: string): void {
+    this.moveToSecondary({ kind: 'subagent', tabId, messageId }, { secondaryRatio: DIFF_SECONDARY_RATIO })
   }
 
   /** Swap a work id in either slot. Used when a streamed provisional work is

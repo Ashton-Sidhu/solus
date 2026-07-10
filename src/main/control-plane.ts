@@ -253,10 +253,13 @@ export class ControlPlane extends EventEmitter {
         }
 
         if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning' && !event.isUsingOverage) {
-          this._setStatus({ sessionId: session.sessionId }, 'rate_limited')
           const run = this.activeRunRequests.get(session.sessionId)
-          if (run?.input.rateLimitBehavior === 'queue') {
-            this._queueActiveRateLimitedRequest(session.sessionId)
+          const deferCurrentRun = event.deferCurrentRun === true && !!run
+          if (!deferCurrentRun) {
+            this._setStatus({ sessionId: session.sessionId }, 'rate_limited')
+            if (run?.input.rateLimitBehavior === 'queue') {
+              this._queueActiveRateLimitedRequest(session.sessionId)
+            }
           }
           this._scheduleRateLimitRelease(session.sessionId, event.resetsAt)
         }
@@ -1630,7 +1633,10 @@ export class ControlPlane extends EventEmitter {
     }
 
     const hasQueued = (this.requestQueue.get(sessionId) ?? []).some((req) => req.rateLimitSessionId === sessionId)
-    this._setStatus({ sessionId }, hasQueued ? 'running' : 'idle')
+    const session = this.activeSessions.get(sessionId)
+    if (hasQueued || session?.status !== 'running') {
+      this._setStatus({ sessionId }, hasQueued ? 'running' : 'idle')
+    }
     this._broadcastRateLimitResolved(sessionId, action)
     this._processQueueForSession(sessionId)
   }

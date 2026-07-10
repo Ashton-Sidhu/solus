@@ -524,14 +524,17 @@ function togglePillWindow(source = 'unknown'): void {
   }
 }
 
-/** Secondary summon key: always the editor, creating it on first use. */
+/** Secondary summon key: always the editor, creating it on first use.
+ *  Visible-but-unfocused means focus it, not hide it. */
 function toggleEditorWindow(_source = 'unknown'): void {
   if (hiddenUntilTrayShow || isTestMode) return
   if (!isLive(editorWindow)) {
     createEditorWindow() // shows + focuses on ready-to-show
     return
   }
-  if (editorWindow.isVisible()) hideEditorWindow()
+  const shouldHide =
+    editorWindow.isVisible() && (editorWindow.isFocused() || editorWindow.webContents.isFocused())
+  if (shouldHide) hideEditorWindow()
   else showEditorWindow()
 }
 

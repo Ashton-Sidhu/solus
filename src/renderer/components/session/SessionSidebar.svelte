@@ -415,16 +415,17 @@
               {@const isActiveBranch = branch.tabIds.includes(
                 session.activeTabId,
               )}
+              {@const showBranchActive = isActiveBranch && !isExpanded}
               <div
-                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {activeRail} {focusRing} {isActiveBranch
+                class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {activeRail} {focusRing} {showBranchActive
                   ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
                   : `border-transparent bg-transparent ${rowHoverWash}`}"
                 style="--branch-kind-color:{branchKindColor(branch.kind)}"
                 role="button"
                 tabindex="0"
-                data-active={isActiveBranch && !isExpanded ? "true" : undefined}
+                data-active={showBranchActive ? "true" : undefined}
                 onclick={() => selectBranch(branch.key, branch.tabIds)}
-                aria-current={isActiveBranch ? "page" : undefined}
+                aria-current={showBranchActive ? "page" : undefined}
                 aria-expanded={isExpanded}
                 aria-label={branch.attention && branch.attention !== "running"
                   ? `${branch.label} — ${attentionLabel(branch.attention)}`
