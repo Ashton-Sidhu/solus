@@ -47,7 +47,9 @@
   const cwd = $derived(
     activeSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
-  const gitCtx = $derived(activeSession?.gitContext);
+  const gitCtx = $derived(
+    activeSession?.gitContext ?? session.globalDefaults.gitContext,
+  );
   const gitCwd = $derived(gitCtx?.worktreePath ?? cwd);
   const runCwd = $derived(gitCtx?.worktreePath ?? cwd);
   const activeTabId = $derived(session.activeTabId);
@@ -163,7 +165,7 @@
 
   function newTask() {
     if (!gitCwd) return;
-    session.ui.openTasks();
+    session.ui.openTaskComposer(gitCwd);
     requestInputFocus();
   }
 </script>

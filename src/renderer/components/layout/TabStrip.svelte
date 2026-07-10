@@ -755,7 +755,7 @@
     {/if}
     {#if variant === "editor"}
       <button
-        class="tab-ctx-item"
+        class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-text-primary) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
         role="menuitem"
         onclick={() => openInSplitFromContextMenu(contextMenu!.tabId)}
       >

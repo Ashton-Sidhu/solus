@@ -389,6 +389,7 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
       ...(usedPercent !== null ? { usedPercent } : {}),
       windowDurationMins,
       isUsingOverage: rateLimits.credits?.hasCredits,
+      deferCurrentRun: true,
     })
   }
 

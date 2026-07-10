@@ -20,6 +20,7 @@
   import PrReviewSkeleton from '../pr-review/PrReviewSkeleton.svelte'
   import AutomationBuilder from '../automations/AutomationBuilder.svelte'
   import ConversationPane from '../conversation/ConversationPane.svelte'
+  import SubagentPane from '../conversation/SubagentPane.svelte'
   import TasksPage from '../tasks/TasksPage.svelte'
   import PrsPage from '../prs/PrsPage.svelte'
   import SettingsPage from '../settings/SettingsPage.svelte'
@@ -359,6 +360,13 @@
     isDark={session.settings.isDark}
     file={content.file}
     onClose={() => av.closeSlot(slot)}
+  />
+{:else if content.kind === 'subagent'}
+  <SubagentPane
+    tabId={content.tabId}
+    messageId={content.messageId}
+    onClose={() => av.closeSlot(slot)}
+    onToggleMaximize={onToggleSecondaryMaximize}
   />
 {:else if content.kind === 'conversation' && content.tabId}
   <!-- A chat pinned beside the primary conversation. Only ever reaches the

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { RobotIcon } from "phosphor-svelte";
+  import { CaretRightIcon } from "phosphor-svelte";
   import {
     MODEL_PROFILES,
     REASONING_EFFORT_LABELS,
@@ -8,33 +7,17 @@
     type ReasoningEffort,
   } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { prettyToolName, solusToolKey } from "../../contexts/session.utils";
-  import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import ConversationRefCard from "./ConversationRefCard.svelte";
-  import ToolGroupItem from "./ToolGroupItem.svelte";
-  import CodeBlock from "../ui/CodeBlock.svelte";
-  import CodeSpan from "../ui/CodeSpan.svelte";
-  import MarkdownLink from "./MarkdownLink.svelte";
+  import { subToolLabel } from "./lib/subagent";
 
   interface Props {
     message: Message;
     tabId: string;
-    skipMotion?: boolean;
   }
-  let { message, tabId, skipMotion = false }: Props = $props();
+  let { message, tabId }: Props = $props();
 
-  const markdownRenderers = {
-    code: CodeBlock,
-    codespan: CodeSpan,
-    link: MarkdownLink,
-  };
   const session = getWorkspaceContext();
-  const sess = $derived(session.sessionFor(tabId));
-  const workingDirectory = $derived(sess?.workingDirectory || undefined);
+  const av = session.artifactViewer;
 
-  let expanded = $state(false);
-
-  // The Agent/Task tool input carries the sub-agent identity and its task.
   const parsedInput = $derived.by(() => {
     try {
       return JSON.parse(message.toolInput || "{}") as {
@@ -54,9 +37,8 @@
   const task = $derived(
     (parsedInput.description || parsedInput.prompt || "Sub-agent").trim(),
   );
-  // A codex subagent runs Codex, not the parent Claude session — so when its
-  // input omits model/effort, fall back to the Codex defaults, not the parent's.
   const isCodexSubagent = $derived(message.subagentType === "codex");
+  const sess = $derived(session.sessionFor(tabId));
   const modelLabel = $derived.by(() => {
     if (parsedInput.model) return parsedInput.model.trim();
     if (isCodexSubagent) {
@@ -76,215 +58,101 @@
     REASONING_EFFORT_LABELS[reasoningEffort as ReasoningEffort] ??
       reasoningEffort,
   );
+  const metadata = $derived(
+    [subagentType, modelLabel, reasoningLabel].filter(Boolean),
+  );
 
-  // The card rests on the tool result, not on the call's JSON finishing: a
-  // sub-agent runs long after its input has streamed.
   const isRunning = $derived(message.toolResult === undefined);
   const isError = $derived(!!message.toolResultIsError);
-
+  const statusLabel = $derived(
+    isRunning ? "Working" : isError ? "Failed" : "Complete",
+  );
+  const statusColor = $derived(
+    isRunning
+      ? "var(--solus-accent)"
+      : isError
+        ? "var(--solus-art-negative)"
+        : "var(--solus-art-positive)",
+  );
   const subs = $derived(message.subMessages ?? []);
-  const toolCount = $derived(subs.filter((m) => m.role === "tool").length);
-
-  // A sub-tool's toolInput carries whole file bodies (Write/Edit) and can still
-  // change while running (Codex patch updates replace it). Parse each sub message
-  // at most once, cached on the message object, and never while it's running —
-  // the cache would otherwise pin a stale parse. So a sub-agent event costs
-  // O(new message), not O(all sub-messages).
-  const subParseCache = new WeakMap<Message, Record<string, unknown> | null>();
-  function parseSubInput(m: Message): Record<string, unknown> | null {
-    if (!m.toolInput || m.toolStatus === "running") return null;
-    const cached = subParseCache.get(m);
-    if (cached !== undefined) return cached;
-    let parsed: Record<string, unknown> | null = null;
-    try {
-      parsed = JSON.parse(m.toolInput) as Record<string, unknown>;
-    } catch {}
-    subParseCache.set(m, parsed);
-    return parsed;
-  }
-
-  const filesTouched = $derived.by(() => {
-    const files = new Set<string>();
-    for (const m of subs) {
-      if (m.role !== "tool") continue;
-      if (m.toolName !== "Write" && m.toolName !== "Edit") continue;
-      const fp = parseSubInput(m)?.file_path;
-      if (typeof fp === "string" && fp) files.add(fp);
-    }
-    return files.size;
-  });
-
-  /** Short label for a sub-tool, used by the running ticker. */
-  function toolLabel(m: Message): string {
-    const name = m.toolName || "Tool";
-    if (solusToolKey(name)) return prettyToolName(name);
-    // Running / unparseable: cheap fallback, never parse the growing partial JSON.
-    const parsed = parseSubInput(m);
-    if (!parsed) return prettyToolName(name);
-    const s = (v: unknown) => (typeof v === "string" ? v : "");
-    const arg =
-      s(parsed.file_path) ||
-      s(parsed.path) ||
-      s(parsed.pattern) ||
-      s(parsed.query) ||
-      s(parsed.command);
-    return arg ? `${prettyToolName(name)} ${arg}` : prettyToolName(name);
-  }
-
-  // Latest activity drives the running ticker.
   const ticker = $derived.by(() => {
     for (let i = subs.length - 1; i >= 0; i--) {
-      if (subs[i].role === "tool") return toolLabel(subs[i]);
+      if (subs[i].role === "tool") return subToolLabel(subs[i]);
     }
     return "Working…";
   });
-
-  // First non-empty line of the sub-agent's final answer.
   const resultSummary = $derived.by(() => {
     const first = (message.toolResult ?? "")
       .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0);
+      .map((line) => line.trim())
+      .find(Boolean);
     if (!first) return "Done";
-    return first.length > 140 ? `${first.slice(0, 137)}…` : first;
+    return first.length > 120 ? `${first.slice(0, 117)}…` : first;
   });
-
-  // Nested transcript: consecutive tool messages group into one ToolGroupItem;
-  // assistant text renders as markdown — mirroring the main thread.
-  type SubItem =
-    | { kind: "tool-group"; messages: Message[] }
-    | { kind: "assistant"; message: Message };
-
-  const grouped = $derived.by(() => {
-    const result: SubItem[] = [];
-    let buf: Message[] = [];
-    const flush = () => {
-      if (buf.length > 0) {
-        result.push({ kind: "tool-group", messages: buf });
-        buf = [];
-      }
-    };
-    for (const m of subs) {
-      if (m.role === "tool") buf.push(m);
-      else if (m.role === "assistant" && m.content.trim()) {
-        flush();
-        result.push({ kind: "assistant", message: m });
-      }
-    }
-    flush();
-    return result;
-  });
-
-  const countLabel = $derived(
-    [
-      toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool" : "tools"}` : "",
-      filesTouched > 0
-        ? `${filesTouched} ${filesTouched === 1 ? "file" : "files"}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" · "),
+  const activity = $derived(isRunning ? ticker : resultSummary);
+  const isOpen = $derived(
+    av.secondary.kind === "subagent" && av.secondary.messageId === message.id,
   );
 </script>
 
-<ConversationRefCard
-  title={task}
-  ariaLabel={`Sub-agent: ${subagentType}`}
+<button
+  type="button"
+  class="subagent-row group flex min-h-13 w-full cursor-pointer items-center gap-2.5 bg-transparent py-2 pr-2 pl-3 text-left hover:bg-(--solus-surface-hover) focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--solus-accent) {isOpen
+    ? 'subagent-row--active'
+    : ''}"
+  aria-label={`${task}, ${statusLabel}`}
+  aria-current={isOpen ? "true" : undefined}
   data-testid="subagent-card"
-  expandable
-  {expanded}
-  {skipMotion}
-  onOpen={() => (expanded = !expanded)}
+  onclick={() => av.openSubagent(tabId, message.id)}
 >
-  {#snippet icon()}
-    <span style:color="var(--solus-accent)">
-      <RobotIcon size={18} weight="regular" />
-    </span>
-  {/snippet}
-
-  {#snippet statusSlot()}
-    <span class="flex min-w-0 flex-col gap-1.5">
-      <span class="flex min-w-0 items-baseline gap-2">
-        <span class="shrink-0 text-[0.6875rem] font-[560] text-(--solus-accent)"
-          >{subagentType}</span
-        >
-        {#if isRunning}
-          <span
-            class="min-w-0 truncate text-xs leading-snug text-(--solus-text-tertiary)"
-            >{ticker}</span
-          >
-        {:else}
-          <span
-            class="min-w-0 truncate text-xs leading-snug"
-            style:color={isError
-              ? "var(--solus-art-negative)"
-              : "var(--solus-art-positive)"}
-            >{isError ? "Failed" : resultSummary}</span
-          >
-        {/if}
+  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+    <div
+      class="min-w-0 truncate text-[0.8125rem] font-[560] tracking-[-0.006em] text-(--solus-text-primary)"
+    >
+      {task}
+    </div>
+    <div class="flex min-w-0 items-center text-[0.6875rem] leading-4">
+      <span class="flex min-w-0 shrink-0 items-center text-(--solus-text-tertiary)">
+        {#each metadata as item, index (`${index}-${item}`)}
+          {#if index > 0}
+            <span class="px-1 text-(--solus-tool-border)" aria-hidden="true">·</span>
+          {/if}
+          <span class="max-w-28 truncate">{item}</span>
+        {/each}
       </span>
-      {#if modelLabel || reasoningLabel}
-        <span class="flex min-w-0 flex-wrap items-center gap-1">
-          {#if modelLabel}
-            <span
-              class="inline-flex items-center rounded-md bg-(--solus-accent-light) px-1.5 py-0.5 text-[0.625rem] font-medium text-(--solus-text-secondary)"
-              >{modelLabel}</span
-            >
-          {/if}
-          {#if reasoningLabel}
-            <span
-              class="inline-flex items-center rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.625rem] font-medium text-(--solus-text-tertiary)"
-              >{reasoningLabel}</span
-            >
-          {/if}
-        </span>
-      {/if}
-      {#if isRunning}
-        <span
-          class="relative block h-0.5 w-full overflow-hidden rounded-full bg-(--solus-accent-soft)"
-          aria-hidden="true"
-        >
-          <span
-            class="absolute inset-y-0 left-0 w-2/5 rounded-full bg-(--solus-accent) animate-[subagent-indeterminate_1.2s_ease-in-out_infinite] motion-reduce:animate-none"
-          ></span>
-        </span>
-      {/if}
-    </span>
-  {/snippet}
-
-  <div class="flex flex-col gap-2 px-4 pt-3 pb-3.5">
-    {#if countLabel}
-      <div
-        class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary) tabular-nums"
+      <span class="px-1.5 text-(--solus-tool-border)" aria-hidden="true">·</span>
+      <span
+        class="w-14 shrink-0 font-[560] text-(--subagent-status-color) max-sm:w-auto"
+        style:--subagent-status-color={statusColor}
       >
-        {countLabel}
-      </div>
-    {/if}
-    {#each grouped as item (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.message.id)}
-      {#if item.kind === "tool-group"}
-        <ToolGroupItem tools={item.messages} skipMotion />
-      {:else}
-        <div class="prose-cloud prose-reading min-w-0 text-sm">
-          <SvelteMarkdown
-            source={item.message.content.trim()}
-            renderers={markdownRenderers}
-            sanitizeUrl={markdownSanitizeUrl}
-          />
-        </div>
-      {/if}
-    {/each}
-    {#if grouped.length === 0}
-      {#if message.toolResult}
-        <div class="prose-cloud prose-reading min-w-0 text-sm">
-          <SvelteMarkdown
-            source={message.toolResult.trim()}
-            renderers={markdownRenderers}
-            sanitizeUrl={markdownSanitizeUrl}
-          />
-        </div>
-      {:else}
-        <span class="text-xs text-(--solus-text-tertiary)">Starting up…</span>
-      {/if}
-    {/if}
+        {statusLabel}
+      </span>
+      <span class="px-1.5 text-(--solus-tool-border)" aria-hidden="true">—</span>
+      <span
+        class="min-w-0 truncate text-(--solus-text-secondary)"
+        style:color={isError ? "var(--solus-art-negative)" : undefined}
+      >
+        {activity}
+      </span>
+    </div>
   </div>
-</ConversationRefCard>
+
+  <CaretRightIcon
+    size={13}
+    weight="bold"
+    aria-hidden="true"
+    class="shrink-0 text-(--solus-text-tertiary) opacity-60 transition-[color,opacity,transform] duration-150 ease-(--ease-premium) group-hover:translate-x-0.5 group-hover:text-(--solus-text-secondary) group-hover:opacity-100"
+  />
+</button>
+
+<style>
+  .subagent-row--active {
+    background: var(--solus-accent-light);
+  }
+
+  @media (max-width: 40rem) {
+    .subagent-row {
+      min-height: 3rem;
+    }
+  }
+</style>
