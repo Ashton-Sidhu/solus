@@ -4,7 +4,9 @@
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
 
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
 
   interface Props {
     title: string;
@@ -47,9 +49,14 @@
     children,
   }: Props = $props();
 
-  function isNestedInteractive(target: EventTarget | null, root: EventTarget | null): boolean {
+  function isNestedInteractive(
+    target: EventTarget | null,
+    root: EventTarget | null,
+  ): boolean {
     if (!(target instanceof Element)) return false;
-    const interactive = target.closest("a, button, input, textarea, select, [role='button']");
+    const interactive = target.closest(
+      "a, button, input, textarea, select, [role='button']",
+    );
     return !!interactive && interactive !== root;
   }
 
@@ -86,13 +93,17 @@
         {@render icon()}
       </span>
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="conversation-ref-card__title min-w-0 truncate text-sm font-semibold text-(--solus-text-primary)">
+        <span
+          class="conversation-ref-card__title min-w-0 truncate text-sm font-semibold text-(--solus-text-primary)"
+        >
           {title}
         </span>
         {#if statusSlot}
           {@render statusSlot()}
         {:else if subtitle}
-          <span class="conversation-ref-card__subtitle truncate text-xs text-(--solus-text-tertiary)">
+          <span
+            class="conversation-ref-card__subtitle truncate text-xs text-(--solus-text-tertiary)"
+          >
             {subtitle}
           </span>
         {/if}
@@ -104,7 +115,9 @@
           size={14}
           weight="bold"
           aria-hidden="true"
-          class="conversation-ref-card__caret shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 ease-(--ease-premium) group-hover:text-(--solus-text-secondary) {expanded ? 'rotate-90' : ''}"
+          class="conversation-ref-card__caret shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 ease-(--ease-premium) group-hover:text-(--solus-text-secondary) {expanded
+            ? 'rotate-90'
+            : ''}"
         />
       {:else}
         <span class="conversation-ref-card__actions">
@@ -140,7 +153,10 @@
         {#if expanded}
           <div
             class="conversation-ref-card__body"
-            transition:slide={{ duration: reduceMotion ? 0 : 180, easing: cubicOut }}
+            transition:slide={{
+              duration: reduceMotion ? 0 : 180,
+              easing: cubicOut,
+            }}
           >
             {@render children()}
           </div>
@@ -156,29 +172,25 @@
 
 <style>
   .conversation-ref-card {
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--solus-container-bg) 96%, var(--solus-surface-primary)),
-        var(--solus-container-bg)
-      );
+    background: linear-gradient(
+      180deg,
+      color-mix(
+        in srgb,
+        var(--solus-container-bg) 96%,
+        var(--solus-surface-primary)
+      ),
+      var(--solus-container-bg)
+    );
     cursor: pointer;
     overflow: hidden;
     box-shadow:
-      0 0 0 0.0625rem color-mix(in srgb, var(--solus-tool-border) 72%, transparent),
-      0 0.0625rem 0.125rem color-mix(in srgb, black 5%, transparent),
+      0 0 0 0.0625rem
+        color-mix(in srgb, var(--solus-tool-border) 72%, transparent),
       0 0.625rem 1.75rem -1.5rem color-mix(in srgb, black 28%, transparent);
     transition:
       box-shadow var(--duration-base) var(--ease-premium),
       transform var(--duration-quick) var(--ease-premium),
       background var(--duration-base) var(--ease-premium);
-  }
-
-  .conversation-ref-card:hover {
-    box-shadow:
-      0 0 0 0.0625rem color-mix(in srgb, var(--solus-accent-border) 68%, var(--solus-tool-border)),
-      0 0.125rem 0.375rem color-mix(in srgb, black 7%, transparent),
-      0 0.875rem 2.25rem -1.625rem color-mix(in srgb, black 34%, transparent);
   }
 
   .conversation-ref-card:active {
@@ -199,7 +211,8 @@
     height: 2rem;
     border-radius: 0.5rem;
     background: color-mix(in srgb, var(--solus-accent-light) 72%, transparent);
-    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-accent-border) 42%, transparent);
+    box-shadow: inset 0 0 0 0.0625rem
+      color-mix(in srgb, var(--solus-accent-border) 42%, transparent);
   }
 
   .conversation-ref-card__title {
@@ -273,13 +286,13 @@
   }
 
   .conversation-ref-card__body {
-    box-shadow: inset 0 0.0625rem 0 color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--solus-code-tint) 54%, transparent),
-        color-mix(in srgb, var(--solus-container-bg) 88%, var(--solus-code-tint))
-      );
+    box-shadow: inset 0 0.0625rem 0
+      color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--solus-code-tint) 54%, transparent),
+      color-mix(in srgb, var(--solus-container-bg) 88%, var(--solus-code-tint))
+    );
   }
 
   @media (hover: hover) and (pointer: fine) {
@@ -294,7 +307,8 @@
     .conversation-ref-card:hover .conversation-ref-card__action,
     .conversation-ref-card:hover .conversation-ref-card__secondary-action,
     .conversation-ref-card:focus-within .conversation-ref-card__action,
-    .conversation-ref-card:focus-within .conversation-ref-card__secondary-action {
+    .conversation-ref-card:focus-within
+      .conversation-ref-card__secondary-action {
       opacity: 1;
     }
   }

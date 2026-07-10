@@ -197,11 +197,15 @@ function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>, pendingToolI
     case 'content_block_start': {
       if (sub.content_block.type === 'tool_use') {
         pendingToolInputs.set(sub.index, '')
+        const toolName = sub.content_block.name || 'unknown'
         return [{
           type: 'tool_call',
-          toolName: sub.content_block.name || 'unknown',
+          toolName,
           toolId: sub.content_block.id || '',
           index: sub.index,
+          ...(toolName === 'mcp__solus__codex_subagent'
+            ? { isSubagent: true, subagentType: 'codex' as const }
+            : {}),
         }]
       }
       // Text blocks arrive via deltas; the start event carries no user-facing data.

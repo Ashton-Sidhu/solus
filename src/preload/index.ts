@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult, VoiceModelStatus } from '../shared/types'
 import type { PrFilter, PrReviewer, PullRequestSummary, PullRequestDetail, PullRequestOverview, ReviewThread, ReviewComment, PrCommit, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
@@ -32,7 +32,13 @@ export interface SolusAPI {
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
-  transcribeAudio(audioBase64: string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
+  transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
+  voiceModelStatus(ctx?: IpcContext): Promise<VoiceModelStatus>
+  voiceModelRetry(ctx?: IpcContext): Promise<VoiceModelStatus>
+  voiceStreamStart(ctx?: IpcContext): Promise<{ streamId: string }>
+  voiceStreamEnd(streamId: string, ctx?: IpcContext): Promise<{ transcript: string | null; error: string | null }>
+  voiceStreamAudio(streamId: string, samples: Float32Array, ctx?: IpcContext): void
+  voiceStreamCancel(streamId: string, ctx?: IpcContext): void
   logVoiceTranscription(row: {
     sessionIndex: number
     firstStartedAt: string | null
@@ -121,9 +127,8 @@ export interface SolusAPI {
   prGetDetail(ctx: IpcContext, number: number): Promise<PullRequestDetail>
   /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
   prGetOverview(ctx: IpcContext, number: number): Promise<PullRequestOverview>
-  /** Per-file +/- counts for the PR's change set (numstat), for the changed-files
-   *  rail — avoids shipping the whole patch just to tally lines. */
-  prChangedFiles(ctx: IpcContext, baseSha: string): Promise<ChangedFileStat[]>
+  /** Per-file +/- counts from the code host for the PR's changed files. */
+  prChangedFiles(ctx: IpcContext, number: number): Promise<ChangedFileStat[]>
   prListThreads(ctx: IpcContext, number: number): Promise<ReviewThread[]>
   prListCommits(ctx: IpcContext, number: number): Promise<PrCommit[]>
   prListReviewers(ctx: IpcContext, number: number): Promise<PrReviewer[]>
@@ -248,6 +253,8 @@ export interface SolusAPI {
   onSeqWatermark(callback: (seqByTopic: Record<string, number>) => void): () => void
   onRunStatus(callback: (status: RunStatus) => void): () => void
   onRunLog(callback: (batch: RunLogBatch) => void): () => void
+  onVoiceModelStatus(callback: (status: VoiceModelStatus) => void): () => void
+  onVoicePartial(callback: (event: { streamId: string; fullText: string; error?: string }) => void): () => void
   /** Native-only: resolves the OS path for a File. Web stub returns ''. */
   getPathForFile(file: File): string
 

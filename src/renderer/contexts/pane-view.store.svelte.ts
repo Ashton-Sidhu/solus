@@ -1,6 +1,12 @@
 import type { FilePreviewRequest } from '../lib/filePreview'
 import type { DiffScope, PrReviewContext } from '../../shared/types'
 
+/** Full-page views — the former overlay flags. No payload; at most one is open
+ *  across both slots, preserving the flags' mutual exclusion. */
+export const PAGE_KINDS = ['tasks', 'prs', 'settings', 'plans-gallery', 'folio-gallery', 'automations-list'] as const
+export type PageKind = (typeof PAGE_KINDS)[number]
+export type PagePaneContent = { kind: PageKind }
+
 export type PaneContent =
   | { kind: 'conversation'; tabId?: string }
   | { kind: 'plan'; planId: string | null }
@@ -22,9 +28,31 @@ export type PaneContent =
   | { kind: 'diff'; scope?: DiffScope }
   | { kind: 'files' }
   | { kind: 'file-editor'; file: FilePreviewRequest }
+  // A sub-agent's nested transcript, popped out of its conversation card. Not a
+  // session/tab — `messageId` locates the parent tool message within `tabId`'s
+  // conversation, whose `subMessages` hold the run.
+  | { kind: 'subagent'; tabId: string; messageId: string }
+  | PagePaneContent
   | { kind: 'empty' }
 
 export type PaneSlot = 'primary' | 'secondary'
+
+const PAGE_KIND_SET: ReadonlySet<string> = new Set(PAGE_KINDS)
+
+/** Plan / work / automation — the focusable document shells (one at a time, R3). */
+export function isArtifactContent(content: PaneContent): boolean {
+  return content.kind === 'plan' || content.kind === 'work' || content.kind === 'automation'
+}
+
+export function isPageContent(content: PaneContent): content is PagePaneContent {
+  return PAGE_KIND_SET.has(content.kind)
+}
+
+/** Content the open-in-split action may move between slots. */
+export function isMovableContent(content: PaneContent): boolean {
+  return isArtifactContent(content) || content.kind === 'review' || isPageContent(content)
+}
+
 export type SplitOpenOptions = {
   /** Fraction of the split area claimed by the secondary pane. */
   secondaryRatio?: number
@@ -45,15 +73,14 @@ function clampSecondaryRatio(ratio: number): number {
 }
 
 /**
- * Two-pane view state: primary and secondary slots plus secondary geometry.
- * Replaces the old ArtifactViewerStore (single plan/work id pair).
+ * Pane view state: an ordered list of slots (primary first) plus secondary
+ * geometry. Fixed at two slots today; the array is the seam for more.
  * Back-compat getters `activePlanId` / `activeWorkId` keep pill-mode and the
  * web client working without changes — they resolve from whichever slot holds
  * the plan/work.
  */
 export class PaneViewStore {
-  primary = $state<PaneContent>({ kind: 'conversation' })
-  secondary = $state<PaneContent>({ kind: 'empty' })
+  panes = $state<PaneContent[]>([{ kind: 'conversation' }, { kind: 'empty' }])
   secondaryWidth = $state(DEFAULT_PANEL_WIDTH)
   secondaryRatio = $state(DEFAULT_SECONDARY_RATIO)
   hasResized = $state(false)
@@ -63,8 +90,56 @@ export class PaneViewStore {
    *  is the primary conversation, toggled by `maximized`. */
   prReviewTab = $state<'activity' | 'guide' | 'diff'>('guide')
 
+  get primary(): PaneContent {
+    return this.panes[0]
+  }
+  set primary(content: PaneContent) {
+    this.panes[0] = content
+  }
+
+  get secondary(): PaneContent {
+    return this.panes[1]
+  }
+  set secondary(content: PaneContent) {
+    this.panes[1] = content
+  }
+
   get secondaryOpen(): boolean {
     return this.secondary.kind !== 'empty'
+  }
+
+  /** Slot holding content that matches, preferring secondary — replace-in-place
+   *  rules keep a Split layout split rather than migrating content to primary. */
+  private findSlot(match: (content: PaneContent) => boolean): PaneSlot | null {
+    if (match(this.secondary)) return 'secondary'
+    if (match(this.primary)) return 'primary'
+    return null
+  }
+
+  isPageOpen(kind: PageKind): boolean {
+    return this.primary.kind === kind || this.secondary.kind === kind
+  }
+
+  /**
+   * Open a full-page view. Pages are mutually exclusive, like the overlay flags
+   * they replaced: one already open is replaced in place (a Split stays split),
+   * otherwise the page takes the primary slot, covering the conversation until
+   * closed.
+   */
+  openPage(kind: PageKind): void {
+    if (this.findSlot(isPageContent) === 'secondary') this.secondary = { kind }
+    else this.primary = { kind }
+  }
+
+  closePage(kind: PageKind): void {
+    if (this.secondary.kind === kind) this.closeSecondary()
+    if (this.primary.kind === kind) this.primary = { kind: 'conversation' }
+  }
+
+  /** Close whatever page is open, if any. */
+  closePages(): void {
+    if (isPageContent(this.secondary)) this.closeSecondary()
+    if (isPageContent(this.primary)) this.primary = { kind: 'conversation' }
   }
 
   get activePlanId(): string | null {
@@ -141,6 +216,11 @@ export class PaneViewStore {
     this.moveToSecondary({ kind: 'file-editor', file }, { secondaryRatio: DIFF_SECONDARY_RATIO })
   }
 
+  /** Pop a sub-agent's nested transcript out of its card into the secondary pane. */
+  openSubagent(tabId: string, messageId: string): void {
+    this.moveToSecondary({ kind: 'subagent', tabId, messageId }, { secondaryRatio: DIFF_SECONDARY_RATIO })
+  }
+
   /** Swap a work id in either slot. Used when a streamed provisional work is
    *  finalized to its persisted id while its pane is already open, so the pane
    *  follows the rekey instead of pointing at the now-deleted provisional. */
@@ -152,12 +232,13 @@ export class PaneViewStore {
 
   /**
    * R3 — one plan/work artifact at a time. If the secondary already holds an
-   * artifact, replace it there (stay Split); otherwise focus it in primary.
-   * P1 — entering Focus closes a diff in the secondary (diff needs the
-   * conversation in primary), but leaves any other secondary content untouched.
+   * artifact, replace it there (stay Split); otherwise focus it in primary,
+   * covering any page there. P1 — entering Focus closes a diff in the
+   * secondary (diff needs the conversation in primary), but leaves any other
+   * secondary content untouched.
    */
   private setArtifact(content: PaneContent): void {
-    if (this.secondary.kind === 'plan' || this.secondary.kind === 'work' || this.secondary.kind === 'automation') {
+    if (this.findSlot(isArtifactContent) === 'secondary') {
       this.secondary = content
       this.maximized = false
     } else {
@@ -199,12 +280,7 @@ export class PaneViewStore {
       this.closeSecondary()
       return
     }
-    if (
-      this.primary.kind === 'plan' ||
-      this.primary.kind === 'work' ||
-      this.primary.kind === 'automation' ||
-      this.primary.kind === 'review'
-    ) {
+    if (this.primary.kind !== 'conversation') {
       this.primary = { kind: 'conversation' }
     }
   }
@@ -215,7 +291,7 @@ export class PaneViewStore {
    * with fresh geometry.
    */
   enterDiff(scope: DiffScope = { kind: 'session' }): void {
-    if (this.primary.kind === 'plan' || this.primary.kind === 'work' || this.primary.kind === 'automation') {
+    if (isArtifactContent(this.primary)) {
       this.primary = { kind: 'conversation' }
     }
     // The companion drives the diff via focus-hunk anchors; if it's parked in the
@@ -252,10 +328,7 @@ export class PaneViewStore {
    * R3 guarantees only one plan/work exists across the two slots.
    */
   close(): void {
-    if (this.secondary.kind === 'plan' || this.secondary.kind === 'work' || this.secondary.kind === 'automation') {
-      this.closeSlot('secondary')
-    } else if (this.primary.kind === 'plan' || this.primary.kind === 'work' || this.primary.kind === 'automation') {
-      this.closeSlot('primary')
-    }
+    const slot = this.findSlot(isArtifactContent)
+    if (slot) this.closeSlot(slot)
   }
 }

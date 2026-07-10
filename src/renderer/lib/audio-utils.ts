@@ -12,6 +12,11 @@ function getDecodeContext(): AudioContext {
 }
 
 export async function blobToWavBase64(blob: Blob): Promise<string> {
+  const normalized = await blobToPcm16k(blob)
+  return bufferToBase64(encodeWav(normalized, 16000))
+}
+
+export async function blobToPcm16k(blob: Blob): Promise<Float32Array> {
   const arrayBuffer = await blob.arrayBuffer()
   const decoded = await getDecodeContext().decodeAudioData(arrayBuffer)
   const mono = mixToMono(decoded)
@@ -21,8 +26,7 @@ export async function blobToWavBase64(blob: Blob): Promise<string> {
     )
   }
   const resampled = resampleLinear(mono, decoded.sampleRate, 16000)
-  const normalized = normalizePcm(resampled)
-  return bufferToBase64(encodeWav(normalized, 16000))
+  return normalizePcm(resampled)
 }
 
 function mixToMono(buffer: AudioBuffer): Float32Array {
@@ -38,7 +42,7 @@ function mixToMono(buffer: AudioBuffer): Float32Array {
   return mono
 }
 
-function resampleLinear(
+export function resampleLinear(
   input: Float32Array,
   inRate: number,
   outRate: number,

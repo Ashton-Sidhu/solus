@@ -120,6 +120,14 @@ export class WsTransport {
       api[method] = (...args: unknown[]) => this.send(method, args)
     }
 
+    // Float32Array does not survive JSON serialization as an array. Normalize
+    // voice samples at the WebSocket boundary so both desktop and web clients
+    // send the same wire shape.
+    api.transcribeAudio = (audio: Float32Array | string, ...args: unknown[]) =>
+      this.invoke('transcribeAudio', [audio instanceof Float32Array ? Array.from(audio) : audio, ...args])
+    api.voiceStreamAudio = (streamId: string, samples: Float32Array, ...args: unknown[]) =>
+      this.send('voiceStreamAudio', [streamId, Array.from(samples), ...args])
+
     // Browser file picking/upload. Electron overlays getPathForFile but keeps
     // attachFiles on RPC so desktop dialogs still run on the local server.
     api['attachFiles'] = (): Promise<unknown> => {
@@ -152,6 +160,8 @@ export class WsTransport {
     api.onReviewProgress = (cb: Listener) => this.subscribe('review-progress', cb)
     api.onRunStatus = (cb: Listener) => this.subscribe('run-status', cb)
     api.onRunLog = (cb: Listener) => this.subscribe('run-log', cb)
+    api.onVoiceModelStatus = (cb: Listener) => this.subscribe('voice-model-status', cb)
+    api.onVoicePartial = (cb: Listener) => this.subscribe('voice-partial', cb)
     api.onSetupStatus = (cb: Listener) => this.subscribe('setup-status', cb)
     api.onSetupLog = (cb: Listener) => this.subscribe('setup-log', cb)
     api.onAutomationsChanged = (cb: Listener) => this.subscribe('automations-changed', cb)

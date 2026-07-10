@@ -9,6 +9,7 @@ import { RunDockStore, setRunDockStore } from './run-dock.store.svelte'
 import { ProjectConfigStore, setProjectConfigStore } from './project-config.store.svelte'
 import { AgentContext, setAgentContext } from './agent.context.svelte'
 import { SessionSidebarStore, setSessionSidebarStore } from './session-sidebar.store.svelte'
+import { VoiceModelStore, setVoiceModelStore } from './voice-model.store.svelte'
 import { KeybindingsContext, setKeybindingsContext } from '../lib/keybindings/dispatcher.svelte'
 
 export interface AppCore {
@@ -21,6 +22,7 @@ export interface AppCore {
   runDockStore: RunDockStore
   projectConfigStore: ProjectConfigStore
   sessionSidebarStore: SessionSidebarStore
+  voiceModelStore: VoiceModelStore
   session: WorkspaceContext
   agent: AgentContext
   keybindings: KeybindingsContext
@@ -47,6 +49,7 @@ export function createAppCore(): AppCore {
   const agent = new AgentContext(settings)
   const session = new WorkspaceContext(settings, windowCtx, statusBar, planStore, gitStatusStore, agent)
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore)
+  const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
   statusBar.bindAgent(agent)
 
@@ -63,6 +66,7 @@ export function createAppCore(): AppCore {
   setRunDockStore(runDockStore)
   setProjectConfigStore(projectConfigStore)
   setSessionSidebarStore(sessionSidebarStore)
+  setVoiceModelStore(voiceModelStore)
   setAgentContext(agent)
   setKeybindingsContext(keybindings)
 
@@ -76,6 +80,7 @@ export function createAppCore(): AppCore {
     runDockStore,
     projectConfigStore,
     sessionSidebarStore,
+    voiceModelStore,
     session,
     agent,
     keybindings,

@@ -12,26 +12,18 @@
     FolderOpenIcon,
     CaretRightIcon,
     CaretDownIcon,
-    ArrowSquareOutIcon,
   } from "phosphor-svelte";
   import type { Component } from "svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
-  import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { prettyToolName, solusToolKey } from "../../contexts/session.utils";
   import type { Message } from "../../../shared/types";
 
   interface Props {
     tools: Message[];
     skipMotion?: boolean;
-    workingDirectory?: string;
-    tabId: string;
   }
-  let { tools, skipMotion = false, workingDirectory, tabId }: Props = $props();
+  let { tools, skipMotion = false }: Props = $props();
 
-  const theme = getSettingsContext()
-  const session = getWorkspaceContext()
   let expanded = $state(false);
 
   const TOOL_ICONS: Record<string, Component> = {
@@ -139,7 +131,9 @@
         return `Search: ${s(parsed.pattern)}`;
       case "Bash": {
         const cmd = s(parsed.command);
-        return truncate && cmd.length > 60 ? `${cmd.substring(0, 57)}...` : cmd || "Bash";
+        return truncate && cmd.length > 60
+          ? `${cmd.substring(0, 57)}...`
+          : cmd || "Bash";
       }
       case "WebSearch":
         return `Search: ${s(parsed.query) || s(parsed.search_query)}`;
@@ -154,7 +148,11 @@
     }
   }
 
-  function getToolDescription(name: string, input?: string, options: { truncate?: boolean } = {}): string {
+  function getToolDescription(
+    name: string,
+    input?: string,
+    options: { truncate?: boolean } = {},
+  ): string {
     const pretty = prettyToolName(name);
     const truncate = options.truncate ?? true;
     // Solus tools show just their friendly label — never their args.
@@ -165,7 +163,8 @@
       return getToolDescriptionFromParsed(name, parsed, { truncate });
     } catch {
       const trimmed = input.trim();
-      if (truncate && trimmed.length > 60) return `${pretty}: ${trimmed.substring(0, 57)}...`;
+      if (truncate && trimmed.length > 60)
+        return `${pretty}: ${trimmed.substring(0, 57)}...`;
       return trimmed ? `${pretty}: ${trimmed}` : pretty;
     }
   }
@@ -183,7 +182,9 @@
   <div class="py-1 {skipMotion ? '' : 'animate-msg-in-side'}">
     {#if !hasRunning}
       <div
-        class="flex items-center gap-1 cursor-pointer mb-1.5 border-t border-(--solus-message-divider) rounded-md transition-colors hover:text-(--solus-text-secondary) active:bg-(--solus-surface-hover) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport ? 'py-1' : ''}"
+        class="flex items-center gap-1 cursor-pointer mb-1.5 border-t border-(--solus-message-divider) rounded-md transition-colors hover:text-(--solus-text-secondary) active:bg-(--solus-surface-hover) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport
+          ? 'py-1'
+          : ''}"
         onclick={() => (expanded = false)}
         style="padding-top:0.375rem"
         role="button"
@@ -211,14 +212,26 @@
           {@const fullDesc = isRunning
             ? prettyToolName(toolName)
             : parsedInput
-              ? getToolDescriptionFromParsed(toolName, parsedInput, { truncate: false })
-              : getToolDescription(toolName, tool.toolInput, { truncate: false })}
-          {@const filePaths = parsedInput ? toolPathsFromParsed(parsedInput) : []}
-          {@const ToolIcon = TOOL_ICONS[toolName] || (solusToolKey(toolName) ? FileTextIcon : WrenchIcon)}
+              ? getToolDescriptionFromParsed(toolName, parsedInput, {
+                  truncate: false,
+                })
+              : getToolDescription(toolName, tool.toolInput, {
+                  truncate: false,
+                })}
+          {@const filePaths = parsedInput
+            ? toolPathsFromParsed(parsedInput)
+            : []}
+          {@const ToolIcon =
+            TOOL_ICONS[toolName] ||
+            (solusToolKey(toolName) ? FileTextIcon : WrenchIcon)}
           <div class="group/tool relative">
             <div
               class="absolute -left-6 top-px w-5 h-5 rounded-full flex items-center justify-center"
-              style="background:{isRunning ? 'var(--solus-tool-running-bg)' : 'var(--solus-timeline-node-done)'};border:0.0625rem solid {isRunning ? 'var(--solus-tool-running-border)' : 'var(--solus-timeline-node-done)'}"
+              style="background:{isRunning
+                ? 'var(--solus-tool-running-bg)'
+                : 'var(--solus-timeline-node-done)'};border:0.0625rem solid {isRunning
+                ? 'var(--solus-tool-running-border)'
+                : 'var(--solus-timeline-node-done)'}"
             >
               {#if isRunning}
                 <span
@@ -239,23 +252,13 @@
                   class:text-(--solus-text-tertiary)={!isRunning}
                   >{fullDesc}</span
                 >
-                {#if !isRunning && (toolName === "Write" || toolName === "Edit") && filePaths.length > 0 && theme.defaultEditor}
-                  <button
-                    onclick={() =>
-                      openInConfiguredEditor(session.ctxFor(tabId), {
-                        filePaths,
-                        editorId: theme.defaultEditor,
-                        terminalId: theme.defaultTerminal,
-                        cwd: workingDirectory,
-                      })}
-                    class="flex-shrink-0 inline-flex items-center gap-1 text-[0.625rem] rounded cursor-pointer bg-(--solus-accent-light) text-(--solus-accent) border border-(--solus-accent-border) transition-colors hover:bg-(--solus-accent-border-medium) active:bg-(--solus-accent-border-medium) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport ? 'px-2 py-1' : 'px-1.5 py-px'}"
-                    ><ArrowSquareOutIcon size={10} />Open</button
-                  >
-                {/if}
               </div>
 
               {#if isRunning}
-                <span class="text-[0.625rem] mt-0.5 block text-(--solus-text-tertiary)">in progress</span>
+                <span
+                  class="text-[0.625rem] mt-0.5 block text-(--solus-text-tertiary)"
+                  >in progress</span
+                >
               {/if}
             </div>
           </div>
@@ -265,7 +268,9 @@
   </div>
 {:else}
   <div
-    class="flex items-start gap-1 cursor-pointer rounded-md px-1 transition-colors hover:bg-(--solus-surface-hover) active:bg-(--solus-surface-hover) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport ? 'py-1.5' : 'py-[0.25rem]'} {skipMotion ? '' : 'animate-msg-in-side'}"
+    class="flex items-start gap-1 cursor-pointer rounded-md px-1 transition-colors hover:bg-(--solus-surface-hover) active:bg-(--solus-surface-hover) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport
+      ? 'py-1.5'
+      : 'py-[0.25rem]'} {skipMotion ? '' : 'animate-msg-in-side'}"
     onclick={() => (expanded = true)}
     role="button"
     tabindex="0"

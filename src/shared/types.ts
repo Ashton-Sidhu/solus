@@ -223,6 +223,13 @@ export interface DesignAnnotation {
   label?: string
 }
 
+export interface VoiceModelStatus {
+  state: 'checking' | 'downloading' | 'installing' | 'ready' | 'error'
+  receivedBytes?: number
+  totalBytes?: number
+  error?: string
+}
+
 export interface DesignModeSelection {
   /** Cropped element screenshot as data URL */
   screenshot: string
@@ -662,7 +669,7 @@ export type NormalizedEvent =
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed' }
   | { type: 'error'; message: string; isError: boolean; sessionId?: string }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
-  | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string }
+  | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
   | { type: 'usage'; usage: UsageData; sessionUsage?: UsageData }
   | { type: 'changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[] }

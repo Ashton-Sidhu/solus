@@ -53,8 +53,6 @@
     type PersistedTabs,
   } from "./contexts/tab-persistence";
   import {
-    writeActiveSessionPointer,
-    readActiveSessionPointer,
     consumeSessionHandoff,
   } from "./contexts/active-session-pointer";
   import { createAppCore } from "./contexts/app-core";
@@ -77,6 +75,7 @@
     gitStatusStore,
     runStore,
     projectConfigStore,
+    voiceModelStore,
     session,
     sessionSidebarStore,
     agent,
@@ -151,26 +150,6 @@
     };
   });
 
-  // ── Cross-window session pickup ───────────────────────────────────────────
-  // The latest session is simply the one the last message was sent in. The
-  // effect keys off lastPromptTabId (set only by a user send, so background
-  // windows never write) and that session's agentSessionId — which binds a
-  // moment after the first send, re-firing this effect once it's known.
-  $effect(() => {
-    const tabId = session.lastPromptTabId;
-    if (!tabId) return;
-    const sess = session.sessionFor(tabId);
-    const agentSessionId = sess?.agentSessionId;
-    if (!sess || !agentSessionId) return;
-    writeActiveSessionPointer({
-      sessionId: agentSessionId,
-      provider: sess.provider ?? settings.activeAgent,
-      cwd: sess.workingDirectory,
-      title: session.tabs[tabId]?.title ?? null,
-      writer: windowCtx.viewMode,
-    });
-  });
-
   /** Focus (or attach) the session a pointer/handoff names. Reuses the resume
    *  path, which loads history and splices the live stream if a run is going. */
   function openSessionFromPointer(ptr: {
@@ -199,58 +178,13 @@
     });
   }
 
-  // Pill: when summoned (hidden → visible), land on the session last touched
-  // in the editor. Visibility transitions only — clicking an already-visible
-  // pill must never yank the tab out from under the user. Each pointer stamp
-  // is handled once so pill-side tab switches aren't re-overridden later.
-  let lastHandledPointerStamp = 0;
-  $effect(() => {
-    if (isEditorMode) return;
-    const maybePickUp = () => {
-      if (document.hidden || session.hydrating) return;
-      const ptr = readActiveSessionPointer();
-      if (!ptr || ptr.writer !== "editor") return;
-      if (ptr.updatedAt <= lastHandledPointerStamp) return;
-      lastHandledPointerStamp = ptr.updatedAt;
-      openSessionFromPointer(ptr);
-    };
-    const onVisibility = () => {
-      if (!document.hidden) maybePickUp();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", onVisibility);
-  });
-
-  // Pill boot: the visibilitychange above only covers later summons; check the
-  // pointer once as soon as hydration settles for the visible-at-boot case.
-  let bootPickupDone = false;
-  $effect(() => {
-    if (isEditorMode || bootPickupDone || session.hydrating) return;
-    bootPickupDone = true;
-    if (document.hidden) return;
-    const ptr = readActiveSessionPointer();
-    if (!ptr || ptr.writer !== "editor") return;
-    lastHandledPointerStamp = ptr.updatedAt;
-    openSessionFromPointer(ptr);
-  });
-
   // Both windows: consume a "continue in the other mode" (⌥⇧E) handoff
   // addressed to this window's mode — one stashed before this window existed
   // and any that arrive while it's open. Gated on hydration so a boot-time
   // handoff doesn't race the tab bootstrap.
   $effect(() => {
     if (session.hydrating) return;
-    return consumeSessionHandoff(viewMode, (handoff) => {
-      if (!isEditorMode) {
-        // The explicit handoff outranks the ambient pull: mark the current
-        // pointer stamp handled so the summon pickup right after this window
-        // shows doesn't yank the tab to a different session.
-        const ptr = readActiveSessionPointer();
-        if (ptr) lastHandledPointerStamp = ptr.updatedAt;
-      }
-      openSessionFromPointer(handoff);
-    });
+    return consumeSessionHandoff(viewMode, openSessionFromPointer);
   });
 
   // Slash command discovery is backend-scoped, so refresh when the active agent changes.
@@ -492,6 +426,10 @@
     const unsubRunLog = window.solus.onRunLog((batch) =>
       runStore.applyLog(batch),
     );
+    const unsubVoiceModel = window.solus.onVoiceModelStatus((status) =>
+      voiceModelStore.apply(status),
+    );
+    void voiceModelStore.refresh();
     // Live automation state: scheduler fires, run transitions, and agent-tool
     // saves all land here. Failures get a toast — an unattended run breaking
     // is otherwise invisible until the user happens to open the page.
@@ -525,6 +463,7 @@
     return () => {
       unsubRun();
       unsubRunLog();
+      unsubVoiceModel();
       unsubAutomations();
       unsubMergeQueue();
       unsubShown();
@@ -897,6 +836,34 @@
     },
   ];
 
+  async function switchPaletteBranch(branch: string): Promise<boolean> {
+    const projectRoot = paletteGitProjectRoot;
+    if (projectRoot) {
+      const ctx = session.ctxForDirectory(projectRoot);
+      await gitStatusStore.refreshRefs(projectRoot, ctx, { force: true });
+      const worktree = gitStatusStore
+        .refsFor(projectRoot)
+        .worktrees.find((wt) => wt.branch === branch);
+      if (worktree) {
+        await session.switchToWorktree(worktree.path);
+        const nextCwd =
+          session.activeSession?.gitContext?.worktreePath ??
+          session.activeSession?.workingDirectory;
+        if (nextCwd) void gitStatusStore.refresh(nextCwd, { force: true });
+        requestInputFocus();
+        return true;
+      }
+    }
+
+    const ok = await session.switchToBranch(branch);
+    const nextCwd =
+      session.activeSession?.gitContext?.worktreePath ??
+      session.activeSession?.workingDirectory;
+    if (ok && nextCwd) void gitStatusStore.refresh(nextCwd, { force: true });
+    requestInputFocus();
+    return ok;
+  }
+
   // "Open plan/document/automation…" mirror the "Open worktree…" flow: a parent
   // command that drills into a sub-page listing the existing items, each of which
   // opens that one artifact. Only shown when there's something to open, so they
@@ -1061,7 +1028,7 @@
             group: "Git",
             icon: GitBranchIcon,
             keywords: ["git", "branch", "checkout", "switch", branch],
-            run: () => void session.switchToBranch(branch),
+            run: () => void switchPaletteBranch(branch),
           })),
         ...worktrees
           .filter((wt) => wt.path !== gitCtx.worktreePath)
@@ -1100,7 +1067,7 @@
           run: () => {
             void (async () => {
               await session.createTab();
-              await session.switchToBranch(branch);
+              await switchPaletteBranch(branch);
             })();
           },
         }));
@@ -1180,6 +1147,7 @@
   dictation.configure(
     () => settings.vadSilenceMs,
     () => settings.voiceModeEnabled,
+    () => voiceModelStore.ready,
   );
 
   $effect(() => {

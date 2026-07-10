@@ -6,6 +6,7 @@
     GitBranchIcon,
     ChatCircleIcon,
     ArrowUpIcon,
+    ArrowSquareOutIcon,
     CaretRightIcon,
     GitCommitIcon,
   } from "phosphor-svelte";
@@ -36,6 +37,7 @@
   import PrActivityRail from "./PrActivityRail.svelte";
   import PrThreadCard from "./PrThreadCard.svelte";
   import MergeControl from "./MergeControl.svelte";
+  import ResolveConflictsButton from "./ResolveConflictsButton.svelte";
 
   // The Activity tab: a Linear-style PR overview. The centered main column shows
   // the title, author/branch meta, the PR description, and an activity timeline
@@ -47,6 +49,7 @@
     pr,
     threads,
     threadsFailed = false,
+    showRemoteLink = false,
     onJump,
     onRefreshThreads,
   }: {
@@ -56,6 +59,8 @@
     threads: ReviewThread[];
     /** The parent's thread fetch failed — folded into this tab's error banner. */
     threadsFailed?: boolean;
+    /** Render the Activity header's remote PR shortcut for embedded previews. */
+    showRemoteLink?: boolean;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Refetch the shared threads (e.g. from this tab's Refresh button). */
@@ -107,6 +112,11 @@
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
   const headBranch = $derived(pr.branch ?? detail?.headRef ?? "");
   const headSha = $derived(pr.headSha ?? detail?.headSha ?? "");
+  const prUrl = $derived(
+    pr.host && (pr.remoteOwner ?? pr.owner) && pr.repo
+      ? `https://${pr.host}/${pr.remoteOwner ?? pr.owner}/${pr.repo}/pull/${pr.number}`
+      : null,
+  );
   // Commits, review threads, and this session's comments, merged into one
   // chronological timeline (see buildActivityTimeline). The opened event is
   // rendered separately as the fixed first row and always leads.
@@ -133,11 +143,9 @@
       .then((d) => {
         if (pr.number !== n) return;
         detail = d;
-        if (!pr.baseSha) loadChangedFiles(d.baseSha, n, force);
       })
       .catch(() => {
         markLoadFailed(n);
-        if (pr.number === n && !pr.baseSha) filesLoading = false;
       })
       .finally(() => {
         if (pr.number === n) detailLoading = false;
@@ -160,24 +168,20 @@
       .finally(() => {
         if (pr.number === n) reviewersLoading = false;
       });
-    if (pr.baseSha) loadChangedFiles(pr.baseSha, n, force);
+    loadChangedFiles(n, force);
   }
 
-  function isCurrentChangedFilesLoad(sha: string, n: number) {
-    return pr.number === n && (pr.baseSha || detail?.baseSha) === sha;
-  }
-
-  function loadChangedFiles(sha: string, n: number, force = false) {
+  function loadChangedFiles(n: number, force = false) {
     session.prsStore
-      .loadChangedFiles(session.ctx, sha, { force })
+      .loadChangedFiles(session.ctx, n, { force })
       .then((f) => {
-        if (isCurrentChangedFilesLoad(sha, n)) changedFiles = f;
+        if (pr.number === n) changedFiles = f;
       })
       .catch(() => {
-        if (isCurrentChangedFilesLoad(sha, n)) loadFailed = true;
+        if (pr.number === n) loadFailed = true;
       })
       .finally(() => {
-        if (isCurrentChangedFilesLoad(sha, n)) filesLoading = false;
+        if (pr.number === n) filesLoading = false;
       });
   }
 
@@ -258,6 +262,12 @@
       void postComment();
     }
   }
+
+  function openPr() {
+    if (!prUrl) return;
+    void window.solus.openExternal(prUrl);
+    requestInputFocus();
+  }
 </script>
 
 <div class="h-full min-h-0 overflow-y-auto">
@@ -284,15 +294,32 @@
     <div class="mx-auto flex w-full max-w-[92rem] gap-10 px-8 py-9">
       <!-- ── Main column: title, meta, description, activity, composer ── -->
       <main class="flex min-w-0 flex-1 flex-col">
-        <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center justify-between gap-3">
           <h1
             class="text-xl font-semibold tracking-tight text-balance text-(--solus-text-primary)"
           >
             {pr.title}
           </h1>
-          <div class="flex shrink-0 items-start gap-2">
+          <div class="flex shrink-0 items-center gap-2">
+            {#if showRemoteLink && prUrl}
+              <button
+                type="button"
+                class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
+                aria-label={`Open PR #${pr.number} on ${pr.host}`}
+                use:tooltip={"Open PR on " + pr.host}
+                onclick={openPr}
+              >
+                <ArrowSquareOutIcon size={15} weight="bold" />
+              </button>
+            {/if}
             {#if detail?.state === "open" && !detail.draft}
-              <MergeControl pr={{ number: pr.number, title: pr.title }} />
+              {#if detail.mergeStateStatus === "dirty"}
+                <ResolveConflictsButton
+                  pr={{ number: pr.number, title: pr.title }}
+                />
+              {:else}
+                <MergeControl pr={{ number: pr.number, title: pr.title }} />
+              {/if}
             {/if}
             <button
               type="button"

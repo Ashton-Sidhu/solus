@@ -37,6 +37,7 @@ Per section:
 - State the single thing the reviewer should check. Use a Markdown list when there is more than one concrete check.
 - Include exact repo-relative file paths as they appear in the diff.
 - Include additions and deletions for each file.
+- Embed the relevant diff hunks for each file in its `hunks` field: the `diff --git`/`---`/`+++` header lines plus only the `@@ … @@` hunks that concern is about, copied verbatim from `git diff`. Keep each hunk whole — never edit or trim lines inside a hunk — and omit hunks the concern is not about so the reader sees only what matters.
 - Cite ledger record ids in `ledgerRefs` only when they directly support the section.
 
 ## Use the ledger
@@ -66,7 +67,12 @@ The `title`, `summary` and section `explanation` fields should all be valid mark
       "explanation": "Markdown explanation of why this matters and what to verify.",
       "ledgerRefs": ["ledger-record-id"],
       "files": [
-        { "path": "src/example.ts", "additions": 12, "deletions": 3 }
+        {
+          "path": "src/example.ts",
+          "additions": 12,
+          "deletions": 3,
+          "hunks": "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -10,7 +10,7 @@ ...\n-old line\n+new line\n ..."
+        }
       ]
     }
   ]

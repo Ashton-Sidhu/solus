@@ -196,7 +196,9 @@
   <!-- Right: the diffs this section spans, in cards of similar width. -->
   <div class="flex min-w-0 flex-col gap-4">
     {#each section.files as file (file.path)}
-      {@const patch = patchByPath.get(file.path)}
+      <!-- Prefer the agent's concern-scoped hunks; fall back to the file's full
+           diff (from the whole-episode patch) when they're absent or blank. -->
+      {@const patch = file.hunks?.trim() || patchByPath.get(file.path)}
       {@const open = !collapsed.has(file.path)}
       {@const fileVisible = visibleFiles.has(file.path)}
       <div

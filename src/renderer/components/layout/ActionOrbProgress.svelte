@@ -57,7 +57,7 @@
 {#if stepsOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="steps-pop"
+    class="steps-pop progress-popover"
     role="group"
     aria-label="Task steps"
     use:scrollToActiveStep
@@ -347,40 +347,18 @@
     0% { background-position: -50% 0; }
     100% { background-position: 150% 0; }
   }
+  /* Shell (position, bg, border, shadow, radius, enter animation) and the shared
+     type tokens come from the global `.progress-popover` class in ActionOrb.css,
+     which the files popover also uses. Only the step-list-specific layout lives
+     here: a scrollable body that scales with the orb but stays within the
+     viewport, from the narrow pill window to wide editor mode. */
   .steps-pop {
-    position: absolute;
-    bottom: calc(100% + 0.5rem);
-    left: 50%;
-    transform: translateX(-50%);
-    /* Scales with the orb (text size / pane width) but always stays within the
-       viewport, so it works from the narrow pill window to wide editor mode. */
     width: min(calc(30rem * var(--orb-scale)), calc(100vw - 1.5rem));
     max-height: min(calc(22rem * var(--orb-scale)), 60vh);
     overflow-y: auto;
-    pointer-events: auto;
     padding: calc(0.875rem * var(--orb-scale)) calc(1rem * var(--orb-scale))
       calc(0.375rem * var(--orb-scale));
-    border-radius: calc(1rem * var(--orb-scale));
-    background: var(--solus-popover-bg);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    border: 0.0313rem solid var(--solus-popover-border);
-    box-shadow:
-      inset 0 0.0625rem 0 0 color-mix(in srgb, white 14%, transparent),
-      0 0.25rem 0.875rem rgba(0, 0, 0, 0.1),
-      0 0.75rem 1.75rem rgba(0, 0, 0, 0.12);
-    animation: steps-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     scrollbar-width: thin;
-  }
-  :global(.dark) .steps-pop {
-    box-shadow:
-      inset 0 0.0625rem 0 0 color-mix(in srgb, white 5%, transparent),
-      0 0.25rem 0.875rem rgba(0, 0, 0, 0.3),
-      0 0.75rem 1.75rem rgba(0, 0, 0, 0.3);
-  }
-  @keyframes steps-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(0.375rem); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
   .steps-head {
     display: flex;
@@ -392,15 +370,15 @@
       color-mix(in srgb, var(--solus-container-border) 32%, transparent);
   }
   .steps-head-label {
-    font-size: calc(0.75rem * var(--orb-scale));
+    font-size: var(--pop-title-size);
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
     color: var(--solus-text-primary);
   }
   .steps-head-count {
-    font-size: calc(0.75rem * var(--orb-scale));
-    font-weight: 550;
+    font-size: var(--pop-meta-size);
+    font-weight: 500;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
   }
@@ -469,7 +447,7 @@
     position: relative;
     flex: 1;
     min-width: 0;
-    font-size: calc(0.75rem * var(--orb-scale));
+    font-size: var(--pop-body-size);
     font-weight: 500;
     line-height: 1.35;
     padding-bottom: calc(0.5rem * var(--orb-scale));

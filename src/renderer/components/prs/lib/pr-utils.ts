@@ -1,4 +1,4 @@
-import { GitBranchIcon, GitMergeIcon, GitPullRequestIcon } from 'phosphor-svelte'
+import { GitBranchIcon, GitMergeIcon, GitPullRequestIcon, WarningCircleIcon } from 'phosphor-svelte'
 import type { PullRequestSummary } from '../../../../shared/providers'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
@@ -13,11 +13,14 @@ export interface PrStatusBadge {
 /** Status chip facts for a PR — shared by the PRs page sidebar and the PR
  *  review activity rail. */
 export function prStatusBadge(
-  detail: { state: 'open' | 'closed' | 'merged'; draft: boolean } | null,
+  detail: { state: 'open' | 'closed' | 'merged'; draft: boolean; mergeStateStatus?: string | null } | null,
 ): PrStatusBadge | null {
   if (!detail) return null
   if (detail.draft && detail.state === 'open') {
     return { label: 'Draft', Icon: GitBranchIcon, tone: 'var(--solus-text-tertiary)' }
+  }
+  if (detail.state === 'open' && detail.mergeStateStatus === 'dirty') {
+    return { label: 'Merge conflicts', Icon: WarningCircleIcon, tone: 'var(--solus-art-negative)' }
   }
   if (detail.state === 'merged') {
     return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--solus-accent)' }

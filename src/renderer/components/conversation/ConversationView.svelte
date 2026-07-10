@@ -2,7 +2,12 @@
   import { tick } from "svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { ArrowCounterClockwiseIcon, ClipboardTextIcon, GitForkIcon, TreeStructureIcon } from "phosphor-svelte";
+  import {
+    ArrowCounterClockwiseIcon,
+    ClipboardTextIcon,
+    GitForkIcon,
+    TreeStructureIcon,
+  } from "phosphor-svelte";
   import { computeCurrentActivity } from "../../contexts/session.utils";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getPlanStore } from "../../contexts/plan.store.svelte";
@@ -17,7 +22,7 @@
 
   import UserMessageBubble from "./UserMessageBubble.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
-  import SubagentCard from "./SubagentCard.svelte";
+  import SubagentGroup from "./SubagentGroup.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
@@ -49,10 +54,15 @@
   type GroupedItem =
     | { kind: "user"; message: Message }
     | { kind: "assistant"; message: Message }
-    | { kind: "live-assistant"; id: string; content: string; settledMessageId?: string }
+    | {
+        kind: "live-assistant";
+        id: string;
+        content: string;
+        settledMessageId?: string;
+      }
     | { kind: "system"; message: Message }
     | { kind: "tool-group"; messages: Message[] }
-    | { kind: "subagent"; message: Message }
+    | { kind: "subagent-group"; messages: Message[] }
     | { kind: "plan"; message: Message }
     | { kind: "document"; message: Message }
     | { kind: "automation"; message: Message }
@@ -63,25 +73,35 @@
   function groupMessages(messages: Message[]): GroupedItem[] {
     const result: GroupedItem[] = [];
     let toolBuf: Message[] = [];
+    let subagentBuf: Message[] = [];
     const flushTools = () => {
       if (toolBuf.length > 0) {
         result.push({ kind: "tool-group", messages: [...toolBuf] });
         toolBuf = [];
       }
     };
+    const flushSubagents = () => {
+      if (subagentBuf.length > 0) {
+        result.push({ kind: "subagent-group", messages: [...subagentBuf] });
+        subagentBuf = [];
+      }
+    };
     for (const msg of messages) {
       if (msg.role === "tool" && msg.subMessages) {
-        // A sub-agent tool call renders as its own card, not bundled into the
-        // generic tool group.
+        // Consecutive sub-agents share one compact surface instead of repeating
+        // card chrome for every member of an orchestrated batch.
         flushTools();
-        result.push({ kind: "subagent", message: msg });
+        subagentBuf.push(msg);
       } else if (msg.role === "tool") {
+        flushSubagents();
         toolBuf.push(msg);
       } else {
         flushTools();
+        flushSubagents();
         if (msg.role === "user") result.push({ kind: "user", message: msg });
         else if (msg.workRef) result.push({ kind: "document", message: msg });
-        else if (msg.automationRef) result.push({ kind: "automation", message: msg });
+        else if (msg.automationRef)
+          result.push({ kind: "automation", message: msg });
         else if (msg.taskRef) result.push({ kind: "task", message: msg });
         else if (msg.sessionRef) result.push({ kind: "session", message: msg });
         else if (msg.artifact) result.push({ kind: "artifact", message: msg });
@@ -93,6 +113,7 @@
       }
     }
     flushTools();
+    flushSubagents();
     return result;
   }
 
@@ -104,8 +125,18 @@
   const isEditorMode = $derived(
     windowCtx.viewMode === "editor" || windowCtx.isWeb,
   );
-  let { tabId, onDiffToggle }: { tabId: string; onDiffToggle?: () => void } =
+  let {
+    tabId,
+    onDiffToggle,
+    forceVisible = false,
+  }: { tabId: string; onDiffToggle?: () => void; forceVisible?: boolean } =
     $props();
+
+  // The pool instance is on screen only while its tab is active; the split-pane
+  // instance (forceVisible) is always on screen. Visibility gates autoscroll and
+  // streaming work; keybindings stay gated on the ACTIVE tab so the two visible
+  // instances never both respond to one shortcut.
+  const isVisible = $derived(forceVisible || tabId === session.activeTabId);
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
@@ -141,7 +172,7 @@
   // settled layout read, not one interleaved with the markdown mutations.
   function pinToBottom() {
     const el = scrollEl;
-    if (el && tabId === session.activeTabId && isNearBottom) {
+    if (el && isVisible && isNearBottom) {
       el.scrollTop = el.scrollHeight;
     }
   }
@@ -176,9 +207,7 @@
 
   $effect(() => {
     const target = streamingText;
-    const animate =
-      tabId === session.activeTabId &&
-      !prefersReducedMotion;
+    const animate = isVisible && !prefersReducedMotion;
     // Snap (no animation) for hidden tabs, reduced-motion users,
     // or whenever the buffer reset/committed (target shorter than shown).
     if (!animate || target.length < revealExact) {
@@ -303,7 +332,7 @@
 
   $effect(() => {
     void scrollTrigger;
-    if (tabId === session.activeTabId && isNearBottom) {
+    if (isVisible && isNearBottom) {
       requestAnimationFrame(pinToBottom);
     }
   });
@@ -312,7 +341,7 @@
   $effect(() => {
     const mode = isEditorMode;
     if (prevEditorMode !== undefined && prevEditorMode !== mode) {
-      if (tabId === session.activeTabId && scrollEl) {
+      if (isVisible && scrollEl) {
         requestAnimationFrame(() => {
           if (scrollEl) {
             scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -353,7 +382,9 @@
     }
     return "";
   });
-  const liveStreamContent = $derived(streamingText ? displayedText : settlingText);
+  const liveStreamContent = $derived(
+    streamingText ? displayedText : settlingText,
+  );
   const displayGrouped = $derived.by(() => {
     if (!liveStreamContent) return grouped;
     if (settlingCommittedId) {
@@ -435,14 +466,18 @@
     // Every tab stays mounted (hidden via display:none), so without this guard the
     // effect would re-scan `grouped` for all tabs on every message tick. Hidden
     // tabs don't need their work content eagerly hydrated — load on activation.
-    if (tabId !== session.activeTabId) return;
+    if (!isVisible) return;
     for (const item of grouped) {
       if (item.kind !== "document") continue;
       const workId = item.message.workRef?.workId;
       // Skip provisional (streaming) ids — their content lives in the store and
       // there is nothing to load from disk yet.
       if (workId && !session.worksStore.streaming[workId]) {
-        void session.worksStore.ensureContent(workId, "conversation-view", sess?.workingDirectory);
+        void session.worksStore.ensureContent(
+          workId,
+          "conversation-view",
+          sess?.workingDirectory,
+        );
       }
     }
   });
@@ -462,7 +497,11 @@
     if (!sess) return undefined;
     for (let i = sess.messages.length - 1; i >= 0; i--) {
       const m = sess.messages[i];
-      if (m.role === "plan" && m.planId && planStore.get(m.planId)?.status === "pending")
+      if (
+        m.role === "plan" &&
+        m.planId &&
+        planStore.get(m.planId)?.status === "pending"
+      )
         return m.planId;
     }
     return undefined;
@@ -474,7 +513,7 @@
 
   const changedFiles = $derived(sess?.changedFiles ?? []);
 
-useKeybinding(
+  useKeybinding(
     "conversation.scroll-top",
     async () => {
       if (!scrollEl) return;
@@ -525,7 +564,7 @@ useKeybinding(
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ tabId?: string }>).detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
-      if (tabId !== session.activeTabId) return;
+      if (!isVisible) return;
       const snap = () => {
         if (scrollEl) {
           scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -551,7 +590,7 @@ useKeybinding(
     const el = scrollEl;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      if (isNearBottom && tabId === session.activeTabId) {
+      if (isNearBottom && isVisible) {
         el.scrollTop = el.scrollHeight;
       }
     });
@@ -600,9 +639,9 @@ useKeybinding(
 
 {#if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />
-{:else if tab && sess && sess.agentSessionId && sess.messages.length === 0}
+{:else if tab && sess && sess.agentSessionId && sess.messages.length === 0 && !sess.statusCard}
   <ConversationSkeleton />
-{:else if tab && sess && sess.messages.length === 0}
+{:else if tab && sess && sess.messages.length === 0 && !sess.statusCard}
   <NewTabHome {tab} />
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -627,7 +666,12 @@ useKeybinding(
              status strip share one fluid column (scales with the conversation
              pane via --solus-reading-max) so everything lines up. No-op in the
              narrow pill window. -->
-        <div class="w-full" style={isEditorMode ? "max-width:var(--solus-reading-max);margin-inline:auto" : "padding-inline:var(--cv-pill-gutter)"}>
+        <div
+          class="w-full"
+          style={isEditorMode
+            ? "max-width:var(--solus-reading-max);margin-inline:auto"
+            : "padding-inline:var(--cv-pill-gutter)"}
+        >
           {#if runtime.isMobileViewport}
             <!-- Mobile has no action row, so progress stays as a top card here.
                  On desktop the progress lives inside the ActionOrb action row. -->
@@ -644,7 +688,11 @@ useKeybinding(
             </div>
           {/if}
 
-          <div class="relative messages-list cv-list {runtime.isMobileViewport ? 'space-y-3' : 'space-y-2'}">
+          <div
+            class="relative messages-list cv-list {runtime.isMobileViewport
+              ? 'space-y-3'
+              : 'space-y-2'}"
+          >
             {#each displayGrouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.kind === "live-assistant" ? item.id : item.message.id)}
               {@const msgIndex = startIndex + idx}
               {@const skipMotion = msgIndex < historicalThreshold}
@@ -652,7 +700,10 @@ useKeybinding(
                 <UserMessageBubble message={item.message} {skipMotion} />
               {:else if item.kind === "live-assistant"}
                 <div
-                  class="py-2 group/msg relative cv-stamp-host {skipMotion || item.settledMessageId ? '' : 'animate-msg-in-side'}"
+                  class="py-2 group/msg relative cv-stamp-host {skipMotion ||
+                  item.settledMessageId
+                    ? ''
+                    : 'animate-msg-in-side'}"
                   data-testid="assistant-message"
                 >
                   <div class="cv-msg-body">
@@ -681,12 +732,17 @@ useKeybinding(
                        opts out of content-visibility (which would clip the margin
                        stamp); the heavy markdown keeps it via .cv-msg-body. -->
                   <div
-                    class="py-2 group/msg relative cv-stamp-host {skipMotion || finalizedStreamMessageIds[item.message.id] ? '' : 'animate-msg-in-side'}"
+                    class="py-2 group/msg relative cv-stamp-host {skipMotion ||
+                    finalizedStreamMessageIds[item.message.id]
+                      ? ''
+                      : 'animate-msg-in-side'}"
                     data-testid="assistant-message"
                   >
                     {#if !runtime.isMobileViewport}
                       <span
-                        class="cv-stamp-gutter-left text-[0.625rem] text-(--solus-text-tertiary) tabular-nums select-none transition-opacity duration-100 {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/msg:opacity-100'}"
+                        class="cv-stamp-gutter-left text-[0.625rem] text-(--solus-text-tertiary) tabular-nums select-none transition-opacity duration-100 {runtime.isTouchDevice
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover/msg:opacity-100'}"
                       >
                         {formatMessageTime(item.message.timestamp)}
                       </span>
@@ -696,7 +752,9 @@ useKeybinding(
                     </div>
                     {#if !runtime.isMobileViewport}
                       <div
-                        class="absolute top-full right-0 -mt-1 z-10 transition-opacity duration-100 {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/msg:opacity-100'}"
+                        class="absolute top-full right-0 -mt-1 z-10 transition-opacity duration-100 {runtime.isTouchDevice
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover/msg:opacity-100'}"
                       >
                         <CopyButton text={displayContent} />
                       </div>
@@ -704,14 +762,9 @@ useKeybinding(
                   </div>
                 {/if}
               {:else if item.kind === "tool-group"}
-                <ToolGroupItem
-                  tools={item.messages}
-                  {skipMotion}
-                  workingDirectory={sess.workingDirectory || undefined}
-                  {tabId}
-                />
-              {:else if item.kind === "subagent"}
-                <SubagentCard message={item.message} {tabId} {skipMotion} />
+                <ToolGroupItem tools={item.messages} {skipMotion} />
+              {:else if item.kind === "subagent-group"}
+                <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "system"}
                 {#if item.message.forkSourceSessionId}
                   <div class="fork-divider" data-testid="fork-session-message">
@@ -733,7 +786,10 @@ useKeybinding(
                     <div class="fork-divider-line"></div>
                   </div>
                 {:else if item.message.worktreeMovedTo}
-                  <div class="fork-divider" data-testid="worktree-moved-message">
+                  <div
+                    class="fork-divider"
+                    data-testid="worktree-moved-message"
+                  >
                     <div class="fork-divider-line"></div>
                     <div class="fork-divider-label">
                       <TreeStructureIcon size={12} style="flex-shrink:0" />
@@ -788,7 +844,9 @@ useKeybinding(
                     updatedAt: work?.updatedAt,
                     workType: work?.type ?? item.message.workRef?.workType,
                     streaming: item.message.workRef?.workId
-                      ? session.worksStore.streaming[item.message.workRef.workId]
+                      ? session.worksStore.streaming[
+                          item.message.workRef.workId
+                        ]
                       : false,
                   }}
                   {skipMotion}
@@ -834,10 +892,26 @@ useKeybinding(
           {#each sess.serverQueuedPrompts as prompt (`server-queued-${prompt.queueId}`)}
             <UserMessageBubble
               content={prompt.text}
-              attachments={prompt.images?.map((img) => ({ name: "", dataUrl: img.dataUrl, mimeType: img.mimeType, type: "image" as const }))}
+              attachments={prompt.images?.map((img) => ({
+                name: "",
+                dataUrl: img.dataUrl,
+                mimeType: img.mimeType,
+                type: "image" as const,
+              }))}
               queued
               queueId={prompt.queueId}
-              onCancel={(queueId) => window.solus.cancelQueuedPrompt(session.ctxFor(tabId), queueId).catch((err: Error) => session.handleError(tabId, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 }))}
+              onCancel={(queueId) =>
+                window.solus
+                  .cancelQueuedPrompt(session.ctxFor(tabId), queueId)
+                  .catch((err: Error) =>
+                    session.handleError(tabId, {
+                      message: err.message,
+                      stderrTail: [],
+                      exitCode: null,
+                      elapsedMs: 0,
+                      toolCallCount: 0,
+                    }),
+                  )}
             />
           {/each}
 
@@ -849,7 +923,7 @@ useKeybinding(
         <ConversationMinimap
           items={navItems}
           {scrollEl}
-          isActive={tabId === session.activeTabId}
+          isActive={isVisible}
           prepareNavigate={prepareMinimapNavigate}
         />
       {/if}
@@ -861,41 +935,79 @@ useKeybinding(
       {#if sess && (isRunning || isAwaitingPlan || isDead || isFailed || isInterrupted)}
         <div
           class="flex items-end gap-1.5 absolute px-4 pointer-events-none"
-          style="bottom:{isEditorMode ? 3 : 16}px;height:2rem;left:0;right:0;{isEditorMode ? `max-width:var(--solus-reading-max);margin-inline:auto;` : `padding-inline:calc(1rem + var(--cv-pill-gutter));`}z-index:7"
+          style="bottom:{isEditorMode
+            ? 3
+            : 16}px;height:2rem;left:0;right:0;{isEditorMode
+            ? `max-width:var(--solus-reading-max);margin-inline:auto;`
+            : `padding-inline:calc(1rem + var(--cv-pill-gutter));`}z-index:7"
         >
-          <div class="flex items-center gap-1.5 text-[0.6875rem] pointer-events-auto">
+          <div
+            class="flex items-center gap-1.5 text-[0.6875rem] pointer-events-auto"
+          >
             {#if isRunning}
               <span class="flex items-center gap-1.5">
                 <span class="flex gap-0.75">
-                  <span class="w-1.25 h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)" style="animation-delay:0ms"></span>
-                  <span class="w-[0.3125rem] h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)" style="animation-delay:250ms"></span>
-                  <span class="w-[0.3125rem] h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)" style="animation-delay:500ms"></span>
+                  <span
+                    class="w-1.25 h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)"
+                    style="animation-delay:0ms"
+                  ></span>
+                  <span
+                    class="w-[0.3125rem] h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)"
+                    style="animation-delay:250ms"
+                  ></span>
+                  <span
+                    class="w-[0.3125rem] h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)"
+                    style="animation-delay:500ms"
+                  ></span>
                 </span>
-                <span class="text-(--solus-text-tertiary)">{currentActivity || "Running..."}</span>
+                <span class="text-(--solus-text-tertiary)"
+                  >{currentActivity || "Running..."}</span
+                >
               </span>
             {:else if isAwaitingPlan}
               <span class="flex items-center gap-1.5">
-                <ClipboardTextIcon size={11} weight="bold" style="color:var(--solus-status-running)" />
-                <span class="text-(--solus-text-tertiary)">Waiting for plan approval</span>
+                <ClipboardTextIcon
+                  size={11}
+                  weight="bold"
+                  style="color:var(--solus-status-running)"
+                />
+                <span class="text-(--solus-text-tertiary)"
+                  >Waiting for plan approval</span
+                >
               </span>
               {#if pendingPlanId}
-                <button onclick={() => pendingPlanId && session.openPlanModal(pendingPlanId)} class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)">
+                <button
+                  onclick={() =>
+                    pendingPlanId && session.openPlanModal(pendingPlanId)}
+                  class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
+                >
                   Review plan
                 </button>
               {/if}
             {:else if isDead}
-              <span class="text-(--solus-status-error)">Session ended unexpectedly</span>
-              <button onclick={handleRetry} class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)">
+              <span class="text-(--solus-status-error)"
+                >Session ended unexpectedly</span
+              >
+              <button
+                onclick={handleRetry}
+                class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
+              >
                 <ArrowCounterClockwiseIcon size={10} />Retry
               </button>
             {:else if isFailed}
               <span class="text-(--solus-status-error)">Failed</span>
-              <button onclick={handleRetry} class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)">
+              <button
+                onclick={handleRetry}
+                class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
+              >
                 <ArrowCounterClockwiseIcon size={10} />Retry
               </button>
             {:else if isInterrupted}
               <span class="text-(--solus-text-tertiary)">Interrupted</span>
-              <button onclick={handleRetry} class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)">
+              <button
+                onclick={handleRetry}
+                class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
+              >
                 <ArrowCounterClockwiseIcon size={10} />Retry
               </button>
             {/if}

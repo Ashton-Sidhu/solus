@@ -1,4 +1,4 @@
-import { VoiceRecorder, type VoiceState } from './voice-recorder.svelte'
+import { VoiceRecorder, type VoiceErrorKind, type VoiceState } from './voice-recorder.svelte'
 
 export type DictationTarget = HTMLInputElement | HTMLTextAreaElement
 
@@ -52,8 +52,9 @@ class Dictation {
   #pendingStart: DictationTarget | 'message' | null = null
   #submitHandlers = new WeakMap<DictationTarget, () => void>()
   #vadMinSpeechMsMap = new WeakMap<DictationTarget, number>()
-  #getVadSilenceMs = () => 3000
+  #getVadSilenceMs = () => 1500
   #getAutoEnabled = () => false
+  #getVoiceReady = () => true
   // Set right before our own post-transcript `el.focus()` so the synthetic
   // focus event it fires doesn't immediately re-arm dictation in a loop.
   #justInserted = false
@@ -82,9 +83,10 @@ class Dictation {
   }
 
   /** Wire settings (VAD silence + auto voice mode) from the app root. */
-  configure(getVadSilenceMs: () => number, getAutoEnabled: () => boolean): void {
+  configure(getVadSilenceMs: () => number, getAutoEnabled: () => boolean, getVoiceReady: () => boolean = () => true): void {
     this.#getVadSilenceMs = getVadSilenceMs
     this.#getAutoEnabled = getAutoEnabled
+    this.#getVoiceReady = getVoiceReady
   }
 
   /** True when auto voice mode is enabled (the global voice-mode setting). */
@@ -104,8 +106,16 @@ class Dictation {
     return this.#voice.error
   }
 
+  get errorKind(): VoiceErrorKind {
+    return this.#voice.errorKind
+  }
+
   get rmsRef() {
     return this.#voice.rmsRef
+  }
+
+  get partialText(): string {
+    return this.#voice.partialText
   }
 
   setAutoRearm(fn: (() => boolean) | null): void {
@@ -199,7 +209,7 @@ class Dictation {
       this.#justInserted = false
       return
     }
-    if (!this.autoEnabled || !isDictationTarget(el) || this.#voice.error) return
+    if (!this.autoEnabled || !this.#getVoiceReady() || !isDictationTarget(el) || this.#voice.error) return
     // Idle → start dictating. If the conversational recorder is live, yield the
     // mic to this field instead (startInto cancels it and queues the insert).
     if (this.#voice.state === 'idle' || this.mode === 'message') this.startInto(el)
@@ -223,6 +233,10 @@ class Dictation {
   /** Cancel recording, discarding any audio captured. */
   cancel(): void {
     this.#voice.cancel()
+  }
+
+  clearError(): void {
+    this.#voice.clearError()
   }
 
   /** Cancel recording + drop focus tracking if `el` is ours (call on unmount). */

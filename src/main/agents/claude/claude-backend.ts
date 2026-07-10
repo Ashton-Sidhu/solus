@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, SAFE_TOOLS } from './claude-agent'
 import { createSolusMcpServer } from '../../folio/work-tools'
+import { codexSubagentSdkTool } from '../codex/codex-subagent-tool'
 import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
@@ -249,6 +250,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         cwd: input.workingDirectory,
         sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
       },
+      // Built here (outside the work-tools import cycle) with the run's worktree cwd
+      // and abort signal, so stopping the session interrupts the Codex turn.
+      codexSubagentTool: codexSubagentSdkTool({
+        cwd: workTree,
+        abortSignal: abortController.signal,
+      }),
     })
 
     this.pendingRuns.push(handle)
@@ -276,8 +283,9 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         // Reads + create + render + the review ledger are pre-approved; update_work falls through to the prompt.
         // Automation reads are pre-approved; mutating/triggering ones (create/update/delete/set_enabled/run) fall through to the permission prompt.
         // create_session is pre-approved — spawning a session is a first-class agent action.
+        // codex_subagent is pre-approved like create_session — delegating to a Codex subagent is a first-class agent action.
         // Session/task reads are pre-approved; writes fall through to the prompt.
-        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__record_change', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
+        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__record_change', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__codex_subagent', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
         systemPromptAppend,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
