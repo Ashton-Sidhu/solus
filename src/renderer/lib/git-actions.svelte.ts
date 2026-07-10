@@ -1,5 +1,6 @@
 import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
 import type { GitStatusStore } from '../contexts/git-status.store.svelte'
+import { connectionsStore } from '../contexts/connections.store.svelte'
 import { requestInputFocus } from './inputFocus'
 
 export class GitActions {
@@ -74,6 +75,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
+    if (!connectionsStore.desktopHandlersAvailable) return
     void window.solus.openWorktreeTerminal(this.session.ctxFor(this.tabId))
     requestInputFocus()
   }

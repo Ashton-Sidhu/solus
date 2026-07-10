@@ -6,24 +6,25 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
 
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol } from 'electron'
 import { join, extname } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
-import { ControlPlane } from './control-plane'
-import { RunManager } from './run/run-manager'
-import { createBackends } from './agents/backend-registry'
 import { syncBundledPlugins } from './agents/plugins'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
-import type { AgentId, IpcContext, AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
+import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
 import { comboToAccelerator } from '../renderer/lib/keybindings/match'
 import { initAutoUpdater } from './updater'
-import { bootServer, type BootedServer } from './server'
-import { attachElectronIpcTransport } from './transports/electron-ipc'
+import type { BootedServer } from './server'
+import { bootCore, type BootCore } from './boot-core'
+import { attachDesktopAttentionNotifications, type DesktopAttentionNotifications } from './desktop-notifications'
 import type { WindowDeps } from './server/handlers/window-handlers'
 import type { FileDeps } from './server/handlers/file-handlers'
 import { mintPairUrl } from './pair-url'
 import { destroyAllFinders } from './server/file-finder'
 import { warmupTranscription } from './transcription'
+import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from './server/auth'
+import { closeDb } from './db'
+import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -90,12 +91,18 @@ let pasteCounter = 0
 let toggleSequence = 0
 let currentViewMode: 'pill' | 'editor' = 'editor'
 let booted: BootedServer | null = null
+let core: BootCore | null = null
+let desktopAttentionNotifications: DesktopAttentionNotifications | null = null
 // True while the renderer's current text selection lives inside the conversation
 // view. Pushed from the renderer on selectionchange so the native context menu
 // can offer "Quote in reply" only for conversation output (not docs/diffs/etc).
 let quoteContextActive = false
-let detachIpc: (() => void) | null = null
 let hiddenUntilTrayShow = false
+
+const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
+const LOCAL_DEVICE_LABEL = 'This Mac'
+const LOCAL_TOKEN_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000
+let localSessionToken: string | null = null
 
 // ─── OS summon shortcuts (Alt+Space / ⌘⇧K by default) ───
 //
@@ -194,17 +201,6 @@ const quoteInReplyIcon = createTemplateMenuIcon(
 )
 
 const isTestMode = process.env.SOLUS_TEST_MODE === '1'
-const controlPlane = new ControlPlane(createBackends())
-const runManager = new RunManager({
-  broadcast: (status) => booted?.server.broadcast('run-status', status),
-  broadcastLog: (batch) => booted?.server.broadcast('run-log', batch),
-})
-
-const DEFAULT_AGENT_ID: AgentId = 'claude-code'
-
-function agentIdFromContext(ctx?: IpcContext): AgentId {
-  return ctx?.session.provider ?? ctx?.settings.activeAgent ?? DEFAULT_AGENT_ID
-}
 
 // ─── Window registry + view-mode geometry ───
 // The pill window fills the cursor display's work area: a transparent canvas
@@ -659,6 +655,75 @@ function attachContextMenu(win: BrowserWindow): void {
 
 // ─── Native-only IPC handlers (don't go through SolusServer) ───
 
+interface PersistedLocalSessionToken {
+  token?: string
+}
+
+function localSessionTokenFile(): string {
+  return join(app.getPath('userData'), 'local-session-token.json')
+}
+
+function readPersistedLocalSessionToken(): string | null {
+  try {
+    const file = localSessionTokenFile()
+    if (!existsSync(file)) return null
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as PersistedLocalSessionToken
+    return typeof parsed.token === 'string' ? parsed.token : null
+  } catch {
+    return null
+  }
+}
+
+function writePersistedLocalSessionToken(token: string): void {
+  try {
+    const dir = app.getPath('userData')
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    writeFileSync(localSessionTokenFile(), JSON.stringify({ token }, null, 2), { mode: 0o600 })
+  } catch (err) {
+    log.warn(`failed to persist local session token: ${err}`)
+  }
+}
+
+function verifiedLocalSessionToken(token: string): string | null {
+  const session = verifySessionToken(token)
+  if (!session || session.deviceLabel !== LOCAL_DEVICE_LABEL) return null
+  if (Date.now() - session.issuedAt <= LOCAL_TOKEN_REFRESH_AFTER_MS) return token
+  const refreshed = refreshSessionToken(token)
+  if (!refreshed) return token
+  localSessionToken = refreshed
+  writePersistedLocalSessionToken(refreshed)
+  return refreshed
+}
+
+function getLocalSessionToken(): string {
+  if (localSessionToken) {
+    const verified = verifiedLocalSessionToken(localSessionToken)
+    if (verified) return verified
+  }
+
+  const persisted = readPersistedLocalSessionToken()
+  if (persisted) {
+    const verified = verifiedLocalSessionToken(persisted)
+    if (verified) {
+      localSessionToken = verified
+      return verified
+    }
+  }
+
+  localSessionToken = issueSessionToken(LOCAL_DEVICE_LABEL)
+  writePersistedLocalSessionToken(localSessionToken)
+  return localSessionToken
+}
+
+ipcMain.handle(LOCAL_CONNECTION_CHANNEL, () => {
+  if (!booted) throw new Error('Solus server is not ready')
+  return {
+    port: booted.port,
+    token: getLocalSessionToken(),
+    installationId: getInstallationId(),
+  }
+})
+
 // OS-level click-through is preload-only — it operates on the Electron window
 // directly and isn't relevant for browser clients.
 ipcMain.on('solus:set-quote-context', (_event, active: boolean) => {
@@ -810,18 +875,22 @@ if (isPairUrl) {
       designModeCaptureRegion,
     }
 
-    booted = await bootServer({
-      controlPlane,
+    core = await bootCore({
       windowDeps,
       fileDeps,
-      agentIdFromContext,
-      runManager,
       requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
       staticDir: join(__dirname, '../client'),
     })
+    booted = core.booted
+    startSessionIndexer()
 
     if (!isHeadless) {
-      detachIpc = attachElectronIpcTransport(booted.server, allWindows)
+      desktopAttentionNotifications = attachDesktopAttentionNotifications({
+        attention: core.controlPlane.attention,
+        focusWindow: () => showCurrentModeWindow('notification click', { fromTrayShow: true }),
+        getTray: () => tray,
+        badgeTarget: process.platform === 'darwin' && app.dock ? 'tray' : 'none',
+      })
 
       nativeTheme.on('updated', () => {
         booted?.server.broadcast('theme-changed', nativeTheme.shouldUseDarkColors)
@@ -894,6 +963,7 @@ if (isPairUrl) {
         tray.setContextMenu(
           Menu.buildFromTemplate(trayTemplate)
         )
+        desktopAttentionNotifications?.syncBadge()
         void tray // keep alive for lifetime of the app
 
         app.on('activate', () => {
@@ -905,17 +975,16 @@ if (isPairUrl) {
 }
 
 app.on('will-quit', () => {
+  stopSessionIndexer()
+  closeDb()
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
     powerSaveBlocker.stop(powerSaveBlockerId)
   }
   globalShortcut.unregisterAll()
   tray?.destroy()
   tray = null
-  runManager.stopAll()
-  controlPlane.shutdown()
   destroyAllFinders()
-  detachIpc?.()
-  void booted?.shutdown()
+  void core?.shutdown()
   flushLogs()
 })
 

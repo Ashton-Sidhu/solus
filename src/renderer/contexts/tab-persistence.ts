@@ -1,12 +1,23 @@
 import type { AgentId, ModelConfig, TabGitContext } from '../../shared/types'
 
-// On Electron the pill and editor windows share one localStorage but each owns
-// its tab state, so keys are scoped by the window's mode (`?mode=` in its URL).
-// The web client is a separate origin with one window — keys stay unscoped.
-// Legacy unscoped Electron keys seed the editor (it's the workspace); the pill
-// starts fresh.
+// Tab state is scoped first by server installation, then by Electron window
+// mode. The web client has one window, so it only gets the server scope.
+// Legacy unscoped Electron keys seed the local editor installation; the pill
+// starts fresh unless it has its own legacy mode-scoped key.
 const LEGACY_TABS_KEY = 'solus-open-tabs'
 const LEGACY_DRAFTS_KEY = 'solus-tab-drafts'
+
+let activeInstallationId: string | null = null
+let shouldMigrateLegacyKeys = false
+
+export function setTabPersistenceServerInstallationId(
+  installationId: string | null | undefined,
+  opts: { migrateLegacy?: boolean } = {},
+): void {
+  const normalized = installationId?.trim()
+  activeInstallationId = normalized ? encodeURIComponent(normalized) : null
+  shouldMigrateLegacyKeys = opts.migrateLegacy === true
+}
 
 function modeSuffix(): string {
   try {
@@ -17,9 +28,37 @@ function modeSuffix(): string {
   }
 }
 
-const KEY_SUFFIX = modeSuffix()
-const TABS_KEY = LEGACY_TABS_KEY + KEY_SUFFIX
-const DRAFTS_KEY = LEGACY_DRAFTS_KEY + KEY_SUFFIX
+function serverSuffix(): string {
+  return activeInstallationId ? `:${activeInstallationId}` : ''
+}
+
+function storageKey(base: string): string {
+  return base + serverSuffix() + modeSuffix()
+}
+
+function legacyMigrationKeys(base: string): string[] {
+  if (!activeInstallationId || !shouldMigrateLegacyKeys) return []
+  const suffix = modeSuffix()
+  const keys = [base + suffix]
+  if (suffix === ':editor') keys.push(base)
+  return [...new Set(keys)].filter((key) => key !== storageKey(base))
+}
+
+function readStorageWithMigration(base: string): string | null {
+  const key = storageKey(base)
+  const raw = localStorage.getItem(key)
+  if (raw) return raw
+
+  for (const legacyKey of legacyMigrationKeys(base)) {
+    const legacyRaw = localStorage.getItem(legacyKey)
+    if (!legacyRaw) continue
+    localStorage.setItem(key, legacyRaw)
+    localStorage.removeItem(legacyKey)
+    return legacyRaw
+  }
+
+  return null
+}
 
 export interface PersistedTab {
   tabId: string
@@ -44,11 +83,7 @@ export interface PersistedTabs {
 
 export function loadPersistedTabs(): PersistedTabs | null {
   try {
-    let raw = localStorage.getItem(TABS_KEY)
-    if (!raw && KEY_SUFFIX === ':editor') {
-      raw = localStorage.getItem(LEGACY_TABS_KEY)
-      if (raw) localStorage.removeItem(LEGACY_TABS_KEY)
-    }
+    const raw = readStorageWithMigration(LEGACY_TABS_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (
@@ -65,7 +100,7 @@ export function loadPersistedTabs(): PersistedTabs | null {
 
 export function savePersistedTabs(snapshot: PersistedTabs): void {
   try {
-    localStorage.setItem(TABS_KEY, JSON.stringify(snapshot))
+    localStorage.setItem(storageKey(LEGACY_TABS_KEY), JSON.stringify(snapshot))
   } catch {}
 }
 
@@ -75,9 +110,11 @@ export function savePersistedTabs(snapshot: PersistedTabs): void {
 // needs to survive refresh/restart, so a short debounce loses nothing.
 let tabsTimer: ReturnType<typeof setTimeout> | null = null
 let pendingTabs: PersistedTabs | null = null
+let pendingTabsKey: string | null = null
 
 export function savePersistedTabsDebounced(snapshot: PersistedTabs): void {
   pendingTabs = snapshot
+  pendingTabsKey = storageKey(LEGACY_TABS_KEY)
   if (tabsTimer) return
   tabsTimer = setTimeout(flushPersistedTabs, 400)
 }
@@ -88,9 +125,12 @@ export function flushPersistedTabs(): void {
     clearTimeout(tabsTimer)
     tabsTimer = null
   }
-  if (!pendingTabs) return
-  savePersistedTabs(pendingTabs)
+  if (!pendingTabs || !pendingTabsKey) return
+  try {
+    localStorage.setItem(pendingTabsKey, JSON.stringify(pendingTabs))
+  } catch {}
   pendingTabs = null
+  pendingTabsKey = null
 }
 
 // Unsent input drafts live in their own key, written on a debounce. They change
@@ -103,11 +143,7 @@ export interface TabDrafts {
 
 export function loadDrafts(): TabDrafts | null {
   try {
-    let raw = localStorage.getItem(DRAFTS_KEY)
-    if (!raw && KEY_SUFFIX === ':editor') {
-      raw = localStorage.getItem(LEGACY_DRAFTS_KEY)
-      if (raw) localStorage.removeItem(LEGACY_DRAFTS_KEY)
-    }
+    const raw = readStorageWithMigration(LEGACY_DRAFTS_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (typeof parsed?.activeInputText !== 'string' || typeof parsed?.tabs !== 'object') return null
@@ -123,8 +159,10 @@ export function loadDrafts(): TabDrafts | null {
 let liveDraftTabs: Record<string, string> = {}
 let liveActiveInputText = ''
 let draftsDirty = false
+let liveDraftsKey: string | null = null
 
 export function initDraftState(initial: TabDrafts | null): void {
+  liveDraftsKey = storageKey(LEGACY_DRAFTS_KEY)
   liveDraftTabs = { ...initial?.tabs ?? {} }
   liveActiveInputText = initial?.activeInputText ?? ''
 }
@@ -157,6 +195,7 @@ function scheduleDraftFlush() {
 // Keep the old signature so existing callers compile without change, but
 // prefer patchActiveDraft for per-keystroke updates.
 export function saveDraftsDebounced(drafts: TabDrafts): void {
+  liveDraftsKey = storageKey(LEGACY_DRAFTS_KEY)
   liveDraftTabs = { ...drafts.tabs }
   liveActiveInputText = drafts.activeInputText
   draftsDirty = true
@@ -171,7 +210,7 @@ export function flushDrafts(): void {
   }
   if (!draftsDirty) return
   try {
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify({ activeInputText: liveActiveInputText, tabs: liveDraftTabs }))
+    localStorage.setItem(liveDraftsKey ?? storageKey(LEGACY_DRAFTS_KEY), JSON.stringify({ activeInputText: liveActiveInputText, tabs: liveDraftTabs }))
   } catch {}
   draftsDirty = false
 }

@@ -13,6 +13,7 @@ import { getCliEnv } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { getFinder, refreshFinder } from '../file-finder'
 import type { SolusServer } from '../server'
+import { filePathsToAttachments, mimeTypeForExtension } from '../attachment-utils'
 
 const log = createLogger('main', 'file-handlers')
 
@@ -34,13 +35,6 @@ export interface FileDeps {
   designModeCaptureRegion(): { x: number; y: number; width: number; height: number }
 }
 
-const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'])
-const MIME_MAP: Record<string, string> = {
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
-  '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown',
-  '.json': 'application/json', '.yaml': 'text/yaml', '.toml': 'text/toml',
-}
 const PROJECT_FILES_MAX_ENTRIES = 25_000
 const IS_DEV_MODE = Boolean(process.env.ELECTRON_RENDERER_URL)
 const VOICE_TRANSCRIPTIONS_CSV = join(homedir(), '.solus', 'voice-transcriptions.csv')
@@ -73,32 +67,6 @@ type VoiceTranscriptionCsvRow = {
 function csvCell(value: string | number | boolean | null | undefined): string {
   const text = value == null ? '' : String(value)
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
-}
-
-export function filePathsToAttachments(filePaths: string[]): Attachment[] {
-  return filePaths.map((fp: string) => {
-    const ext = extname(fp).toLowerCase()
-    const mime = MIME_MAP[ext] || 'application/octet-stream'
-    const stat = statSync(fp)
-    let dataUrl: string | undefined
-
-    if (IMAGE_EXTS.has(ext) && stat.size < 2 * 1024 * 1024) {
-      try {
-        const buf = readFileSync(fp)
-        dataUrl = `data:${mime};base64,${buf.toString('base64')}`
-      } catch {}
-    }
-
-    return {
-      id: crypto.randomUUID(),
-      type: IMAGE_EXTS.has(ext) ? 'image' : 'file',
-      name: basename(fp),
-      path: fp,
-      mimeType: mime,
-      dataUrl,
-      size: stat.size,
-    }
-  })
 }
 
 function writeDataUrlToTmp(dataUrl: string, namePrefix: string): { mimeType: string; ext: string; buf: Buffer; filePath: string } | null {
@@ -271,7 +239,7 @@ async function readTextFile(
       displayPath,
       contents: buf.toString('utf-8'),
       size: fileStat.size,
-      mimeType: MIME_MAP[ext],
+      mimeType: mimeTypeForExtension(ext),
     }
   } catch (err: any) {
     return {

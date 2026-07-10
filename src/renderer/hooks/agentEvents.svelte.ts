@@ -25,7 +25,7 @@ export function setupAgentEvents(session: WorkspaceContext): void {
     }
   })
 
-  // When the WS transport detects a gap and re-issues a seq-watermark, it signals a reset.
+  // When the WS transport receives an explicit seq-reset, re-register tabs and re-bind sessions.
   // Re-register tabs and re-bind sessions without wiping client state.
   const solusApi = window.solus as any
   const unsubReset = solusApi.onResetRuntime?.(() => {

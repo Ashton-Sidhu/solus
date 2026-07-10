@@ -2,16 +2,32 @@ import { mount, unmount } from 'svelte'
 import App from './App.svelte'
 import '../../src/renderer/index.css'
 import ConnectFlow from './routes/ConnectFlow.svelte'
-import { WsTransport, type ConnectionStatus } from './transport/ws-transport'
-import { loadServers, touchLastConnected, type SavedServer } from './transport/server-registry'
+import { WsTransport, type ConnectionStatus } from '@client-core/ws-transport'
+import { getActiveServerId, loadServers, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
+import { setTabPersistenceServerInstallationId } from '@renderer/contexts/tab-persistence'
 import { webState } from './lib/web-state.svelte'
 import { router } from './lib/router.svelte'
+import { webPushState } from './lib/web-push.svelte'
 
 const root = document.getElementById('root')!
 
 let activeTransport: WsTransport | null = null
 let connectFlowApp: Record<string, any> | null = null
 let solusApp: Record<string, any> | null = null
+let serviceWorkerBridgeInstalled = false
+
+function installServiceWorkerMessageBridge(): void {
+  if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
+  serviceWorkerBridgeInstalled = true
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const data = event.data as { type?: string; sessionId?: string | null; kind?: string | null } | undefined
+    if (data?.type !== 'solus:notification-click') return
+    window.focus()
+    window.dispatchEvent(new CustomEvent('solus:focus-session', {
+      detail: { sessionId: data.sessionId ?? null, kind: data.kind ?? null },
+    }))
+  })
+}
 
 function showConnectFlow(): void {
   if (solusApp) { unmount(solusApp); solusApp = null }
@@ -30,6 +46,9 @@ function showConnectFlow(): void {
 
 function connectToServer(server: SavedServer): void {
   if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
+  setTabPersistenceServerInstallationId(server.installationId ?? server.id, {
+    migrateLegacy: loadServers().length <= 1,
+  })
 
   const transport = new WsTransport({
     serverUrl: server.url,
@@ -37,11 +56,22 @@ function connectToServer(server: SavedServer): void {
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
       webState.setConnectionStatus(status, attempt)
       document.dispatchEvent(new CustomEvent('solus:connection-status', { detail: { status, attempt } }))
+      if (status === 'connected') void webPushState.ensureSubscribedSilently()
+    },
+    onSessionTokenRefreshed: (sessionToken: string) => {
+      server.sessionToken = sessionToken
+      upsertServer(server)
+      webState.setConnectedServer(server)
+    },
+    onAuthFailed: () => {
+      if (!solusApp) showConnectFlow()
     },
   })
 
   ;(window as any).solus = transport.buildSolusApi()
   activeTransport = transport
+  webPushState.init()
+  installServiceWorkerMessageBridge()
   transport.start()
   touchLastConnected(server.id)
 
@@ -55,13 +85,25 @@ function connectToServer(server: SavedServer): void {
   })
 }
 
+function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
+  try {
+    const activeServerId = getActiveServerId()
+    return servers.find((server) => server.id === activeServerId) ?? null
+  } catch {
+    return null
+  }
+}
+
 // Boot
 router.start()
 const servers = loadServers()
+const activeServer = resolveActiveSavedServer(servers)
 const hash = location.hash
 
 if (hash.startsWith('#/connect')) {
   showConnectFlow()
+} else if (activeServer) {
+  connectToServer(activeServer)
 } else if (servers.length === 1) {
   connectToServer(servers[0])
 } else if (servers.length === 0 && import.meta.env.DEV) {

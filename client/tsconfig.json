@@ -8,6 +8,6 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["src/**/*", "../src/renderer/**/*", "../src/shared/**/*"],
+  "include": ["src/**/*", "../src/renderer/**/*", "../src/shared/**/*", "../src/client-core/**/*"],
   "exclude": ["node_modules"]
 }

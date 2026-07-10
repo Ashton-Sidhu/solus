@@ -1,4 +1,3 @@
-import { app } from 'electron'
 import { homedir } from 'os'
 import { mkdirSync } from 'fs'
 import { execFileSync } from 'child_process'
@@ -8,8 +7,10 @@ import type { AgentId, AgentMetadata, IpcContext, PromptOptions, RateLimitDecisi
 import { AGENT_BIN } from '../../../shared/types'
 import { getCliEnv } from '../../cli-env'
 import { createLogger } from '../../logger'
+import { appVersion } from '../../platform/paths'
 import { warmFinder } from '../file-finder'
 import type { SolusServer } from '../server'
+import type { HandlerCtx } from '../server'
 
 const log = createLogger('main', 'session-handlers')
 
@@ -46,10 +47,12 @@ export function enrichAgentMetadata(metadata: AgentMetadata): AgentMetadata {
 export function registerSessionHandlers(server: SolusServer, deps: SessionDeps): void {
   const { controlPlane, agentIdFromContext } = deps
 
-  server.register('start', async (_args, _ctx) => {
+  server.register('start', async (_args, handlerCtx) => {
     log.info('RPC start')
     queueMicrotask(() => {
-      server.broadcast('seq-watermark', server.getSeqWatermark())
+      if (handlerCtx.clientId?.startsWith('ws:')) {
+        server.sendTo(handlerCtx.clientId, 'seq-reset', server.getSeqWatermark())
+      }
     })
     // Ensure the default workspace exists before any session points its cwd at it.
     try {
@@ -62,22 +65,30 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       .map((id) => controlPlane.getMetadataFor(id))
       .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
       .map(enrichAgentMetadata)
-    return { projectPath: process.cwd(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: app.getVersion(), agents }
+    return { projectPath: process.cwd(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
   })
 
-  server.register('createTab', (args) => {
+  function tabOwner(handlerCtx: HandlerCtx): { clientId: string; deviceId?: string } {
+    if (!handlerCtx.clientId) throw new Error('Tab ownership requires a connected client')
+    return {
+      clientId: handlerCtx.clientId,
+      deviceId: handlerCtx.deviceId,
+    }
+  }
+
+  server.register('createTab', (args, handlerCtx) => {
     const [clientTabId] = args as [string | undefined]
-    const tabId = controlPlane.createTab(clientTabId)
+    const tabId = controlPlane.createTab(clientTabId, tabOwner(handlerCtx))
     log.info(`RPC createTab → ${tabId}`)
     return { tabId }
   })
 
-  function bindRuntimeSession(args: unknown[]) {
+  function bindRuntimeSession(args: unknown[], handlerCtx: HandlerCtx) {
     const [ctx] = args as [IpcContext]
     const sessionId = ctx.session.agentSessionId
     if (!sessionId) return null
     log.info(`RPC bindRuntimeSession: tab=${ctx.session.tabId} session=${sessionId}`)
-    return controlPlane.bindRuntimeSession(ctx.session.tabId, sessionId)
+    return controlPlane.bindRuntimeSession(ctx.session.tabId, sessionId, tabOwner(handlerCtx))
   }
 
   server.register('bindRuntimeSession', bindRuntimeSession)
@@ -94,7 +105,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return controlPlane.dispatchToAgentSession(ctx, agentSessionId, options, handlerCtx.deviceId)
   })
 
-  server.register('resetTabSession', (args) => {
+  server.register('resetTabSession', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
     log.info(`RPC resetTabSession: ${ctx.session.tabId}`)
     // Warm the same path the Files view queries: the worktree root when this tab
@@ -103,7 +114,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const warmPath =
       controlPlane.getGitContext(ctx.session.tabId)?.worktreePath ?? ctx.session.workingDirectory
     if (warmPath && warmPath !== '~') warmFinder(warmPath)
-    controlPlane.resetTabSession(ctx)
+    controlPlane.resetTabSession(ctx, tabOwner(handlerCtx))
   })
 
   server.register('prompt', async (args, handlerCtx) => {
@@ -132,10 +143,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return controlPlane.retry(ctx, options)
   })
 
-  server.register('closeTab', (args) => {
+  server.register('closeTab', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
     log.info(`RPC closeTab: ${ctx.session.tabId}`)
-    controlPlane.closeTab(ctx)
+    controlPlane.closeTab(ctx, tabOwner(handlerCtx))
   })
 
   server.register('respondPermission', (args) => {

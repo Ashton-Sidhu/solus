@@ -54,7 +54,8 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist/main',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts')
+          index: resolve(__dirname, 'src/main/index.ts'),
+          standalone: resolve(__dirname, 'src/main/standalone.ts')
         },
         external: [
           'electron',
@@ -91,6 +92,7 @@ export default defineConfig(({ mode }) => {
     root: resolve(__dirname, 'src/renderer'),
     resolve: {
       alias: {
+        '@client-core': resolve(__dirname, 'src/client-core'),
         '@geist-fonts': geistFontsDir
       }
     },

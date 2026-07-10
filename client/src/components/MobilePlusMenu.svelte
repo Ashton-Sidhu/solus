@@ -22,6 +22,7 @@
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";
   import type { ReasoningEffort } from "../../../src/shared/types";
   import { swipeDismiss } from "../lib/swipe-dismiss";
+  import WebPushBell from "./WebPushBell.svelte";
 
   interface Props {
     open: boolean;
@@ -261,6 +262,8 @@
           <span class={heroIcon}><FileTextIcon size={22} /></span>
           <span class={heroLabel}>Folio</span>
         </button>
+        <div class={rowDivider}></div>
+        <WebPushBell variant="row" />
       </div>
 
       <!-- Workspace -->

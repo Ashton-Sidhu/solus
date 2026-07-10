@@ -1,0 +1,166 @@
+import { connectionsStore } from '../../contexts/connections.store.svelte'
+import { projectsStore } from '../../contexts/projects.store.svelte'
+import type {
+  SetupAgentAuthCheckResult,
+  SetupGithubRepo,
+  SetupLogEvent,
+  SetupStatusEvent,
+  SetupStepStatus,
+  SetupStreamStep,
+} from '../../../shared/types'
+
+const LOG_LIMIT = 500
+
+function emptyLogs(): Record<SetupStreamStep, string[]> {
+  return {
+    'install-claude': [],
+    'install-codex': [],
+    clone: [],
+  }
+}
+
+export class ServerSetupStore {
+  collapsed = $state(false)
+  serverNameDraft = $state('')
+  serverNameDirty = $state(false)
+  savingName = $state(false)
+  nameError = $state<string | null>(null)
+
+  logs = $state<Record<SetupStreamStep, string[]>>(emptyLogs())
+  statuses = $state<Partial<Record<SetupStreamStep, SetupStepStatus>>>({})
+  errors = $state<Partial<Record<SetupStreamStep, string>>>({})
+
+  authCheck = $state<SetupAgentAuthCheckResult | null>(null)
+  repos = $state<SetupGithubRepo[]>([])
+  reposLoaded = $state(false)
+  reposLoading = $state(false)
+  reposConnected = $state<boolean | null>(null)
+  reposError = $state<string | null>(null)
+  clonedProjectPath = $state<string | null>(null)
+
+  private listenerCount = 0
+  private unlistenLog: (() => void) | null = null
+  private unlistenStatus: (() => void) | null = null
+
+  listen(): () => void {
+    this.listenerCount++
+    if (!this.unlistenLog) {
+      this.unlistenLog = window.solus.onSetupLog((event) => this.applyLog(event))
+      this.unlistenStatus = window.solus.onSetupStatus((event) => this.applyStatus(event))
+    }
+    return () => {
+      this.listenerCount = Math.max(0, this.listenerCount - 1)
+      if (this.listenerCount > 0) return
+      this.unlistenLog?.()
+      this.unlistenStatus?.()
+      this.unlistenLog = null
+      this.unlistenStatus = null
+    }
+  }
+
+  syncServerName(name: string | null | undefined): void {
+    if (this.serverNameDirty || this.serverNameDraft) return
+    this.serverNameDraft = name?.trim() || 'Solus Server'
+  }
+
+  markServerNameDirty(): void {
+    this.serverNameDirty = true
+    this.nameError = null
+  }
+
+  async saveServerName(): Promise<void> {
+    const name = this.serverNameDraft.trim()
+    if (!name) {
+      this.nameError = 'Enter a server name.'
+      return
+    }
+    this.savingName = true
+    this.nameError = null
+    try {
+      const result = await window.solus.setServerName(name)
+      this.serverNameDraft = result.name ?? name
+      this.serverNameDirty = false
+      await connectionsStore.refreshCapabilities()
+    } catch (err) {
+      this.nameError = err instanceof Error ? err.message : String(err)
+    } finally {
+      this.savingName = false
+    }
+  }
+
+  async installClaude(): Promise<void> {
+    this.clearStep('install-claude')
+    try {
+      await window.solus.setupInstallAgentCli({ agent: 'claude' })
+    } catch (err) {
+      this.errors['install-claude'] = err instanceof Error ? err.message : String(err)
+    } finally {
+      await connectionsStore.refreshCapabilities()
+    }
+  }
+
+  async checkClaudeAuth(): Promise<void> {
+    this.authCheck = await window.solus.setupCheckAgentAuth({ agent: 'claude' })
+    await connectionsStore.refreshCapabilities()
+  }
+
+  async loadGithubRepos(opts: { force?: boolean } = {}): Promise<void> {
+    if (this.reposLoading) return
+    if (this.reposLoaded && !opts.force) return
+    this.reposLoading = true
+    this.reposError = null
+    try {
+      const result = await window.solus.setupListGithubRepos()
+      this.reposConnected = result.connected
+      if (result.connected) {
+        this.repos = result.repos
+      } else {
+        this.repos = []
+      }
+      this.reposLoaded = true
+    } catch (err) {
+      this.reposError = err instanceof Error ? err.message : String(err)
+      this.repos = []
+      this.reposLoaded = true
+    } finally {
+      this.reposLoading = false
+    }
+  }
+
+  async cloneRepo(repo: SetupGithubRepo): Promise<void> {
+    this.clearStep('clone')
+    this.clonedProjectPath = null
+    try {
+      const result = await window.solus.setupCloneProject({
+        cloneUrl: repo.cloneUrl,
+        name: repo.name,
+      })
+      this.clonedProjectPath = result.path
+      await projectsStore.loadProjects({ force: true })
+    } catch (err) {
+      this.errors.clone = err instanceof Error ? err.message : String(err)
+    } finally {
+      await connectionsStore.refreshCapabilities()
+    }
+  }
+
+  clearStep(step: SetupStreamStep): void {
+    this.logs[step].splice(0, this.logs[step].length)
+    delete this.statuses[step]
+    delete this.errors[step]
+  }
+
+  private applyLog(event: SetupLogEvent): void {
+    const lines = this.logs[event.step]
+    lines.push(event.line)
+    if (lines.length > LOG_LIMIT) lines.splice(0, lines.length - LOG_LIMIT)
+  }
+
+  private applyStatus(event: SetupStatusEvent): void {
+    this.statuses[event.step] = event.status
+    if (event.error) this.errors[event.step] = event.error
+    else delete this.errors[event.step]
+  }
+}
+
+export const serverSetupStore = new ServerSetupStore()

@@ -1,15 +1,33 @@
 import { createLogger } from '../../logger'
-import { getAccessToken, disconnect } from '../../google/oauth'
+import { getAccessToken, disconnect, startGoogleOAuthFlow } from '../../google/oauth'
 import { uploadMarkdownAsDoc } from '../../google/drive'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'google-handlers')
 
-export function registerGoogleHandlers(server: SolusServer): void {
+export interface GoogleHandlersDeps {
+  getServerInfo(): { host: string; port: number }
+}
+
+interface GoogleUploadDocArgs {
+  title: string
+  markdown: string
+  oauthCallbackBaseUrl?: string
+}
+
+export function registerGoogleHandlers(server: SolusServer, deps: GoogleHandlersDeps): void {
   server.register('googleUploadDoc', async (args) => {
-    const [{ title, markdown }] = args as [{ title: string; markdown: string }]
+    const [{ title, markdown, oauthCallbackBaseUrl }] = args as [GoogleUploadDocArgs]
     try {
       const accessToken = await getAccessToken()
+      if (!accessToken) {
+        const { host, port } = deps.getServerInfo()
+        return startGoogleOAuthFlow({
+          callbackBaseUrl: oauthCallbackBaseUrl,
+          fallbackHost: host,
+          fallbackPort: port,
+        })
+      }
       const { docUrl } = await uploadMarkdownAsDoc(accessToken, title, markdown)
       return { docUrl }
     } catch (err) {

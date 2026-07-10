@@ -1,9 +1,5 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { readFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { getDb } from '../db'
 import { createLogger } from '../logger'
-import { writeJson } from '../project-config/json-file'
 import { loadProjectConfig, resolveProjectKey } from '../project-config/project-config'
 import { LocalTaskProvider } from './providers/local'
 import { GitHubTaskProvider, makeGitHubTaskProvider, type GitHubTaskRaw } from './providers/github'
@@ -55,12 +51,7 @@ function classifyProviderError(err: unknown): unknown {
 // Disposable provider cache — the provider stays the source of truth, so this is
 // only a fast/offline read of the last-seen list. Local projects skip it (their
 // store IS the source). See the Task System Design work (strategy B).
-const CACHE_ROOT = join(homedir(), '.solus', 'tasks', 'cache')
 const githubProviderCache = new Map<string, Promise<GitHubTaskProvider>>()
-
-function cachePath(projectKey: string): string {
-  return join(CACHE_ROOT, `${projectKey}.json`)
-}
 
 function configuredRepo(
   config: Awaited<ReturnType<typeof loadProjectConfig>>,
@@ -217,17 +208,39 @@ interface TaskCacheFile {
 }
 
 async function readCache(projectKey: string): Promise<TaskCacheFile | null> {
-  const path = cachePath(projectKey)
-  if (!existsSync(path)) return null
+  const row = getDb().prepare(`
+    SELECT fetched_at, truncated, tasks
+    FROM task_cache
+    WHERE project_key = ?
+  `).get(projectKey) as { fetched_at: number | null; truncated: number | null; tasks: string | null } | undefined
+  if (!row?.tasks) return null
   try {
-    const raw = JSON.parse(await readFile(path, 'utf8')) as TaskCacheFile | Task[]
-    // Legacy cache files were a bare Task[]; serve them with no fetch time.
-    if (Array.isArray(raw)) return { version: 1, fetchedAt: 0, tasks: raw }
-    return raw
+    return {
+      version: 1,
+      fetchedAt: row.fetched_at ?? 0,
+      truncated: row.truncated === null ? undefined : row.truncated === 1,
+      tasks: JSON.parse(row.tasks) as Task[],
+    }
   } catch (err) {
     log.error(`readCache(${projectKey}) failed: ${String(err)}`)
     return null
   }
+}
+
+async function writeCache(projectKey: string, cache: TaskCacheFile): Promise<void> {
+  getDb().prepare(`
+    INSERT INTO task_cache(project_key, fetched_at, truncated, tasks)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(project_key) DO UPDATE SET
+      fetched_at = excluded.fetched_at,
+      truncated = excluded.truncated,
+      tasks = excluded.tasks
+  `).run(
+    projectKey,
+    cache.fetchedAt,
+    cache.truncated === undefined ? null : cache.truncated ? 1 : 0,
+    JSON.stringify(cache.tasks),
+  )
 }
 
 /**
@@ -248,7 +261,7 @@ export async function listTasks(
     const list = await provider.listTasks(opts)
     const fetchedAt = Date.now()
     const cache: TaskCacheFile = { version: 1, fetchedAt, truncated: list.truncated, tasks: list.tasks }
-    await writeJson(cachePath(projectKey), cache)
+    await writeCache(projectKey, cache)
     return { ...list, fetchedAt }
   } catch (err) {
     const cached = await readCache(projectKey)

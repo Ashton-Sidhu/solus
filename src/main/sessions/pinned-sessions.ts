@@ -1,46 +1,40 @@
-import { createLogger } from "../logger"
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import type { PinnedSession, PinnedSessionManifest } from "../../shared/types"
+import type { AgentId, PinnedSession } from '../../shared/types'
+import { getDb, withTx } from '../db'
 
-const log = createLogger('sessions', 'pinned-sessions.ts')
-const ROOT = join(homedir(), '.solus')
-const MANIFEST_PATH = join(ROOT, 'pinned-sessions.json')
-
-async function ensureDir(): Promise<void> {
-  if (!existsSync(ROOT)) {
-    await mkdir(ROOT, { recursive: true })
-  }
+interface PinnedSessionRow {
+  session_id: string
+  provider: AgentId
+  title: string
+  cwd: string
+  pinned_at: number
 }
 
 /** Pinned sessions, most-recently-pinned first. */
 export async function readManifest(): Promise<PinnedSession[]> {
-  if (!existsSync(MANIFEST_PATH)) return []
-  try {
-    const text = await readFile(MANIFEST_PATH, 'utf8')
-    const manifest = JSON.parse(text) as PinnedSessionManifest
-    return Object.values(manifest.sessions).sort((a, b) => b.pinnedAt - a.pinnedAt)
-  } catch (err) {
-    log.warn(`Failed to read pinned-sessions manifest, starting empty: ${err}`)
-    return []
-  }
-}
-
-async function writeManifest(sessions: PinnedSession[]): Promise<void> {
-  await ensureDir()
-  const manifest: PinnedSessionManifest = {
-    sessions: Object.fromEntries(sessions.map((s) => [s.sessionId, s])),
-  }
-  await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf8')
+  const rows = getDb().prepare(`
+    SELECT session_id, provider, title, cwd, pinned_at
+    FROM pinned_sessions
+    ORDER BY pinned_at DESC
+  `).all() as unknown as PinnedSessionRow[]
+  return rows.map((row) => ({
+    sessionId: row.session_id,
+    provider: row.provider,
+    title: row.title,
+    cwd: row.cwd,
+    pinnedAt: row.pinned_at,
+  }))
 }
 
 export async function togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]> {
-  const sessions = await readManifest()
-  const next = sessions.some((s) => s.sessionId === session.sessionId)
-    ? sessions.filter((s) => s.sessionId !== session.sessionId)
-    : [session, ...sessions] // newest pinnedAt first keeps the list sorted
-  await writeManifest(next)
-  return next
+  withTx(() => {
+    const db = getDb()
+    const deleted = db.prepare('DELETE FROM pinned_sessions WHERE session_id = ?').run(session.sessionId)
+    if (deleted.changes === 0) {
+      db.prepare(`
+        INSERT INTO pinned_sessions (session_id, provider, title, cwd, pinned_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(session.sessionId, session.provider, session.title, session.cwd, session.pinnedAt)
+    }
+  })
+  return readManifest()
 }

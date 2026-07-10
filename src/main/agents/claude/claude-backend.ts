@@ -32,11 +32,13 @@ import type { ClaudeRunResult } from './claude-agent'
 import type { SessionLoadMessage, SessionPreviewResult } from '../../../shared/session-history'
 import {
   _sessionListCache,
+  _sessionScanInFlight,
   parseJsonlLine,
   scanSessionsInDir,
 } from './claude-session-helpers'
 import {
   _planListCache,
+  _planScanInFlight,
   scanPlansInDir,
   annotateScanned,
   groupBySession,
@@ -47,6 +49,7 @@ import { MemoryCache } from '../../../shared/cache'
 import { runBounded } from '../../lib/concurrency'
 import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
+import { listIndexedSessions, sessionIndexReady } from '../../db/session-indexer'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
 
@@ -371,6 +374,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
       }
     }
 
+    if (sessionIndexReady()) {
+      const sessions = listIndexedSessions(dirsToScan.map((dir) => dir.encodedPath))
+      onBatch?.(sessions)
+      return sessions
+    }
+
     let currentMaxMtime = 0
     for (const dir of dirsToScan) {
       try {
@@ -387,12 +396,29 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
       return cached.sessions
     }
 
-    const scanTasks = dirsToScan.map((d) => scanSessionsInDir(d.path, d.encodedPath, cwd, d.isWorktree, onBatch ? (s) => onBatch([s]) : undefined))
-    const results = await Promise.all(scanTasks)
-    const sessions = results.flat()
-    sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
-    _sessionListCache.set(cacheKey, { sessions, latestDirMtime: currentMaxMtime })
-    return sessions
+    // Dedup concurrent cold scans of the same project. When two callers (e.g. the
+    // pill and editor windows at launch) miss the cache at once, the first drives
+    // the scan and its streaming batches; later callers await the same promise and
+    // still get the full list from its return value — the history store treats the
+    // RPC result as authoritative, so they only forgo the incremental `onBatch`
+    // stream, not the data.
+    const inFlight = _sessionScanInFlight.get(cacheKey)
+    if (inFlight) return inFlight
+
+    const scan = (async () => {
+      const scanTasks = dirsToScan.map((d) => scanSessionsInDir(d.path, d.encodedPath, cwd, d.isWorktree, onBatch ? (s) => onBatch([s]) : undefined))
+      const results = await Promise.all(scanTasks)
+      const sessions = results.flat()
+      sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
+      _sessionListCache.set(cacheKey, { sessions, latestDirMtime: currentMaxMtime })
+      return sessions
+    })()
+    _sessionScanInFlight.set(cacheKey, scan)
+    try {
+      return await scan
+    } finally {
+      _sessionScanInFlight.delete(cacheKey)
+    }
   }
 
   async loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
@@ -523,43 +549,57 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     const projectsRoot = join(homedir(), '.claude', 'projects')
     if (!existsSync(projectsRoot)) return []
 
-    const annotationIndex = await loadAllAnnotations()
-    const allScanned: AnnotatedPlan[] = []
+    // Dedup concurrent cold plan scans of the same scope, exactly as listSessions
+    // does: the pill and editor windows both fire listPlans at launch, and each
+    // walks every project's transcripts. Share one scan; later callers await it.
+    const inFlight = _planScanInFlight.get(cacheKey)
+    if (inFlight) return inFlight
 
-    if (allProjects) {
-      const dirs = await readdir(projectsRoot)
-      const tasks = dirs.map((dir) => async () => {
-        const full = join(projectsRoot, dir)
-        try {
-          if (!(await fsStat(full)).isDirectory()) return
-        } catch {
-          return
-        }
-        const fallbackCwd = dir.startsWith('-') ? dir.replaceAll('-', '/') : dir
-        const scanned = await scanPlansInDir(full, dir, fallbackCwd)
+    const scan = (async () => {
+      const annotationIndex = await loadAllAnnotations()
+      const allScanned: AnnotatedPlan[] = []
+
+      if (allProjects) {
+        const dirs = await readdir(projectsRoot)
+        const tasks = dirs.map((dir) => async () => {
+          const full = join(projectsRoot, dir)
+          try {
+            if (!(await fsStat(full)).isDirectory()) return
+          } catch {
+            return
+          }
+          const fallbackCwd = dir.startsWith('-') ? dir.replaceAll('-', '/') : dir
+          const scanned = await scanPlansInDir(full, dir, fallbackCwd)
+          for (const s of scanned) allScanned.push(annotateScanned(s, annotationIndex))
+        })
+        await runBounded(tasks, 8)
+      } else {
+        const cwd = projectPath || process.cwd()
+        const encodedPath = encodePathAsFolder(cwd)
+        const mainDir = join(projectsRoot, encodedPath)
+        const scanned = await scanPlansInDir(mainDir, encodedPath, cwd)
         for (const s of scanned) allScanned.push(annotateScanned(s, annotationIndex))
-      })
-      await runBounded(tasks, 8)
-    } else {
-      const cwd = projectPath || process.cwd()
-      const encodedPath = encodePathAsFolder(cwd)
-      const mainDir = join(projectsRoot, encodedPath)
-      const scanned = await scanPlansInDir(mainDir, encodedPath, cwd)
-      for (const s of scanned) allScanned.push(annotateScanned(s, annotationIndex))
 
-      const worktreePrefix = encodedPath + SOLUS_WORKTREE_ENCODED_MARKER
-      const worktreeDirs = (await readdir(projectsRoot)).filter((d: string) => d.startsWith(worktreePrefix))
-      const tasks = worktreeDirs.map((wt) => async () => {
-        const wtScanned = await scanPlansInDir(join(projectsRoot, wt), wt, cwd)
-        for (const s of wtScanned) allScanned.push(annotateScanned(s, annotationIndex))
-      })
-      await runBounded(tasks, 8)
+        const worktreePrefix = encodedPath + SOLUS_WORKTREE_ENCODED_MARKER
+        const worktreeDirs = (await readdir(projectsRoot)).filter((d: string) => d.startsWith(worktreePrefix))
+        const tasks = worktreeDirs.map((wt) => async () => {
+          const wtScanned = await scanPlansInDir(join(projectsRoot, wt), wt, cwd)
+          for (const s of wtScanned) allScanned.push(annotateScanned(s, annotationIndex))
+        })
+        await runBounded(tasks, 8)
+      }
+
+      const descriptors = groupBySession(allScanned)
+      descriptors.sort((a, b) => b.timestamp - a.timestamp)
+      _planListCache.set(cacheKey, descriptors)
+      return descriptors
+    })()
+    _planScanInFlight.set(cacheKey, scan)
+    try {
+      return await scan
+    } finally {
+      _planScanInFlight.delete(cacheKey)
     }
-
-    const descriptors = groupBySession(allScanned)
-    descriptors.sort((a, b) => b.timestamp - a.timestamp)
-    _planListCache.set(cacheKey, descriptors)
-    return descriptors
   }
 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {

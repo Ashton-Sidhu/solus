@@ -1,10 +1,11 @@
 import type { ControlPlane } from '../../control-plane'
 import type { AgentId, IpcContext, PlanAnnotations, SessionMeta, SessionScanEvent } from '../../../shared/types'
-import { loadAnnotations, saveAnnotations, upsertAnnotations } from '../../plans/annotations'
+import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
 import { _planListCache } from '../../agents/claude/claude-plan-helpers'
+import { searchIndexedSessions } from '../../db/session-indexer'
 
 const log = createLogger('main', 'history-handlers')
 
@@ -56,6 +57,16 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       if (streamId) {
         server.broadcast('session-scan', { streamId, type: 'done', totalSessions: 0 } satisfies SessionScanEvent)
       }
+      return []
+    }
+  })
+
+  server.register('searchSessions', async (args) => {
+    const [request] = args as [{ query: string; projectPath?: string; limit?: number }]
+    try {
+      return searchIndexedSessions(request.query, request.projectPath, request.limit)
+    } catch (err) {
+      log.error(`searchSessions error: ${err}`)
       return []
     }
   })
@@ -169,12 +180,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
   server.register('toggleBookmarkPlan', async (args) => {
     const [sessionId, projectPath, cwd, planToolUseId, title] = args as [string, string, string, string, string]
-    const existing = await loadAnnotations(sessionId, planToolUseId)
-    const toggled = !existing?.bookmarked
-    const merged = await upsertAnnotations(sessionId, projectPath, cwd, planToolUseId, title, {
-      bookmarked: toggled,
-      bookmarkedAt: toggled ? Date.now() : undefined,
-    })
+    const merged = await toggleBookmarkAnnotations(sessionId, projectPath, cwd, planToolUseId, title)
     _planListCache.clear()
     return merged
   })

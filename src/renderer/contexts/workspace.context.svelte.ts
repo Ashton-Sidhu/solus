@@ -73,6 +73,8 @@ export class WorkspaceContext {
 
   /** True while bootstrapRuntimeTabs is running; prevents persist effect from clobbering saved snapshot. */
   hydrating = $state(true)
+  /** True while a seq-reset recovery is re-registering tabs and re-binding sessions. */
+  runtimeSyncing = $state(false)
 
   /** Tab that last sent a prompt — that tab's session is "the latest session"
    *  for the cross-window pickup pointer (see active-session-pointer.ts). */

@@ -3,7 +3,8 @@ import { createWriteStream, existsSync } from 'fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
-import { net } from 'electron'
+import { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { createLogger } from './logger'
 
 const log = createLogger('main', 'model-downloader.ts')
@@ -33,34 +34,20 @@ async function isInstalled(): Promise<boolean> {
   }
 }
 
-function downloadFile(url: string, destination: string, expectedSha256: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = net.request(url)
-    request.on('response', (response) => {
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        response.resume()
-        reject(new Error(`Download failed for ${url}: HTTP ${response.statusCode}`))
-        return
-      }
+async function downloadFile(url: string, destination: string, expectedSha256: string): Promise<void> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Download failed for ${url}: HTTP ${response.status}`)
+  if (!response.body) throw new Error(`Download failed for ${url}: missing response body`)
 
-      const hash = createHash('sha256')
-      const output = createWriteStream(destination, { flags: 'wx' })
-      response.on('data', (chunk: Buffer) => hash.update(chunk))
-      response.on('error', reject)
-      output.on('error', reject)
-      output.on('finish', () => {
-        const actualSha256 = hash.digest('hex')
-        if (actualSha256 !== expectedSha256) {
-          reject(new Error(`Checksum mismatch for ${url}`))
-          return
-        }
-        resolve()
-      })
-      response.pipe(output)
-    })
-    request.on('error', reject)
-    request.end()
-  })
+  const hash = createHash('sha256')
+  const source = Readable.fromWeb(response.body as import('stream/web').ReadableStream<Uint8Array>)
+  source.on('data', (chunk: Buffer) => hash.update(chunk))
+  await pipeline(source, createWriteStream(destination, { flags: 'wx' }))
+
+  const actualSha256 = hash.digest('hex')
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(`Checksum mismatch for ${url}`)
+  }
 }
 
 async function downloadAndInstall(): Promise<string> {

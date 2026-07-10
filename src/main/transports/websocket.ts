@@ -9,6 +9,8 @@ import { verifySessionToken } from '../server/auth'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'ws-transport')
+const RESUME_WAIT_MS = 2_000
+const WS_BUFFERED_AMOUNT_LIMIT = 8 * 1024 * 1024
 
 interface WsRequest {
   id: string
@@ -52,9 +54,9 @@ interface ClientSession {
 export function attachWebSocketTransport(
   http: HttpServer,
   server: SolusServer,
-  opts: { requireAuth?: boolean } = {}
+  opts: { requireAuth?: boolean | (() => boolean) } = {}
 ): { close: () => void; sessions: Map<string, ClientSession> } {
-  const requireAuth = opts.requireAuth ?? true
+  const requireAuth = () => typeof opts.requireAuth === 'function' ? opts.requireAuth() : (opts.requireAuth ?? true)
   const wss = new WebSocketServer({ noServer: true })
   const sessions = new Map<string, ClientSession>()
 
@@ -65,7 +67,7 @@ export function attachWebSocketTransport(
     let deviceId: string | null = null
     let deviceLabel = 'Web'
 
-    if (requireAuth) {
+    if (requireAuth()) {
       if (!auth) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
         socket.destroy()
@@ -99,19 +101,46 @@ export function attachWebSocketTransport(
       }
       sessions.set(id, session)
       server.broadcast('presence', { type: 'connect', id, deviceLabel, deviceId })
+      const clientId = `ws:${id}`
+      let replayInProgress = false
+      let liveEventsPaused = true
+      const liveBuffer: string[] = []
+      let resumeTimer: ReturnType<typeof setTimeout>
+      const flushLiveBuffer = () => {
+        if (!liveEventsPaused) return
+        liveEventsPaused = false
+        clearTimeout(resumeTimer)
+        for (const frame of liveBuffer.splice(0)) sendRaw(ws, frame)
+      }
+      const deliverEventFrame = (frame: string) => {
+        if (replayInProgress) {
+          sendRaw(ws, frame)
+        } else if (liveEventsPaused) {
+          liveBuffer.push(frame)
+        } else {
+          sendRaw(ws, frame)
+        }
+      }
+      resumeTimer = setTimeout(() => {
+        flushLiveBuffer()
+        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
+      }, RESUME_WAIT_MS)
 
       // Subscribe to every topic; payloads are pushed as soon as they fire.
       // Serialize the frame once per broadcast (eventFrame) and reuse it across
       // every connected socket instead of re-stringifying per client.
       for (const topic of RPC_TOPICS) {
         const unsub = server.subscribe(topic, (payload, seq) => {
-          sendRaw(ws, eventFrame(topic, seq, payload as unknown[]))
+          deliverEventFrame(eventFrame(topic, seq, payload as unknown[]))
         })
         session.topicUnsubs.push(unsub)
       }
-
-      // Push seq watermark so the client knows which events to resume from.
-      send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
+      const unsubDirect = server.registerDirectClient(clientId, (topic, payload, seq) => {
+        deliverEventFrame(typeof seq === 'number'
+          ? eventFrame(topic, seq, payload as unknown[])
+          : JSON.stringify({ type: 'event', topic, payload }))
+      })
+      session.topicUnsubs.push(unsubDirect)
 
       // Heartbeat — drop stale clients within 45s.
       let alive = true
@@ -135,13 +164,19 @@ export function attachWebSocketTransport(
         }
 
         if ((msg as WsResume).type === 'resume') {
-          handleResume(server, ws, (msg as WsResume).lastSeqByTopic ?? {})
+          replayInProgress = true
+          handleResume(server, ws, clientId, (msg as WsResume).lastSeqByTopic ?? {})
+          replayInProgress = false
+          flushLiveBuffer()
+          send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
           return
         }
+        flushLiveBuffer()
+        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
 
         const req = msg as WsRequest
         if (!req?.id || !req?.method) return
-        const ctx = { clientId: `ws:${id}`, deviceLabel, deviceId: deviceId ?? undefined }
+        const ctx = { clientId, deviceLabel, deviceId: deviceId ?? undefined }
 
         try {
           if (!server.hasHandler(req.method)) {
@@ -157,6 +192,7 @@ export function attachWebSocketTransport(
 
       ws.on('close', () => {
         clearInterval(interval)
+        clearTimeout(resumeTimer)
         for (const u of session.topicUnsubs) u()
         sessions.delete(id)
         server.broadcast('presence', { type: 'disconnect', id })
@@ -180,13 +216,23 @@ export function attachWebSocketTransport(
 }
 
 function send(ws: WebSocket, payload: unknown): void {
-  if (ws.readyState !== WebSocket.OPEN) return
+  if (!canSend(ws)) return
   ws.send(JSON.stringify(payload))
 }
 
 function sendRaw(ws: WebSocket, frame: string): void {
-  if (ws.readyState !== WebSocket.OPEN) return
+  if (!canSend(ws)) return
   ws.send(frame)
+}
+
+function canSend(ws: WebSocket): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false
+  if (ws.bufferedAmount > WS_BUFFERED_AMOUNT_LIMIT) {
+    log.warn(`ws bufferedAmount exceeded ${WS_BUFFERED_AMOUNT_LIMIT}; terminating session`)
+    ws.terminate()
+    return false
+  }
+  return true
 }
 
 // emit() hands the SAME payload array reference to every topic listener, so a
@@ -217,6 +263,7 @@ function parseAuth(req: IncomingMessage): string | null {
 function handleResume(
   server: SolusServer,
   ws: WebSocket,
+  clientId: string,
   lastSeqByTopic: Partial<Record<RpcTopic, number>>,
 ): void {
   for (const [topic, lastSeq] of Object.entries(lastSeqByTopic)) {
@@ -224,7 +271,7 @@ function handleResume(
     const events = server.replayFrom(topic as RpcTopic, lastSeq)
     if (events === null) {
       // Gap detected — signal client to re-bootstrap instead of sending a stale snapshot.
-      send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
+      server.sendTo(clientId, 'seq-reset', server.getSeqWatermark())
       return
     }
     for (const ev of events) {

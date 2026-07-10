@@ -14,6 +14,7 @@
   import ContextMeter from "../ContextMeter.svelte";
   import SettingsPopover from "../SettingsPopover.svelte";
   import GitDropdown from "../GitDropdown.svelte";
+  import ServerSwitcher from "../servers/ServerSwitcher.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import { tooltip } from "../../lib/tooltip";
@@ -136,6 +137,16 @@
     {/if}
     <PermissionModePicker compact={!showDirLabel} />
     <SessionChip />
+    {#if session.runtimeSyncing}
+      <span
+        class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
+        use:tooltip={"Syncing runtime state"}
+      >
+        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
+        <span>Syncing...</span>
+      </span>
+    {/if}
+    <ServerSwitcher />
     {#if !runtime.isMobileViewport && mode !== "editor"}
       <SettingsPopover />
     {/if}

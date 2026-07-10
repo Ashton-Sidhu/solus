@@ -10,6 +10,8 @@ import { warmFinder } from './server/file-finder'
 import { TextGenerator } from './agents/text-generator'
 import { runInputFromContext } from './agents/run-input'
 import { RateLimitState } from './rate-limits'
+import { AttentionService, attentionActionForStatus } from './attention/attention-service'
+import type { AttentionKind } from '../shared/attention-types'
 import { getTask, formatTaskContext, startTaskWork } from './tasks/task-service'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
 import type {
@@ -44,6 +46,7 @@ const MAX_QUEUE_DEPTH = 32
 const TEXT_FLUSH_INTERVAL_MS = 300
 const RUN_WATCHDOG_INTERVAL_MS = 30_000
 const RUN_WATCHDOG_MISSES = 1
+const TAB_DISCONNECT_GRACE_MS = 5 * 60_000
 const IS_DEV_MODE = Boolean(process.env.ELECTRON_RENDERER_URL)
 const NEW_SESSION_PROMPTS_CSV = join(homedir(), '.solus', 'new-session-prompts.csv')
 const NEW_SESSION_PROMPTS_CSV_HEADER = 'input_prompt,model,agent_provider,reasoning_level\n'
@@ -87,6 +90,23 @@ interface PendingStart {
   reject: (reason: Error) => void
 }
 
+interface TabOwner {
+  clientId: string
+  deviceId?: string
+}
+
+interface DisconnectedClient {
+  deviceId?: string
+  deadline: number
+}
+
+interface ControlPlaneOptions {
+  tabDisconnectGraceMs?: number
+  now?: () => number
+  setTimeout?: typeof setTimeout
+  clearTimeout?: typeof clearTimeout
+}
+
 /**
  * ControlPlane: the single backend authority for tab/session lifecycle.
  *
@@ -118,10 +138,17 @@ export class ControlPlane extends EventEmitter {
   private textFlushTimer: ReturnType<typeof setInterval> | null = null
   private runWatchdogTimer: ReturnType<typeof setInterval> | null = null
   private rateLimitTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private disconnectedClients = new Map<string, DisconnectedClient>()
+  private disconnectedClientTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private missingRunCounts = new Map<string, number>()
   private rateLimits = new RateLimitState()
   /** questionId → sessionId index so we can resolve which backend owns a question without iterating all backends. */
   private questionIdToSession = new Map<string, string>()
+
+  /** Server-side per-session needs-attention state; outlives connected clients
+   *  and persists across restarts. Fed by `_setStatus` transitions; read by the
+   *  `listAttention` RPC and broadcast on the `attention-changed` topic. */
+  readonly attention = new AttentionService()
 
   /** Live filesystem watcher per repo, so external git changes mirror into the renderer. */
   private gitWatcher: GitWatcher
@@ -130,10 +157,18 @@ export class ControlPlane extends EventEmitter {
   /** cwd → last broadcast git_status (serialized), so an unchanged watcher fire
    *  doesn't re-broadcast identical status to every (possibly hidden) window. */
   private lastGitStatusByCwd = new Map<string, string>()
+  private readonly tabDisconnectGraceMs: number
+  private readonly now: () => number
+  private readonly setGcTimeout: typeof setTimeout
+  private readonly clearGcTimeout: typeof clearTimeout
 
-  constructor(backends: Map<AgentId, AgentBackend>) {
+  constructor(backends: Map<AgentId, AgentBackend>, opts: ControlPlaneOptions = {}) {
     super()
     this.backends = backends
+    this.tabDisconnectGraceMs = opts.tabDisconnectGraceMs ?? TAB_DISCONNECT_GRACE_MS
+    this.now = opts.now ?? (() => Date.now())
+    this.setGcTimeout = opts.setTimeout ?? setTimeout
+    this.clearGcTimeout = opts.clearTimeout ?? clearTimeout
     for (const backend of this.backends.values()) {
       this._wireBackend(backend)
     }
@@ -471,14 +506,20 @@ export class ControlPlane extends EventEmitter {
 
   // ─── Tab Lifecycle ───
 
-  createTab(clientTabId?: string): string {
+  createTab(clientTabId: string | undefined, tabOwner: TabOwner): string {
     const tabId = clientTabId ?? crypto.randomUUID()
-    if (this.tabs.has(tabId)) return tabId
+    const existing = this.tabs.get(tabId)
+    if (existing) {
+      this._adoptTabOwnerIfStale(existing, tabOwner)
+      return tabId
+    }
     const entry: TabRegistryEntry = {
       tabId,
+      clientId: tabOwner.clientId,
+      deviceId: tabOwner.deviceId,
       sessionId: null,
-      createdAt: Date.now(),
-      lastActivityAt: Date.now(),
+      createdAt: this.now(),
+      lastActivityAt: this.now(),
       status: 'idle',
     }
     this.tabs.set(tabId, entry)
@@ -486,9 +527,11 @@ export class ControlPlane extends EventEmitter {
     return tabId
   }
 
-  bindRuntimeSession(tabId: string, sessionId: string): RuntimeSessionInfo | null {
+  bindRuntimeSession(tabId: string, sessionId: string, tabOwner: TabOwner): RuntimeSessionInfo | null {
     const tab = this.tabs.get(tabId)
     if (!tab) return null
+    if (!this._tabBelongsToOwner(tab, tabOwner)) return null
+    this._adoptDisconnectedSessionWatch(tabId, sessionId, tabOwner)
 
     const session = this.activeSessions.get(sessionId)
     if (!session) return null
@@ -507,6 +550,8 @@ export class ControlPlane extends EventEmitter {
     }
 
     tab.sessionId = sessionId
+    tab.clientId = tabOwner.clientId
+    tab.deviceId = tabOwner.deviceId
     if (!pendingRateLimitEvent) this._processQueueForSession(sessionId)
 
     const accumulatedChunks = this.turnText.get(sessionId)
@@ -539,9 +584,10 @@ export class ControlPlane extends EventEmitter {
   }
 
   /** Clear stored session ID so _dispatch won't inject a stale --resume. */
-  resetTabSession(ctx: IpcContext): void {
+  resetTabSession(ctx: IpcContext, owner: TabOwner): void {
     const tab = this.tabs.get(ctx.session.tabId)
     if (!tab) return
+    if (!this._tabBelongsToOwner(tab, owner)) return
     log.info(`Resetting session for tab ${ctx.session.tabId} (was: ${tab.sessionId})`)
     if (tab.sessionId) {
       this.rateLimits.clear(tab.sessionId)
@@ -638,8 +684,17 @@ export class ControlPlane extends EventEmitter {
     await Promise.all([...this.backends.values()].map((backend) => backend.refreshPluginCommands()))
   }
 
-  closeTab(ctx: IpcContext): void {
+  closeTab(ctx: IpcContext, owner: TabOwner): void {
+    const tab = this.tabs.get(ctx.session.tabId)
+    if (tab && !this._tabBelongsToOwner(tab, owner)) return
     this._closeTabById(ctx.session.tabId)
+  }
+
+  handleClientDisconnected(clientId: string, deviceId?: string): void {
+    const ownsTabs = [...this.tabs.values()].some((tab) => tab.clientId === clientId)
+    if (!ownsTabs) return
+    const inferredDeviceId = deviceId ?? [...this.tabs.values()].find((tab) => tab.clientId === clientId)?.deviceId
+    this._scheduleDisconnectedClientGc(clientId, inferredDeviceId)
   }
 
   private _closeTabById(tabId: string): void {
@@ -656,6 +711,80 @@ export class ControlPlane extends EventEmitter {
     this._syncGitWatcher(tabId, null)
     this.tabs.delete(tabId)
     log.info(`Tab closed: ${tabId}`)
+  }
+
+  private _tabBelongsToOwner(tab: TabRegistryEntry, owner: TabOwner): boolean {
+    if (tab.clientId === owner.clientId) return true
+    return this._canAdoptTabOwner(tab, owner)
+  }
+
+  private _canAdoptTabOwner(tab: TabRegistryEntry, owner: TabOwner): boolean {
+    if (!owner.deviceId || tab.deviceId !== owner.deviceId) return false
+    return this.disconnectedClients.has(tab.clientId)
+  }
+
+  private _adoptTabOwnerIfStale(tab: TabRegistryEntry, owner: TabOwner): void {
+    if (tab.clientId === owner.clientId) return
+    if (!this._canAdoptTabOwner(tab, owner)) {
+      log.warn(`Tab ${tab.tabId} is owned by ${tab.clientId}; ${owner.clientId} cannot adopt it`)
+      return
+    }
+    const previousClientId = tab.clientId
+    tab.clientId = owner.clientId
+    tab.deviceId = owner.deviceId
+    this._clearDisconnectedClientIfUnwatched(previousClientId)
+    log.info(`Tab ${tab.tabId} adopted from ${previousClientId} by ${owner.clientId}`)
+  }
+
+  private _adoptDisconnectedSessionWatch(tabId: string, sessionId: string, owner: TabOwner): void {
+    if (!owner.deviceId) return
+    for (const [existingTabId, tab] of [...this.tabs]) {
+      if (existingTabId === tabId) continue
+      if (tab.sessionId !== sessionId) continue
+      if (tab.deviceId !== owner.deviceId) continue
+      if (tab.clientId === owner.clientId) continue
+      if (!this.disconnectedClients.has(tab.clientId)) continue
+      const previousClientId = tab.clientId
+      this._closeTabById(existingTabId)
+      this._clearDisconnectedClientIfUnwatched(previousClientId)
+      log.info(`Replaced stale watch ${existingTabId} for session ${sessionId} with ${tabId}`)
+    }
+  }
+
+  private _scheduleDisconnectedClientGc(clientId: string, deviceId?: string): void {
+    const existing = this.disconnectedClientTimers.get(clientId)
+    if (existing) this.clearGcTimeout(existing)
+    this.disconnectedClients.set(clientId, { deviceId, deadline: this.now() + this.tabDisconnectGraceMs })
+    const timer = this.setGcTimeout(() => this._gcDisconnectedClientTabs(clientId), this.tabDisconnectGraceMs)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.disconnectedClientTimers.set(clientId, timer)
+    log.info(`Scheduled tab GC for disconnected client ${clientId}`)
+  }
+
+  private _gcDisconnectedClientTabs(clientId: string): void {
+    const disconnected = this.disconnectedClients.get(clientId)
+    if (!disconnected) return
+    const remaining = disconnected.deadline - this.now()
+    if (remaining > 0) {
+      const timer = this.setGcTimeout(() => this._gcDisconnectedClientTabs(clientId), remaining)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+      this.disconnectedClientTimers.set(clientId, timer)
+      return
+    }
+
+    this.disconnectedClients.delete(clientId)
+    this.disconnectedClientTimers.delete(clientId)
+    for (const [tabId, tab] of [...this.tabs]) {
+      if (tab.clientId === clientId) this._closeTabById(tabId)
+    }
+  }
+
+  private _clearDisconnectedClientIfUnwatched(clientId: string): void {
+    if ([...this.tabs.values()].some((tab) => tab.clientId === clientId)) return
+    const timer = this.disconnectedClientTimers.get(clientId)
+    if (timer) this.clearGcTimeout(timer)
+    this.disconnectedClientTimers.delete(clientId)
+    this.disconnectedClients.delete(clientId)
   }
 
   /**
@@ -1806,8 +1935,64 @@ export class ControlPlane extends EventEmitter {
     return hasPlan && !hasOtherInput ? 'awaiting_plan' : 'awaiting_input'
   }
 
+  /** Drive the server-side attention entry from a session status transition.
+   *  Creating states (awaiting_input / completed / failed) record an entry;
+   *  active/neutral states (running / idle / interrupted) resolve it. The
+   *  service dedupes, so calling this on no-op transitions is cheap. */
+  private _syncAttention(sessionId: string, newStatus: SessionStatus): void {
+    const session = this.activeSessions.get(sessionId)
+    const pendingEvent = session
+      ? [...session.pendingInputEvents].reverse().find(
+          (e) => e.type === 'permission_request' || e.type === 'question_request',
+        )
+      : undefined
+    const pending = pendingEvent?.type === 'question_request'
+      ? 'question'
+      : pendingEvent?.type === 'permission_request'
+        ? 'permission'
+        : null
+
+    const action = attentionActionForStatus(newStatus, pending)
+    if (action.type === 'ignore') return
+    if (action.type === 'resolve') {
+      this.attention.resolve(sessionId)
+      return
+    }
+
+    // projectKey/summary are best-effort: on the process-exit path the session
+    // is already gone, so finished/failed entries may carry neither.
+    const projectKey = session?.gitContext?.repoRoot
+      ?? session?.runInput?.projectPath
+      ?? session?.runInput?.workingDirectory
+    this.attention.set({
+      sessionId,
+      kind: action.kind,
+      summary: this._attentionSummary(action.kind, pendingEvent),
+      projectKey,
+    })
+  }
+
+  private _attentionSummary(kind: AttentionKind, event?: NormalizedEvent): string {
+    switch (kind) {
+      case 'needs_approval':
+        return event?.type === 'permission_request'
+          ? `Approval needed: ${event.toolName}`
+          : 'Approval needed'
+      case 'question': {
+        const q = event?.type === 'question_request' ? event.questions[0]?.question : undefined
+        return q ? `Question: ${q.length > 120 ? `${q.slice(0, 117)}…` : q}` : 'Waiting on your answer'
+      }
+      case 'finished':
+        return 'Turn finished'
+      case 'failed':
+        return 'Run failed'
+    }
+  }
+
   private _setStatus(target: { tabId?: string; sessionId?: string }, newStatus: SessionStatus): void {
     const sessionId = target.sessionId ?? (target.tabId ? this.tabs.get(target.tabId)?.sessionId : undefined)
+
+    if (sessionId) this._syncAttention(sessionId, newStatus)
 
     if (!sessionId) {
       const tabId = target.tabId
@@ -1866,6 +2051,9 @@ export class ControlPlane extends EventEmitter {
     for (const timer of this.rateLimitTimers.values()) clearTimeout(timer)
     this.rateLimitTimers.clear()
     this.rateLimits.clearAll()
+    for (const timer of this.disconnectedClientTimers.values()) this.clearGcTimeout(timer)
+    this.disconnectedClientTimers.clear()
+    this.disconnectedClients.clear()
 
     for (const [sessionId, session] of this.activeSessions) {
       const backend = this._backendFor(session.backendId)

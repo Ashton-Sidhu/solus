@@ -1,4 +1,3 @@
-import { net } from 'electron'
 import { createLogger } from '../../logger'
 import { GITHUB_CLIENT_ID } from './client-id'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
@@ -27,36 +26,32 @@ interface DeviceCodeResponse {
   interval: number
 }
 
-function netPost(url: string, body: string): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const req = net.request({ method: 'POST', url })
-    req.setHeader('Content-Type', 'application/x-www-form-urlencoded')
-    req.setHeader('Accept', 'application/json')
-    req.on('response', (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk.toString() })
-      res.on('end', () => resolve({ status: res.statusCode, body: data }))
-    })
-    req.on('error', reject)
-    req.write(body)
-    req.end()
+async function postForm(url: string, body: string): Promise<{ status: number; body: string }> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+    },
+    body,
   })
+  return { status: res.status, body: await res.text() }
 }
 
-function netGet(url: string, token: string): Promise<{ status: number; body: string; headers: Record<string, string | string[]> }> {
-  return new Promise((resolve, reject) => {
-    const req = net.request({ method: 'GET', url })
-    req.setHeader('Authorization', `Bearer ${token}`)
-    req.setHeader('Accept', 'application/vnd.github+json')
-    req.setHeader('User-Agent', 'Solus')
-    req.on('response', (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk.toString() })
-      res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }))
-    })
-    req.on('error', reject)
-    req.end()
+async function getJson(url: string, token: string): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'Solus',
+    },
   })
+  return {
+    status: res.status,
+    body: await res.text(),
+    headers: { 'x-oauth-scopes': res.headers.get('x-oauth-scopes') ?? '' },
+  }
 }
 
 /** Raised when connect() is cancelled, so consumers can distinguish it from a real failure. */
@@ -79,7 +74,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   const params = new URLSearchParams({ client_id: GITHUB_CLIENT_ID, scope: SCOPE })
-  const res = await netPost(DEVICE_CODE_URL, params.toString())
+  const res = await postForm(DEVICE_CODE_URL, params.toString())
   if (res.status !== 200) throw new Error(`Device code request failed: ${res.body}`)
   return JSON.parse(res.body) as DeviceCodeResponse
 }
@@ -101,7 +96,7 @@ async function pollForToken(deviceCode: string, intervalSeconds: number, expires
       device_code: deviceCode,
       grant_type: DEVICE_GRANT,
     })
-    const res = await netPost(ACCESS_TOKEN_URL, params.toString())
+    const res = await postForm(ACCESS_TOKEN_URL, params.toString())
     const data = JSON.parse(res.body) as {
       access_token?: string
       scope?: string
@@ -131,14 +126,13 @@ async function pollForToken(deviceCode: string, intervalSeconds: number, expires
 }
 
 async function fetchLogin(token: string): Promise<{ login: string; scopes: string }> {
-  const res = await netGet(USER_URL, token)
+  const res = await getJson(USER_URL, token)
   if (res.status !== 200) throw new Error(`Failed to fetch GitHub user: ${res.body}`)
   const user = JSON.parse(res.body) as { login: string }
   // `X-OAuth-Scopes` lists the scopes actually granted to *this* token — the
   // authoritative source. The device-flow token-exchange `scope` echo can lag
   // behind a re-authorization, so prefer the header (comma-separated).
-  const header = res.headers['x-oauth-scopes']
-  const scopes = (Array.isArray(header) ? header.join(',') : (header ?? '')).trim()
+  const scopes = (res.headers['x-oauth-scopes'] ?? '').trim()
   return { login: user.login, scopes }
 }
 

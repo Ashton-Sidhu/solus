@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { loadServers, upsertServer, removeServer, type SavedServer } from "../transport/server-registry";
+  import { loadServers, upsertServer, removeServer, type SavedServer } from "@client-core/server-registry";
   import { uuid } from "../../../src/shared/uuid";
 
   interface Props {

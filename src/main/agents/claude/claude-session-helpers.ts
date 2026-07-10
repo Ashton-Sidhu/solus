@@ -15,6 +15,15 @@ export interface SessionListCacheEntry {
 export const SESSION_LIST_FORCE_RESCAN_MS = 300_000
 export const _sessionListCache = new MemoryCache<string, SessionListCacheEntry>({ ttlMs: SESSION_LIST_FORCE_RESCAN_MS })
 
+/**
+ * In-flight cold scans keyed by session-list cache key. At launch the pill and
+ * editor windows both mount NewTabHome and each fires a full `listSessions`;
+ * without deduping they run two ~N-file scans concurrently, doubling disk/CPU
+ * contention. Sharing one scan lets the second caller await the same promise.
+ * Entries are removed as soon as the scan settles.
+ */
+export const _sessionScanInFlight = new Map<string, Promise<SessionMeta[]>>()
+
 const HEAD_BYTES = 4096
 // Claude Code's `/rename` appends a `{"type":"custom-title",...}` line to the end
 // of the transcript. Read a small tail window to surface it without paying the
@@ -38,7 +47,7 @@ function extractPromptText(content: string): string {
   return stripped || commandName || ''
 }
 
-function parseHeadMeta(lines: string[]): {
+export function parseHeadMeta(lines: string[]): {
   validated: boolean
   slug: string | null
   firstMessage: string | null
@@ -70,6 +79,25 @@ function parseHeadMeta(lines: string[]): {
     if (meta.validated && meta.firstMessage && meta.cwd && meta.slug) break
   }
   return meta
+}
+
+export async function readSessionHeadMeta(filePath: string): Promise<ReturnType<typeof parseHeadMeta>> {
+  const fh = await open(filePath, 'r')
+  try {
+    const stat = await fh.stat()
+    let windowBytes = Math.min(HEAD_BYTES, stat.size)
+    let meta!: ReturnType<typeof parseHeadMeta>
+    while (true) {
+      const headBuf = Buffer.allocUnsafe(windowBytes)
+      const { bytesRead } = await fh.read(headBuf, 0, windowBytes, 0)
+      const headLines = headBuf.subarray(0, bytesRead).toString('utf8').split('\n').filter(Boolean)
+      meta = parseHeadMeta(headLines)
+      if (meta.validated || windowBytes >= stat.size) return meta
+      windowBytes = Math.min(stat.size, windowBytes * 4)
+    }
+  } finally {
+    await fh.close()
+  }
 }
 
 
@@ -189,44 +217,30 @@ export async function scanSessionsInDir(
   sessionFiles.sort((a, b) => b.mtimeMs - a.mtimeMs)
 
   const tasks = sessionFiles.map(({ id }) => async () : Promise<SessionMeta | null>  => {
-    // scanOneSession(join(sessionsDir, `${id}.jsonl`), id, encodedPath, fallbackCwd, isWorktree),
-    const fh = await open(join(sessionsDir, `${id}.jsonl`), 'r')
-    try {
-      const stat = await fh.stat()
-      if (stat.size < 100) return null
+    const filePath = join(sessionsDir, `${id}.jsonl`)
+    const stat = await fsStat(filePath)
+    if (stat.size < 100) return null
 
-      // Validation needs one complete `type+uuid+timestamp` line. When the first
-      // message inlines a large base64 screenshot (or a long prompt), that line
-      // can exceed HEAD_BYTES and get truncated mid-object, so it never parses and
-      // the session is silently dropped. Grow the window until we capture a
-      // complete validated line, mirroring loadSessionWindow. The small-first-
-      // message case (the overwhelming majority) still reads only HEAD_BYTES.
-      let windowBytes = Math.min(HEAD_BYTES, stat.size)
-      let meta!: ReturnType<typeof parseHeadMeta>
-      while (true) {
-        const headBuf = Buffer.allocUnsafe(windowBytes)
-        const { bytesRead } = await fh.read(headBuf, 0, windowBytes, 0)
-        const headLines = headBuf.subarray(0, bytesRead).toString('utf8').split('\n').filter(Boolean)
-        meta = parseHeadMeta(headLines)
-        if (meta.validated || windowBytes >= stat.size) break
-        windowBytes = Math.min(stat.size, windowBytes * 4)
-      }
+    // Validation needs one complete `type+uuid+timestamp` line. When the first
+    // message inlines a large base64 screenshot (or a long prompt), that line
+    // can exceed HEAD_BYTES and get truncated mid-object, so it never parses and
+    // the session is silently dropped. Grow the window until we capture a
+    // complete validated line, mirroring loadSessionWindow. The small-first-
+    // message case (the overwhelming majority) still reads only HEAD_BYTES.
+    const meta = await readSessionHeadMeta(filePath)
 
-      if (!meta.validated) return null
+    if (!meta.validated) return null
 
-      return {
-        provider: 'claude-code',
-        sessionId: id,
-        slug: meta.slug,
-        firstMessage: meta.firstMessage,
-        lastTimestamp: stat.mtime.toISOString(),
-        size: stat.size,
-        cwd: meta.cwd || fallbackCwd,
-        projectPath: encodedPath,
-        isWorktree,
-      }
-    } finally {
-      await fh.close()
+    return {
+      provider: 'claude-code',
+      sessionId: id,
+      slug: meta.slug,
+      firstMessage: meta.firstMessage,
+      lastTimestamp: stat.mtime.toISOString(),
+      size: stat.size,
+      cwd: meta.cwd || fallbackCwd,
+      projectPath: encodedPath,
+      isWorktree,
     }
   })
 

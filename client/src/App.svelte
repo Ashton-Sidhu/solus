@@ -12,6 +12,7 @@
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
   import { bootstrapRuntimeTabs } from "@renderer/contexts/session-bootstrap";
   import { createAppCore } from "@renderer/contexts/app-core";
+  import { connectionsStore } from "@renderer/contexts/connections.store.svelte";
   import {
     useKeybinding,
     installGlobalDispatcher,
@@ -136,12 +137,32 @@
   });
 
   $effect(() => {
+    const handler = (event: Event) => {
+      const sessionId = (event as CustomEvent<{ sessionId?: string | null }>).detail?.sessionId;
+      if (!sessionId) return;
+      const tabId = session.tabOrder.find((candidate) => {
+        const candidateSession = session.sessionFor(candidate);
+        return candidateSession?.agentSessionId === sessionId ||
+          candidateSession?.forkedFromSessionId === sessionId;
+      });
+      if (tabId) session.selectTab(tabId);
+      requestInputFocus();
+    };
+    window.addEventListener("solus:focus-session", handler);
+    return () => window.removeEventListener("solus:focus-session", handler);
+  });
+
+  $effect(() => {
     session.initStaticInfo().then(async () => {
       await bootstrapRuntimeTabs(session);
       const defaultDir = session.staticInfo?.workspacePath || "~";
       session.planStore.preloadDescriptors(defaultDir, session.ctx);
       void sessionSidebarStore.loadPinnedSessions();
     });
+  });
+
+  $effect(() => {
+    void connectionsStore.refreshCapabilities();
   });
 
   // ── Keybindings ──────────────────────────────────────────────────────────

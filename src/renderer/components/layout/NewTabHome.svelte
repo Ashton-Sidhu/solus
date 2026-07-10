@@ -52,6 +52,7 @@
   } from "./lib/home-control-hub";
   import { relativeTime } from "../automations/lib/automation-format";
   import { STATUS_META } from "../tasks/lib/tasks-api";
+  import SetupChecklist from "../server-setup/SetupChecklist.svelte";
   import Kbd from "../ui/Kbd.svelte";
 
   // Shared fade-in for staggered list items; per-item delay via --item-index.
@@ -884,6 +885,7 @@
     <div class="shrink-0 pt-3 mb-5">
       {@render launchTarget()}
     </div>
+    <SetupChecklist active={isActiveTab} />
 
     {#if anyLoaded && (hasHomeItems || !allLoaded)}
       <div class="flex flex-col gap-6">
@@ -991,6 +993,7 @@
           : 'max-w-[38.75rem]'}"
       >
         {@render launchTarget()}
+        <SetupChecklist active={isActiveTab} />
       </div>
     {:else}
       <div
@@ -999,6 +1002,7 @@
           : 'max-w-[38.75rem]'}"
       >
         {@render launchTarget()}
+        <SetupChecklist active={isActiveTab} />
 
         {#if projects.length > 0}
           {@render projectsRow()}

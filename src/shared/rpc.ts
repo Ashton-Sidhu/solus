@@ -59,6 +59,7 @@ export const RPC_INVOKE_METHODS = [
   // Sessions / plans / projects
   'bindRuntimeSession',
   'listSessions',
+  'searchSessions',
   'loadSession',
   'loadSessionPreview',
   'getSessionInfo',
@@ -121,6 +122,22 @@ export const RPC_INVOKE_METHODS = [
   'connectionsListSessions',
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
+  'connectionsSetRemoteAccess',
+  'discoverServers',
+  'getServerCapabilities',
+  'setServerName',
+  'setupInstallAgentCli',
+  'setupCheckAgentAuth',
+  'setupListGithubRepos',
+  'setupCloneProject',
+
+  // Attention (server-side per-session needs-attention state; outlives clients)
+  'listAttention',
+
+  // Web Push notifications for paired web devices
+  'pushGetPublicKey',
+  'pushSubscribe',
+  'pushUnsubscribe',
 
   // Folio / works
   'createWork',
@@ -222,15 +239,19 @@ export const RPC_TOPICS = [
   'window-hidden',
   'presence',
   'seq-watermark',
+  'seq-reset',
   'session-scan',
   'run-status',
   'run-log',
+  'setup-status',
+  'setup-log',
   'automations-changed',
   'provider-device-code',
   'review-progress',
   'merge-queue-update',
   'tasks-changed',
   'prs-changed',
+  'attention-changed',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]
