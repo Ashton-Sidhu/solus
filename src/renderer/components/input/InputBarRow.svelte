@@ -8,8 +8,8 @@
   interface Props {
     mode: "pill" | "editor";
     onAttachFile: () => void;
-    onScreenshot: () => void;
-    onDesignMode: () => void;
+    onScreenshot?: (() => void) | null;
+    onDesignMode?: (() => void) | null;
   }
   let { mode, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
@@ -32,6 +32,7 @@
     else if (!isLaptop && w < 1800) isLaptop = true;
   });
   const isCollapsed = $derived(mode === "pill" || isLaptop);
+  const expandedWidth = $derived(onScreenshot || onDesignMode ? "6.75rem" : "2.25rem");
   let actionsExpanded = $state(false);
 </script>
 
@@ -56,8 +57,7 @@
         <div
           class="flex items-center transition-[max-width] duration-200 ease-out"
           class:max-w-0={!actionsExpanded}
-          class:max-w-[6.75rem]={actionsExpanded}
-          style="overflow-x: clip"
+          style="overflow-x: clip; max-width: {actionsExpanded ? expandedWidth : '0'}"
         >
           <button
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
@@ -69,26 +69,30 @@
           >
             <PaperclipIcon size={16} />
           </button>
-          <button
-            class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
-            title="Take screenshot (⌥⇧S)"
-            onclick={onScreenshot}
-            disabled={isRunning}
-            class:text-(--solus-text-muted)={isRunning}
-            class:text-(--solus-text-tertiary)={!isRunning}
-          >
-            <CameraIcon size={16} />
-          </button>
-          <button
-            class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
-            title="Design mode (⌥⇧I)"
-            onclick={onDesignMode}
-            disabled={isRunning}
-            class:text-(--solus-text-muted)={isRunning}
-            class:text-(--solus-text-tertiary)={!isRunning}
-          >
-            <PencilIcon size={16} />
-          </button>
+          {#if onScreenshot}
+            <button
+              class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
+              title="Take screenshot (⌥⇧S)"
+              onclick={onScreenshot}
+              disabled={isRunning}
+              class:text-(--solus-text-muted)={isRunning}
+              class:text-(--solus-text-tertiary)={!isRunning}
+            >
+              <CameraIcon size={16} />
+            </button>
+          {/if}
+          {#if onDesignMode}
+            <button
+              class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
+              title="Design mode (⌥⇧I)"
+              onclick={onDesignMode}
+              disabled={isRunning}
+              class:text-(--solus-text-muted)={isRunning}
+              class:text-(--solus-text-tertiary)={!isRunning}
+            >
+              <PencilIcon size={16} />
+            </button>
+          {/if}
         </div>
       </div>
     </div>
@@ -105,26 +109,30 @@
       >
         <PaperclipIcon size={16} />
       </button>
-      <button
-        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
-        use:tooltip={"Take screenshot (⌥⇧S)"}
-        onclick={onScreenshot}
-        disabled={isRunning}
-        class:text-(--solus-text-muted)={isRunning}
-        class:text-(--solus-text-tertiary)={!isRunning}
-      >
-        <CameraIcon size={16} />
-      </button>
-      <button
-        class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
-        use:tooltip={"Design mode (⌥⇧I)"}
-        onclick={onDesignMode}
-        disabled={isRunning}
-        class:text-(--solus-text-muted)={isRunning}
-        class:text-(--solus-text-tertiary)={!isRunning}
-      >
-        <PencilIcon size={16} />
-      </button>
+      {#if onScreenshot}
+        <button
+          class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
+          use:tooltip={"Take screenshot (⌥⇧S)"}
+          onclick={onScreenshot}
+          disabled={isRunning}
+          class:text-(--solus-text-muted)={isRunning}
+          class:text-(--solus-text-tertiary)={!isRunning}
+        >
+          <CameraIcon size={16} />
+        </button>
+      {/if}
+      {#if onDesignMode}
+        <button
+          class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)]"
+          use:tooltip={"Design mode (⌥⇧I)"}
+          onclick={onDesignMode}
+          disabled={isRunning}
+          class:text-(--solus-text-muted)={isRunning}
+          class:text-(--solus-text-tertiary)={!isRunning}
+        >
+          <PencilIcon size={16} />
+        </button>
+      {/if}
     </div>
   {/if}
 

@@ -1,7 +1,7 @@
 import { appendFile, appendFileSync, mkdirSync } from 'fs'
 import { inspect } from 'util'
 import { join } from 'path'
-import { app } from 'electron'
+import { isPackagedRuntime, logsDir } from './platform/paths'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -13,7 +13,7 @@ export interface Logger {
   metric(label: string, durationMs: number, data?: Record<string, unknown>): void
 }
 
-const isDevRuntime = !app?.isPackaged
+const isDevRuntime = !isPackagedRuntime()
 const activeLogLevel: LogLevel = isDevRuntime ? 'debug' : 'info'
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 10,
@@ -63,7 +63,7 @@ let nextChunkId = 1
 
 function getLogPath(): string {
   if (!logPath) {
-    const dir = app?.getPath?.('logs') ?? process.cwd()
+    const dir = logsDir()
     mkdirSync(dir, { recursive: true })
     logPath = join(dir, 'solus.log')
   }

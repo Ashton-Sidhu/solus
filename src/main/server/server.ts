@@ -19,14 +19,7 @@ export class SolusServer {
   private emitter = new EventEmitter()
   private seqCounters = new Map<RpcTopic, number>()
   private buffer = new Map<RpcTopic, BufferedEvent[]>()
-  /**
-   * WebSocket client ids currently connected, tracked via the presence topic the
-   * WS transport already broadcasts on connect/disconnect. The resume ring buffer
-   * only exists for WS reconnects, so with zero web clients we skip appending to
-   * it entirely (the Electron transport pushes live and never replays), keeping it
-   * from pinning tens of MB of payloads.
-   */
-  private wsClientIds = new Set<string>()
+  private directClients = new Map<string, DirectTopicListener>()
 
   // Ring buffer per topic for resume; capped at BUFFER_LIMIT events.
   // Used by the WebSocket transport when a client reconnects with a last-seen seq.
@@ -60,36 +53,35 @@ export class SolusServer {
     return () => this.emitter.off(topic, listener)
   }
 
+  registerDirectClient(clientId: string, listener: DirectTopicListener): () => void {
+    this.directClients.set(clientId, listener)
+    return () => {
+      if (this.directClients.get(clientId) === listener) this.directClients.delete(clientId)
+    }
+  }
+
   broadcast(topic: RpcTopic, ...payload: unknown[]): void {
     if (isDebugEnabled) log.debug(`Sending payload ${JSON.stringify(payload)} to topic ${topic}`)
-    const seq = (this.seqCounters.get(topic) ?? 0) + 1
-    this.seqCounters.set(topic, seq)
-
-    if (topic === 'presence') this._trackPresence(payload)
-
-    // Only retain events for resume while a WS client is connected; the seq
-    // counter keeps advancing so a reconnecting client past the gap re-snapshots.
-    if (this.wsClientIds.size > 0) {
-      const ring = this.buffer.get(topic) ?? []
-      ring.push({ seq, payload, timestamp: Date.now() })
-      if (ring.length > SolusServer.BUFFER_LIMIT) ring.shift()
-      this.buffer.set(topic, ring)
-    }
-
+    const seq = this._retain(topic, payload)
     this.emitter.emit(topic, payload, seq)
   }
 
-  /** Maintain the connected-WS-client set from the presence stream. */
-  private _trackPresence(payload: unknown[]): void {
-    const evt = payload[0] as { type?: string; id?: string } | undefined
-    if (!evt || typeof evt.id !== 'string') return
-    if (evt.type === 'connect') {
-      this.wsClientIds.add(evt.id)
-    } else if (evt.type === 'disconnect') {
-      this.wsClientIds.delete(evt.id)
-      // Last client gone — drop retained events so idle memory stays flat.
-      if (this.wsClientIds.size === 0) this.buffer.clear()
-    }
+  sendTo(clientId: string, topic: RpcTopic, ...payload: unknown[]): boolean {
+    const listener = this.directClients.get(clientId)
+    if (!listener) return false
+    listener(topic, payload)
+    return true
+  }
+
+  private _retain(topic: RpcTopic, payload: unknown[]): number {
+    const seq = (this.seqCounters.get(topic) ?? 0) + 1
+    this.seqCounters.set(topic, seq)
+
+    const ring = this.buffer.get(topic) ?? []
+    ring.push({ seq, payload, timestamp: Date.now() })
+    if (ring.length > SolusServer.BUFFER_LIMIT) ring.shift()
+    this.buffer.set(topic, ring)
+    return seq
   }
 
   /**
@@ -101,8 +93,7 @@ export class SolusServer {
     const currentSeq = this.seqCounters.get(topic) ?? 0
     if (currentSeq <= lastSeq) return [] // client already caught up
     const ring = this.buffer.get(topic)
-    // Behind, but nothing retained (buffer cleared while no clients, or never
-    // populated past the gap) — force a re-snapshot rather than silently skipping.
+    // Behind, but nothing retained — force a re-snapshot rather than silently skipping.
     if (!ring || ring.length === 0) return null
     if (ring[0].seq > lastSeq + 1) return null // gap — caller should re-snapshot
     return ring.filter(e => e.seq > lastSeq)
@@ -116,19 +107,19 @@ export class SolusServer {
 export type Handler = (args: unknown[], ctx: HandlerCtx) => unknown | Promise<unknown>
 
 export interface HandlerCtx {
-  /** Identifies the client that issued the call (e.g. "electron", "ws:abcd"). */
+  /** Identifies the client that issued the call (e.g. "ws:abcd"). */
   clientId?: string
   /** Web-client device label, set after pairing. */
   deviceLabel?: string
   /**
-   * Stable device identifier — persists across reconnects for paired web clients,
-   * and is "electron" for the desktop renderer. Used to scope tabs per-device so
-   * one device's tabs don't appear on another device's snapshot.
+   * Stable device identifier from the paired client session token. Used to scope
+   * tabs per-device so one device's tabs don't appear on another device's snapshot.
    */
   deviceId?: string
 }
 
 export type TopicListener = (payload: unknown[], seq: number) => void
+export type DirectTopicListener = (topic: RpcTopic, payload: unknown[], seq?: number) => void
 
 interface BufferedEvent {
   seq: number

@@ -1,11 +1,11 @@
-import { app, safeStorage } from 'electron'
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { createLogger } from '../../logger'
+import { dataDir } from '../../platform/paths'
+import { secretStore } from '../../platform/secrets'
 
 const log = createLogger('main', 'github-token-store')
 
-const TOKEN_FILE = join(app.getPath('userData'), 'github-oauth.bin')
+const TOKEN_KEY = 'github-oauth'
 
 /**
  * Persisted GitHub OAuth App user token. No `expiresAt`/`refreshToken`: OAuth
@@ -27,26 +27,23 @@ export class EncryptionUnavailableError extends Error {
   }
 }
 
+function tokenFile(): string {
+  return join(dataDir(), 'github-oauth.bin')
+}
+
 export function loadToken(): GithubStoredToken | null {
-  if (!existsSync(TOKEN_FILE)) return null
-  try {
-    const encrypted = readFileSync(TOKEN_FILE)
-    const json = safeStorage.decryptString(encrypted)
-    return JSON.parse(json) as GithubStoredToken
-  } catch {
-    return null
-  }
+  return secretStore().loadJson<GithubStoredToken>(TOKEN_KEY, tokenFile())
 }
 
 export function persistToken(token: GithubStoredToken): void {
-  if (!safeStorage.isEncryptionAvailable()) throw new EncryptionUnavailableError()
-  const encrypted = safeStorage.encryptString(JSON.stringify(token))
-  writeFileSync(TOKEN_FILE, encrypted, { mode: 0o600 })
+  const store = secretStore()
+  if (!store.canSave()) throw new EncryptionUnavailableError()
+  store.saveJson(TOKEN_KEY, tokenFile(), token)
 }
 
 export function clearToken(): void {
   try {
-    if (existsSync(TOKEN_FILE)) unlinkSync(TOKEN_FILE)
+    secretStore().remove(TOKEN_KEY, tokenFile())
   } catch (err) {
     log.warn(`Failed to remove token file: ${err}`)
   }

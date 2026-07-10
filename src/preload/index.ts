@@ -1,16 +1,19 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { ELECTRON_RPC_CHANNEL, ELECTRON_RPC_SEND_CHANNEL, ELECTRON_EVENT_CHANNEL, RPC_INVOKE_METHODS, RPC_SEND_METHODS } from '../shared/rpc'
-import type { RpcInvokeMethod, RpcSendMethod, RpcEventEnvelope, RpcTopic } from '../shared/rpc'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult } from '../shared/types'
 import type { PrFilter, PrReviewer, PullRequestSummary, PullRequestDetail, PullRequestOverview, ReviewThread, ReviewComment, PrCommit, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
+import type { AttentionEntry } from '../shared/attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent } from '../shared/review'
 
-// Renderer-facing surface. Each method dispatches over a single IPC channel
-// (`solus:rpc` for invoke, `solus:rpc-send` for send), routed by name to the
-// SolusServer in main. Adding a method = appending to RPC_INVOKE_METHODS in
-// shared/rpc.ts and registering a handler against SolusServer.
+export interface LocalConnectionInfo {
+  port: number
+  token: string
+  installationId: string
+}
+
+// Renderer-facing surface. The desktop renderer builds this API over WebSocket
+// in `src/client-core`; preload now exposes only the native shell residue below.
 export interface SolusAPI {
   start(): Promise<StartInfo>
   createTab(tabId?: string): Promise<{ tabId: string }>
@@ -55,6 +58,7 @@ export interface SolusAPI {
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
   resetTabSession(ctx: IpcContext): void
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string): Promise<SessionMeta[]>
+  searchSessions(request: { query: string; projectPath?: string; limit?: number }): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   getSessionInfo(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionMeta | null>
@@ -77,11 +81,29 @@ export interface SolusAPI {
   googleUploadDoc(args: { title: string; markdown: string }): Promise<{ docUrl: string } | { error: string }>
   googleDisconnect(): Promise<void>
 
-  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string }>
+  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean }>
   connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
   connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>
-  connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number }>>
+  connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number; connectionCount: number; connectionIds: string[] }>>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
+  connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  discoverServers(): Promise<DiscoveredServer[]>
+  getServerCapabilities(): Promise<ServerCapabilities>
+  setServerName(name: string): Promise<{ name?: string }>
+  setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
+  setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
+  setupListGithubRepos(): Promise<SetupGithubReposResult>
+  setupCloneProject(args: { cloneUrl: string; name?: string }): Promise<SetupCloneProjectResult>
+  onSetupLog(callback: (event: SetupLogEvent) => void): () => void
+  onSetupStatus(callback: (event: SetupStatusEvent) => void): () => void
+
+  /** Active per-session needs-attention entries (server-side, outlive clients). */
+  listAttention(): Promise<AttentionEntry[]>
+  pushGetPublicKey(): Promise<string>
+  pushSubscribe(subscription: WebPushSubscriptionJSON): Promise<{ ok: boolean }>
+  pushUnsubscribe(): Promise<{ ok: boolean }>
+  /** Fires with the full active attention list whenever it changes. */
+  onAttentionChanged(callback: (entries: AttentionEntry[]) => void): () => void
 
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
   providerConnect(ctx: IpcContext): Promise<AuthStatus>
@@ -207,6 +229,7 @@ export interface SolusAPI {
   setAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): Promise<SetAppGlobalShortcutsResult>
   restartApp(): Promise<void>
   getPlatform(): string
+  getLocalConnection(): Promise<LocalConnectionInfo>
 
   updateAgentFiles(ctx: IpcContext, text: string): Promise<{ success: boolean; files?: string[]; err?: string }>
 
@@ -235,60 +258,18 @@ export interface SolusAPI {
   onQuoteSelection(callback: (text: string) => void): () => void
 }
 
-const invokeSet = new Set<string>(RPC_INVOKE_METHODS)
-const sendSet = new Set<string>(RPC_SEND_METHODS)
-
-function rpcInvoke(method: RpcInvokeMethod, args: unknown[]): Promise<unknown> {
-  return ipcRenderer.invoke(ELECTRON_RPC_CHANNEL, { method, args })
-}
-function rpcSend(method: RpcSendMethod, args: unknown[]): void {
-  ipcRenderer.send(ELECTRON_RPC_SEND_CHANNEL, { method, args })
-}
-
-// Single event channel; each push carries `{ topic, seq, payload }`. We
-// fan out to per-topic subscriber sets here in the preload.
-type Listener = (...payload: unknown[]) => void
-const subscribers = new Map<RpcTopic, Set<Listener>>()
-ipcRenderer.on(ELECTRON_EVENT_CHANNEL, (_e, env: RpcEventEnvelope) => {
-  const set = subscribers.get(env.topic)
-  if (!set) return
-  for (const listener of set) {
-    try { listener(...(env.payload as unknown[])) } catch {}
-  }
-})
-
-function on(topic: RpcTopic, listener: Listener): () => void {
-  let set = subscribers.get(topic)
-  if (!set) { set = new Set(); subscribers.set(topic, set) }
-  set.add(listener)
-  return () => set!.delete(listener)
+export interface NativeSolusAPI {
+  getPlatform(): string
+  getLocalConnection(): Promise<LocalConnectionInfo>
+  getPathForFile(file: File): string
+  setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
+  setQuoteContext(active: boolean): void
+  onQuoteSelection(callback: (text: string) => void): () => void
 }
 
-const eventBindings: Record<string, RpcTopic> = {
-  onEvent: 'normalized-event',
-  onError: 'enriched-error',
-  onSkillStatus: 'skill-status',
-  onThemeChange: 'theme-changed',
-  onEnterDesignMode: 'enter-design-mode',
-  onWindowShown: 'window-shown',
-  onWindowHidden: 'window-hidden',
-  onSessionScan: 'session-scan',
-  onReviewProgress: 'review-progress',
-  onSeqWatermark: 'seq-watermark',
-  onRunStatus: 'run-status',
-  onRunLog: 'run-log',
-  onAutomationsChanged: 'automations-changed',
-  onProviderDeviceCode: 'provider-device-code',
-  onMergeQueueUpdate: 'merge-queue-update',
-  onTasksChanged: 'tasks-changed',
-  onPrsChanged: 'prs-changed',
-}
-
-// Build the SolusAPI surface as a plain object. `Proxy` would also work, but
-// an explicit map plays better with Electron's contextBridge serialization
-// (Proxy traps don't survive the structured-clone barrier).
-const api: Record<string, unknown> = {
+const nativeApi: NativeSolusAPI = {
   getPlatform: () => process.platform,
+  getLocalConnection: () => ipcRenderer.invoke('solus:local-connection'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean; focus?: boolean }) =>
     ipcRenderer.send('solus:set-ignore-mouse-events', ignore, options || {}),
@@ -301,22 +282,4 @@ const api: Record<string, unknown> = {
   },
 }
 
-for (const method of RPC_INVOKE_METHODS) {
-  api[method] = (...args: unknown[]) => rpcInvoke(method, args)
-}
-for (const method of RPC_SEND_METHODS) {
-  api[method] = (...args: unknown[]) => rpcSend(method, args)
-}
-for (const [eventMethod, topic] of Object.entries(eventBindings)) {
-  api[eventMethod] = (cb: Listener) => on(topic, cb)
-}
-
-// Defensive checks — if a name appears in both sets the registry is wrong.
-for (const m of RPC_INVOKE_METHODS) {
-  if (sendSet.has(m)) throw new Error(`RPC method "${m}" is in both invoke and send sets`)
-}
-for (const m of RPC_SEND_METHODS) {
-  if (invokeSet.has(m)) throw new Error(`RPC method "${m}" is in both send and invoke sets`)
-}
-
-contextBridge.exposeInMainWorld('solus', api as unknown as SolusAPI)
+contextBridge.exposeInMainWorld('solusNative', nativeApi)

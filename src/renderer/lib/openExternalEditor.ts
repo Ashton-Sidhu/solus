@@ -1,4 +1,5 @@
 import type { EditorId, IpcContext, TerminalAppId } from "../../shared/types";
+import { connectionsStore } from "../contexts/connections.store.svelte";
 import { toAbsoluteFilePaths } from "./changedFiles";
 
 export function openInConfiguredEditor(
@@ -10,6 +11,7 @@ export function openInConfiguredEditor(
     terminalId?: TerminalAppId | null;
   },
 ): boolean {
+  if (!connectionsStore.desktopHandlersAvailable) return false;
   if (!opts.editorId || opts.filePaths.length === 0) return false;
   const cwd = opts.cwd || undefined;
   void window.solus.openInEditor(ctx, {

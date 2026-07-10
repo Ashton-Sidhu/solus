@@ -71,6 +71,45 @@ After `dist` completes, a `Solus.app` bundle will be placed in the `dist` folder
 
 Local environment values are optional for normal development. Leave analytics and Google OAuth variables empty unless you are testing those integrations. Release signing variables are only needed for signed and notarized macOS builds.
 
+## Server
+
+Solus also ships as a standalone, headless server (for Linux hosts or running Solus outside the macOS app) that serves the web client and speaks the same RPC protocol as the desktop app.
+
+### Build and package locally
+
+```bash
+# Build the app + web client (produces dist/main/standalone.js and dist/client)
+bun run build
+
+# Package the server for your current platform/arch
+bun scripts/package-server.ts
+
+# Or target a specific platform/arch (used by CI for releases)
+bun scripts/package-server.ts --platform linux --arch x64
+```
+
+This produces `release/solus-server-<platform>-<arch>.tar.gz` — a self-contained bundle with a pinned Node runtime, the bundled server, the CLI, and the web client. Supported targets: `darwin-arm64`, `linux-x64`, `linux-arm64`.
+
+### Test the packaged server before release
+
+```bash
+# Extract the tarball somewhere and run it
+mkdir -p /tmp/solus-server && tar -xzf release/solus-server-<platform>-<arch>.tar.gz -C /tmp/solus-server
+
+# Start it in the foreground (prints the reachable URL and claim code)
+/tmp/solus-server/bin/solus start
+
+# Or manage it as a background daemon
+/tmp/solus-server/bin/solus start --daemon
+/tmp/solus-server/bin/solus status
+/tmp/solus-server/bin/solus logs
+/tmp/solus-server/bin/solus stop
+```
+
+Useful flags/env vars: `--data-dir PATH` (or `SOLUS_DATA_DIR`), `--host HOST` (or `SOLUS_HOST`), `--port PORT` (or `SOLUS_PORT`).
+
+To iterate on server code without repackaging the tarball each time, just re-run `bun run build` then `bin/solus-server` directly from a previously packaged bundle, or run `bun run dev` and connect the web client (`client/`) against the dev server.
+
 ## Keyboard Shortcuts
 
 ### System-wide (work even when Solus is hidden)

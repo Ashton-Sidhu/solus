@@ -1,12 +1,14 @@
-import { homedir } from 'os'
-import path from 'path'
-import { createHash } from 'crypto'
+import { createHash } from 'node:crypto'
 import type { ProjectConfig, RunCommandConfig } from '../../shared/types'
 import { worktreeProjectRoot } from '../../shared/types'
+import { getDb } from '../db'
 import { git } from '../git/exec'
-import { readJsonOrNull, writeJson } from './json-file'
 
 const keyByCwd = new Map<string, string>()
+
+interface ProjectConfigRow {
+  config: string
+}
 
 /**
  * Stable key for a project, used to co-locate per-project data on disk.
@@ -75,18 +77,21 @@ function normalizeConfig(value: unknown): ProjectConfig | null {
   return config
 }
 
-export function projectConfigPath(cwd: string): string {
-  const key = resolveProjectKey(cwd)
-  return path.join(homedir(), '.solus', 'projects', key, 'project.json')
-}
-
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig | null> {
-  const raw = await readJsonOrNull(projectConfigPath(cwd))
-  return raw === null ? null : normalizeConfig(raw)
+  const row = getDb().prepare(
+    'SELECT config FROM project_config WHERE project_key = ?',
+  ).get(resolveProjectKey(cwd)) as ProjectConfigRow | undefined
+  return row ? normalizeConfig(JSON.parse(row.config)) : null
 }
 
 export async function saveProjectConfig(cwd: string, config: ProjectConfig): Promise<ProjectConfig> {
   const normalized = normalizeConfig(config) ?? { version: 1 }
-  await writeJson(projectConfigPath(cwd), normalized)
+  getDb().prepare(`
+    INSERT INTO project_config (project_key, config, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(project_key) DO UPDATE SET
+      config = excluded.config,
+      updated_at = excluded.updated_at
+  `).run(resolveProjectKey(cwd), JSON.stringify(normalized), Date.now())
   return normalized
 }

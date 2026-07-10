@@ -12,8 +12,8 @@
   import type { DiffScope } from "../../../shared/types";
   interface Props {
     onAttachFile: () => void;
-    onScreenshot: () => void;
-    onDesignMode: () => void;
+    onScreenshot?: (() => void) | null;
+    onDesignMode?: (() => void) | null;
   }
   let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 

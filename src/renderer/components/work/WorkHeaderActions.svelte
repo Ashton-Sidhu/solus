@@ -22,6 +22,7 @@
   import { portal } from "../portal";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { connectionsStore } from "../../contexts/connections.store.svelte";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
 
   interface Props {
@@ -93,6 +94,7 @@
   let overflowEl: HTMLButtonElement | null = $state(null);
 
   const canDownload = $derived(docType === "doc" || docType === "slides");
+  const canExportToFile = $derived(canDownload && connectionsStore.desktopHandlersAvailable);
   const showOpenInSplit = $derived(inline && !!onOpenInSplit);
   const isProjectWork = $derived(workStorage?.kind === "project");
   const canPromote = $derived(!isProjectWork && !!onPromoteToProject);
@@ -112,6 +114,7 @@
   }
 
   async function exportToFile() {
+    if (!connectionsStore.desktopHandlersAvailable) return;
     await window.solus.saveFileDialog(`${safeFileName()}.md`, currentContent);
   }
 
@@ -254,9 +257,11 @@
         <DropdownItem data-testid="download-markdown" onclick={() => { overflowOpen = false; downloadMarkdown(); }}>
           <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Download .md</span>
         </DropdownItem>
-        <DropdownItem data-testid="export-markdown" onclick={() => { overflowOpen = false; void exportToFile(); }}>
-          <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Export to file…</span>
-        </DropdownItem>
+        {#if canExportToFile}
+          <DropdownItem data-testid="export-markdown" onclick={() => { overflowOpen = false; void exportToFile(); }}>
+            <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Export to file…</span>
+          </DropdownItem>
+        {/if}
       {/if}
       {#if onDelete}
         {#if onDuplicate || hasChanges || canDownload}

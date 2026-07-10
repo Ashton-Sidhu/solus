@@ -36,37 +36,42 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
  * clearing client state. Used by the network-gap recovery path.
  */
 export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
+  ctx.runtimeSyncing = true
   // Clear in-flight streaming state so replayed text doesn't double-append.
-  ctx.streaming.text = {}
-  ctx.turnSnapshots = {}
+  try {
+    ctx.streaming.text = {}
+    ctx.turnSnapshots = {}
 
-  const tabIds = [...ctx.tabOrder]
-  await Promise.all(tabIds.map(async (tabId) => {
-    const tab = ctx.tabs[tabId]
-    const session = tab ? ctx.sessions[tab.sessionId] : undefined
-    if (!tab || !session) return
+    const tabIds = [...ctx.tabOrder]
+    await Promise.all(tabIds.map(async (tabId) => {
+      const tab = ctx.tabs[tabId]
+      const session = tab ? ctx.sessions[tab.sessionId] : undefined
+      if (!tab || !session) return
 
-    // Re-register with the server so event routing is alive again.
-    await window.solus.createTab(tabId).catch(() => null)
+      // Re-register with the server so event routing is alive again.
+      await window.solus.createTab(tabId).catch(() => null)
 
-    if (session.agentSessionId) {
-      const info = await window.solus.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
-      if (info && session) {
-        session.modelConfig.modelId = info.modelConfig.modelId
-        session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
-        session.modelConfig.contextWindow = info.modelConfig.contextWindow
-        session.modelConfig.fastMode = info.modelConfig.fastMode
-        session.permissionMode = info.permissionMode
-        session.status = info.status
-        session.rateLimitInfo = info.rateLimitInfo
-        ctx.reconcileQueuedPrompts(tabId, info.queuedPrompts)
-      } else if (info === null) {
-        // Session no longer alive.
-        session.status = 'idle'
-        session.rateLimitInfo = null
+      if (session.agentSessionId) {
+        const info = await window.solus.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
+        if (info && session) {
+          session.modelConfig.modelId = info.modelConfig.modelId
+          session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
+          session.modelConfig.contextWindow = info.modelConfig.contextWindow
+          session.modelConfig.fastMode = info.modelConfig.fastMode
+          session.permissionMode = info.permissionMode
+          session.status = info.status
+          session.rateLimitInfo = info.rateLimitInfo
+          ctx.reconcileQueuedPrompts(tabId, info.queuedPrompts)
+        } else if (info === null) {
+          // Session no longer alive.
+          session.status = 'idle'
+          session.rateLimitInfo = null
+        }
       }
-    }
-  }))
+    }))
+  } finally {
+    ctx.runtimeSyncing = false
+  }
 }
 
 async function _hydrateTabs(

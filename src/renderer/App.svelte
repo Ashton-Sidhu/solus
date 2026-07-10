@@ -16,15 +16,21 @@
     CheckSquareIcon,
     FolderIcon,
     ListChecksIcon,
+    PlugsIcon,
   } from "phosphor-svelte";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import DirectoryPicker from "./components/pickers/DirectoryPicker.svelte";
   import KeyboardShortcutsModal from "./components/KeyboardShortcutsModal.svelte";
   import CommandPalette from "./components/command-palette/CommandPalette.svelte";
+  import AddServerModal from "./components/servers/AddServerModal.svelte";
+  import ClaimServerModal from "./components/servers/ClaimServerModal.svelte";
+  import OfflineBanner from "./components/servers/OfflineBanner.svelte";
   import type { Command } from "./components/command-palette/lib/commands";
   import TaskComposer from "./components/tasks/TaskComposer.svelte";
   import { projectsStore } from "./contexts/projects.store.svelte";
   import { toasts } from "./contexts/toast.store.svelte";
+  import { connectionsStore } from "./contexts/connections.store.svelte";
+  import { serversStore } from "./components/servers/servers.store.svelte";
   import EditorLayout from "./components/layout/EditorLayout.svelte";
   import PillLayout from "./components/layout/PillLayout.svelte";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
@@ -282,6 +288,7 @@
       return overlayEl;
     },
   });
+  serversStore.init();
 
   let designModeScreenshot = $state<string | null>(null);
   let directoryPickerOpen = $state(false);
@@ -322,6 +329,7 @@
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
   const activeTabId = $derived(session.activeTabId);
+  const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
   // status/provider live on Session, not Tab — reading them off the tab always
   // yielded undefined, so isRunning was permanently false and the run-gated
   // global keybindings never blocked during a run.
@@ -367,6 +375,10 @@
       session.planStore.preloadDescriptors(defaultDir, session.ctx);
       void sessionSidebarStore.loadPinnedSessions();
     });
+  });
+
+  $effect(() => {
+    void connectionsStore.refreshCapabilities();
   });
 
   $effect(() => {
@@ -658,7 +670,9 @@
       requestInputFocus();
     }
   });
-  useKeybinding("global.screenshot", handleScreenshot);
+  useKeybinding("global.screenshot", handleScreenshot, {
+    enabled: () => desktopHandlersAvailable,
+  });
   useKeybinding("global.continue-in-mode", () => session.continueInOtherMode());
   useKeybinding("global.session-picker", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
@@ -686,7 +700,9 @@
   });
   useKeybinding("global.attach-file", handleAttachFile);
   useKeybinding("global.design-mode", () => {
-    if (!isRunning) handleDesignMode();
+    if (!isRunning && desktopHandlersAvailable) handleDesignMode();
+  }, {
+    enabled: () => desktopHandlersAvailable,
   });
   useKeybinding("global.cycle-agent", async () => {
     if (isRunning) return;
@@ -730,8 +746,10 @@
     if (hasAgent) return;
     window.dispatchEvent(new CustomEvent("solus:toggle-git-dropdown"));
   });
-  useKeybinding("global.git-open-terminal", () =>
-    window.solus.openWorktreeTerminal(session.ctx),
+  useKeybinding(
+    "global.git-open-terminal",
+    () => window.solus.openWorktreeTerminal(session.ctx),
+    { enabled: () => desktopHandlersAvailable },
   );
   useKeybinding("global.show-shortcuts", () => {
     shortcutsActiveScopes = keybindings.activeScopes();
@@ -869,6 +887,14 @@
         shortcutsModalOpen = true;
       },
     },
+    {
+      id: "add-server",
+      label: "Add server",
+      group: "Servers",
+      icon: PlugsIcon,
+      keywords: ["remote", "pair", "connect"],
+      run: () => serversStore.openAddServer(),
+    },
   ];
 
   // "Open plan/document/automation…" mirror the "Open worktree…" flow: a parent
@@ -878,6 +904,18 @@
   // project; "Open worktree…" drills the same way.
   const paletteCommands = $derived.by(() => {
     const commands: Command[] = [...baseCommands];
+
+    for (const server of serversStore.servers) {
+      commands.push({
+        id: `switch-server:${server.id}`,
+        label: `Switch server: ${server.label}`,
+        group: "Servers",
+        icon: PlugsIcon,
+        hint: server.id === serversStore.activeServerId ? "Active" : undefined,
+        keywords: ["server", "remote", "connect", server.url, server.installationId ?? ""],
+        run: () => serversStore.switchTo(server.id),
+      });
+    }
 
     // Always surface the parent commands so they appear the instant the palette
     // opens; their children stream in as the background loads resolve, and the
@@ -1151,6 +1189,7 @@
   });
 
   async function handleScreenshot() {
+    if (!desktopHandlersAvailable) return;
     const result = await window.solus.takeScreenshot();
     if (!result) return;
     session.addAttachments([result]);
@@ -1163,6 +1202,7 @@
   }
 
   async function handleDesignMode() {
+    if (!desktopHandlersAvailable) return;
     const result = await window.solus.enterDesignMode();
     if (!result) {
       // Capture failed: tell main to restore opacity so we don't leave the window invisible.
@@ -1221,7 +1261,7 @@
 
   $effect(() => {
     const unsub = window.solus.onEnterDesignMode(() => {
-      handleDesignMode();
+      if (desktopHandlersAvailable) handleDesignMode();
     });
     return unsub;
   });
@@ -1338,16 +1378,16 @@
   <div class="mode-shell h-full w-full">
     <EditorLayout
       onAttachFile={handleAttachFile}
-      onScreenshot={handleScreenshot}
-      onDesignMode={handleDesignMode}
+      onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
+      onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
     />
   </div>
 {:else}
   <div class="mode-shell">
     <PillLayout
       onAttachFile={handleAttachFile}
-      onScreenshot={handleScreenshot}
-      onDesignMode={handleDesignMode}
+      onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
+      onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
     />
   </div>
 {/if}
@@ -1368,6 +1408,10 @@
   bind:initialPage={paletteInitialPage}
   commands={commandPaletteOpen ? paletteCommands : []}
 />
+
+<OfflineBanner />
+<AddServerModal />
+<ClaimServerModal />
 
 {#if taskComposer && taskComposerConfig !== undefined}
   <TaskComposer

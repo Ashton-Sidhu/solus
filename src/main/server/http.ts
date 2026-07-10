@@ -1,224 +1,280 @@
 import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
-import { existsSync, statSync, readFileSync, writeFileSync } from 'fs'
-import { join, normalize, extname } from 'path'
-import { tmpdir } from 'os'
-import { consumePairToken, generatePairToken, getInstallationId, issueSessionToken, listRevokedDevices, revokeDevice } from './auth'
+import { existsSync, statSync, readFileSync, realpathSync } from 'fs'
+import { randomBytes } from 'crypto'
+import { Hono, type Context } from 'hono'
+import { cors } from 'hono/cors'
+import { getMimeType } from 'hono/utils/mime'
+import { getRequestListener } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
+import formidable, { type File as FormidableFile } from 'formidable'
+import { resolve as pathResolve, relative as pathRelative, isAbsolute, sep } from 'path'
+import { hostname, tmpdir } from 'os'
+import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
-import { filePathsToAttachments } from './handlers/file-handlers'
+import { createTokenBucketRateLimiter } from './rate-limit'
+import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
+import { completeGoogleOAuthCallback } from '../google/oauth'
+import { listProjects } from '../project-config/projects-manifest'
 
 const log = createLogger('main', 'http')
 
 export interface HttpServerOptions {
-  /** Bind address: defaults to 0.0.0.0 (all interfaces). Set 127.0.0.1 for loopback only. */
+  /** Bind address: defaults to 127.0.0.1 (loopback only). Set 0.0.0.0 for remote access. */
   host?: string
+  /** Current bind address when the listener can rebind without rebuilding routes. */
+  getHost?: () => string
+  /** Current listener port after retry/rebind. */
+  getPort?: () => number
   /** Port; 0 lets the OS assign an ephemeral port. */
   port?: number
   /** Path to the prebuilt web client `dist/` directory; if present, mounted at /. */
   staticDir?: string
 }
 
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js':   'application/javascript; charset=utf-8',
-  '.mjs':  'application/javascript; charset=utf-8',
-  '.css':  'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg':  'image/svg+xml',
-  '.png':  'image/png',
-  '.jpg':  'image/jpeg',
-  '.gif':  'image/gif',
-  '.webp': 'image/webp',
-  '.woff': 'font/woff',
-  '.woff2':'font/woff2',
-}
-
-interface RouteCtx {
-  req: IncomingMessage
-  res: ServerResponse
-  url: URL
-}
-
-type Route = (ctx: RouteCtx) => Promise<void> | void
+/** The Node req/res the @hono/node-server adapter exposes as `c.env`. */
+type NodeBindings = { incoming: IncomingMessage; outgoing: ServerResponse }
+type Env = { Bindings: NodeBindings }
+type Ctx = Context<Env>
 
 /**
  * Builds the HTTP server. Returns a node http.Server that the caller
  * `.listen()`s separately. The WebSocket transport mounts itself at `/ws`
  * on the same server via `http.on('upgrade')`.
+ *
+ * Routing/CORS/body-parsing/static-serving are handled by Hono; the raw Node
+ * request is still reachable via `c.env.incoming` (used by the multipart
+ * upload). We keep our own `http.Server` via `getRequestListener` so the WS
+ * upgrade and the port-retry/rebind logic in server/index.ts stay unchanged.
  */
 export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpServer; host: string; port: number } {
-  const host = opts.host ?? '0.0.0.0'
+  const host = opts.host ?? '127.0.0.1'
+  const currentHost = () => opts.getHost?.() ?? host
   const port = opts.port ?? 0
+  const currentPort = () => opts.getPort?.() ?? port
+  const pairRateLimiter = createTokenBucketRateLimiter(10, 60_000)
+  const claimRateLimiter = createTokenBucketRateLimiter(10, 60_000)
 
-  const get = new Map<string, Route>()
-  const post = new Map<string, Route>()
+  const app = new Hono<Env>()
 
-  get.set('/health', ({ res }) => json(res, 200, { ok: true, installationId: getInstallationId() }))
+  // Only discovery/pairing endpoints are reachable cross-origin; everything
+  // else is same-origin (bundled web client) or native (Authorization header).
+  const publicCors = cors({
+    origin: '*',
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowHeaders: ['authorization', 'content-type'],
+  })
+  app.use('/health', publicCors)
+  app.use('/pair', publicCors)
+  app.use('/claim', publicCors)
 
-  get.set('/endpoints', ({ res }) => json(res, 200, { endpoints: listReachableEndpoints(host, port) }))
+  app.onError((err, c) => {
+    log.error(`http handler error: ${err}`)
+    return c.json({ error: 'internal' }, 500)
+  })
+  app.notFound((c) => c.json({ error: 'not found' }, 404))
 
-  post.set('/pair', async ({ req, res }) => {
-    const body = await readJson(req)
+  app.get('/health', (c) => c.json({
+    ok: true,
+    installationId: getInstallationId(),
+    claimable: isClaimable(),
+    name: hostname() || 'Solus Server',
+  }))
+
+  app.get('/endpoints', (c) => c.json({ endpoints: listReachableEndpoints(currentHost(), currentPort()) }))
+
+  app.get('/oauth/google/callback', async (c) => {
+    const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
+    // status is a known 2xx/4xx/5xx literal from completeGoogleOAuthCallback.
+    return c.html(result.html, result.status as Parameters<Ctx['html']>[1])
+  })
+
+  app.post('/pair', async (c) => {
+    if (!pairRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
+    const body = await readJson(c)
     const pairToken = body?.pairToken ?? body?.code
     const deviceLabel = (body?.deviceLabel as string | undefined)?.slice(0, 64) || 'Unknown device'
     if (!pairToken || typeof pairToken !== 'string') {
-      return json(res, 400, { error: 'pairToken or code required' })
+      return c.json({ error: 'pairToken or code required' }, 400)
     }
     if (!consumePairToken(pairToken)) {
-      return json(res, 401, { error: 'Invalid or expired pair token' })
+      return c.json({ error: 'Invalid or expired pair token' }, 401)
     }
     const sessionToken = issueSessionToken(deviceLabel)
     log.info(`pair: issued session for "${deviceLabel}"`)
-    return json(res, 200, { sessionToken, installationId: getInstallationId() })
+    return c.json({ sessionToken, installationId: getInstallationId() })
   })
 
-  post.set('/upload', async ({ req, res }) => {
+  app.post('/claim', async (c) => {
+    if (getOwnershipState() !== 'unclaimed') return c.json({ error: 'Server already claimed' }, 403)
+    if (!claimRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many claim attempts' }, 429)
+    const body = await readJson(c)
+    const claimToken = body?.claimToken ?? body?.code
+    const deviceLabel = (body?.deviceLabel as string | undefined)?.slice(0, 64) || 'Owner device'
+    if (!claimToken || typeof claimToken !== 'string') {
+      return c.json({ error: 'claimToken or code required' }, 400)
+    }
+
+    const result = claimOwnership(claimToken, deviceLabel)
+    if (!result.ok) {
+      return c.json({ error: result.reason === 'owned' ? 'Server already claimed' : 'Invalid or expired claim code' }, 403)
+    }
+
+    log.info(`claim: owner device "${deviceLabel}" claimed server`)
+    return c.json(result)
+  })
+
+  app.post('/claim/open', (c) => {
+    if (!verifyClaimOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
+    const claimWindow = openClaimWindow()
+    if (!claimWindow) return c.json({ error: 'Server already claimed' }, 403)
+    log.info('claim: reopened local admin claim window')
+    return c.json({
+      code: claimWindow.code,
+      expiresAt: claimWindow.expiresAt,
+      fingerprint: getServerFingerprint(),
+      installationId: getInstallationId(),
+      endpoints: listReachableEndpoints(currentHost(), currentPort()),
+    })
+  })
+
+  app.post('/upload', async (c) => {
+    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
     try {
-      const filePaths = await receiveMultipart(req)
-      json(res, 200, { attachments: filePathsToAttachments(filePaths) })
+      const filePaths = await receiveMultipart(c.env.incoming)
+      return c.json({ attachments: filePathsToAttachments(filePaths) })
     } catch (err) {
       log.error(`upload error: ${err}`)
-      json(res, 500, { error: 'upload failed' })
+      return c.json({ error: 'upload failed' }, 500)
     }
   })
 
-  // Internal — Connections panel hits this from the Electron app to mint a fresh
-  // pair token. External callers can hit it too, but a token alone is useless
-  // without already having reach to the server.
-  post.set('/auth/pair-token', ({ res }) => json(res, 200, generatePairToken()))
+  app.get('/artifact', async (c) => {
+    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    const rawPath = c.req.query('p')
+    if (!rawPath || !isAbsolute(rawPath)) return c.json({ error: 'absolute path required' }, 400)
 
-  post.set('/auth/revoke', async ({ req, res }) => {
-    const body = await readJson(req)
-    if (!body?.deviceId) return json(res, 400, { error: 'deviceId required' })
+    const filePath = await resolveKnownProjectFile(rawPath)
+    if (!filePath) return c.json({ error: 'not found' }, 404)
+
+    const stat = statSync(filePath)
+    if (!stat.isFile()) return c.json({ error: 'not found' }, 404)
+
+    const type = getMimeType(filePath) ?? 'application/octet-stream'
+    return new Response(readFileSync(filePath), {
+      status: 200,
+      headers: {
+        'content-type': type,
+        'content-length': String(stat.size),
+        'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
+      },
+    })
+  })
+
+  // Internal/back-compat route for already-paired clients. The Connections panel
+  // normally mints tokens through authenticated RPC.
+  app.post('/auth/pair-token', (c) => {
+    if (!pairRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
+    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    return c.json(generatePairToken())
+  })
+
+  app.post('/auth/refresh', (c) => {
+    const refreshed = refreshSessionToken(readBearer(c))
+    if (!refreshed) return c.json({ error: 'Unauthorized' }, 401)
+    return c.json({ sessionToken: refreshed, installationId: getInstallationId() })
+  })
+
+  app.post('/auth/revoke', async (c) => {
+    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
+    const body = await readJson(c)
+    if (!body?.deviceId) return c.json({ error: 'deviceId required' }, 400)
     revokeDevice(body.deviceId)
-    return json(res, 200, { ok: true, revoked: listRevokedDevices() })
+    return c.json({ ok: true, revoked: listRevokedDevices() })
   })
 
-  const server = createServer(async (req, res) => {
-    setCors(res)
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+  // Static fallback for the bundled client. serveStatic streams the requested
+  // file (with traversal protection + range support); the second handler is the
+  // SPA fallback that serves index.html for any unmatched client-side route.
+  if (opts.staticDir && existsSync(opts.staticDir)) {
+    const root = opts.staticDir
+    app.get('*', serveStatic({ root }))
+    app.get('*', serveStatic({ root, path: 'index.html' }))
+  }
 
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
-    const ctx: RouteCtx = { req, res, url }
-
-    const handler = req.method === 'GET' ? get.get(url.pathname)
-      : req.method === 'POST' ? post.get(url.pathname)
-      : null
-
-    if (handler) {
-      try { await handler(ctx) }
-      catch (err) {
-        log.error(`http handler error: ${err}`)
-        if (!res.headersSent) json(res, 500, { error: 'internal' })
-      }
-      return
-    }
-
-    // Static fallback for the bundled client. Anything else 404s.
-    if (req.method === 'GET' && opts.staticDir && existsSync(opts.staticDir)) {
-      serveStatic(res, opts.staticDir, url.pathname)
-      return
-    }
-
-    json(res, 404, { error: 'not found' })
-  })
-
+  const server = createServer(getRequestListener(app.fetch, { overrideGlobalObjects: false }))
   return { server, host, port }
 }
 
-function setCors(res: ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'authorization,content-type')
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+async function readJson(c: Ctx): Promise<any> {
+  // c.req.json() throws on an empty/invalid body; callers expect null instead.
+  try { return await c.req.json() } catch { return null }
 }
 
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.statusCode = status
-  res.setHeader('content-type', 'application/json; charset=utf-8')
-  res.end(JSON.stringify(body))
+function readBearer(c: Ctx): string {
+  const header = c.req.header('authorization')
+  if (!header || !header.toLowerCase().startsWith('bearer ')) return ''
+  return header.slice(7).trim()
 }
 
-async function readJson(req: IncomingMessage): Promise<any> {
-  const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  if (chunks.length === 0) return null
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) }
-  catch { return null }
+function clientIp(c: Ctx): string {
+  const forwarded = c.req.header('x-forwarded-for')
+  if (forwarded && forwarded.trim()) return forwarded.split(',')[0].trim()
+  return c.env.incoming.socket.remoteAddress || 'unknown'
 }
+
+async function resolveKnownProjectFile(rawPath: string): Promise<string | null> {
+  let target: string
+  try {
+    target = realpathSync(pathResolve(rawPath))
+  } catch {
+    return null
+  }
+
+  const projects = await listProjects().catch((err) => {
+    log.warn(`artifact project-root lookup failed: ${err}`)
+    return []
+  })
+
+  for (const project of projects) {
+    try {
+      const root = realpathSync(project.path)
+      if (isInsideRoot(root, target)) return target
+    } catch {}
+  }
+
+  return null
+}
+
+function isInsideRoot(root: string, target: string): boolean {
+  const rel = pathRelative(root, target)
+  return rel === '' || (!!rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+// Caps for the authenticated /upload endpoint. The server can bind to LAN/tailnet,
+// so we bound files/size rather than trusting the client to be well-behaved.
+const MAX_UPLOAD_FILES = 20
+const MAX_UPLOAD_FILE_BYTES = 100 * 1024 * 1024
 
 async function receiveMultipart(req: IncomingMessage): Promise<string[]> {
-  // Minimal multipart/form-data parser sufficient for browser file uploads.
-  // We don't depend on a parser package because uploads are infrequent and
-  // we trust the client (already authenticated via WS pair token).
-  const ct = req.headers['content-type'] ?? ''
-  const boundaryMatch = /boundary=([^\s;]+)/.exec(ct)
-  if (!boundaryMatch) throw new Error('multipart boundary missing')
-  const boundary = `--${boundaryMatch[1]}`
+  const form = formidable({
+    uploadDir: tmpdir(),
+    keepExtensions: true,
+    maxFiles: MAX_UPLOAD_FILES,
+    maxFileSize: MAX_UPLOAD_FILE_BYTES,
+    // Reproduce the historical on-disk name `solus-upload-<ts>-<rand>-<safeName>`
+    // so filePathsToAttachments derives the same display name + extension. The
+    // random segment prevents same-millisecond collisions across files in one
+    // request (which would otherwise silently overwrite each other).
+    filename: (name, ext) => {
+      const safeName = `${name}${ext}`.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'upload'
+      return `solus-upload-${Date.now()}-${randomBytes(4).toString('hex')}-${safeName}`
+    },
+  })
 
-  const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  const body = Buffer.concat(chunks)
-
-  const parts = splitBuffer(body, Buffer.from(boundary))
-  const written: string[] = []
-
-  for (const part of parts) {
-    // Drop preamble/epilogue (empty or trailing "--").
-    if (part.length === 0 || (part.length <= 4 && part.toString().trim() === '--')) continue
-
-    const headerEnd = part.indexOf('\r\n\r\n')
-    if (headerEnd < 0) continue
-
-    const headerStr = part.slice(0, headerEnd).toString()
-    const data = part.slice(headerEnd + 4, part.length - 2) // strip trailing \r\n
-    const filenameMatch = /filename="([^"]+)"/.exec(headerStr)
-    if (!filenameMatch) continue
-
-    const safeName = filenameMatch[1].replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'upload'
-    const dest = join(tmpdir(), `solus-upload-${Date.now()}-${safeName}`)
-    writeFileSync(dest, data)
-    written.push(dest)
-  }
-
-  return written
-}
-
-function splitBuffer(buf: Buffer, sep: Buffer): Buffer[] {
-  const out: Buffer[] = []
-  let start = 0
-  let idx = buf.indexOf(sep, start)
-  while (idx >= 0) {
-    out.push(buf.slice(start, idx))
-    start = idx + sep.length
-    if (start < buf.length && buf[start] === 0x0d /* \r */ && buf[start + 1] === 0x0a /* \n */) {
-      start += 2
-    }
-    idx = buf.indexOf(sep, start)
-  }
-  out.push(buf.slice(start))
-  return out
-}
-
-function serveStatic(res: ServerResponse, root: string, reqPath: string): void {
-  const safe = normalize(reqPath === '/' ? '/index.html' : reqPath).replace(/^(\.\.[/\\])+/, '')
-  const full = join(root, safe)
-  if (!full.startsWith(root)) { json(res, 404, { error: 'not found' }); return }
-
-  if (!existsSync(full) || !statSync(full).isFile()) {
-    // SPA fallback — serve index.html for unknown routes.
-    const fallback = join(root, 'index.html')
-    if (existsSync(fallback)) {
-      const body = readFileSync(fallback)
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end(body)
-      return
-    }
-    json(res, 404, { error: 'not found' })
-    return
-  }
-
-  const ext = extname(full).toLowerCase()
-  const type = MIME[ext] ?? 'application/octet-stream'
-  res.writeHead(200, { 'content-type': type })
-  res.end(readFileSync(full))
+  const [, files] = await form.parse(req)
+  return Object.values(files)
+    .flat()
+    .filter((file): file is FormidableFile => !!file)
+    .map((file) => file.filepath)
 }

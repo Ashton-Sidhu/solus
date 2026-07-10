@@ -3,9 +3,12 @@
   import InputBar from "@renderer/components/input/InputBar.svelte";
   import StatusBarControls from "@renderer/components/layout/StatusBarControls.svelte";
   import WorkspaceBody from "@renderer/components/layout/WorkspaceBody.svelte";
+  import { connectionStatusLabel } from "@client-core/connection-display";
   import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
   import { runtime } from "@renderer/contexts/runtime.svelte";
   import { tooltip } from "@renderer/lib/tooltip";
+  import { webState } from "../lib/web-state.svelte";
+  import WebPushBell from "./WebPushBell.svelte";
 
   interface Props {
     onAttachFile: () => void;
@@ -18,6 +21,13 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isMobile = $derived(runtime.isMobileViewport);
+  const connectionLabel = $derived(
+    connectionStatusLabel(webState.connectionStatus, {
+      attempt: webState.connectionAttempt,
+      hasConnected: webState.hasConnected,
+    }),
+  );
+  const showConnectionStatus = $derived(webState.connectionStatus !== "connected");
 </script>
 
 <div class="web-frame">
@@ -57,6 +67,23 @@
     {#snippet statusBar()}
       <StatusBarControls mode="editor" dirMaxWidth={240}>
         {#snippet trailingActions()}
+          {#if showConnectionStatus}
+            <span
+              class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
+              use:tooltip={connectionLabel}
+            >
+              <span
+                class="h-1.5 w-1.5 rounded-full"
+                class:bg-(--solus-accent)={webState.connectionStatus !== "blocked"}
+                class:bg-(--solus-status-error)={webState.connectionStatus === "blocked"}
+                class:animate-pulse={webState.connectionStatus === "connecting" || webState.connectionStatus === "reconnecting"}
+              ></span>
+              <span class="max-w-[9rem] truncate">
+                {connectionLabel}
+              </span>
+            </span>
+          {/if}
+          <WebPushBell />
           <button
             class="ws-logout-btn"
             onclick={() =>

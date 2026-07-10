@@ -1,4 +1,4 @@
-import type { AuthStatus, DeviceCodePrompt, IpcContext } from '../../shared/types'
+import type { AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../shared/types'
 
 export interface PairToken {
   token: string
@@ -11,6 +11,8 @@ export interface ConnectionsServerInfo {
   port: number
   allowLan: boolean
   installationId: string
+  remoteAccess: boolean
+  requireAuth: boolean
 }
 
 export interface ConnectionEndpoint {
@@ -25,6 +27,8 @@ export interface ConnectionSession {
   deviceLabel: string
   deviceId: string | null
   connectedAt: number
+  connectionCount: number
+  connectionIds: string[]
 }
 
 export class ConnectionsStore {
@@ -33,6 +37,7 @@ export class ConnectionsStore {
   sessions = $state<ConnectionSession[]>([])
   activePair = $state<PairToken | null>(null)
   refreshing = $state(false)
+  capabilities = $state<ServerCapabilities | null>(null)
 
   providerStatus = $state<AuthStatus | null>(null)
   providerLoaded = $state(false)
@@ -69,6 +74,34 @@ export class ConnectionsStore {
     } catch (e) {
       console.error('generate pair token failed', e)
     }
+  }
+
+  async setRemoteAccess(remoteAccess: boolean): Promise<void> {
+    try {
+      const info = await window.solus.connectionsSetRemoteAccess({ remoteAccess })
+      if (this.serverInfo) {
+        this.serverInfo.remoteAccess = info.remoteAccess
+        this.serverInfo.host = info.host
+        this.serverInfo.port = info.port
+        this.serverInfo.allowLan = info.allowLan
+        this.serverInfo.requireAuth = info.requireAuth
+      }
+      await this.refreshServerMetadata()
+    } catch (e) {
+      console.error('set remote access failed', e)
+    }
+  }
+
+  async refreshCapabilities(): Promise<void> {
+    try {
+      this.capabilities = await window.solus.getServerCapabilities()
+    } catch (e) {
+      console.error('getServerCapabilities failed', e)
+    }
+  }
+
+  get desktopHandlersAvailable(): boolean {
+    return this.capabilities?.desktopHandlers !== false
   }
 
   async revokeDevice(deviceId: string): Promise<void> {

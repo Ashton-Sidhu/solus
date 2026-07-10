@@ -1,6 +1,6 @@
 import type { SolusServer } from '../server'
 import { createWork, duplicateWork, saveWork, loadWork, listWorks, deleteWork, agentSaveWork, loadWorkPrevious, revertWork, setWorkPinned, promoteWorkToProject, linkWorkSession } from '../../folio/works'
-import { loadWorkAnnotations, saveWorkAnnotations, deleteWorkAnnotations } from '../../folio/work-annotations'
+import { loadWorkAnnotations, saveWorkAnnotations } from '../../folio/work-annotations'
 import type { AgentId, Work, WorkAnnotations } from '../../../shared/types'
 
 export function registerFolioHandlers(server: SolusServer): void {
@@ -27,8 +27,6 @@ export function registerFolioHandlers(server: SolusServer): void {
   server.register('deleteWork', async (args) => {
     const [id, cwd] = args as [string, string | undefined]
     await deleteWork(id, cwd)
-    // The annotation sidecar is deleted alongside the work.
-    await deleteWorkAnnotations(id)
   })
 
   server.register('duplicateWork', async (args) => {

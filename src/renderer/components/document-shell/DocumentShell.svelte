@@ -417,19 +417,64 @@
       .catch(() => {});
   }
 
+  function googleOAuthCallbackBaseUrl(): string | undefined {
+    if (window.location.protocol !== "http:" && window.location.protocol !== "https:") return undefined;
+    return window.location.origin;
+  }
+
+  function isGoogleAuthUrlResult(result: unknown): result is { authUrl: string; expiresAt?: number } {
+    return typeof (result as { authUrl?: unknown })?.authUrl === "string";
+  }
+
+  function isGoogleUploadError(result: unknown): result is { error: string } {
+    return typeof (result as { error?: unknown })?.error === "string";
+  }
+
+  function isGoogleDocResult(result: unknown): result is { docUrl: string } {
+    return typeof (result as { docUrl?: unknown })?.docUrl === "string";
+  }
+
+  async function openUrl(url: string, options?: { hideAppAfterOpen?: boolean }) {
+    if (window.solus.getPlatform() !== "web") {
+      try {
+        const opened = await window.solus.openExternal(url, options);
+        if (opened) return;
+      } catch {}
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function handleGoogleUpload() {
     if (uploading) return;
     uploading = true;
     uploadError = null;
     try {
       const markdown = currentMarkdown();
-      const result = await window.solus.googleUploadDoc({ title, markdown });
-      if ("error" in result) {
+      const request = { title, markdown, oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl() };
+      let result: unknown = await window.solus.googleUploadDoc(request);
+      if (isGoogleAuthUrlResult(result)) {
+        await openUrl(result.authUrl);
+        const deadline = Math.min(result.expiresAt ?? Date.now() + 5 * 60_000, Date.now() + 5 * 60_000);
+        while (Date.now() < deadline) {
+          await sleep(2000);
+          result = await window.solus.googleUploadDoc(request);
+          if (!isGoogleAuthUrlResult(result)) break;
+        }
+      }
+      if (isGoogleUploadError(result)) {
         uploadError = result.error;
-      } else {
-        await window.solus.openExternal(result.docUrl, { hideAppAfterOpen: true });
+      } else if (isGoogleAuthUrlResult(result)) {
+        uploadError = "Finish Google sign-in in your browser, then try again.";
+      } else if (isGoogleDocResult(result)) {
+        await openUrl(result.docUrl, { hideAppAfterOpen: true });
         uploaded = true;
         setTimeout(() => (uploaded = false), 1500);
+      } else {
+        uploadError = "Google upload returned an unexpected response.";
       }
     } catch (err) {
       uploadError = err instanceof Error ? err.message : "Upload failed";

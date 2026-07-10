@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { mkdir, readFile, rm, } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import type { DatabaseSync } from 'node:sqlite'
+import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { nextRunFrom, validateTrigger } from './automation-schedule'
 import type {
@@ -11,36 +9,41 @@ import type {
   AutomationAction,
   AutomationCreator,
   AutomationRun,
+  AutomationRunStatus,
   AutomationsChangedEvent,
-  AutomationsManifest,
   AutomationTrigger,
 } from '../../shared/types'
-import { writeJson } from '../project-config/json-file'
 
 const log = createLogger('automations', 'automations-store.ts')
 
-// Local-only persistence under ~/.solus/automations/. The manifest holds every
-// automation definition (they are small); each automation's runs live in a
-// sidecar `${id}.runs.json` so the manifest stays cheap to read/write.
-const ROOT = join(homedir(), '.solus', 'automations')
-const MANIFEST_FILE = 'automations-manifest.json'
 /** Cap retained runs per automation so the run log can't grow unbounded. */
 const MAX_RUNS_PER_AUTOMATION = 50
 /** Cap the stored output of a single run. The full transcript lives in the
- *  spawned session anyway; together with the run cap this bounds each sidecar. */
+ *  spawned session anyway; together with the run cap this bounds run storage. */
 const MAX_RUN_OUTPUT_CHARS = 20_000
-const MANIFEST_PATH = join(ROOT, MANIFEST_FILE)
 const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
-function runsPath(id: string): string {
-  return join(ROOT, `${id}.runs.json`)
+interface AutomationRow {
+  id: string
+  name: string
+  enabled: number
+  favorite: number | null
+  action: string
+  trigger_config: string
+  next_run_at: number | null
+  last_run: string | null
+  created_at: number
+  updated_at: number
 }
 
-// Nothing else creates ~/.solus/automations (the app only mkdirs ~/.solus), so
-// every write path funnels through this memoized mkdir before touching disk.
-let rootReady: Promise<unknown> | null = null
-function ensureRoot(): Promise<unknown> {
-  return (rootReady ??= mkdir(ROOT, { recursive: true }))
+interface AutomationRunRow {
+  id: string
+  automation_id: string
+  started_at: number
+  finished_at: number | null
+  status: AutomationRunStatus
+  output: string | null
+  data: string | null
 }
 
 // Every mutation is announced so the server can broadcast it to all clients —
@@ -59,49 +62,146 @@ function emitChanged(event: AutomationsChangedEvent): void {
   }
 }
 
-// The manifest is read from disk once and then kept in memory as the single
-// source of truth. Every mutation edits this one object synchronously and
-// persists it — so when the scheduler fires several due automations in the same
-// tick, each stamps the same representation instead of racing on its own disk
-// snapshot. There is no read-modify-write window to lose, so concurrent fires
-// can no longer clobber each other's run stamps.
-let manifest: AutomationsManifest | null = null
-
-async function getManifest(): Promise<AutomationsManifest> {
-  if (manifest) return manifest
-  manifest = await loadManifest()
-  return manifest
+function epochMs(value: string): number {
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) throw new Error(`Invalid automation timestamp: ${value}`)
+  return timestamp
 }
 
-async function loadManifest(): Promise<AutomationsManifest> {
-  if (!existsSync(MANIFEST_PATH)) return { version: 1, automations: {} }
-  try {
-    const loaded = JSON.parse(await readFile(MANIFEST_PATH, 'utf8')) as AutomationsManifest
-    // Backfill: automations written before triggers existed (Phase 1) have no
-    // `trigger`. Treat them as manual so reads stay safe without a migration.
-    for (const a of Object.values(loaded.automations)) {
-      if (!a.trigger) a.trigger = { type: 'manual' }
-    }
-    return loaded
-  } catch (err: any) {
-    log.error(`loadManifest failed: ${String(err)}`)
-    return { version: 1, automations: {} }
-  }
+function isoTime(value: number): string {
+  return new Date(value).toISOString()
 }
 
-// Writes never overlap: each persist waits for the previous one to land, then
-// writes whatever the in-memory manifest currently holds. Mutations themselves
-// are synchronous in-memory edits, so this only orders the file I/O — it can't
-// reintroduce a lost-update race.
-let writeChain: Promise<void> = Promise.resolve()
-function persist(): Promise<void> {
-  const write = async () => {
-    await ensureRoot()
-    await writeJson(MANIFEST_PATH, manifest)
+function automationFromRow(row: AutomationRow): Automation {
+  const metadata = row.last_run ? JSON.parse(row.last_run) as Record<string, unknown> : {}
+  return {
+    ...metadata,
+    id: row.id,
+    name: row.name,
+    enabled: row.enabled === 1,
+    ...(row.favorite === null ? {} : { favorite: row.favorite === 1 }),
+    action: JSON.parse(row.action) as AutomationAction,
+    trigger: JSON.parse(row.trigger_config) as AutomationTrigger,
+    ...(row.next_run_at === null ? {} : { nextRunAt: isoTime(row.next_run_at) }),
+    createdAt: isoTime(row.created_at),
+    updatedAt: isoTime(row.updated_at),
+  } as Automation
+}
+
+function runFromRow(row: AutomationRunRow): AutomationRun {
+  const data = row.data ? JSON.parse(row.data) as Record<string, unknown> : {}
+  return {
+    ...data,
+    id: row.id,
+    automationId: row.automation_id,
+    startedAt: isoTime(row.started_at),
+    ...(row.finished_at === null ? {} : { finishedAt: isoTime(row.finished_at) }),
+    status: row.status,
+    ...(row.output === null ? {} : { output: row.output }),
+  } as AutomationRun
+}
+
+function writeAutomation(db: DatabaseSync, automation: Automation): void {
+  const {
+    id,
+    name,
+    enabled,
+    favorite,
+    action,
+    trigger,
+    nextRunAt,
+    createdAt,
+    updatedAt,
+    lastRunId,
+    lastRunStatus,
+    lastRunAt,
+    ...metadata
+  } = automation
+  const lastRun = {
+    ...metadata,
+    ...(lastRunId === undefined ? {} : { lastRunId }),
+    ...(lastRunStatus === undefined ? {} : { lastRunStatus }),
+    ...(lastRunAt === undefined ? {} : { lastRunAt }),
   }
-  const next = writeChain.then(write, write)
-  writeChain = next.catch(() => {})
-  return next
+  db.prepare(`
+    INSERT INTO automations(
+      id, name, enabled, favorite, action, trigger_config, next_run_at,
+      last_run, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      enabled = excluded.enabled,
+      favorite = excluded.favorite,
+      action = excluded.action,
+      trigger_config = excluded.trigger_config,
+      next_run_at = excluded.next_run_at,
+      last_run = excluded.last_run,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at
+  `).run(
+    id,
+    name,
+    enabled ? 1 : 0,
+    favorite === undefined ? null : favorite ? 1 : 0,
+    JSON.stringify(action),
+    JSON.stringify(trigger),
+    nextRunAt === undefined ? null : epochMs(nextRunAt),
+    JSON.stringify(lastRun),
+    epochMs(createdAt),
+    epochMs(updatedAt),
+  )
+}
+
+function writeRun(db: DatabaseSync, run: AutomationRun): void {
+  const {
+    id,
+    automationId,
+    startedAt,
+    finishedAt,
+    status,
+    output,
+    ...data
+  } = run
+  db.prepare(`
+    INSERT INTO automation_runs(
+      id, automation_id, started_at, finished_at, status, output, data
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      automation_id = excluded.automation_id,
+      started_at = excluded.started_at,
+      finished_at = excluded.finished_at,
+      status = excluded.status,
+      output = excluded.output,
+      data = excluded.data
+  `).run(
+    id,
+    automationId,
+    epochMs(startedAt),
+    finishedAt === undefined ? null : epochMs(finishedAt),
+    status,
+    output ?? null,
+    JSON.stringify(data),
+  )
+}
+
+function pruneRuns(db: DatabaseSync, automationId: string): void {
+  db.prepare(`
+    DELETE FROM automation_runs
+    WHERE automation_id = ?
+      AND id NOT IN (
+        SELECT id
+        FROM automation_runs
+        WHERE automation_id = ?
+        ORDER BY started_at DESC, rowid DESC
+        LIMIT ?
+      )
+  `).run(automationId, automationId, MAX_RUNS_PER_AUTOMATION)
+}
+
+function database(): DatabaseSync {
+  return getDb()
 }
 
 function assertValidAction(action: AutomationAction): void {
@@ -141,21 +241,23 @@ export async function createAutomation(
     updatedAt: nowIso,
     createdBy,
   }
-  const m = await getManifest()
-  m.automations[automation.id] = automation
-  await persist()
+  writeAutomation(database(), automation)
   emitChanged({ kind: 'saved', automation })
   return automation
 }
 
 export async function listAutomations(): Promise<Automation[]> {
-  const m = await getManifest()
-  return Object.values(m.automations).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const rows = database().prepare(`
+    SELECT *
+    FROM automations
+    ORDER BY updated_at DESC
+  `).all() as unknown as AutomationRow[]
+  return rows.map(automationFromRow)
 }
 
 export async function loadAutomation(id: string): Promise<Automation | null> {
-  const m = await getManifest()
-  return m.automations[id] ?? null
+  const row = database().prepare('SELECT * FROM automations WHERE id = ?').get(id) as unknown as AutomationRow | undefined
+  return row ? automationFromRow(row) : null
 }
 
 /** Patch an automation's mutable fields. Action patches merge into the existing
@@ -165,9 +267,10 @@ export async function updateAutomation(
   id: string,
   patch: { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
 ): Promise<Automation | null> {
-  const m = await getManifest()
-  const existing = m.automations[id]
-  if (!existing) return null
+  const db = database()
+  const row = db.prepare('SELECT * FROM automations WHERE id = ?').get(id) as unknown as AutomationRow | undefined
+  if (!row) return null
+  const existing = automationFromRow(row)
   const nextAction = patch.action ? { ...existing.action, ...patch.action } : existing.action
   const nextTrigger = patch.trigger ?? existing.trigger
   assertValidAction(nextAction)
@@ -181,109 +284,82 @@ export async function updateAutomation(
 
   // Re-arm the schedule whenever the trigger or enabled state actually changes.
   // A paused automation carries no pending fire; a re-enabled one schedules
-  // afresh from now so resuming never replays a fire that elapsed while it was
-  // paused. A no-op `enabled: true` patch must NOT re-arm — that would push out
-  // a pending fire.
+  // afresh from now so resuming never replays a fire that elapsed while paused.
   if (patch.trigger !== undefined || enabledChanged) {
     existing.nextRunAt = existing.enabled ? nextRunFrom(existing.trigger, new Date()) : undefined
   }
   existing.updatedAt = new Date().toISOString()
-  await persist()
+  writeAutomation(db, existing)
   emitChanged({ kind: 'saved', automation: existing })
   return existing
 }
 
 export async function deleteAutomation(id: string): Promise<boolean> {
-  const m = await getManifest()
-  if (!m.automations[id]) return false
-  delete m.automations[id]
-  await persist()
-  const runs = runsPath(id)
-  if (existsSync(runs)) await rm(runs).catch(() => {})
-  emitChanged({ kind: 'deleted', automationId: id })
-  return true
+  const db = database()
+  const deleted = withTx(() => {
+    const result = db.prepare('DELETE FROM automations WHERE id = ?').run(id)
+    return result.changes > 0
+  })
+  if (deleted) emitChanged({ kind: 'deleted', automationId: id })
+  return deleted
 }
 
 // ─── Scheduling ───
 
 /**
  * Claim every enabled, non-manual automation whose `nextRunAt` is due, advancing
- * their schedules in a single manifest write before the caller fires any runs.
- * A one-time automation is consumed (disabled, no next fire); recurring ones
- * schedule their next occurrence from `now`.
+ * their schedules atomically before the caller fires any runs. A one-time
+ * automation is consumed (disabled, no next fire); recurring ones schedule
+ * their next occurrence from `now`.
  *
  * `isRunning` lets the scheduler skip automations with a run still in flight:
  * a skipped automation keeps its past-due `nextRunAt`, so it's re-claimed on
- * the first tick after the run finishes rather than stacking overlapping runs
- * (two unattended agents mutating the same cwd).
+ * the first tick after the run finishes rather than stacking overlapping runs.
  */
 export async function claimDueAutomations(
   now = new Date(),
   isRunning?: (automationId: string) => boolean,
 ): Promise<Automation[]> {
-  const m = await getManifest()
+  const db = database()
+  const nowMs = now.getTime()
   const nowIso = now.toISOString()
-  const due = Object.values(m.automations).filter(
-    (a) =>
-      a.enabled &&
-      a.trigger.type !== 'manual' &&
-      !!a.nextRunAt &&
-      a.nextRunAt <= nowIso &&
-      !isRunning?.(a.id),
-  )
-  if (due.length === 0) return []
+  const due = withTx(() => {
+    const rows = db.prepare(`
+      SELECT *
+      FROM automations
+      WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+    `).all(nowMs) as unknown as AutomationRow[]
+    const claimed = rows
+      .map(automationFromRow)
+      .filter((automation) => automation.trigger.type !== 'manual' && !isRunning?.(automation.id))
 
-  for (const a of due) {
-    if (a.trigger.type === 'once') {
-      a.nextRunAt = undefined
-      a.enabled = false
-    } else {
-      a.nextRunAt = nextRunFrom(a.trigger, now)
+    for (const automation of claimed) {
+      if (automation.trigger.type === 'once') {
+        automation.nextRunAt = undefined
+        automation.enabled = false
+      } else {
+        automation.nextRunAt = nextRunFrom(automation.trigger, now)
+      }
+      automation.updatedAt = nowIso
+      writeAutomation(db, automation)
     }
-    a.updatedAt = nowIso
-  }
-  await persist()
-  for (const a of due) emitChanged({ kind: 'saved', automation: a })
+    return claimed
+  })
+  for (const automation of due) emitChanged({ kind: 'saved', automation })
   return due
 }
 
 // ─── Runs ───
 
-/** Runs in stored (oldest-first) order, as persisted. Internal: mutators rely on
- *  this order so the cap trim drops the oldest, not the newest. */
-async function readRuns(id: string): Promise<AutomationRun[]> {
-  const path = runsPath(id)
-  if (!existsSync(path)) return []
-  try {
-    return JSON.parse(await readFile(path, 'utf8')) as AutomationRun[]
-  } catch (err: any) {
-    log.error(`readRuns(${id}) failed: ${String(err)}`)
-    return []
-  }
-}
-
-// Runs files get the same lost-update protection as the manifest, per file:
-// each read-modify-write waits for the previous one on that automation to land.
-// Without this, a run finishing while another starts (or two finishing close
-// together) would clobber each other's stamps. Different automations never
-// contend — each owns its own sidecar and its own chain.
-const runsChains = new Map<string, Promise<unknown>>()
-function mutateRuns<T>(id: string, mutate: (runs: AutomationRun[]) => T): Promise<T> {
-  const op = async () => {
-    const runs = await readRuns(id)
-    const result = mutate(runs)
-    await ensureRoot()
-    await writeJson(runsPath(id), runs.slice(-MAX_RUNS_PER_AUTOMATION))
-    return result
-  }
-  const next = (runsChains.get(id) ?? Promise.resolve()).then(op, op)
-  runsChains.set(id, next.catch(() => {}))
-  return next
-}
-
 /** Public accessor: newest first for the UI. */
 export async function listRuns(id: string): Promise<AutomationRun[]> {
-  return (await readRuns(id)).reverse()
+  const rows = database().prepare(`
+    SELECT *
+    FROM automation_runs
+    WHERE automation_id = ?
+    ORDER BY started_at DESC, rowid DESC
+  `).all(id) as unknown as AutomationRunRow[]
+  return rows.map(runFromRow)
 }
 
 /** Record a fresh run in the 'running' state and stamp it on the automation. */
@@ -294,20 +370,22 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
     startedAt: new Date().toISOString(),
     status: 'running',
   }
-  await mutateRuns(automationId, (runs) => runs.push(run))
+  const db = database()
+  const automation = withTx(() => {
+    writeRun(db, run)
+    pruneRuns(db, automationId)
 
-  // Stamp the run onto the automation. Note we do NOT bump `updatedAt` here —
-  // running is not an edit, so a fired automation (incl. background scheduler
-  // fires) must not reorder the updatedAt-sorted list.
-  const m = await getManifest()
-  const a = m.automations[automationId]
-  if (a) {
-    a.lastRunId = run.id
-    a.lastRunStatus = 'running'
-    a.lastRunAt = run.startedAt
-    await persist()
-    emitChanged({ kind: 'run-started', automation: a, run })
-  }
+    const row = db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as unknown as AutomationRow | undefined
+    if (!row) return null
+    const stored = automationFromRow(row)
+    // Running is not an edit, so do not bump updatedAt and reorder the list.
+    stored.lastRunId = run.id
+    stored.lastRunStatus = 'running'
+    stored.lastRunAt = run.startedAt
+    writeAutomation(db, stored)
+    return stored
+  })
+  if (automation) emitChanged({ kind: 'run-started', automation, run })
   return run
 }
 
@@ -320,22 +398,38 @@ export async function finishRun(
   if (outcome.output && outcome.output.length > MAX_RUN_OUTPUT_CHARS) {
     outcome = { ...outcome, output: `${outcome.output.slice(0, MAX_RUN_OUTPUT_CHARS)}\n… [output truncated]` }
   }
-  const finished = await mutateRuns(automationId, (runs): AutomationRun | null => {
-    const run = runs.find((r) => r.id === runId)
-    if (!run) return null
-    Object.assign(run, outcome, { finishedAt: new Date().toISOString() })
-    return run
+
+  const db = database()
+  const result = withTx(() => {
+    const runRow = db.prepare(`
+      SELECT *
+      FROM automation_runs
+      WHERE automation_id = ? AND id = ?
+    `).get(automationId, runId) as unknown as AutomationRunRow | undefined
+    const finished = runRow ? runFromRow(runRow) : null
+    if (finished) {
+      Object.assign(finished, outcome, { finishedAt: new Date().toISOString() })
+      writeRun(db, finished)
+    }
+
+    const automationRow = db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as unknown as AutomationRow | undefined
+    const automation = automationRow ? automationFromRow(automationRow) : null
+    if (automation?.lastRunId === runId) {
+      automation.lastRunStatus = outcome.status
+      writeAutomation(db, automation)
+    }
+    return { automation, finished }
   })
-  const m = await getManifest()
-  const a = m.automations[automationId]
-  if (a && a.lastRunId === runId) {
-    a.lastRunStatus = outcome.status
-    await persist()
+  if (result.automation && result.finished) {
+    emitChanged({ kind: 'run-finished', automation: result.automation, run: result.finished })
   }
-  if (a && finished) emitChanged({ kind: 'run-finished', automation: a, run: finished })
 }
 
 export async function loadRun(automationId: string, runId: string): Promise<AutomationRun | null> {
-  const runs = await readRuns(automationId)
-  return runs.find((r) => r.id === runId) ?? null
+  const row = database().prepare(`
+    SELECT *
+    FROM automation_runs
+    WHERE automation_id = ? AND id = ?
+  `).get(automationId, runId) as unknown as AutomationRunRow | undefined
+  return row ? runFromRow(row) : null
 }

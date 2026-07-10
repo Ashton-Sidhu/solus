@@ -17,6 +17,7 @@
   import { requestInputFocus } from "../lib/inputFocus";
   import { worktreeProjectRoot, type IpcContext } from "../../shared/types";
   import { getWindowContext } from "../contexts/window.context.svelte";
+  import { connectionsStore } from "../contexts/connections.store.svelte";
 
   type View = "menu" | "worktrees" | "branches";
 
@@ -46,6 +47,7 @@
   const session = getWorkspaceContext();
   const gitStatus = getGitStatusStore();
   const windowCtx = getWindowContext();
+  const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
 
   let copied = $state(false);
   let view = $state<View>("menu");
@@ -106,7 +108,7 @@
 
   async function openTerminal() {
     const ctx = worktreePath ? (tabCtx ?? repoCtx) : repoCtx;
-    if (!ctx) return;
+    if (!ctx || !desktopHandlersAvailable) return;
     open = false;
     await window.solus.openWorktreeTerminal(ctx);
   }
@@ -198,7 +200,7 @@
           {/if}
         </button>
 
-        {#if !windowCtx.isWeb}
+        {#if !windowCtx.isWeb && desktopHandlersAvailable}
           <!-- Terminal -->
           <button
             type="button"

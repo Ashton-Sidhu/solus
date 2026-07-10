@@ -25,11 +25,12 @@ function manualChunks(id: string): string | undefined {
 
 export default defineConfig({
   root: resolve(__dirname),
-  publicDir: false,
+  publicDir: resolve(__dirname, 'public'),
   resolve: {
     alias: {
       '@renderer': resolve(__dirname, '../src/renderer'),
       '@shared':   resolve(__dirname, '../src/shared'),
+      '@client-core': resolve(__dirname, '../src/client-core'),
       '@geist-fonts': geistFontsDir,
     },
     // Components inside src/renderer use relative imports like '../../shared/types';

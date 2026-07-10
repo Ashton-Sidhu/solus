@@ -13,6 +13,7 @@
   import { onMount } from "svelte";
   import { connectionsStore, type ConnectionEndpoint } from "../../contexts/connections.store.svelte";
   import GitHubConnect from "./GitHubConnect.svelte";
+  import { pairQrSvgPath } from "./lib/qrcode";
 
   const connections = connectionsStore;
   let copiedField = $state<string | null>(null);
@@ -30,9 +31,14 @@
     await connections.revokeDevice(deviceId);
   }
 
-  function pairLinkFor(endpoint: ConnectionEndpoint): string {
-    if (!connections.activePair) return "";
-    return `http://${endpoint.host}:${endpoint.port}/pair#token=${connections.activePair.token}`;
+  async function toggleRemoteAccess() {
+    if (!connections.serverInfo || connections.refreshing) return;
+    await connections.setRemoteAccess(!connections.serverInfo.remoteAccess);
+  }
+
+  function pairLinkFor(endpoint: ConnectionEndpoint, pair = connections.activePair): string {
+    if (!pair) return "";
+    return `http://${endpoint.host}:${endpoint.port}/pair#token=${pair.token}`;
   }
 
   function copy(value: string, field: string) {
@@ -64,6 +70,16 @@
     tailnet: GlobeIcon,
   } as const;
 
+  const endpointPriority: Record<ConnectionEndpoint["kind"], number> = {
+    tailnet: 0,
+    lan: 1,
+    loopback: 2,
+  };
+
+  function bestPairEndpoint(endpoints: ConnectionEndpoint[]): ConnectionEndpoint | null {
+    return [...endpoints].sort((a, b) => endpointPriority[a.kind] - endpointPriority[b.kind])[0] ?? null;
+  }
+
   onMount(() => {
     void refresh();
     const interval = setInterval(refresh, 5000);
@@ -80,6 +96,16 @@
   let pairMsLeft = $derived(connections.activePair ? connections.activePair.expiresAt - _now : 0);
   let pairExpired = $derived(connections.activePair ? pairMsLeft <= 0 : false);
   let pairCountdown = $derived(connections.activePair ? formatTimeRemaining(pairMsLeft) : "");
+  let bestEndpoint = $derived(bestPairEndpoint(connections.endpoints));
+  let bestPairLink = $derived(bestEndpoint ? pairLinkFor(bestEndpoint, connections.activePair) : "");
+  let bestPairQr = $derived.by(() => {
+    if (!bestPairLink) return null;
+    try {
+      return pairQrSvgPath(bestPairLink);
+    } catch {
+      return null;
+    }
+  });
 </script>
 
 <div class="flex flex-col gap-6">
@@ -112,6 +138,31 @@
           <ArrowsClockwiseIcon size={13} />
         </button>
       </div>
+    </div>
+
+    <div class="flex items-center justify-between gap-4 rounded-lg border border-(--solus-container-border) bg-(--solus-surface-hover) px-3 py-2.5">
+      <div class="min-w-0">
+        <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Allow remote connections</p>
+        <p class="mt-0.5 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)">
+          Bind to your network interfaces. Remote devices must pair before connecting.
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={connections.serverInfo.remoteAccess}
+        onclick={toggleRemoteAccess}
+        disabled={connections.refreshing}
+        class="relative h-6 w-11 shrink-0 rounded-full border border-(--solus-container-border) bg-(--solus-surface-active) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) disabled:opacity-60"
+        class:bg-(--solus-accent)={connections.serverInfo.remoteAccess}
+        aria-label="Allow remote connections"
+      >
+        <span
+          class="absolute top-0.5 size-[1.125rem] rounded-full bg-(--solus-container-bg) shadow-sm transition-transform"
+          class:left-0.5={!connections.serverInfo.remoteAccess}
+          class:translate-x-5={connections.serverInfo.remoteAccess}
+        ></span>
+      </button>
     </div>
   {/if}
 
@@ -157,7 +208,7 @@
     {:else}
       <div class="flex flex-col gap-4 p-4 rounded-xl bg-(--solus-surface-hover) border border-(--solus-container-border)">
         <!-- Code display -->
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <code
               class="text-[1.75rem] font-semibold tracking-[0.15em] text-(--solus-text-primary) tabular-nums"
@@ -186,15 +237,65 @@
             >
               {pairCountdown}
             </span>
+            <button
+              type="button"
+              onclick={generatePairToken}
+              class="size-7 flex items-center justify-center rounded-lg text-(--solus-text-tertiary) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-active) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+              aria-label={pairExpired ? "Generate new pair code" : "Regenerate pair code"}
+            >
+              <ArrowsClockwiseIcon size={13} />
+            </button>
           </div>
         </div>
+
+        {#if bestPairLink && bestEndpoint && bestPairQr}
+          {@const BestIcon = endpointIcon[bestEndpoint.kind]}
+          <div class="flex flex-col gap-3 rounded-2xl bg-(--solus-container-bg) p-3 shadow-[0_0_0_1px_var(--solus-container-border)] sm:flex-row">
+            <div class="shrink-0">
+              <svg
+                class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0"
+                viewBox={bestPairQr.viewBox}
+                role="img"
+                aria-label={`QR code for pairing using ${bestEndpoint.label}`}
+                shape-rendering="crispEdges"
+                focusable="false"
+              >
+                <path d={bestPairQr.path} fill="currentColor" />
+              </svg>
+            </div>
+            <div class="flex min-w-0 flex-1 flex-col justify-between gap-3">
+              <div class="min-w-0">
+                <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Scan to pair</p>
+                <p class="mt-1 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)">
+                  Opens the web client with this one-time token.
+                </p>
+              </div>
+              <div class="flex min-w-0 items-center gap-2 rounded-lg bg-(--solus-surface-hover) py-1.5 pl-2.5 pr-1.5">
+                <BestIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
+                <code class="min-w-0 flex-1 truncate text-[0.6875rem] text-(--solus-text-secondary)" style="font-family: 'Geist Mono', ui-monospace, monospace">{bestPairLink}</code>
+                <button
+                  type="button"
+                  onclick={() => copy(bestPairLink, 'best-link')}
+                  class="size-7 flex shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-active) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+                  aria-label="Copy best pair link"
+                >
+                  {#if copiedField === 'best-link'}
+                    <CheckIcon size={12} class="text-(--solus-status-complete)" />
+                  {:else}
+                    <CopyIcon size={12} />
+                  {/if}
+                </button>
+              </div>
+            </div>
+          </div>
+        {/if}
 
         <!-- Pair links per endpoint -->
         {#if connections.endpoints.length > 0}
           <div class="flex flex-col gap-1.5">
-            <p class="text-[0.6875rem] text-(--solus-text-tertiary)">Or share a direct link:</p>
+            <p class="text-[0.6875rem] text-(--solus-text-tertiary)">Other direct links:</p>
             {#each connections.endpoints as endpoint (endpoint.host)}
-              {@const link = pairLinkFor(endpoint)}
+              {@const link = pairLinkFor(endpoint, connections.activePair)}
               {@const PairIcon = endpointIcon[endpoint.kind]}
               <div class="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-(--solus-surface-active) group">
                 <PairIcon size={11} class="text-(--solus-text-tertiary) shrink-0" />
@@ -255,7 +356,12 @@
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-[0.8125rem] font-medium text-(--solus-text-primary) truncate">{session.deviceLabel}</p>
-              <p class="text-[0.6875rem] text-(--solus-text-tertiary)">{relativeTime(session.connectedAt)}</p>
+              <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+                {relativeTime(session.connectedAt)}
+                {#if session.connectionCount > 1}
+                  - {session.connectionCount} connections
+                {/if}
+              </p>
             </div>
             {#if session.deviceId}
               <button

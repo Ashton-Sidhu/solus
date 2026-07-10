@@ -11,6 +11,89 @@ export const AGENT_BIN: Record<AgentId, string> = {
   'opencode': 'opencode',
 }
 
+export interface ServerCapabilities {
+  headless: boolean
+  desktopHandlers: boolean
+  agents: {
+    claude: boolean
+    codex: boolean
+  }
+  dictation: boolean
+  platform: string
+  version: string
+  projectCount: number
+  agentAuth: {
+    claude: boolean
+  }
+  gitAuth: {
+    github: boolean
+  }
+  serverName?: string
+}
+
+export type SetupAgent = 'claude' | 'codex'
+export type SetupStreamStep = 'install-claude' | 'install-codex' | 'clone'
+export type SetupStepStatus = 'running' | 'done' | 'failed'
+
+export interface SetupLogEvent {
+  step: SetupStreamStep
+  line: string
+}
+
+export interface SetupStatusEvent {
+  step: SetupStreamStep
+  status: SetupStepStatus
+  error?: string
+}
+
+export interface SetupStepResult {
+  step: SetupStreamStep
+  status: Exclude<SetupStepStatus, 'running'>
+  error?: string
+}
+
+export interface SetupAgentAuthCheckResult {
+  agent: SetupAgent
+  installed: boolean
+  /** null means this agent does not have a cheap credential probe yet. */
+  authenticated: boolean | null
+}
+
+export interface SetupGithubRepo {
+  name: string
+  fullName: string
+  private: boolean
+  cloneUrl: string
+  updatedAt: string
+}
+
+export type SetupGithubReposResult =
+  | { connected: false }
+  | { connected: true; repos: SetupGithubRepo[] }
+
+export interface SetupCloneProjectResult {
+  path: string
+  projectKey: string
+}
+
+export interface DiscoveredServer {
+  host: string
+  port: number
+  name: string
+  installationId: string
+  claimable: boolean
+  source: 'tailnet'
+}
+
+export interface WebPushSubscriptionJSON {
+  endpoint: string
+  expirationTime?: number | null
+  keys: {
+    p256dh: string
+    auth: string
+  }
+}
+
 // ─── Shared primitive types used by NormalizedEvent and multiple layers ───
 
 export interface UsageData {
@@ -789,6 +872,10 @@ export type QueuedPromptReason = 'busy' | 'rate_limit'
 /** Thin subscription record — the tab exists and may watch a session. */
 export interface TabRegistryEntry {
   tabId: string
+  /** Live transport connection that owns this watch. */
+  clientId: string
+  /** Stable trusted device that owns the connection, when known. */
+  deviceId?: string
   /** Points into the activeSessions map (= agent session ID). Null until session_init fires. */
   sessionId: string | null
   createdAt: number
@@ -863,6 +950,12 @@ export interface SessionMeta {
   projectPath: string // raw encoded folder name, e.g. "-Users-sidhu-clui-cc"
   isWorktree?: boolean
   status?: SessionStatus
+}
+
+export interface SessionSearchResult {
+  session: SessionMeta
+  snippet: string
+  ts: number
 }
 
 export interface RecentProject {

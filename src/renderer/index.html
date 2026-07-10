@@ -4,9 +4,92 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Solus</title>
+    <!--
+      Resolve the persisted theme before any module loads so the boot shell (and
+      the app that replaces it) paints in the right mode with no light/dark flash.
+      Mirrors settings.context's resolution: themeMode 'dark' (default) | 'light' |
+      'system'. Only toggles the class — never sets an opaque html/body background,
+      which would break the transparent pill window.
+    -->
+    <script>
+      (function () {
+        try {
+          var mode = 'dark'
+          var raw = localStorage.getItem('solus-settings')
+          if (raw) {
+            var parsed = JSON.parse(raw)
+            if (parsed && typeof parsed.themeMode === 'string') mode = parsed.themeMode
+          }
+          var isDark =
+            mode === 'light'
+              ? false
+              : mode === 'system'
+                ? matchMedia('(prefers-color-scheme: dark)').matches
+                : true
+          var el = document.documentElement
+          el.classList.toggle('dark', isDark)
+          el.classList.toggle('light', !isDark)
+          el.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
+        } catch (e) {}
+      })()
+    </script>
+    <style>
+      /*
+        Static boot shell: a branded, themed first paint that appears before the
+        JS bundle evaluates and mounts the app — matching the "instant" feel of a
+        pre-rendered splash. main.ts leaves it in place for the local path and
+        removes it on mount (root.innerHTML = ''); remote/error states replace it
+        with the connecting card. Background lives on the shell (not html/body) so
+        the transparent pill window keeps its transparency.
+      */
+      #solus-boot-shell {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #18181b;
+        z-index: 2147483647;
+      }
+      html.light #solus-boot-shell {
+        background: #fafafa;
+      }
+      #solus-boot-shell svg {
+        width: 4.5rem;
+        height: 4.5rem;
+        animation: solus-boot-breathe 1.8s ease-in-out infinite;
+      }
+      @keyframes solus-boot-breathe {
+        0%,
+        100% {
+          opacity: 0.4;
+          transform: scale(0.97);
+        }
+        50% {
+          opacity: 0.95;
+          transform: scale(1);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #solus-boot-shell svg {
+          animation: none;
+          opacity: 0.9;
+        }
+      }
+    </style>
   </head>
   <body style="background: transparent !important;">
-    <div id="root"></div>
+    <div id="root">
+      <div id="solus-boot-shell">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true">
+          <circle cx="512" cy="512" r="180" fill="#D4AF6A" />
+          <g fill="none" stroke="#D4AF6A" stroke-width="60" stroke-linecap="round">
+            <path d="M512,212 A300,300 0 0 1 812,512" />
+            <path d="M764,716 A300,300 0 0 1 416,800" />
+            <path d="M260,716 A300,300 0 0 1 212,416" />
+          </g>
+        </svg>
+      </div>
+    </div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

@@ -1,59 +1,48 @@
-import { rm } from 'fs/promises'
-import { existsSync } from 'fs'
-import { homedir } from 'os'
-import path, { basename } from 'path'
+import { existsSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import path, { basename } from 'node:path'
 import type { ProjectEntry } from '../../shared/types'
+import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
-import { listRecentProjects } from '../recent-projects'
-import { readJsonOrNull, writeJson } from './json-file'
 import { resolveProjectKey } from './project-config'
 
 const log = createLogger('main', 'projects-manifest')
 
 const PROJECTS_DIR = path.join(homedir(), '.solus', 'projects')
-const MANIFEST_PATH = path.join(PROJECTS_DIR, 'manifest.json')
 
-interface Manifest {
-  version: 1
-  projects: ProjectEntry[]
+interface ProjectRow {
+  key: string
+  path: string
+  folder_name: string
+  added_at: number
 }
 
-function normalize(value: unknown): ProjectEntry[] {
-  if (!value || typeof value !== 'object') return []
-  const raw = (value as { projects?: unknown }).projects
-  if (!Array.isArray(raw)) return []
-  const out: ProjectEntry[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const e = item as Partial<ProjectEntry>
-    if (typeof e.path !== 'string' || typeof e.key !== 'string') continue
-    out.push({
-      key: e.key,
-      path: e.path,
-      folderName: typeof e.folderName === 'string' ? e.folderName : basename(e.path) || e.path,
-      addedAt: typeof e.addedAt === 'string' ? e.addedAt : new Date().toISOString(),
-    })
+function fromRow(row: ProjectRow): ProjectEntry {
+  return {
+    key: row.key,
+    path: row.path,
+    folderName: row.folder_name,
+    addedAt: new Date(row.added_at).toISOString(),
   }
-  return out
 }
 
 async function readManifest(): Promise<ProjectEntry[]> {
-  return normalize(await readJsonOrNull(MANIFEST_PATH))
-}
-
-async function writeManifest(projects: ProjectEntry[]): Promise<void> {
-  const manifest: Manifest = { version: 1, projects }
-  await writeJson(MANIFEST_PATH, manifest)
+  const rows = getDb().prepare(`
+    SELECT key, path, folder_name, added_at
+    FROM projects
+  `).all() as unknown as ProjectRow[]
+  return rows.map(fromRow)
 }
 
 /** Add a project to the manifest if not already present (keyed by its config hash). */
 export async function recordProject(cwd: string): Promise<void> {
   if (!cwd || cwd === '~') return
   const key = resolveProjectKey(cwd)
-  const projects = await readManifest()
-  if (projects.some((p) => p.key === key)) return
-  projects.push({ key, path: cwd, folderName: basename(cwd) || cwd, addedAt: new Date().toISOString() })
-  await writeManifest(projects)
+  getDb().prepare(`
+    INSERT OR IGNORE INTO projects (key, path, folder_name, added_at)
+    VALUES (?, ?, ?, ?)
+  `).run(key, cwd, basename(cwd) || cwd, Date.now())
 }
 
 /**
@@ -62,29 +51,45 @@ export async function recordProject(cwd: string): Promise<void> {
  */
 export async function listProjects(): Promise<ProjectEntry[]> {
   const manifest = await readManifest()
-  const byKey = new Map(manifest.map((p) => [p.key, p]))
+  const byKey = new Map(manifest.map((project) => [project.key, project]))
 
   let mutated = false
+  // Lazy because recent-projects calls recordProject after tracking a path.
+  const { listRecentProjects } = await import('../recent-projects')
   const recents = await listRecentProjects()
-  for (const r of recents) {
-    const key = resolveProjectKey(r.path)
+  for (const recent of recents) {
+    const key = resolveProjectKey(recent.path)
     if (!byKey.has(key)) {
-      const entry: ProjectEntry = {
+      byKey.set(key, {
         key,
-        path: r.path,
-        folderName: r.folderName || basename(r.path) || r.path,
-        addedAt: r.lastOpened || new Date().toISOString(),
-      }
-      byKey.set(key, entry)
+        path: recent.path,
+        folderName: recent.folderName || basename(recent.path) || recent.path,
+        addedAt: recent.lastOpened || new Date().toISOString(),
+      })
       mutated = true
     }
   }
 
-  const present = [...byKey.values()].filter((p) => existsSync(p.path))
+  const present = [...byKey.values()].filter((project) => existsSync(project.path))
   if (mutated || present.length !== manifest.length) {
-    await writeManifest(present).catch((err) =>
-      log.warn(`failed to persist projects manifest: ${(err as Error).message}`),
-    )
+    try {
+      withTx(() => {
+        const db = getDb()
+        const insert = db.prepare(`
+          INSERT OR IGNORE INTO projects (key, path, folder_name, added_at)
+          VALUES (?, ?, ?, ?)
+        `)
+        for (const project of present) {
+          insert.run(project.key, project.path, project.folderName, new Date(project.addedAt).getTime())
+        }
+        const remove = db.prepare('DELETE FROM projects WHERE key = ?')
+        for (const project of byKey.values()) {
+          if (!existsSync(project.path)) remove.run(project.key)
+        }
+      })
+    } catch (err) {
+      log.warn(`failed to persist projects manifest: ${(err as Error).message}`)
+    }
   }
   return present.sort((a, b) => a.folderName.localeCompare(b.folderName))
 }
@@ -93,9 +98,18 @@ export async function listProjects(): Promise<ProjectEntry[]> {
 export async function deleteProject(projectPath: string): Promise<void> {
   if (!projectPath) return
   const projects = await readManifest()
-  const entry = projects.find((p) => p.path === projectPath)
-  const next = projects.filter((p) => p.path !== projectPath)
-  await writeManifest(next)
+  const entry = projects.find((project) => project.path === projectPath)
+  withTx(() => {
+    const db = getDb()
+    if (entry) {
+      db.prepare('DELETE FROM tasks WHERE project_key = ?').run(entry.key)
+      db.prepare('DELETE FROM task_session_links WHERE project_key = ?').run(entry.key)
+      db.prepare('DELETE FROM task_cache WHERE project_key = ?').run(entry.key)
+      db.prepare('DELETE FROM project_config WHERE project_key = ?').run(entry.key)
+    }
+    db.prepare('DELETE FROM recent_projects WHERE path = ?').run(projectPath)
+    db.prepare('DELETE FROM projects WHERE path = ?').run(projectPath)
+  })
   if (entry) {
     const dir = path.join(PROJECTS_DIR, entry.key)
     await rm(dir, { recursive: true, force: true }).catch((err) =>
