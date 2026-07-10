@@ -21,6 +21,8 @@
     showMic?: boolean
     /** field: top-align the mic for a textarea rather than vertically centering it. */
     micTextarea?: boolean
+    progressPct?: number | null
+    partialText?: string
   }
 
   let {
@@ -35,6 +37,8 @@
     idleTooltip = 'Voice input (⌥⇧K)',
     showMic = true,
     micTextarea = false,
+    progressPct = null,
+    partialText = '',
   }: Props = $props()
 </script>
 
@@ -67,18 +71,24 @@
       class="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
       style="background:{waiting
         ? 'var(--solus-accent)'
-        : 'var(--solus-mic-bg)'};color:{disabled
+        : progressPct !== null
+          ? `conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, var(--solus-mic-bg) 0deg)`
+          : 'var(--solus-mic-bg)'};color:{disabled
         ? 'var(--solus-mic-disabled)'
         : waiting
           ? 'var(--solus-text-on-accent)'
           : 'var(--solus-mic-color)'};opacity:{disabled ? 0.4 : 1}"
       use:tooltip={idleTooltip}
-    ><MicrophoneIcon size={16} /></button>
+    >{#if progressPct !== null}<span class="flex h-7 w-7 items-center justify-center rounded-full bg-(--solus-mic-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
   {/if}
 {:else if state === 'recording'}
   <span class="rc-row">
     <span class="rc-waveform">
-      <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
+      {#if partialText}
+        <span class="rc-partial">{partialText}</span>
+      {:else}
+        <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
+      {/if}
     </span>
     <button
       type="button"
@@ -115,6 +125,9 @@
     onclick={onToggle}
     use:tooltip={idleTooltip}
     aria-label="Voice input"
+    style={progressPct !== null
+      ? `background:conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, transparent 0deg)`
+      : undefined}
   ><MicrophoneIcon size={14} /></button>
 {/if}
 
@@ -135,6 +148,18 @@
     min-width: 0;
     display: flex;
     align-items: center;
+  }
+  .rc-partial {
+    display: block;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    color: var(--solus-accent);
+    direction: rtl;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
   }
 
   /* field action buttons (X / ✓) shown while recording */

@@ -537,7 +537,7 @@
     style={inline ? "" : "width:min(100rem, 96vw);height:min(86vh, 90vh);"}
   >
     <!-- Header -->
-    <div class="doc-shell-header flex items-center justify-between gap-1.5 px-5 py-2 shrink-0 border-b border-(--solus-tool-border)">
+    <div class="doc-shell-header flex items-center justify-between gap-1.5 px-5 shrink-0 border-b border-(--solus-tool-border)">
       {#if inline}
         <FrameExpandButton variant="sidebar" />
       {/if}
@@ -789,7 +789,7 @@
     position: relative;
     /* In the editor's secondary pane the header shares the tab strip's chrome
        row — match its height and seam so they read as one continuous bar. */
-    min-height: var(--solus-chrome-row-h, auto);
+    height: var(--solus-chrome-row-h, var(--solus-tap-target-lg));
     border-bottom-color: var(--solus-chrome-row-border, var(--solus-tool-border));
     /* Clear the macOS traffic lights when this shell is the leftmost chrome
        (maximized pane); no-op otherwise. The base 1.25rem matches the px-5 in

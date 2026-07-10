@@ -4,7 +4,7 @@ import { tabGitContextFromStatus, type IpcContext, type DiffRequest, type GitChe
 import { createPR, commitAndPushChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitProjectStatus, resolveRepoRoot } from '../../git/git-helpers'
-import { getDiff, getEpisodeNumstat, listTurnSnapshots } from '../../git/session-snapshots'
+import { getDiff, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
@@ -59,16 +59,6 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const sid = ctx.session.agentSessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
     return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
-  })
-
-  // The Activity overview's changed-files list: per-file +/- counts only, via
-  // numstat — so the rail never pays to transfer (and re-parse) the whole patch.
-  server.register('prChangedFiles', async (args) => {
-    const [ctx, baseSha] = args as [IpcContext, string]
-    const repoRoot = await repoRootForCtx(ctx)
-    const workTree = await workTreeForCtx(ctx)
-    if (!repoRoot || !workTree) return []
-    return await getEpisodeNumstat(workTree, repoRoot, baseSha)
   })
 
   server.register('listTurnSnapshots', async (args) => {

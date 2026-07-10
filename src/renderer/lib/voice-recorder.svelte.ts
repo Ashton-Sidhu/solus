@@ -1,19 +1,27 @@
-import { blobToWavBase64 } from './audio-utils'
 import { analytics } from './analytics'
+import { PcmCapture, type PcmChunk } from './pcm-capture'
 
 const VAD_SILENCE_THRESHOLD = 8
-// Hard ceiling on a single recording. The VAD silence-detector runs on the
-// shared main thread and can be starved when many tabs are mounted, so it may
-// fail to stop the recorder promptly. This wall-clock backstop (driven by a
-// timeout, not the starvable VAD interval) bounds the captured audio so a stuck
-// mic can never balloon the payload sent for transcription.
-const MAX_RECORDING_MS = 60_000
-const MEDIA_RECORDER_MIME_TYPES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/mp4',
-  'audio/aac',
-]
+const STREAM_MAX_RECORDING_MS = 10 * 60_000
+// When the live partial already ends in sentence-final punctuation the utterance
+// is very likely complete, so we can end-point after this shorter silence.
+const EARLY_ENDPOINT_SILENCE_MS = 1000
+// Terminal punctuation, trailing whitespace tolerated.
+const TERMINAL_PUNCTUATION = /[.!?]\s*$/
+// Audio is held back from the transcriber until a chunk crosses this rms —
+// leading mic-onset noise/breath decodes as garbage punctuation (a stray "?").
+// Same threshold as #streamSpeechDetected, so gating feeds exactly the
+// recordings that were going to be transcribed anyway.
+const SPEECH_RMS_THRESHOLD = 0.003
+// Onset detection scans each 500ms capture chunk in short frames instead of
+// trusting its whole-chunk average: the first chunk of an utterance is mostly
+// leading silence, which dilutes a soft first word below the gate. Averaging
+// would discard that chunk and clip the start of the sentence, so instead a
+// single speech-level frame keeps the whole chunk. 20ms @ 16kHz.
+const ONSET_FRAME_SAMPLES = 320
+// Tail of pre-speech audio fed once speech starts, so a word onset that
+// straddles the chunk boundary isn't clipped. 0.25s @ 16kHz.
+const PRE_ROLL_SAMPLES = 4_000
 const devVoiceSessionLogging = Boolean(import.meta.env.DEV)
 
 type DevVoiceSessionStats = {
@@ -41,17 +49,23 @@ type LegacyNavigator = Navigator & {
 }
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing'
+export type VoiceErrorKind = 'transient' | 'permission' | 'hardware' | 'unsupported' | null
 
 export class VoiceRecorder {
   state = $state<VoiceState>('idle')
   error = $state<string | null>(null)
+  errorKind = $state<VoiceErrorKind>(null)
+  partialText = $state('')
   readonly rmsRef = { current: 0 }
 
-  #recorder: MediaRecorder | null = null
   #cancelled = false
-  #vadInterval: number | null = null
-  #vadAudioCtx: AudioContext | null = null
   #maxDurationTimeout: number | null = null
+  #streamCapture: PcmCapture | null = null
+  #streamId: string | null = null
+  #streamPartialUnsub: (() => void) | null = null
+  #streamSpeechDetected = false
+  #streamPreRoll: Float32Array = new Float32Array()
+  #streamFinishing = false
   #recordingStartedAtMs: number | null = null
   #recordingStartedAtIso: string | null = null
   // True during the async getUserMedia gap: `state` stays 'idle' until the
@@ -75,7 +89,7 @@ export class VoiceRecorder {
   async start(): Promise<void> {
     if (this.state !== 'idle' || this.starting) return
     this.starting = true
-    this.error = null
+    this.#setError(null, null)
     this.#cancelled = false
 
     analytics.voiceRecordingStarted()
@@ -84,116 +98,36 @@ export class VoiceRecorder {
     try {
       stream = await requestMicrophoneStream()
     } catch (err) {
-      this.error = microphoneErrorMessage(err)
+      const info = microphoneErrorInfo(err)
+      this.#setError(info.message, info.kind)
       this.starting = false
       return
     }
 
-    let recorder: MediaRecorder
-    try {
-      const mimeType = supportedRecorderMimeType()
-      recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream)
-    } catch (err) {
-      stream.getTracks().forEach((t) => t.stop())
-      this.error = microphoneErrorMessage(err)
+    if (!supportsStreamingTranscription()) {
+      stream.getTracks().forEach((track) => track.stop())
+      this.#setError('Streaming voice input is not supported in this environment.', 'unsupported')
       this.starting = false
       return
     }
 
-    const chunks: Blob[] = []
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data)
-    }
-
-    recorder.onstop = async () => {
-      const recordingStartedAtMs = this.#recordingStartedAtMs
-      const recordingStartedAtIso = this.#recordingStartedAtIso
-      const listeningMs = recordingStartedAtMs === null
-        ? null
-        : Math.round(performance.now() - recordingStartedAtMs)
-      this.#recordingStartedAtMs = null
-      this.#recordingStartedAtIso = null
-      if (this.#recorder === recorder) this.#recorder = null
-      stream.getTracks().forEach((t) => t.stop())
-      this.#cleanupVAD()
-      this.#clearMaxDurationTimeout()
-
-      if (this.#cancelled) {
-        this.#toIdle()
-        return
-      }
-      if (chunks.length === 0) {
-        this.#toIdle()
-        return
-      }
-
-      this.state = 'transcribing'
-      const transcribeStartedAt = performance.now()
-      try {
-        const blob = new Blob(chunks, { type: recorder.mimeType })
-        const wavBase64 = await blobToWavBase64(blob)
-        const result = await window.solus.transcribeAudio(wavBase64)
-        this.#logDevTranscriptionSession({
-          transcript: result.transcript,
-          startedAtIso: recordingStartedAtIso,
-          listeningMs,
-          transcribeMs: Math.round(performance.now() - transcribeStartedAt),
-          success: !result.error,
-        })
-        if (result.error) {
-          this.error = result.error
-        } else if (result.transcript) {
-          this.onTranscript?.(result.transcript)
-        }
-      } catch (err: any) {
-        if (!err.message?.includes('No voice detected'))
-          this.error = `Voice failed: ${err.message}`
-      }
-      this.#toIdle()
-    }
-
-    recorder.onerror = () => {
-      this.#recordingStartedAtMs = null
-      this.#recordingStartedAtIso = null
-      if (this.#recorder === recorder) this.#recorder = null
-      stream.getTracks().forEach((t) => t.stop())
-      this.#cleanupVAD()
-      this.#clearMaxDurationTimeout()
-      this.error = 'Recording failed.'
-      this.#toIdle()
-    }
-
-    this.#recorder = recorder
-    this.state = 'recording'
-    this.starting = false
-    recorder.start()
-    this.#recordingStartedAtMs = performance.now()
-    this.#recordingStartedAtIso = new Date().toISOString()
-    if (!devVoiceSessionStats.firstStartedAtIso) {
-      devVoiceSessionStats.firstStartedAtIso = this.#recordingStartedAtIso
-    }
-    this.#startVAD(stream)
-    // Wall-clock backstop: a timeout can't be starved the way the VAD interval
-    // can, so it reliably stops a runaway recording even under heavy main-thread
-    // load. Treated as a normal stop, so whatever was captured still transcribes.
-    this.#maxDurationTimeout = window.setTimeout(() => {
-      this.#maxDurationTimeout = null
-      this.stop()
-    }, MAX_RECORDING_MS)
+    await this.#startStreaming(stream)
   }
 
   stop(): void {
     this.#cancelled = false
-    if (this.#recorder?.state === 'recording') this.#recorder.stop()
+    if (this.#streamId) {
+      void this.#finishStreaming(false)
+      return
+    }
   }
 
   cancel(): void {
     this.#cancelled = true
-    this.#cleanupVAD()
-    if (this.#recorder?.state === 'recording') this.#recorder.stop()
+    if (this.#streamId) {
+      void this.#finishStreaming(true)
+      return
+    }
   }
 
   toggle(): void {
@@ -201,56 +135,144 @@ export class VoiceRecorder {
     else if (this.state === 'idle') void this.start()
   }
 
-  #startVAD(stream: MediaStream): void {
-    const audioCtx = new AudioContext()
-    this.#vadAudioCtx = audioCtx
-    const analyser = audioCtx.createAnalyser()
-    analyser.fftSize = 512
-    audioCtx.createMediaStreamSource(stream).connect(analyser)
-    const buf = new Uint8Array(analyser.frequencyBinCount)
-    let silenceMs = 0,
-      speechMs = 0
-    // Credit each tick with the time that actually elapsed, not a flat 100ms.
-    // The main thread is shared with every mounted tab's reactive work, so
-    // under load `setInterval` ticks drift well past 100ms; assuming a fixed
-    // 100ms under-counts silence and lets recordings run long (bigger
-    // transcripts the more tabs are open).
-    let lastTickAt = performance.now()
-
-    this.#vadInterval = window.setInterval(() => {
-      if (this.state !== 'recording') {
-        this.#cleanupVAD()
-        return
-      }
-      const now = performance.now()
-      const deltaMs = now - lastTickAt
-      lastTickAt = now
-      analyser.getByteTimeDomainData(buf)
-      const rms = Math.sqrt(
-        buf.reduce((s, v) => s + (v - 128) ** 2, 0) / buf.length,
-      )
-      this.rmsRef.current = rms
-      if (rms > VAD_SILENCE_THRESHOLD) {
-        speechMs += deltaMs
-        silenceMs = 0
-      } else if (speechMs >= this.#getVadMinSpeechMs()) {
-        silenceMs += deltaMs
-        if (silenceMs >= this.#getVadSilenceMs()) {
-          this.#cleanupVAD()
-          this.stop()
-        }
-      }
-    }, 100)
+  clearError(): void {
+    this.#setError(null, null)
   }
 
-  #cleanupVAD(): void {
-    if (this.#vadInterval) {
-      clearInterval(this.#vadInterval)
-      this.#vadInterval = null
+  async #startStreaming(stream: MediaStream): Promise<void> {
+    let streamId: string
+    try {
+      const started = await window.solus.voiceStreamStart()
+      streamId = started.streamId
+    } catch (err: any) {
+      stream.getTracks().forEach((track) => track.stop())
+      this.#setError(`Voice failed: ${err.message ?? String(err)}`, 'transient')
+      this.starting = false
+      return
     }
-    if (this.#vadAudioCtx) {
-      void this.#vadAudioCtx.close()
-      this.#vadAudioCtx = null
+
+    this.#streamId = streamId
+    this.#streamFinishing = false
+    this.partialText = ''
+    this.#streamSpeechDetected = false
+    this.#streamPreRoll = new Float32Array()
+    this.#streamPartialUnsub = window.solus.onVoicePartial((event) => {
+      if (event.streamId !== this.#streamId) return
+      if (event.error) {
+        this.#setError(`Voice failed: ${event.error}`, 'transient')
+        return
+      }
+      this.partialText = event.fullText
+    })
+
+    let silenceMs = 0
+    let speechMs = 0
+    const capture = new PcmCapture(stream, (chunk) => {
+      if (this.state !== 'recording' || this.#streamId !== streamId) return
+      this.#handleStreamChunk(streamId, chunk)
+      const rmsForVad = chunk.rms * 128
+      if (rmsForVad > VAD_SILENCE_THRESHOLD) {
+        speechMs += chunk.samples.length / 16
+        silenceMs = 0
+      } else if (speechMs >= this.#getVadMinSpeechMs()) {
+        silenceMs += chunk.samples.length / 16
+        // partialText lags the audio by up to one decode pass, so the
+        // punctuation gate is what keeps us from cutting on a mid-sentence
+        // pause: only a completed-looking sentence earns the shorter silence.
+        const vadSilenceMs = this.#getVadSilenceMs()
+        const threshold = TERMINAL_PUNCTUATION.test(this.partialText)
+          ? Math.min(vadSilenceMs, EARLY_ENDPOINT_SILENCE_MS)
+          : vadSilenceMs
+        if (silenceMs >= threshold) this.stop()
+      }
+    })
+    this.#streamCapture = capture
+
+    try {
+      await capture.start()
+    } catch (err: any) {
+      window.solus.voiceStreamCancel(streamId)
+      this.#cleanupStreaming()
+      stream.getTracks().forEach((track) => track.stop())
+      this.#setError(`Voice failed: ${err.message ?? String(err)}`, 'transient')
+      this.starting = false
+      return
+    }
+
+    this.state = 'recording'
+    this.starting = false
+    this.#recordingStartedAtMs = performance.now()
+    this.#recordingStartedAtIso = new Date().toISOString()
+    if (!devVoiceSessionStats.firstStartedAtIso) {
+      devVoiceSessionStats.firstStartedAtIso = this.#recordingStartedAtIso
+    }
+    this.#maxDurationTimeout = window.setTimeout(() => {
+      this.#maxDurationTimeout = null
+      this.stop()
+    }, STREAM_MAX_RECORDING_MS)
+  }
+
+  #handleStreamChunk(streamId: string, chunk: PcmChunk): void {
+    this.rmsRef.current = chunk.rms * 128
+    if (!this.#streamSpeechDetected) {
+      if (!containsSpeech(chunk.samples)) {
+        this.#streamPreRoll = keepTail(this.#streamPreRoll, chunk.samples, PRE_ROLL_SAMPLES)
+        return
+      }
+      this.#streamSpeechDetected = true
+      if (this.#streamPreRoll.length > 0) {
+        window.solus.voiceStreamAudio(streamId, this.#streamPreRoll)
+        this.#streamPreRoll = new Float32Array()
+      }
+    }
+    window.solus.voiceStreamAudio(streamId, chunk.samples)
+  }
+
+  async #finishStreaming(cancelled: boolean): Promise<void> {
+    const streamId = this.#streamId
+    if (!streamId || this.#streamFinishing) return
+    this.#streamFinishing = true
+    const recordingStartedAtMs = this.#recordingStartedAtMs
+    const recordingStartedAtIso = this.#recordingStartedAtIso
+    const listeningMs = recordingStartedAtMs === null
+      ? null
+      : Math.round(performance.now() - recordingStartedAtMs)
+    const hadSpeech = this.#streamSpeechDetected
+    this.#recordingStartedAtMs = null
+    this.#recordingStartedAtIso = null
+    this.#clearMaxDurationTimeout()
+    this.#streamCapture?.stop()
+    this.#streamCapture = null
+
+    if (cancelled || !hadSpeech) {
+      window.solus.voiceStreamCancel(streamId)
+      this.#cleanupStreaming()
+      this.#toIdle()
+      return
+    }
+
+    this.state = 'transcribing'
+    const transcribeStartedAt = performance.now()
+    try {
+      const result = await window.solus.voiceStreamEnd(streamId)
+      this.#logDevTranscriptionSession({
+        transcript: result.transcript,
+        startedAtIso: recordingStartedAtIso,
+        listeningMs,
+        transcribeMs: Math.round(performance.now() - transcribeStartedAt),
+        success: !result.error,
+      })
+      if (result.error) {
+        this.#setError(`Voice failed: ${result.error}`, 'transient')
+      } else if (result.transcript) {
+        this.#setError(null, null)
+        this.onTranscript?.(result.transcript)
+      }
+    } catch (err: any) {
+      this.#setError(`Voice failed: ${err.message ?? String(err)}`, 'transient')
+    } finally {
+      this.#cleanupStreaming()
+      this.#toIdle()
     }
   }
 
@@ -261,9 +283,25 @@ export class VoiceRecorder {
     }
   }
 
+  #cleanupStreaming(): void {
+    this.#streamPartialUnsub?.()
+    this.#streamPartialUnsub = null
+    this.#streamId = null
+    this.#streamCapture = null
+    this.#streamSpeechDetected = false
+    this.#streamPreRoll = new Float32Array()
+    this.#streamFinishing = false
+    this.partialText = ''
+  }
+
   #toIdle(): void {
     this.state = 'idle'
     this.onIdle?.()
+  }
+
+  #setError(message: string | null, kind: VoiceErrorKind): void {
+    this.error = message
+    this.errorKind = message ? kind : null
   }
 
   #logDevTranscriptionSession(args: {
@@ -298,9 +336,30 @@ export class VoiceRecorder {
   }
 }
 
+// True if any short frame within the chunk reaches speech level. Frame-level
+// detection catches a word onset that the chunk-wide average would miss when
+// most of the chunk is the silence that preceded the first word.
+function containsSpeech(samples: Float32Array): boolean {
+  for (let start = 0; start < samples.length; start += ONSET_FRAME_SAMPLES) {
+    const end = Math.min(start + ONSET_FRAME_SAMPLES, samples.length)
+    let sumSq = 0
+    for (let i = start; i < end; i++) sumSq += samples[i] * samples[i]
+    if (Math.sqrt(sumSq / (end - start)) >= SPEECH_RMS_THRESHOLD) return true
+  }
+  return false
+}
+
+function keepTail(existing: Float32Array, incoming: Float32Array, maxLength: number): Float32Array {
+  if (incoming.length >= maxLength) return incoming.slice(incoming.length - maxLength)
+  const merged = new Float32Array(existing.length + incoming.length)
+  merged.set(existing)
+  merged.set(incoming, existing.length)
+  return merged.length <= maxLength ? merged : merged.slice(merged.length - maxLength)
+}
+
 async function requestMicrophoneStream(): Promise<MediaStream> {
   const unsupportedMessage = microphoneUnsupportedMessage()
-  if (unsupportedMessage) throw new Error(unsupportedMessage)
+  if (unsupportedMessage) throw new MicrophoneUnsupportedError(unsupportedMessage)
 
   const modernGetUserMedia =
     navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices)
@@ -349,13 +408,19 @@ function microphoneUnsupportedMessage(): string | null {
   return null
 }
 
-function supportedRecorderMimeType(): string | undefined {
-  return MEDIA_RECORDER_MIME_TYPES.find((type) =>
-    MediaRecorder.isTypeSupported(type),
-  )
+function supportsStreamingTranscription(): boolean {
+  return typeof window.solus.voiceStreamStart === 'function' &&
+    typeof window.solus.voiceStreamAudio === 'function' &&
+    typeof window.solus.voiceStreamEnd === 'function' &&
+    typeof window.solus.voiceStreamCancel === 'function' &&
+    typeof AudioWorkletNode !== 'undefined'
 }
 
-function microphoneErrorMessage(err: unknown): string {
+class MicrophoneUnsupportedError extends Error {
+  name = 'MicrophoneUnsupportedError'
+}
+
+function microphoneErrorInfo(err: unknown): { message: string; kind: NonNullable<VoiceErrorKind> } {
   const errorLike =
     typeof err === 'object' && err !== null
       ? (err as { name?: unknown; message?: unknown })
@@ -367,19 +432,20 @@ function microphoneErrorMessage(err: unknown): string {
   switch (name) {
     case 'NotAllowedError':
     case 'PermissionDeniedError':
-      return 'Microphone permission denied.'
+      return { message: 'Microphone permission denied.', kind: 'permission' }
     case 'NotFoundError':
     case 'DevicesNotFoundError':
-      return 'No microphone was found.'
+      return { message: 'No microphone was found.', kind: 'hardware' }
     case 'NotReadableError':
     case 'TrackStartError':
-      return 'Microphone is already in use or unavailable.'
+      return { message: 'Microphone is already in use or unavailable.', kind: 'transient' }
     case 'SecurityError':
-      return 'Microphone access is blocked by browser security settings.'
+      return { message: 'Microphone access is blocked by browser security settings.', kind: 'unsupported' }
     case 'NotSupportedError':
-      return 'Audio recording is not supported in this browser.'
+    case 'MicrophoneUnsupportedError':
+      return { message: message || 'Audio recording is not supported in this browser.', kind: 'unsupported' }
     default:
-      if (message) return message
-      return `Microphone error: ${String(err)}`
+      if (message) return { message, kind: 'transient' }
+      return { message: `Microphone error: ${String(err)}`, kind: 'transient' }
   }
 }

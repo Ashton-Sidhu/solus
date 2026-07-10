@@ -32,6 +32,7 @@ import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handl
 import { registerRunHandlers } from './handlers/run-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
+import { setVoiceModelStatusListener } from '../model-downloader'
 import { createLogger } from '../logger'
 import type { RunManager } from '../run/run-manager'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
@@ -156,6 +157,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   if (opts.fileDeps) {
     const { registerFileHandlers } = await import('./handlers/file-handlers')
     registerFileHandlers(server, opts.fileDeps)
+    const { setVoicePartialListener } = await import('../transcription')
+    setVoicePartialListener((event) => server.broadcast('voice-partial', event))
   }
   if (opts.windowDeps) {
     const { registerThemeHandlers } = await import('./handlers/theme-handlers')
@@ -229,6 +232,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       })
     }
   })
+  setVoiceModelStatusListener((status) => server.broadcast('voice-model-status', status))
 
   opts.controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
     server.broadcast('normalized-event', tabId, event)

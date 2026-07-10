@@ -86,6 +86,11 @@ export interface GuideFileRef {
   path: string
   additions: number
   deletions: number
+  /** The relevant unified-diff hunks for this file in this concern, authored by
+   *  the review agent (a valid single-file patch trimmed to the hunks that
+   *  matter). Optional: older cached guides and the synthesized catch-all section
+   *  omit it, in which case the renderer falls back to the full-file diff. */
+  hunks?: string
 }
 
 export type ReviewGuideDraft = Pick<ReviewGuide, 'title' | 'summary' | 'sections'>

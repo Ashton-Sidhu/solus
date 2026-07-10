@@ -201,7 +201,7 @@ function loadSettings(): SettingsFields {
         themeMode: (['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         voiceModeEnabled: typeof parsed.voiceModeEnabled === 'boolean' ? parsed.voiceModeEnabled : false,
-        vadSilenceMs: typeof parsed.vadSilenceMs === 'number' ? Math.max(1000, Math.min(8000, parsed.vadSilenceMs)) : 3000,
+        vadSilenceMs: typeof parsed.vadSilenceMs === 'number' ? Math.max(1000, Math.min(8000, parsed.vadSilenceMs)) : 1500,
         defaultEditor: VALID_EDITORS.includes(parsed.defaultEditor) ? parsed.defaultEditor : null,
         defaultTerminal: VALID_TERMINALS.includes(parsed.defaultTerminal) ? parsed.defaultTerminal : null,
         activeAgent: VALID_AGENTS.includes(parsed.activeAgent) ? parsed.activeAgent : 'claude-code',
@@ -230,7 +230,7 @@ function loadSettings(): SettingsFields {
     themeMode: 'dark',
     soundEnabled: true,
     voiceModeEnabled: false,
-    vadSilenceMs: 3000,
+    vadSilenceMs: 1500,
     defaultEditor: 'vim',
     defaultTerminal: 'default-terminal',
     activeAgent: 'claude-code',
@@ -259,7 +259,7 @@ export class SettingsContext {
   themeMode = $state<ThemeMode>('dark')
   soundEnabled = $state(true)
   voiceModeEnabled = $state(false)
-  vadSilenceMs = $state(3000)
+  vadSilenceMs = $state(1500)
   defaultEditor = $state<EditorId | null>(null)
   defaultTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')

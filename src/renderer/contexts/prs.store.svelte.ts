@@ -43,10 +43,6 @@ export class PrsStore {
     return `${this.contextKey(ctx)}::${number}`
   }
 
-  private changedFilesKey(ctx: IpcContext, baseSha: string): string {
-    return `${this.contextKey(ctx)}::${baseSha}`
-  }
-
   private isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> & { value: T } {
     return entry?.value !== undefined && Date.now() - entry.loadedAt < PR_CACHE_TTL_MS
   }
@@ -169,13 +165,17 @@ export class PrsStore {
     )
   }
 
-  async loadChangedFiles(ctx: IpcContext, baseSha: string, opts: { force?: boolean } = {}): Promise<ChangedFileStat[]> {
+  async loadChangedFiles(
+    ctx: IpcContext,
+    number: number,
+    opts: { force?: boolean } = {},
+  ): Promise<ChangedFileStat[]> {
     const safeCtx = JSON.parse(JSON.stringify(ctx)) as IpcContext
     return this.readCached(
       this.changedFilesCache,
-      this.changedFilesKey(ctx, baseSha),
+      this.prKey(ctx, number),
       !!opts.force,
-      () => window.solus.prChangedFiles(safeCtx, baseSha),
+      () => window.solus.prChangedFiles(safeCtx, number),
     )
   }
 

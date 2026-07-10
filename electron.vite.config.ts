@@ -55,7 +55,8 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          standalone: resolve(__dirname, 'src/main/standalone.ts')
+          standalone: resolve(__dirname, 'src/main/standalone.ts'),
+          'transcription-worker': resolve(__dirname, 'src/main/transcription/worker.ts')
         },
         external: [
           'electron',

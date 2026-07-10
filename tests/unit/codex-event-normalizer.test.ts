@@ -237,6 +237,7 @@ describe('CodexTurnNormalizer', () => {
         usedPercent: 100,
         windowDurationMins: 300,
         isUsingOverage: false,
+        deferCurrentRun: true,
       },
       {
         type: 'rate_limit',

@@ -169,6 +169,14 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
 
+    // A codex_subagent tool call renders as a SubagentCard, not a plain tool row.
+    // The live reducer sets subMessages via isSubagent; reload has no such flag,
+    // so re-seed it here. The tool_result pass above reattaches the answer.
+    if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
+      msg.subMessages = []
+      msg.subagentType = 'codex'
+    }
+
     if (m.role === 'plan' && m.planContent) {
       const toolUseId = m.planToolUseId || uuid()
       msg.planToolUseId = toolUseId

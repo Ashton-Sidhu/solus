@@ -457,7 +457,16 @@ export async function fetchAndCheckoutPr(
     await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], existing.path).catch(() => {})
   } else {
     log.info(`Creating PR worktree ${branch} at ${worktreePath}`)
-    git(['worktree', 'add', '-b', branch, worktreePath, 'FETCH_HEAD'], projectPath)
+    const branchExists = await runAsync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], projectPath).then(
+      () => true,
+      () => false,
+    )
+    if (branchExists) {
+      await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath)
+      await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], worktreePath).catch(() => {})
+    } else {
+      await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, 'FETCH_HEAD'], projectPath)
+    }
     await copyIncludedWorktreeFiles(projectPath, worktreePath)
   }
 
