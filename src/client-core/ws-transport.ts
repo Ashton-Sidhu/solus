@@ -20,6 +20,13 @@ export interface WsTransportOptions {
   onSessionTokenRefreshed?: (sessionToken: string) => void
   /** Called when the server rejects the stored token and refresh cannot recover. */
   onAuthFailed?: () => void
+  /**
+   * Overrides how a fresh token is obtained; defaults to POSTing
+   * `${serverUrl}/auth/refresh`. The Electron local target instead pulls a
+   * fresh token over IPC — the desktop renderer's origin is cross-origin
+   * from the local server, so the HTTP fallback would depend on CORS.
+   */
+  refreshToken?: () => Promise<{ result: RefreshResult; sessionToken?: string }>
 }
 
 type Listener = (...payload: unknown[]) => void
@@ -50,6 +57,7 @@ export function shouldAcceptSequencedEvent(currentSeq: number | undefined, incom
 
 export class WsTransport {
   private socket: WebSocket | null = null
+  private readonly clientInstanceId = createClientInstanceId()
   private nextId = 1
   private pending = new Map<string, PendingRequest>()
   private subscribers = new Map<RpcTopic, Set<Listener>>()
@@ -96,6 +104,7 @@ export class WsTransport {
   }
 
   applySeqWatermark(seqByTopic: Record<string, number>, replace = false): void {
+    if (replace) this.lastSeqByTopic.clear()
     for (const [topic, seq] of Object.entries(seqByTopic)) {
       if (typeof seq === 'number' && (replace || !this.lastSeqByTopic.has(topic as RpcTopic))) {
         this.lastSeqByTopic.set(topic as RpcTopic, seq)
@@ -120,13 +129,10 @@ export class WsTransport {
       api[method] = (...args: unknown[]) => this.send(method, args)
     }
 
-    // Float32Array does not survive JSON serialization as an array. Normalize
-    // voice samples at the WebSocket boundary so both desktop and web clients
-    // send the same wire shape.
+    // Float32Array does not survive JSON serialization as an array, so batch
+    // audio is sent as a plain number array the server rehydrates.
     api.transcribeAudio = (audio: Float32Array | string, ...args: unknown[]) =>
       this.invoke('transcribeAudio', [audio instanceof Float32Array ? Array.from(audio) : audio, ...args])
-    api.voiceStreamAudio = (streamId: string, samples: Float32Array, ...args: unknown[]) =>
-      this.send('voiceStreamAudio', [streamId, Array.from(samples), ...args])
 
     // Browser file picking/upload. Electron overlays getPathForFile but keeps
     // attachFiles on RPC so desktop dialogs still run on the local server.
@@ -157,11 +163,11 @@ export class WsTransport {
     api.onWindowShown = (cb: Listener) => this.subscribe('window-shown', cb)
     api.onWindowHidden = (cb: Listener) => this.subscribe('window-hidden', cb)
     api.onSessionScan = (cb: Listener) => this.subscribe('session-scan', cb)
+    api.onSessionIndexUpdated = (cb: Listener) => this.subscribe('session-index-updated', cb)
     api.onReviewProgress = (cb: Listener) => this.subscribe('review-progress', cb)
     api.onRunStatus = (cb: Listener) => this.subscribe('run-status', cb)
     api.onRunLog = (cb: Listener) => this.subscribe('run-log', cb)
     api.onVoiceModelStatus = (cb: Listener) => this.subscribe('voice-model-status', cb)
-    api.onVoicePartial = (cb: Listener) => this.subscribe('voice-partial', cb)
     api.onSetupStatus = (cb: Listener) => this.subscribe('setup-status', cb)
     api.onSetupLog = (cb: Listener) => this.subscribe('setup-log', cb)
     api.onAutomationsChanged = (cb: Listener) => this.subscribe('automations-changed', cb)
@@ -210,7 +216,8 @@ export class WsTransport {
     }
     if (this.destroyed) return
 
-    const wsUrl = httpToWs(this.opts.serverUrl) + `/ws?token=${encodeURIComponent(this.opts.sessionToken)}`
+    const wsUrl = httpToWs(this.opts.serverUrl)
+      + `/ws?token=${encodeURIComponent(this.opts.sessionToken)}&client=${encodeURIComponent(this.clientInstanceId)}`
     const ws = new WebSocket(wsUrl)
     this.socket = ws
 
@@ -380,7 +387,9 @@ export class WsTransport {
   }
 
   private async refreshToken(): Promise<RefreshResult> {
-    const refreshed = await refreshSessionToken(this.opts.serverUrl, this.opts.sessionToken)
+    const refreshed = this.opts.refreshToken
+      ? await this.opts.refreshToken()
+      : await refreshSessionToken(this.opts.serverUrl, this.opts.sessionToken)
     if (refreshed.result === 'refreshed' && refreshed.sessionToken) {
       this.opts.sessionToken = refreshed.sessionToken
       this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken)
@@ -478,13 +487,21 @@ export class WsTransport {
   }
 }
 
+function createClientInstanceId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(bytes)
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+}
+
 function httpToWs(url: string): string {
   if (url.startsWith('http://')) return 'ws://' + url.slice('http://'.length)
   if (url.startsWith('https://')) return 'wss://' + url.slice('https://'.length)
   return url
 }
 
-type RefreshResult = 'refreshed' | 'fresh' | 'unauthorized' | 'unavailable'
+export type RefreshResult = 'refreshed' | 'fresh' | 'unauthorized' | 'unavailable'
 
 function tokenIssuedAt(token: string): number | null {
   const parts = token.split('.')

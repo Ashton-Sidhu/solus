@@ -388,6 +388,11 @@ export async function getEpisodeNumstat(
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
     ),
   )
+  return parseChangedFileStats(out)
+}
+
+/** Parse `git diff --numstat` output into the renderer's compact file model. */
+export function parseChangedFileStats(out: string): ChangedFileStat[] {
   const files: ChangedFileStat[] = []
   for (const line of out.split('\n')) {
     if (!line) continue
@@ -477,8 +482,65 @@ export async function getDiff(
   }
 }
 
-/** Working-tree insertion/deletion totals for the status bar — numstat only, so
- *  the (throttled, polled) status fetch never materializes full patch text.
+/**
+ * Per-file statistics for the same scopes as `getDiff`, without constructing or
+ * transferring patch text. The session-live path still uses its isolated temp
+ * tree so files touched by another session cannot leak into the result.
+ */
+export async function getDiffStats(
+  workTree: string | null,
+  repoRoot: string,
+  scope: DiffScope,
+  sessionId: string | null,
+  livePaths: string[],
+): Promise<ChangedFileStat[]> {
+  if (scope.kind === 'working-tree') {
+    if (!workTree) return []
+    const out = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
+      runAsync('git', ['-c', 'core.quotepath=false', 'diff', 'HEAD', '--numstat'], workTree, {
+        env,
+        maxBuffer: COMBINED_DIFF_MAX_BUFFER,
+      }),
+    )
+    return parseChangedFileStats(out)
+  }
+
+  if (scope.kind === 'pr') {
+    if (!workTree) return []
+    return getEpisodeNumstat(workTree, repoRoot, scope.baseSha)
+  }
+
+  if (!sessionId) return []
+
+  if (scope.kind === 'session' && workTree && livePaths.length > 0) {
+    const live = await buildLiveTree(workTree, repoRoot, sessionId, livePaths)
+    if (live) {
+      try {
+        if (live.baseSha === live.treeSha) return []
+        const out = await runAsync('git',
+          ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, '--numstat'],
+          repoRoot,
+          { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+        )
+        return parseChangedFileStats(out)
+      } finally {
+        live.cleanup()
+      }
+    }
+  }
+
+  const range = await resolveScope(repoRoot, sessionId, scope)
+  if (!range || range.from === range.to) return []
+  const out = await runAsync('git',
+    ['-c', 'core.quotepath=false', 'diff', range.from, range.to, '--numstat'],
+    repoRoot,
+    { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+  )
+  return parseChangedFileStats(out)
+}
+
+/** Working-tree insertion/deletion totals for visible Git UI — numstat only, so
+ *  a detailed status fetch never materializes full patch text.
  *  Untracked files included via the same intent-to-add temp index as getDiff. */
 export async function getWorkingTreeStats(
   workTree: string,

@@ -39,7 +39,7 @@ export class GitActions {
         this.commitTimer = null
       }, 1800)
       if (gitCwd) {
-        await this.gitStatus.refresh(gitCwd, { force: true })
+        await this.gitStatus.refresh(gitCwd, { force: true, details: true })
         this.prUrl = this.gitStatus.statusFor(gitCwd)?.prUrl || null
       }
     } else {
@@ -65,8 +65,8 @@ export class GitActions {
         this.syncTimer = null
       }, 1800)
       if (sess.workingDirectory) {
-        await this.session.fetchGitContext(this.tabId, sess.workingDirectory)
-        void this.gitStatus.refresh(gitCwd, { force: true })
+        await this.session.env.refreshGitEnvironment({ tabId: this.tabId })
+        void this.gitStatus.refresh(gitCwd, { force: true, details: true })
       }
     } else {
       this.syncError = result.error || 'Sync failed'
@@ -95,7 +95,7 @@ export class GitActions {
       this.creatingPR = false
       if (sess.workingDirectory) {
         const gitCwd = sess.gitContext?.worktreePath ?? sess.workingDirectory
-        void this.gitStatus.refresh(gitCwd, { force: true })
+        void this.gitStatus.refresh(gitCwd, { force: true, details: true })
       }
       requestInputFocus()
     }

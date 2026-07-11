@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { Editor, Extension } from "@tiptap/core";
   import { Link } from "@tiptap/extension-link";
-  import { TextSelection } from "@tiptap/pm/state";
+  import { TextSelection, type Transaction } from "@tiptap/pm/state";
   import StarterKit from "@tiptap/starter-kit";
   import { Markdown } from "@tiptap/markdown";
   import { referenceExtensions } from "./editor/referenceExtensions";
@@ -13,8 +13,13 @@
      *  synchronously on Enter keydown, blur, and unmount so hosts that read
      *  `value` at send/submit time always see current content. */
     onValueChange: (md: string) => void;
-    /** Cheap synchronous per-edit signal (autocomplete triggers, dirty marks). */
-    onInput?: () => void;
+    /** Cheap synchronous per-edit signal (autocomplete triggers, dirty marks).
+     *  A null transaction means the whole document was replaced. */
+    onInput?: (transaction: Transaction | null) => void;
+    /** Synchronous emptiness signal, fired at the same points as `onInput` —
+     *  lets hosts gate UI (e.g. a send button) without waiting on the
+     *  debounced markdown emit. */
+    onEmptyChange?: (empty: boolean) => void;
     onKeyDown?: (e: KeyboardEvent) => void;
     /** When true, plain Enter inserts a newline instead of being swallowed for a
      *  send action. Used by editors with no "send" (e.g. the automation prompt). */
@@ -39,6 +44,7 @@
     value,
     onValueChange,
     onInput,
+    onEmptyChange,
     onKeyDown,
     enterInsertsNewline = false,
     onPaste,
@@ -311,9 +317,10 @@
       flushPendingEmit();
       onBlur?.();
     });
-    editor.on("update", () => {
+    editor.on("update", ({ transaction }) => {
       editorEmpty = shouldShowPlaceholder(editor);
-      untrack(() => onInput?.());
+      untrack(() => onInput?.(transaction));
+      untrack(() => onEmptyChange?.(editorEmpty));
       scheduleEmit();
     });
 
@@ -344,6 +351,8 @@
         contentType: "markdown",
       });
       editorEmpty = shouldShowPlaceholder(editorInstance);
+      untrack(() => onInput?.(null));
+      untrack(() => onEmptyChange?.(editorEmpty));
     }
     lastEmittedValue = null;
   });
@@ -404,6 +413,8 @@
       view.dispatch(tr);
     }
     editorEmpty = shouldShowPlaceholder(editorInstance);
+    untrack(() => onInput?.(null));
+    untrack(() => onEmptyChange?.(editorEmpty));
     if (autoFocus) editorInstance.commands.focus("end");
   }
 
@@ -413,6 +424,8 @@
     lastEmittedValue = null;
     editorInstance.commands.setContent("", { emitUpdate: false });
     editorEmpty = true;
+    untrack(() => onInput?.(null));
+    untrack(() => onEmptyChange?.(true));
   }
 
 </script>

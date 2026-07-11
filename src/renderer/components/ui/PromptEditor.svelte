@@ -14,6 +14,7 @@
   import type { SlashCommand } from "../input/slash-commands";
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
   import MarkdownEditor from "../MarkdownEditor.svelte";
+  import type { Transaction } from "@tiptap/pm/state";
   import * as refs from "../editor/references";
   import { AutocompleteController } from "../editor/autocomplete.svelte";
 
@@ -28,6 +29,9 @@
     workingDirectory: string | undefined;
     /** Notified whenever the editor's plan/work references change. */
     onRefsChange?: (planRefs: PlanReference[], workRefs: WorkReference[]) => void;
+    /** Synchronous emptiness signal (see MarkdownEditor) — lets callers gate
+     *  UI like a send button without waiting on the debounced markdown emit. */
+    onEmptyChange?: (empty: boolean) => void;
     /** Include Solus built-in commands (/clear …) in the slash menu. The input
      *  bar wants them; the automation editor does not. */
     includeSolusCommands?: boolean;
@@ -70,6 +74,7 @@
     provider,
     workingDirectory,
     onRefsChange,
+    onEmptyChange,
     includeSolusCommands = false,
     onSolusCommand,
     onKeyDown,
@@ -124,9 +129,12 @@
 
   // Synchronous per-keystroke channel: autocomplete triggers must track the
   // caret immediately, not after the debounced markdown emit.
-  function handleEditorInput() {
+  function handleEditorInput(transaction: Transaction | null) {
     if (readOnly) return;
-    ac.handleEditorChange(refs.textBeforeCursor(ed()));
+    ac.handleEditorChange(
+      refs.textBeforeCursor(ed()),
+      transaction === null || refs.transactionChangesTrackedRefs(transaction),
+    );
   }
 
   function handleEditorChange(md: string) {
@@ -220,6 +228,7 @@
   {value}
   onValueChange={handleEditorChange}
   onInput={handleEditorInput}
+  {onEmptyChange}
   onKeyDown={handleKeyDown}
   {enterInsertsNewline}
   {onPaste}

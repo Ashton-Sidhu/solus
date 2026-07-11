@@ -57,8 +57,12 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
 
   const app = new Hono<Env>()
 
-  // Only discovery/pairing endpoints are reachable cross-origin; everything
-  // else is same-origin (bundled web client) or native (Authorization header).
+  // Every route below is authenticated (if at all) by an `Authorization`
+  // bearer header, never cookies, so a cross-origin caller can't ride on an
+  // implicit credential the way it could with cookie auth — wildcard origin
+  // is safe. This also covers the Electron renderer, which is cross-origin
+  // from this server (different scheme/host/port) once the multi-client
+  // WebSocket transport replaced direct IPC.
   const publicCors = cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'OPTIONS'],
@@ -67,6 +71,11 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   app.use('/health', publicCors)
   app.use('/pair', publicCors)
   app.use('/claim', publicCors)
+  app.use('/upload', publicCors)
+  app.use('/artifact', publicCors)
+  app.use('/auth/refresh', publicCors)
+  app.use('/auth/pair-token', publicCors)
+  app.use('/auth/revoke', publicCors)
 
   app.onError((err, c) => {
     log.error(`http handler error: ${err}`)

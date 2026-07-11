@@ -623,6 +623,12 @@ export type SessionScanEvent =
   | { streamId: string; type: 'batch'; sessions: SessionMeta[] }
   | { streamId: string; type: 'done'; totalSessions: number }
 
+export interface SessionIndexUpdatedEvent {
+  provider: AgentId
+  projectPaths: string[]
+  sessionIds: string[]
+}
+
 export interface RunResult {
   totalCostUsd: number
   durationMs: number

@@ -11,7 +11,6 @@
   } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
-  import DiagramThumbnail from "../diagram/DiagramThumbnail.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
   import { summarizeDiagram, parseDiagram } from "../../../shared/diagram-types";
   import type { PlanMessageRef } from "../../../shared/types";
@@ -109,7 +108,17 @@
 
     {#if ref.content}
       <div class="diagram-ref-preview">
-        <DiagramThumbnail content={ref.content} />
+        {#await import("../diagram/DiagramThumbnail.svelte")}
+          <div
+            class="grid min-h-36 place-items-center text-xs text-(--solus-text-tertiary)"
+            role="status"
+          >
+            Loading diagram preview…
+          </div>
+        {:then diagramThumbnailModule}
+          {@const DiagramThumbnail = diagramThumbnailModule.default}
+          <DiagramThumbnail content={ref.content} />
+        {/await}
       </div>
     {/if}
   </ConversationRefCard>

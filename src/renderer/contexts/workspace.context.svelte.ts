@@ -32,13 +32,14 @@ import { type GitStatusStore } from './git-status.store.svelte'
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
 import { nextMsgId } from './session.utils'
-import { isSolusWorktreePath, tabGitContextFromStatus, worktreeProjectRoot } from '../../shared/types'
+import { isSolusWorktreePath, worktreeProjectRoot } from '../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor } from './session-plan-operations'
 import { analytics } from '../lib/analytics'
 import { requestInputFocus } from '../lib/inputFocus'
 import { disposeGitActions } from '../lib/git-actions.svelte'
+import { prioritizeTabHydration } from './session-bootstrap'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -72,7 +73,8 @@ export class WorkspaceContext {
   continuingWorktreeTabs = $state<Record<string, boolean>>({})
   eventReducer: SessionEventReducer
 
-  /** True while bootstrapRuntimeTabs is running; prevents persist effect from clobbering saved snapshot. */
+  /** True until materializeTabs has rebuilt the persisted tabs into memory; prevents
+   *  the persist effect from clobbering the saved snapshot with empty initial state. */
   hydrating = $state(true)
   /** True while a seq-reset recovery is re-registering tabs and re-binding sessions. */
   runtimeSyncing = $state(false)
@@ -118,14 +120,13 @@ export class WorkspaceContext {
       settings: this.settings,
       registry: this.registry,
       statusBar: this.statusBar,
-      planStore: this.planStore,
       setPluginCommands: (commands) => { this.pluginCommands = commands },
       createTab: () => this.createTab(),
       ctx: () => this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
       refreshGitRefs: (projectRoot, ctx) => { void this.gitStatus.refreshRefs(projectRoot, ctx, { force: true }) },
-      fetchGitContext: (tabId, dir) => { void this.fetchGitContext(tabId, dir) },
+      refreshGitEnvironment: (opts) => { void this.env.refreshGitEnvironment(opts) },
     })
     this.env = new EnvironmentStore({
       registry: this.registry,
@@ -260,6 +261,7 @@ export class WorkspaceContext {
 
   private setActiveTab(tabId: string): void {
     this.registry.setActiveTab(tabId)
+    prioritizeTabHydration(this, tabId)
     if (this.artifactViewer.primary.kind === 'review') {
       this.artifactViewer.primary = { kind: 'conversation' }
     }
@@ -396,12 +398,14 @@ export class WorkspaceContext {
     return this.env.initStaticInfo()
   }
 
-  async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
-    return this.env.refreshPluginCommands(workingDirectory, tabId)
+  /** Synchronously apply the cached start() payload so staticInfo/agents are ready
+   *  before first paint. Reconciled with fresh data by initStaticInfo. */
+  hydrateStaticInfoFromCache(): void {
+    this.env.hydrateStaticInfoFromCache()
   }
 
-  async fetchGitContext(tabId: string, dir: string): Promise<void> {
-    return this.env.fetchGitContext(tabId, dir)
+  async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
+    return this.env.refreshPluginCommands(workingDirectory, tabId)
   }
 
   async switchToBranch(branch: string): Promise<boolean> {
@@ -488,7 +492,7 @@ export class WorkspaceContext {
     this.setActiveTab(tab.id)
     this.resetOverlays({ closeArtifactViewer: true })
     if (!activeSession?.gitContext && inheritedGitContext) this.globalDefaults.gitContext = null
-    if (!inheritedGitContext?.worktreePath) void this.fetchGitContext(tabId, inheritedDir)
+    await this.env.refreshGitEnvironment({ tabId })
     void this.refreshPluginCommands(inheritedDir)
     requestInputFocus()
     return tabId
@@ -508,13 +512,11 @@ export class WorkspaceContext {
     if (!session) return
     // Always branch off the project root, even when the source tab was itself
     // inside a worktree (whose context createTab would otherwise inherit).
-    if (session.gitContext?.worktreePath) session.gitContext = null
+    session.gitContext = null
     const dir = session.workingDirectory
     if (!dir || dir === '~') return
-    const status = await window.solus.gitProjectStatus(dir).catch(() => null)
-    this.gitStatus.set(dir, status)
-    session.gitContext = tabGitContextFromStatus(status)
-    if (status?.targetBranch) session.worktreeBaseBranch = status.targetBranch
+    const gitContext = await this.env.refreshGitEnvironment({ tabId, cwd: dir })
+    if (gitContext?.targetBranch) session.worktreeBaseBranch = gitContext.targetBranch
   }
 
   /** Fork a session into a new tab. The fork inherits all messages and resumes on first prompt. */
@@ -559,11 +561,7 @@ export class WorkspaceContext {
     this.addTabToOrder(forkTab.id)
     this.setActiveTab(forkTab.id)
     this.resetOverlays()
-    // If the source had a worktree, the inherited gitContext is already correct.
-    // fetchGitContext would overwrite it with a non-worktree context (no worktreePath).
-    if (!sourceSession.gitContext?.worktreePath) {
-      void this.fetchGitContext(tabId, sourceSession.workingDirectory)
-    }
+    await this.env.refreshGitEnvironment({ tabId })
     requestInputFocus()
     return tabId
   }
@@ -653,9 +651,6 @@ export class WorkspaceContext {
     if (session?.provider && this.settings.activeAgent !== session.provider) {
       this.settings.update({ activeAgent: session.provider })
     }
-    if (session) {
-      this.planStore.preloadDescriptors(session.workingDirectory, this.ctx)
-    }
   }
 
   toggleExpanded(): void {
@@ -733,7 +728,7 @@ export class WorkspaceContext {
     this.setActiveTab(tab.id)
     this.resetOverlays()
     if (inheritedGitContext) this.globalDefaults.gitContext = null
-    if (!inheritedGitContext?.worktreePath) void this.fetchGitContext(tabId, this.globalDefaults.workingDirectory)
+    void this.env.refreshGitEnvironment({ tabId })
     void this.refreshPluginCommands(this.globalDefaults.workingDirectory)
     return tabId
   }
@@ -807,7 +802,7 @@ export class WorkspaceContext {
     if (tab) tab.title = 'New Tab'
     delete this.streaming.text[activeTabId]
     if (session.workingDirectory && !session.gitContext) {
-      void this.fetchGitContext(activeTabId, session.workingDirectory)
+      void this.env.refreshGitEnvironment({ tabId: activeTabId })
     }
   }
 
@@ -906,6 +901,7 @@ export class WorkspaceContext {
           session.gitContext = restoredGitContext
           session.readOnlyReason = null
         }
+        await this.env.refreshGitEnvironment({ tabId })
         await this.hydrateChangedFilesFromDiff(tabId)
       } else if (isSolusWorktreePath(defaultDir)) {
         if (session) {
@@ -913,7 +909,7 @@ export class WorkspaceContext {
           session.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
         }
       } else {
-        void this.fetchGitContext(tabId, workingDirectory)
+        await this.env.refreshGitEnvironment({ tabId })
       }
 
     } finally {
@@ -1042,7 +1038,6 @@ export class WorkspaceContext {
 
     if (resolvedPath !== session.workingDirectory) {
       session.workingDirectory = resolvedPath
-      this.planStore.preloadDescriptors(resolvedPath, this.ctx)
     }
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
       void window.solus.trackRecentProject(resolvedPath)

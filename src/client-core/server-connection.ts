@@ -77,11 +77,23 @@ export function installWsBackedSolusApi(
   nativeApi: Record<string, unknown>,
   options: InstallSolusConnectionOptions = {},
 ): InstalledSolusConnection {
+  const refreshLocalSessionToken = nativeApi.refreshLocalSessionToken as (() => Promise<string>) | undefined
+
   const transport = new WsTransport({
     serverUrl: target.url,
     sessionToken: target.sessionToken,
     onStatusChange: options.onStatusChange,
     onAuthFailed: options.onAuthFailed,
+    // The local target's page origin (dev server / file://) is always
+    // cross-origin from the loopback server, so the HTTP refresh fallback
+    // would depend on CORS. Refresh over IPC instead, matching how the
+    // token was obtained at boot.
+    refreshToken: target.local && refreshLocalSessionToken
+      ? async () => {
+          const sessionToken = await refreshLocalSessionToken()
+          return sessionToken ? { result: 'refreshed', sessionToken } : { result: 'unavailable' }
+        }
+      : undefined,
     onSessionTokenRefreshed: (sessionToken) => {
       if (target.local) return
       upsertServer({

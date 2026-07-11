@@ -1,4 +1,4 @@
-import type { AgentId, ModelConfig, TabGitContext } from '../../shared/types'
+import type { AgentId, ModelConfig, StartInfo, TabGitContext } from '../../shared/types'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -6,6 +6,10 @@ import type { AgentId, ModelConfig, TabGitContext } from '../../shared/types'
 // starts fresh unless it has its own legacy mode-scoped key.
 const LEGACY_TABS_KEY = 'solus-open-tabs'
 const LEGACY_DRAFTS_KEY = 'solus-tab-drafts'
+// Last successful start() payload, scoped to the server installation (+ window
+// mode) exactly like the tab snapshot so a different server never reads a stale
+// environment. Applied optimistically on boot, then reconciled with fresh data.
+const START_CACHE_KEY = 'solus-start-cache'
 
 let activeInstallationId: string | null = null
 let shouldMigrateLegacyKeys = false
@@ -101,6 +105,29 @@ export function loadPersistedTabs(): PersistedTabs | null {
 export function savePersistedTabs(snapshot: PersistedTabs): void {
   try {
     localStorage.setItem(storageKey(LEGACY_TABS_KEY), JSON.stringify(snapshot))
+  } catch {}
+}
+
+// ─── Cached start() payload ───
+// Optimistic boot cache for window.solus.start(). Lets the renderer paint
+// staticInfo + agent metadata before the real RPC resolves; reconciled on fresh.
+
+export function loadCachedStart(): StartInfo | null {
+  try {
+    const raw = localStorage.getItem(storageKey(START_CACHE_KEY))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Minimal shape guard — enough to trust it as a StartInfo before applying.
+    if (typeof parsed?.version !== 'string' || !Array.isArray(parsed.agents)) return null
+    return parsed as StartInfo
+  } catch {
+    return null
+  }
+}
+
+export function saveCachedStart(info: StartInfo): void {
+  try {
+    localStorage.setItem(storageKey(START_CACHE_KEY), JSON.stringify(info))
   } catch {}
 }
 

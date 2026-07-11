@@ -113,7 +113,7 @@
       "entitlementsInherit": "resources/entitlements.mac.plist",
       "notarize": true,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Solus uses your microphone to transcribe voice input locally with Whisper.",
+        "NSMicrophoneUsageDescription": "Solus uses your microphone to transcribe voice input locally on your device.",
         "NSAppleEventsUsageDescription": "Solus needs to send Apple Events to your terminal app to open editor sessions."
       }
     },

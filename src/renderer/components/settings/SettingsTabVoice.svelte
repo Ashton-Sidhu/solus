@@ -13,6 +13,7 @@
 
   const silenceOptions: { label: string; value: number }[] = [
     { label: "1s", value: 1000 },
+    { label: "1.5s", value: 1500 },
     { label: "2s", value: 2000 },
     { label: "3s", value: 3000 },
     { label: "4s", value: 4000 },
@@ -44,7 +45,7 @@
           Auto voice mode<span class="ml-1.5 inline-flex items-center rounded px-1 py-px align-middle text-[0.5313rem] leading-none font-semibold tracking-[0.02em] text-(--solus-accent) uppercase bg-(--solus-accent)/14">Beta</span>
         </div>
         <div class="text-[0.6875rem] text-(--solus-text-tertiary) mt-px">
-          Continuously listen and send voice input after Claude responds (⌥⇧V)
+          Continuously listen and queue voice messages while you work (⌥⇧V)
         </div>
       </div>
     </div>
@@ -71,7 +72,7 @@
           type="button"
           onclick={() => theme.update({ vadSilenceMs: opt.value })}
           aria-pressed={theme.vadSilenceMs === opt.value}
-          class="min-w-0 px-2.5 py-1.5 text-[0.75rem] transition-colors border-r border-(--solus-container-border) last:border-r-0
+          class="min-h-10 min-w-0 px-2.5 py-1.5 text-[0.75rem] transition-colors border-r border-(--solus-container-border) last:border-r-0
             {theme.vadSilenceMs === opt.value
               ? 'bg-(--solus-accent) text-white font-medium'
               : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"

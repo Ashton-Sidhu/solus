@@ -25,6 +25,7 @@ import { warmupTranscription } from './transcription'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from './server/auth'
 import { closeDb } from './db'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
+import { installDevShutdownHandlers } from './dev-shutdown'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -73,9 +74,9 @@ async function handleArtifactRequest(request: Request): Promise<Response> {
 
 let forceQuit = false
 
-// The pill window (kept as `mainWindow` — it's the boot window and the summon
-// surface). The editor is a second, standard OS window created lazily on first
-// switch; both are clients of the same SolusServer broadcast stream.
+// The pill window is created lazily on first summon so its hidden renderer does
+// not compete with the editor's first paint. The editor is the default boot
+// surface; once mounted, both are clients of the same server broadcast stream.
 let mainWindow: BrowserWindow | null = null
 let editorWindow: BrowserWindow | null = null
 // Last Solus window the user focused — the target for dialogs, screenshots,
@@ -92,12 +93,37 @@ let toggleSequence = 0
 let currentViewMode: 'pill' | 'editor' = 'editor'
 let booted: BootedServer | null = null
 let core: BootCore | null = null
+// Resolves with the booted core once bootCore finishes; rejects if boot fails.
+// The renderer's first IPC (getLocalConnection) awaits this instead of racing
+// window creation against server boot — the window is now created before boot
+// so its bundle loads in parallel, and the connection resolves when ready.
+let resolveBoot!: (core: BootCore) => void
+let rejectBoot!: (err: unknown) => void
+const bootPromise = new Promise<BootCore>((resolve, reject) => {
+  resolveBoot = resolve
+  rejectBoot = reject
+})
 let desktopAttentionNotifications: DesktopAttentionNotifications | null = null
 // True while the renderer's current text selection lives inside the conversation
 // view. Pushed from the renderer on selectionchange so the native context menu
 // can offer "Quote in reply" only for conversation output (not docs/diffs/etc).
 let quoteContextActive = false
 let hiddenUntilTrayShow = false
+let pendingPillShowSource: string | null = null
+let sessionIndexerStarted = false
+let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
+
+if (isDevMode) {
+  installDevShutdownHandlers({
+    signalSource: process,
+    shutdown: async () => {
+      forceQuit = true
+      await core?.shutdown()
+    },
+    quit: () => app.quit(),
+    onError: (signal, error) => log.error(`shutdown after ${signal} failed: ${error}`),
+  })
+}
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 const LOCAL_DEVICE_LABEL = 'This Mac'
@@ -326,7 +352,7 @@ function loadRenderer(win: BrowserWindow, mode: 'pill' | 'editor'): void {
   }
 }
 
-function createPillWindow(): void {
+function createPillWindow(options: { showWhenReady?: boolean; source?: string } = {}): BrowserWindow {
   const bounds = workAreaBoundsForCursor()
 
   mainWindow = new BrowserWindow({
@@ -367,11 +393,10 @@ function createPillWindow(): void {
     screen.on('display-removed', handleDisplayChange)
   }
 
+  if (options.showWhenReady) pendingPillShowSource = options.source ?? 'pill ready'
+
   mainWindow.once('ready-to-show', () => {
-    booted?.server.broadcast('window-hidden')
-    if (!isTestMode) {
-      void warmupTranscription()
-    }
+    if (!mainWindow?.isVisible()) booted?.server.broadcast('window-hidden')
     if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
@@ -387,8 +412,20 @@ function createPillWindow(): void {
   mainWindow.on('blur', () => {
     setPillWindowLevel(false)
   })
+  mainWindow.on('hide', () => booted?.server.broadcast('window-hidden'))
+  attachContextMenu(mainWindow)
+
+  if (SPACES_DEBUG) {
+    mainWindow.on('show', () => snapshotWindowState('event window show'))
+    mainWindow.on('hide', () => snapshotWindowState('event window hide'))
+    mainWindow.on('focus', () => snapshotWindowState('event window focus'))
+    mainWindow.on('blur', () => snapshotWindowState('event window blur'))
+    mainWindow.webContents.on('focus', () => snapshotWindowState('event webContents focus'))
+    mainWindow.webContents.on('blur', () => snapshotWindowState('event webContents blur'))
+  }
 
   loadRenderer(mainWindow, 'pill')
+  return mainWindow
 }
 
 /** Default editor bounds: a centered card on the cursor display, matching the
@@ -439,10 +476,6 @@ function createEditorWindow(): BrowserWindow {
   attachContextMenu(editorWindow)
 
   editorWindow.once('ready-to-show', () => {
-    if (!isTestMode) {
-      editorWindow?.show()
-      focusEditorWindow()
-    }
     if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
       editorWindow?.webContents.openDevTools({ mode: 'detach' })
     }
@@ -453,9 +486,19 @@ function createEditorWindow(): BrowserWindow {
 }
 
 function showPillWindow(source = 'unknown', options: { fromTrayShow?: boolean } = {}): void {
-  if (!mainWindow || isTestMode) return
+  if (isTestMode) return
   if (hiddenUntilTrayShow && !options.fromTrayShow) return
   if (options.fromTrayShow) hiddenUntilTrayShow = false
+  if (!isLive(mainWindow)) {
+    createPillWindow({ showWhenReady: true, source })
+    return
+  }
+  // A first-summon pill exists but is still mounting. Its renderer-ready IPC
+  // will complete the show with the real interactive UI.
+  if (pendingPillShowSource) {
+    pendingPillShowSource = source
+    return
+  }
 
   const toggleId = ++toggleSequence
 
@@ -487,7 +530,7 @@ function hidePillWindow(_source = 'unknown'): void {
 function showEditorWindow(): void {
   if (isTestMode) return
   if (!isLive(editorWindow)) {
-    createEditorWindow() // shows + focuses on ready-to-show
+    createEditorWindow() // shows + focuses when the renderer is ready
     return
   }
   editorWindow.show()
@@ -504,7 +547,10 @@ function hideEditorWindow(): void {
  *  the pill floats above it, which is the assistant-over-workspace flow. */
 function togglePillWindow(source = 'unknown'): void {
   if (hiddenUntilTrayShow) return
-  if (!mainWindow) return
+  if (!isLive(mainWindow)) {
+    showPillWindow(source)
+    return
+  }
 
   const toggleId = ++toggleSequence
   if (SPACES_DEBUG) {
@@ -525,7 +571,7 @@ function togglePillWindow(source = 'unknown'): void {
 function toggleEditorWindow(_source = 'unknown'): void {
   if (hiddenUntilTrayShow || isTestMode) return
   if (!isLive(editorWindow)) {
-    createEditorWindow() // shows + focuses on ready-to-show
+    createEditorWindow() // shows + focuses when the renderer is ready
     return
   }
   const shouldHide =
@@ -567,6 +613,12 @@ function switchMode(target?: 'pill' | 'editor'): void {
     // First switch: don't blank the screen while the editor window boots —
     // hide the pill only once the editor has actually shown.
     createEditorWindow().once('show', hideLeaving)
+    return
+  }
+
+  if (next === 'pill' && !isLive(mainWindow)) {
+    // Keep the editor visible until the lazily-created pill has painted.
+    createPillWindow({ showWhenReady: true, source: 'switch-mode' }).once('show', hideLeaving)
     return
   }
 
@@ -718,13 +770,49 @@ function getLocalSessionToken(): string {
   return localSessionToken
 }
 
-ipcMain.handle(LOCAL_CONNECTION_CHANNEL, () => {
-  if (!booted) throw new Error('Solus server is not ready')
+ipcMain.handle(LOCAL_CONNECTION_CHANNEL, async () => {
+  // The renderer window is created before the server finishes booting, so this
+  // first call may arrive early; await boot rather than throwing. A boot failure
+  // rejects the promise — the renderer renders its boot-error card in that case.
+  const { port } = (await bootPromise).booted
   return {
-    port: booted.port,
+    port,
     token: getLocalSessionToken(),
     installationId: getInstallationId(),
   }
+})
+
+function scheduleSessionIndexer(): void {
+  if (sessionIndexerStarted || sessionIndexerStartTimer) return
+  // The renderer reports after its first real idle window. Keep a small cushion
+  // between renderer hydration and the disk-heavy transcript sweep.
+  sessionIndexerStartTimer = setTimeout(() => {
+    sessionIndexerStartTimer = null
+    sessionIndexerStarted = true
+    startSessionIndexer()
+  }, 750)
+  sessionIndexerStartTimer.unref?.()
+}
+
+ipcMain.on('solus:renderer-mounted', (_event, mode: unknown) => {
+  if (mode !== 'pill' && mode !== 'editor') return
+  scheduleSessionIndexer()
+})
+
+ipcMain.on('solus:renderer-ready', (event, mode: unknown) => {
+  if (mode === 'editor') {
+    if (!isLive(editorWindow) || editorWindow.webContents !== event.sender) return
+    if (!isTestMode) {
+      editorWindow.show()
+      focusEditorWindow()
+    }
+    return
+  }
+  if (mode !== 'pill' || !pendingPillShowSource) return
+  if (!isLive(mainWindow) || mainWindow.webContents !== event.sender) return
+  const source = pendingPillShowSource
+  pendingPillShowSource = null
+  showPillWindow(source)
 })
 
 // OS-level click-through is preload-only — it operates on the Electron window
@@ -878,18 +966,49 @@ if (isPairUrl) {
       designModeCaptureRegion,
     }
 
-    core = await bootCore({
-      windowDeps,
-      fileDeps,
-      requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
-      staticDir: join(__dirname, '../client'),
-    })
-    booted = core.booted
-    startSessionIndexer()
+    // Create the renderer window BEFORE booting the server so the renderer
+    // bundle — the longest single startup item — loads in parallel with server
+    // boot. The renderer's first IPC (getLocalConnection) awaits bootPromise, so
+    // it blocks only until the server is actually ready.
+    if (!isHeadless) {
+      // The editor is the only production renderer loaded at boot. The hidden
+      // pill is created on first summon so it contributes no startup work.
+      // E2E mode retains its historical hidden pill test surface.
+      if (isTestMode) createPillWindow()
+      else if (currentViewMode === 'editor') createEditorWindow()
+      snapshotWindowState('after createWindow')
+    }
+
+    let bootedCore: BootCore
+    try {
+      bootedCore = await bootCore({
+        windowDeps,
+        fileDeps,
+        requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
+        staticDir: join(__dirname, '../client'),
+      })
+    } catch (err) {
+      // Unblock the renderer's getLocalConnection with the failure so it can show
+      // its boot-error card instead of hanging on the pending bootPromise.
+      rejectBoot(err)
+      log.error(`Failed to boot Solus core: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    core = bootedCore
+    booted = bootedCore.booted
+    resolveBoot(bootedCore)
+    // Independent of which window (if any) boots first — the editor is now the
+    // default boot surface and the pill is created lazily on first summon, so
+    // this can no longer live on the pill window's ready-to-show.
+    if (!isTestMode) void warmupTranscription()
+    if (isHeadless) {
+      sessionIndexerStarted = true
+      startSessionIndexer()
+    }
 
     if (!isHeadless) {
       desktopAttentionNotifications = attachDesktopAttentionNotifications({
-        attention: core.controlPlane.attention,
+        attention: bootedCore.controlPlane.attention,
         focusWindow: () => showCurrentModeWindow('notification click', { fromTrayShow: true }),
         getTray: () => tray,
         badgeTarget: process.platform === 'darwin' && app.dock ? 'tray' : 'none',
@@ -908,26 +1027,11 @@ if (isPairUrl) {
         currentViewMode = win === editorWindow ? 'editor' : 'pill'
       })
 
-      createPillWindow()
-      // The pill boots hidden (summon-as-needed overlay). The editor is the
-      // default surface, so create it at boot too — it shows itself on
-      // ready-to-show. Without this, nothing is visible at launch.
-      if (currentViewMode === 'editor' && !isTestMode) createEditorWindow()
-      snapshotWindowState('after createWindow')
       initAutoUpdater(() => { forceQuit = true })
-
-      mainWindow?.on('hide', () => booted?.server.broadcast('window-hidden'))
 
       if (!isTestMode) requestPermissions().catch((err: Error) => log.error(`Permission preflight error: ${err.message}`))
 
       if (SPACES_DEBUG) {
-        mainWindow?.on('show', () => snapshotWindowState('event window show'))
-        mainWindow?.on('hide', () => snapshotWindowState('event window hide'))
-        mainWindow?.on('focus', () => snapshotWindowState('event window focus'))
-        mainWindow?.on('blur', () => snapshotWindowState('event window blur'))
-        mainWindow?.webContents.on('focus', () => snapshotWindowState('event webContents focus'))
-        mainWindow?.webContents.on('blur', () => snapshotWindowState('event webContents blur'))
-
         app.on('browser-window-focus', () => snapshotWindowState('event app browser-window-focus'))
         app.on('browser-window-blur', () => snapshotWindowState('event app browser-window-blur'))
 
@@ -944,8 +1048,6 @@ if (isPairUrl) {
           snapshotWindowState('event display-metrics-changed')
         })
       }
-
-      if (mainWindow) attachContextMenu(mainWindow)
 
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()
@@ -978,6 +1080,10 @@ if (isPairUrl) {
 }
 
 app.on('will-quit', () => {
+  if (sessionIndexerStartTimer) {
+    clearTimeout(sessionIndexerStartTimer)
+    sessionIndexerStartTimer = null
+  }
   stopSessionIndexer()
   closeDb()
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {

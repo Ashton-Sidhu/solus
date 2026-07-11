@@ -7,15 +7,6 @@ import tailwindcss from '@tailwindcss/vite'
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
 
-function manualChunks(id: string): string | undefined {
-  if (!id.includes('node_modules')) return undefined
-  if (id.includes('@pierre/diffs') || id.includes('@shikijs') || id.includes('shiki')) return 'vendor-diffs'
-  if (id.includes('@tiptap') || id.includes('prosemirror') || id.includes('lowlight')) return 'vendor-editor'
-  if (id.includes('@xyflow') || id.includes('@dagrejs') || id.includes('@iconify')) return 'vendor-diagram'
-  if (id.includes('svelte')) return 'vendor-svelte'
-  return undefined
-}
-
 // Web client mounts the existing Electron renderer (src/renderer/) directly.
 // The ws-transport stub fills in for `window.solus` before App.svelte mounts.
 //
@@ -54,14 +45,9 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, '../dist/client'),
     emptyOutDir: true,
-    // Matches the Electron renderer: large vendor chunks are isolated by
-    // manualChunks, while the app entry remains small enough to cache/update
-    // independently.
+    // Feature-level dynamic imports own chunk boundaries. Let Rollup follow
+    // those boundaries instead of forcing shared dependencies into manual
+    // vendor chunks, which creates circular static edges back to the entry.
     chunkSizeWarningLimit: 13000,
-    rollupOptions: {
-      output: {
-        manualChunks,
-      },
-    },
   },
 })

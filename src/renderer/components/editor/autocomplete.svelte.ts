@@ -319,8 +319,13 @@ export class AutocompleteController {
       this.planIndex = 0;
       const planStore = this.deps.planStore;
       const workingDirectory = this.deps.workingDirectory();
+      const descriptorKey = workingDirectory
+        ? planStore.descriptorCacheKey(workingDirectory, false)
+        : null;
       if (
-        planStore.cachedDescriptors.length === 0 &&
+        descriptorKey !== null &&
+        (planStore.cachedDescriptorKey !== descriptorKey ||
+          planStore.cachedDescriptors.length === 0) &&
         !planStore.descriptorCacheLoading &&
         workingDirectory
       ) {
@@ -553,13 +558,13 @@ export class AutocompleteController {
     return false;
   }
 
-  /** Re-evaluate every trigger from the text before the cursor. */
-  handleEditorChange(textBeforeCursor: string) {
+  /** Re-evaluate caret-local triggers and reconcile refs only when their nodes changed. */
+  handleEditorChange(textBeforeCursor: string, trackedRefsChanged = false) {
     this.updateSlashFilter(textBeforeCursor);
     this.#updateFileFilter(textBeforeCursor);
     this.#updatePlanFilter(textBeforeCursor);
     this.#updateWorkFilter(textBeforeCursor);
-    this.syncRefs();
+    if (trackedRefsChanged) this.syncRefs();
     if (
       this.slashFilter !== null ||
       this.fileFilter !== null ||

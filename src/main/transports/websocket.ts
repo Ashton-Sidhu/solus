@@ -26,6 +26,7 @@ interface WsResume {
 
 interface ClientSession {
   id: string
+  clientId: string
   socket: WebSocket
   deviceId: string | null
   deviceLabel: string
@@ -89,10 +90,14 @@ export function attachWebSocketTransport(
       }
     }
 
+    const instanceId = parseClientInstanceId(req) ?? randomBytes(16).toString('hex')
+    const clientId = `ws:${deviceId ?? 'local'}:${instanceId}`
+
     wss.handleUpgrade(req, socket, head, (ws) => {
       const id = randomBytes(8).toString('hex')
       const session: ClientSession = {
         id,
+        clientId,
         socket: ws,
         deviceId,
         deviceLabel,
@@ -100,8 +105,7 @@ export function attachWebSocketTransport(
         topicUnsubs: [],
       }
       sessions.set(id, session)
-      server.broadcast('presence', { type: 'connect', id, deviceLabel, deviceId })
-      const clientId = `ws:${id}`
+      server.broadcast('presence', { type: 'connect', id, clientId, deviceLabel, deviceId })
       let replayInProgress = false
       let liveEventsPaused = true
       const liveBuffer: string[] = []
@@ -123,13 +127,15 @@ export function attachWebSocketTransport(
       }
       resumeTimer = setTimeout(() => {
         flushLiveBuffer()
-        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
+        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark(clientId)] })
       }, RESUME_WAIT_MS)
 
-      // Subscribe to every topic; payloads are pushed as soon as they fire.
+      // Subscribe to every global topic; tab-scoped payloads arrive through the
+      // direct client registration below.
       // Serialize the frame once per broadcast (eventFrame) and reuse it across
       // every connected socket instead of re-stringifying per client.
       for (const topic of RPC_TOPICS) {
+        if (topic === 'normalized-event' || topic === 'enriched-error') continue
         const unsub = server.subscribe(topic, (payload, seq) => {
           deliverEventFrame(eventFrame(topic, seq, payload as unknown[]))
         })
@@ -168,11 +174,11 @@ export function attachWebSocketTransport(
           handleResume(server, ws, clientId, (msg as WsResume).lastSeqByTopic ?? {})
           replayInProgress = false
           flushLiveBuffer()
-          send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
+          send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark(clientId)] })
           return
         }
         flushLiveBuffer()
-        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark()] })
+        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark(clientId)] })
 
         const req = msg as WsRequest
         if (!req?.id || !req?.method) return
@@ -195,7 +201,10 @@ export function attachWebSocketTransport(
         clearTimeout(resumeTimer)
         for (const u of session.topicUnsubs) u()
         sessions.delete(id)
-        server.broadcast('presence', { type: 'disconnect', id })
+        const hasReplacement = [...sessions.values()].some((candidate) => candidate.clientId === clientId)
+        if (!hasReplacement) {
+          server.broadcast('presence', { type: 'disconnect', id, clientId, deviceId })
+        }
         log.info(`ws session ${id} closed`)
       })
 
@@ -260,20 +269,25 @@ function parseAuth(req: IncomingMessage): string | null {
   return null
 }
 
+function parseClientInstanceId(req: IncomingMessage): string | null {
+  if (!req.url) return null
+  const value = new URL(req.url, 'http://localhost').searchParams.get('client')
+  return value && /^[a-zA-Z0-9_-]{16,128}$/.test(value) ? value : null
+}
+
 function handleResume(
   server: SolusServer,
   ws: WebSocket,
   clientId: string,
   lastSeqByTopic: Partial<Record<RpcTopic, number>>,
 ): void {
-  for (const [topic, lastSeq] of Object.entries(lastSeqByTopic)) {
-    if (typeof lastSeq !== 'number') continue
-    const events = server.replayFrom(topic as RpcTopic, lastSeq)
-    if (events === null) {
-      // Gap detected — signal client to re-bootstrap instead of sending a stale snapshot.
-      server.sendTo(clientId, 'seq-reset', server.getSeqWatermark())
-      return
-    }
+  const replay = server.replayForResume(clientId, lastSeqByTopic)
+  if (replay === null) {
+    // Gap detected — signal client to re-bootstrap instead of sending a stale snapshot.
+    server.sendTo(clientId, 'seq-reset', server.getSeqWatermark(clientId))
+    return
+  }
+  for (const { topic, events } of replay) {
     for (const ev of events) {
       send(ws, { type: 'event', topic, seq: ev.seq, payload: ev.payload })
     }

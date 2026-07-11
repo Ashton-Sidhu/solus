@@ -13,10 +13,13 @@
 
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
-  const rateLimitInfo = $derived(sess?.rateLimitInfo)
   const rateLimitStrategy = $derived(sess?.rateLimitStrategy)
   const queuedPrompts = $derived((sess?.serverQueuedPrompts ?? []).filter((prompt) => prompt.reason === 'rate_limit'))
   const totalQueuedCount = $derived(queuedPrompts.length)
+  const queuedRateLimit = $derived(queuedPrompts[0])
+  const rateLimitInfo = $derived(sess?.rateLimitInfo)
+  const resetsAt = $derived(rateLimitInfo?.resetsAt ?? queuedRateLimit?.releaseAt)
+  const rateLimitType = $derived(rateLimitInfo?.rateLimitType ?? queuedRateLimit?.rateLimitType)
 
   let userChoseQueue = $state(false)
 
@@ -27,15 +30,15 @@
   const showAskUI = $derived(rateLimitStrategy === 'ask' && !userChoseQueue)
   const showQueueUI = $derived(rateLimitStrategy === 'queue' || userChoseQueue)
   const isVisible = $derived(
-    (showAskUI && sess?.status === 'rate_limited') || (showQueueUI && (sess?.status === 'rate_limited' || totalQueuedCount > 0))
+    totalQueuedCount > 0 || (rateLimitInfo != null && sess?.status === 'rate_limited')
   )
   let now = $state(Date.now())
-  const secondsLeft = $derived(rateLimitInfo ? Math.max(0, Math.ceil(rateLimitInfo.resetsAt - now / 1000)) : 0)
+  const secondsLeft = $derived(resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0)
   const countdownText = $derived(formatCountdown(secondsLeft))
   const statusText = $derived(secondsLeft <= 0 ? 'Sending momentarily' : `Sending in ${countdownText}`)
 
   $effect(() => {
-    if (!isVisible || !rateLimitInfo || secondsLeft <= 0) return
+    if (!isVisible || !resetsAt || secondsLeft <= 0) return
     const timer = setInterval(() => {
       now = Date.now()
     }, 1000)
@@ -82,7 +85,7 @@
       >
         <ClockIcon size={12} class="text-(--solus-accent)" />
         <span class="text-xs sm:text-[0.6875rem] font-semibold text-(--solus-accent)">
-          Rate limited{rateLimitInfo?.rateLimitType ? ` · ${rateLimitInfo.rateLimitType}` : ''}
+          Rate limited{rateLimitType ? ` · ${rateLimitType}` : ''}
         </span>
         <span class="ml-auto text-xs sm:text-[0.6875rem] text-(--solus-text-tertiary)">
           {showQueueUI ? statusText : `Resets in ${countdownText}`}

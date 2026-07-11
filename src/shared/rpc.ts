@@ -50,8 +50,6 @@ export const RPC_INVOKE_METHODS = [
   'transcribeAudio',
   'voiceModelStatus',
   'voiceModelRetry',
-  'voiceStreamStart',
-  'voiceStreamEnd',
   'logVoiceTranscription',
   'searchFiles',
   'listDirectory',
@@ -89,6 +87,7 @@ export const RPC_INVOKE_METHODS = [
   // Worktree / diff / git
   'worktreeListProject',
   'diff',
+  'diffStats',
   'listTurnSnapshots',
   'worktreePR',
   'gitCommitPush',
@@ -227,8 +226,6 @@ export const RPC_INVOKE_METHODS = [
 export const RPC_SEND_METHODS = [
   'resetTabSession',
   'designModeReady',
-  'voiceStreamAudio',
-  'voiceStreamCancel',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
@@ -247,12 +244,12 @@ export const RPC_TOPICS = [
   'seq-watermark',
   'seq-reset',
   'session-scan',
+  'session-index-updated',
   'run-status',
   'run-log',
   'setup-status',
   'setup-log',
   'voice-model-status',
-  'voice-partial',
   'automations-changed',
   'provider-device-code',
   'review-progress',

@@ -47,8 +47,8 @@ export function getHeadCommit(cwd: string): string | null {
 // network: a repo not created by `git clone` has no local `origin/HEAD`, so we fall
 // back to `git ls-remote`. Cache per cwd — storing the in-flight promise dedupes
 // concurrent callers and the resolved value is reused for the process lifetime — so
-// the network probe happens at most once. Hot callers (computeGitProjectStatus on
-// every prompt dispatch / watcher fire / status refresh) then pay nothing.
+// the network probe happens at most once. Status summaries still need the target
+// branch on every prompt dispatch / watcher fire, so hot callers then pay nothing.
 const defaultBranchCache = new Map<string, string | Promise<string>>()
 
 async function resolveDefaultBranch(cwd: string): Promise<string> {
@@ -362,10 +362,9 @@ export async function syncWithOrigin(
 const EXISTING_PR_TTL_MS = 60_000
 const existingPrCache = new Map<string, { at: number; url: Promise<string | null> }>()
 
-/** `gh pr view` is a network call fired from computeGitProjectStatus for any
- *  non-default branch — i.e. per watcher fire / edit. TTL-cache the result per
- *  (cwd, branch) for both hits and misses, and share the in-flight promise so
- *  concurrent status refreshes collapse to a single spawn. */
+/** `gh pr view` is a network call used by detailed status consumers. TTL-cache
+ *  the result per (cwd, branch) for both hits and misses, and share the in-flight
+ *  promise so multiple visible clients collapse to a single spawn. */
 export function getExistingPR(branch: string, cwd: string): Promise<string | null> {
   const key = `${cwd}\0${branch}`
   const cached = existingPrCache.get(key)

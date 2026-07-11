@@ -139,8 +139,15 @@
       (voiceState === "transcribing" && voiceModeEnabled) ||
       (voiceState === "idle" && voiceModeEnabled && voice.starting),
   );
-  const stableVoiceState = $derived<"idle" | "recording" | "transcribing">(
-    showWaveform ? "recording" : voiceState,
+  const voiceControlState = $derived<"idle" | "recording" | "transcribing">(
+    voice.starting && showWaveform ? "recording" : voiceState,
+  );
+  const voiceStatusLabel = $derived(
+    voice.starting
+      ? "Starting microphone…"
+      : voiceState === "transcribing"
+        ? "Finishing…"
+        : "Listening…",
   );
 
   // Register the conversational transcript→send handler and auto-rearm callback
@@ -160,8 +167,14 @@
 
   // ─── Derived state ───
 
+  // Editor emptiness, updated synchronously by MarkdownEditor on every
+  // keystroke — unlike `inputText`, which only reflects the 200ms-debounced
+  // markdown emit. Seeding from `inputText` at mount/tab-switch is safe
+  // because PromptEditor immediately reports the true state once its `value`
+  // prop lands.
+  let editorHasText = $state(untrack(() => inputText.trim().length > 0));
   const hasContent = $derived(
-    inputText.trim().length > 0 ||
+    editorHasText ||
       attachments.length > 0 ||
       planRefs.length > 0 ||
       workRefs.length > 0,
@@ -362,7 +375,7 @@
   $effect(() => {
     // Only the active bar cancels; the inactive instance must not touch the
     // shared recorder — it would immediately kill the active bar's recording.
-    if (isActiveMode && isReadOnly && voiceState === "recording")
+    if (isActiveMode && isReadOnly && (voiceState === "recording" || voice.starting))
       voice.cancel();
     if (isReadOnly) composerEl?.clearCompletions();
   });
@@ -379,7 +392,7 @@
 
   $effect(() => {
     const unsub = window.solus.onWindowHidden(() => {
-      if (isActiveMode && voiceState === "recording") voice.cancel();
+      if (isActiveMode && (voiceState === "recording" || voice.starting)) voice.cancel();
     });
     return unsub;
   });
@@ -405,7 +418,7 @@
     const modelReady = voiceModel.ready;
     const retryReady = voice.errorKind === "transient" && voiceRetry.canRetry(retryClock);
 
-    if (prevVoiceMode && !enabled && vstate === "recording") voice.cancel();
+    if (prevVoiceMode && !enabled && (vstate === "recording" || voice.starting)) voice.cancel();
     if (!prevVoiceMode && enabled) {
       voiceRetry.reset();
       voice.clearError();
@@ -742,18 +755,17 @@
 
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}
-    <div style="padding:0.75rem 0" style:display={showWaveform ? null : "none"}>
-      {#if voice.partialText}
-        <div class="overflow-hidden text-ellipsis whitespace-nowrap text-left text-[0.8125rem] text-(--solus-accent) [direction:rtl]">
-          {voice.partialText}
-        </div>
-      {:else}
+    <div class="flex items-center gap-2" style="padding:0.75rem 0" style:display={showWaveform ? null : "none"}>
+      <span class="shrink-0 text-[0.6875rem] font-medium text-(--solus-text-tertiary)" aria-live="polite">
+        {voiceStatusLabel}
+      </span>
+      <div class="min-w-0 flex-1">
         <WaveformVisualizer
           rmsRef={voice.rmsRef}
           color="var(--solus-accent)"
           active={showWaveform}
         />
-      {/if}
+      </div>
     </div>
   {/if}
   <div style:display={showWaveform ? "none" : null}>
@@ -761,6 +773,7 @@
       bind:this={composerEl}
       value={editorValue}
       onValueChange={handleEditorChange}
+      onEmptyChange={(empty) => (editorHasText = !empty)}
       {pluginCommands}
       provider={activeProvider}
       workingDirectory={composerCwd}
@@ -809,12 +822,11 @@
 {#snippet voiceButtons()}
   <RecordingControls
     variant="bar"
-    state={stableVoiceState}
+    state={voiceControlState}
     rmsRef={voice.rmsRef}
     waiting={isVoiceWaiting}
     disabled={isConnecting || isReadOnly || !voiceModel.ready}
     progressPct={!voiceModel.ready ? voiceModel.progressPct : null}
-    partialText={voice.partialText}
     idleTooltip={idleVoiceTooltip}
     onCancel={() => voice.cancel()}
     onConfirm={() => voice.stop()}

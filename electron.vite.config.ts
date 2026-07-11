@@ -19,8 +19,12 @@ const testMainAliases = isTestBuild
   : []
 
 function rendererManualChunks(id: string): string | undefined {
+  // Keep Vite's dynamic-import preload helper out of whichever large manual
+  // vendor chunk Rollup happens to visit first. The renderer entry needs this
+  // tiny helper, and absorbing it into vendor-diffs makes the 10 MB diff stack
+  // a blocking bootstrap dependency even when every diff import is dynamic.
+  if (id.includes('vite/preload-helper')) return 'runtime'
   if (!id.includes('node_modules')) return undefined
-  if (id.includes('@pierre/diffs') || id.includes('@shikijs') || id.includes('shiki')) return 'vendor-diffs'
   if (id.includes('@tiptap') || id.includes('prosemirror') || id.includes('lowlight')) return 'vendor-editor'
   if (id.includes('@xyflow') || id.includes('@dagrejs') || id.includes('@iconify')) return 'vendor-diagram'
   if (id.includes('svelte')) return 'vendor-svelte'

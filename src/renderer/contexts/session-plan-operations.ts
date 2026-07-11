@@ -117,7 +117,7 @@ export async function approvePlanWithModel(
   session.permissionMode = mode
 
   if (wasPreview && useWorktree && !session.gitContext) {
-    await ctx.fetchGitContext(tabId, plan.cwd)
+    await ctx.env.refreshGitEnvironment({ tabId, cwd: plan.cwd })
   }
 
   if (useWorktree !== undefined) {

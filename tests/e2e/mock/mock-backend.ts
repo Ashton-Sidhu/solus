@@ -8,11 +8,11 @@ import type { AgentBackend, PermissionResponder, RunHandle } from '../../../src/
 import type {
   AgentId,
   AgentMetadata,
-  IpcContext,
   NormalizedEvent,
   PlanDescriptor,
   PluginCommandsResult,
   PromptOptions,
+  SessionRunInput,
   SessionMeta,
   UsageData,
 } from '../../../src/shared/types'
@@ -78,14 +78,14 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
-  startRun(ctx: IpcContext, options: PromptOptions): RunHandle {
+  startRun(input: SessionRunInput, options: PromptOptions): RunHandle {
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     const handle: RunHandle = {
       sessionId: null,
-      tabId: ctx.session.tabId,
+      tabId: input.tabId,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,

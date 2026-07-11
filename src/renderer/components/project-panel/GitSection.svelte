@@ -35,9 +35,10 @@
   interface Props {
     cwd: string;
     tabId: string;
+    active?: boolean;
     onOpenFiles?: () => void;
   }
-  let { cwd, tabId, onOpenFiles }: Props = $props();
+  let { cwd, tabId, active = true, onOpenFiles }: Props = $props();
 
   const gitStatus = getGitStatusStore();
   const session = getWorkspaceContext();
@@ -92,7 +93,8 @@
   );
 
   $effect(() => {
-    if (cwd) void gitStatus.refresh(cwd);
+    if (!active || !cwd) return;
+    return gitStatus.watchDetails(cwd);
   });
 
   // --- Shared action model: every row renders from one definition,

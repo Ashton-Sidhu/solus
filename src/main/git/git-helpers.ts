@@ -1,6 +1,6 @@
 import { existsSync } from 'fs'
 import path from 'path'
-import type { GitProjectStatus, GitProjectStatusFile } from '../../shared/types'
+import type { GitProjectStatus, GitProjectStatusFile, GitProjectStatusOptions } from '../../shared/types'
 import type { RepoRef } from '../providers/types'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
@@ -44,40 +44,75 @@ export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'fil
   return { branch, files }
 }
 
+const statusInflight = new Map<string, Promise<GitProjectStatus | null>>()
+
 /**
- * Compute the full live git status for a working tree — branch, uncommitted
- * files, ±lines, in-progress merge, and any existing PR. The single source of
- * truth shared by the `gitProjectStatus` RPC and the git watcher's broadcast,
- * so both report identical state. Returns null when `cwd` isn't in a repo.
+ * Compute live branch, file, and conflict state for a working tree. The default
+ * path deliberately avoids line statistics and PR discovery because it runs on
+ * every watcher fire and completed edit. Visible Git UI opts into those details.
+ * Concurrent callers for the same cwd/detail level share one process pipeline.
  */
-export async function computeGitProjectStatus(cwd: string): Promise<GitProjectStatus | null> {
-  if (!cwd || cwd === '~') return null
+export function computeGitProjectStatus(
+  cwd: string,
+  options: GitProjectStatusOptions = {},
+): Promise<GitProjectStatus | null> {
+  if (!cwd || cwd === '~') return Promise.resolve(null)
+
+  const key = `${cwd}\0${options.includeDetails ? 'details' : 'summary'}`
+  const existing = statusInflight.get(key)
+  if (existing) return existing
+
+  const pending = computeGitProjectStatusUncached(cwd, options)
+    .finally(() => {
+      if (statusInflight.get(key) === pending) statusInflight.delete(key)
+    })
+  statusInflight.set(key, pending)
+  return pending
+}
+
+async function computeGitProjectStatusUncached(
+  cwd: string,
+  options: GitProjectStatusOptions,
+): Promise<GitProjectStatus | null> {
+  if (options.includeDetails) {
+    // Reuse an in-flight summary from the watcher/renderer instead of starting
+    // a second status pipeline when the visible panel asks for details.
+    const status = await computeGitProjectStatus(cwd)
+    if (!status) return null
+    const [workingTreeStats, prUrl] = await Promise.all([
+      getWorkingTreeStats(cwd, status.repoRoot).catch(() => ({ additions: 0, deletions: 0 })),
+      status.branch && status.branch !== status.targetBranch
+        ? getExistingPR(status.branch, cwd)
+        : Promise.resolve(null),
+    ])
+    return {
+      ...status,
+      insertions: workingTreeStats.additions,
+      deletions: workingTreeStats.deletions,
+      prUrl: prUrl ?? undefined,
+    }
+  }
 
   const repoRoot = await resolveRepoRoot(cwd)
   if (!repoRoot) return null
 
   try {
-    const [statusRaw, inProgressPaths, workingTreeStats] = await Promise.all([
+    const [statusRaw, inProgressPaths, targetBranch] = await Promise.all([
       runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd),
       runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
-      getWorkingTreeStats(cwd, repoRoot).catch(() => ({ additions: 0, deletions: 0 })),
+      getDefaultBranch(cwd),
     ])
     const mergeInProgress = inProgressPaths
       .split('\n')
       .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
     const status = parseStatus(statusRaw)
-    const targetBranch = await getDefaultBranch(cwd)
-    const prUrl = status.branch && status.branch !== targetBranch
-      ? await getExistingPR(status.branch, cwd)
-      : null
     return {
       repoRoot,
       ...status,
       targetBranch,
-      insertions: workingTreeStats.additions,
-      deletions: workingTreeStats.deletions,
+      insertions: 0,
+      deletions: 0,
       mergeInProgress,
-      prUrl: prUrl ?? undefined,
     }
   } catch (err: any) {
     log.warn(`computeGitProjectStatus failed for ${cwd}: ${err?.message ?? err}`)

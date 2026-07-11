@@ -1,10 +1,10 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
-import { tabGitContextFromStatus, type IpcContext, type DiffRequest, type GitCheckoutBranchResult } from '../../../shared/types'
+import { tabGitContextFromStatus, type IpcContext, type DiffRequest, type GitCheckoutBranchResult, type GitProjectStatusOptions } from '../../../shared/types'
 import { createPR, commitAndPushChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitProjectStatus, resolveRepoRoot } from '../../git/git-helpers'
-import { getDiff, listTurnSnapshots } from '../../git/session-snapshots'
+import { getDiff, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
@@ -59,6 +59,16 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const sid = ctx.session.agentSessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
     return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
+  })
+
+  server.register('diffStats', async (args) => {
+    const [ctx, request] = args as [IpcContext, DiffRequest]
+    const repoRoot = await repoRootForCtx(ctx)
+    if (!repoRoot) return []
+    const workTree = await workTreeForCtx(ctx)
+    const sid = ctx.session.agentSessionId ?? null
+    const livePaths = request.livePaths?.filter(Boolean) ?? []
+    return getDiffStats(workTree, repoRoot, request.scope, sid, livePaths)
   })
 
   server.register('listTurnSnapshots', async (args) => {
@@ -200,8 +210,8 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('gitProjectStatus', async (args) => {
-    const [cwd] = args as [string]
-    return computeGitProjectStatus(cwd)
+    const [cwd, options] = args as [string, GitProjectStatusOptions | undefined]
+    return computeGitProjectStatus(cwd, options)
   })
 
   server.register('writePlanFile', async (args) => {
