@@ -2,8 +2,12 @@ import { watch, type FSWatcher } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
-import type { SessionMeta, SessionSearchResult } from '../../shared/types'
-import { SOLUS_WORKTREE_ENCODED_MARKER } from '../../shared/types'
+import type { AgentId, SessionMeta, SessionSearchResult } from '../../shared/types'
+import {
+  encodePathAsFolder,
+  isSolusWorktreePath,
+  SOLUS_WORKTREE_ENCODED_MARKER,
+} from '../../shared/types'
 import { readSessionHeadMeta } from '../agents/claude/claude-session-helpers'
 import { createLogger } from '../logger'
 import { getDb, withTx } from './index'
@@ -12,9 +16,11 @@ const log = createLogger('main', 'session-indexer')
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects')
 const WATCH_DEBOUNCE_MS = 2_000
 const LINES_PER_TRANSACTION = 300
+const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
 
 interface SessionRow {
   session_id: string
+  provider: string
   cwd: string | null
   project_path: string | null
   is_worktree: number | null
@@ -401,7 +407,7 @@ export function sessionIndexReady(): boolean {
 
 function rowToSession(row: SessionRow): SessionMeta {
   return {
-    provider: 'claude-code',
+    provider: row.provider === 'claude' ? 'claude-code' : (row.provider as AgentId),
     sessionId: row.session_id,
     slug: row.slug,
     firstMessage: row.first_message,
@@ -417,12 +423,94 @@ export function listIndexedSessions(projectPaths: string[]): SessionMeta[] {
   if (projectPaths.length === 0) return []
   const placeholders = projectPaths.map(() => '?').join(', ')
   const rows = getDb().prepare(`
-    SELECT session_id, cwd, project_path, is_worktree, slug, first_message, last_timestamp, size
+    SELECT session_id, provider, cwd, project_path, is_worktree, slug, first_message, last_timestamp, size
     FROM sessions
     WHERE provider = 'claude' AND project_path IN (${placeholders})
     ORDER BY last_timestamp DESC
   `).all(...projectPaths) as unknown as SessionRow[]
   return rows.map(rowToSession)
+}
+
+export function listIndexedCodexSessions(projectPath: string): SessionMeta[] {
+  const normalizedPath = projectPath.replace(/\/$/, '')
+  const encodedPath = encodePathAsFolder(normalizedPath)
+  const includeWorktrees = !isSolusWorktreePath(normalizedPath)
+  const rows = getDb().prepare(`
+    SELECT session_id, provider, cwd, project_path, is_worktree, slug, first_message, last_timestamp, size
+    FROM sessions
+    WHERE provider = 'codex'
+      AND (project_path = ?${includeWorktrees ? ' OR project_path LIKE ?' : ''})
+    ORDER BY last_timestamp DESC
+  `).all(
+    encodedPath,
+    ...(includeWorktrees ? [`${encodedPath}${SOLUS_WORKTREE_ENCODED_MARKER}%`] : []),
+  ) as unknown as SessionRow[]
+  return rows.map(rowToSession)
+}
+
+export function cacheIndexedSessions(sessions: SessionMeta[]): void {
+  if (sessions.length === 0) return
+  withTx(() => {
+    const upsert = getDb().prepare(`
+      INSERT INTO sessions(
+        session_id, provider, cwd, project_path, project_key, is_worktree,
+        slug, first_message, last_timestamp, message_count, size
+      )
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 0, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        provider = excluded.provider,
+        cwd = excluded.cwd,
+        project_path = excluded.project_path,
+        is_worktree = excluded.is_worktree,
+        slug = excluded.slug,
+        first_message = excluded.first_message,
+        last_timestamp = excluded.last_timestamp,
+        size = excluded.size
+    `)
+    for (const session of sessions) {
+      upsert.run(
+        session.sessionId,
+        session.provider === 'claude-code' ? 'claude' : session.provider,
+        session.cwd,
+        session.projectPath,
+        session.isWorktree ? 1 : 0,
+        session.slug,
+        session.firstMessage,
+        new Date(session.lastTimestamp).getTime(),
+        session.size,
+      )
+    }
+  })
+}
+
+export function getCodexSessionIndexWatermark(): number | null {
+  const row = getDb().prepare('SELECT value FROM kv WHERE key = ?')
+    .get(CODEX_SESSION_WATERMARK_KEY) as { value: string } | undefined
+  if (!row) return null
+  const value = Number(row.value)
+  return Number.isFinite(value) ? value : null
+}
+
+export function setCodexSessionIndexWatermark(timestamp: number): void {
+  getDb().prepare(`
+    INSERT INTO kv(key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(CODEX_SESSION_WATERMARK_KEY, String(timestamp))
+}
+
+export function getIndexedCodexSessionTimestamps(sessionIds: string[]): Map<string, number> {
+  const timestamps = new Map<string, number>()
+  for (let offset = 0; offset < sessionIds.length; offset += 500) {
+    const batch = sessionIds.slice(offset, offset + 500)
+    const placeholders = batch.map(() => '?').join(', ')
+    const rows = getDb().prepare(`
+      SELECT session_id, last_timestamp
+      FROM sessions
+      WHERE provider = 'codex' AND session_id IN (${placeholders})
+    `).all(...batch) as unknown as Array<{ session_id: string; last_timestamp: number | null }>
+    for (const row of rows) timestamps.set(row.session_id, row.last_timestamp ?? 0)
+  }
+  return timestamps
 }
 
 function sanitizeFtsQuery(query: string): string {
@@ -452,6 +540,7 @@ export function searchIndexedSessions(
     WITH hits AS MATERIALIZED (
       SELECT
         s.session_id,
+        s.provider,
         s.cwd,
         s.project_path,
         s.is_worktree,

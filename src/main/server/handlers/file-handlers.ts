@@ -7,7 +7,7 @@ import { homedir, tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
 import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
-import { cancelVoiceStream, endVoiceStream, pushVoiceStreamAudio, startVoiceStream, transcribeAudio } from '../../transcription'
+import { transcribeAudio } from '../../transcription'
 import { readWav } from '../../transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
 import { launchInTerminal } from '../../terminal-launcher'
@@ -426,29 +426,6 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       await retryParakeetModel()
     } catch {}
     return getVoiceModelStatus()
-  })
-
-  server.register('voiceStreamStart', () => startVoiceStream())
-
-  server.register('voiceStreamEnd', (args) => {
-    const [streamId] = args as [string]
-    return endVoiceStream(streamId)
-  })
-
-  server.register('voiceStreamAudio', (args) => {
-    const [streamId, samples] = args as [string, unknown]
-    if (samples instanceof Float32Array) {
-      pushVoiceStreamAudio(streamId, samples)
-      return
-    }
-    if (Array.isArray(samples) && samples.every((sample) => typeof sample === 'number')) {
-      pushVoiceStreamAudio(streamId, Float32Array.from(samples))
-    }
-  })
-
-  server.register('voiceStreamCancel', (args) => {
-    const [streamId] = args as [string]
-    cancelVoiceStream(streamId)
   })
 
   server.register('logVoiceTranscription', async (args) => {

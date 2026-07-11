@@ -1,7 +1,9 @@
-import { resampleLinear } from './audio-utils'
+import { StreamingLinearResampler } from './audio-utils'
 
 const SAMPLE_RATE = 16_000
-const CHUNK_SAMPLES = SAMPLE_RATE / 2
+// 250ms keeps live text and end-of-speech feedback responsive without flooding
+// the offline model with the ~3ms blocks produced by AudioWorklet.
+const CHUNK_SAMPLES = SAMPLE_RATE / 4
 
 export type PcmChunk = {
   samples: Float32Array
@@ -29,15 +31,16 @@ export class PcmCapture {
   private source: MediaStreamAudioSourceNode | null = null
   private node: AudioWorkletNode | null = null
   private gain: GainNode | null = null
-  private pending = new Float32Array()
-  private lastInputRate = SAMPLE_RATE
+  private pending = new Float32Array(CHUNK_SAMPLES)
+  private pendingLength = 0
+  private resampler: StreamingLinearResampler | null = null
 
   constructor(private stream: MediaStream, private onChunk: (chunk: PcmChunk) => void) {}
 
   async start(): Promise<void> {
     const audioCtx = new AudioContext()
     this.audioCtx = audioCtx
-    this.lastInputRate = audioCtx.sampleRate
+    this.resampler = new StreamingLinearResampler(audioCtx.sampleRate, SAMPLE_RATE)
     const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }))
     try {
       await audioCtx.audioWorklet.addModule(url)
@@ -58,14 +61,17 @@ export class PcmCapture {
   }
 
   flush(): void {
-    if (this.pending.length === 0) return
-    this.emit(this.pending)
-    this.pending = new Float32Array()
+    const tail = this.resampler?.flush()
+    if (tail?.length) this.acceptResampled(tail)
+    if (this.pendingLength === 0) return
+    this.emit(this.pending.slice(0, this.pendingLength))
+    this.pendingLength = 0
   }
 
   stop(): void {
     this.flush()
     this.node?.disconnect()
+    if (this.node) this.node.port.onmessage = null
     this.gain?.disconnect()
     this.source?.disconnect()
     this.node = null
@@ -74,29 +80,32 @@ export class PcmCapture {
     this.stream.getTracks().forEach((track) => track.stop())
     if (this.audioCtx) void this.audioCtx.close()
     this.audioCtx = null
+    this.resampler = null
   }
 
   private accept(input: Float32Array): void {
-    const resampled = resampleLinear(input, this.lastInputRate, SAMPLE_RATE)
-    this.pending = appendSamples(this.pending, resampled)
-    while (this.pending.length >= CHUNK_SAMPLES) {
-      const chunk = this.pending.slice(0, CHUNK_SAMPLES)
-      this.emit(chunk)
-      this.pending = this.pending.slice(CHUNK_SAMPLES)
+    const resampled = this.resampler?.push(input) ?? input
+    this.acceptResampled(resampled)
+  }
+
+  private acceptResampled(samples: Float32Array): void {
+    let offset = 0
+    while (offset < samples.length) {
+      const copyLength = Math.min(CHUNK_SAMPLES - this.pendingLength, samples.length - offset)
+      this.pending.set(samples.subarray(offset, offset + copyLength), this.pendingLength)
+      this.pendingLength += copyLength
+      offset += copyLength
+      if (this.pendingLength === CHUNK_SAMPLES) {
+        this.emit(this.pending)
+        this.pending = new Float32Array(CHUNK_SAMPLES)
+        this.pendingLength = 0
+      }
     }
   }
 
   private emit(samples: Float32Array): void {
     this.onChunk({ samples, rms: rmsLevel(samples) })
   }
-}
-
-function appendSamples(a: Float32Array, b: Float32Array): Float32Array {
-  if (a.length === 0) return b
-  const out = new Float32Array(a.length + b.length)
-  out.set(a)
-  out.set(b, a.length)
-  return out
 }
 
 function rmsLevel(samples: Float32Array): number {

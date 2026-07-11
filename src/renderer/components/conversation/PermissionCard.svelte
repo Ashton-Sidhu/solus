@@ -4,7 +4,6 @@
   import type { Component } from 'svelte'
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
   import type { PermissionRequest } from '../../../shared/types'
-  import Diff from '../diff/Diff.svelte'
   import { fileChangePreviews } from './lib/fileChangePreview'
 
   interface Props {
@@ -63,6 +62,15 @@
   }
 </script>
 
+{#snippet loadingDiff()}
+  <div
+    class="grid min-h-16 place-items-center text-xs sm:text-[0.625rem] text-(--solus-text-tertiary)"
+    role="status"
+  >
+    Loading preview…
+  </div>
+{/snippet}
+
 <div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2" data-testid="permission-card">
   <div
     class="overflow-hidden bg-(--solus-container-bg) border border-(--solus-permission-border)"
@@ -96,7 +104,12 @@
                 <span class="shrink-0 text-(--solus-text-tertiary)">{change.kind}</span>
               </div>
               <div class="max-h-[11.25rem] overflow-auto bg-(--solus-container-bg)">
-                <Diff patch={change.diff} />
+                {#await import('../diff/Diff.svelte')}
+                  {@render loadingDiff()}
+                {:then diffModule}
+                  {@const Diff = diffModule.default}
+                  <Diff patch={change.diff} />
+                {/await}
               </div>
             </div>
           {/each}
@@ -112,10 +125,15 @@
             </div>
           {/if}
           <div class="max-h-[11.25rem] overflow-auto bg-(--solus-container-bg)">
-            <Diff
-              oldFile={{ name: filePath, contents: oldStr }}
-              newFile={{ name: filePath, contents: newStr }}
-            />
+            {#await import('../diff/Diff.svelte')}
+              {@render loadingDiff()}
+            {:then diffModule}
+              {@const Diff = diffModule.default}
+              <Diff
+                oldFile={{ name: filePath, contents: oldStr }}
+                newFile={{ name: filePath, contents: newStr }}
+              />
+            {/await}
           </div>
         </div>
       {/if}
@@ -130,9 +148,14 @@
           {#if typeof input.content === 'string'}
             {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
             <div class="max-h-[11.25rem] overflow-auto bg-(--solus-container-bg)">
-              <Diff
-                newFile={{ name: filePath, contents: input.content }}
-              />
+              {#await import('../diff/Diff.svelte')}
+                {@render loadingDiff()}
+              {:then diffModule}
+                {@const Diff = diffModule.default}
+                <Diff
+                  newFile={{ name: filePath, contents: input.content }}
+                />
+              {/await}
             </div>
           {/if}
         </div>

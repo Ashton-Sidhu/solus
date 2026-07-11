@@ -18,21 +18,12 @@
     ListChecksIcon,
     PlugsIcon,
   } from "phosphor-svelte";
-  import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
-  import DirectoryPicker from "./components/pickers/DirectoryPicker.svelte";
-  import KeyboardShortcutsModal from "./components/KeyboardShortcutsModal.svelte";
-  import CommandPalette from "./components/command-palette/CommandPalette.svelte";
-  import AddServerModal from "./components/servers/AddServerModal.svelte";
-  import ClaimServerModal from "./components/servers/ClaimServerModal.svelte";
   import OfflineBanner from "./components/servers/OfflineBanner.svelte";
   import type { Command } from "./components/command-palette/lib/commands";
-  import TaskComposer from "./components/tasks/TaskComposer.svelte";
   import { projectsStore } from "./contexts/projects.store.svelte";
   import { toasts } from "./contexts/toast.store.svelte";
   import { connectionsStore } from "./contexts/connections.store.svelte";
   import { serversStore } from "./components/servers/servers.store.svelte";
-  import EditorLayout from "./components/layout/EditorLayout.svelte";
-  import PillLayout from "./components/layout/PillLayout.svelte";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
@@ -44,7 +35,7 @@
   } from "../shared/types";
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
-  import { bootstrapRuntimeTabs } from "./contexts/session-bootstrap";
+  import { bootstrapRuntimeTabs, materializeTabs } from "./contexts/session-bootstrap";
   import {
     savePersistedTabsDebounced,
     flushPersistedTabs,
@@ -67,6 +58,13 @@
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
   import { initAnalytics, analytics } from "./lib/analytics";
 
+  type EditorLayoutModule = typeof import("./components/layout/EditorLayout.svelte");
+  type EditorLayoutComponent = EditorLayoutModule["default"];
+  interface Props {
+    initialEditorLayout?: EditorLayoutComponent;
+  }
+  let { initialEditorLayout }: Props = $props();
+
   const {
     settings,
     windowCtx,
@@ -82,11 +80,19 @@
     keybindings,
   } = createAppCore();
 
-  // Electron-only: analytics is desktop-side. appOpened fires from the pill
-  // window only — it's the boot window, so this counts once per app open even
-  // when the editor window is also up.
+  // Materialize tabs synchronously during component init — before first paint —
+  // so the tab strip, titles, drafts, and active tab (with its loading skeleton)
+  // render in the first mounted frame with zero server round trips. The cached
+  // start() payload is applied first so persisted tabs can fall back to the last
+  // known workspace path. The async runtime attach (createTab/bind/transcript)
+  // and fresh start() reconciliation run later from the effect below.
+  session.hydrateStaticInfoFromCache();
+  materializeTabs(session);
+
+  // Electron-only: analytics is desktop-side. The editor is the sole boot
+  // window; the pill is created lazily, so count the open from the editor only.
   initAnalytics(settings.analyticsEnabled);
-  if (windowCtx.viewMode === "pill") analytics.appOpened();
+  if (windowCtx.viewMode === "editor") analytics.appOpened();
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
@@ -232,6 +238,11 @@
     [],
   );
   let commandPaletteOpen = $state(false);
+  let hasMountedDirectoryPicker = $state(false);
+  let hasMountedShortcuts = $state(false);
+  let hasMountedCommandPalette = $state(false);
+  let hasMountedAddServer = $state(false);
+  let hasMountedClaimServer = $state(false);
   // When set, the palette opens drilled straight into this sub-page (e.g. the
   // "Review a PR" git action reuses the "Review PR…" page). Cleared once consumed.
   let paletteInitialPage = $state<{ id: string; title: string } | null>(null);
@@ -262,6 +273,40 @@
   // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
+  type PillLayoutModule = typeof import("./components/layout/PillLayout.svelte");
+  const initialViewMode = untrack(() => windowCtx.viewMode);
+  let editorLayoutComponent = $state.raw<Promise<EditorLayoutModule> | null>(
+    initialViewMode === "editor" && !untrack(() => initialEditorLayout)
+      ? import("./components/layout/EditorLayout.svelte")
+      : null,
+  );
+  let pillLayoutComponent = $state.raw<Promise<PillLayoutModule> | null>(
+    initialViewMode === "pill"
+      ? import("./components/layout/PillLayout.svelte")
+      : null,
+  );
+
+  // Electron windows stay in one fixed mode and therefore load one layout.
+  // Web viewMode follows a media query, so lazily mount the other layout on its
+  // first use and then only hide/show; never destroy either initialized tree.
+  $effect(() => {
+    if (isEditorMode) {
+      editorLayoutComponent ??= import("./components/layout/EditorLayout.svelte");
+    } else {
+      pillLayoutComponent ??= import("./components/layout/PillLayout.svelte");
+    }
+  });
+
+  // These components previously stayed mounted and managed their own open
+  // guards. Keep that lifetime after the first lazy load so local draft/focus
+  // state is not reset on every close.
+  $effect(() => {
+    if (directoryPickerOpen) hasMountedDirectoryPicker = true;
+    if (shortcutsModalOpen) hasMountedShortcuts = true;
+    if (commandPaletteOpen) hasMountedCommandPalette = true;
+    if (serversStore.addServerOpen) hasMountedAddServer = true;
+    if (serversStore.claimServerOpen) hasMountedClaimServer = true;
+  });
   const activeTabId = $derived(session.activeTabId);
   const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
   // status/provider live on Session, not Tab — reading them off the tab always
@@ -305,8 +350,6 @@
   $effect(() => {
     session.initStaticInfo().then(async () => {
       await bootstrapRuntimeTabs(session);
-      const defaultDir = session.staticInfo?.workspacePath || "~";
-      session.planStore.preloadDescriptors(defaultDir, session.ctx);
       void sessionSidebarStore.loadPinnedSessions();
     });
   });
@@ -457,7 +500,7 @@
       // Cheap catch-all for branch changes the watcher missed (e.g. external
       // checkout while a non-worktree session sat in the background).
       if (active && !active.gitContext?.worktreePath && active.workingDirectory) {
-        void session.fetchGitContext(session.activeTabId, active.workingDirectory);
+        void session.env.refreshGitEnvironment({ tabId: session.activeTabId });
       }
     });
     return () => {
@@ -1342,78 +1385,184 @@
   style="position:fixed;inset:0;z-index:10010;pointer-events:none"
 ></div>
 
-{#if isEditorMode}
-  <div class="mode-shell h-full w-full">
+{#if initialEditorLayout}
+  {@const EditorLayout = initialEditorLayout}
+  <div class="mode-shell h-full w-full" class:mode-hidden={!isEditorMode}>
     <EditorLayout
       onAttachFile={handleAttachFile}
       onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
       onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
     />
   </div>
-{:else}
-  <div class="mode-shell">
-    <PillLayout
-      onAttachFile={handleAttachFile}
-      onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
-      onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
-    />
-  </div>
+{:else if editorLayoutComponent}
+  {#await editorLayoutComponent}
+    <div
+      class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-text-tertiary)"
+      class:mode-hidden={!isEditorMode}
+      role="status"
+    >
+      Loading workspace…
+    </div>
+  {:then editorLayoutModule}
+    {@const EditorLayout = editorLayoutModule.default}
+    <div class="mode-shell h-full w-full" class:mode-hidden={!isEditorMode}>
+      <EditorLayout
+        onAttachFile={handleAttachFile}
+        onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
+        onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
+      />
+    </div>
+  {:catch}
+    <div
+      class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-status-error)"
+      class:mode-hidden={!isEditorMode}
+      role="alert"
+    >
+      Couldn’t load the workspace.
+    </div>
+  {/await}
 {/if}
 
-<DirectoryPicker
-  bind:open={directoryPickerOpen}
-  onClose={handleDirectoryPickerClose}
-  onSelect={handleDirectorySelected}
-/>
+{#if pillLayoutComponent}
+  {#await pillLayoutComponent}
+    <div
+      class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-text-tertiary)"
+      class:mode-hidden={isEditorMode}
+      role="status"
+    >
+      Loading workspace…
+    </div>
+  {:then pillLayoutModule}
+    {@const PillLayout = pillLayoutModule.default}
+    <div class="mode-shell" class:mode-hidden={isEditorMode}>
+      <PillLayout
+        onAttachFile={handleAttachFile}
+        onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
+        onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
+      />
+    </div>
+  {:catch}
+    <div
+      class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-status-error)"
+      class:mode-hidden={isEditorMode}
+      role="alert"
+    >
+      Couldn’t load the workspace.
+    </div>
+  {/await}
+{/if}
 
-<KeyboardShortcutsModal
-  bind:open={shortcutsModalOpen}
-  activeScopes={shortcutsActiveScopes}
-/>
+{#if hasMountedDirectoryPicker}
+  {#await import("./components/pickers/DirectoryPicker.svelte")}
+    {#if directoryPickerOpen}
+      <div class="lazy-modal-loading" role="status">Loading folders…</div>
+    {/if}
+  {:then directoryPickerModule}
+    {@const DirectoryPicker = directoryPickerModule.default}
+    <DirectoryPicker
+      bind:open={directoryPickerOpen}
+      onClose={handleDirectoryPickerClose}
+      onSelect={handleDirectorySelected}
+    />
+  {/await}
+{/if}
 
-<CommandPalette
-  bind:open={commandPaletteOpen}
-  bind:initialPage={paletteInitialPage}
-  commands={commandPaletteOpen ? paletteCommands : []}
-/>
+{#if hasMountedShortcuts}
+  {#await import("./components/KeyboardShortcutsModal.svelte")}
+    {#if shortcutsModalOpen}
+      <div class="lazy-modal-loading" role="status">Loading shortcuts…</div>
+    {/if}
+  {:then shortcutsModule}
+    {@const KeyboardShortcutsModal = shortcutsModule.default}
+    <KeyboardShortcutsModal
+      bind:open={shortcutsModalOpen}
+      activeScopes={shortcutsActiveScopes}
+    />
+  {/await}
+{/if}
+
+{#if hasMountedCommandPalette}
+  {#await import("./components/command-palette/CommandPalette.svelte")}
+    {#if commandPaletteOpen}
+      <div class="lazy-modal-loading" role="status">Loading commands…</div>
+    {/if}
+  {:then commandPaletteModule}
+    {@const CommandPalette = commandPaletteModule.default}
+    <CommandPalette
+      bind:open={commandPaletteOpen}
+      bind:initialPage={paletteInitialPage}
+      commands={commandPaletteOpen ? paletteCommands : []}
+    />
+  {/await}
+{/if}
 
 <OfflineBanner />
-<AddServerModal />
-<ClaimServerModal />
+
+{#if hasMountedAddServer}
+  {#await import("./components/servers/AddServerModal.svelte")}
+    {#if serversStore.addServerOpen}
+      <div class="lazy-modal-loading" role="status">Loading server setup…</div>
+    {/if}
+  {:then addServerModule}
+    {@const AddServerModal = addServerModule.default}
+    <AddServerModal />
+  {/await}
+{/if}
+
+{#if hasMountedClaimServer}
+  {#await import("./components/servers/ClaimServerModal.svelte")}
+    {#if serversStore.claimServerOpen}
+      <div class="lazy-modal-loading" role="status">Loading server setup…</div>
+    {/if}
+  {:then claimServerModule}
+    {@const ClaimServerModal = claimServerModule.default}
+    <ClaimServerModal />
+  {/await}
+{/if}
 
 {#if taskComposer && taskComposerConfig !== undefined}
-  <TaskComposer
-    epics={taskComposerEpics}
-    allowEpics={taskComposerProvider === "local"}
-    canPlan={taskComposerProvider === "local"}
-    knownLabels={taskComposerLabels}
-    workingDirectory={taskComposer.cwd}
-    provider={settings.activeAgent}
-    onCreate={async (input) => {
-      const cwd = taskComposer?.cwd;
-      if (!cwd) return;
-      try {
-        if (session.tasksStore.cwd === cwd) await session.tasksStore.create(cwd, input);
-        else await window.solus.tasksCreate(cwd, input);
-        toasts.success("Task created");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        toasts.error(`Couldn't create task: ${message}`);
-        // Rethrow so the composer keeps the modal open; it owns dismissal on
-        // success (via onCancel) so "Create more" can stay open.
-        throw err;
-      }
-    }}
-    onCancel={() => (session.ui.taskComposer = null)}
-  />
+  {#await import("./components/tasks/TaskComposer.svelte")}
+    <div class="lazy-modal-loading" role="status">Loading task composer…</div>
+  {:then taskComposerModule}
+    {@const TaskComposer = taskComposerModule.default}
+    <TaskComposer
+      epics={taskComposerEpics}
+      allowEpics={taskComposerProvider === "local"}
+      canPlan={taskComposerProvider === "local"}
+      knownLabels={taskComposerLabels}
+      workingDirectory={taskComposer.cwd}
+      provider={settings.activeAgent}
+      onCreate={async (input) => {
+        const cwd = taskComposer?.cwd;
+        if (!cwd) return;
+        try {
+          if (session.tasksStore.cwd === cwd) await session.tasksStore.create(cwd, input);
+          else await window.solus.tasksCreate(cwd, input);
+          toasts.success("Task created");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          toasts.error(`Couldn't create task: ${message}`);
+          // Rethrow so the composer keeps the modal open; it owns dismissal on
+          // success (via onCancel) so "Create more" can stay open.
+          throw err;
+        }
+      }}
+      onCancel={() => (session.ui.taskComposer = null)}
+    />
+  {/await}
 {/if}
 
 {#if designModeScreenshot}
-  <DesignAnnotation
-    screenshotDataUrl={designModeScreenshot}
-    onConfirm={handleDesignConfirm}
-    onCancel={handleDesignCancel}
-  />
+  {#await import("./components/artifact/DesignAnnotation.svelte")}
+    <div class="lazy-modal-loading" role="status">Loading annotation tools…</div>
+  {:then designAnnotationModule}
+    {@const DesignAnnotation = designAnnotationModule.default}
+    <DesignAnnotation
+      screenshotDataUrl={designModeScreenshot}
+      onConfirm={handleDesignConfirm}
+      onCancel={handleDesignCancel}
+    />
+  {/await}
 {/if}
 
 {#if isDraggingFile}
@@ -1426,6 +1575,22 @@
 {/if}
 
 <style>
+  .mode-hidden {
+    display: none !important;
+  }
+
+  .lazy-modal-loading {
+    position: fixed;
+    inset: 0;
+    z-index: 10024;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--solus-container-bg) 72%, transparent);
+    color: var(--solus-text-tertiary);
+    font-size: 0.75rem;
+    pointer-events: auto;
+  }
+
   .drop-overlay {
     position: fixed;
     inset: 0;

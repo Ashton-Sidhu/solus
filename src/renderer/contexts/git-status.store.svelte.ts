@@ -12,28 +12,40 @@ export class GitStatusStore {
   private inflight = new Map<string, Promise<boolean>>()
   private refsInflight = new Map<string, Promise<boolean>>()
   private lastRefresh = new Map<string, number>()
+  private detailsLastRefresh = new Map<string, number>()
   private refsLastRefresh = new Map<string, number>()
+  private detailWatchers = new Map<string, number>()
+  private detailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   /** Resolves to true when the status fetch succeeded, false when it threw. */
-  async refresh(cwd: string, opts: { force?: boolean } = {}): Promise<boolean> {
+  async refresh(cwd: string, opts: { force?: boolean; details?: boolean } = {}): Promise<boolean> {
+    const includeDetails = opts.details === true
     const now = Date.now()
-    const last = this.lastRefresh.get(cwd) ?? 0
+    const refreshTimes = includeDetails ? this.detailsLastRefresh : this.lastRefresh
+    const last = refreshTimes.get(cwd) ?? 0
     if (!opts.force && now - last < 2_000) return true
-    const existing = this.inflight.get(cwd)
+    const inflightKey = `${cwd}\0${includeDetails ? 'details' : 'summary'}`
+    const existing = this.inflight.get(inflightKey)
     if (existing) return existing
-    const promise = window.solus.gitProjectStatus(cwd)
+    const promise = window.solus.gitProjectStatus(cwd, includeDetails ? { includeDetails: true } : undefined)
       .then((status) => {
-        this.byCwd[cwd] = status
+        this.applyStatus(cwd, status, includeDetails)
         this.lastRefresh.set(cwd, Date.now())
+        if (includeDetails) this.detailsLastRefresh.set(cwd, Date.now())
+        else this.scheduleDetailsRefresh(cwd)
         return true
       })
       .catch(() => {
-        this.byCwd[cwd] = null
-        this.lastRefresh.set(cwd, Date.now())
+        // A failed optional detail probe should not erase the cheap branch/file
+        // status that the rest of the app can still use.
+        if (!includeDetails) {
+          this.byCwd[cwd] = null
+          this.lastRefresh.set(cwd, Date.now())
+        }
         return false
       })
-      .finally(() => this.inflight.delete(cwd))
-    this.inflight.set(cwd, promise)
+      .finally(() => this.inflight.delete(inflightKey))
+    this.inflight.set(inflightKey, promise)
     return promise
   }
 
@@ -44,12 +56,80 @@ export class GitStatusStore {
     // file counts, badges) even when nothing changed, so skip the write when the
     // payload is structurally identical — but still refresh the throttle stamp.
     const prev = this.byCwd[cwd]
-    if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(status)) {
+    const next = this.statusWithVisibleDetails(cwd, status)
+    if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(next)) {
       this.lastRefresh.set(cwd, Date.now())
+      this.scheduleDetailsRefresh(cwd)
       return
     }
-    this.byCwd[cwd] = status
+    this.byCwd[cwd] = next
     this.lastRefresh.set(cwd, Date.now())
+    this.scheduleDetailsRefresh(cwd)
+  }
+
+  /** Keep expensive statistics live only while a visible Git section needs them. */
+  watchDetails(cwd: string): () => void {
+    this.detailWatchers.set(cwd, (this.detailWatchers.get(cwd) ?? 0) + 1)
+    void this.refresh(cwd, { force: true, details: true })
+    return () => {
+      const remaining = (this.detailWatchers.get(cwd) ?? 1) - 1
+      if (remaining > 0) {
+        this.detailWatchers.set(cwd, remaining)
+        return
+      }
+      this.detailWatchers.delete(cwd)
+      const timer = this.detailRefreshTimers.get(cwd)
+      if (timer) clearTimeout(timer)
+      this.detailRefreshTimers.delete(cwd)
+    }
+  }
+
+  private applyStatus(cwd: string, status: GitProjectStatus | null, includeDetails: boolean): void {
+    const current = this.byCwd[cwd]
+    if (includeDetails) {
+      // A watcher summary may have landed while the slower numstat/PR request
+      // was running. Never replace that newer branch/file state with the
+      // snapshot bundled into the detail response; merge only expensive fields
+      // when it still describes the same checkout.
+      if (!status || current === null) return
+      if (current && (current.repoRoot !== status.repoRoot || current.branch !== status.branch)) return
+      const next = current
+        ? {
+            ...current,
+            insertions: status.insertions,
+            deletions: status.deletions,
+            prUrl: status.prUrl,
+          }
+        : status
+      if (JSON.stringify(current) !== JSON.stringify(next)) this.byCwd[cwd] = next
+      return
+    }
+
+    const next = this.statusWithVisibleDetails(cwd, status)
+    if (JSON.stringify(this.byCwd[cwd]) !== JSON.stringify(next)) this.byCwd[cwd] = next
+  }
+
+  /** Preserve the currently displayed details during the short summary→detail
+   *  refresh gap. They are only retained when a visible consumer guarantees a
+   *  trailing detailed refresh, and only while the branch stays the same. */
+  private statusWithVisibleDetails(cwd: string, status: GitProjectStatus | null): GitProjectStatus | null {
+    const previous = this.byCwd[cwd]
+    if (!status || !previous || !this.detailWatchers.has(cwd) || previous.branch !== status.branch) return status
+    return {
+      ...status,
+      insertions: previous.insertions,
+      deletions: previous.deletions,
+      ...(previous.prUrl ? { prUrl: previous.prUrl } : {}),
+    }
+  }
+
+  private scheduleDetailsRefresh(cwd: string): void {
+    if (!this.detailWatchers.has(cwd) || this.detailRefreshTimers.has(cwd)) return
+    const timer = setTimeout(() => {
+      this.detailRefreshTimers.delete(cwd)
+      if (this.detailWatchers.has(cwd)) void this.refresh(cwd, { force: true, details: true })
+    }, 150)
+    this.detailRefreshTimers.set(cwd, timer)
   }
 
   statusFor(cwd: string | null | undefined): GitProjectStatus | null | undefined {

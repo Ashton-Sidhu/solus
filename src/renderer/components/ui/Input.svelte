@@ -149,7 +149,6 @@
     disabled={micDisabled}
     idleTooltip={idleMicTooltip}
     progressPct={!voiceModel.ready ? voiceModel.progressPct : null}
-    partialText={dictation.partialText}
     onCancel={() => dictation.cancel()}
     onConfirm={() => dictation.stop()}
     onToggle={() => {

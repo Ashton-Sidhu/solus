@@ -3,7 +3,7 @@ import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overla
 import { claimServer, normalizeServerUrl, pairServer, parsePairLink } from '../../src/client-core/pairing'
 import { base64UrlToUint8Array } from '../../src/client-core/push'
 import { encodeQrByteMode } from '../../src/client-core/qr'
-import { shouldAcceptSequencedEvent } from '../../src/client-core/ws-transport'
+import { shouldAcceptSequencedEvent, WsTransport } from '../../src/client-core/ws-transport'
 
 describe('client core transport helpers', () => {
   test('drops stale sequenced events so WS resume cannot replay duplicates', () => {
@@ -12,6 +12,17 @@ describe('client core transport helpers', () => {
     expect(shouldAcceptSequencedEvent(5, 4)).toBe(false)
     expect(shouldAcceptSequencedEvent(undefined, 1)).toBe(true)
     expect(shouldAcceptSequencedEvent(5, undefined)).toBe(true)
+  })
+
+  test('seq-reset forgets topic watermarks omitted by a restarted server', () => {
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    transport.applySeqWatermark({ 'normalized-event': 12, 'tasks-changed': 4 })
+    transport.applySeqWatermark({ 'tasks-changed': 1 }, true)
+
+    const watermarks = (transport as unknown as { lastSeqByTopic: Map<string, number> }).lastSeqByTopic
+    expect(watermarks.get('normalized-event')).toBeUndefined()
+    expect(watermarks.get('tasks-changed')).toBe(1)
+    transport.destroy()
   })
 
   test('overlays only native methods so RPC calls keep riding WebSocket', () => {
@@ -26,6 +37,8 @@ describe('client core transport helpers', () => {
       getPlatform: () => 'darwin',
       getPathForFile: () => '/tmp/file.txt',
       setQuoteContext: () => 'native-quote',
+      rendererReady: () => 'native-ready',
+      rendererMounted: () => 'native-mounted',
     }
 
     const merged = mergeNativeOnlySolusApi(transportApi, nativeApi)
@@ -34,6 +47,8 @@ describe('client core transport helpers', () => {
     expect((merged.getPlatform as () => string)()).toBe('darwin')
     expect((merged.getPathForFile as () => string)()).toBe('/tmp/file.txt')
     expect((merged.setQuoteContext as () => string)()).toBe('native-quote')
+    expect((merged.rendererReady as () => string)()).toBe('native-ready')
+    expect((merged.rendererMounted as () => string)()).toBe('native-mounted')
   })
 
   test('parses pair links without leaking the /pair path into the server URL', () => {

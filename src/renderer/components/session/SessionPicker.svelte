@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, onDestroy } from "svelte";
+  import { tick, onDestroy, onMount } from "svelte";
   import { fly } from "svelte/transition";
   import Input from "../ui/Input.svelte";
   import {
@@ -35,7 +35,7 @@
   import SessionPickerSkeleton from "./SessionPickerSkeleton.svelte";
   import SessionPreview from "./SessionPreview.svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import type { SessionMeta } from "../../../shared/types";
+  import { worktreeProjectRoot, type SessionMeta } from "../../../shared/types";
 
   interface Props {
     open: boolean;
@@ -196,14 +196,14 @@
     const scopeKey = historyScopeKey;
     if (!isOpen) {
       wasOpen = false;
-      lastHistoryScopeKey = null;
       historyLoadSeq++;
       history.cancel();
       preview.reset();
       return;
     }
 
-    if (!wasOpen) {
+    const isOpening = !wasOpen;
+    if (isOpening) {
       query = "";
       selectedIndex = 0;
       resetPickerCaches();
@@ -220,9 +220,12 @@
       wasOpen = true;
     }
 
-    if (lastHistoryScopeKey !== scopeKey) {
+    if (isOpening || lastHistoryScopeKey !== scopeKey) {
+      const scopeChanged = lastHistoryScopeKey !== scopeKey;
       lastHistoryScopeKey = scopeKey;
-      history.clear();
+      // Keep the last successful scan visible when reopening the same scope.
+      // A refresh should not collapse the picker to only its open tabs.
+      if (scopeChanged) history.clear();
       selectedIndex = 0;
       resetPickerCaches();
       void loadHistory(historySources, scopeKey);
@@ -357,6 +360,21 @@
     historyLoadSeq++;
     history.cancel();
   });
+
+  onMount(() =>
+    window.solus.onSessionIndexUpdated((event) => {
+      if (!open || event.provider !== "codex") return;
+      const affectsScope = historyScopeRoots.some((root) =>
+        event.projectPaths.some(
+          (path) =>
+            path === root ||
+            worktreeProjectRoot(path) === root ||
+            worktreeProjectRoot(root) === path,
+        ),
+      );
+      if (affectsScope) void loadHistory(historySources, historyScopeKey);
+    }),
+  );
 </script>
 
 {#snippet pickerHeader()}

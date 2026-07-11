@@ -8,7 +8,7 @@ import { getServerSettings, setRemoteAccess } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { attachWebSocketTransport } from '../transports/websocket'
 import type { ControlPlane } from '../control-plane'
-import type { NormalizedEvent, EnrichedError } from '../../shared/types'
+import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
@@ -76,6 +76,9 @@ export interface BootedServer {
 
 /** Fixed port for the Solus web UI. Override with the SOLUS_PORT env var. */
 export const WEB_UI_PORT = parseInt(process.env.SOLUS_PORT ?? '') || 3000
+const SESSION_INDEX_POLL_MS = 60_000
+const SESSION_INDEX_POLL_JITTER_MS = 5_000
+const SESSION_INDEX_POLL_MAX_BACKOFF_MS = 5 * 60_000
 
 interface LockFileBody {
   pid: number
@@ -157,8 +160,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   if (opts.fileDeps) {
     const { registerFileHandlers } = await import('./handlers/file-handlers')
     registerFileHandlers(server, opts.fileDeps)
-    const { setVoicePartialListener } = await import('../transcription')
-    setVoicePartialListener((event) => server.broadcast('voice-partial', event))
   }
   if (opts.windowDeps) {
     const { registerThemeHandlers } = await import('./handlers/theme-handlers')
@@ -235,20 +236,62 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setVoiceModelStatusListener((status) => server.broadcast('voice-model-status', status))
 
   opts.controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
-    server.broadcast('normalized-event', tabId, event)
+    const clientId = opts.controlPlane.getTabClientId(tabId)
+    if (clientId) server.sendTargeted(clientId, 'normalized-event', tabId, event)
   })
   opts.controlPlane.on('error', (tabId: string, error: EnrichedError) => {
-    server.broadcast('enriched-error', tabId, error)
+    const clientId = opts.controlPlane.getTabClientId(tabId)
+    if (clientId) server.sendTargeted(clientId, 'enriched-error', tabId, error)
+  })
+  opts.controlPlane.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
+    server.broadcast('session-index-updated', event)
   })
 
   ensureClaimWindow()
 
   const { server: http } = buildHttpServer({ host, port, staticDir: opts.staticDir, getHost: () => host, getPort: () => actualPort })
   const ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
+  let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
+  let sessionIndexPollFailures = 0
+
+  function scheduleSessionIndexPoll(delay = SESSION_INDEX_POLL_MS): void {
+    if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
+    const jitter = Math.floor(Math.random() * SESSION_INDEX_POLL_JITTER_MS)
+    sessionIndexPollTimer = setTimeout(() => {
+      sessionIndexPollTimer = null
+      void pollSessionIndexes()
+    }, delay + jitter)
+    ;(sessionIndexPollTimer as unknown as { unref?: () => void }).unref?.()
+  }
+
+  async function pollSessionIndexes(): Promise<void> {
+    if (ws.sessions.size === 0) {
+      scheduleSessionIndexPoll()
+      return
+    }
+    try {
+      await opts.controlPlane.refreshSessionIndexes()
+      sessionIndexPollFailures = 0
+      scheduleSessionIndexPoll()
+    } catch (err) {
+      sessionIndexPollFailures++
+      const backoff = Math.min(
+        SESSION_INDEX_POLL_MAX_BACKOFF_MS,
+        SESSION_INDEX_POLL_MS * 2 ** sessionIndexPollFailures,
+      )
+      log.warn(`Session index poll failed: ${err instanceof Error ? err.message : String(err)}`)
+      scheduleSessionIndexPoll(backoff)
+    }
+  }
+
+  scheduleSessionIndexPoll()
   server.subscribe('presence', (payload) => {
-    const event = payload[0] as { type?: string; id?: string; deviceId?: string | null } | undefined
-    if (event?.type === 'disconnect' && event.id) {
-      opts.controlPlane.handleClientDisconnected(`ws:${event.id}`, event.deviceId ?? undefined)
+    const event = payload[0] as { type?: string; id?: string; clientId?: string; deviceId?: string | null } | undefined
+    const clientId = event?.clientId ?? (event?.id ? `ws:${event.id}` : undefined)
+    if (event?.type === 'connect' && clientId) {
+      opts.controlPlane.handleClientConnected(clientId)
+    } else if (event?.type === 'disconnect' && clientId) {
+      opts.controlPlane.handleClientDisconnected(clientId, event.deviceId ?? undefined)
     }
   })
   isDeviceOnline = (deviceId: string) => {
@@ -345,6 +388,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         stopAutomationScheduler()
+        if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
+        sessionIndexPollTimer = null
         try { ws.close() } catch (err) { log.warn(`ws.close failed: ${err}`) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()

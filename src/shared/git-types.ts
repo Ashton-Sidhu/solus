@@ -21,6 +21,12 @@ export type DiffScope =
 
 export type DiffRequest = { scope: DiffScope; livePaths?: string[] }
 
+export interface GitProjectStatusOptions {
+  /** Include worktree line totals and any existing pull-request URL. These
+   *  require a full worktree scan and potentially a network-backed CLI call. */
+  includeDetails?: boolean
+}
+
 export interface TurnSnapshot {
   index: number
   sha: string
@@ -58,9 +64,9 @@ export interface GitProjectStatus {
   branch: string | null
   targetBranch: string
   files: GitProjectStatusFile[]
-  /** Lines added across uncommitted changes (staged + unstaged vs HEAD). */
+  /** Lines added across uncommitted changes. Zero in summary-only responses. */
   insertions: number
-  /** Lines removed across uncommitted changes (staged + unstaged vs HEAD). */
+  /** Lines removed across uncommitted changes. Zero in summary-only responses. */
   deletions: number
   mergeInProgress: boolean
   prUrl?: string

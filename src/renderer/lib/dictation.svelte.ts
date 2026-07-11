@@ -71,12 +71,12 @@ class Dictation {
       if (this.mode === 'message') this.#onMessage?.(t)
       else this.#insert(t)
     }
-    this.#voice.onIdle = () => {
+    this.#voice.onIdle = (allowAutoRearm) => {
       const pending = this.#pendingStart
       this.#pendingStart = null
       if (pending) {
         this.#applyStart(pending)
-      } else if (this.mode === 'message' && this.#autoRearmFn?.()) {
+      } else if (allowAutoRearm && this.mode === 'message' && this.#autoRearmFn?.()) {
         void this.#voice.start()
       }
     }
@@ -114,10 +114,6 @@ class Dictation {
     return this.#voice.rmsRef
   }
 
-  get partialText(): string {
-    return this.#voice.partialText
-  }
-
   setAutoRearm(fn: (() => boolean) | null): void {
     this.#autoRearmFn = fn
   }
@@ -140,7 +136,7 @@ class Dictation {
 
   /** Start/stop dictation into `el`. */
   toggleInto(el: DictationTarget): void {
-    if (this.#voice.state === 'recording' && this.mode === 'insert' && this.target === el) {
+    if ((this.#voice.state === 'recording' || this.#voice.starting) && this.mode === 'insert' && this.target === el) {
       this.#voice.stop()
     } else {
       this.#requestStart(el)
@@ -149,7 +145,7 @@ class Dictation {
 
   /** Start dictation into `el` (no-op if already recording into it). */
   startInto(el: DictationTarget): void {
-    if (this.#voice.state === 'recording' && this.mode === 'insert' && this.target === el) return
+    if ((this.#voice.state === 'recording' || this.#voice.starting) && this.mode === 'insert' && this.target === el) return
     this.#requestStart(el)
   }
 
@@ -164,13 +160,13 @@ class Dictation {
    * in-progress dictation first.
    */
   startConversational(): void {
-    if (this.#voice.state === 'recording' && this.mode === 'message') return
+    if ((this.#voice.state === 'recording' || this.#voice.starting) && this.mode === 'message') return
     this.#requestStart('message')
   }
 
   /** Toggle conversational recording (confirm if already recording). */
   toggleConversational(): void {
-    if (this.#voice.state === 'recording' && this.mode === 'message') this.#voice.stop()
+    if ((this.#voice.state === 'recording' || this.#voice.starting) && this.mode === 'message') this.#voice.stop()
     else this.startConversational()
   }
 
@@ -188,13 +184,13 @@ class Dictation {
   /** Start `next` now if idle, otherwise wind down the current recording and
    *  start it once the recorder reaches idle (via onIdle → #pendingStart). */
   #requestStart(next: DictationTarget | 'message'): void {
-    if (this.#voice.state === 'idle') {
+    if (this.#voice.state === 'idle' && !this.#voice.starting) {
       this.#pendingStart = null
       this.#applyStart(next)
     } else {
       this.#pendingStart = next
-      // 'transcribing' will reach idle on its own; only 'recording' needs a nudge.
-      if (this.#voice.state === 'recording') this.#voice.cancel()
+      // 'transcribing' will reach idle on its own; recording/setup need a nudge.
+      if (this.#voice.state === 'recording' || this.#voice.starting) this.#voice.cancel()
     }
   }
 

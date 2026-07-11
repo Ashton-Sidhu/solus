@@ -9,6 +9,8 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'setQuoteContext',
   'onQuoteSelection',
   'setIgnoreMouseEvents',
+  'rendererReady',
+  'rendererMounted',
 ] as const
 
 export type NativeOnlySolusMethod = (typeof NATIVE_ONLY_SOLUS_METHODS)[number]

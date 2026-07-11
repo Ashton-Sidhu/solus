@@ -133,6 +133,12 @@ function setup() {
     seedSession,
     registerWatch,
     emitAssistant,
+    seedActiveRun: (sessionId: string, rateLimitBehavior: 'ask' | 'queue' | 'stop' | 'continue') => {
+      const activeRuns = (controlPlane as unknown as {
+        activeRunRequests: Map<string, { input: { rateLimitBehavior: string }; options: Record<string, never> }>
+      }).activeRunRequests
+      activeRuns.set(sessionId, { input: { rateLimitBehavior }, options: {} })
+    },
     advanceTo: (value: number) => { now = value },
   }
 }
@@ -144,6 +150,46 @@ afterEach(() => {
 })
 
 describe('ControlPlane device-scoped tab watches', () => {
+  test('keeps a deferred Codex account limit hidden after the active turn settles', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.seedActiveRun('session-1', 'queue')
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+    env.events.length = 0
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: 4_000_000_000,
+      rateLimitType: 'Codex 5h',
+      isUsingOverage: false,
+      deferCurrentRun: true,
+    } satisfies NormalizedEvent)
+    env.emitAssistant('session-1', 'still finishing')
+
+    expect(env.events.map((entry) => entry.event.type)).toEqual(['assistant_message'])
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'task_complete',
+      result: '',
+      costUsd: 0,
+      durationMs: 1,
+      numTurns: 1,
+      usage: {},
+      sessionId: 'session-1',
+    } satisfies NormalizedEvent)
+    env.backend.emit('exit', 'session-1', 0, null)
+
+    const terminalEvents = env.events.slice(1).map((entry) => entry.event)
+    expect(terminalEvents.map((event) => event.type)).toEqual([
+      'status_change',
+      'task_complete',
+      'status_change',
+    ])
+    expect(terminalEvents.some((event) => event.type === 'prompt_queued')).toBe(false)
+  })
+
   test('disconnect GC removes only the dropped connection watches after the grace period', () => {
     const env = setup()
     planes.push(env.controlPlane)
@@ -162,6 +208,22 @@ describe('ControlPlane device-scoped tab watches', () => {
     env.emitAssistant('session-1', 'after grace')
 
     expect(env.events.map((e) => e.tabId)).toEqual(['tab-b'])
+  })
+
+  test('the same logical client reconnect cancels its pending watch GC', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+    env.events.length = 0
+
+    env.controlPlane.handleClientDisconnected('ws:a')
+    env.controlPlane.handleClientConnected('ws:a')
+    env.advanceTo(GRACE_MS)
+    env.timers.runNext()
+    env.emitAssistant('session-1', 'after reconnect')
+
+    expect(env.events.map((e) => e.tabId)).toEqual(['tab-a'])
   })
 
   test('reconnect within grace replaces a stale same-device watch instead of duplicating it', () => {
@@ -191,5 +253,6 @@ describe('ControlPlane device-scoped tab watches', () => {
     env.emitAssistant('session-1', 'fan out')
 
     expect(env.events.map((e) => e.tabId)).toEqual(['tab-a', 'tab-b'])
+    expect(env.events.map((e) => env.controlPlane.getTabClientId(e.tabId))).toEqual(['ws:a', 'ws:b'])
   })
 })

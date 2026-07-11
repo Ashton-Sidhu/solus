@@ -9,35 +9,18 @@
   } from '../../contexts/pane-view.store.svelte'
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
   import { getPlanStore } from '../../contexts/plan.store.svelte'
-  import PlanModal from '../plan/PlanModal.svelte'
-  import DocumentModal from '../document-modal/DocumentModal.svelte'
-  import DiagramShell from '../diagram/DiagramShell.svelte'
-  import DiffPanel from '../diff/DiffPanel.svelte'
-  import FileEditorPane from '../files/FileEditorPane.svelte'
-  import FilesPane from '../files/FilesPane.svelte'
-  import ReviewGuidePane from '../review/ReviewGuidePane.svelte'
-  import PrReviewPane from '../pr-review/PrReviewPane.svelte'
-  import PrReviewSkeleton from '../pr-review/PrReviewSkeleton.svelte'
-  import AutomationBuilder from '../automations/AutomationBuilder.svelte'
-  import ConversationPane from '../conversation/ConversationPane.svelte'
-  import SubagentPane from '../conversation/SubagentPane.svelte'
-  import TasksPage from '../tasks/TasksPage.svelte'
-  import PrsPage from '../prs/PrsPage.svelte'
-  import SettingsPage from '../settings/SettingsPage.svelte'
-  import PlanGallery from '../plan/PlanGallery.svelte'
-  import FolioGallery from '../artifact/FolioGallery.svelte'
-  import AutomationsPage from '../automations/AutomationsPage.svelte'
   import { requestInputFocus } from '../../lib/inputFocus'
 
-  // Full-page views take no props — they read their open state and data from
-  // the workspace context, so any of them can render in either slot.
-  const PAGE_COMPONENTS: Record<PageKind, Component> = {
-    tasks: TasksPage,
-    prs: PrsPage,
-    settings: SettingsPage,
-    'plans-gallery': PlanGallery,
-    'folio-gallery': FolioGallery,
-    'automations-list': AutomationsPage,
+  // Keep every non-conversation surface behind an actual async boundary. Pane
+  // itself is part of the editor's common module graph, but these views are not
+  // needed until their corresponding content enters a slot.
+  const PAGE_LOADERS: Record<PageKind, () => Promise<{ default: Component }>> = {
+    tasks: () => import('../tasks/TasksPage.svelte'),
+    prs: () => import('../prs/PrsPage.svelte'),
+    settings: () => import('../settings/SettingsPage.svelte'),
+    'plans-gallery': () => import('../plan/PlanGallery.svelte'),
+    'folio-gallery': () => import('../artifact/FolioGallery.svelte'),
+    'automations-list': () => import('../automations/AutomationsPage.svelte'),
   }
 
   interface Props {
@@ -220,6 +203,15 @@
   }
 </script>
 
+{#snippet loadingSurface(label: string)}
+  <div
+    class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
+    role="status"
+  >
+    {label}
+  </div>
+{/snippet}
+
 {#snippet liveBadge()}
   <div class="work-live-badge" role="status" aria-label="Work updated live by the agent">
     <span class="work-live-badge__dot"></span>
@@ -242,7 +234,12 @@
 {/snippet}
 
 {#if content.kind === 'plan' && activePlan}
-  <PlanModal plan={activePlan} inline {slot} onOpenInSplit={handleOpenInSplit} onClose={() => av.closeSlot(slot)} />
+  {#await import('../plan/PlanModal.svelte')}
+    {@render loadingSurface('Loading plan…')}
+  {:then planModule}
+    {@const PlanModal = planModule.default}
+    <PlanModal plan={activePlan} inline {slot} onOpenInSplit={handleOpenInSplit} onClose={() => av.closeSlot(slot)} />
+  {/await}
 {:else if content.kind === 'work' && activeWork && activeWork.type === 'diagram'}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
     {#if conflict}
@@ -253,26 +250,31 @@
     {/if}
     {#key `${activeWork.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
-        <DiagramShell
-          content={activeWork.content ?? ''}
-          title={activeWork.title}
-          workId={activeWork.id}
-          onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
-          onDirtyChange={(d) => { shellDirty = d }}
-          onClose={() => av.closeSlot(slot)}
-          inline
-          {slot}
-          onOpenInSplit={handleOpenInSplit}
-          onOpenChat={handleOpenChatForWork}
-          {originalSessionMeta}
-          onRename={handleRename}
-          onRevert={handleRevert}
-          onDelete={handleDelete}
-          onDuplicate={handleDuplicate}
-          workStorage={activeWork.storage}
-          onPromoteToProject={handlePromoteToProject}
-          promoting={promotingWorkId === activeWork.id}
-        />
+        {#await import('../diagram/DiagramShell.svelte')}
+          {@render loadingSurface('Loading diagram…')}
+        {:then diagramModule}
+          {@const DiagramShell = diagramModule.default}
+          <DiagramShell
+            content={activeWork.content ?? ''}
+            title={activeWork.title}
+            workId={activeWork.id}
+            onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
+            onDirtyChange={(d) => { shellDirty = d }}
+            onClose={() => av.closeSlot(slot)}
+            inline
+            {slot}
+            onOpenInSplit={handleOpenInSplit}
+            onOpenChat={handleOpenChatForWork}
+            {originalSessionMeta}
+            onRename={handleRename}
+            onRevert={handleRevert}
+            onDelete={handleDelete}
+            onDuplicate={handleDuplicate}
+            workStorage={activeWork.storage}
+            onPromoteToProject={handlePromoteToProject}
+            promoting={promotingWorkId === activeWork.id}
+          />
+        {/await}
       </div>
     {/key}
   </div>
@@ -286,99 +288,153 @@
     {/if}
     {#key `${activeWork.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
-        <DocumentModal
-          document={{ title: activeWork.title, content: activeWork.content }}
-          workId={activeWork.id}
-          docType={activeWork.type}
-          onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
-          onDirtyChange={(d) => { shellDirty = d }}
-          onClose={() => av.closeSlot(slot)}
-          inline
-          {slot}
-          onOpenInSplit={handleOpenInSplit}
-          onOpenChat={handleOpenChatForWork}
-          {originalSessionMeta}
-          onRename={handleRename}
-          onRevert={handleRevert}
-          onDelete={handleDelete}
-          onDuplicate={handleDuplicate}
-          workStorage={activeWork.storage}
-          onPromoteToProject={handlePromoteToProject}
-          promoting={promotingWorkId === activeWork.id}
-        />
+        {#await import('../document-modal/DocumentModal.svelte')}
+          {@render loadingSurface('Loading document…')}
+        {:then documentModule}
+          {@const DocumentModal = documentModule.default}
+          <DocumentModal
+            document={{ title: activeWork.title, content: activeWork.content }}
+            workId={activeWork.id}
+            docType={activeWork.type}
+            onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
+            onDirtyChange={(d) => { shellDirty = d }}
+            onClose={() => av.closeSlot(slot)}
+            inline
+            {slot}
+            onOpenInSplit={handleOpenInSplit}
+            onOpenChat={handleOpenChatForWork}
+            {originalSessionMeta}
+            onRename={handleRename}
+            onRevert={handleRevert}
+            onDelete={handleDelete}
+            onDuplicate={handleDuplicate}
+            workStorage={activeWork.storage}
+            onPromoteToProject={handlePromoteToProject}
+            promoting={promotingWorkId === activeWork.id}
+          />
+        {/await}
       </div>
     {/key}
   </div>
 {:else if content.kind === 'automation'}
   {#if content.automationId === null || activeAutomation}
     {#key activeAutomation?.id ?? 'new'}
-      <AutomationBuilder
-        automation={activeAutomation}
-        inline
-        {slot}
-        onOpenInSplit={handleOpenInSplit}
-        onClose={() => av.closeSlot(slot)}
-        onDone={() => av.closeSlot(slot)}
-      />
+      {#await import('../automations/AutomationBuilder.svelte')}
+        {@render loadingSurface('Loading automation…')}
+      {:then automationModule}
+        {@const AutomationBuilder = automationModule.default}
+        <AutomationBuilder
+          automation={activeAutomation}
+          inline
+          {slot}
+          onOpenInSplit={handleOpenInSplit}
+          onClose={() => av.closeSlot(slot)}
+          onDone={() => av.closeSlot(slot)}
+        />
+      {/await}
     {/key}
   {/if}
 {:else if content.kind === 'review'}
-  <ReviewGuidePane guideKey={content.key} scope={content.scope} {slot} onOpenInSplit={handleOpenInSplit} onClose={() => av.closeSlot(slot)} />
+  {#await import('../review/ReviewGuidePane.svelte')}
+    {@render loadingSurface('Loading review…')}
+  {:then reviewModule}
+    {@const ReviewGuidePane = reviewModule.default}
+    <ReviewGuidePane guideKey={content.key} scope={content.scope} {slot} onOpenInSplit={handleOpenInSplit} onClose={() => av.closeSlot(slot)} />
+  {/await}
 {:else if content.kind === 'pr-review'}
-  <PrReviewPane
-    pr={content.pr}
-    chatTabId={content.chatTabId}
-    guideKey={content.key}
-    {onToggleSecondaryMaximize}
-  />
+  {#await import('../pr-review/PrReviewPane.svelte')}
+    {@render loadingSurface('Loading pull request review…')}
+  {:then prReviewModule}
+    {@const PrReviewPane = prReviewModule.default}
+    <PrReviewPane
+      pr={content.pr}
+      chatTabId={content.chatTabId}
+      guideKey={content.key}
+      {onToggleSecondaryMaximize}
+    />
+  {/await}
 {:else if content.kind === 'pr-review-loading'}
-  <PrReviewSkeleton number={content.number} title={content.title} />
+  {#await import('../pr-review/PrReviewSkeleton.svelte')}
+    {@render loadingSurface('Preparing pull request review…')}
+  {:then prReviewSkeletonModule}
+    {@const PrReviewSkeleton = prReviewSkeletonModule.default}
+    <PrReviewSkeleton number={content.number} title={content.title} />
+  {/await}
 {:else if content.kind === 'diff' && tab}
-  <DiffPanel
-    tabId={tab.id}
-    projectPath={sess?.workingDirectory ?? ''}
-    worktreePath={sess?.gitContext?.worktreePath}
-    worktreeBranch={sess?.gitContext?.branch ?? ''}
-    targetBranch={sess?.gitContext?.targetBranch ?? 'HEAD'}
-    {isWorktree}
-    onClose={() => av.closeSecondary()}
-    maximized={av.maximized}
-    onToggleMaximize={onToggleSecondaryMaximize}
-    initialScope={content.scope}
-  />
+  {#await import('../diff/DiffPanel.svelte')}
+    {@render loadingSurface('Loading changes…')}
+  {:then diffModule}
+    {@const DiffPanel = diffModule.default}
+    <DiffPanel
+      tabId={tab.id}
+      projectPath={sess?.workingDirectory ?? ''}
+      worktreePath={sess?.gitContext?.worktreePath}
+      worktreeBranch={sess?.gitContext?.branch ?? ''}
+      targetBranch={sess?.gitContext?.targetBranch ?? 'HEAD'}
+      {isWorktree}
+      onClose={() => av.closeSecondary()}
+      maximized={av.maximized}
+      onToggleMaximize={onToggleSecondaryMaximize}
+      initialScope={content.scope}
+    />
+  {/await}
 {:else if content.kind === 'files' && tab}
-  <FilesPane
-    ctx={session.ctxFor(tab.id)}
-    cwd={sess?.gitContext?.worktreePath ?? sess?.workingDirectory ?? ''}
-    isDark={session.settings.isDark}
-    onClose={() => av.closeSlot(slot)}
-  />
+  {#await import('../files/FilesPane.svelte')}
+    {@render loadingSurface('Loading files…')}
+  {:then filesModule}
+    {@const FilesPane = filesModule.default}
+    <FilesPane
+      ctx={session.ctxFor(tab.id)}
+      cwd={sess?.gitContext?.worktreePath ?? sess?.workingDirectory ?? ''}
+      isDark={session.settings.isDark}
+      onClose={() => av.closeSlot(slot)}
+    />
+  {/await}
 {:else if content.kind === 'file-editor' && tab}
-  <FileEditorPane
-    ctx={session.ctxFor(tab.id)}
-    cwd={sess?.gitContext?.worktreePath ?? sess?.workingDirectory ?? ''}
-    isDark={session.settings.isDark}
-    file={content.file}
-    onClose={() => av.closeSlot(slot)}
-  />
+  {#await import('../files/FileEditorPane.svelte')}
+    {@render loadingSurface('Loading file…')}
+  {:then fileEditorModule}
+    {@const FileEditorPane = fileEditorModule.default}
+    <FileEditorPane
+      ctx={session.ctxFor(tab.id)}
+      cwd={sess?.gitContext?.worktreePath ?? sess?.workingDirectory ?? ''}
+      isDark={session.settings.isDark}
+      file={content.file}
+      onClose={() => av.closeSlot(slot)}
+    />
+  {/await}
 {:else if content.kind === 'subagent'}
-  <SubagentPane
-    tabId={content.tabId}
-    messageId={content.messageId}
-    onClose={() => av.closeSlot(slot)}
-    onToggleMaximize={onToggleSecondaryMaximize}
-  />
+  {#await import('../conversation/SubagentPane.svelte')}
+    {@render loadingSurface('Loading subagent…')}
+  {:then subagentModule}
+    {@const SubagentPane = subagentModule.default}
+    <SubagentPane
+      tabId={content.tabId}
+      messageId={content.messageId}
+      onClose={() => av.closeSlot(slot)}
+      onToggleMaximize={onToggleSecondaryMaximize}
+    />
+  {/await}
 {:else if content.kind === 'conversation' && content.tabId}
   <!-- A chat pinned beside the primary conversation. Only ever reaches the
        secondary slot: a primary conversation renders through the pool. -->
-  <ConversationPane tabId={content.tabId} onClose={() => av.closeSlot(slot)} />
+  {#await import('../conversation/ConversationPane.svelte')}
+    {@render loadingSurface('Loading conversation…')}
+  {:then conversationModule}
+    {@const ConversationPane = conversationModule.default}
+    <ConversationPane tabId={content.tabId} onClose={() => av.closeSlot(slot)} />
+  {/await}
 {:else if isPageContent(content)}
-  {@const Page = PAGE_COMPONENTS[content.kind]}
   <!-- Pages size themselves with `flex-1` (they used to be children of the
        content column); the secondary slot's wrapper is a block, so it needs the
        explicit height instead. -->
   <div class="flex min-h-0 flex-col {slot === 'secondary' ? 'h-full' : 'flex-1'}">
-    <Page />
+    {#await PAGE_LOADERS[content.kind]()}
+      {@render loadingSurface('Loading page…')}
+    {:then pageModule}
+      {@const Page = pageModule.default}
+      <Page />
+    {/await}
   </div>
 {/if}
 

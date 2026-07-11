@@ -1,7 +1,6 @@
 import type { AgentId, IpcContext, ModelConfig, ModelProfile, ReasoningEffort, Session, TabGitContext } from '../../shared/types'
 import { MODEL_PROFILES, isSolusWorktreePath, tabGitContextFromStatus, worktreeProjectRoot } from '../../shared/types'
 import { analytics } from '../lib/analytics'
-import type { PlanStore } from './plan.store.svelte'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from './settings.context.svelte'
 import type { StatusBarContext } from './status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
@@ -11,14 +10,13 @@ export interface SessionConfigControllerDeps {
   settings: SettingsContext
   registry: TabRegistry
   statusBar: StatusBarContext
-  planStore: PlanStore
   setPluginCommands(commands: Session['pluginCommands']): void
   createTab(): Promise<string>
   ctx(): IpcContext
   ctxForDirectory(dir: string): IpcContext
   refreshPluginCommands(dir: string, tabId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
-  fetchGitContext(tabId: string, dir: string): void
+  refreshGitEnvironment(opts: { tabId?: string; cwd?: string }): void
 }
 
 export class SessionConfigController {
@@ -148,16 +146,14 @@ export class SessionConfigController {
       session.workingDirectory = projectRoot
       session.gitContext = restored
       session.worktreeBaseBranch = null
-      this.deps.planStore.preloadDescriptors(projectRoot, this.deps.ctxForDirectory(projectRoot))
       this.deps.refreshPluginCommands(projectRoot)
     } else if (restored) {
       this.globalDefaults.workingDirectory = projectRoot
       this.globalDefaults.gitContext = restored
-      this.deps.planStore.preloadDescriptors(projectRoot, this.deps.ctxForDirectory(projectRoot))
       this.deps.refreshPluginCommands(projectRoot)
     }
     if (!restored && session) {
-      this.deps.fetchGitContext(this.deps.registry.activeTabId, session.workingDirectory)
+      this.deps.refreshGitEnvironment({ tabId: this.deps.registry.activeTabId })
     }
     this.deps.refreshGitRefs(projectRoot, repoCtx)
   }
@@ -186,12 +182,10 @@ export class SessionConfigController {
       session.provider = null
       session.changedFiles = []
       session.pluginCommands = { global: [], project: [] }
-      this.deps.planStore.preloadDescriptors(projectRoot, this.deps.ctxForDirectory(projectRoot))
       this.deps.refreshPluginCommands(projectRoot)
     } else {
       this.globalDefaults.workingDirectory = projectRoot
       this.globalDefaults.gitContext = result.gitContext
-      this.deps.planStore.preloadDescriptors(projectRoot, this.deps.ctxForDirectory(projectRoot))
       this.deps.refreshPluginCommands(projectRoot)
     }
     this.deps.refreshGitRefs(projectRoot, ctx)
@@ -206,7 +200,6 @@ export class SessionConfigController {
     if (this.deps.registry.tabOrder.length === 0) {
       this.globalDefaults.workingDirectory = dir
       this.globalDefaults.gitContext = null
-      this.deps.planStore.preloadDescriptors(dir, this.deps.ctx())
       void window.solus.trackRecentProject(dir)
       return
     }
@@ -216,13 +209,12 @@ export class SessionConfigController {
     session.agentSessionId = null
     session.provider = null
     session.additionalDirs = []
-    this.deps.planStore.preloadDescriptors(dir, this.deps.ctx())
     session.gitContext = null
     session.readOnlyReason = null
     session.pluginCommands = { global: [], project: [] }
     window.solus.resetTabSession(this.deps.ctx())
     this.deps.refreshPluginCommands(dir)
-    this.deps.fetchGitContext(this.deps.registry.activeTabId, dir)
+    this.deps.refreshGitEnvironment({ tabId: this.deps.registry.activeTabId, cwd: dir })
     void window.solus.trackRecentProject(dir)
   }
 

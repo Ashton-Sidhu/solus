@@ -2,13 +2,7 @@
   import ConversationView from "@renderer/components/conversation/ConversationView.svelte";
   import NewTabHome from "@renderer/components/layout/NewTabHome.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
-  import PlanModal from "@renderer/components/plan/PlanModal.svelte";
-  import DocumentModal from "@renderer/components/document-modal/DocumentModal.svelte";
-  import PlanGallery from "@renderer/components/plan/PlanGallery.svelte";
-  import FolioGallery from "@renderer/components/artifact/FolioGallery.svelte";
-  import DiffPanel from "@renderer/components/diff/DiffPanel.svelte";
-  import FileEditorPane from "@renderer/components/files/FileEditorPane.svelte";
-  import SettingsPage from "@renderer/components/settings/SettingsPage.svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { getPlanStore } from "@renderer/contexts/plan.store.svelte";
   import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
   import { runtime } from "@renderer/contexts/runtime.svelte";
@@ -82,6 +76,14 @@
   $effect(() => {
     if (isMobile) hasMountedMobile = true;
     else hasMountedDesktop = true;
+  });
+
+  // Galleries retain filters and scroll state between opens. Keep each tree
+  // alive after first use without loading either module on a chat-only launch.
+  const mountedGalleries = new SvelteSet<"plans" | "folio">();
+  $effect(() => {
+    if (session.plansGalleryOpen) mountedGalleries.add("plans");
+    if (session.folioGalleryOpen) mountedGalleries.add("folio");
   });
 
   let prevActiveTabId: string | undefined;
@@ -198,24 +200,62 @@
   }
 </script>
 
+{#snippet loadingSurface(label: string)}
+  <div
+    class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
+    role="status"
+  >
+    {label}
+  </div>
+{/snippet}
+
 {#snippet chatContent()}
   {#if session.settingsOpen}
-    <SettingsPage />
+    {#await import("@renderer/components/settings/SettingsPage.svelte")}
+      {@render loadingSurface("Loading settings…")}
+    {:then settingsModule}
+      {@const SettingsPage = settingsModule.default}
+      <SettingsPage />
+    {/await}
   {:else}
-    <PlanGallery />
-    <FolioGallery />
+    {#if mountedGalleries.has("plans")}
+      {#await import("@renderer/components/plan/PlanGallery.svelte")}
+        {@render loadingSurface("Loading plans…")}
+      {:then planGalleryModule}
+        {@const PlanGallery = planGalleryModule.default}
+        <PlanGallery />
+      {/await}
+    {/if}
+    {#if mountedGalleries.has("folio")}
+      {#await import("@renderer/components/artifact/FolioGallery.svelte")}
+        {@render loadingSurface("Loading works…")}
+      {:then folioGalleryModule}
+        {@const FolioGallery = folioGalleryModule.default}
+        <FolioGallery />
+      {/await}
+    {/if}
     {#if !session.plansGalleryOpen && !session.folioGalleryOpen}
       {#if activeWork}
-        <DocumentModal
-          document={{ title: activeWork.title, content: activeWork.content }}
-          onSave={async (content) => {
-            await session.worksStore.save(activeWork.id, { content });
-          }}
-          onClose={() => session.closeWorkModal()}
-          inline
-        />
+        {#await import("@renderer/components/document-modal/DocumentModal.svelte")}
+          {@render loadingSurface("Loading document…")}
+        {:then documentModule}
+          {@const DocumentModal = documentModule.default}
+          <DocumentModal
+            document={{ title: activeWork.title, content: activeWork.content }}
+            onSave={async (content) => {
+              await session.worksStore.save(activeWork.id, { content });
+            }}
+            onClose={() => session.closeWorkModal()}
+            inline
+          />
+        {/await}
       {:else if activePlan}
-        <PlanModal plan={activePlan} inline />
+        {#await import("@renderer/components/plan/PlanModal.svelte")}
+          {@render loadingSurface("Loading plan…")}
+        {:then planModalModule}
+          {@const PlanModal = planModalModule.default}
+          <PlanModal plan={activePlan} inline />
+        {/await}
       {:else}
         <div class="flex min-h-0 flex-1 flex-col">
           {#if session.tabOrder.length === 0 && !session.plansGalleryOpen}
@@ -223,7 +263,7 @@
           {/if}
           {#each session.tabOrder as tId (tId)}
             <div
-              class="flex h-full min-h-0 flex-col [contain-intrinsic-size:auto_62.5rem] [content-visibility:auto]"
+              class="tab-slot flex h-full min-h-0 flex-col [contain-intrinsic-size:auto_62.5rem] [content-visibility:auto]"
               class:tab-hidden={tId !== session.activeTabId}
             >
               <ConversationView
@@ -246,33 +286,43 @@
 
 {#snippet diffContent()}
   {#if editorFile && tab && sess}
-    <FileEditorPane
-      ctx={session.ctxFor(tab.id)}
-      cwd={sess.gitContext?.worktreePath ?? sess.workingDirectory}
-      isDark={session.settings.isDark}
-      file={editorFile}
-      onClose={() => {
-        editorFile = null;
-      }}
-    />
+    {#await import("@renderer/components/files/FileEditorPane.svelte")}
+      {@render loadingSurface("Loading file…")}
+    {:then fileEditorModule}
+      {@const FileEditorPane = fileEditorModule.default}
+      <FileEditorPane
+        ctx={session.ctxFor(tab.id)}
+        cwd={sess.gitContext?.worktreePath ?? sess.workingDirectory}
+        isDark={session.settings.isDark}
+        file={editorFile}
+        onClose={() => {
+          editorFile = null;
+        }}
+      />
+    {/await}
   {:else if diffPanelOpen && tab && sess && canShowDiffPanel}
-    <DiffPanel
-      tabId={tab.id}
-      projectPath={sess.workingDirectory}
-      worktreePath={sess.gitContext?.worktreePath}
-      worktreeBranch={sess.gitContext?.branch ?? ""}
-      targetBranch={sess.gitContext?.targetBranch ?? "HEAD"}
-      {isWorktree}
-      onClose={() => {
-        diffPanelOpen = false;
-        diffPanelMaximized = false;
-      }}
-      maximized={effectiveDiffMaximized}
-      onToggleMaximize={() => {
-        diffPanelMaximized = !diffPanelMaximized;
-      }}
-      initialScope={diffScope}
-    />
+    {#await import("@renderer/components/diff/DiffPanel.svelte")}
+      {@render loadingSurface("Loading changes…")}
+    {:then diffModule}
+      {@const DiffPanel = diffModule.default}
+      <DiffPanel
+        tabId={tab.id}
+        projectPath={sess.workingDirectory}
+        worktreePath={sess.gitContext?.worktreePath}
+        worktreeBranch={sess.gitContext?.branch ?? ""}
+        targetBranch={sess.gitContext?.targetBranch ?? "HEAD"}
+        {isWorktree}
+        onClose={() => {
+          diffPanelOpen = false;
+          diffPanelMaximized = false;
+        }}
+        maximized={effectiveDiffMaximized}
+        onToggleMaximize={() => {
+          diffPanelMaximized = !diffPanelMaximized;
+        }}
+        initialScope={diffScope}
+      />
+    {/await}
   {/if}
 {/snippet}
 

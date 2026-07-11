@@ -27,22 +27,14 @@ type ParakeetModel = {
 type WorkerRequest =
   | { id: number; type: 'transcribe'; samples: Float32Array }
   | { type: 'warmup' }
-  | { type: 'stream-start'; streamId: string }
-  | { type: 'stream-audio'; streamId: string; samples: Float32Array }
-  | { type: 'stream-end'; streamId: string }
-  | { type: 'stream-cancel'; streamId: string }
 
 type WorkerResponse =
   | { id: number; type: 'result'; transcript: string; phaseMs: PhaseMetrics }
   | { id: number; type: 'error'; message: string; phaseMs: PhaseMetrics }
   | { type: 'warmup-done'; ms: number }
   | { type: 'warmup-error'; message: string }
-  | { type: 'stream-partial'; streamId: string; textDelta: string; fullText: string }
-  | { type: 'stream-final'; streamId: string; transcript: string; phaseMs: PhaseMetrics }
-  | { type: 'stream-error'; streamId: string; message: string; phaseMs?: PhaseMetrics }
 
 let modelPromise: Promise<ParakeetModel> | null = null
-const streams = new Map<string, StreamingStream>()
 
 function post(message: WorkerResponse): void {
   const parentPort = (process as any).parentPort
@@ -96,155 +88,6 @@ function disposeTensors(...tensors: Array<ort.Tensor | undefined>): void {
     if (!tensor || seen.includes(tensor)) continue
     seen.push(tensor)
     tensor.dispose()
-  }
-}
-
-function appendSamples(a: Float32Array, b: Float32Array): Float32Array {
-  if (a.length === 0) return b
-  const out = new Float32Array(a.length + b.length)
-  out.set(a)
-  out.set(b, a.length)
-  return out
-}
-
-function rmsLevel(samples: Float32Array): number {
-  if (samples.length === 0) return 0
-  let sumSq = 0
-  for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i]
-  return Math.sqrt(sumSq / samples.length)
-}
-
-// Mirrors the renderer's speech gate (voice-recorder.svelte.ts): audio below
-// this rms is treated as silence for both the tail short-circuit and segment
-// boundaries.
-const SPEECH_RMS_THRESHOLD = 0.003
-// Trailing silence that closes the active segment. Long enough to sit inside a
-// natural pause without splitting mid-phrase.
-const SEGMENT_SILENCE_MS = 700
-// Pre-roll carried into the next segment so a word onset straddling the
-// boundary isn't clipped. 0.25s @ 16kHz — mirrors the renderer's PRE_ROLL_SAMPLES.
-const PRE_ROLL_SAMPLES = 4_000
-
-// Streaming here means "re-decode the growing utterance from scratch on every
-// pass", not frame-synchronous streaming. The Parakeet ONNX exports are offline
-// (the encoder has no cache in/out), so carrying decoder state across
-// independently re-encoded windows produces invalid output — it collapses to a
-// single leading word.
-//
-// To keep re-decode cost bounded we split the utterance at silences. A single
-// growing buffer would be O(n^2) work (every pass re-encodes everything) and
-// makes stop latency proportional to the whole utterance. Instead we run the
-// proven batch `transcribe()` over just the *active* segment; when trailing
-// silence closes a segment its text is frozen and the active buffer resets to a
-// short pre-roll. Total work becomes O(n · segment) and stop latency is
-// proportional to the last phrase only. Segmentation is safe with the offline
-// export precisely because each segment is an independent batch decode — no
-// cross-window decoder state is carried, which is the failure mode above. Only
-// one decode runs at a time; audio that arrives mid-decode is folded into the
-// next pass, so this self-throttles to the model's speed rather than a timer.
-// The full transcript is the frozen segment texts plus the active text joined
-// by spaces.
-class StreamingStream {
-  private frozenTexts: string[] = []
-  private audio: Float32Array = new Float32Array()
-  private phaseMs: PhaseMetrics = {}
-  private cancelled = false
-  private lastText = ''
-  private lastFullText = ''
-  private lastDecodedLength = -1
-  private trailingSilenceMs = 0
-  private errorMessage: string | null = null
-  private decodeLoopPromise: Promise<void> | null = null
-
-  constructor(readonly streamId: string) {}
-
-  addAudio(samples: Float32Array): void {
-    if (this.cancelled || samples.length === 0) return
-    if (rmsLevel(samples) < SPEECH_RMS_THRESHOLD) this.trailingSilenceMs += samples.length / 16
-    else this.trailingSilenceMs = 0
-    this.audio = appendSamples(this.audio, samples)
-    this.startDecodeLoop()
-  }
-
-  async end(): Promise<void> {
-    try {
-      await this.decodeLoopPromise
-      if (this.errorMessage) {
-        post({ type: 'stream-error', streamId: this.streamId, message: this.errorMessage, phaseMs: this.phaseMs })
-        return
-      }
-      // The last partial usually already covers the active segment; only re-decode
-      // if audio landed after it (e.g. the capture's flushed tail chunk). On an
-      // auto-VAD stop that tail is silence, so skip the decode when the
-      // not-yet-decoded suffix is below the speech gate.
-      let activeText = this.lastText
-      if (!this.cancelled && this.audio.length !== this.lastDecodedLength && this.audio.length > 0) {
-        const suffix = this.audio.subarray(Math.max(this.lastDecodedLength, 0))
-        if (rmsLevel(suffix) >= SPEECH_RMS_THRESHOLD) {
-          try {
-            activeText = await transcribe(this.audio, this.phaseMs)
-          } catch (err: any) {
-            post({ type: 'stream-error', streamId: this.streamId, message: err.message ?? String(err), phaseMs: this.phaseMs })
-            return
-          }
-        }
-      }
-      post({ type: 'stream-final', streamId: this.streamId, transcript: this.combineWith(activeText), phaseMs: this.phaseMs })
-    } finally {
-      this.dispose()
-    }
-  }
-
-  dispose(): void {
-    this.cancelled = true
-    this.audio = new Float32Array()
-    this.frozenTexts = []
-  }
-
-  private combineWith(activeText: string): string {
-    return [...this.frozenTexts, activeText].filter((text) => text.length > 0).join(' ')
-  }
-
-  // Close the active segment once it ends in enough silence and the decode has
-  // caught up (the caught-up check also guarantees no decode is in flight over
-  // the active buffer). Empty segments (pure silence) are never frozen, so a
-  // long post-segment pause is a no-op rather than a loop.
-  private maybeFreezeSegment(): void {
-    if (this.trailingSilenceMs < SEGMENT_SILENCE_MS) return
-    if (this.lastDecodedLength !== this.audio.length || this.lastText.length === 0) return
-    this.frozenTexts.push(this.lastText)
-    // Keep a pre-roll so a word onset straddling the boundary isn't clipped, and
-    // mark it decoded so the loop doesn't burn a pass on the silent pre-roll.
-    this.audio = this.audio.slice(Math.max(this.audio.length - PRE_ROLL_SAMPLES, 0))
-    this.lastText = ''
-    this.lastDecodedLength = this.audio.length
-  }
-
-  private startDecodeLoop(): void {
-    if (this.decodeLoopPromise || this.cancelled) return
-    this.decodeLoopPromise = this.decodeLoop().finally(() => { this.decodeLoopPromise = null })
-  }
-
-  private async decodeLoop(): Promise<void> {
-    while (!this.cancelled && this.audio.length !== this.lastDecodedLength) {
-      const snapshot = this.audio
-      try {
-        const text = await transcribe(snapshot, this.phaseMs)
-        this.lastDecodedLength = snapshot.length
-        if (this.cancelled) return
-        if (text !== this.lastText) {
-          this.lastText = text
-          const fullText = this.combineWith(text)
-          const textDelta = fullText.startsWith(this.lastFullText) ? fullText.slice(this.lastFullText.length) : fullText
-          this.lastFullText = fullText
-          post({ type: 'stream-partial', streamId: this.streamId, textDelta, fullText })
-        }
-        this.maybeFreezeSegment()
-      } catch (err: any) {
-        this.errorMessage = err.message ?? String(err)
-        this.cancelled = true
-      }
-    }
   }
 }
 
@@ -379,40 +222,9 @@ async function handleTranscribe(request: Extract<WorkerRequest, { type: 'transcr
   }
 }
 
-function handleStreamStart(streamId: string): void {
-  streams.get(streamId)?.dispose()
-  streams.set(streamId, new StreamingStream(streamId))
-}
-
-function handleStreamAudio(streamId: string, samples: Float32Array): void {
-  const stream = streams.get(streamId)
-  if (!stream) return
-  stream.addAudio(samples)
-}
-
-function handleStreamEnd(streamId: string): void {
-  const stream = streams.get(streamId)
-  if (!stream) {
-    post({ type: 'stream-error', streamId, message: 'Voice stream is not active' })
-    return
-  }
-  streams.delete(streamId)
-  void stream.end()
-}
-
-function handleStreamCancel(streamId: string): void {
-  const stream = streams.get(streamId)
-  streams.delete(streamId)
-  stream?.dispose()
-}
-
 const parentPort = (process as any).parentPort
 parentPort?.on('message', (event: { data: WorkerRequest } | WorkerRequest) => {
   const request = 'data' in event ? event.data : event
   if (request.type === 'warmup') void handleWarmup()
   else if (request.type === 'transcribe') void handleTranscribe(request)
-  else if (request.type === 'stream-start') handleStreamStart(request.streamId)
-  else if (request.type === 'stream-audio') handleStreamAudio(request.streamId, request.samples)
-  else if (request.type === 'stream-end') handleStreamEnd(request.streamId)
-  else if (request.type === 'stream-cancel') handleStreamCancel(request.streamId)
 })

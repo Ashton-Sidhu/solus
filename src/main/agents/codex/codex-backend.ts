@@ -16,6 +16,7 @@ import type {
   PluginCommandsResult,
   PromptOptions,
   SessionMeta,
+  SessionIndexUpdatedEvent,
   SessionRunInput,
   ThreadGoal,
   ThreadGoalSetRequest,
@@ -23,6 +24,13 @@ import type {
 import type { SessionLoadMessage } from '../../../shared/session-history'
 import { MODEL_PROFILES } from '../../../shared/types'
 import { MemoryCache } from '../../../shared/cache'
+import {
+  cacheIndexedSessions,
+  getCodexSessionIndexWatermark,
+  getIndexedCodexSessionTimestamps,
+  listIndexedCodexSessions,
+  setCodexSessionIndexWatermark,
+} from '../../db/session-indexer'
 import {
   CodexTurnNormalizer,
   normalizeThreadGoal,
@@ -188,11 +196,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
   private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000 })
-  /** Per-cwd recent-session list cache. Codex sessions live behind the app
-   *  server (no files to stat), so unlike the Claude backend we can't key off a
-   *  directory mtime — instead we cache with a TTL and clear on turn completion,
-   *  which is when a thread is created or its activity changes. */
+  /** Per-cwd hot cache over the persistent session index. Codex has no files to
+   *  stat, so refresh with a TTL and clear on turn completion, which is when a
+   *  thread is created or its activity changes. */
   private sessionListCache = new MemoryCache<string, SessionMeta[]>({ ttlMs: 5 * 60 * 1000 })
+  private sessionIndexRefresh: Promise<void> | null = null
   /** Set once if `thread/start` rejects dynamicTools — we then drop them and
    *  the agent loses work create/read/update for the run (experimental API). */
   private dynamicToolsUnavailable = false
@@ -410,34 +418,129 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       return cached
     }
 
-    const sessions: SessionMeta[] = []
+    const persisted = listIndexedCodexSessions(cacheKey)
+    if (persisted.length > 0) onBatch?.(persisted)
+
+    try {
+      const sessions: SessionMeta[] = []
+      let cursor: string | null | undefined = null
+
+      do {
+        const response: CodexThreadListResponse = await this.client.request('thread/list', {
+          cursor,
+          sortDirection: 'desc',
+        })
+        const batch = await Promise.all((response.data ?? [])
+          .filter((thread) => thread.id && codexThreadBelongsToProject(thread, projectRoot))
+          .map((thread) => this.threadToSessionMeta(thread, projectPath)))
+
+        if (batch.length > 0) {
+          sessions.push(...batch)
+          onBatch?.(batch)
+        }
+        cursor = response.nextCursor
+      } while (cursor)
+
+      sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
+      cacheIndexedSessions(sessions)
+      this.sessionListCache.set(cacheKey, sessions)
+      return sessions
+    } catch (error) {
+      if (persisted.length > 0) return persisted
+      throw error
+    }
+  }
+
+  async refreshSessionIndex(): Promise<void> {
+    if (this.sessionIndexRefresh) return this.sessionIndexRefresh
+    this.sessionIndexRefresh = this.refreshSessionIndexOnce()
+    try {
+      await this.sessionIndexRefresh
+    } finally {
+      this.sessionIndexRefresh = null
+    }
+  }
+
+  private async refreshSessionIndexOnce(): Promise<void> {
+    const watermark = getCodexSessionIndexWatermark()
+    const changedThreads: CodexThreadSummary[] = []
+    let newestTimestamp = watermark ?? 0
     let cursor: string | null | undefined = null
 
     do {
       const response: CodexThreadListResponse = await this.client.request('thread/list', {
         cursor,
+        limit: 100,
+        sortKey: 'updated_at',
         sortDirection: 'desc',
+        useStateDbOnly: true,
       })
-      const batch = await Promise.all((response.data ?? [])
-        .filter((thread) => thread.id && codexThreadBelongsToProject(thread, projectRoot))
-        .map((thread) => this.threadToSessionMeta(thread, projectPath)))
-
-      if (batch.length > 0) {
-        sessions.push(...batch)
-        onBatch?.(batch)
+      let oldestTimestamp = Number.POSITIVE_INFINITY
+      for (const thread of response.data ?? []) {
+        const timestamp = toEpochMs(thread.updatedAt ?? thread.createdAt)
+        newestTimestamp = Math.max(newestTimestamp, timestamp)
+        oldestTimestamp = Math.min(oldestTimestamp, timestamp)
+        if (watermark === null || timestamp >= watermark) changedThreads.push(thread)
       }
       cursor = response.nextCursor
+      if (watermark !== null && oldestTimestamp < watermark) break
     } while (cursor)
 
-    sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
-    this.sessionListCache.set(cacheKey, sessions)
-    return sessions
+    const candidates = changedThreads.filter((thread) => thread.id && thread.cwd)
+    const indexedTimestamps = getIndexedCodexSessionTimestamps(
+      candidates.map((thread) => thread.id!),
+    )
+    const sessions = await Promise.all(
+      candidates
+        .filter((thread) => {
+          const indexedTimestamp = indexedTimestamps.get(thread.id!)
+          return indexedTimestamp === undefined ||
+            toEpochMs(thread.updatedAt ?? thread.createdAt) > indexedTimestamp
+        })
+        .map((thread) => this.threadToSessionMeta(thread, thread.cwd!, { scanActivity: false })),
+    )
+    if (sessions.length > 0) {
+      cacheIndexedSessions(sessions)
+      this.mergeSessionListCache(sessions)
+    }
+    if (newestTimestamp > 0) setCodexSessionIndexWatermark(newestTimestamp)
+    if (sessions.length === 0) return
+
+    this.emit('session-index-updated', {
+      provider: 'codex',
+      projectPaths: [...new Set(sessions.map((session) => session.cwd))],
+      sessionIds: sessions.map((session) => session.sessionId),
+    } satisfies SessionIndexUpdatedEvent)
   }
 
-  private async threadToSessionMeta(thread: CodexThreadSummary, projectPath?: string): Promise<SessionMeta> {
+  private mergeSessionListCache(changed: SessionMeta[]): void {
+    for (const cacheKey of this.sessionListCache.keys({ includeStale: true })) {
+      const existing = this.sessionListCache.getStale(cacheKey) ?? []
+      const relevant = changed.filter((session) =>
+        codexThreadBelongsToProject({ cwd: session.cwd }, cacheKey),
+      )
+      if (relevant.length === 0) continue
+      const merged = new Map(existing.map((session) => [session.sessionId, session]))
+      for (const session of relevant) merged.set(session.sessionId, session)
+      this.sessionListCache.set(
+        cacheKey,
+        [...merged.values()].sort(
+          (a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime(),
+        ),
+      )
+    }
+  }
+
+  private async threadToSessionMeta(
+    thread: CodexThreadSummary,
+    projectPath?: string,
+    options: { scanActivity?: boolean } = {},
+  ): Promise<SessionMeta> {
     const cwd = thread.cwd || projectPath || process.cwd()
     const normalizedCwd = cwd.replace(/\/$/, '')
-    const activityTimestamp = await scanCodexThreadActivityTimestamp(thread)
+    const activityTimestamp = options.scanActivity === false
+      ? null
+      : await scanCodexThreadActivityTimestamp(thread)
     const lastTimestamp = activityTimestamp
       ? new Date(activityTimestamp).toISOString()
       : toIsoTimestamp(thread.updatedAt ?? thread.createdAt)
@@ -611,6 +714,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // A turn just created or updated a thread — drop the cached session lists
       // so the next listSessions reflects the new activity.
       this.sessionListCache.clear()
+      void this.refreshSessionIndex().catch((err) => {
+        log.warn(`Codex session index refresh failed: ${err instanceof Error ? err.message : String(err)}`)
+      })
       const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
       const exitSignal = wasInterrupted ? 'SIGINT' : null

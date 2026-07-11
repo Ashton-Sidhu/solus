@@ -151,6 +151,7 @@
   const REVEAL_DRAIN_MS = 300; // aim to drain the current backlog over ~this window
   const REVEAL_MIN_CPS = 140; // floor so short bursts still animate visibly
   const REVEAL_MAX_CPS = 4200; // ceiling so huge dumps finish well under a second
+  const REVEAL_FRAME_MS = 1000 / 60; // keep streamed text visually continuous
   const prefersReducedMotion =
     typeof window !== "undefined" &&
     !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -159,6 +160,7 @@
   let revealExact = 0; // float cursor; revealLen is its floor
   let revealRaf = 0;
   let revealLastTs = 0;
+  let revealWasVisible = false;
 
   function stopReveal() {
     if (revealRaf) cancelAnimationFrame(revealRaf);
@@ -166,10 +168,8 @@
     revealLastTs = 0;
   }
 
-  // Glue the view to the bottom without thrashing layout. Called at the top of the
-  // reveal frame (and on structural changes), when Svelte's DOM mutations from the
-  // previous frame have already flushed — so reading scrollHeight is a single
-  // settled layout read, not one interleaved with the markdown mutations.
+  // Glue the view to the bottom after structural changes. Streaming growth is
+  // observed below so the reveal loop never forces a scrollHeight read itself.
   function pinToBottom() {
     const el = scrollEl;
     if (el && isVisible && isNearBottom) {
@@ -179,20 +179,19 @@
 
   function revealTick(ts: number) {
     revealRaf = 0;
-    // Pin first, against last frame's settled layout, so the last line stays glued
-    // continuously (no drift-then-snap) with the read coalesced into this frame.
-    pinToBottom();
     const target = streamingText;
-    if (revealLastTs === 0) revealLastTs = ts;
+    if (revealLastTs === 0) revealLastTs = ts - REVEAL_FRAME_MS;
     const dt = ts - revealLastTs;
+    if (dt < REVEAL_FRAME_MS) {
+      revealRaf = requestAnimationFrame(revealTick);
+      return;
+    }
     revealLastTs = ts;
     const backlog = target.length - revealExact;
     if (backlog <= 0) {
       revealExact = target.length;
       revealLen = target.length;
       revealLastTs = 0;
-      // Pin the final growth once its layout settles on the next frame.
-      requestAnimationFrame(pinToBottom);
       return; // caught up — effect restarts the loop when more text arrives
     }
     // Faster when further behind so we never lag the stream, easing as we catch up.
@@ -207,16 +206,20 @@
 
   $effect(() => {
     const target = streamingText;
-    const animate = isVisible && !prefersReducedMotion;
-    // Snap (no animation) for hidden tabs, reduced-motion users,
-    // or whenever the buffer reset/committed (target shorter than shown).
-    if (!animate || target.length < revealExact) {
+    if (!isVisible) {
+      revealWasVisible = false;
+      stopReveal();
+      return;
+    }
+
+    const becameVisible = !revealWasVisible;
+    revealWasVisible = true;
+    // Catch a previously hidden tab up in one update. Reduced-motion users and
+    // committed/reset buffers also skip the animated reveal.
+    if (becameVisible || prefersReducedMotion || target.length < revealExact) {
       stopReveal();
       revealExact = target.length;
       revealLen = target.length;
-      // Reduced-motion / hidden-tab path skips revealTick, so pin the snapped
-      // growth here (a no-op off the active tab or when the user scrolled up).
-      if (target.length > 0) requestAnimationFrame(pinToBottom);
       return;
     }
     if (revealExact < target.length && revealRaf === 0) {
@@ -242,6 +245,7 @@
   }
 
   let scrollEl: HTMLDivElement | null = $state(null);
+  let messagesEl: HTMLDivElement | null = $state(null);
   let hovered = $state(false);
   let renderOffset = $state(0);
   let expandingHistory = $state(false);
@@ -318,8 +322,8 @@
   }
 
   // Structural changes that should re-pin the view to the bottom. Streaming text
-  // is handled continuously by the reveal loop (pinToBottom in revealTick), so it
-  // deliberately stays out of this trigger — otherwise the effect below would fire
+  // is handled by the content ResizeObserver below, so it deliberately stays out
+  // of this trigger — otherwise the effect below would fire
   // (and force a full-document layout) every ~80 streamed characters, thrashing
   // everything on screen, including the input dock, throughout a response.
   const scrollTrigger = $derived.by(() => {
@@ -375,7 +379,18 @@
     for (let i = grouped.length - 1; i >= 0; i--) {
       const item = grouped[i];
       if (item.kind === "assistant") {
-        if (item.message.content.trim() === settled) return item.message.id;
+        const committed = item.message.content.trim();
+        // The final text chunk and task_complete can land in one Svelte batch.
+        // In that case the effect above may only have observed a long prefix or
+        // suffix of the stream even though the reducer committed the full text.
+        // Reconcile that same turn instead of briefly rendering two assistants.
+        if (
+          committed === settled ||
+          committed.startsWith(settled) ||
+          committed.endsWith(settled)
+        ) {
+          return item.message.id;
+        }
         continue;
       }
       if (item.kind === "user") break;
@@ -393,7 +408,9 @@
           ? {
               kind: "live-assistant" as const,
               id: `live-${settlingCommittedId}`,
-              content: liveStreamContent,
+              // Once the reducer has committed, prefer its authoritative full
+              // text even if the last render only observed part of the stream.
+              content: item.message.content.trim(),
               settledMessageId: settlingCommittedId,
             }
           : item,
@@ -583,18 +600,20 @@
       window.removeEventListener("solus:scroll-conversation-bottom", handler);
   });
 
-  // When the input dock grows (e.g. user types a second line), the flex layout
-  // shrinks the conversation pool and reduces scrollEl.clientHeight. Without
-  // re-anchoring, the view drifts upward visibly on every word-wrap.
+  // Re-anchor when either the input dock changes the viewport height or streamed
+  // markdown changes the message-list height. ResizeObserver runs after layout,
+  // avoiding a forced layout read in every reveal frame.
   $effect(() => {
     const el = scrollEl;
-    if (!el) return;
+    const content = messagesEl;
+    if (!el || !content) return;
     const ro = new ResizeObserver(() => {
       if (isNearBottom && isVisible) {
         el.scrollTop = el.scrollHeight;
       }
     });
     ro.observe(el);
+    ro.observe(content);
     return () => ro.disconnect();
   });
 
@@ -689,11 +708,12 @@
           {/if}
 
           <div
+            bind:this={messagesEl}
             class="relative messages-list cv-list {runtime.isMobileViewport
               ? 'space-y-3'
               : 'space-y-2'}"
           >
-            {#each displayGrouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.kind === "live-assistant" ? item.id : item.message.id)}
+            {#each displayGrouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.kind === "subagent-group" ? `sg-${item.messages[0].id}` : item.kind === "live-assistant" ? item.id : item.message.id)}
               {@const msgIndex = startIndex + idx}
               {@const skipMotion = msgIndex < historicalThreshold}
               {#if item.kind === "user"}

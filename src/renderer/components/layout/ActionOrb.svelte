@@ -1,6 +1,5 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { parsePatchFiles } from "@pierre/diffs";
   import {
     SparkleIcon,
     FilesIcon,
@@ -27,7 +26,6 @@
   import { formatCombo } from "../../lib/keybindings/match";
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
-  import { diffFilePath, diffFileStats } from "../../lib/diffTreeAdapter";
   import { requestFilePreview } from "../../lib/filePreview";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
@@ -412,7 +410,7 @@
   });
 
   $effect(() => {
-    if (!hasChangedFiles || tabId !== session.activeTabId) {
+    if (!reviewFilesOpen || !hasChangedFiles || tabId !== session.activeTabId) {
       fileStats = {};
       return;
     }
@@ -420,12 +418,11 @@
     const livePaths = [...changedFiles];
     const ctx = session.ctxFor(tabId);
     let cancelled = false;
-    window.solus.diff(ctx, { scope: { kind: "session" }, livePaths }).then((diff) => {
+    window.solus.diffStats(ctx, { scope: { kind: "session" }, livePaths }).then((files) => {
       if (cancelled || fingerprint !== changesFingerprint) return;
       const nextStats: Record<string, FileStat> = {};
-      if (diff?.patch) {
-        const files = parsePatchFiles(diff.patch).flatMap((parsed) => parsed.files);
-        for (const file of files) nextStats[diffFilePath(file)] = diffFileStats(file);
+      for (const file of files) {
+        nextStats[file.path] = { additions: file.additions, deletions: file.deletions };
       }
       fileStats = nextStats;
     }).catch(() => {

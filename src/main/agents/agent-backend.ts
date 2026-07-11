@@ -77,6 +77,8 @@ export interface AgentBackend extends EventEmitter {
   listPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
   /** Invalidates cached plugin/skill commands after an external install. */
   refreshPluginCommands(): Promise<void>
+  /** Incrementally refreshes durable session metadata when the provider supports it. */
+  refreshSessionIndex?(): Promise<void>
 
   shutdown?(): void
   rewindFiles?(sessionId: string, checkpointId: string, projectPath: string): Promise<void>

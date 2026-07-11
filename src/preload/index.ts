@@ -1,10 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult, VoiceModelStatus } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, TabGitContext, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitProjectStatus, GitProjectStatusOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeQueueStartItem, MergeQueueStartOptions, MergeQueueStartResult, MergeQueueState, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult, VoiceModelStatus } from '../shared/types'
 import type { PrFilter, PrReviewer, PullRequestSummary, PullRequestDetail, PullRequestOverview, ReviewThread, ReviewComment, PrCommit, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { AttentionEntry } from '../shared/attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent } from '../shared/review'
+
+const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
 export interface LocalConnectionInfo {
   port: number
@@ -35,10 +37,6 @@ export interface SolusAPI {
   transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
   voiceModelStatus(ctx?: IpcContext): Promise<VoiceModelStatus>
   voiceModelRetry(ctx?: IpcContext): Promise<VoiceModelStatus>
-  voiceStreamStart(ctx?: IpcContext): Promise<{ streamId: string }>
-  voiceStreamEnd(streamId: string, ctx?: IpcContext): Promise<{ transcript: string | null; error: string | null }>
-  voiceStreamAudio(streamId: string, samples: Float32Array, ctx?: IpcContext): void
-  voiceStreamCancel(streamId: string, ctx?: IpcContext): void
   logVoiceTranscription(row: {
     sessionIndex: number
     firstStartedAt: string | null
@@ -207,6 +205,7 @@ export interface SolusAPI {
 
   worktreeListProject(ctx: IpcContext): Promise<WorktreeEntry[]>
   diff(ctx: IpcContext, request: DiffRequest): Promise<DiffResult | null>
+  diffStats(ctx: IpcContext, request: DiffRequest): Promise<ChangedFileStat[]>
   listTurnSnapshots(ctx: IpcContext): Promise<TurnSnapshot[]>
   worktreePR(ctx: IpcContext): Promise<WorktreePRResult>
   gitCommitPush(ctx: IpcContext): Promise<GitCommitPushResult>
@@ -215,7 +214,7 @@ export interface SolusAPI {
   worktreeBranches(ctx: IpcContext): Promise<string[]>
   worktreeRestore(ctx: IpcContext, worktreePath: string, options?: { includePr?: boolean }): Promise<TabGitContext | null>
   continueInWorktree(ctx: IpcContext, namePrompt?: string): Promise<GitCheckoutBranchResult>
-  gitProjectStatus(cwd: string): Promise<GitProjectStatus | null>
+  gitProjectStatus(cwd: string, options?: GitProjectStatusOptions): Promise<GitProjectStatus | null>
   runStatus(cwd: string): Promise<RunProjectStatus>
   runStart(cwd: string, commandId: string): Promise<RunProjectStatus>
   runStop(cwd: string, commandId: string): Promise<RunProjectStatus>
@@ -249,12 +248,12 @@ export interface SolusAPI {
   onWindowShown(callback: (cursorPos: { x: number; y: number } | null) => void): () => void
   onWindowHidden(callback: () => void): () => void
   onSessionScan(callback: (event: SessionScanEvent) => void): () => void
+  onSessionIndexUpdated(callback: (event: SessionIndexUpdatedEvent) => void): () => void
   onReviewProgress(callback: (event: ReviewProgressEvent) => void): () => void
   onSeqWatermark(callback: (seqByTopic: Record<string, number>) => void): () => void
   onRunStatus(callback: (status: RunStatus) => void): () => void
   onRunLog(callback: (batch: RunLogBatch) => void): () => void
   onVoiceModelStatus(callback: (status: VoiceModelStatus) => void): () => void
-  onVoicePartial(callback: (event: { streamId: string; fullText: string; error?: string }) => void): () => void
   /** Native-only: resolves the OS path for a File. Web stub returns ''. */
   getPathForFile(file: File): string
 
@@ -268,15 +267,29 @@ export interface SolusAPI {
 export interface NativeSolusAPI {
   getPlatform(): string
   getLocalConnection(): Promise<LocalConnectionInfo>
+  /** Re-invokes the local-connection bootstrap to pull a fresh session token over IPC. */
+  refreshLocalSessionToken(): Promise<string>
+  rendererReady(mode: 'pill' | 'editor'): void
+  rendererMounted(mode: 'pill' | 'editor'): void
   getPathForFile(file: File): string
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
   setQuoteContext(active: boolean): void
   onQuoteSelection(callback: (text: string) => void): () => void
 }
 
+// Main has finished booting the local server before it creates either renderer
+// window. Start this immutable bootstrap lookup while the preload itself is
+// evaluating so HTML parsing and renderer startup do not sit behind a fresh IPC
+// round trip.
+const localConnectionPromise = ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL) as Promise<LocalConnectionInfo>
+
 const nativeApi: NativeSolusAPI = {
   getPlatform: () => process.platform,
-  getLocalConnection: () => ipcRenderer.invoke('solus:local-connection'),
+  getLocalConnection: () => localConnectionPromise,
+  refreshLocalSessionToken: () =>
+    (ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL) as Promise<LocalConnectionInfo>).then((info) => info.token),
+  rendererReady: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-ready', mode),
+  rendererMounted: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-mounted', mode),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean; focus?: boolean }) =>
     ipcRenderer.send('solus:set-ignore-mouse-events', ignore, options || {}),

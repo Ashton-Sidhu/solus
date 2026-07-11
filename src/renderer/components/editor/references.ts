@@ -3,6 +3,7 @@
 // any editor host (prompt input today, the document editor later).
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
 import type { PlanRefAttrs } from "./planRefExtension";
 import type { WorkRefAttrs } from "./workRefExtension";
 import type { FileRefAttrs } from "./fileRefExtension";
@@ -18,6 +19,60 @@ export function textBeforeCursor(editor: Editor | null): string {
 export function isCaretAtStart(editor: Editor | null): boolean {
   if (!editor) return false;
   return editor.state.selection.from === 1;
+}
+
+const TRACKED_REFERENCE_NODES = new Set(["planReference", "workReference"]);
+
+function rangeContainsTrackedReference(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+): boolean {
+  const start = Math.max(0, Math.min(from, doc.content.size));
+  const end = Math.max(start, Math.min(to, doc.content.size));
+  if (start === end) return false;
+  let found = false;
+  doc.nodesBetween(start, end, (node) => {
+    if (TRACKED_REFERENCE_NODES.has(node.type.name)) found = true;
+    return !found;
+  });
+  return found;
+}
+
+/** True only when a transaction inserted, removed, or changed a tracked ref node. */
+export function transactionChangesTrackedRefs(transaction: Transaction): boolean {
+  if (!transaction.docChanged) return false;
+  for (let index = 0; index < transaction.steps.length; index++) {
+    const before = transaction.docs[index];
+    const after = transaction.docs[index + 1] ?? transaction.doc;
+    let changed = false;
+    const step = transaction.steps[index];
+    let hasMappedRange = false;
+    step.getMap().forEach((oldStart, oldEnd, newStart, newEnd) => {
+      hasMappedRange = true;
+      if (
+        rangeContainsTrackedReference(before, oldStart, oldEnd) ||
+        rangeContainsTrackedReference(after, newStart, newEnd)
+      ) {
+        changed = true;
+      }
+    });
+    // Attribute-only steps have an empty StepMap because positions do not move.
+    // Check the addressed node directly so reference metadata changes still sync.
+    if (!hasMappedRange) {
+      const position = (step.toJSON() as { pos?: unknown }).pos;
+      if (typeof position === "number") {
+        const beforeNode = before.nodeAt(position);
+        const afterNode = after.nodeAt(position);
+        changed = !!(
+          (beforeNode && TRACKED_REFERENCE_NODES.has(beforeNode.type.name)) ||
+          (afterNode && TRACKED_REFERENCE_NODES.has(afterNode.type.name))
+        );
+      }
+    }
+    if (changed) return true;
+  }
+  return false;
 }
 
 // Converts a text-space index (from textBetween) to an absolute document

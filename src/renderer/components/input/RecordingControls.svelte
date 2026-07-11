@@ -22,7 +22,6 @@
     /** field: top-align the mic for a textarea rather than vertically centering it. */
     micTextarea?: boolean
     progressPct?: number | null
-    partialText?: string
   }
 
   let {
@@ -38,7 +37,6 @@
     showMic = true,
     micTextarea = false,
     progressPct = null,
-    partialText = '',
   }: Props = $props()
 </script>
 
@@ -46,29 +44,37 @@
   {#if state === 'recording'}
     <div class="flex items-center gap-1">
       <button
+        type="button"
         onmousedown={(e) => e.preventDefault()}
         onclick={onCancel}
-        class="w-9 h-9 rounded-full flex items-center justify-center transition-colors bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
+        aria-label="Cancel recording"
+        class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
         use:tooltip={"Cancel recording"}
       ><XIcon size={15} weight="bold" /></button>
       <button
+        type="button"
         onmousedown={(e) => e.preventDefault()}
         onclick={onConfirm}
-        class="w-9 h-9 rounded-full flex items-center justify-center transition-colors bg-(--solus-accent) text-(--solus-text-on-accent)"
+        aria-label="Finish recording"
+        class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] bg-(--solus-accent) text-(--solus-text-on-accent)"
         use:tooltip={"Confirm recording"}
       ><CheckIcon size={15} weight="bold" /></button>
     </div>
   {:else if state === 'transcribing'}
     <button
+      type="button"
       disabled
+      aria-label="Finishing transcription"
       class="w-9 h-9 rounded-full flex items-center justify-center bg-(--solus-mic-bg) text-(--solus-mic-color)"
     ><SpinnerGapIcon size={16} class="animate-spin" /></button>
   {:else}
     <button
+      type="button"
       onmousedown={(e) => e.preventDefault()}
       onclick={onToggle}
       {disabled}
-      class="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+      aria-label="Voice input"
+      class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:active:scale-[0.96]"
       style="background:{waiting
         ? 'var(--solus-accent)'
         : progressPct !== null
@@ -84,11 +90,7 @@
 {:else if state === 'recording'}
   <span class="rc-row">
     <span class="rc-waveform">
-      {#if partialText}
-        <span class="rc-partial">{partialText}</span>
-      {:else}
-        <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
-      {/if}
+      <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
     </span>
     <button
       type="button"
@@ -148,18 +150,6 @@
     min-width: 0;
     display: flex;
     align-items: center;
-  }
-  .rc-partial {
-    display: block;
-    min-width: 0;
-    width: 100%;
-    overflow: hidden;
-    color: var(--solus-accent);
-    direction: rtl;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.75rem;
   }
 
   /* field action buttons (X / ✓) shown while recording */

@@ -129,7 +129,7 @@
     refreshState = "spinning";
     // Floor the spin at one full rotation so a fast refresh still reads.
     const [ok] = await Promise.all([
-      gitStatus.refresh(gitCwd, { force: true }),
+      gitStatus.refresh(gitCwd, { force: true, details: true }),
       new Promise((resolve) => setTimeout(resolve, 600)),
     ]);
     if (ok) {
@@ -249,7 +249,7 @@
       onToggle={() => toggleSection("git")}
       headerExtra={gitHeaderExtra}
     >
-      <GitSection cwd={gitCwd} tabId={activeTabId} onOpenFiles={openFiles} />
+      <GitSection cwd={gitCwd} tabId={activeTabId} active={open} onOpenFiles={openFiles} />
     </PanelSection>
     {#if runs.runsFor(runCwd)?.length > 0}
       <PanelSection

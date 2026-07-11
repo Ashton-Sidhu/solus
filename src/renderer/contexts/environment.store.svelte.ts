@@ -1,5 +1,5 @@
-import { parsePatchFiles } from '@pierre/diffs'
-import { tabGitContextFromStatus, type AgentId, type GitProjectStatus, type IpcContext, type Message, type QueuedPromptSnapshot, type Session, type TurnSnapshot } from '../../shared/types'
+import { tabGitContextFromStatus, type AgentId, type GitProjectStatus, type IpcContext, type Message, type QueuedPromptSnapshot, type Session, type StartInfo, type TabGitContext, type TurnSnapshot } from '../../shared/types'
+import { loadCachedStart, saveCachedStart } from './tab-persistence'
 import { extractChangedFilePaths, extractChangedFilePathsFromMessage } from '../lib/changedFiles'
 import type { AgentContext } from './agent.context.svelte'
 import type { PlanStore } from './plan.store.svelte'
@@ -39,10 +39,20 @@ export class EnvironmentStore {
   pluginCommands = $state<Session['pluginCommands']>({ global: [], project: [] })
   turnSnapshots = $state<Record<string, TurnSnapshot[]>>({})
 
+  // Non-reactive guard: initStaticInfo reads staticInfo (a $state) and then writes
+  // it via applyStartInfo, so the boot $effect that calls it would otherwise
+  // self-invalidate and re-run start() in a tight loop. Runs exactly once per boot.
+  private staticInfoInitialized = false
+
   constructor(private deps: EnvironmentStoreDeps) {}
 
-  async initStaticInfo(): Promise<void> {
-    const result = await window.solus.start()
+  /**
+   * Apply a start() payload to staticInfo + agent metadata + the workingDirectory
+   * default. The active-agent availability demotion is FRESH-only: a stale cache
+   * could wrongly demote an agent whose availability has since recovered, so the
+   * optimistic path never touches the active agent.
+   */
+  private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
     this.staticInfo = {
       version: result.version || 'unknown',
       email: result.auth?.email || null,
@@ -55,12 +65,34 @@ export class EnvironmentStore {
       this.deps.config.globalDefaults.workingDirectory = result.workspacePath || '~'
     }
     this.deps.agent?.hydrate(result.agents ?? [])
-    if (!this.deps.agent?.metadata[this.deps.settings.activeAgent]?.available) {
+    if (opts.fresh && !this.deps.agent?.metadata[this.deps.settings.activeAgent]?.available) {
       const fallback = result.agents?.find((agent) => agent.available)
       if (fallback) this.deps.settings.update({ activeAgent: fallback.id })
     }
+  }
+
+  /**
+   * Optimistically apply the last cached start() payload so staticInfo, agent
+   * metadata, and the workingDirectory default are ready before first paint —
+   * no server round trip. Idempotent: once staticInfo exists (cache or fresh)
+   * this is a no-op. Fresh reconciliation happens in initStaticInfo.
+   */
+  hydrateStaticInfoFromCache(): void {
+    if (this.staticInfo) return
+    const cached = loadCachedStart()
+    if (cached) this.applyStartInfo(cached, { fresh: false })
+  }
+
+  async initStaticInfo(): Promise<void> {
+    if (this.staticInfoInitialized) return
+    this.staticInfoInitialized = true
+    // Paint from cache first (safety net if setup didn't already), then reconcile.
+    this.hydrateStaticInfoFromCache()
+    const result = await window.solus.start()
+    this.applyStartInfo(result, { fresh: true })
+    saveCachedStart(result)
     if (this.deps.registry.tabOrder.length === 0) {
-      void this.fetchGitContext(this.deps.registry.activeTabId, this.deps.config.globalDefaults.workingDirectory)
+      await this.refreshGitEnvironment()
     }
     void this.refreshPluginCommands(this.deps.config.globalDefaults.workingDirectory)
   }
@@ -75,18 +107,41 @@ export class EnvironmentStore {
     if (session) session.pluginCommands = result
   }
 
-  async fetchGitContext(tabId: string, dir: string): Promise<void> {
-    if (!dir || dir === '~') return
-    const status = await window.solus.gitProjectStatus(dir).catch(() => null)
-    this.deps.setGitStatus(dir, status)
-    const gitCtx = tabGitContextFromStatus(status)
+  /** Refresh the Git identity and live status for a tab, or for the tab-less
+   *  composer during startup. This is the single lifecycle boundary for Git
+   *  environment readiness: callers do not need to distinguish project roots
+   *  from worktree checkouts. */
+  async refreshGitEnvironment(opts: { tabId?: string; cwd?: string } = {}): Promise<TabGitContext | null> {
+    const tabId = opts.tabId ?? this.deps.registry.activeTabId
     const session = this.deps.registry.sessionFor(tabId)
-    if (session && !session.gitContext?.worktreePath) {
-      session.gitContext = gitCtx
-      if (this.deps.settings.worktreeEnabled && !session.worktreeBaseBranch) {
-        session.worktreeBaseBranch = gitCtx?.targetBranch ?? null
+    const cwd = opts.cwd
+      ?? session?.gitContext?.worktreePath
+      ?? session?.workingDirectory
+      ?? this.deps.config.globalDefaults.gitContext?.worktreePath
+      ?? this.deps.config.globalDefaults.workingDirectory
+    if (!cwd || cwd === '~') return null
+
+    const status = await window.solus.gitProjectStatus(cwd).catch(() => null)
+    this.deps.setGitStatus(cwd, status)
+    const gitCtx = tabGitContextFromStatus(status)
+
+    if (session) {
+      // The tab may have closed or changed checkout while the request was in flight.
+      const current = this.deps.registry.sessionFor(tabId)
+      const currentCwd = current?.gitContext?.worktreePath ?? current?.workingDirectory
+      if (current !== session || currentCwd !== cwd) return current?.gitContext ?? null
+      if (!session.gitContext?.worktreePath) {
+        session.gitContext = gitCtx
+        if (this.deps.settings.worktreeEnabled && !session.worktreeBaseBranch) {
+          session.worktreeBaseBranch = gitCtx?.targetBranch ?? null
+        }
       }
+      return session.gitContext
+    } else if (this.deps.registry.tabOrder.length === 0) {
+      if (this.deps.config.globalDefaults.workingDirectory !== cwd) return null
+      this.deps.config.globalDefaults.gitContext = gitCtx
     }
+    return gitCtx
   }
 
   recomputeChangedFiles(tabId: string): void {
@@ -135,8 +190,8 @@ export class EnvironmentStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || session.changedFiles.length > 0) return
     try {
-      const diff = await window.solus.diff(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
-      const files = diff ? parsePatchFiles(diff.patch).flatMap((patch) => patch.files.map((file) => file.name)) : []
+      const stats = await window.solus.diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
+      const files = stats.map((file) => file.path)
       if (files.length === 0) return
       session.changedFiles.splice(0, session.changedFiles.length, ...files)
     } catch {

@@ -180,6 +180,10 @@ CREATE VIRTUAL TABLE session_fts USING fts5(
   tokenize='porter unicode61'
 );
 `,
+  `
+CREATE INDEX sessions_by_provider_project
+ON sessions(provider, project_path, last_timestamp DESC);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

@@ -78,11 +78,9 @@
   // space — reuse the app's 1800px laptop/desktop cutoff (see InputBarRow).
 
   let sessionsLoaded = $state(false);
-  let worktreesLoaded = $state(false);
   let sessionsLoadSeq = 0;
   const projectMetadata = projectsStore;
   const projects = $derived(projectMetadata.recentProjects.slice(0, 3));
-  const projectsLoaded = $derived(projectMetadata.recentProjectsLoaded);
   const recentSessions = createSessionHistoryStore();
   const sessions = $derived(recentSessions.sessions);
 
@@ -194,17 +192,10 @@
 
   $effect(() => {
     if (!isActiveHome) return;
-    if (!projectRoot) {
-      worktreesLoaded = true;
-      return;
-    }
-    worktreesLoaded = false;
+    if (!projectRoot) return;
     const root = projectRoot;
     const ctx = untrack(() => session.ctxForDirectory(root));
-    gitStatus.refreshRefs(root, ctx).finally(() => {
-      if (projectRoot !== root) return;
-      worktreesLoaded = true;
-    });
+    void gitStatus.refreshRefs(root, ctx);
   });
 
   // ── Control hub: automations + tasks ──
@@ -266,13 +257,7 @@
     requestInputFocus();
   }
 
-  const allLoaded = $derived(projectsLoaded && sessionsLoaded);
-  const anyLoaded = $derived(projectsLoaded || sessionsLoaded);
   const totalItems = $derived(projects.length + visibleSessions.length);
-  const hasHomeItems = $derived(
-    totalItems > 0 || visibleWorktrees.length > 0 || hasAutomations || hasTasks,
-  );
-  const showEmptyHome = $derived(allLoaded && worktreesLoaded && !hasHomeItems);
 
   function activateProject(proj: RecentProject) {
     invalidateHomeCache();
@@ -886,10 +871,9 @@
     <div class="shrink-0 pt-3 mb-5">
       {@render launchTarget()}
     </div>
-    <SetupChecklist active={isActiveTab} />
+    <SetupChecklist active={isActiveHome} />
 
-    {#if anyLoaded && (hasHomeItems || !allLoaded)}
-      <div class="flex flex-col gap-6">
+    <div class="flex flex-col gap-6">
         {#if projects.length > 0}
           <section class="flex flex-col gap-2.5">
             <div class={sectionLabel}>Recent Projects</div>
@@ -973,8 +957,7 @@
         {#if hasAutomations}
           {@render automationsSection()}
         {/if}
-      </div>
-    {/if}
+    </div>
   </div>
 {:else}
   <!-- ═══ Desktop New Tab Home (Control Hub) ═══ -->
@@ -986,44 +969,32 @@
       : 'py-8'}"
     style={isEditorMode ? "" : "min-height:var(--pill-body-max)"}
   >
-    {#if showEmptyHome}
-      <!-- Truly empty: no projects, sessions, worktrees, automations, or tasks. -->
-      <div
-        class="my-auto w-full flex flex-col items-center gap-7 {isEditorMode
-          ? 'max-w-[43.75rem]'
-          : 'max-w-[38.75rem]'}"
-      >
-        {@render launchTarget()}
-        <SetupChecklist active={isActiveTab} />
-      </div>
-    {:else}
-      <div
-        class="my-auto w-full flex flex-col gap-3 {isEditorMode
-          ? 'max-w-[43.75rem]'
-          : 'max-w-[38.75rem]'}"
-      >
-        {@render launchTarget()}
-        <SetupChecklist active={isActiveTab} />
+    <div
+      class="my-auto w-full flex flex-col gap-3 {isEditorMode
+        ? 'max-w-[43.75rem]'
+        : 'max-w-[38.75rem]'}"
+    >
+      {@render launchTarget()}
+      <SetupChecklist active={isActiveHome} />
 
-        {#if projects.length > 0}
-          {@render projectsRow()}
+      {#if projects.length > 0}
+        {@render projectsRow()}
+      {/if}
+
+      <!-- Work row: sessions, active worktrees, and the task agenda as up to
+           three equal columns. They drop to a single column on narrow windows
+           so nothing cramps on a laptop. Automation activity follows below. -->
+      <div class="flex flex-col min-[34rem]:flex-row gap-3">
+        {@render sessionsCol()}
+        {#if visibleWorktrees.length > 0}
+          {@render worktreesCol()}
         {/if}
-
-        <!-- Work row: sessions, active worktrees, and the task agenda as up to
-             three equal columns. They drop to a single column on narrow windows
-             so nothing cramps on a laptop. Automation activity follows below. -->
-        <div class="flex flex-col min-[34rem]:flex-row gap-3">
-          {@render sessionsCol()}
-          {#if visibleWorktrees.length > 0}
-            {@render worktreesCol()}
-          {/if}
-          {#if hasTasks}
-            {@render tasksSection()}
-          {/if}
-        </div>
-
-        {@render automationsSection()}
+        {#if hasTasks}
+          {@render tasksSection()}
+        {/if}
       </div>
-    {/if}
+
+      {@render automationsSection()}
+    </div>
   </div>
 {/if}

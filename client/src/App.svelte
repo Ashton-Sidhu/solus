@@ -8,9 +8,8 @@
     flushDrafts,
     type PersistedTabs,
   } from "@renderer/contexts/tab-persistence";
-  import KeyboardShortcutsModal from "@renderer/components/KeyboardShortcutsModal.svelte";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
-  import { bootstrapRuntimeTabs } from "@renderer/contexts/session-bootstrap";
+  import { bootstrapRuntimeTabs, materializeTabs } from "@renderer/contexts/session-bootstrap";
   import { createAppCore } from "@renderer/contexts/app-core";
   import { connectionsStore } from "@renderer/contexts/connections.store.svelte";
   import {
@@ -18,12 +17,19 @@
     installGlobalDispatcher,
   } from "@renderer/lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
-  import DirectoryPicker from "@renderer/components/pickers/DirectoryPicker.svelte";
   import { invalidateHomeCache } from "@renderer/components/layout/NewTabHome.svelte";
   import WebLayout from "./components/WebLayout.svelte";
 
   const { settings, planStore, runStore, sessionSidebarStore, session, agent, keybindings } =
     createAppCore();
+
+  // Materialize tabs synchronously during component init — before first paint — so
+  // the tab strip, titles, drafts, and active tab render in the first mounted frame
+  // with zero server round trips. Cached start() is applied first so persisted tabs
+  // can fall back to the last known workspace path. The async runtime attach and
+  // fresh start() reconciliation run later from the effect below.
+  session.hydrateStaticInfoFromCache();
+  materializeTabs(session);
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
@@ -99,7 +105,14 @@
 
   let directoryPickerOpen = $state(false);
   let shortcutsModalOpen = $state(false);
+  let hasMountedDirectoryPicker = $state(false);
+  let hasMountedShortcuts = $state(false);
   let shortcutsActiveScopes = $state<import("@renderer/lib/keybindings/types").Scope[]>([]);
+
+  $effect(() => {
+    if (directoryPickerOpen) hasMountedDirectoryPicker = true;
+    if (shortcutsModalOpen) hasMountedShortcuts = true;
+  });
 
   const activeTabId = $derived(session.activeTabId);
   const isRunning = $derived.by(() => {
@@ -155,8 +168,6 @@
   $effect(() => {
     session.initStaticInfo().then(async () => {
       await bootstrapRuntimeTabs(session);
-      const defaultDir = session.staticInfo?.workspacePath || "~";
-      session.planStore.preloadDescriptors(defaultDir, session.ctx);
       void sessionSidebarStore.loadPinnedSessions();
     });
   });
@@ -356,16 +367,34 @@
   <WebLayout onAttachFile={handleAttachFile} />
 </div>
 
-<DirectoryPicker
-  bind:open={directoryPickerOpen}
-  onClose={handleDirectoryPickerClose}
-  onSelect={handleDirectorySelected}
-/>
+{#if hasMountedDirectoryPicker}
+  {#await import("@renderer/components/pickers/DirectoryPicker.svelte")}
+    {#if directoryPickerOpen}
+      <div class="lazy-modal-loading" role="status">Loading folders…</div>
+    {/if}
+  {:then directoryPickerModule}
+    {@const DirectoryPicker = directoryPickerModule.default}
+    <DirectoryPicker
+      bind:open={directoryPickerOpen}
+      onClose={handleDirectoryPickerClose}
+      onSelect={handleDirectorySelected}
+    />
+  {/await}
+{/if}
 
-<KeyboardShortcutsModal
-  bind:open={shortcutsModalOpen}
-  activeScopes={shortcutsActiveScopes}
-/>
+{#if hasMountedShortcuts}
+  {#await import("@renderer/components/KeyboardShortcutsModal.svelte")}
+    {#if shortcutsModalOpen}
+      <div class="lazy-modal-loading" role="status">Loading shortcuts…</div>
+    {/if}
+  {:then shortcutsModule}
+    {@const KeyboardShortcutsModal = shortcutsModule.default}
+    <KeyboardShortcutsModal
+      bind:open={shortcutsModalOpen}
+      activeScopes={shortcutsActiveScopes}
+    />
+  {/await}
+{/if}
 
 {#if isDraggingFile}
   <div data-solus-ui class="drop-overlay">
@@ -377,6 +406,17 @@
 {/if}
 
 <style>
+  .lazy-modal-loading {
+    position: fixed;
+    inset: 0;
+    z-index: 10024;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--solus-container-bg) 72%, transparent);
+    color: var(--solus-text-tertiary);
+    font-size: 0.75rem;
+  }
+
   .drop-overlay {
     position: fixed;
     inset: 0;

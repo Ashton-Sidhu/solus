@@ -1,18 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import TabStrip from "./TabStrip.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import InputBarRow from "../input/InputBarRow.svelte";
   import StatusBarControls from "./StatusBarControls.svelte";
-  import PlanGallery from "../plan/PlanGallery.svelte";
-  import FolioGallery from "../artifact/FolioGallery.svelte";
-  import AutomationsPage from "../automations/AutomationsPage.svelte";
-  import TasksPage from "../tasks/TasksPage.svelte";
-  import PrsPage from "../prs/PrsPage.svelte";
-  import PlanModal from "../plan/PlanModal.svelte";
-  import DocumentModal from "../document-modal/DocumentModal.svelte";
-  import DiagramShell from "../diagram/DiagramShell.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
-  import SettingsPage from "../settings/SettingsPage.svelte";
   import ToastHost from "../ToastHost.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
@@ -66,6 +58,19 @@
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
 
+  // Main keeps a first-summon pill window hidden until the actual layout—not
+  // App's full-window async fallback—has mounted and can receive input.
+  onMount(() => window.solusNative.rendererReady("pill"));
+
+  // Galleries own their enter/exit behavior and retain local filters between
+  // opens. Mount each on first use, then leave it alive; the module import and
+  // component tree are both absent from a typical conversation-only launch.
+  const mountedGalleries = new SvelteSet<"plans" | "folio">();
+  $effect(() => {
+    if (session.plansGalleryOpen) mountedGalleries.add("plans");
+    if (session.folioGalleryOpen) mountedGalleries.add("folio");
+  });
+
   // Lazy-mount the pill conversation pool. Only create a tab's ConversationView
   // the first time it becomes active, rather than mounting all N at once.
   const mountedTabIds = new SvelteSet<string>([session.activeTabId].filter(Boolean));
@@ -97,6 +102,15 @@
     requestInputFocus();
   }
 </script>
+
+{#snippet loadingSurface(label: string)}
+  <div
+    class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
+    role="status"
+  >
+    {label}
+  </div>
+{/snippet}
 
 <div
   class="click-through-shell fixed bottom-(--pill-margin) left-1/2 z-50 flex max-h-[calc(100vh-(var(--pill-margin)*2))] w-(--pill-width) -translate-x-1/2 flex-col justify-end"
@@ -131,24 +145,58 @@
       >
         {#if session.settingsOpen}
           <div style="height:var(--pill-body-max);overflow:hidden">
-            <SettingsPage />
+            {#await import("../settings/SettingsPage.svelte")}
+              {@render loadingSurface("Loading settings…")}
+            {:then settingsModule}
+              {@const SettingsPage = settingsModule.default}
+              <SettingsPage />
+            {/await}
           </div>
         {:else}
-          <PlanGallery />
-          <FolioGallery />
+          {#if mountedGalleries.has("plans")}
+            {#await import("../plan/PlanGallery.svelte")}
+              {@render loadingSurface("Loading plans…")}
+            {:then planGalleryModule}
+              {@const PlanGallery = planGalleryModule.default}
+              <PlanGallery />
+            {/await}
+          {/if}
+          {#if mountedGalleries.has("folio")}
+            {#await import("../artifact/FolioGallery.svelte")}
+              {@render loadingSurface("Loading works…")}
+            {:then folioGalleryModule}
+              {@const FolioGallery = folioGalleryModule.default}
+              <FolioGallery />
+            {/await}
+          {/if}
           {#if session.automationsOpen}
             <div style="height:var(--pill-body-max);overflow:hidden;display:flex;flex-direction:column">
-              <AutomationsPage />
+              {#await import("../automations/AutomationsPage.svelte")}
+                {@render loadingSurface("Loading automations…")}
+              {:then automationsModule}
+                {@const AutomationsPage = automationsModule.default}
+                <AutomationsPage />
+              {/await}
             </div>
           {/if}
           {#if session.tasksOpen}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
-              <TasksPage />
+              {#await import("../tasks/TasksPage.svelte")}
+                {@render loadingSurface("Loading tasks…")}
+              {:then tasksModule}
+                {@const TasksPage = tasksModule.default}
+                <TasksPage />
+              {/await}
             </div>
           {/if}
           {#if session.prsOpen}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
-              <PrsPage />
+              {#await import("../prs/PrsPage.svelte")}
+                {@render loadingSurface("Loading pull requests…")}
+              {:then prsModule}
+                {@const PrsPage = prsModule.default}
+                <PrsPage />
+              {/await}
             </div>
           {/if}
           {#if !session.plansGalleryOpen && !session.folioGalleryOpen && !session.automationsOpen && !session.tasksOpen && !session.prsOpen}
@@ -168,14 +216,19 @@
             {:else}
               <div style="{showPillDiagram ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
                 {#if showPillDiagram}
-                  <DiagramShell
-                    content={pillWorkModal!.content}
-                    title={pillWorkModal!.title}
-                    workId={pillWorkModal!.id}
-                    onSave={async (content) => { await session.worksStore.save(pillWorkModal!.id, { content }) }}
-                    onDuplicate={() => duplicatePillWork(pillWorkModal!.id)}
-                    onClose={() => { session.closeWorkModal(); requestInputFocus() }}
-                  />
+                  {#await import("../diagram/DiagramShell.svelte")}
+                    {@render loadingSurface("Loading diagram…")}
+                  {:then diagramModule}
+                    {@const DiagramShell = diagramModule.default}
+                    <DiagramShell
+                      content={pillWorkModal!.content}
+                      title={pillWorkModal!.title}
+                      workId={pillWorkModal!.id}
+                      onSave={async (content) => { await session.worksStore.save(pillWorkModal!.id, { content }) }}
+                      onDuplicate={() => duplicatePillWork(pillWorkModal!.id)}
+                      onClose={() => { session.closeWorkModal(); requestInputFocus() }}
+                    />
+                  {/await}
                 {/if}
                 <!-- Persistent conversation pool: hidden (not unmounted) while a
                      diagram overlays, so closing it reveals the conversation
@@ -187,7 +240,7 @@
                   {#each session.tabOrder as tId (tId)}
                     {#if mountedTabIds.has(tId)}
                       <div
-                        class="[contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]"
+                        class="tab-slot [contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]"
                         class:tab-hidden={tId !== session.activeTabId}
                       >
                         <ConversationView tabId={tId} />
@@ -197,15 +250,25 @@
                 </div>
               </div>
               {#if pillWorkModal && !isEditorMode && pillWorkModal.type !== "diagram"}
-                <DocumentModal
-                  document={{ title: pillWorkModal.title, content: pillWorkModal.content }}
-                  workId={pillWorkModal.id}
-                  onSave={async (content) => { await session.worksStore.save(pillWorkModal!.id, { content }) }}
-                  onDuplicate={() => duplicatePillWork(pillWorkModal!.id)}
-                  onClose={() => session.closeWorkModal()}
-                />
+                {#await import("../document-modal/DocumentModal.svelte")}
+                  {@render loadingSurface("Loading document…")}
+                {:then documentModule}
+                  {@const DocumentModal = documentModule.default}
+                  <DocumentModal
+                    document={{ title: pillWorkModal.title, content: pillWorkModal.content }}
+                    workId={pillWorkModal.id}
+                    onSave={async (content) => { await session.worksStore.save(pillWorkModal!.id, { content }) }}
+                    onDuplicate={() => duplicatePillWork(pillWorkModal!.id)}
+                    onClose={() => session.closeWorkModal()}
+                  />
+                {/await}
               {:else if pillPlanModal && !isEditorMode}
-                <PlanModal plan={pillPlanModal} />
+                {#await import("../plan/PlanModal.svelte")}
+                  {@render loadingSurface("Loading plan…")}
+                {:then planModalModule}
+                  {@const PlanModal = planModalModule.default}
+                  <PlanModal plan={pillPlanModal} />
+                {/await}
               {/if}
             {/if}
           {/if}

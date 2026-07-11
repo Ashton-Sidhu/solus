@@ -112,7 +112,7 @@ interface ControlPlaneOptions {
  *
  * Tabs are thin subscription records. All session state lives in BackendSession
  * (keyed by agent session ID in activeSessions). Tabs point to sessions via
- * tab.sessionId. IPC still broadcasts by tabId.
+ * tab.sessionId. Events are emitted by tabId and routed to that tab's owner.
  */
 export class ControlPlane extends EventEmitter {
   private tabs = new Map<string, TabRegistryEntry>()
@@ -182,6 +182,9 @@ export class ControlPlane extends EventEmitter {
   }
 
   private _wireBackend(backend: AgentBackend): void {
+    backend.on('session-index-updated', (event) => {
+      this.emit('session-index-updated', event)
+    })
     backend.on('normalized', (sessionId: string | null, event: NormalizedEvent) => {
       // Backends only emit normalized events after session_init. Drop any stray
       // pre-init emissions (e.g. permission events that race ahead) — they'd
@@ -290,13 +293,18 @@ export class ControlPlane extends EventEmitter {
         if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning' && !event.isUsingOverage) {
           const run = this.activeRunRequests.get(session.sessionId)
           const deferCurrentRun = event.deferCurrentRun === true && !!run
-          if (!deferCurrentRun) {
-            this._setStatus({ sessionId: session.sessionId }, 'rate_limited')
-            if (run?.input.rateLimitBehavior === 'queue') {
-              this._queueActiveRateLimitedRequest(session.sessionId)
-            }
-          }
           this._scheduleRateLimitRelease(session.sessionId, event.resetsAt)
+          if (deferCurrentRun) {
+            // Codex can report that the account is exhausted while it is still
+            // completing the current turn. Keep that snapshot for the next send,
+            // but do not interrupt the stream or present it as a failed prompt.
+            return
+          }
+
+          this._setStatus({ sessionId: session.sessionId }, 'rate_limited')
+          if (run?.input.rateLimitBehavior === 'queue') {
+            this._queueActiveRateLimitedRequest(session.sessionId)
+          }
         }
       }
 
@@ -399,7 +407,8 @@ export class ControlPlane extends EventEmitter {
 
       if (sessionId) this.missingRunCounts.delete(sessionId)
 
-      const isRateLimited = sessionId != null && this._currentRateLimitEvent(sessionId) != null
+      const rateLimitEvent = sessionId != null ? this._currentRateLimitEvent(sessionId) : null
+      const isRateLimited = rateLimitEvent != null
       const newStatus: SessionStatus = isRateLimited
         ? 'rate_limited'
         : code === 0
@@ -528,6 +537,10 @@ export class ControlPlane extends EventEmitter {
     this.tabs.set(tabId, entry)
     log.info(`Tab created: ${tabId}`)
     return tabId
+  }
+
+  getTabClientId(tabId: string): string | null {
+    return this.tabs.get(tabId)?.clientId ?? null
   }
 
   bindRuntimeSession(tabId: string, sessionId: string, tabOwner: TabOwner): RuntimeSessionInfo | null {
@@ -698,6 +711,13 @@ export class ControlPlane extends EventEmitter {
     if (!ownsTabs) return
     const inferredDeviceId = deviceId ?? [...this.tabs.values()].find((tab) => tab.clientId === clientId)?.deviceId
     this._scheduleDisconnectedClientGc(clientId, inferredDeviceId)
+  }
+
+  handleClientConnected(clientId: string): void {
+    const timer = this.disconnectedClientTimers.get(clientId)
+    if (timer) this.clearGcTimeout(timer)
+    this.disconnectedClientTimers.delete(clientId)
+    this.disconnectedClients.delete(clientId)
   }
 
   private _closeTabById(tabId: string): void {
@@ -1587,6 +1607,12 @@ export class ControlPlane extends EventEmitter {
     return Array.from(this.backends.keys())
   }
 
+  async refreshSessionIndexes(): Promise<void> {
+    await Promise.all(
+      [...this.backends.values()].map((backend) => backend.refreshSessionIndex?.()),
+    )
+  }
+
   getTransportInfo(): Record<string, string> {
     const result: Record<string, string> = {}
     for (const [id, backend] of this.backends) {
@@ -1642,7 +1668,8 @@ export class ControlPlane extends EventEmitter {
    * A watched repo changed on disk. Recompute branch + status for every tab in
    * that repo (deduped by working dir) and broadcast so the renderer mirrors it
    * without a click. Branch goes out as the already-handled `git_context`
-   * event; dirty/±lines as the lightweight `git_status` event.
+   * event; dirty files/conflicts as the lightweight `git_status` event. Line
+   * totals and PR discovery are refreshed only while the Git panel is visible.
    */
   private async _onGitWatchFire(repoRoot: string): Promise<void> {
     const tabIds = [...this.tabWatchKeys.entries()].filter(([, key]) => key === repoRoot).map(([id]) => id)
