@@ -25,17 +25,20 @@
     dirMaxWidth?: number;
     mode?: "pill" | "editor";
     showDirIcon?: boolean;
+    tabId?: string;
     trailingActions?: Snippet;
   }
-  let { dirMaxWidth = 160, mode = "pill", showDirIcon = true, trailingActions }: Props = $props();
+  let { dirMaxWidth = 160, mode = "pill", showDirIcon = true, tabId, trailingActions }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const statusBar = getStatusBarContext();
   const gitStatus = getGitStatusStore();
-  const ctx = $derived(statusBar.ctx);
-  const tab = $derived(session.tabs[session.activeTabId]);
-  const sess = $derived(session.sessionFor(session.activeTabId));
+  const isPinned = $derived(tabId !== undefined);
+  const targetTabId = $derived(tabId ?? session.activeTabId);
+  const ctx = $derived(statusBar.ctxFor(targetTabId));
+  const tab = $derived(session.tabs[targetTabId]);
+  const sess = $derived(session.sessionFor(targetTabId));
   const isBusy = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
@@ -68,7 +71,7 @@
     sessionEnvironment(sess?.gitContext ?? null, worktreeBaseBranch, git ?? null),
   );
   const worktreeModePending = $derived(env.pending);
-  const creatingWorktree = $derived(session.isContinuingInWorktree(session.activeTabId));
+  const creatingWorktree = $derived(session.isContinuingInWorktree(targetTabId));
   // While the worktree is being created, hold the pending label instead of the
   // live base branch so the pill doesn't read "main" and then teleport.
   const displayBranch = $derived(
@@ -95,6 +98,7 @@
   });
 
   $effect(() => {
+    if (isPinned) return;
     const handler = () => {
       if (mode !== windowCtx.viewMode || !displayBranch) return;
       if (gitOpen) {
@@ -110,7 +114,9 @@
   });
 
   function handleChooseDirectory() {
-    if (isBusy) return;
+    // The directory picker targets the active tab; a pinned strip shows the
+    // directory as a plain label instead.
+    if (isBusy || isPinned) return;
     window.dispatchEvent(new CustomEvent("solus:open-directory-picker"));
   }
 
@@ -133,20 +139,22 @@
   <!-- Right: session settings chip + usage + app settings. -->
   <div class="flex flex-1 min-w-0 items-center justify-end gap-2">
     {#if showUsage}
-      <ContextMeter tabId={session.activeTabId} />
+      <ContextMeter tabId={targetTabId} />
     {/if}
-    <PermissionModePicker compact={!showDirLabel} />
-    <SessionChip />
-    {#if session.runtimeSyncing}
-      <span
-        class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
-        use:tooltip={"Syncing runtime state"}
-      >
-        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
-        <span>Syncing...</span>
-      </span>
+    <PermissionModePicker compact={!showDirLabel} {tabId} />
+    <SessionChip {tabId} />
+    {#if !isPinned}
+      {#if session.runtimeSyncing}
+        <span
+          class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
+          use:tooltip={"Syncing runtime state"}
+        >
+          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
+          <span>Syncing...</span>
+        </span>
+      {/if}
+      <ServerSwitcher />
     {/if}
-    <ServerSwitcher />
     {#if !runtime.isMobileViewport && mode !== "editor"}
       <SettingsPopover />
     {/if}
@@ -173,10 +181,12 @@
   >
     <button
       onclick={handleChooseDirectory}
-      disabled={isBusy}
+      disabled={isBusy || isPinned}
       class="flex items-center gap-1 shrink-0 transition-[color,opacity] text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
-      style="max-width:{dirMaxWidth}px;cursor:{isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
-      use:tooltip={`${dirTooltip} — click or press ${comboHint("global.select-project")} to change`}
+      style="max-width:{dirMaxWidth}px;cursor:{isPinned ? 'default' : isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
+      use:tooltip={isPinned
+        ? dirTooltip
+        : `${dirTooltip} — click or press ${comboHint("global.select-project")} to change`}
     >
       {#if showDirIcon}
         <FolderOpenIcon size={11} class="flex-shrink-0 opacity-50" />

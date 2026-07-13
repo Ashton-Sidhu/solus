@@ -12,7 +12,6 @@
   } from "phosphor-svelte";
   import { onMount } from "svelte";
   import { connectionsStore, type ConnectionEndpoint } from "../../contexts/connections.store.svelte";
-  import GitHubConnect from "./GitHubConnect.svelte";
   import { pairQrSvgPath } from "./lib/qrcode";
 
   const connections = connectionsStore;
@@ -109,10 +108,6 @@
 </script>
 
 <div class="flex flex-col gap-6">
-  <GitHubConnect />
-
-  <div class="h-px bg-(--solus-container-border)"></div>
-
   <!-- Server status bar -->
   {#if connections.serverInfo}
     <div class="flex items-center justify-between">
@@ -158,8 +153,7 @@
         aria-label="Allow remote connections"
       >
         <span
-          class="absolute top-0.5 size-[1.125rem] rounded-full bg-(--solus-container-bg) shadow-sm transition-transform"
-          class:left-0.5={!connections.serverInfo.remoteAccess}
+          class="absolute left-0.5 top-0.5 size-[1.125rem] rounded-full bg-(--solus-container-bg) shadow-sm transition-transform"
           class:translate-x-5={connections.serverInfo.remoteAccess}
         ></span>
       </button>

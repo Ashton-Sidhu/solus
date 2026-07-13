@@ -20,7 +20,6 @@ export const KEYBINDINGS = {
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
   'global.toggle-project-panel': { combo: { alt: true, code: 'KeyM' },                   scope: 'global',             label: 'Toggle project panel',     group: 'View' },
-  'global.toggle-run-dock':      { combo: { alt: true, code: 'KeyJ' },                    scope: 'global',             label: 'Toggle run logs',          group: 'View' },
   'global.toggle-plans':         { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open plans gallery',       group: 'View' },
   'global.toggle-folio':      { combo: { alt: true, shift: true, code: 'Semicolon' },     scope: 'global',             label: 'Open folio gallery',       group: 'View' },
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },

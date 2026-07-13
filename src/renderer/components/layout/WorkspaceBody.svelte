@@ -158,11 +158,6 @@
 
   // Seed open state from settings once; mirror future changes back.
   runDock.open = settings.runDockOpen;
-  function toggleRunDock() {
-    runDock.toggle();
-    settings.update({ runDockOpen: runDock.open });
-    if (!runDock.open) requestInputFocus();
-  }
 
   function openSidebar() {
     sidebarOpen = true;
@@ -218,9 +213,6 @@
   });
   useKeybinding("global.toggle-project-panel", () => toggleProjectPanel(), {
     enabled: () => active && enableProjectPanel,
-  });
-  useKeybinding("global.toggle-run-dock", () => toggleRunDock(), {
-    enabled: () => active && enableRunDock,
   });
   useKeybinding(
     "global.toggle-files",

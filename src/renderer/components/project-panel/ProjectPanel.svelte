@@ -19,7 +19,6 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import PanelSection from "./PanelSection.svelte";
   import GitSection from "./GitSection.svelte";
-  import RunSection from "./RunSection.svelte";
   import WorksSection from "./WorksSection.svelte";
   import TasksSection from "./TasksSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
@@ -28,7 +27,6 @@
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { tabGitContextFromStatus } from "../../../shared/types";
-  import { getRunStore } from "../../contexts/run.store.svelte";
 
   interface Props {
     open?: boolean;
@@ -38,7 +36,6 @@
   let { open = true, width, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
-  const runs = getRunStore();
   const settings = getSettingsContext();
   const gitStatus = getGitStatusStore();
   const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
@@ -51,7 +48,6 @@
     activeSession?.gitContext ?? session.globalDefaults.gitContext,
   );
   const gitCwd = $derived(gitCtx?.worktreePath ?? cwd);
-  const runCwd = $derived(gitCtx?.worktreePath ?? cwd);
   const activeTabId = $derived(session.activeTabId);
   const projectName = $derived(() => {
     const dir = cwd?.replace(/\/$/, "");
@@ -251,15 +247,6 @@
     >
       <GitSection cwd={gitCwd} tabId={activeTabId} active={open} onOpenFiles={openFiles} />
     </PanelSection>
-    {#if runs.runsFor(runCwd)?.length > 0}
-      <PanelSection
-        title="Run"
-        collapsed={settings.projectPanelCollapsed.run}
-        onToggle={() => toggleSection("run")}
-      >
-        <RunSection cwd={runCwd} onConfigure={openSettings} />
-      </PanelSection>
-    {/if}
     {#if sessionWorkItems.length > 0}
       <PanelSection
         title="Works"

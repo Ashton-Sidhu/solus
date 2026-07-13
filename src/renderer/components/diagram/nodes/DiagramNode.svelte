@@ -4,7 +4,6 @@
   import type { DiagramNode, DiagramAction } from '../../../../shared/diagram-types'
   import { sanitizeNodeHtml, isSafeUrl } from '../../../../shared/diagram-sanitize'
   import { resolveIcon } from '../diagram-icons'
-  import { STATUS_COLORS } from '../diagram-colors'
   import { EditableLabel } from '../editable-label.svelte'
   import { ensureIconCollections } from '../iconify'
   import { isDecorativeNodeShape, isSimpleShapeNode } from '../diagram-node-shapes'
@@ -55,9 +54,6 @@
   const shape = $derived(
     isDecorativeNodeShape(data.shape) && !isSimpleShapeNode(data) ? 'rectangle' : (data.shape ?? 'rectangle')
   )
-
-  const statusColor = $derived(data.status ? (STATUS_COLORS[data.status] ?? null) : null)
-  const statusLabel = $derived(data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : '')
 
   const primaryAction = $derived(
     data.actions?.find((a) => a.on === 'click' && a.action.do !== 'openFile')?.action ?? null
@@ -170,6 +166,7 @@
   class:diagram-node--dimmed={data.dimmed}
   class:diagram-node--clickable={(!!primaryAction || drillable) && !editor.editing}
   class:diagram-node--drillable={drillable}
+  class:diagram-node--expanded={data.expanded}
   style={data.color ? `--node-accent:${data.color}` : undefined}
   role="button"
   tabindex="0"
@@ -188,7 +185,7 @@
     </svg>
   {/if}
 
-  <!-- Header row: icon + title/subtitle + status dot -->
+  <!-- Header row: icon + title/subtitle + contextual actions -->
   <div class="diagram-node__head">
     <span class="diagram-node__icon" aria-hidden="true">
       {#if iconifyName}
@@ -203,6 +200,9 @@
     </span>
 
     <div class="diagram-node__title-group">
+      {#if data.subtitle}
+        <span class="diagram-node__subtitle">{data.subtitle}</span>
+      {/if}
       {#if editor.editing}
         <input
           bind:this={editor.inputEl}
@@ -215,19 +215,7 @@
       {:else}
         <span class="diagram-node__label">{data.label}</span>
       {/if}
-      {#if data.subtitle}
-        <span class="diagram-node__subtitle">{data.subtitle}</span>
-      {/if}
     </div>
-
-    {#if statusColor}
-      <span
-        class="diagram-node__status-dot"
-        style="background:{statusColor}"
-        title="Status: {statusLabel}"
-        aria-label="Status: {statusLabel}"
-      ></span>
-    {/if}
 
     {#if data.commentCount}
       <button
@@ -390,7 +378,7 @@
     border: 0.0625rem solid var(--solus-tool-border);
     background: var(--solus-container-bg);
     color: var(--solus-text-primary);
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.04), 0 0.125rem 0.5rem rgba(0, 0, 0, 0.05);
+    box-shadow: none;
     cursor: grab;
     user-select: none;
     transition: transform var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium), border-color var(--duration-base) var(--ease-premium), opacity var(--duration-modal) var(--ease-premium);
@@ -398,15 +386,15 @@
 
   .diagram-node:hover {
     transform: translateY(-0.0625rem);
-    box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
-    border-color: var(--solus-accent-border-medium);
+    box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.06);
+    border-color: color-mix(in srgb, var(--solus-text-tertiary) 32%, transparent);
   }
 
   .diagram-node:active { cursor: grabbing; }
 
   .diagram-node--selected {
     border-color: var(--solus-accent);
-    box-shadow: 0 0 0 0.125rem var(--solus-accent-soft), 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
+    box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
   }
 
   /* Dimmed cards stay clickable: in focus mode a click on one moves the focus
@@ -515,11 +503,9 @@
     flex-shrink: 0;
     width: 1.5rem;
     height: 1.5rem;
-    border-radius: calc(var(--node-radius) - var(--node-pad));
-    background: color-mix(in srgb, var(--node-accent) 14%, transparent);
     font-size: 0.875rem;
     line-height: 1;
-    color: var(--node-accent);
+    color: var(--solus-text-secondary);
   }
 
   .diagram-node__title-group {
@@ -527,7 +513,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.0625rem;
+    gap: 0.125rem;
   }
 
   .diagram-node__label {
@@ -545,12 +531,19 @@
   }
 
   .diagram-node__subtitle {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     color: var(--solus-text-tertiary);
-    font-weight: 400;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .diagram-node--selected .diagram-node__subtitle {
+    color: var(--node-accent);
   }
 
   .diagram-node__input {
@@ -566,17 +559,8 @@
     padding: 0;
   }
 
-  /* Status dot */
-  .diagram-node__status-dot {
-    display: inline-block;
-    flex-shrink: 0;
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    box-shadow: 0 0 0 0.125rem var(--solus-container-bg);
-  }
-
-  /* Expand chevron button */
+  /* Contextual header actions stay out of the resting silhouette. Keyboard
+     focus reveals them before the control itself receives focus. */
   .diagram-node__expand-btn {
     display: grid;
     place-items: center;
@@ -589,12 +573,21 @@
     color: var(--solus-text-tertiary);
     cursor: pointer;
     padding: 0;
-    transition: background var(--duration-base) var(--ease-premium), color var(--duration-base) var(--ease-premium), transform var(--duration-base) var(--ease-premium);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(0.1875rem);
+    transition:
+      opacity var(--duration-quick) var(--ease-premium),
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      transform var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
   .diagram-node__expand-btn:hover {
-    background: color-mix(in srgb, var(--node-accent) 10%, transparent);
-    color: var(--node-accent);
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
   }
+  .diagram-node__expand-btn:active { scale: 0.96; }
   .diagram-node__expand-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;
@@ -607,7 +600,7 @@
     transform: rotate(180deg);
   }
 
-  /* Comment-count chip — mirrors the drill affordance's tinting. */
+  /* Comment count keeps its information but loses the persistent accent chip. */
   .diagram-node__comments {
     display: inline-flex;
     align-items: center;
@@ -617,18 +610,25 @@
     padding: 0 0.3125rem;
     border: none;
     border-radius: 0.375rem;
-    background: color-mix(in srgb, var(--node-accent) 12%, transparent);
-    color: var(--node-accent);
+    background: transparent;
+    color: var(--solus-text-tertiary);
     font-size: 0.5625rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(0.1875rem);
     transition:
+      opacity var(--duration-quick) var(--ease-premium),
       background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      transform var(--duration-base) var(--ease-premium),
       scale var(--duration-quick) var(--ease-premium);
   }
   .diagram-node__comments:hover {
-    background: color-mix(in srgb, var(--node-accent) 22%, transparent);
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
   }
   .diagram-node__comments:active {
     scale: 0.96;
@@ -646,13 +646,34 @@
     width: 1.25rem;
     height: 1.25rem;
     border-radius: 0.375rem;
-    background: color-mix(in srgb, var(--node-accent) 12%, transparent);
-    color: var(--node-accent);
-    transition: background var(--duration-base) var(--ease-premium), transform var(--duration-base) var(--ease-premium);
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    opacity: 0;
+    transform: translateX(0.1875rem);
+    transition:
+      opacity var(--duration-quick) var(--ease-premium),
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      transform var(--duration-base) var(--ease-premium);
   }
   .diagram-node--drillable:hover .diagram-node__drill {
-    background: color-mix(in srgb, var(--node-accent) 22%, transparent);
-    transform: translateX(0.0625rem);
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+
+  .diagram-node:hover .diagram-node__comments,
+  .diagram-node:hover .diagram-node__drill,
+  .diagram-node:hover .diagram-node__expand-btn,
+  .diagram-node:focus-within .diagram-node__comments,
+  .diagram-node:focus-within .diagram-node__drill,
+  .diagram-node:focus-within .diagram-node__expand-btn,
+  .diagram-node--selected .diagram-node__comments,
+  .diagram-node--selected .diagram-node__drill,
+  .diagram-node--selected .diagram-node__expand-btn,
+  .diagram-node--expanded .diagram-node__expand-btn {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
   }
 
   /* Badges */
@@ -668,8 +689,8 @@
     align-items: center;
     padding: 0.0625rem 0.375rem;
     border-radius: 0.375rem;
-    background: color-mix(in srgb, var(--node-accent) 10%, transparent);
-    border: 0.0625rem solid color-mix(in srgb, var(--node-accent) 22%, transparent);
+    background: transparent;
+    border: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
     color: var(--solus-text-secondary);
     font-size: 0.5625rem;
     font-weight: 500;
@@ -806,6 +827,9 @@
   @media (prefers-reduced-motion: reduce) {
     .diagram-node { transition: none; }
     .diagram-node--dimmed { transition: none; }
+    .diagram-node__comments,
+    .diagram-node__drill,
+    .diagram-node__expand-btn,
     .diagram-node__expand-icon { transition: none; }
   }
 </style>

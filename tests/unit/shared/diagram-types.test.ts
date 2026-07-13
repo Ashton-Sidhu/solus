@@ -9,7 +9,6 @@ const RICH_NODE_DOC = {
       label: 'API Server',
       icon: 'service',
       subtitle: 'Node.js · 3 instances',
-      status: 'healthy' as const,
       badges: ['v2.1', 'autoscaling'],
       metrics: { P95: '42ms', RPS: '1.2k' },
       tags: ['production'],
@@ -31,7 +30,6 @@ describe('parseDiagram — rich fields', () => {
 
     const apiNode = parsed.nodes.find((n) => n.id === 'api')!
     expect(apiNode.subtitle).toBe('Node.js · 3 instances')
-    expect(apiNode.status).toBe('healthy')
     expect(apiNode.badges).toEqual(['v2.1', 'autoscaling'])
     expect(apiNode.metrics).toEqual({ P95: '42ms', RPS: '1.2k' })
     expect(apiNode.tags).toEqual(['production'])
@@ -160,7 +158,6 @@ describe('parseDiagram — rich fields', () => {
     expect(parsed.nodes).toHaveLength(2)
     expect(parsed.edges).toHaveLength(1)
     expect(parsed.nodes[0].subtitle).toBeUndefined()
-    expect(parsed.nodes[0].status).toBeUndefined()
   })
 })
 

@@ -25,7 +25,7 @@ import { warmupTranscription } from './transcription'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from './server/auth'
 import { closeDb } from './db'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
-import { installDevShutdownHandlers } from './dev-shutdown'
+import { createShutdownCoordinator } from './shutdown-coordinator'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -114,17 +114,18 @@ let pendingPillShowSource: string | null = null
 let sessionIndexerStarted = false
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
-if (isDevMode) {
-  installDevShutdownHandlers({
-    signalSource: process,
-    shutdown: async () => {
-      forceQuit = true
-      await core?.shutdown()
-    },
-    quit: () => app.quit(),
-    onError: (signal, error) => log.error(`shutdown after ${signal} failed: ${error}`),
-  })
-}
+const shutdownCoordinator = createShutdownCoordinator({
+  shutdown: async () => {
+    forceQuit = true
+    await core?.shutdown()
+  },
+  quit: () => app.quit(),
+  forceQuit: () => app.exit(0),
+  onError: (error) => log.error(`shutdown failed: ${error}`),
+})
+
+process.on('SIGINT', shutdownCoordinator.requestQuit)
+process.on('SIGTERM', shutdownCoordinator.requestQuit)
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 const LOCAL_DEVICE_LABEL = 'This Mac'
@@ -403,7 +404,6 @@ function createPillWindow(options: { showWhenReady?: boolean; source?: string } 
     }
   })
 
-  app.on('before-quit', () => { forceQuit = true })
   mainWindow.on('close', (e) => {
     if (!forceQuit) {
       e.preventDefault()
@@ -1031,6 +1031,7 @@ if (isPairUrl) {
         focusWindow: () => showCurrentModeWindow('notification click', { fromTrayShow: true }),
         getTray: () => tray,
         badgeTarget: process.platform === 'darwin' && app.dock ? 'tray' : 'none',
+        isActiveAttention: (entry) => bootedCore.controlPlane.isPendingAttentionLive(entry.sessionId),
       })
 
       nativeTheme.on('updated', () => {
@@ -1046,7 +1047,10 @@ if (isPairUrl) {
         currentViewMode = win === editorWindow ? 'editor' : 'pill'
       })
 
-      initAutoUpdater(() => { forceQuit = true })
+      initAutoUpdater(() => {
+        forceQuit = true
+        void core?.shutdown()
+      })
 
       if (!isTestMode) requestPermissions().catch((err: Error) => log.error(`Permission preflight error: ${err.message}`))
 
@@ -1098,6 +1102,14 @@ if (isPairUrl) {
   })
 }
 
+app.on('before-quit', (event) => {
+  // Auto-update sets forceQuit before calling quitAndInstall and must not be
+  // intercepted. All ordinary quit paths get one bounded cleanup attempt.
+  if (forceQuit || shutdownCoordinator.isQuitting) return
+  event.preventDefault()
+  shutdownCoordinator.requestQuit()
+})
+
 app.on('will-quit', () => {
   if (sessionIndexerStartTimer) {
     clearTimeout(sessionIndexerStartTimer)
@@ -1112,7 +1124,6 @@ app.on('will-quit', () => {
   tray?.destroy()
   tray = null
   destroyAllFinders()
-  void core?.shutdown()
   flushLogs()
 })
 

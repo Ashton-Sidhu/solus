@@ -65,19 +65,20 @@
     NODE_WIDTH_EST,
     NODE_HEIGHT_EST,
   } from "./lib/graph-layout";
-  import { diagramAccent } from "./diagram-colors";
   import {
     buildClipboardPaste,
     hasDiagramClipboard,
     setDiagramClipboard,
   } from "./lib/clipboard.svelte";
   import {
+    DEFAULT_EDGE_COLOR,
     edgeRenderProps,
     toFlowEdges,
     toFlowNodes,
   } from "./lib/flow-builders";
   import {
     applyLayout,
+    reapplyLayout,
     type LayoutDirection,
   } from "../../../shared/diagram-layout";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
@@ -451,24 +452,23 @@
     onContextMenu: handleContextMenuOpen,
   };
 
-  const edgeAccent = $derived(diagramAccent(theme.isDark));
   const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fefefc");
-  const defaultEdgeOptions = $derived({
+  const defaultEdgeOptions = {
     type: "default",
     markerEnd: {
       type: MarkerType.ArrowClosed,
       width: 16,
       height: 16,
-      color: edgeAccent,
+      color: DEFAULT_EDGE_COLOR,
     },
-  });
+  };
 
   function buildFlowNodes(diagNodes: DiagramNode[]): Node[] {
     return toFlowNodes(diagNodes, expandedNodeIds, NODE_HANDLERS);
   }
 
   function buildFlowEdges(diagEdges: DiagramEdge[]): Edge[] {
-    return toFlowEdges(diagEdges, edgeAccent, EDGE_HANDLERS);
+    return toFlowEdges(diagEdges, EDGE_HANDLERS);
   }
 
   let nodes = $state.raw(buildFlowNodes(rootDoc.nodes));
@@ -487,28 +487,6 @@
   // True while undo/redo is reapplying a snapshot, so the resulting save isn't
   // recorded as a fresh history step.
   let isRestoring = false;
-
-  // Arrowheads on default-colour edges are baked with the accent at build time;
-  // restamp them when the theme flips so they track light/dark. Custom-colour
-  // arrows keep their own colour. The guard (some marker out of date) stops the
-  // write from re-triggering this effect.
-  $effect(() => {
-    const accent = edgeAccent;
-    const stale = edges.some(
-      (e: any) =>
-        !e.data?.color &&
-        ((e.markerStart && e.markerStart.color !== accent) ||
-          (e.markerEnd && e.markerEnd.color !== accent)),
-    );
-    if (!stale) return;
-    edges = edges.map((e: any) => {
-      if (e.data?.color) return e;
-      const next = { ...e };
-      if (next.markerStart) next.markerStart = { ...next.markerStart, color: accent };
-      if (next.markerEnd) next.markerEnd = { ...next.markerEnd, color: accent };
-      return next;
-    });
-  });
 
   $effect(() => {
     const indexById = new Map(nodes.map((n, i) => [n.id, i]));
@@ -1398,7 +1376,8 @@
   }
 
   // Mirror toFlowEdges' kind→visual mapping so a type change looks identical to
-  // a freshly-parsed edge of that kind.
+  // a freshly-parsed edge of that kind. Async uses dash rhythm by default;
+  // continuous motion remains opt-in through the persisted animated flag.
   function handleEdgeKindChange(
     id: string,
     kind: NonNullable<DiagramEdge["kind"]>,
@@ -1409,7 +1388,7 @@
       e.id === id
         ? {
             ...e,
-            animated: isAsync,
+            animated: (e.data?.animated as boolean | undefined) ?? false,
             className: isAsync
               ? "edge--async"
               : isData
@@ -1425,7 +1404,7 @@
   // Re-derive an edge's inline render props (stroke colour, width, arrowheads)
   // after one of them changes, preserving the untouched two from its data. The
   // patch carries exactly the changed key; clearing it to undefined restores the
-  // kind-based CSS default (no inline stroke/width, accent arrowhead).
+  // kind-based CSS default (no inline stroke/width, neutral arrowhead).
   function patchEdgeRender(
     id: string,
     patch: {
@@ -1446,7 +1425,7 @@
           : (e.data?.arrows as DiagramEdge["arrows"]);
       return {
         ...e,
-        ...edgeRenderProps(color, width, arrows, edgeAccent),
+        ...edgeRenderProps(color, width, arrows),
         data: { ...e.data, ...patch },
       };
     });
@@ -1494,7 +1473,7 @@
       const arrows = e.data?.arrows as DiagramEdge["arrows"];
       return {
         ...e,
-        ...edgeRenderProps(color, width, cardinality ? "none" : arrows, edgeAccent),
+        ...edgeRenderProps(color, width, cardinality ? "none" : arrows),
         data: { ...e.data, cardinality },
       };
     });
@@ -1543,8 +1522,8 @@
         ...NODE_HANDLERS,
       },
     };
-    // Deselect everything else, select the new node, and open its drawer so the
-    // kind/status are immediately settable. Keep parents ahead of children.
+    // Deselect everything else, select the new node, and open its drawer so its
+    // details are immediately settable. Keep parents ahead of children.
     nodes = orderParentsFirst([...nodes.map(deselect), newNode]);
     openNodeDrawer(id, true);
     scheduleSave();
@@ -1811,18 +1790,7 @@
 
   function relayout(direction: LayoutDirection = layoutDirection ?? "LR") {
     layoutDirection = direction;
-    const laid = applyLayout(
-      {
-        // Drop position/width/height so applyLayout re-positions and re-fits
-        // every node (a node that still carries a position is left untouched).
-        nodes: nodes.map((n) => {
-          const { position, width, height, ...rest } = flowNodeToDiagram(n);
-          return rest;
-        }),
-        edges: edges.map(flowEdgeToDiagram),
-      },
-      direction,
-    );
+    const laid = reapplyLayout(currentDoc(), direction);
     nodes = buildFlowNodes(laid.nodes);
     applyTransientState();
     scheduleSave();

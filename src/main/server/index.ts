@@ -250,7 +250,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   ensureClaimWindow()
 
   const { server: http } = buildHttpServer({ host, port, staticDir: opts.staticDir, getHost: () => host, getPort: () => actualPort })
-  const ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
+  let ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
 
@@ -352,8 +352,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     host = next.host
     requireAuth = next.requireAuth
     lock?.release()
+    // Existing WS connections (including the one carrying this very toggle)
+    // keep the plain http.close() callback from ever firing, since Node waits
+    // for all live sockets to end on their own. Force them closed first.
+    try { ws.close() } catch (err) { log.warn(`ws.close failed during rebind: ${err}`) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
+    ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
     lock = acquireLock(host, actualPort)
     if (!lock) log.warn('lock acquisition failed after rebind; proceeding without single-instance enforcement')
     log.info(`Solus server rebound to http://${host}:${actualPort} (auth=${requireAuth ? 'on' : 'off'})`)

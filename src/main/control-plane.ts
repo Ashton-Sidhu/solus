@@ -706,6 +706,14 @@ export class ControlPlane extends EventEmitter {
     this._closeTabById(ctx.session.tabId)
   }
 
+  isPendingAttentionLive(sessionId: string): boolean {
+    const session = this.activeSessions.get(sessionId)
+    if (!session?.pendingInputEvents.some(
+      (event) => event.type === 'permission_request' || event.type === 'question_request',
+    )) return false
+    return [...this.tabs.values()].some((tab) => tab.sessionId === sessionId)
+  }
+
   handleClientDisconnected(clientId: string, deviceId?: string): void {
     const ownsTabs = [...this.tabs.values()].some((tab) => tab.clientId === clientId)
     if (!ownsTabs) return
@@ -733,6 +741,9 @@ export class ControlPlane extends EventEmitter {
     this.pendingFlush.delete(tabId)
     this._syncGitWatcher(tabId, null)
     this.tabs.delete(tabId)
+    if (tab.sessionId && ![...this.tabs.values()].some((candidate) => candidate.sessionId === tab.sessionId)) {
+      this.attention.resolve(tab.sessionId)
+    }
     log.info(`Tab closed: ${tabId}`)
   }
 
@@ -1927,6 +1938,7 @@ export class ControlPlane extends EventEmitter {
       this.activeSessions.delete(sessionId)
       this.missingRunCounts.delete(sessionId)
       backend.permissions.clearPendingForSession(sessionId)
+      this.attention.resolve(sessionId)
     }
   }
 

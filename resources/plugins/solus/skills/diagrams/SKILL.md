@@ -28,7 +28,6 @@ Create a diagram only when the user asks for a system/architecture/data diagram 
       "label": "API Server",
       "icon": "service",
       "subtitle": "Node.js · 3 instances",
-      "status": "healthy",
       "badges": ["v2.1", "autoscaling"],
       "metrics": { "P95": "42ms", "RPS": "1.2k" },
       "body": "Handles REST requests and delegates to downstream services.",
@@ -84,7 +83,6 @@ A node carrying `fields` renders as an **entity** (a table of typed columns) ins
 |---|---|
 | `icon` | Prefer a real brand/service/protocol logo via Iconify — `logos:postgresql`, `logos:redis`, `logos:kafka`, `logos:graphql`, `logos:docker`, `logos:aws`, `logos:nginx`, `logos:rabbitmq`, `logos:kubernetes`, or `simple-icons:<name>`. Fall back to generic glyphs: `service`, `db`, `queue`, `external`, `client`, `group`, `api`, `cache`, `auth`, `gateway`, `storage`, `function`, `broker`, `load_balancer`, `cdn`, `table`. Entities default to the `table` glyph. |
 | `subtitle` | Short descriptor shown under the label. |
-| `status` | `"healthy" \| "warn" \| "error" \| "info" \| "muted"` — shows a colored status dot. |
 | `color` | CSS colour string that tints the node/group icon chip and badges. |
 | `shape` | Card outline: `"rectangle"` (default, a rounded card) \| `"circle"` \| `"diamond"`. `circle`/`diamond` are decorative and only apply to a simple label node — a node with badges/fields/body/etc. stays a rectangle. Great for flowchart terminators (`circle`) and decisions (`diamond`). Ignored on group nodes. |
 | `badges` | Compact chips for version, count, env, etc. |

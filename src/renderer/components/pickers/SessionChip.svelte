@@ -18,13 +18,21 @@
   const statusBar = getStatusBarContext();
   const layer = getPopoverLayer();
 
-  const ctx = $derived(statusBar.ctx);
-  const sess = $derived(session.sessionFor(session.activeTabId));
+  interface Props {
+    tabId?: string;
+  }
+  let { tabId }: Props = $props();
+
+  const ctx = $derived(statusBar.ctxFor(tabId ?? session.activeTabId));
+  const sess = $derived(session.sessionFor(tabId ?? session.activeTabId));
   const isBusy = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
+  // Agent switching flips app-global state (active agent, default model
+  // config), so a split-scoped chip never offers it.
   const isAgentLocked = $derived(
-    !!sess?.agentSessionId && sess.status !== "interrupted",
+    tabId !== undefined ||
+      (!!sess?.agentSessionId && sess.status !== "interrupted"),
   );
 
   // Model
@@ -112,6 +120,9 @@
   }
 
   async function openFromShortcut() {
+    // The shortcut targets the main bar's chip; a split-scoped chip in the
+    // same visible layout must not also open.
+    if (tabId !== undefined) return;
     if (isBusy) return;
     // Both the editor- and pill-mode layouts stay mounted, so two SessionChips
     // receive this shortcut. Only the one in the visible layout should open
@@ -127,7 +138,7 @@
     open = false;
     activeSub = null;
     window.clearTimeout(closeTimer);
-    requestInputFocus();
+    if (tabId === undefined) requestInputFocus();
   }
 
   useClickOutside(
@@ -170,11 +181,11 @@
   }
 
   function selectReasoning(effort: ReasoningEffort) {
-    session.updateModelConfig({ reasoningEffort: effort });
+    session.updateModelConfig({ reasoningEffort: effort }, tabId);
     close();
   }
   function selectModel(modelId: string) {
-    session.updateModelConfig({ modelId });
+    session.updateModelConfig({ modelId }, tabId);
     close();
   }
   function selectAgent(id: AgentId) {

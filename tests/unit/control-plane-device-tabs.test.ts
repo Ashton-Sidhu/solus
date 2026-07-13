@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'events'
 import { ControlPlane } from '../../src/main/control-plane'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentMetadata, BackendSession, NormalizedEvent, PromptOptions, SessionRunInput } from '../../src/shared/types'
+import type { AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput } from '../../src/shared/types'
 
 const GRACE_MS = 5 * 60_000
 
@@ -254,5 +254,30 @@ describe('ControlPlane device-scoped tab watches', () => {
 
     expect(env.events.map((e) => e.tabId)).toEqual(['tab-a', 'tab-b'])
     expect(env.events.map((e) => env.controlPlane.getTabClientId(e.tabId))).toEqual(['ws:a', 'ws:b'])
+  })
+
+  test('closing the last session watch dismisses its pending attention', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+    env.registerWatch('tab-b', 'ws:b', 'device-1', 'session-1')
+    env.controlPlane.attention.set({
+      sessionId: 'session-1',
+      kind: 'question',
+      summary: 'Question: choose one',
+    })
+
+    env.controlPlane.closeTab(
+      { session: { tabId: 'tab-a' } } as IpcContext,
+      { clientId: 'ws:a', deviceId: 'device-1' },
+    )
+    expect(env.controlPlane.attention.get('session-1')).toBeDefined()
+
+    env.controlPlane.closeTab(
+      { session: { tabId: 'tab-b' } } as IpcContext,
+      { clientId: 'ws:b', deviceId: 'device-1' },
+    )
+    expect(env.controlPlane.attention.get('session-1')).toBeUndefined()
   })
 })

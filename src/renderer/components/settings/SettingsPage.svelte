@@ -12,6 +12,7 @@
     KeyboardIcon,
     MicrophoneIcon,
     BinocularsIcon,
+    GithubLogoIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
@@ -21,6 +22,7 @@
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
   import SettingsTabReview from "./SettingsTabReview.svelte";
   import SettingsTabConnections from "./SettingsTabConnections.svelte";
+  import SettingsTabGitHub from "./SettingsTabGitHub.svelte";
   import SettingsTabTools from "./SettingsTabTools.svelte";
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
@@ -34,6 +36,7 @@
   type SettingsTab =
     | "general"
     | "review"
+    | "github"
     | "api-access"
     | "tools"
     | "skills"
@@ -80,6 +83,13 @@
       id: "skills",
       label: "Skills",
       icon: SparkleIcon,
+      group: "Capabilities",
+      desktopOnly: true,
+    },
+    {
+      id: "github",
+      label: "GitHub",
+      icon: GithubLogoIcon,
       group: "Capabilities",
       desktopOnly: true,
     },
@@ -164,6 +174,8 @@
     <SettingsTabReview {searchQuery} />
   {:else if session.settingsTab === "voice"}
     <SettingsTabVoice />
+  {:else if session.settingsTab === "github"}
+    <SettingsTabGitHub />
   {:else if session.settingsTab === "api-access"}
     <SettingsTabConnections />
   {:else if session.settingsTab === "tools"}

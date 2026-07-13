@@ -7,6 +7,8 @@ import {
   orderParentsFirst,
 } from "./graph-layout";
 
+export const DEFAULT_EDGE_COLOR = "var(--solus-text-tertiary)";
+
 export function toFlowNodes(
   diagNodes: DiagramNode[],
   expandedNodeIds: Set<string>,
@@ -57,7 +59,6 @@ export function toFlowNodes(
 
 export function toFlowEdges(
   diagEdges: DiagramEdge[],
-  edgeAccent: string,
   edgeHandlers: Record<string, unknown>,
 ): Edge[] {
   return diagEdges.map((e) => {
@@ -71,11 +72,12 @@ export function toFlowEdges(
       ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
       label: e.label,
       type: "default",
-      animated: isAsync || (e.animated ?? false),
+      animated: e.animated ?? false,
       className: isAsync ? "edge--async" : isData ? "edge--data" : undefined,
-      ...edgeRenderProps(e.color, e.width, e.cardinality ? 'none' : e.arrows, edgeAccent),
+      ...edgeRenderProps(e.color, e.width, e.cardinality ? 'none' : e.arrows),
       data: {
         kind: e.kind,
+        animated: e.animated,
         color: e.color,
         width: e.width,
         arrows: e.arrows,
@@ -94,7 +96,6 @@ export function edgeRenderProps(
   color: string | undefined,
   width: number | undefined,
   arrows: DiagramEdge["arrows"],
-  edgeAccent: string,
 ) {
   const styleParts: string[] = [];
   if (color) styleParts.push(`stroke:${color}`);
@@ -104,7 +105,7 @@ export function edgeRenderProps(
     type: MarkerType.ArrowClosed,
     width: 16,
     height: 16,
-    color: color ?? edgeAccent,
+    color: color ?? DEFAULT_EDGE_COLOR,
   };
   return {
     style: styleParts.length ? styleParts.join(";") : undefined,

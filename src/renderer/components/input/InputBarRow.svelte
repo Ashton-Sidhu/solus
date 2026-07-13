@@ -7,15 +7,22 @@
 
   interface Props {
     mode: "pill" | "editor";
+    tabId?: string;
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
     onDesignMode?: (() => void) | null;
   }
-  let { mode, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let {
+    mode,
+    tabId,
+    onAttachFile,
+    onScreenshot,
+    onDesignMode,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
-  const sess = $derived(session.sessionFor(session.activeTabId));
+  const sess = $derived(session.sessionFor(tabId ?? session.activeTabId));
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
@@ -142,6 +149,6 @@
   ></div>
 
   <div class="flex-1 min-w-0">
-    <InputBar {mode} />
+    <InputBar {mode} {tabId} />
   </div>
 </div>

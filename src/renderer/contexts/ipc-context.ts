@@ -37,7 +37,7 @@ export class IpcContextBuilder {
       session: this.sessionCtx(tabId),
       window: { viewMode: this.deps.window.viewMode },
       settings: this.deps.settings.ctx,
-      statusBar: this.deps.statusBar.ctx,
+      statusBar: this.deps.statusBar.ctxFor(tabId),
     }
   }
 

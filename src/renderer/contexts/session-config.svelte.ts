@@ -45,8 +45,8 @@ export class SessionConfigController {
     this.deps.settings.update({ tabGroupMode })
   }
 
-  updateModelConfig(patch: Partial<ModelConfig>): void {
-    const session = this.deps.registry.activeSession
+  updateModelConfig(patch: Partial<ModelConfig>, tabId?: string): void {
+    const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     const mc = session ? session.modelConfig : this.globalDefaults.modelConfig
 
     if ('modelId' in patch && patch.modelId !== mc.modelId) {
@@ -90,8 +90,8 @@ export class SessionConfigController {
     this.deps.refreshPluginCommands(session.workingDirectory, this.deps.registry.activeTabId)
   }
 
-  setPermissionMode(mode: 'ask' | 'auto' | 'plan'): void {
-    const session = this.deps.registry.activeSession
+  setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {
+    const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (!session) {
       this.globalDefaults.permissionMode = mode
       return

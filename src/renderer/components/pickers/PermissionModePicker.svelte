@@ -14,19 +14,22 @@
 
   interface Props {
     compact?: boolean;
+    tabId?: string;
   }
-  let { compact = false }: Props = $props();
+  let { compact = false, tabId }: Props = $props();
 
   let open = $state(false)
   let triggerEl: HTMLButtonElement | null = $state(null)
 
-  const ctx = $derived(statusBar.ctx)
+  const ctx = $derived(statusBar.ctxFor(tabId ?? session.activeTabId))
   const permissionMode = $derived(ctx.permissionMode)
   const isPlan = $derived(permissionMode === 'plan')
   const isAuto = $derived(permissionMode === 'auto')
   const modeLabel = $derived(isPlan ? 'Plan' : isAuto ? 'Auto' : 'Ask')
   const activeAgent = $derived(ctx.activeAgent)
-  const capabilities = $derived(agent.activeMetadata?.capabilities)
+  const capabilities = $derived(
+    (agent.metadata[activeAgent] ?? agent.activeMetadata)?.capabilities,
+  )
   const supportsPermissions = $derived(capabilities?.permissions !== false)
   const supportsPlan = $derived(capabilities?.planMode !== false)
   const tooltipLabel = $derived.by(() => {
@@ -46,9 +49,9 @@
   }
 
   function selectPermissionMode(mode: 'ask' | 'auto' | 'plan') {
-    session.setPermissionMode(mode)
+    session.setPermissionMode(mode, tabId)
     open = false
-    requestInputFocus()
+    if (tabId === undefined) requestInputFocus()
   }
 </script>
 

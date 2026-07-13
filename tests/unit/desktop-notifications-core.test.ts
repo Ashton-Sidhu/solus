@@ -25,7 +25,7 @@ describe('desktop attention notification core', () => {
       'new-question:question',
       'new-failed:failed',
     ])
-    expect(first.badgeCount).toBe(3)
+    expect(first.badgeCount).toBe(2)
 
     previous = first.nextKeys
     const resolved = diffDesktopAttentionSnapshot(previous, [
@@ -44,12 +44,12 @@ describe('desktop attention notification core', () => {
     expect(reappeared.badgeCount).toBe(2)
   })
 
-  test('badge count ignores finished entries', () => {
+  test('badge counts only live questions and approvals', () => {
     expect(countDesktopAttentionEntries([
       entry('approval', 'needs_approval'),
       entry('question', 'question'),
       entry('failed', 'failed'),
       entry('finished', 'finished'),
-    ])).toBe(3)
+    ], (item) => item.sessionId !== 'question')).toBe(1)
   })
 })

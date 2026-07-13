@@ -14,8 +14,6 @@
     title: string;
     ariaLabel: string;
     onClose: () => void;
-    // Optional status dot shown before the title (node status colour).
-    statusColor?: string | null;
     // Focus the first `.diagram-drawer__name-input` on mount — set only when the
     // drawer is opened via an explicit edit intent, so plain selection leaves
     // keyboard focus on the canvas and canvas shortcuts keep working.
@@ -28,7 +26,6 @@
     title,
     ariaLabel,
     onClose,
-    statusColor = null,
     autoFocus = false,
     children,
     footer,
@@ -67,13 +64,6 @@
 >
   <div class="diagram-drawer__header">
     <div class="diagram-drawer__title-group">
-      {#if statusColor}
-        <span
-          class="diagram-drawer__status-dot"
-          style="background:{statusColor}"
-          aria-hidden="true"
-        ></span>
-      {/if}
       <span class="diagram-drawer__title">{title}</span>
     </div>
     <button
@@ -135,14 +125,6 @@
     align-items: center;
     gap: 0.5rem;
     min-width: 0;
-  }
-
-  .diagram-drawer__status-dot {
-    display: inline-block;
-    flex-shrink: 0;
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
   }
 
   .diagram-drawer__title {

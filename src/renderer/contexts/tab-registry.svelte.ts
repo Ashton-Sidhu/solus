@@ -20,7 +20,7 @@ export class TabRegistry {
   }
 
   get currentInput(): InputState {
-    return this.tabs[this.activeTabId]?.input ?? this.activeInput
+    return this.activeTab?.input ?? this.activeInput
   }
 
   sessionFor(tabId: string): Session | undefined {

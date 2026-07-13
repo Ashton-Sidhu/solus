@@ -27,9 +27,12 @@
 
   interface Props {
     mode?: "pill" | "editor";
+    tabId?: string;
     leadingActions?: Snippet;
   }
-  let { mode = "pill", leadingActions }: Props = $props();
+  let { mode = "pill", tabId, leadingActions }: Props = $props();
+
+  const isPrimary = $derived(tabId === undefined);
 
   const INPUT_MAX_HEIGHT = $derived(mode === "editor" ? 260 : 140);
 
@@ -39,8 +42,9 @@
   const statusBar = getStatusBarContext();
   const windowCtx = getWindowContext();
 
-  const sess = $derived(session.sessionFor(session.activeTabId));
-  const activeTabId = $derived(session.activeTabId);
+  const targetTabId = $derived(tabId ?? session.activeTabId);
+  const sess = $derived(session.sessionFor(targetTabId));
+  const input = $derived(session.inputFor(targetTabId));
   const isActiveMode = $derived(mode === windowCtx.viewMode);
   const isMobile = $derived(runtime.isMobileViewport);
   const isBusy = $derived(
@@ -48,7 +52,7 @@
   );
   const isConnecting = $derived(sess?.status === "connecting");
   const isReadOnly = $derived(!!sess?.readOnlyReason);
-  const attachments = $derived(session.currentInput.attachments);
+  const attachments = $derived(input.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
   const activeProvider = $derived(sess?.provider ?? theme.activeAgent);
   const pluginCommands = $derived(
@@ -56,7 +60,7 @@
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
-    sess?.workingDirectory ?? statusBar.ctx.workingDirectory,
+    sess?.workingDirectory ?? statusBar.ctxFor(targetTabId).workingDirectory,
   );
 
   // ─── Prompt history ───
@@ -88,23 +92,22 @@
 
   // ─── Editor state ───
 
-  // The composer text lives on the active tab's input state (or the tab-less
-  // one). Switching tabs swaps `currentInput`, so the editor follows along with
-  // no manual save/restore — see MarkdownEditor's reactive `value` sync.
-  const inputText = $derived(session.currentInput.text);
+  // The composer text lives on the target tab's input state (the active tab's,
+  // the pinned split tab's, or the tab-less one). Switching tabs swaps `input`,
+  // so the editor follows along with no manual save/restore — see
+  // MarkdownEditor's reactive `value` sync.
+  const inputText = $derived(input.text);
 
   // When this bar is inactive (hidden with display:none) the underlying TipTap
   // instance is still alive. Without a guard it calls setContent on every
   // keystroke — parsing markdown and dispatching ProseMirror transactions for
   // a hidden editor. Freeze the draft at the moment this bar goes inactive;
   // switch back to the live reactive value the instant it becomes active again.
-  let frozenText = $state(untrack(() => session.currentInput.text));
+  let frozenText = $state(untrack(() => input.text));
   $effect(() => {
-    if (!isActiveMode) frozenText = untrack(() => session.currentInput.text);
+    if (!isActiveMode) frozenText = untrack(() => input.text);
   });
-  const editorValue = $derived(
-    isActiveMode ? session.currentInput.text : frozenText,
-  );
+  const editorValue = $derived(isActiveMode ? input.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
 
   // Skill commands, used only to strip a mobile-autocorrect duplication on send.
@@ -123,8 +126,12 @@
   let retryClock = $state(Date.now());
 
   // The recorder is shared, so gate this bar's voice UI on conversational mode:
-  // a plain field dictating elsewhere must not light up the input bar.
-  const voiceState = $derived(voice.mode === "message" ? voice.state : "idle");
+  // a plain field dictating elsewhere must not light up the input bar. A
+  // tab-pinned (secondary) instance never owns the recorder, so it always
+  // reads idle — recording in the main bar must not hide the split's editor.
+  const voiceState = $derived(
+    isPrimary && voice.mode === "message" ? voice.state : "idle",
+  );
 
   // Lazy-mount the waveform: once true, never resets so the canvas stays alive.
   let hasMountedWaveform = $state(false);
@@ -150,7 +157,7 @@
   // leaves them untouched, so the stored handlers always belong to whichever
   // bar is visible.
   $effect(() => {
-    if (!isActiveMode) return;
+    if (!isActiveMode || !isPrimary) return;
     voice.setMessageHandler((transcript) => {
       const prompt = transcript.trim();
       if (!prompt || isConnecting || isReadOnly) return;
@@ -175,8 +182,8 @@
       workRefs.length > 0,
   );
   const canSend = $derived(!isConnecting && !isReadOnly && hasContent);
-  const planRefs = $derived(session.currentInput.planRefs);
-  const workRefs = $derived(session.currentInput.workRefs);
+  const planRefs = $derived(input.planRefs);
+  const workRefs = $derived(input.workRefs);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived(
@@ -241,7 +248,7 @@
         : voiceState === "transcribing"
           ? "Transcribing..."
           : isBusy
-            ? voiceModeEnabled
+            ? voiceModeEnabled && isPrimary
               ? "Waiting for Claude..."
               : "Type to queue a message..."
             : activeProvider === "codex"
@@ -251,8 +258,14 @@
 
   // ─── Focus management ───
 
+  function refocusComposer() {
+    if (isPrimary) requestInputFocus();
+    else composerEl?.focus();
+  }
+
   let prevFocusable = untrack(() => isActiveMode && !session.sessionPickerOpen);
   $effect(() => {
+    if (!isPrimary) return;
     void sess?.workingDirectory;
     void sess?.readOnlyReason;
     const isFocusable = isActiveMode && !session.sessionPickerOpen;
@@ -295,17 +308,17 @@
       .split("\n")
       .map((line) => `> ${line}`)
       .join("\n");
-    const existing = session.currentInput.text;
+    const existing = input.text;
     const next = existing.trim()
       ? `${existing}\n\n${quoted}\n\n`
       : `${quoted}\n\n`;
-    session.currentInput.text = next;
+    input.text = next;
     composerEl?.setValueAndCursor(next, true, true);
     requestInputFocus();
   }
 
   $effect(() => {
-    if (!isActiveMode) return;
+    if (!isActiveMode || !isPrimary) return;
     return window.solus.onQuoteSelection((text) => {
       if (isReadOnly) return;
       insertQuote(text);
@@ -313,18 +326,20 @@
   });
 
   $effect(() => {
+    if (!isPrimary) return;
     const p = session.pendingInput;
     if (!p) return;
     if (isReadOnly) {
       session.update({ pendingInput: null });
       return;
     }
-    session.currentInput.text = p;
+    input.text = p;
     session.update({ pendingInput: null });
     requestInputFocus();
   });
 
   $effect(() => {
+    if (!isPrimary) return;
     const handleFocusRequest = () => {
       if (!isActiveMode || session.sessionPickerOpen || isReadOnly) return;
       requestAnimationFrame(() => {
@@ -352,6 +367,7 @@
       voiceModeEnabled &&
       voiceModel.ready &&
       isActiveMode &&
+      isPrimary &&
       windowCtx.visible &&
       !isReadOnly &&
       errorAllowsStart &&
@@ -385,6 +401,7 @@
     // shared recorder — it would immediately kill the active bar's recording.
     if (
       isActiveMode &&
+      isPrimary &&
       isReadOnly &&
       (voiceState === "recording" || voice.starting)
     )
@@ -393,6 +410,7 @@
   });
 
   $effect(() => {
+    if (!isPrimary) return;
     const unsub = window.solus.onWindowShown(() => {
       if (!isActiveMode) return;
       if (!session.sessionPickerOpen && !isReadOnly) {
@@ -403,6 +421,7 @@
   });
 
   $effect(() => {
+    if (!isPrimary) return;
     const unsub = window.solus.onWindowHidden(() => {
       if (isActiveMode && (voiceState === "recording" || voice.starting))
         voice.cancel();
@@ -423,6 +442,7 @@
   let prevDictationFocus = untrack(() => dictation.focusedTarget);
   let prevVoiceModelReady = untrack(() => voiceModel.ready);
   $effect(() => {
+    if (!isPrimary) return;
     const enabled = voiceModeEnabled;
     const visible = windowCtx.visible;
     const busy = isBusy;
@@ -462,25 +482,27 @@
     "voice.toggle-mode",
     () => theme.update({ voiceModeEnabled: !theme.voiceModeEnabled }),
     {
-      enabled: () => isActiveMode && !isReadOnly,
+      enabled: () => isActiveMode && isPrimary && !isReadOnly,
     },
   );
   useKeybinding("voice.toggle-recorder", () => voice.toggleConversational(), {
     enabled: () =>
-      isActiveMode && !isReadOnly && !isDictationTarget(document.activeElement),
+      isActiveMode &&
+      isPrimary &&
+      !isReadOnly &&
+      !isDictationTarget(document.activeElement),
   });
   // ─── Reference composer wiring ───
 
   function previewFile(path: string) {
-    requestFilePreview({ path, tabId: activeTabId });
+    requestFilePreview({ path, tabId: targetTabId });
   }
 
-  /** Keep the active tab's plan/work refs in sync with the editor's tokens. */
+  /** Keep the target tab's plan/work refs in sync with the editor's tokens. */
   function handleRefsChange(
     nextPlanRefs: PlanReference[],
     nextWorkRefs: WorkReference[],
   ) {
-    const input = session.currentInput;
     // Avoid needless reassignment (and the derived churn it triggers) when both
     // the editor and the stored refs are empty — the common typing case.
     if (nextPlanRefs.length || input.planRefs.length)
@@ -505,16 +527,16 @@
     if (isReadOnly && !cmd.allowReadOnly) return;
     void cmd.run?.({
       argument,
-      ipcContext: session.ctx,
-      clearTab: () => session.clearTab(),
-      addSystemMessage: (message) => session.addSystemMessage(message),
+      ipcContext: session.ctxFor(targetTabId),
+      clearTab: () => session.clearTab(tabId),
+      addSystemMessage: (message) => session.addSystemMessage(message, tabId),
       appendGlobalInstructions: (text) => {
         const existing = theme.extraInstructions.trim();
         theme.update({
           extraInstructions: existing ? `${existing}\n\n${text}` : text,
         });
       },
-      requestInputFocus,
+      requestInputFocus: refocusComposer,
     });
   }
 
@@ -525,12 +547,12 @@
     if (isReadOnly) return;
     if (cmd.insertTextOnSelect) {
       const text = cmd.insertTextOnSelect;
-      session.currentInput.text = text;
+      input.text = text;
       composerEl?.setValueAndCursor(text);
-      requestInputFocus();
+      refocusComposer();
       return;
     }
-    session.currentInput.text = "";
+    input.text = "";
     composerEl?.clearEditor();
     executeCommand(cmd);
   }
@@ -539,16 +561,16 @@
 
   function sendPrompt(prompt: string, options: { refocus?: boolean } = {}) {
     savePromptToHistory(prompt);
-    session.currentInput.text = "";
+    input.text = "";
     resetHistoryNavigation();
     composerEl?.clearEditor();
     if (mode === "pill") {
       session.isExpanded = true;
     }
-    session.sendMessage(prompt || "See attached files");
+    session.sendMessage(prompt || "See attached files", undefined, tabId);
 
     if (options.refocus !== false) {
-      requestInputFocus();
+      refocusComposer();
     }
   }
 
@@ -576,10 +598,10 @@
 
     const solusCommand = solusCommandFromInput(inputText);
     if (solusCommand) {
-      session.currentInput.text = "";
+      input.text = "";
       composerEl?.clearEditor();
       executeCommand(solusCommand.cmd, solusCommand.argument);
-      requestInputFocus();
+      refocusComposer();
       return;
     }
 
@@ -602,7 +624,7 @@
       }
     }
     const next = historyIndex >= 0 ? promptHistory[historyIndex] : savedInput;
-    session.currentInput.text = next;
+    input.text = next;
     composerEl?.setValueAndCursor(next);
   }
 
@@ -637,7 +659,7 @@
 
   function handleEditorChange(md: string) {
     if (isReadOnly) return;
-    session.currentInput.text = md;
+    input.text = md;
     if (historyIndex !== -1) resetHistoryNavigation();
   }
 
@@ -654,7 +676,7 @@
         reader.onload = async () => {
           const dataUrl = reader.result as string;
           const attachment = await window.solus.pasteImage(dataUrl);
-          if (attachment) session.addAttachments([attachment]);
+          if (attachment) session.addAttachments([attachment], tabId);
         };
         reader.readAsDataURL(blob);
         return;
@@ -663,9 +685,9 @@
   }
 
   function handleInterrupt() {
-    session.interruptTab(activeTabId);
-    window.solus.stopTab(session.ctxFor(activeTabId));
-    requestInputFocus();
+    session.interruptTab(targetTabId);
+    window.solus.stopTab(session.ctxFor(targetTabId));
+    refocusComposer();
   }
 </script>
 
@@ -718,7 +740,7 @@
     <div style="padding-top:0.375rem;margin-left:-0.25rem">
       <AttachmentChips
         {attachments}
-        onRemove={(id) => session.removeAttachment(id)}
+        onRemove={(id) => session.removeAttachment(id, tabId)}
       />
     </div>
   {/if}
@@ -734,12 +756,7 @@
           class="flex items-center gap-1 shrink-0 ml-auto"
           style="padding-bottom:0.125rem"
         >
-          {#if isMobile && isBusy}
-            {@render stopButton()}
-          {:else}
-            {@render voiceButtons()}
-            {@render sendButton()}
-          {/if}
+          {@render actionButtons()}
         </div>
       </div>
     </div>
@@ -753,22 +770,27 @@
           ? 'pb-[0.125rem]'
           : 'pb-[0.375rem]'}"
       >
-        {#if isMobile && isBusy}
-          {@render stopButton()}
-        {:else}
-          {@render voiceButtons()}
-          {@render sendButton()}
-        {/if}
+        {@render actionButtons()}
       </div>
     </div>
   {/if}
 
-  {#if voice.error}
+  {#if isPrimary && voice.error}
     <div class="px-1 pb-2 text-[0.6875rem] text-(--solus-status-error)">
       {voice.error}
     </div>
   {/if}
 </div>
+
+{#snippet actionButtons()}
+  {#if isBusy && (isMobile || !isPrimary)}
+    {@render stopButton()}
+  {/if}
+  {#if !(isMobile && isBusy)}
+    {#if isPrimary}{@render voiceButtons()}{/if}
+    {@render sendButton()}
+  {/if}
+{/snippet}
 
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}

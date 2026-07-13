@@ -1,8 +1,4 @@
-// Single source of truth for diagram semantic colours. These hues are
-// deliberately theme-agnostic (green reads as "healthy" in both light and dark);
-// `muted` defers to the theme's tertiary text token. Previously STATUS_COLORS was
-// copied verbatim in DiagramNode and DiagramDetailsDrawer, and the edge-drawer
-// palette re-typed the same hex values by hand.
+// Single source of truth for diagram colours used by node and edge palettes.
 export const DIAGRAM_GREEN = '#4ade80'
 export const DIAGRAM_AMBER = '#fbbf24'
 export const DIAGRAM_RED = '#f87171'
@@ -18,12 +14,4 @@ const ACCENT_DARK = '#e08a6e'
 
 export function diagramAccent(isDark: boolean): string {
   return isDark ? ACCENT_DARK : ACCENT_LIGHT
-}
-
-export const STATUS_COLORS: Record<string, string> = {
-  healthy: DIAGRAM_GREEN,
-  warn: DIAGRAM_AMBER,
-  error: DIAGRAM_RED,
-  info: DIAGRAM_BLUE,
-  muted: 'var(--solus-text-tertiary)',
 }
