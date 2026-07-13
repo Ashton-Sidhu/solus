@@ -8,6 +8,9 @@ ICON_SRC="resources/icon.icns"
 # Only run on macOS
 [[ "$(uname)" == "Darwin" ]] || exit 0
 
+# The development app icon is not used by CI builds
+[[ -z "${CI:-}" ]] || exit 0
+
 # Only run if source icon exists
 [[ -f "$ICON_SRC" ]] || exit 0
 
