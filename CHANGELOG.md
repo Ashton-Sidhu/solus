@@ -80,3 +80,32 @@
 
 - **`src/renderer/stores/sessionStore.ts`**
   - Default `permissionMode` changed from `'ask'` → `'auto'`. Combined with `--dangerously-skip-permissions`, tool calls are auto-approved by default.
+
+## [0.17.0] — 2026-07-13
+
+### Added
+
+- Added a standalone Solus server for macOS and Linux, including a management CLI, browser client, secure device claiming and pairing, multi-server switching, web push notifications, packaged release artifacts, and Homebrew distribution.
+- Added a dedicated desktop editor window alongside the summonable pill, with cross-window session handoff, independent shortcuts, and support for keeping a second live conversation or project page open in a split pane.
+- Added a pull-request merge queue that processes reviewed PRs sequentially, supports merge, squash, and rebase strategies, and can pause for agent-assisted conflict resolution before continuing.
+- Added node-anchored diagram comments that agents can read, with keyboard access, comment counts, canvas navigation, and a direct send-to-agent workflow.
+- Added richer sub-agent activity and transcript surfaces for agent sessions.
+
+### Changed
+
+- Unified Tasks, Pull Requests, Settings, Plans, Works, and Automations with the pane system so project pages can be opened beside an active conversation.
+- Moved desktop and web communication onto the shared WebSocket server architecture, with indexed session history, targeted multi-client updates, reconnect handling, and clearer offline state.
+- Refined the Tasks, Pull Requests, review, diagram, input, voice, settings, and automation experiences with improved keyboard navigation, live updates, error states, and visual feedback.
+
+### Fixed
+
+- Prevented diagram and document save failures from discarding dirty state, repaired malformed diagrams safely, restored reliable work reverts, and surfaced export and save failures for retry.
+- Fixed task-store write races, stale provider results, comment hydration, cache freshness reporting, PR synchronization, and session write-back behavior.
+- Fixed pull-request pagination, merged-PR filtering, reviewer-state semantics, activity attribution, stale review guides, diff navigation, post-review refreshes, and merge-queue recovery after conflicts.
+- Hardened automation scheduling and persistence against missing directories, overlapping runs, invalid cron expressions, lost updates, and stale run status.
+- Fixed voice capture and retry behavior, session migration, shutdown coordination, and WebSocket reconnect and event-routing issues.
+
+### Security
+
+- Added authenticated remote binding, explicit server ownership claims, expiring session credentials, persistent device revocation, and hardened administrative claim requests.
+- Sanitized agent-authored diagram HTML and remote-authored Markdown, validated diagram updates before persistence, and enforced read-only tool access for review agents.
