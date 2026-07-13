@@ -75,7 +75,7 @@
     <div class="titlebar-drag-zone drag-region" aria-hidden="true"></div>
   {/if}
   <div class="flex flex-1 min-h-0">
-    <WorkspaceBody active enableProjectPanel enableRunDock>
+    <WorkspaceBody active enableProjectPanel>
       {#snippet inputRow()}
         <InputBarRow
           mode="editor"

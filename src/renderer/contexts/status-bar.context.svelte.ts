@@ -1,6 +1,6 @@
 import { createContext } from 'svelte'
 import { MODEL_PROFILES } from '../../shared/types'
-import type { StatusBarCtx, AgentId } from '../../shared/types'
+import type { StatusBarCtx, AgentId, Session } from '../../shared/types'
 import type { AgentContext } from './agent.context.svelte'
 import type { SettingsContext } from './settings.context.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -23,7 +23,15 @@ export class StatusBarContext {
   }
 
   get ctx(): StatusBarCtx {
-    const sess = this._session?.activeSession
+    return this.buildCtx(this._session?.activeSession)
+  }
+
+  /** Status ctx for a specific tab's session — the split pane's status strip. */
+  ctxFor(tabId: string): StatusBarCtx {
+    return this.buildCtx(this._session?.sessionFor(tabId))
+  }
+
+  private buildCtx(sess: Session | undefined): StatusBarCtx {
     const defaults = this._session?.globalDefaults
     const effectiveAgent = (sess?.provider ?? this.settings.activeAgent) as AgentId
     const models = this._agent?.metadata[effectiveAgent]?.models ?? []

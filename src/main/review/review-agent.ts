@@ -66,8 +66,8 @@ export interface ReviewAgentInput {
   context: ReviewContext
   agent: AgentId
   model?: string | null
-  /** Reasoning effort for the review run. When unset, defaults to 'medium' for an
-   *  inlined diff and 'high' when the agent must gather the diff itself. */
+  /** Reasoning effort for the review run; falls back to 'high' when unset.
+   *  Callers resolve this from settings (default medium, see resolveReviewAgent). */
   reasoningEffort?: ReasoningEffort | null
   /** Pre-computed diff to inline into the prompt so the agent skips gathering it
    *  with git. Null/undefined ⇒ the agent gathers the diff itself (large-diff path). */
@@ -91,7 +91,9 @@ export interface ReviewAgentInput {
 export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGuideDraft | null> {
   const ledgerPresent = !!input.ledger && input.ledger.records.length > 0
   const prompt = buildPrompt(input, ledgerPresent)
-  const reasoningEffort = input.reasoningEffort ?? (input.inlineDiff ? 'medium' : 'high')
+  // Effort is settings-driven (resolveReviewAgent defaults it to medium); 'high'
+  // is only a safety fallback for callers that don't resolve one.
+  const reasoningEffort = input.reasoningEffort ?? 'high'
 
   let captured: ReviewGuideDraft | null = null
   let unregisterCodexCapture: () => void = () => {}

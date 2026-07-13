@@ -83,7 +83,6 @@ export interface DiagramNode {
   /** Id of the group this node is nested inside. Its `position` is then relative to that group. */
   parentId?: string
   subtitle?: string
-  status?: 'healthy' | 'warn' | 'error' | 'info' | 'muted'
   badges?: string[]
   metrics?: Record<string, string>
   /**

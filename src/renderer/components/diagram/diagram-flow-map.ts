@@ -31,7 +31,6 @@ export function flowNodeToDiagram(n: FlowNode): DiagramNode {
     sentToBack: (d.sentToBack as boolean | undefined) || undefined,
     parentId: (n.parentId ?? undefined) as string | undefined,
     subtitle: d.subtitle as string | undefined,
-    status: d.status as DiagramNode['status'],
     badges: d.badges as string[] | undefined,
     metrics: d.metrics as Record<string, string> | undefined,
     fields: d.fields as DiagramField[] | undefined,

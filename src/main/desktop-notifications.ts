@@ -21,6 +21,7 @@ export interface DesktopAttentionNotificationsOptions {
   getFocusedWindow?: () => BrowserWindow | null
   getTray?: () => Tray | null
   badgeTarget?: BadgeTarget
+  isActiveAttention?: (entry: AttentionEntry) => boolean
 }
 
 export interface DesktopAttentionNotifications {
@@ -34,16 +35,21 @@ export function attachDesktopAttentionNotifications(
   const existingListener = attention.listener ?? null
   const getFocusedWindow = options.getFocusedWindow ?? (() => BrowserWindow.getFocusedWindow())
   const badgeTarget = options.badgeTarget ?? 'none'
+  const isActiveAttention = options.isActiveAttention
   let previousKeys = new Set(options.attention.list().map(attentionEntryKey))
 
   const syncBadge = () => {
-    setBadgeCount(countDesktopAttentionEntries(options.attention.list()), badgeTarget, options.getTray)
+    setBadgeCount(
+      countDesktopAttentionEntries(options.attention.list(), isActiveAttention),
+      badgeTarget,
+      options.getTray,
+    )
   }
 
   options.attention.onChange((entries) => {
     existingListener?.(entries)
 
-    const snapshot = diffDesktopAttentionSnapshot(previousKeys, entries)
+    const snapshot = diffDesktopAttentionSnapshot(previousKeys, entries, isActiveAttention)
     previousKeys = snapshot.nextKeys
     setBadgeCount(snapshot.badgeCount, badgeTarget, options.getTray)
 

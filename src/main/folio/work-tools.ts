@@ -4,7 +4,8 @@ import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
 import { loadWorkAnnotations } from './work-annotations'
 import { workPreview } from '../../shared/work-preview'
-import { parseDiagram } from '../../shared/diagram-types'
+import { parseDiagram, serializeDiagram } from '../../shared/diagram-types'
+import { reapplyLayout } from '../../shared/diagram-layout'
 import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
 import { artifactTool, type ArtifactToolDeps } from './artifact-tools'
@@ -158,12 +159,15 @@ export async function executeWorkTool(
       const rawType = String(args.doc_type ?? 'doc')
       const docType: 'doc' | 'slides' | 'diagram' =
         rawType === 'slides' || rawType === 'diagram' ? rawType : 'doc'
-      const content = typeof args.content === 'string' ? args.content : ''
+      let content = typeof args.content === 'string' ? args.content : ''
       if (!content.trim()) return { ok: false, text: 'create_work requires non-empty content.' }
 
       if (docType === 'diagram') {
         try {
-          parseDiagram(content)
+          // A new agent-authored diagram has no user placement to preserve.
+          // Always replace supplied/default geometry with the same clean LR
+          // layout as the canvas Auto-layout action before persisting it.
+          content = serializeDiagram(reapplyLayout(parseDiagram(content)))
         } catch (err: any) {
           return {
             ok: false,

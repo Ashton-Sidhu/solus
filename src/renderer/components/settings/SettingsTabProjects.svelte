@@ -4,7 +4,6 @@
   import type { ProjectEntry } from "../../../shared/types";
   import { projectsStore } from "../../contexts/projects.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import ProjectConfigEditor from "./ProjectConfigEditor.svelte";
 
   const session = getWorkspaceContext();
   const projectMetadata = projectsStore;
@@ -96,11 +95,7 @@
   </nav>
 
   <div class="flex-1 min-w-0">
-    {#if selected}
-      {#key selected}
-        <ProjectConfigEditor cwd={selected} />
-      {/key}
-    {:else if loaded}
+    {#if !selected && loaded}
       <p class="text-[0.75rem] text-(--solus-text-tertiary) py-2">Select a project to edit its settings.</p>
     {/if}
   </div>

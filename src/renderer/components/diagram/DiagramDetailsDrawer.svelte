@@ -5,7 +5,6 @@
   import Dropdown from '../ui/Dropdown.svelte'
   import DropdownItem from '../ui/DropdownItem.svelte'
   import {
-    STATUS_COLORS,
     DIAGRAM_GREEN,
     DIAGRAM_AMBER,
     DIAGRAM_RED,
@@ -49,15 +48,13 @@
   }: Props = $props()
 
   // Groups are pure containers — they carry only a label + icon, so the drawer
-  // hides the node-only fields (status/badges/tags/metrics/body/subtitle).
+  // hides the node-only fields (badges/tags/metrics/body/subtitle).
   const isGroup = $derived(!!node.group)
 
   const theme = getSettingsContext()
 
-  const STATUSES: NonNullable<DiagramNode['status']>[] = ['healthy', 'warn', 'error', 'info', 'muted']
-
-  // Accent palette for the node/group card — mirrors the edge drawer's swatches
-  // (and the node status hues) so colour reads consistently across the editor.
+  // Accent palette for the node/group card mirrors the edge drawer's swatches
+  // so colour reads consistently across the editor.
   // `undefined` = the default theme accent.
   const COLORS: { value: string | undefined; label: string; swatch: string }[] = [
     { value: undefined, label: 'Default', swatch: 'var(--solus-accent)' },
@@ -89,7 +86,6 @@
   // so typing never fights the live patch round-trip.
   let label = $state('')
   let subtitle = $state('')
-  let status = $state<DiagramNode['status'] | ''>('')
   let badges = $state<string[]>([])
   let tags = $state<string[]>([])
   let metrics = $state<{ k: string; v: string }[]>([])
@@ -106,11 +102,8 @@
   let clickKind = $state<ClickKind>('none')
   let clickValue = $state('')
 
-  // Status / on-click selects (shared Dropdown — trigger width drives the menu
-  // width so the popover matches the full-width field).
-  let statusMenuOpen = $state(false)
-  let statusTriggerEl = $state<HTMLButtonElement | null>(null)
-  let statusTriggerW = $state(0)
+  // The trigger width drives the menu width so the popover matches the
+  // full-width field.
   let clickMenuOpen = $state(false)
   let clickTriggerEl = $state<HTMLButtonElement | null>(null)
   let clickTriggerW = $state(0)
@@ -132,7 +125,6 @@
       syncedId = node.id
       label = node.label
       subtitle = node.subtitle ?? ''
-      status = node.status ?? ''
       badges = [...(node.badges ?? [])]
       tags = [...(node.tags ?? [])]
       metrics = Object.entries(node.metrics ?? {}).map(([k, v]) => ({ k, v }))
@@ -150,8 +142,6 @@
   function commit(patch: Partial<DiagramNode>) {
     onUpdateNode(node.id, patch)
   }
-
-  const statusColor = $derived(status ? (STATUS_COLORS[status] ?? null) : null)
 
   // A colour outside the preset palette came from the custom picker, so the
   // custom swatch owns the active ring and seeds the native input.
@@ -182,9 +172,6 @@
   }
   function onSubtitleInput() {
     commit({ subtitle: subtitle.trim() || undefined })
-  }
-  function onStatusChange() {
-    commit({ status: status || undefined })
   }
   function onBodyInput() {
     commit({ body: body.trim() || undefined })
@@ -278,7 +265,6 @@
 <DiagramDrawerShell
   title={isGroup ? 'Edit group' : 'Edit node'}
   ariaLabel="Edit {isGroup ? 'group' : 'node'}: {node.label}"
-  statusColor={statusColor}
   {autoFocus}
   {onClose}
   footer={showFooter ? footerContent : undefined}
@@ -367,58 +353,6 @@
         {/each}
       </div>
     </div>
-
-    <!-- Status -->
-    <label class="diagram-drawer__field">
-      <span class="diagram-drawer__label">Status</span>
-      <div class="diagram-drawer__select-wrap">
-        <button
-          type="button"
-          bind:this={statusTriggerEl}
-          bind:clientWidth={statusTriggerW}
-          class="diagram-drawer__select"
-          aria-haspopup="listbox"
-          aria-expanded={statusMenuOpen}
-          onclick={() => (statusMenuOpen = !statusMenuOpen)}
-        >
-          {status || 'none'}
-        </button>
-        <svg class="diagram-drawer__select-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 6.5l4 4 4-4" />
-        </svg>
-        <Dropdown
-          bind:open={statusMenuOpen}
-          triggerEl={statusTriggerEl}
-          align="top"
-          width={statusTriggerW}
-        >
-          <div class="py-1">
-            <DropdownItem
-              selected={status === ''}
-              onclick={() => {
-                status = ''
-                onStatusChange()
-                statusMenuOpen = false
-              }}
-            >
-              none
-            </DropdownItem>
-            {#each STATUSES as s}
-              <DropdownItem
-                selected={status === s}
-                onclick={() => {
-                  status = s
-                  onStatusChange()
-                  statusMenuOpen = false
-                }}
-              >
-                {s}
-              </DropdownItem>
-            {/each}
-          </div>
-        </Dropdown>
-      </div>
-    </label>
 
     <!-- Badges -->
     <div class="diagram-drawer__field">

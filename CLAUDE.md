@@ -24,6 +24,7 @@
 - **Keyboard-first.** Buttons get keybindings where sensible; every UI is keyboard-navigable. Global shortcuts: `opt+shift+<key>`. Sub-page shortcuts: `opt+<key>`.
 - After a user clicks/acts, **refocus the active input bar** so they can keep typing.
 - `bun run build` to confirm it compiles (keep output to warnings/errors). **Do not start a dev server to verify.**
+- `bun run dev` tees its output to `dev.log` at the repo root. If a dev server is already running and you need live logs for debugging, **read `dev.log`** instead of starting a new dev server.
 
 ## Renderer architecture rules
 

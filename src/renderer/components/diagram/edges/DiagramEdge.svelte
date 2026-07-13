@@ -149,7 +149,9 @@
   const cardinality = $derived(data?.cardinality as '1-1' | '1-n' | 'n-1' | 'n-n' | undefined)
   const sourceEnd = $derived(cardinality ? cardinality[0] : null)  // '1' or 'n'
   const targetEnd = $derived(cardinality ? cardinality[2] : null)  // '1' or 'n'
-  const markerColor = $derived((data?.color as string | undefined) ?? 'var(--solus-accent)')
+  const markerColor = $derived(
+    (data?.color as string | undefined) ?? (selected ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)')
+  )
 
   function positionAngle(pos: Position): number {
     if (pos === Position.Bottom) return 90
@@ -310,11 +312,18 @@
       onclick={(e) => e.stopPropagation()}
     />
     <line
+      class="edge-bend-guide-bg"
+      x1={horizontal ? centerX : midX - 8}
+      y1={horizontal ? midY - 8 : centerY}
+      x2={horizontal ? centerX : midX + 8}
+      y2={horizontal ? midY + 8 : centerY}
+    />
+    <line
       class="edge-bend-guide"
-      x1={horizontal ? centerX : ends.sx}
-      y1={horizontal ? ends.sy : centerY}
-      x2={horizontal ? centerX : ends.tx}
-      y2={horizontal ? ends.ty : centerY}
+      x1={horizontal ? centerX : midX - 8}
+      y1={horizontal ? midY - 8 : centerY}
+      x2={horizontal ? centerX : midX + 8}
+      y2={horizontal ? midY + 8 : centerY}
     />
     {/if}
   {/if}
@@ -337,6 +346,7 @@
       <button
         type="button"
         class="edge-label-display nodrag nopan"
+        class:edge-label-display--selected={selected}
         aria-label="Edit edge label"
         onclick={editor.start}>{label}</button
       >
@@ -359,18 +369,18 @@
 
 <style>
   .edge-label-display {
-    padding: 0.125rem 0.375rem;
-    border-radius: 0.3125rem;
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.25rem;
     font-size: 0.6875rem;
     font-weight: 500;
-    color: var(--solus-text-secondary);
+    color: var(--solus-text-tertiary);
     background: var(--solus-container-bg);
-    border: 0.0625rem solid var(--solus-tool-border);
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.06);
+    border: none;
+    box-shadow: none;
     cursor: text;
     white-space: nowrap;
     transition:
-      border-color var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
       background var(--duration-base) var(--ease-premium);
   }
 
@@ -385,27 +395,40 @@
     touch-action: none;
   }
 
-  /* Thin accent guide showing the segment is grabbable; thickens on hover. */
+  /* A compact selected-state grip marks the movable middle segment without
+     repainting its full length in accent. The larger invisible hit line above
+     remains forgiving anywhere along the segment. */
+  .edge-bend-guide-bg,
   .edge-bend-guide {
-    stroke: var(--solus-accent);
-    stroke-width: 2;
     stroke-linecap: round;
     fill: none;
-    opacity: 0.55;
     pointer-events: none;
+  }
+
+  .edge-bend-guide-bg {
+    stroke: var(--solus-container-bg);
+    stroke-width: 7;
+  }
+
+  .edge-bend-guide {
+    stroke: var(--solus-accent);
+    stroke-width: 3;
     transition:
       stroke-width var(--duration-quick) var(--ease-premium),
       opacity var(--duration-quick) var(--ease-premium);
   }
 
-  .edge-bend-hit:hover + .edge-bend-guide {
-    stroke-width: 3;
-    opacity: 0.9;
+  .edge-bend-hit:hover ~ .edge-bend-guide {
+    stroke-width: 4;
   }
 
   .edge-label-display:hover {
-    border-color: var(--solus-accent-border);
+    color: var(--solus-text-secondary);
     background: var(--solus-surface-hover);
+  }
+
+  .edge-label-display--selected {
+    color: var(--solus-accent);
   }
 
   /* Reconnect grab points. The anchor wrapper is portaled into xyflow's
@@ -428,12 +451,12 @@
   /* The visible dot mirrors the node connection handles (accent fill, ring) so
      it reads as the same "grab to wire" affordance. */
   .edge-reconnect-dot {
-    width: 0.625rem;
-    height: 0.625rem;
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 50%;
     background: var(--solus-accent);
     border: 0.09375rem solid var(--solus-container-bg);
-    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.18);
+    box-shadow: none;
     transition: box-shadow var(--duration-quick) var(--ease-premium);
     pointer-events: none;
   }

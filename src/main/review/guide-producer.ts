@@ -176,11 +176,12 @@ async function produceGuide(
   const agent: AgentId = opts.agent ?? 'claude-code'
 
   // Inline the diff we already computed when it's small enough. That lets the
-  // agent skip the serial git round-trips (stat → diff → ls-files → reads) and
-  // go straight to composing, and lets the review run at medium reasoning. The
-  // patch already includes untracked/new files (getEpisodeDiff stages them
-  // intent-to-add), so the inline path needs no git at all. Oversized diffs stay
-  // out of the prompt and the agent gathers (and selectively scopes) them itself.
+  // agent skip the serial git round-trips (stat → diff → ls-files → reads) and go
+  // straight to composing. The patch already includes untracked/new files
+  // (getEpisodeDiff stages them intent-to-add), so the inline path needs no git at
+  // all. Oversized diffs stay out of the prompt and the agent gathers (and
+  // selectively scopes) them itself. (Reasoning effort is settings-driven and
+  // independent of this — see resolveReviewAgent.)
   const inlineDiff = patch.length <= MAX_INLINE_DIFF_CHARS ? patch : null
 
   if (patch) emit?.('analyzing')

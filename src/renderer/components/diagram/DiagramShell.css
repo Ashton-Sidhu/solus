@@ -418,40 +418,36 @@
   }
 
   .diagram-shell__board .svelte-flow__edge-path {
-    stroke: color-mix(
-      in srgb,
-      var(--solus-accent) 48%,
-      var(--solus-text-tertiary)
-    );
-    stroke-width: 1.5;
+    stroke: var(--solus-text-tertiary);
+    stroke-width: 1.25;
     transition:
       stroke var(--duration-base) var(--ease-premium),
       stroke-width var(--duration-base) var(--ease-premium);
   }
 
   .diagram-shell__board
-    .svelte-flow__edge:hover .svelte-flow__edge-path,
-  .diagram-shell__board
-    .svelte-flow__edge.selected .svelte-flow__edge-path {
-    stroke: var(--solus-accent);
-    stroke-width: 2;
+    .svelte-flow__edge:hover .svelte-flow__edge-path {
+    stroke: var(--solus-text-secondary);
+    stroke-width: 1.5;
   }
 
   /* Async edges: dashed flow */
   .diagram-shell__board
     .svelte-flow__edge.edge--async .svelte-flow__edge-path {
-    stroke-dasharray: 6 3;
+    stroke-dasharray: 5 5;
   }
 
-  /* Data edges: thicker */
+  /* Data edges carry more visual weight without introducing another colour. */
   .diagram-shell__board
     .svelte-flow__edge.edge--data .svelte-flow__edge-path {
-    stroke-width: 2.5;
-    stroke: color-mix(
-      in srgb,
-      var(--solus-accent) 65%,
-      var(--solus-text-tertiary)
-    );
+    stroke-width: 1.75;
+    stroke: var(--solus-text-tertiary);
+  }
+
+  .diagram-shell__board
+    .svelte-flow__edge.selected .svelte-flow__edge-path {
+    stroke: var(--solus-accent);
+    stroke-width: 1.5;
   }
 
   /* In-progress connection line: accent + dashed so the provisional wire reads

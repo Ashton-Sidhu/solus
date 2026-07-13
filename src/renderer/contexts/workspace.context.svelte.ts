@@ -304,6 +304,10 @@ export class WorkspaceContext {
     return this.registry.currentInput
   }
 
+  inputFor(tabId: string): InputState {
+    return this.tabs[tabId]?.input ?? this.currentInput
+  }
+
   get activeSession(): Session | undefined {
     return this.registry.activeSession
   }
@@ -776,10 +780,10 @@ export class WorkspaceContext {
     this.tabOrder = newOrder
   }
 
-  clearTab(): void {
-    const { activeTabId } = this
-    window.solus.resetTabSession(this.ctx)
-    const session = this.sessionFor(activeTabId)
+  clearTab(tabId?: string): void {
+    const targetTabId = tabId ?? this.activeTabId
+    window.solus.resetTabSession(this.ctxFor(targetTabId))
+    const session = this.sessionFor(targetTabId)
     if (!session) return
     session.agentSessionId = null
     session.provider = null
@@ -798,11 +802,11 @@ export class WorkspaceContext {
     session.readOnlyReason = null
     session.worktreeBaseBranch = session.gitContext?.worktreePath ? null : session.worktreeBaseBranch
     // Reset tab title
-    const tab = this.tabs[activeTabId]
+    const tab = this.tabs[targetTabId]
     if (tab) tab.title = 'New Tab'
-    delete this.streaming.text[activeTabId]
+    delete this.streaming.text[targetTabId]
     if (session.workingDirectory && !session.gitContext) {
-      void this.env.refreshGitEnvironment({ tabId: activeTabId })
+      void this.env.refreshGitEnvironment({ tabId: targetTabId })
     }
   }
 
@@ -923,16 +927,16 @@ export class WorkspaceContext {
 
   // ─── Tab configuration ───
 
-  updateModelConfig(patch: Partial<import('../../shared/types').ModelConfig>): void {
-    this.config.updateModelConfig(patch)
+  updateModelConfig(patch: Partial<import('../../shared/types').ModelConfig>, tabId?: string): void {
+    this.config.updateModelConfig(patch, tabId)
   }
 
   switchActiveAgent(agentId: AgentId): void {
     this.config.switchActiveAgent(agentId)
   }
 
-  setPermissionMode(mode: 'ask' | 'auto' | 'plan'): void {
-    this.config.setPermissionMode(mode)
+  setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {
+    this.config.setPermissionMode(mode, tabId)
   }
 
   setWorktreeBaseBranch(branch: string | null): void {
@@ -965,13 +969,15 @@ export class WorkspaceContext {
 
   // ─── Attachments (UI-only, on the current input state) ───
 
-  addAttachments(attachments: Attachment[]): void {
-    this.currentInput.attachments.push(...attachments)
+  addAttachments(attachments: Attachment[], tabId?: string): void {
+    const input = tabId === undefined ? this.currentInput : this.inputFor(tabId)
+    input.attachments.push(...attachments)
   }
 
-  removeAttachment(attachmentId: string): void {
-    const input = this.currentInput
-    input.attachments = input.attachments.filter((a) => a.id !== attachmentId)
+  removeAttachment(attachmentId: string, tabId?: string): void {
+    const input = tabId === undefined ? this.currentInput : this.inputFor(tabId)
+    const index = input.attachments.findIndex((attachment) => attachment.id === attachmentId)
+    if (index !== -1) input.attachments.splice(index, 1)
   }
 
   clearAttachments(): void {
@@ -980,8 +986,8 @@ export class WorkspaceContext {
 
   // ─── Messaging ───
 
-  addSystemMessage(content: string): void {
-    const session = this.activeSession
+  addSystemMessage(content: string, tabId?: string): void {
+    const session = tabId === undefined ? this.activeSession : this.sessionFor(tabId)
     if (!session) return
     session.messages.push({ id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() })
   }

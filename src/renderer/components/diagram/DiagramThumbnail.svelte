@@ -17,7 +17,6 @@
     h: number
     group: boolean
     color?: string
-    status?: DiagramNode['status']
     fields?: DiagramNode['fields']
     badges?: string[]
   }
@@ -111,7 +110,6 @@
         h: size.h,
         group: !!node.group,
         color: node.color,
-        status: node.status,
         fields: node.fields,
         badges: node.badges,
       } satisfies ThumbNode
@@ -175,10 +173,6 @@
 
   function nodeAccent(node: ThumbNode): string {
     if (node.color) return node.color
-    if (node.status === 'healthy') return '#4ade80'
-    if (node.status === 'warn') return '#fbbf24'
-    if (node.status === 'error') return '#f87171'
-    if (node.status === 'info') return '#60a5fa'
     return edgeAccent
   }
 </script>

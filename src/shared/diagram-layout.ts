@@ -206,3 +206,22 @@ export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'):
 
   return { nodes, edges: doc.edges }
 }
+
+/**
+ * Re-run layout for an entire diagram, discarding stale generated/measured
+ * geometry. Use this for explicit auto-layout actions and brand-new generated
+ * diagrams; ordinary loads should keep using applyLayout so authored positions
+ * remain untouched.
+ */
+export function reapplyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'): DiagramDoc {
+  return applyLayout(
+    {
+      nodes: doc.nodes.map((node) => {
+        const { position: _position, width: _width, height: _height, ...rest } = node
+        return rest
+      }),
+      edges: doc.edges,
+    },
+    direction,
+  )
+}

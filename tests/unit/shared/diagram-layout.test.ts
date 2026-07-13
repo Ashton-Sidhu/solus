@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { applyLayout } from '../../../src/shared/diagram-layout'
+import { applyLayout, reapplyLayout } from '../../../src/shared/diagram-layout'
 import type { DiagramDoc } from '../../../src/shared/diagram-types'
 
 const DOC_NO_POSITIONS: DiagramDoc = {
@@ -159,4 +159,25 @@ describe('applyLayout', () => {
     expect(xs['user']).toBe(Math.min(...Object.values(xs)))
   })
 
+})
+
+describe('reapplyLayout', () => {
+  test('replaces overlapping generated geometry instead of preserving it', () => {
+    // Agent-created diagrams must open in the same clean state as an explicit
+    // Auto-layout action, even if generated content supplied default positions.
+    const laid = reapplyLayout({
+      nodes: [
+        { id: 'a', label: 'A', position: { x: 0, y: 0 }, width: 10, height: 10 },
+        { id: 'b', label: 'B', position: { x: 0, y: 0 }, width: 10, height: 10 },
+        { id: 'c', label: 'C', position: { x: 0, y: 0 }, width: 10, height: 10 },
+      ],
+      edges: [
+        { id: 'e1', source: 'a', target: 'b' },
+        { id: 'e2', source: 'b', target: 'c' },
+      ],
+    })
+
+    expect(new Set(laid.nodes.map((node) => `${node.position!.x},${node.position!.y}`)).size).toBe(3)
+    expect(laid.nodes.every((node) => node.width === undefined && node.height === undefined)).toBe(true)
+  })
 })
