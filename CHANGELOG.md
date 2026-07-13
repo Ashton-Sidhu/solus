@@ -81,6 +81,12 @@
 - **`src/renderer/stores/sessionStore.ts`**
   - Default `permissionMode` changed from `'ask'` → `'auto'`. Combined with `--dangerously-skip-permissions`, tool calls are auto-approved by default.
 
+## [0.17.1] — 2026-07-13
+
+### Fixed
+
+- Skipped the development-only Electron icon patch in CI so macOS release installs do not fail while dependency lifecycle scripts are still completing.
+
 ## [0.17.0] — 2026-07-13
 
 ### Added
