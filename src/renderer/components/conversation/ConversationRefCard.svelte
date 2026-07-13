@@ -183,10 +183,8 @@
     );
     cursor: pointer;
     overflow: hidden;
-    box-shadow:
-      0 0 0 0.0625rem
-        color-mix(in srgb, var(--solus-tool-border) 72%, transparent),
-      0 0.625rem 1.75rem -1.5rem color-mix(in srgb, black 28%, transparent);
+    box-shadow: 0 0 0 0.0625rem
+      color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
     transition:
       box-shadow var(--duration-base) var(--ease-premium),
       transform var(--duration-quick) var(--ease-premium),

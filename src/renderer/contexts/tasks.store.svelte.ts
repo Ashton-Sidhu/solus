@@ -28,15 +28,53 @@ export class TasksStore {
   /** cwd → provider preflight. Keyed so stale responses from an old project
    *  can't overwrite the status shown for the current one. */
   providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
+  private loadsByCwd = new Map<string, Promise<void>>()
+  private providerStatusLoadsByCwd = new Map<string, Promise<TaskProviderStatus>>()
 
   providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
     return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
   }
 
-  async loadProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus> {
-    const status = await window.solus.tasksProviderStatus(cwd, opts)
-    this.providerStatusByCwd.set(cwd, status)
-    return status
+  loadProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus> {
+    const pending = this.providerStatusLoadsByCwd.get(cwd)
+    if (pending) return pending
+    const load = (async () => {
+      try {
+        const status = await window.solus.tasksProviderStatus(cwd, opts)
+        this.providerStatusByCwd.set(cwd, status)
+        return status
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        this.error = message
+        const status: TaskProviderStatus = {
+          provider: this.providerStatus(cwd)?.provider ?? 'local',
+          ok: false,
+          reason: 'github_access_failed',
+          message,
+        }
+        this.providerStatusByCwd.set(cwd, status)
+        return status
+      } finally {
+        this.providerStatusLoadsByCwd.delete(cwd)
+      }
+    })()
+    this.providerStatusLoadsByCwd.set(cwd, load)
+    return load
+  }
+
+  ensureLoaded(cwd: string): Promise<void> {
+    const pending = this.loadsByCwd.get(cwd)
+    if (pending) return pending
+    if (this.cwd === cwd && this.loaded) return Promise.resolve()
+    const load = this.load(cwd)
+      .catch((err) => {
+        this.error = err instanceof Error ? err.message : String(err)
+      })
+      .finally(() => {
+        this.loadsByCwd.delete(cwd)
+      })
+    this.loadsByCwd.set(cwd, load)
+    return load
   }
 
   async load(cwd: string, opts: { assignedToMe?: boolean } = {}): Promise<void> {

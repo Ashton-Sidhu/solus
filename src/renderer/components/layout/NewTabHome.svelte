@@ -183,6 +183,7 @@
         sources: sessionHistorySourcesFromRoots([dir]),
         ctx,
         scopeKey: `home:${cacheVersion}:${dir}`,
+        limitPerProvider: 3,
       })
       .finally(() => {
         if (seq !== sessionsLoadSeq || currentDir !== dir) return;
@@ -231,7 +232,7 @@
   $effect(() => {
     if (!isActiveHome) return;
     const dir = currentDir;
-    if (dir && dir !== "~") void tasksStore.load(dir).catch(() => {});
+    if (dir && dir !== "~") void tasksStore.ensureLoaded(dir);
   });
   const tasksForDir = $derived(
     tasksStore.cwd === currentDir && !tasksStore.error ? tasksStore.tasks : [],

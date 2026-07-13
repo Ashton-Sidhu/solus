@@ -19,6 +19,7 @@
     PlugsIcon,
   } from "phosphor-svelte";
   import OfflineBanner from "./components/servers/OfflineBanner.svelte";
+  import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import type { Command } from "./components/command-palette/lib/commands";
   import { projectsStore } from "./contexts/projects.store.svelte";
   import { toasts } from "./contexts/toast.store.svelte";
@@ -35,7 +36,12 @@
   } from "../shared/types";
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
-  import { bootstrapRuntimeTabs, materializeTabs } from "./contexts/session-bootstrap";
+  import { materializeTabs } from "./contexts/session-bootstrap";
+  import {
+    createReconnectDetector,
+    initializeRuntime,
+    refreshTheme,
+  } from "./contexts/runtime-boot";
   import {
     savePersistedTabsDebounced,
     flushPersistedTabs,
@@ -336,11 +342,7 @@
   );
 
   $effect(() => {
-    window.solus
-      .getTheme()
-      .then(({ isDark }: { isDark: boolean }) =>
-        settings.setSystemTheme(isDark),
-      );
+    refreshTheme(settings.setSystemTheme.bind(settings));
     const unsub = window.solus.onThemeChange((isDark: boolean) =>
       settings.setSystemTheme(isDark),
     );
@@ -348,14 +350,21 @@
   });
 
   $effect(() => {
-    session.initStaticInfo().then(async () => {
-      await bootstrapRuntimeTabs(session);
-      void sessionSidebarStore.loadPinnedSessions();
-    });
+    initializeRuntime(session, sessionSidebarStore);
   });
 
   $effect(() => {
     void connectionsStore.refreshCapabilities();
+  });
+
+  const detectReconnect = createReconnectDetector(serversStore.connectionStatus);
+  $effect(() => {
+    const connectionStatus = serversStore.connectionStatus;
+    if (detectReconnect(connectionStatus)) {
+      refreshTheme(settings.setSystemTheme.bind(settings));
+      initializeRuntime(session, sessionSidebarStore);
+      void connectionsStore.refreshCapabilities();
+    }
   });
 
   $effect(() => {
@@ -792,6 +801,7 @@
     if (!commandPaletteOpen) return;
     const cwd = session.galleryProjectPath;
     const scopedCwd = cwd === "~" ? undefined : cwd;
+    const taskCwd = session.tasksProjectCwd;
     const ctx = untrack(() => session.ctx);
     session.planStore
       .getDescriptors(undefined, true, ctx)
@@ -803,15 +813,7 @@
       });
     void session.worksStore.loadAll(scopedCwd);
     void session.automationsStore.loadAll();
-    // Populate the "Go to task…" sub-page. Load once per project (the panel keeps
-    // the same store), so reopening the palette doesn't re-hit the provider.
-    const taskCwd = session.tasksProjectCwd;
-    if (
-      taskCwd &&
-      (session.tasksStore.cwd !== taskCwd || !session.tasksStore.loaded)
-    ) {
-      void session.tasksStore.load(taskCwd);
-    }
+    if (taskCwd) void session.tasksStore.ensureLoaded(taskCwd);
     projectsStore
       .loadProjects({ force: true })
       .then((ps) => {
@@ -1217,7 +1219,8 @@
     const result = await window.solus.enterDesignMode();
     if (!result) {
       // Capture failed: tell main to restore opacity so we don't leave the window invisible.
-      window.solus.designModeReady();
+      await window.solus.designModeReady();
+      await window.solus.exitDesignMode();
       return;
     }
     // Pre-decode so the <img> paints on first frame. Without this the editor UI (temporarily
@@ -1249,10 +1252,14 @@
       session.addAttachments([attachment]);
     }
     designModeScreenshot = null;
+    await tick();
+    await window.solus.exitDesignMode();
   }
 
-  function handleDesignCancel() {
+  async function handleDesignCancel() {
     designModeScreenshot = null;
+    await tick();
+    await window.solus.exitDesignMode();
   }
 
   async function cycleAgentProvider() {
@@ -1553,16 +1560,11 @@
 {/if}
 
 {#if designModeScreenshot}
-  {#await import("./components/artifact/DesignAnnotation.svelte")}
-    <div class="lazy-modal-loading" role="status">Loading annotation tools…</div>
-  {:then designAnnotationModule}
-    {@const DesignAnnotation = designAnnotationModule.default}
-    <DesignAnnotation
-      screenshotDataUrl={designModeScreenshot}
-      onConfirm={handleDesignConfirm}
-      onCancel={handleDesignCancel}
-    />
-  {/await}
+  <DesignAnnotation
+    screenshotDataUrl={designModeScreenshot}
+    onConfirm={handleDesignConfirm}
+    onCancel={handleDesignCancel}
+  />
 {/if}
 
 {#if isDraggingFile}

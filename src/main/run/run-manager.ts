@@ -5,6 +5,7 @@ import { MAX_RUN_LOG_LINES, worktreeProjectRoot, type RunLogBatch, type RunLogLe
 import { loadProjectConfig } from '../project-config/project-config'
 import { runAsync } from '../git/exec'
 import { getCliEnv } from '../cli-env'
+import { stopProcessGroup } from './process-group'
 
 interface ManagedRun {
   repoRoot: string
@@ -327,12 +328,7 @@ export class RunManager {
     }
     const pid = run.pid
     try {
-      process.kill(-pid, 'SIGTERM')
-      if (!syncOnly) {
-        setTimeout(() => {
-          try { process.kill(-pid, 'SIGKILL') } catch {}
-        }, 5_000)
-      }
+      stopProcessGroup(pid, syncOnly)
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
         run.state = 'error'

@@ -112,6 +112,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   private completedPlan: { id: string; text: string } | null = null
   private streamedPlanId: string | null = null
   private turnId: string | null = null
+  private readonly subagentParentByThreadId = new Map<string, string>()
   private readonly planMode: boolean
   private readonly turnSummary: TurnSummary = {
     toolCallCount: 0,
@@ -129,7 +130,8 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   }
 
   push(raw: { method: string; params: any }): NormalizedEvent[] {
-    const { method, params } = raw
+    const { method } = raw
+    const params = this.withSubagentParent(raw.params)
     this.captureTurnId(params)
     if (isInterruptedTurnStatus(params?.turn?.status)) this.interrupted = true
     if (this.interrupted) return []
@@ -183,6 +185,21 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
 
     events.push(...normalizeCodexNotification(method, params, { planMode: this.planMode }))
     return this.emit(events)
+  }
+
+  private withSubagentParent(params: any): any {
+    const item = params?.item
+    if (item?.type === 'collabAgentToolCall' && typeof item.id === 'string') {
+      for (const threadId of item.receiverThreadIds ?? []) {
+        if (typeof threadId === 'string' && threadId) {
+          this.subagentParentByThreadId.set(threadId, item.id)
+        }
+      }
+    }
+
+    if (codexParentToolUseId(params)) return params
+    const parentToolUseId = this.subagentParentByThreadId.get(params?.threadId)
+    return parentToolUseId ? { ...params, parentToolUseId } : params
   }
 
   interrupt(): void {
@@ -545,10 +562,11 @@ function codexStartedToolInput(item: any): string | undefined {
   const settings = args.settings && typeof args.settings === 'object'
     ? args.settings as Record<string, unknown>
     : {}
-  const prompt = stringField(args.prompt) || stringField(args.task) || stringField(args.instructions)
+  const prompt = stringField(item.prompt) || stringField(args.prompt) || stringField(args.task) || stringField(args.instructions)
   const description = stringField(args.description) || stringField(args.title) || prompt || stringField(item.name) || stringField(item.tool)
-  const model = stringField(args.model) || stringField(args.model_id) || stringField(settings.model)
+  const model = stringField(item.model) || stringField(args.model) || stringField(args.model_id) || stringField(settings.model)
   const reasoningEffort =
+    stringField(item.reasoningEffort) ||
     stringField(args.reasoning_effort) ||
     stringField(args.reasoningEffort) ||
     stringField(settings.reasoning_effort) ||

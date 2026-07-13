@@ -2,8 +2,14 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { Message } from "../../../shared/types";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { groupSubMessages, subStats } from "./lib/subagent";
+  import {
+    groupSubMessages,
+    parseSubagentInput,
+    subagentInputText,
+    subStats,
+  } from "./lib/subagent";
   import ToolGroupItem from "./ToolGroupItem.svelte";
+  import UserMessageBubble from "./UserMessageBubble.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
@@ -20,6 +26,9 @@
   };
 
   const subs = $derived(message.subMessages ?? []);
+  const input = $derived(
+    subagentInputText(parseSubagentInput(message.toolInput)),
+  );
   const stats = $derived(subStats(subs));
   const grouped = $derived(groupSubMessages(subs));
 
@@ -38,6 +47,9 @@
 </script>
 
 <div class="flex flex-col gap-2 px-4 pt-3 pb-3.5">
+  {#if input}
+    <UserMessageBubble content={input} skipMotion />
+  {/if}
   {#if countLabel}
     <div
       class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary) tabular-nums"

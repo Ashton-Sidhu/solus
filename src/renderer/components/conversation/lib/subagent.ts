@@ -7,6 +7,36 @@ export type SubItem =
   | { kind: 'tool-group'; messages: Message[] }
   | { kind: 'assistant'; message: Message }
 
+export type SubagentInput = {
+  subagent_type?: string
+  description?: string
+  prompt?: string
+  task?: string
+  instructions?: string
+  model?: string
+  reasoning_effort?: string
+}
+
+export function parseSubagentInput(toolInput: string | undefined): SubagentInput {
+  const input = toolInput?.trim()
+  if (!input) return {}
+  try {
+    const parsed = JSON.parse(input)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as SubagentInput
+      : { prompt: input }
+  } catch {
+    return { prompt: input }
+  }
+}
+
+export function subagentInputText(input: SubagentInput): string {
+  for (const value of [input.prompt, input.task, input.instructions]) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
 // A sub-tool's toolInput carries whole file bodies (Write/Edit) and can still
 // change while running (Codex patch updates replace it). Parse each sub message
 // at most once, cached on the message object, and never while it's running —

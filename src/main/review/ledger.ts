@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, rename } from 'node:fs/promises'
+import { mkdir, readdir, rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { IpcContext } from '../../shared/types'
 import { worktreeProjectRoot } from '../../shared/types'
@@ -185,6 +185,28 @@ export async function writeLedger(repoRoot: string, ledger: ReviewLedger): Promi
  *  disambiguate. */
 export async function readGuideByKey(repoRoot: string, key: string): Promise<ReviewGuide | null> {
   return readJson<ReviewGuide>(guidePath(repoRoot, key))
+}
+
+/** Read the newest guide from the retired SHA-derived naming scheme. This is
+ * migration-only: new writes always use stable branch/session keys. */
+export async function readLegacyGuide(
+  repoRoot: string,
+  stableKey: string,
+  onDefaultBranch: boolean,
+): Promise<ReviewGuide | null> {
+  const dir = join(repoRoot, '.solus', GUIDE_SUBDIR)
+  try {
+    const names = await readdir(dir)
+    const suffix = stableKey.startsWith('session-') ? `__${stableKey}.json` : null
+    const candidates = names.filter((name) =>
+      suffix ? name.endsWith(suffix) : onDefaultBranch && name.startsWith('main-') && name.endsWith('.json'),
+    )
+    const dated = await Promise.all(candidates.map(async (name) => ({ name, mtime: (await stat(join(dir, name))).mtimeMs })))
+    dated.sort((a, b) => b.mtime - a.mtime)
+    return dated[0] ? readJson<ReviewGuide>(join(dir, dated[0].name)) : null
+  } catch {
+    return null
+  }
 }
 
 /** Overwrite the cached review guide in place (atomic tmp + rename). */

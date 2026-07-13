@@ -1,7 +1,6 @@
-import { WebSocketServer, WebSocket } from 'ws'
-import type { Server as HttpServer } from 'http'
-import type { IncomingMessage } from 'http'
 import { randomBytes } from 'crypto'
+import type { Server as HttpServer } from 'http'
+import { Server, type Socket } from 'socket.io'
 import type { SolusServer } from '../server/server'
 import { RPC_TOPICS } from '../../shared/rpc'
 import type { RpcTopic } from '../../shared/rpc'
@@ -9,8 +8,10 @@ import { verifySessionToken } from '../server/auth'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'ws-transport')
-const RESUME_WAIT_MS = 2_000
-const WS_BUFFERED_AMOUNT_LIMIT = 8 * 1024 * 1024
+const STREAM_TTL_MS = 6 * 60_000
+const RESPONSE_CACHE_TTL_MS = 60_000
+const RESPONSE_CACHE_MAX_ENTRIES = 500
+const MAX_HTTP_BUFFER_SIZE = 32 * 1024 * 1024
 
 interface WsRequest {
   id: string
@@ -18,278 +19,202 @@ interface WsRequest {
   args?: unknown[]
 }
 
-interface WsResume {
-  type: 'resume'
-  /** Per-topic last-seen seq for replay. */
-  lastSeqByTopic?: Partial<Record<RpcTopic, number>>
+interface WsResponse {
+  result?: unknown
+  error?: { message: string }
+}
+
+interface CachedResponse {
+  createdAt: number
+  response: Promise<WsResponse>
+  settled: boolean
 }
 
 interface ClientSession {
   id: string
   clientId: string
-  socket: WebSocket
+  socket: Socket
   deviceId: string | null
   deviceLabel: string
   connectedAt: number
-  topicUnsubs: Array<() => void>
 }
 
-/**
- * Mounts the WebSocket transport on the given HTTP server at `/ws`. Each
- * connection authenticates with a `Bearer <sessionToken>` Authorization
- * header (or `?token=` query for clients that can't set headers, e.g.
- * the browser WebSocket constructor).
- *
- * Authentication is enforced when `requireAuth` is true (default). Set false
- * to allow loopback-only development without paired devices.
- *
- * Wire format (JSON, line-delimited frames):
- *
- *   client → server:  { id, method, args }              (request)
- *                     { type: "resume", lastSeqByTopic } (resume on reconnect)
- *
- *   server → client:  { id, result }                     (response)
- *                     { id, error: { message } }         (response error)
- *                     { type: "event", topic, seq, payload }  (push)
- */
+interface ClientData {
+  clientId: string
+  deviceId: string | null
+  deviceLabel: string
+}
+
+/** Mounts the Socket.IO transport at `/ws` on the shared HTTP server. */
 export function attachWebSocketTransport(
   http: HttpServer,
   server: SolusServer,
-  opts: { requireAuth?: boolean | (() => boolean) } = {}
+  opts: { requireAuth?: boolean | (() => boolean) } = {},
 ): { close: () => void; sessions: Map<string, ClientSession> } {
   const requireAuth = () => typeof opts.requireAuth === 'function' ? opts.requireAuth() : (opts.requireAuth ?? true)
-  const wss = new WebSocketServer({ noServer: true })
+  const io = new Server(http, {
+    path: '/ws',
+    transports: ['websocket'],
+    pingInterval: 15_000,
+    pingTimeout: 10_000,
+    maxHttpBufferSize: MAX_HTTP_BUFFER_SIZE,
+    connectionStateRecovery: {
+      maxDisconnectionDuration: STREAM_TTL_MS,
+      skipMiddlewares: false,
+    },
+  })
   const sessions = new Map<string, ClientSession>()
+  const responseCaches = new Map<string, Map<string, CachedResponse>>()
+  const clientSocketCounts = new Map<string, number>()
+  const directUnsubs = new Map<string, () => void>()
+  const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const topicUnsubs = RPC_TOPICS.map((topic) =>
+    server.subscribe(topic, (payload) => io.emit('ev', topic, payload)),
+  )
+  let closing = false
 
-  http.on('upgrade', (req, socket, head) => {
-    if (!req.url || !req.url.startsWith('/ws')) return
-
-    const auth = parseAuth(req)
-    let deviceId: string | null = null
-    let deviceLabel = 'Web'
-
-    if (requireAuth()) {
-      if (!auth) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      const verified = verifySessionToken(auth)
-      if (!verified) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      deviceId = verified.deviceId
-      deviceLabel = verified.deviceLabel
-    } else if (auth) {
-      const verified = verifySessionToken(auth)
-      if (verified) {
-        deviceId = verified.deviceId
-        deviceLabel = verified.deviceLabel
-      }
+  io.use((socket, next) => {
+    const auth = socket.handshake.auth as { token?: unknown; clientInstanceId?: unknown }
+    const token = typeof auth.token === 'string' ? auth.token : ''
+    const verified = token ? verifySessionToken(token) : null
+    if (requireAuth() && !verified) {
+      const error = new Error('unauthorized') as Error & { data?: { code: string } }
+      error.data = { code: 'UNAUTHORIZED' }
+      next(error)
+      return
     }
 
-    const instanceId = parseClientInstanceId(req) ?? randomBytes(16).toString('hex')
-    const clientId = `ws:${deviceId ?? 'local'}:${instanceId}`
+    const instanceId = typeof auth.clientInstanceId === 'string' && /^[a-zA-Z0-9_-]{16,128}$/.test(auth.clientInstanceId)
+      ? auth.clientInstanceId
+      : randomBytes(16).toString('hex')
+    const deviceId = verified?.deviceId ?? null
+    const data: ClientData = {
+      clientId: `ws:${deviceId ?? 'local'}:${instanceId}`,
+      deviceId,
+      deviceLabel: verified?.deviceLabel ?? 'Web',
+    }
+    Object.assign(socket.data, data)
+    next()
+  })
 
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      const id = randomBytes(8).toString('hex')
-      const session: ClientSession = {
-        id,
+  io.on('connection', (socket) => {
+    const { clientId, deviceId, deviceLabel } = socket.data as ClientData
+    const room = `client:${clientId}`
+    void socket.join(room)
+
+    const cleanupTimer = cleanupTimers.get(clientId)
+    if (cleanupTimer) clearTimeout(cleanupTimer)
+    cleanupTimers.delete(clientId)
+
+    const previousCount = clientSocketCounts.get(clientId) ?? 0
+    clientSocketCounts.set(clientId, previousCount + 1)
+    if (previousCount === 0 && !directUnsubs.has(clientId)) {
+      directUnsubs.set(clientId, server.registerDirectClient(clientId, (topic, payload) => {
+        io.to(room).emit('ev', topic, payload)
+      }))
+    }
+
+    const id = randomBytes(8).toString('hex')
+    const session: ClientSession = { id, clientId, socket, deviceId, deviceLabel, connectedAt: Date.now() }
+    sessions.set(id, session)
+    server.broadcast('presence', { type: 'connect', id, clientId, deviceLabel, deviceId })
+    socket.emit('hello')
+
+    socket.on('rpc', async (id: unknown, method: unknown, args: unknown, ack: unknown) => {
+      if (typeof id !== 'string' || typeof method !== 'string' || typeof ack !== 'function') return
+      const request: WsRequest = { id, method, args: Array.isArray(args) ? args : [] }
+      const response = await getCachedResponse(responseCaches, clientId, request, server, {
         clientId,
-        socket: ws,
-        deviceId,
         deviceLabel,
-        connectedAt: Date.now(),
-        topicUnsubs: [],
-      }
-      sessions.set(id, session)
-      server.broadcast('presence', { type: 'connect', id, clientId, deviceLabel, deviceId })
-      let replayInProgress = false
-      let liveEventsPaused = true
-      const liveBuffer: string[] = []
-      let resumeTimer: ReturnType<typeof setTimeout>
-      const flushLiveBuffer = () => {
-        if (!liveEventsPaused) return
-        liveEventsPaused = false
-        clearTimeout(resumeTimer)
-        for (const frame of liveBuffer.splice(0)) sendRaw(ws, frame)
-      }
-      const deliverEventFrame = (frame: string) => {
-        if (replayInProgress) {
-          sendRaw(ws, frame)
-        } else if (liveEventsPaused) {
-          liveBuffer.push(frame)
-        } else {
-          sendRaw(ws, frame)
-        }
-      }
-      resumeTimer = setTimeout(() => {
-        flushLiveBuffer()
-        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark(clientId)] })
-      }, RESUME_WAIT_MS)
-
-      // Subscribe to every global topic; tab-scoped payloads arrive through the
-      // direct client registration below.
-      // Serialize the frame once per broadcast (eventFrame) and reuse it across
-      // every connected socket instead of re-stringifying per client.
-      for (const topic of RPC_TOPICS) {
-        if (topic === 'normalized-event' || topic === 'enriched-error') continue
-        const unsub = server.subscribe(topic, (payload, seq) => {
-          deliverEventFrame(eventFrame(topic, seq, payload as unknown[]))
-        })
-        session.topicUnsubs.push(unsub)
-      }
-      const unsubDirect = server.registerDirectClient(clientId, (topic, payload, seq) => {
-        deliverEventFrame(typeof seq === 'number'
-          ? eventFrame(topic, seq, payload as unknown[])
-          : JSON.stringify({ type: 'event', topic, payload }))
+        deviceId: deviceId ?? undefined,
       })
-      session.topicUnsubs.push(unsubDirect)
-
-      // Heartbeat — drop stale clients within 45s.
-      let alive = true
-      ws.on('pong', () => { alive = true })
-      const interval = setInterval(() => {
-        if (!alive) {
-          log.warn(`ws session ${id} stale, terminating`)
-          ws.terminate()
-          return
-        }
-        alive = false
-        try { ws.ping() } catch {}
-      }, 15_000)
-
-      ws.on('message', async (raw) => {
-        let msg: WsRequest | WsResume
-        try {
-          msg = JSON.parse(raw.toString())
-        } catch {
-          return
-        }
-
-        if ((msg as WsResume).type === 'resume') {
-          replayInProgress = true
-          handleResume(server, ws, clientId, (msg as WsResume).lastSeqByTopic ?? {})
-          replayInProgress = false
-          flushLiveBuffer()
-          send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark(clientId)] })
-          return
-        }
-        flushLiveBuffer()
-        send(ws, { type: 'event', topic: 'seq-watermark', seq: 0, payload: [server.getSeqWatermark(clientId)] })
-
-        const req = msg as WsRequest
-        if (!req?.id || !req?.method) return
-        const ctx = { clientId, deviceLabel, deviceId: deviceId ?? undefined }
-
-        try {
-          if (!server.hasHandler(req.method)) {
-            send(ws, { id: req.id, error: { message: `Unknown method "${req.method}"` } })
-            return
-          }
-          const result = await server.handle(req.method, req.args ?? [], ctx)
-          send(ws, { id: req.id, result })
-        } catch (err) {
-          send(ws, { id: req.id, error: { message: err instanceof Error ? err.message : String(err) } })
-        }
-      })
-
-      ws.on('close', () => {
-        clearInterval(interval)
-        clearTimeout(resumeTimer)
-        for (const u of session.topicUnsubs) u()
-        sessions.delete(id)
-        const hasReplacement = [...sessions.values()].some((candidate) => candidate.clientId === clientId)
-        if (!hasReplacement) {
-          server.broadcast('presence', { type: 'disconnect', id, clientId, deviceId })
-        }
-        log.info(`ws session ${id} closed`)
-      })
-
-      log.info(`ws session ${id} opened (device=${deviceLabel})`)
+      ack(response)
     })
+
+    socket.on('disconnect', (reason) => {
+      sessions.delete(id)
+      const remaining = Math.max(0, (clientSocketCounts.get(clientId) ?? 1) - 1)
+      if (remaining > 0) clientSocketCounts.set(clientId, remaining)
+      else clientSocketCounts.delete(clientId)
+
+      if (!closing && remaining === 0) {
+        server.broadcast('presence', { type: 'disconnect', id, clientId, deviceId })
+        const timer = setTimeout(() => {
+          cleanupTimers.delete(clientId)
+          if ((clientSocketCounts.get(clientId) ?? 0) > 0) return
+          directUnsubs.get(clientId)?.()
+          directUnsubs.delete(clientId)
+          responseCaches.delete(clientId)
+        }, STREAM_TTL_MS)
+        ;(timer as unknown as { unref?: () => void }).unref?.()
+        cleanupTimers.set(clientId, timer)
+      }
+      log.info(`ws session ${id} closed`, {
+        clientId,
+        deviceLabel,
+        reason,
+        connectedMs: Date.now() - session.connectedAt,
+        recovered: socket.recovered,
+      })
+    })
+
+    log.info(`ws session ${id} opened`, { clientId, deviceLabel, deviceId, recovered: socket.recovered })
   })
 
   return {
     close: () => {
-      for (const session of sessions.values()) {
-        try { session.socket.close(1001, 'going away') } catch {}
-      }
+      closing = true
+      for (const timer of cleanupTimers.values()) clearTimeout(timer)
+      cleanupTimers.clear()
+      for (const unsubscribe of topicUnsubs) unsubscribe()
+      for (const unsubscribe of directUnsubs.values()) unsubscribe()
+      directUnsubs.clear()
+      responseCaches.clear()
+      clientSocketCounts.clear()
       sessions.clear()
-      wss.close()
+      io.close()
     },
     sessions,
   }
 }
 
-function send(ws: WebSocket, payload: unknown): void {
-  if (!canSend(ws)) return
-  ws.send(JSON.stringify(payload))
-}
-
-function sendRaw(ws: WebSocket, frame: string): void {
-  if (!canSend(ws)) return
-  ws.send(frame)
-}
-
-function canSend(ws: WebSocket): boolean {
-  if (ws.readyState !== WebSocket.OPEN) return false
-  if (ws.bufferedAmount > WS_BUFFERED_AMOUNT_LIMIT) {
-    log.warn(`ws bufferedAmount exceeded ${WS_BUFFERED_AMOUNT_LIMIT}; terminating session`)
-    ws.terminate()
-    return false
-  }
-  return true
-}
-
-// emit() hands the SAME payload array reference to every topic listener, so a
-// WeakMap keyed on it dedupes the JSON.stringify across all connected sockets:
-// one broadcast → one serialization, regardless of paired-device count.
-const frameCache = new WeakMap<object, string>()
-function eventFrame(topic: RpcTopic, seq: number, payload: unknown[]): string {
-  const cached = frameCache.get(payload)
-  if (cached !== undefined) return cached
-  const frame = JSON.stringify({ type: 'event', topic, seq, payload })
-  frameCache.set(payload, frame)
-  return frame
-}
-
-function parseAuth(req: IncomingMessage): string | null {
-  const header = req.headers['authorization']
-  if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) {
-    return header.slice(7).trim()
-  }
-  if (req.url) {
-    const url = new URL(req.url, 'http://localhost')
-    const token = url.searchParams.get('token')
-    if (token) return token
-  }
-  return null
-}
-
-function parseClientInstanceId(req: IncomingMessage): string | null {
-  if (!req.url) return null
-  const value = new URL(req.url, 'http://localhost').searchParams.get('client')
-  return value && /^[a-zA-Z0-9_-]{16,128}$/.test(value) ? value : null
-}
-
-function handleResume(
-  server: SolusServer,
-  ws: WebSocket,
+function getCachedResponse(
+  responseCaches: Map<string, Map<string, CachedResponse>>,
   clientId: string,
-  lastSeqByTopic: Partial<Record<RpcTopic, number>>,
-): void {
-  const replay = server.replayForResume(clientId, lastSeqByTopic)
-  if (replay === null) {
-    // Gap detected — signal client to re-bootstrap instead of sending a stale snapshot.
-    server.sendTo(clientId, 'seq-reset', server.getSeqWatermark(clientId))
-    return
+  request: WsRequest,
+  server: SolusServer,
+  ctx: { clientId: string; deviceLabel: string; deviceId?: string },
+): Promise<WsResponse> {
+  let cache = responseCaches.get(clientId)
+  if (!cache) {
+    cache = new Map()
+    responseCaches.set(clientId, cache)
   }
-  for (const { topic, events } of replay) {
-    for (const ev of events) {
-      send(ws, { type: 'event', topic, seq: ev.seq, payload: ev.payload })
+
+  const now = Date.now()
+  for (const [requestId, cached] of cache) {
+    if (cached.settled && now - cached.createdAt > RESPONSE_CACHE_TTL_MS) cache.delete(requestId)
+  }
+  const existing = cache.get(request.id)
+  if (existing) return existing.response
+
+  const response = (async (): Promise<WsResponse> => {
+    try {
+      if (!server.hasHandler(request.method)) {
+        return { error: { message: `Unknown method "${request.method}"` } }
+      }
+      return { result: await server.handle(request.method, request.args ?? [], ctx) }
+    } catch (err) {
+      return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
+  })()
+  const cached = { createdAt: now, response, settled: false }
+  void response.then(() => { cached.settled = true })
+  cache.set(request.id, cached)
+  while (cache.size > RESPONSE_CACHE_MAX_ENTRIES) {
+    const oldestId = cache.keys().next().value
+    if (oldestId === undefined) break
+    cache.delete(oldestId)
   }
+  return response
 }

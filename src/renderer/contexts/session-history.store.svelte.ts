@@ -11,6 +11,7 @@ interface SessionHistoryStoreLoadOptions {
   ctx: IpcContext
   scopeKey?: string
   onBatch?: (sessions: SessionMeta[]) => void
+  limitPerProvider?: number
 }
 
 function defaultHistoryLoaderOptions(): SessionHistoryLoaderOptions {
@@ -53,6 +54,7 @@ export class SessionHistoryStore {
     ctx,
     scopeKey,
     onBatch,
+    limitPerProvider,
   }: SessionHistoryStoreLoadOptions): Promise<SessionMeta[]> {
     const seq = ++this.#loadSeq
     this.#scopeKey = scopeKey ?? null
@@ -62,6 +64,7 @@ export class SessionHistoryStore {
       const sessions = await this.#loader.load({
         sources,
         ctx,
+        limitPerProvider,
         onBatch: (batch) => {
           if (!this.#isCurrent(seq, scopeKey)) return
           this.merge(batch)

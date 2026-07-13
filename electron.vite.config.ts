@@ -69,7 +69,7 @@ export default defineConfig(({ mode }) => {
           '@anthropic-ai/claude-agent-sdk',
           'electron-updater',
           'onnxruntime-node',
-          'ws',
+          'socket.io',
         ]
       }
     }

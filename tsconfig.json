@@ -9,7 +9,13 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "declaration": true
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@client-core/*": ["src/client-core/*"],
+      "@renderer/*": ["src/renderer/*"],
+      "@shared/*": ["src/shared/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/__tests__"]

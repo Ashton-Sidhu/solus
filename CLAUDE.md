@@ -85,7 +85,7 @@ Add an RPC method/topic in `src/shared/rpc.ts`, then register a handler on `Solu
 | `control-plane.ts` | **Central orchestrator** — sessions, tabs, prompts, event normalization (large) |
 | `agents/` | Agent backends: `claude/`, `codex/`; `backend-registry.ts`, `run-input.ts`, `text-generator.ts` |
 | `server/` | HTTP/WS server (`server.ts`, `http.ts`, `index.ts`) + `handlers/` (session, file, git/worktree, review, tasks, folio, automation, google, provider, theme, window…) |
-| `transports/` | `electron-ipc.ts` + `websocket.ts` (two RPC transports) |
+| `transports/` | `websocket.ts` (WebSocket RPC transport) |
 | `git/` | Worktrees, status, snapshots, watcher, PR drafts |
 | `run/` | Dev-server "Run" process management |
 | `review/` | Review guide producer + ledger + review agent |

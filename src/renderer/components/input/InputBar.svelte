@@ -102,7 +102,9 @@
   $effect(() => {
     if (!isActiveMode) frozenText = untrack(() => session.currentInput.text);
   });
-  const editorValue = $derived(isActiveMode ? session.currentInput.text : frozenText);
+  const editorValue = $derived(
+    isActiveMode ? session.currentInput.text : frozenText,
+  );
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
 
   // Skill commands, used only to strip a mobile-autocorrect duplication on send.
@@ -141,13 +143,6 @@
   );
   const voiceControlState = $derived<"idle" | "recording" | "transcribing">(
     voice.starting && showWaveform ? "recording" : voiceState,
-  );
-  const voiceStatusLabel = $derived(
-    voice.starting
-      ? "Starting microphone…"
-      : voiceState === "transcribing"
-        ? "Finishing…"
-        : "Listening…",
   );
 
   // Register the conversational transcript→send handler and auto-rearm callback
@@ -196,7 +191,8 @@
   // this project; otherwise we fall back to the bare id.
   const boundTask = $derived(
     sess?.boundTaskId
-      ? (session.tasksStore.tasks.find((t) => t.id === sess.boundTaskId) ?? null)
+      ? (session.tasksStore.tasks.find((t) => t.id === sess.boundTaskId) ??
+          null)
       : null,
   );
   function unbindTask() {
@@ -204,26 +200,38 @@
     composerEl?.focus();
   }
   const isVoiceWaiting = $derived(
-    voiceModeEnabled && voiceModel.ready && isBusy && !isReadOnly && voiceState === "idle",
+    voiceModeEnabled &&
+      voiceModel.ready &&
+      isBusy &&
+      !isReadOnly &&
+      voiceState === "idle",
   );
   const voiceModelTooltip = $derived.by(() => {
     if (voiceModel.ready) return null;
-    if (voiceModel.status.state === "downloading" && voiceModel.progressPct !== null) {
+    if (
+      voiceModel.status.state === "downloading" &&
+      voiceModel.progressPct !== null
+    ) {
       return `Downloading voice model - ${voiceModel.progressPct}%`;
     }
-    if (voiceModel.status.state === "error") return "Voice model failed to download - retry in Settings";
+    if (voiceModel.status.state === "error")
+      return "Voice model failed to download - retry in Settings";
     return "Voice model is preparing";
   });
   const voicePausedTooltip = $derived.by(() => {
     if (!voice.error) return null;
-    if (voice.errorKind === "transient" && voiceRetry.exhausted) return `Voice paused: ${voice.error}`;
-    if (voice.errorKind && voice.errorKind !== "transient") return `Voice paused: ${voice.error}`;
+    if (voice.errorKind === "transient" && voiceRetry.exhausted)
+      return `Voice paused: ${voice.error}`;
+    if (voice.errorKind && voice.errorKind !== "transient")
+      return `Voice paused: ${voice.error}`;
     return null;
   });
   const idleVoiceTooltip = $derived(
     isReadOnly
       ? "Read-only session"
-      : (voiceModelTooltip ?? voicePausedTooltip ?? (isVoiceWaiting ? "Voice mode waiting..." : "Voice input")),
+      : (voiceModelTooltip ??
+          voicePausedTooltip ??
+          (isVoiceWaiting ? "Voice mode waiting..." : "Voice input")),
   );
   const placeholder = $derived(
     isReadOnly
@@ -375,7 +383,11 @@
   $effect(() => {
     // Only the active bar cancels; the inactive instance must not touch the
     // shared recorder — it would immediately kill the active bar's recording.
-    if (isActiveMode && isReadOnly && (voiceState === "recording" || voice.starting))
+    if (
+      isActiveMode &&
+      isReadOnly &&
+      (voiceState === "recording" || voice.starting)
+    )
       voice.cancel();
     if (isReadOnly) composerEl?.clearCompletions();
   });
@@ -392,7 +404,8 @@
 
   $effect(() => {
     const unsub = window.solus.onWindowHidden(() => {
-      if (isActiveMode && (voiceState === "recording" || voice.starting)) voice.cancel();
+      if (isActiveMode && (voiceState === "recording" || voice.starting))
+        voice.cancel();
     });
     return unsub;
   });
@@ -416,9 +429,11 @@
     const vstate = voiceState;
     const dictationFocus = dictation.focusedTarget;
     const modelReady = voiceModel.ready;
-    const retryReady = voice.errorKind === "transient" && voiceRetry.canRetry(retryClock);
+    const retryReady =
+      voice.errorKind === "transient" && voiceRetry.canRetry(retryClock);
 
-    if (prevVoiceMode && !enabled && (vstate === "recording" || voice.starting)) voice.cancel();
+    if (prevVoiceMode && !enabled && (vstate === "recording" || voice.starting))
+      voice.cancel();
     if (!prevVoiceMode && enabled) {
       voiceRetry.reset();
       voice.clearError();
@@ -683,7 +698,9 @@
         data-testid="bound-task-chip"
       >
         <span class="opacity-70 shrink-0">Working on:</span>
-        <span class="truncate">{boundTask?.title ?? `#${sess.boundTaskId}`}</span>
+        <span class="truncate"
+          >{boundTask?.title ?? `#${sess.boundTaskId}`}</span
+        >
         <button
           type="button"
           class="shrink-0 flex items-center justify-center rounded hover:bg-(--solus-accent-border) -mr-0.5 p-0.5"
@@ -755,10 +772,11 @@
 
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}
-    <div class="flex items-center gap-2" style="padding:0.75rem 0" style:display={showWaveform ? null : "none"}>
-      <span class="shrink-0 text-[0.6875rem] font-medium text-(--solus-text-tertiary)" aria-live="polite">
-        {voiceStatusLabel}
-      </span>
+    <div
+      class="flex items-center gap-2"
+      style="padding:0.75rem 0"
+      style:display={showWaveform ? null : "none"}
+    >
       <div class="min-w-0 flex-1">
         <WaveformVisualizer
           rmsRef={voice.rmsRef}

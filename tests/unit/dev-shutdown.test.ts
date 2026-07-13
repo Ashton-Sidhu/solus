@@ -26,12 +26,14 @@ describe('development shutdown signals', () => {
 
     signals.emit('SIGINT')
     expect(calls).toEqual(['shutdown'])
-    expect(signals.listenerCount('SIGINT')).toBe(0)
-    expect(signals.listenerCount('SIGTERM')).toBe(0)
+    expect(signals.listenerCount('SIGINT')).toBe(1)
+    expect(signals.listenerCount('SIGTERM')).toBe(1)
 
     finishShutdown()
     await quitCalled
     expect(calls).toEqual(['shutdown', 'quit'])
+    expect(signals.listenerCount('SIGINT')).toBe(0)
+    expect(signals.listenerCount('SIGTERM')).toBe(0)
   })
 
   test('still quits when graceful shutdown fails', async () => {
@@ -54,5 +56,44 @@ describe('development shutdown signals', () => {
     expect(errors[0].signal).toBe('SIGTERM')
     expect(errors[0].error).toBeInstanceOf(Error)
     expect(quit).toBe(true)
+  })
+
+  test('a second signal forces quit when graceful shutdown is stuck', () => {
+    const signals = new EventEmitter()
+    let quitCount = 0
+
+    installDevShutdownHandlers({
+      signalSource: signals,
+      shutdown: () => new Promise(() => {}),
+      quit: () => { quitCount++ },
+      onError: () => {},
+    })
+
+    signals.emit('SIGINT')
+    signals.emit('SIGINT')
+
+    expect(quitCount).toBe(1)
+    expect(signals.listenerCount('SIGINT')).toBe(0)
+    expect(signals.listenerCount('SIGTERM')).toBe(0)
+  })
+
+  test('forces quit after the graceful shutdown deadline', async () => {
+    const signals = new EventEmitter()
+    let confirmQuit!: () => void
+    const quitCalled = new Promise<void>((resolve) => { confirmQuit = resolve })
+
+    installDevShutdownHandlers({
+      signalSource: signals,
+      shutdown: () => new Promise(() => {}),
+      quit: confirmQuit,
+      onError: () => {},
+      gracePeriodMs: 1,
+    })
+
+    signals.emit('SIGTERM')
+    await quitCalled
+
+    expect(signals.listenerCount('SIGINT')).toBe(0)
+    expect(signals.listenerCount('SIGTERM')).toBe(0)
   })
 })

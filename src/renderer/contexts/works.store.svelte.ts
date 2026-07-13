@@ -16,6 +16,7 @@ export class WorksStore {
   private annotationLoadTokens = new Map<string, number>()
   private previousLoadTokens = new Map<string, number>()
   private nextLoadToken = 0
+  private listLoads = new Map<string | undefined, Promise<void>>()
   /** In-flight ensureContent loads, keyed by workId. Concurrent callers (a
    *  grouped-invalidation burst re-runs the hydration effect while a load is
    *  pending) share the same promise instead of firing duplicate loadWork IPC. */
@@ -178,25 +179,38 @@ export class WorksStore {
     }
   }
 
-  async loadAll(cwd?: string): Promise<void> {
-    this.activeCwd = cwd ?? this.activeCwd
-    const metas = await window.solus.listWorks(this.activeCwd)
-    const liveIds = new Set<string>()
-    for (const meta of metas) {
-      liveIds.add(meta.id)
-      const existing = this.works[meta.id]
-      if (existing) {
-        applyMeta(existing, meta)
-      } else {
-        this.works[meta.id] = { ...meta, content: '' }
+  loadAll(cwd?: string): Promise<void> {
+    const targetCwd = cwd ?? this.activeCwd
+    const pending = this.listLoads.get(targetCwd)
+    if (pending) return pending
+    this.activeCwd = targetCwd
+    const load = (async () => {
+      try {
+        const metas = await window.solus.listWorks(targetCwd)
+        const liveIds = new Set<string>()
+        for (const meta of metas) {
+          liveIds.add(meta.id)
+          const existing = this.works[meta.id]
+          if (existing) {
+            applyMeta(existing, meta)
+          } else {
+            this.works[meta.id] = { ...meta, content: '' }
+          }
+        }
+        for (const id of Object.keys(this.works)) {
+          if (liveIds.has(id) || this.streaming[id]) continue
+          delete this.works[id]
+          delete this.agentRevisions[id]
+          this.clearCachedSidecars(id)
+        }
+      } catch (err) {
+        logWorkLoad('error', 'work list load failed', { cwd: targetCwd, error: formatError(err) })
+      } finally {
+        this.listLoads.delete(targetCwd)
       }
-    }
-    for (const id of Object.keys(this.works)) {
-      if (liveIds.has(id) || this.streaming[id]) continue
-      delete this.works[id]
-      delete this.agentRevisions[id]
-      this.clearCachedSidecars(id)
-    }
+    })()
+    this.listLoads.set(targetCwd, load)
+    return load
   }
 
   async ensureContent(workId: string, source = 'unknown', cwd?: string): Promise<Work | null> {

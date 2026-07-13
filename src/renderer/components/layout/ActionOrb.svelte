@@ -143,7 +143,7 @@
     const sid = sess?.agentSessionId;
     window.solus.getReviewContext(ctx).then(async (rc) => {
       if (!rc) return;
-      const key = sid ? `${rc.key}__session-${sid}` : rc.key;
+      const key = sid ? `session-${sid}` : rc.branch.replace(/\//g, "__");
       const cached = await window.solus.readGuide(ctx, key);
       // A cached guide from an older HEAD is stale — leave the orb on "Review"
       // so clicking generates a fresh walkthrough.
@@ -533,7 +533,7 @@
     // generation so a concurrent branch/other-tab run can't drive our steps.
     const sid = sess?.agentSessionId;
     const unsubscribe = window.solus.onReviewProgress((event) => {
-      if (sid && !event.key.endsWith(`__session-${sid}`)) return;
+      if (sid && event.key !== `session-${sid}`) return;
       reviewProgressStep = event.step;
     });
 
@@ -543,12 +543,9 @@
         { ...resolveReviewAgent(theme, agentContext), scope: "session" },
       );
       if (runId !== reviewRunId) return;
-      reviewGuideKey =
-        gen?.key ??
-        (await window.solus.getReviewContext(session.ctxFor(tabId)))?.key ??
-        null;
+      reviewGuideKey = gen?.persisted ? gen.key : null;
       reviewSnapshot = changesFingerprint;
-      reviewStatus = "done";
+      reviewStatus = reviewGuideKey ? "done" : "idle";
     } catch {
       if (runId === reviewRunId) reviewStatus = "idle";
     } finally {

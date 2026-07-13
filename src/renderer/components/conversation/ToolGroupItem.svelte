@@ -210,7 +210,11 @@
           {@const toolName = tool.toolName || "Tool"}
           {@const parsedInput = parsedInputs[i]}
           {@const fullDesc = isRunning
-            ? prettyToolName(toolName)
+            ? toolName === "exec_command"
+              ? getToolDescription(toolName, tool.toolInput, {
+                  truncate: false,
+                })
+              : prettyToolName(toolName)
             : parsedInput
               ? getToolDescriptionFromParsed(toolName, parsedInput, {
                   truncate: false,

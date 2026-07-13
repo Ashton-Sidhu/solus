@@ -1,13 +1,19 @@
-import { RPC_INVOKE_METHODS, RPC_SEND_METHODS, RPC_TOPICS } from '../shared/rpc'
-import type { RpcEventEnvelope, RpcInvokeMethod, RpcSendMethod, RpcTopic } from '../shared/rpc'
+import { io, type Socket } from 'socket.io-client'
+import { RPC_INVOKE_METHODS, RPC_TOPICS } from '../shared/rpc'
+import type { RpcInvokeMethod, RpcTopic } from '../shared/rpc'
 
-/**
- * WebSocket transport shared by the browser client and the Electron renderer.
- * It exposes a `window.solus`-shaped object backed by the server's JSON RPC
- * WebSocket protocol.
- */
+/** WebSocket transport shared by the browser client and Electron renderer. */
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked'
+
+export class TransportDisconnectedError extends Error {
+  code = 'TRANSPORT_DISCONNECTED'
+
+  constructor() {
+    super('disconnected')
+    this.name = 'TransportDisconnectedError'
+  }
+}
 
 export interface WsTransportOptions {
   /** Server URL like `http://host:port`. */
@@ -20,102 +26,99 @@ export interface WsTransportOptions {
   onSessionTokenRefreshed?: (sessionToken: string) => void
   /** Called when the server rejects the stored token and refresh cannot recover. */
   onAuthFailed?: () => void
-  /**
-   * Overrides how a fresh token is obtained; defaults to POSTing
-   * `${serverUrl}/auth/refresh`. The Electron local target instead pulls a
-   * fresh token over IPC — the desktop renderer's origin is cross-origin
-   * from the local server, so the HTTP fallback would depend on CORS.
-   */
+  /** Overrides the default POST to `${serverUrl}/auth/refresh`. */
   refreshToken?: () => Promise<{ result: RefreshResult; sessionToken?: string }>
 }
 
 type Listener = (...payload: unknown[]) => void
 
-interface PendingRequest {
-  resolve: (value: unknown) => void
-  reject: (err: Error) => void
-}
-
-interface QueuedRequest {
-  id: string
-  method: RpcInvokeMethod | RpcSendMethod
+interface RequestEntry {
+  method: RpcInvokeMethod
   args: unknown[]
+  state: 'queued' | 'sent'
+  resolve?: (value: unknown) => void
+  reject?: (err: Error) => void
   queuedAt: number
-  queuedAfterFirstOpen: boolean
+  /** Boot work must survive arbitrarily slow first startup. */
+  queuedBeforeFirstConnect: boolean
 }
 
-const RECONNECT_BACKOFFS = [1000, 2000, 4000, 8000, 16000, 30000]
-const REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000
-const STABLE_CONNECTION_RESET_MS = 30_000
+interface RpcResponse {
+  result?: unknown
+  error?: { message: string }
+}
+
 const RECONNECT_QUEUE_MAX_AGE_MS = 15_000
 const WAKE_PROBE_TIMEOUT_MS = 5_000
 const WAKE_PROBE_METHOD: RpcInvokeMethod = 'connectionsGetServerInfo'
 
-export function shouldAcceptSequencedEvent(currentSeq: number | undefined, incomingSeq: number | undefined): boolean {
-  return typeof incomingSeq !== 'number' || typeof currentSeq !== 'number' || incomingSeq > currentSeq
+export function shouldRejectQueuedRequest(
+  queuedAt: number,
+  queuedBeforeFirstConnect: boolean,
+  now: number,
+): boolean {
+  return !queuedBeforeFirstConnect && now - queuedAt > RECONNECT_QUEUE_MAX_AGE_MS
 }
 
 export class WsTransport {
-  private socket: WebSocket | null = null
+  private readonly socket: Socket
   private readonly clientInstanceId = createClientInstanceId()
   private nextId = 1
-  private pending = new Map<string, PendingRequest>()
+  private requests = new Map<string, RequestEntry>()
   private subscribers = new Map<RpcTopic, Set<Listener>>()
-  private lastSeqByTopic = new Map<RpcTopic, number>()
-  private queuedRequests: QueuedRequest[] = []
-  private sentRequestIds = new Set<string>()
   private onResetCallback: (() => void) | null = null
   private status: ConnectionStatus = 'disconnected'
   private lastNotifiedAttempt = 0
   private attempt = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private destroyed = false
-  private attemptedCloseRefresh = false
+  private blocked = false
   private hasOpened = false
-  private openedAt: number | null = null
-  private isNetworkOffline = false
+  private authRefreshAttempted = false
+  private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
   private removeLifecycleListeners: (() => void) | null = null
   private wakeProbeInFlight = false
-  private reconnectImmediatelyAfterClose = false
 
   constructor(private opts: WsTransportOptions) {
+    this.socket = io(opts.serverUrl, {
+      path: '/ws',
+      transports: ['websocket'],
+      reconnectionDelay: 1_000,
+      reconnectionDelayMax: 30_000,
+      autoConnect: false,
+      auth: (cb) => cb({ token: this.opts.sessionToken, clientInstanceId: this.clientInstanceId }),
+    })
+    this.installSocketListeners()
     this.installLifecycleListeners()
   }
 
   start(): void {
-    if (this.status === 'blocked') {
+    if (this.destroyed) return
+    if (this.blocked) {
+      this.blocked = false
+      this.authRefreshAttempted = false
       this.attempt = 0
-      this.attemptedCloseRefresh = false
     }
-    this.connect()
+    if (!this.socket.connected) {
+      this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
+      this.socket.connect()
+    }
   }
 
   destroy(): void {
+    if (this.destroyed) return
     this.destroyed = true
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
+    this.authRefreshResetTimer = null
     this.removeLifecycleListeners?.()
     this.removeLifecycleListeners = null
-    this.socket?.close()
-    this.socket = null
-    this.queuedRequests.length = 0
-    for (const [, p] of this.pending) p.reject(new Error('disconnected'))
-    this.pending.clear()
-    this.sentRequestIds.clear()
-  }
-
-  applySeqWatermark(seqByTopic: Record<string, number>, replace = false): void {
-    if (replace) this.lastSeqByTopic.clear()
-    for (const [topic, seq] of Object.entries(seqByTopic)) {
-      if (typeof seq === 'number' && (replace || !this.lastSeqByTopic.has(topic as RpcTopic))) {
-        this.lastSeqByTopic.set(topic as RpcTopic, seq)
-      }
-    }
+    this.socket.disconnect()
+    this.rejectAllRequests()
+    this.setStatus('disconnected')
   }
 
   /** Builds a `window.solus`-compatible API surface backed by this transport. */
   buildSolusApi(): Record<string, unknown> {
     const api: Record<string, unknown> = {
-      // Browser defaults. Electron overlays its native-only methods at boot.
       getPlatform: () => 'web',
       getPathForFile: () => '',
       setQuoteContext: () => {},
@@ -125,17 +128,11 @@ export class WsTransport {
     for (const method of RPC_INVOKE_METHODS) {
       api[method] = (...args: unknown[]) => this.invoke(method, args)
     }
-    for (const method of RPC_SEND_METHODS) {
-      api[method] = (...args: unknown[]) => this.send(method, args)
-    }
 
-    // Float32Array does not survive JSON serialization as an array, so batch
-    // audio is sent as a plain number array the server rehydrates.
+    // Float32Array does not survive JSON serialization as an array.
     api.transcribeAudio = (audio: Float32Array | string, ...args: unknown[]) =>
       this.invoke('transcribeAudio', [audio instanceof Float32Array ? Array.from(audio) : audio, ...args])
 
-    // Browser file picking/upload. Electron overlays getPathForFile but keeps
-    // attachFiles on RPC so desktop dialogs still run on the local server.
     api['attachFiles'] = (): Promise<unknown> => {
       return new Promise((resolve) => {
         const input = document.createElement('input')
@@ -150,11 +147,8 @@ export class WsTransport {
         input.click()
       })
     }
-
-    // Expose uploadFiles for browser drag-and-drop in App.svelte.
     api['uploadFiles'] = (files: File[]): Promise<unknown> => this.uploadFiles(files)
 
-    // Event subscriptions mirror the preload's onX shape.
     api.onEvent = (cb: Listener) => this.subscribe('normalized-event', cb)
     api.onError = (cb: Listener) => this.subscribe('enriched-error', cb)
     api.onSkillStatus = (cb: Listener) => this.subscribe('skill-status', cb)
@@ -176,13 +170,69 @@ export class WsTransport {
     api.onTasksChanged = (cb: Listener) => this.subscribe('tasks-changed', cb)
     api.onPrsChanged = (cb: Listener) => this.subscribe('prs-changed', cb)
     api.onAttentionChanged = (cb: Listener) => this.subscribe('attention-changed', cb)
-    api.onSeqWatermark = (cb: Listener) => this.subscribe('seq-watermark', cb)
     api.onResetRuntime = (cb: () => void) => {
       this.onResetCallback = cb
       return () => { if (this.onResetCallback === cb) this.onResetCallback = null }
     }
 
     return api
+  }
+
+  private installSocketListeners(): void {
+    this.socket.on('connect', () => {
+      const shouldReset = this.hasOpened && !this.socket.recovered
+      this.hasOpened = true
+      this.attempt = 0
+      this.setStatus('connected')
+      this.logConnection('socket opened', {
+        recovered: this.socket.recovered,
+        pendingRequests: this.pendingRequestSummary(),
+      })
+      if (shouldReset) this.onResetCallback?.()
+      this.flushQueuedRequests()
+      if (this.authRefreshAttempted) {
+        if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
+        this.authRefreshResetTimer = setTimeout(() => { this.authRefreshAttempted = false }, 30_000)
+      }
+    })
+    this.socket.on('disconnect', (reason) => {
+      this.logConnection('socket closed', { reason, pendingRequests: this.pendingRequestSummary() })
+      this.requeueSentRequests()
+      if (!this.destroyed && !this.blocked) this.setStatus('reconnecting')
+    })
+    this.socket.io.on('reconnect_attempt', (attempt) => {
+      this.attempt = attempt
+      this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
+    })
+    this.socket.on('connect_error', (error: Error & { data?: { code?: string } }) => {
+      this.logConnection('socket connection error', { message: error.message, code: error.data?.code ?? null })
+      if (error.data?.code !== 'UNAUTHORIZED') return
+      if (this.authRefreshAttempted) {
+        this.blockAuthFailure()
+        return
+      }
+      this.authRefreshAttempted = true
+      void this.recoverAuthentication()
+    })
+    this.socket.on('ev', (topic: RpcTopic, payload: unknown[]) => {
+      const listeners = this.subscribers.get(topic)
+      if (!listeners) return
+      for (const listener of listeners) {
+        try { listener(...payload) } catch (err) { console.error('listener threw', err) }
+      }
+    })
+  }
+
+  private async recoverAuthentication(): Promise<void> {
+    let refreshResult: RefreshResult = 'unavailable'
+    try { refreshResult = await this.refreshToken() } catch {}
+    if (this.destroyed) return
+    if (refreshResult !== 'refreshed') {
+      this.blockAuthFailure()
+      return
+    }
+    this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
+    this.socket.connect()
   }
 
   private async uploadFiles(files: File[]): Promise<unknown> {
@@ -202,125 +252,95 @@ export class WsTransport {
     }
   }
 
-  private async connect(): Promise<void> {
-    if (this.destroyed) return
-    if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return
-
-    this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
-
-    const refreshed = await this.refreshIfNeeded()
-    if (refreshed === 'unauthorized') {
-      this.blockAuthFailure()
-      this.opts.onAuthFailed?.()
-      return
-    }
-    if (this.destroyed) return
-
-    const wsUrl = httpToWs(this.opts.serverUrl)
-      + `/ws?token=${encodeURIComponent(this.opts.sessionToken)}&client=${encodeURIComponent(this.clientInstanceId)}`
-    const ws = new WebSocket(wsUrl)
-    this.socket = ws
-
-    ws.addEventListener('open', () => {
-      this.setStatus('connected')
-      this.hasOpened = true
-      this.openedAt = Date.now()
-      this.attemptedCloseRefresh = false
-
-      const lastSeqByTopic: Partial<Record<RpcTopic, number>> = {}
-      this.lastSeqByTopic.forEach((seq, topic) => { lastSeqByTopic[topic] = seq })
-      ws.send(JSON.stringify({ type: 'resume', lastSeqByTopic }))
-
-      const queued = this.queuedRequests.slice()
-      this.queuedRequests.length = 0
-      const now = Date.now()
-      for (const q of queued) {
-        if (q.queuedAfterFirstOpen && now - q.queuedAt > RECONNECT_QUEUE_MAX_AGE_MS) {
-          this.rejectFrame(q, new Error('disconnected'))
-          continue
-        }
-        this.sendFrame(ws, q)
+  private invoke(method: RpcInvokeMethod, args: unknown[]): Promise<unknown> {
+    if (this.destroyed || this.blocked) return Promise.reject(new TransportDisconnectedError())
+    const id = String(this.nextId++)
+    return new Promise((resolve, reject) => {
+      const entry: RequestEntry = {
+        method,
+        args,
+        state: 'queued',
+        resolve,
+        reject,
+        queuedAt: Date.now(),
+        queuedBeforeFirstConnect: !this.hasOpened,
       }
+      this.requests.set(id, entry)
+      if (this.socket.connected) this.sendRequest(id, entry)
     })
-
-    ws.addEventListener('message', (e) => {
-      let msg: any
-      try { msg = JSON.parse(e.data) } catch { return }
-
-      if (msg.type === 'event') {
-        const env = msg as RpcEventEnvelope
-        const currentSeq = this.lastSeqByTopic.get(env.topic)
-        if (!shouldAcceptSequencedEvent(currentSeq, env.seq)) return
-        if (typeof env.seq === 'number') this.lastSeqByTopic.set(env.topic, env.seq)
-        if (env.topic === 'seq-watermark') {
-          const seqByTopic = (env.payload as unknown[])[0] as Record<string, number>
-          this.applySeqWatermark(seqByTopic)
-        } else if (env.topic === 'seq-reset') {
-          const seqByTopic = (env.payload as unknown[])[0] as Record<string, number>
-          this.applySeqWatermark(seqByTopic, true)
-          this.onResetCallback?.()
-        }
-        const set = this.subscribers.get(env.topic)
-        if (set) {
-          for (const l of set) {
-            try { l(...(env.payload as unknown[])) } catch (err) { console.error('listener threw', err) }
-          }
-        }
-        return
-      }
-
-      if (msg.id) {
-        const pending = this.pending.get(msg.id)
-        if (!pending) return
-        this.pending.delete(msg.id)
-        this.sentRequestIds.delete(msg.id)
-        if (msg.error) pending.reject(new Error(msg.error.message ?? 'rpc error'))
-        else pending.resolve(msg.result)
-      }
-    })
-
-    const onClose = () => {
-      this.socket = null
-      const openedAt = this.openedAt
-      this.openedAt = null
-      if (openedAt !== null && Date.now() - openedAt >= STABLE_CONNECTION_RESET_MS) this.attempt = 0
-      for (const id of this.sentRequestIds) {
-        const pending = this.pending.get(id)
-        if (!pending) continue
-        pending.reject(new Error('disconnected'))
-        this.pending.delete(id)
-      }
-      this.sentRequestIds.clear()
-      if (this.destroyed) return
-      const reconnectImmediately = this.reconnectImmediatelyAfterClose
-      this.reconnectImmediatelyAfterClose = false
-      this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
-      void this.refreshAfterAuthClose().then((result) => {
-        if (this.destroyed) return
-        if (result === 'unauthorized') {
-          this.blockAuthFailure()
-          this.opts.onAuthFailed?.()
-          return
-        }
-        if (reconnectImmediately) void this.connect()
-        else this.scheduleReconnect()
-      })
-    }
-    ws.addEventListener('close', onClose)
-    ws.addEventListener('error', () => { /* close fires next */ })
   }
 
-  private scheduleReconnect(): void {
-    if (this.destroyed) return
-    if (this.status === 'blocked') return
-    if (this.isNetworkOffline) return
-    if (this.reconnectTimer) return
-    const delay = RECONNECT_BACKOFFS[Math.min(this.attempt, RECONNECT_BACKOFFS.length - 1)]
-    this.attempt += 1
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      void this.connect()
-    }, delay)
+  private flushQueuedRequests(): void {
+    const now = Date.now()
+    for (const [id, request] of this.requests) {
+      if (request.state !== 'queued') continue
+      if (shouldRejectQueuedRequest(request.queuedAt, request.queuedBeforeFirstConnect, now)) {
+        this.requests.delete(id)
+        request.reject?.(new TransportDisconnectedError())
+        continue
+      }
+      this.sendRequest(id, request)
+    }
+  }
+
+  private sendRequest(id: string, request: RequestEntry): void {
+    request.state = 'sent'
+    this.socket.emit('rpc', id, request.method, request.args, (response: RpcResponse) => {
+      const current = this.requests.get(id)
+      if (!current) return
+      this.requests.delete(id)
+      if (response.error) current.reject?.(new Error(response.error.message ?? 'rpc error'))
+      else current.resolve?.(response.result)
+    })
+  }
+
+  private requeueSentRequests(): void {
+    const queuedAt = Date.now()
+    for (const request of this.requests.values()) {
+      if (request.state !== 'sent') continue
+      request.state = 'queued'
+      request.queuedAt = queuedAt
+      request.queuedBeforeFirstConnect = false
+    }
+  }
+
+  private rejectAllRequests(): void {
+    const error = new TransportDisconnectedError()
+    for (const request of this.requests.values()) request.reject?.(error)
+    this.requests.clear()
+  }
+
+  private async refreshToken(): Promise<RefreshResult> {
+    const refreshed = this.opts.refreshToken
+      ? await this.opts.refreshToken()
+      : await refreshSessionToken(this.opts.serverUrl, this.opts.sessionToken)
+    if (refreshed.result !== 'refreshed' || !refreshed.sessionToken) return refreshed.result === 'refreshed' ? 'unavailable' : refreshed.result
+    this.opts.sessionToken = refreshed.sessionToken
+    this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken)
+    return 'refreshed'
+  }
+
+  private subscribe(topic: RpcTopic, listener: Listener): () => void {
+    let listeners = this.subscribers.get(topic)
+    if (!listeners) { listeners = new Set(); this.subscribers.set(topic, listeners) }
+    listeners.add(listener)
+    return () => { listeners!.delete(listener) }
+  }
+
+  private blockAuthFailure(): void {
+    if (this.blocked) return
+    this.blocked = true
+    this.socket.disconnect()
+    this.setStatus('blocked')
+    this.rejectAllRequests()
+    this.opts.onAuthFailed?.()
+  }
+
+  private forceReconnect(): void {
+    if (this.destroyed || this.blocked) return
+    this.socket.disconnect()
+    this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
+    this.socket.connect()
   }
 
   private setStatus(status: ConnectionStatus): void {
@@ -330,160 +350,58 @@ export class WsTransport {
     this.opts.onStatusChange?.(status, this.attempt)
   }
 
-  private invoke(method: RpcInvokeMethod, args: unknown[]): Promise<unknown> {
-    const id = String(this.nextId++)
-    const frame = { id, method, args }
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        this.sendFrame(this.socket, frame)
-      } else {
-        this.queueFrame(frame)
-      }
+  private pendingRequestSummary(): Array<{ id: string; method: RpcInvokeMethod; state: RequestEntry['state']; ageMs: number }> {
+    const now = Date.now()
+    return [...this.requests].map(([id, request]) => ({
+      id,
+      method: request.method,
+      state: request.state,
+      ageMs: now - request.queuedAt,
+    }))
+  }
+
+  private logConnection(message: string, data: Record<string, unknown>): void {
+    console.info(`[solus:ws] ${message}`, {
+      clientInstanceId: this.clientInstanceId,
+      status: this.status,
+      ...data,
     })
-  }
-
-  private send(method: RpcSendMethod, args: unknown[]): void {
-    const frame = { id: String(this.nextId++), method, args }
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.sendFrame(this.socket, frame)
-    } else {
-      this.queueFrame(frame)
-    }
-  }
-
-  private queueFrame(frame: Omit<QueuedRequest, 'queuedAt' | 'queuedAfterFirstOpen'>): void {
-    if (this.status === 'blocked') {
-      this.rejectFrame(frame, new Error('disconnected'))
-      return
-    }
-    this.queuedRequests.push({ ...frame, queuedAt: Date.now(), queuedAfterFirstOpen: this.hasOpened })
-  }
-
-  private rejectFrame(frame: Pick<QueuedRequest, 'id'>, err: Error): void {
-    const pending = this.pending.get(frame.id)
-    if (!pending) return
-    this.pending.delete(frame.id)
-    this.sentRequestIds.delete(frame.id)
-    pending.reject(err)
-  }
-
-  private sendFrame(ws: WebSocket, frame: Omit<QueuedRequest, 'queuedAt' | 'queuedAfterFirstOpen'>): void {
-    if (this.pending.has(frame.id)) this.sentRequestIds.add(frame.id)
-    ws.send(JSON.stringify({ id: frame.id, method: frame.method, args: frame.args }))
-  }
-
-  private async refreshIfNeeded(): Promise<RefreshResult> {
-    if (!this.opts.sessionToken) return 'fresh'
-    const issuedAt = tokenIssuedAt(this.opts.sessionToken)
-    if (!issuedAt || Date.now() - issuedAt <= REFRESH_AFTER_MS) return 'fresh'
-    return this.refreshToken()
-  }
-
-  private async refreshAfterAuthClose(): Promise<RefreshResult> {
-    if (!this.opts.sessionToken || this.attemptedCloseRefresh) return 'fresh'
-    this.attemptedCloseRefresh = true
-    return this.refreshToken()
-  }
-
-  private async refreshToken(): Promise<RefreshResult> {
-    const refreshed = this.opts.refreshToken
-      ? await this.opts.refreshToken()
-      : await refreshSessionToken(this.opts.serverUrl, this.opts.sessionToken)
-    if (refreshed.result === 'refreshed' && refreshed.sessionToken) {
-      this.opts.sessionToken = refreshed.sessionToken
-      this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken)
-    }
-    return refreshed.result
-  }
-
-  private subscribe(topic: RpcTopic, listener: Listener): () => void {
-    let set = this.subscribers.get(topic)
-    if (!set) { set = new Set(); this.subscribers.set(topic, set) }
-    set.add(listener)
-    return () => { set!.delete(listener) }
-  }
-
-  private blockAuthFailure(): void {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
-    this.reconnectTimer = null
-    this.reconnectImmediatelyAfterClose = false
-    this.setStatus('blocked')
-    const queued = this.queuedRequests.slice()
-    this.queuedRequests.length = 0
-    for (const q of queued) this.rejectFrame(q, new Error('disconnected'))
   }
 
   private installLifecycleListeners(): void {
     if (typeof window === 'undefined') return
-
-    this.isNetworkOffline = typeof navigator !== 'undefined' && navigator.onLine === false
-
     const onOnline = () => {
-      this.isNetworkOffline = false
-      if (this.status === 'connected') {
-        void this.probeConnectedSocket()
-        return
-      }
-      if (this.status === 'blocked' || this.destroyed) return
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer)
-        this.reconnectTimer = null
-      }
-      void this.connect()
-    }
-    const onOffline = () => {
-      this.isNetworkOffline = true
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer)
-        this.reconnectTimer = null
-      }
+      if (this.status === 'connected') void this.probeConnectedSocket()
+      else this.forceReconnect()
     }
     const onVisibilityChange = () => {
-      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
-      if (this.status === 'connected') void this.probeConnectedSocket()
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && this.status === 'connected') {
+        void this.probeConnectedSocket()
+      }
     }
 
     window.addEventListener('online', onOnline)
-    window.addEventListener('offline', onOffline)
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
-
     this.removeLifecycleListeners = () => {
       window.removeEventListener('online', onOnline)
-      window.removeEventListener('offline', onOffline)
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }
 
   private async probeConnectedSocket(): Promise<void> {
-    if (this.destroyed || this.status === 'blocked' || this.wakeProbeInFlight) return
-    if (this.socket?.readyState !== WebSocket.OPEN) {
-      this.forceReconnectNow()
+    if (this.destroyed || this.blocked || this.wakeProbeInFlight) return
+    if (!this.socket.connected) {
+      this.forceReconnect()
       return
     }
-
     this.wakeProbeInFlight = true
     try {
       await withTimeout(this.invoke(WAKE_PROBE_METHOD, []), WAKE_PROBE_TIMEOUT_MS)
     } catch {
-      this.forceReconnectNow()
+      this.forceReconnect()
     } finally {
       this.wakeProbeInFlight = false
     }
-  }
-
-  private forceReconnectNow(): void {
-    if (this.destroyed || this.status === 'blocked') return
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
-      this.reconnectImmediatelyAfterClose = true
-      this.socket.close()
-      return
-    }
-    void this.connect()
   }
 }
 
@@ -495,20 +413,7 @@ function createClientInstanceId(): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
 }
 
-function httpToWs(url: string): string {
-  if (url.startsWith('http://')) return 'ws://' + url.slice('http://'.length)
-  if (url.startsWith('https://')) return 'wss://' + url.slice('https://'.length)
-  return url
-}
-
 export type RefreshResult = 'refreshed' | 'fresh' | 'unauthorized' | 'unavailable'
-
-function tokenIssuedAt(token: string): number | null {
-  const parts = token.split('.')
-  if (parts.length !== 4) return null
-  const issuedAt = Number(parts[1])
-  return Number.isFinite(issuedAt) ? issuedAt : null
-}
 
 async function refreshSessionToken(serverUrl: string, sessionToken: string): Promise<{ result: RefreshResult; sessionToken?: string }> {
   try {
@@ -529,14 +434,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
     promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (err) => {
-        clearTimeout(timer)
-        reject(err)
-      },
+      (value) => { clearTimeout(timer); resolve(value) },
+      (err) => { clearTimeout(timer); reject(err) },
     )
   })
 }

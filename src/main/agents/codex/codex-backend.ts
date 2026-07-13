@@ -408,47 +408,23 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.client.shutdown()
   }
 
-  async listSessions(projectPath?: string, onBatch?: (sessions: SessionMeta[]) => void): Promise<SessionMeta[]> {
-    const projectRoot = projectPath?.replace(/\/$/, '')
-    const cacheKey = projectRoot ?? process.cwd()
+  async listSessions(projectPath?: string, onBatch?: (sessions: SessionMeta[]) => void, limit?: number): Promise<SessionMeta[]> {
+    const cacheKey = projectPath?.replace(/\/$/, '') ?? process.cwd()
 
     const cached = this.sessionListCache.get(cacheKey)
     if (cached) {
-      onBatch?.(cached)
-      return cached
-    }
-
-    const persisted = listIndexedCodexSessions(cacheKey)
-    if (persisted.length > 0) onBatch?.(persisted)
-
-    try {
-      const sessions: SessionMeta[] = []
-      let cursor: string | null | undefined = null
-
-      do {
-        const response: CodexThreadListResponse = await this.client.request('thread/list', {
-          cursor,
-          sortDirection: 'desc',
-        })
-        const batch = await Promise.all((response.data ?? [])
-          .filter((thread) => thread.id && codexThreadBelongsToProject(thread, projectRoot))
-          .map((thread) => this.threadToSessionMeta(thread, projectPath)))
-
-        if (batch.length > 0) {
-          sessions.push(...batch)
-          onBatch?.(batch)
-        }
-        cursor = response.nextCursor
-      } while (cursor)
-
-      sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
-      cacheIndexedSessions(sessions)
-      this.sessionListCache.set(cacheKey, sessions)
+      const sessions = limit === undefined ? cached : cached.slice(0, limit)
+      onBatch?.(sessions)
       return sessions
-    } catch (error) {
-      if (persisted.length > 0) return persisted
-      throw error
     }
+
+    // Picker reads must stay on the local index. The server poll and
+    // turn/completed notifications refresh that index independently; awaiting
+    // thread/list here blocks the picker and competes with interactive RPCs.
+    const sessions = listIndexedCodexSessions(cacheKey, limit)
+    if (limit === undefined) this.sessionListCache.set(cacheKey, sessions)
+    onBatch?.(sessions)
+    return sessions
   }
 
   async refreshSessionIndex(): Promise<void> {

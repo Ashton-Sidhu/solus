@@ -27,7 +27,7 @@
     if (!active || !cwd) return;
     const currentCwd = cwd;
     void store.loadProviderStatus(currentCwd);
-    if (store.cwd !== currentCwd) void store.load(currentCwd);
+    void store.ensureLoaded(currentCwd);
   });
 
   // Surface what's actionable, ranked for a glance: active work (in-progress)

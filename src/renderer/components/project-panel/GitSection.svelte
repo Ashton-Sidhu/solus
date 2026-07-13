@@ -410,17 +410,17 @@
     }
     if (reviewing) return;
     const runId = ++reviewRunId;
+    const ctx = session.ctxFor(tabId);
     reviewing = true;
     try {
       const gen = await window.solus.generateGuide(
-        session.ctx,
+        ctx,
         resolveReviewAgent(settings, agentContext),
       );
       if (runId !== reviewRunId) return;
-      reviewKey =
-        gen?.key ??
-        (await window.solus.getReviewContext(session.ctx))?.key ??
-        null;
+      // Fallback guides are intentionally not persisted. Only offer "View
+      // report" when generation returned a real cached guide.
+      reviewKey = gen?.persisted ? gen.key : null;
     } finally {
       if (runId === reviewRunId) {
         reviewing = false;
@@ -433,7 +433,7 @@
     if (!reviewing) return;
     reviewRunId += 1;
     reviewing = false;
-    void window.solus.cancelGenerateGuide(session.ctx);
+    void window.solus.cancelGenerateGuide(session.ctxFor(tabId));
     requestInputFocus();
   }
 
@@ -612,10 +612,15 @@
   </div>
 {/snippet}
 
-{#if status === undefined}
+{#if !sess?.gitContext && status === undefined}
   <p class="empty">Loading git status…</p>
-{:else if status === null}
-  <p class="empty">This folder is not a git repository.</p>
+{:else if !sess?.gitContext && status === null}
+  <div class="flex flex-col items-start gap-1 px-2 py-2">
+    <span class="text-[0.8125rem] text-(--solus-text-secondary)">No Git repository</span>
+    <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
+      Initialize Git to manage branches and changes.
+    </span>
+  </div>
 {:else}
   <div class="env" bind:this={envEl}>
     {@render branchHeader()}

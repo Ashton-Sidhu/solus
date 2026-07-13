@@ -7,6 +7,7 @@ import type { SessionConfigController } from './session-config.svelte'
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import type { SettingsContext } from './settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
+import { TransportDisconnectedError } from '@client-core/ws-transport'
 
 export interface StaticInfo {
   version: string
@@ -39,10 +40,10 @@ export class EnvironmentStore {
   pluginCommands = $state<Session['pluginCommands']>({ global: [], project: [] })
   turnSnapshots = $state<Record<string, TurnSnapshot[]>>({})
 
-  // Non-reactive guard: initStaticInfo reads staticInfo (a $state) and then writes
-  // it via applyStartInfo, so the boot $effect that calls it would otherwise
-  // self-invalidate and re-run start() in a tight loop. Runs exactly once per boot.
+  // Non-reactive guards: callers share an in-flight initialization, and a failed
+  // connection attempt remains retryable after the transport reconnects.
   private staticInfoInitialized = false
+  private staticInfoInitialization: Promise<void> | null = null
 
   constructor(private deps: EnvironmentStoreDeps) {}
 
@@ -85,16 +86,31 @@ export class EnvironmentStore {
 
   async initStaticInfo(): Promise<void> {
     if (this.staticInfoInitialized) return
-    this.staticInfoInitialized = true
-    // Paint from cache first (safety net if setup didn't already), then reconcile.
-    this.hydrateStaticInfoFromCache()
-    const result = await window.solus.start()
-    this.applyStartInfo(result, { fresh: true })
-    saveCachedStart(result)
-    if (this.deps.registry.tabOrder.length === 0) {
-      await this.refreshGitEnvironment()
+    if (this.staticInfoInitialization) return this.staticInfoInitialization
+
+    const initialization = (async () => {
+      // Paint from cache first (safety net if setup didn't already), then reconcile.
+      this.hydrateStaticInfoFromCache()
+      const result = await window.solus.start()
+      this.applyStartInfo(result, { fresh: true })
+      saveCachedStart(result)
+      if (this.deps.registry.tabOrder.length === 0) {
+        await this.refreshGitEnvironment()
+      }
+      void this.refreshPluginCommands(this.deps.config.globalDefaults.workingDirectory).catch((error) => {
+        if (!(error instanceof TransportDisconnectedError)) {
+          console.error('getPluginCommands failed', error)
+        }
+      })
+    })()
+    this.staticInfoInitialization = initialization
+
+    try {
+      await initialization
+      this.staticInfoInitialized = true
+    } finally {
+      if (this.staticInfoInitialization === initialization) this.staticInfoInitialization = null
     }
-    void this.refreshPluginCommands(this.deps.config.globalDefaults.workingDirectory)
   }
 
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
@@ -121,7 +137,14 @@ export class EnvironmentStore {
       ?? this.deps.config.globalDefaults.workingDirectory
     if (!cwd || cwd === '~') return null
 
-    const status = await window.solus.gitProjectStatus(cwd).catch(() => null)
+    const status = await window.solus.gitProjectStatus(cwd).catch((error) => {
+      console.error('gitProjectStatus failed while refreshing environment', {
+        tabId,
+        cwd,
+        error,
+      })
+      return null
+    })
     this.deps.setGitStatus(cwd, status)
     const gitCtx = tabGitContextFromStatus(status)
 

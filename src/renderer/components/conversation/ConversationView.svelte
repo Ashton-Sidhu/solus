@@ -129,8 +129,11 @@
     tabId,
     onDiffToggle,
     forceVisible = false,
-  }: { tabId: string; onDiffToggle?: () => void; forceVisible?: boolean } =
-    $props();
+  }: {
+    tabId: string;
+    onDiffToggle?: () => void;
+    forceVisible?: boolean;
+  } = $props();
 
   // The pool instance is on screen only while its tab is active; the split-pane
   // instance (forceVisible) is always on screen. Visibility gates autoscroll and
@@ -175,6 +178,15 @@
     if (el && isVisible && isNearBottom) {
       el.scrollTop = el.scrollHeight;
     }
+    // content-visibility:auto rows (e.g. UserMessageBubble) can still report
+    // their placeholder contain-intrinsic-size right after insertion, so the
+    // read above can undershoot the real bottom. Settle once more after the
+    // browser measures them, same retry used by the solus:scroll-conversation-bottom handler.
+    setTimeout(() => {
+      if (scrollEl && isVisible && isNearBottom) {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      }
+    }, 120);
   }
 
   function revealTick(ts: number) {
@@ -995,15 +1007,6 @@
                   >Waiting for plan approval</span
                 >
               </span>
-              {#if pendingPlanId}
-                <button
-                  onclick={() =>
-                    pendingPlanId && session.openPlanModal(pendingPlanId)}
-                  class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
-                >
-                  Review plan
-                </button>
-              {/if}
             {:else if isDead}
               <span class="text-(--solus-status-error)"
                 >Session ended unexpectedly</span

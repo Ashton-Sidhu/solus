@@ -20,9 +20,7 @@
         message.toolResult !== undefined && !!message.toolResultIsError,
     ).length,
   );
-  const completeCount = $derived(
-    messages.length - runningCount - failedCount,
-  );
+  const completeCount = $derived(messages.length - runningCount - failedCount);
   const summary = $derived(
     [
       runningCount > 0 ? `${runningCount} working` : "",
@@ -36,7 +34,7 @@
 
 <div class="py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
   <section
-    class="subagent-group mx-auto w-[88%] max-w-[46rem] overflow-hidden rounded-[0.875rem]"
+    class="subagent-group mx-auto w-[88%] overflow-hidden rounded-[0.875rem]"
     aria-label={isBatch ? `${messages.length} sub-agents` : "Sub-agent"}
     data-testid="subagent-group"
   >
@@ -68,18 +66,12 @@
 
 <style>
   .subagent-group {
-    background: color-mix(
-      in srgb,
-      var(--solus-container-bg) 95%,
-      white
-    );
+    background: color-mix(in srgb, var(--solus-container-bg) 95%, white);
     box-shadow:
       0 0 0 0.0625rem
         color-mix(in srgb, var(--solus-tool-border) 72%, transparent),
-      0 0.0625rem 0.125rem -0.0625rem
-        color-mix(in srgb, black 10%, transparent),
-      0 0.25rem 0.75rem -0.625rem
-        color-mix(in srgb, black 18%, transparent);
+      0 0.0625rem 0.125rem -0.0625rem color-mix(in srgb, black 10%, transparent),
+      0 0.25rem 0.75rem -0.625rem color-mix(in srgb, black 18%, transparent);
   }
 
   .subagent-group__rows {
@@ -90,11 +82,5 @@
   .subagent-group__row + .subagent-group__row {
     border-top: 0.0625rem solid
       color-mix(in srgb, var(--solus-tool-border) 52%, transparent);
-  }
-
-  @media (max-width: 40rem) {
-    .subagent-group {
-      width: calc(100% - 1rem);
-    }
   }
 </style>

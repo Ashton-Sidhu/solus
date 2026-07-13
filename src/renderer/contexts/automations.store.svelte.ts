@@ -11,21 +11,29 @@ export class AutomationsStore {
   runs = new SvelteMap<string, AutomationRun[]>()
   loading = $state(false)
   loaded = $state(false)
+  private listLoad: Promise<void> | null = null
 
   /** A soft-deleted row awaiting its undo window. Hidden from `items` but not yet
    *  deleted on disk; filtered out of `loadAll` so a refresh can't resurrect it. */
   private pendingDelete: { automation: Automation; index: number } | null = null
 
-  async loadAll(): Promise<void> {
+  loadAll(): Promise<void> {
+    if (this.listLoad) return this.listLoad
     this.loading = true
-    try {
-      const list = await window.solus.automationList()
-      const pendingId = this.pendingDelete?.automation.id
-      this.items = pendingId ? list.filter((a) => a.id !== pendingId) : list
-      this.loaded = true
-    } finally {
-      this.loading = false
-    }
+    this.listLoad = (async () => {
+      try {
+        const list = await window.solus.automationList()
+        const pendingId = this.pendingDelete?.automation.id
+        this.items = pendingId ? list.filter((a) => a.id !== pendingId) : list
+        this.loaded = true
+      } catch (err) {
+        console.error('automation list load failed', err)
+      } finally {
+        this.loading = false
+        this.listLoad = null
+      }
+    })()
+    return this.listLoad
   }
 
   get(id: string): Automation | undefined {
