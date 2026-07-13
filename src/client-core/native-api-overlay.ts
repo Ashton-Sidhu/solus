@@ -1,6 +1,6 @@
-import { RPC_INVOKE_METHODS, RPC_SEND_METHODS } from '../shared/rpc'
+import { RPC_INVOKE_METHODS } from '../shared/rpc'
 
-const RPC_METHODS = new Set<string>([...RPC_INVOKE_METHODS, ...RPC_SEND_METHODS])
+const RPC_METHODS = new Set<string>(RPC_INVOKE_METHODS)
 
 export const NATIVE_ONLY_SOLUS_METHODS = [
   'getPlatform',

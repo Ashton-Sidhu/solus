@@ -60,8 +60,8 @@ export interface SolusAPI {
   rateLimitDecision(ctx: IpcContext, action: RateLimitDecisionAction): Promise<boolean>
   cancelQueuedPrompt(ctx: IpcContext, queueId: string): Promise<boolean>
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
-  resetTabSession(ctx: IpcContext): void
-  listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string): Promise<SessionMeta[]>
+  resetTabSession(ctx: IpcContext): Promise<void>
+  listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
   searchSessions(request: { query: string; projectPath?: string; limit?: number }): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
@@ -146,7 +146,7 @@ export interface SolusAPI {
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
-  generateGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null; scope?: 'branch' | 'session' }): Promise<{ key: string; guide: ReviewGuide } | null>
+  generateGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null; scope?: 'branch' | 'session' }): Promise<{ key: string; guide: ReviewGuide; persisted: boolean } | null>
   cancelGenerateGuide(ctx: IpcContext, opts?: { scope?: 'branch' | 'session' }): Promise<boolean>
   readGuide(ctx: IpcContext, key: string): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
@@ -238,7 +238,8 @@ export interface SolusAPI {
   updateAgentFiles(ctx: IpcContext, text: string): Promise<{ success: boolean; files?: string[]; err?: string }>
 
   enterDesignMode(ctx?: IpcContext): Promise<{ id: string; name: string; path: string; dataUrl: string; size: number } | null>
-  designModeReady(): void
+  designModeReady(): Promise<void>
+  exitDesignMode(): Promise<void>
   submitDesignAnnotations(data: { dataUrl: string; annotations: DesignAnnotation[] }, ctx?: IpcContext): Promise<Attachment | null>
   onEnterDesignMode(callback: () => void): () => void
 
@@ -250,7 +251,7 @@ export interface SolusAPI {
   onSessionScan(callback: (event: SessionScanEvent) => void): () => void
   onSessionIndexUpdated(callback: (event: SessionIndexUpdatedEvent) => void): () => void
   onReviewProgress(callback: (event: ReviewProgressEvent) => void): () => void
-  onSeqWatermark(callback: (seqByTopic: Record<string, number>) => void): () => void
+  onResetRuntime(callback: () => void): () => void
   onRunStatus(callback: (status: RunStatus) => void): () => void
   onRunLog(callback: (batch: RunLogBatch) => void): () => void
   onVoiceModelStatus(callback: (status: VoiceModelStatus) => void): () => void

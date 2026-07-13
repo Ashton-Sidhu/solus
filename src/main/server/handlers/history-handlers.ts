@@ -6,6 +6,7 @@ import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
 import { _planListCache } from '../../agents/claude/claude-plan-helpers'
 import { searchIndexedSessions } from '../../db/session-indexer'
+import { takeSessionScanBatch } from '../session-scan'
 
 const log = createLogger('main', 'history-handlers')
 
@@ -14,11 +15,18 @@ export interface HistoryDeps {
   agentIdFromContext(ctx?: IpcContext): AgentId
 }
 
+/** Drop only the cached plan lists that could contain `sessionId`, instead of
+ *  wiping every project's cached list on a single bookmark/comment edit. */
+function invalidatePlanListCacheForSession(sessionId: string): void {
+  _planListCache.invalidateWhere((_key, descriptors) => descriptors.some((d) => d.sessionId === sessionId))
+}
+
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
   const { controlPlane, agentIdFromContext } = deps
 
-  server.register('listSessions', async (args) => {
-    const [projectPath, , , streamId] = args as [string | undefined, unknown, unknown, string | undefined]
+  server.register('listSessions', async (args, handlerCtx) => {
+    const [projectPath, , , streamId, requestedLimit] = args as [string | undefined, unknown, unknown, string | undefined, number | undefined]
+    const limitPerProvider = Number.isSafeInteger(requestedLimit) && requestedLimit! > 0 ? requestedLimit : undefined
     log.info(`RPC listSessions ${projectPath ? `(path=${projectPath})` : ''}${streamId ? ` stream=${streamId}` : ''}`)
     if (!projectPath) return []
     const t0 = Date.now()
@@ -29,33 +37,39 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
       function flushBatch() {
         if (batchBuffer.length === 0) return
-        server.broadcast('session-scan', { streamId: streamId!, type: 'batch', sessions: batchBuffer } satisfies SessionScanEvent)
-        batchBuffer = []
+        const sessions = takeSessionScanBatch(batchBuffer, BATCH_SIZE)
+        if (handlerCtx.clientId) {
+          server.sendTo(handlerCtx.clientId, 'session-scan', { streamId: streamId!, type: 'batch', sessions } satisfies SessionScanEvent)
+        }
         flushScheduled = false
       }
 
-      const onBatch = streamId
+      const onBatch = streamId && limitPerProvider === undefined
         ? (sessions: SessionMeta[]) => {
             batchBuffer.push(...sessions)
             if (batchBuffer.length >= BATCH_SIZE) {
-              flushBatch()
+              while (batchBuffer.length >= BATCH_SIZE) flushBatch()
             } else if (!flushScheduled) {
               flushScheduled = true
               queueMicrotask(flushBatch)
             }
           }
         : undefined
-      const sessions = await controlPlane.listSessionsForProviders(controlPlane.getBackendIds(), projectPath, onBatch)
+      const sessions = await controlPlane.listSessionsForProviders(controlPlane.getBackendIds(), projectPath, onBatch, limitPerProvider)
       if (streamId) {
-        flushBatch()
-        server.broadcast('session-scan', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
+        while (batchBuffer.length > 0) flushBatch()
+        if (handlerCtx.clientId) {
+          server.sendTo(handlerCtx.clientId, 'session-scan', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
+        }
       }
       log.metric('listSessions', Date.now() - t0, { count: sessions.length })
       return sessions
     } catch (err) {
       log.error(`listSessions error: ${err}`)
       if (streamId) {
-        server.broadcast('session-scan', { streamId, type: 'done', totalSessions: 0 } satisfies SessionScanEvent)
+        if (handlerCtx.clientId) {
+          server.sendTo(handlerCtx.clientId, 'session-scan', { streamId, type: 'done', totalSessions: 0 } satisfies SessionScanEvent)
+        }
       }
       return []
     }
@@ -170,7 +184,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [annotations] = args as [PlanAnnotations]
     try {
       await saveAnnotations(annotations)
-      _planListCache.clear()
+      invalidatePlanListCacheForSession(annotations.sessionId)
       return { ok: true }
     } catch (err) {
       log.error(`savePlanAnnotations error: ${err}`)
@@ -181,7 +195,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('toggleBookmarkPlan', async (args) => {
     const [sessionId, projectPath, cwd, planToolUseId, title] = args as [string, string, string, string, string]
     const merged = await toggleBookmarkAnnotations(sessionId, projectPath, cwd, planToolUseId, title)
-    _planListCache.clear()
+    invalidatePlanListCacheForSession(sessionId)
     return merged
   })
 }

@@ -1,4 +1,5 @@
 import type { AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../shared/types'
+import { TransportDisconnectedError } from '@client-core/ws-transport'
 
 export interface PairToken {
   token: string
@@ -96,6 +97,7 @@ export class ConnectionsStore {
     try {
       this.capabilities = await window.solus.getServerCapabilities()
     } catch (e) {
+      if (e instanceof TransportDisconnectedError) return
       console.error('getServerCapabilities failed', e)
     }
   }

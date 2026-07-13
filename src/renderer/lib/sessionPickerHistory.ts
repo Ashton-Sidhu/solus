@@ -15,6 +15,7 @@ export interface LoadHistoryOptions {
   sources: SessionHistorySource[]
   ctx: IpcContext
   onBatch: (sessions: SessionMeta[]) => void
+  limitPerProvider?: number
 }
 
 function sessionMetaKey(meta: SessionMeta): string {
@@ -65,20 +66,22 @@ export class SessionHistoryLoader {
     }
   }
 
-  async load({ sources, ctx, onBatch }: LoadHistoryOptions): Promise<SessionMeta[]> {
+  async load({ sources, ctx, onBatch, limitPerProvider }: LoadHistoryOptions): Promise<SessionMeta[]> {
     const seq = ++this.loadSeq
     this.unsubscribe()
     if (sources.length === 0) return []
 
-    const streamIds = sources.map(
-      (source, index) => `scan-${seq}-${index}-${source.id}-${Date.now()}`,
-    )
-    const activeStreamIds = new Set(streamIds)
+    const streamIds = limitPerProvider === undefined
+      ? sources.map((source, index) => `scan-${seq}-${index}-${source.id}-${Date.now()}`)
+      : sources.map(() => undefined)
+    const activeStreamIds = new Set(streamIds.filter((id): id is string => id !== undefined))
 
-    this.unsubscribeScan = this.options.onSessionScan((event: SessionScanEvent) => {
-      if (seq !== this.loadSeq || !activeStreamIds.has(event.streamId)) return
-      if (event.type === 'batch') onBatch(event.sessions)
-    })
+    if (activeStreamIds.size > 0) {
+      this.unsubscribeScan = this.options.onSessionScan((event: SessionScanEvent) => {
+        if (seq !== this.loadSeq || !activeStreamIds.has(event.streamId)) return
+        if (event.type === 'batch') onBatch(event.sessions)
+      })
+    }
 
     try {
       const sessions = (
@@ -89,6 +92,7 @@ export class SessionHistoryLoader {
               ctx,
               source.provider,
               streamIds[index],
+              limitPerProvider,
             ),
           ),
         )

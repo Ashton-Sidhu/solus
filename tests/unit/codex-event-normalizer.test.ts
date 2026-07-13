@@ -49,9 +49,11 @@ describe('normalizeCodexNotification', () => {
         id: 'agent-1',
         type: 'collabAgentToolCall',
         tool: 'researcher',
+        prompt: 'Read auth files and report risks',
+        model: 'gpt-5.5',
+        reasoningEffort: 'high',
         arguments: {
           description: 'Inspect the auth flow',
-          prompt: 'Read auth files and report risks',
         },
       },
     })).toEqual([
@@ -64,6 +66,8 @@ describe('normalizeCodexNotification', () => {
           subagent_type: 'researcher',
           description: 'Inspect the auth flow',
           prompt: 'Read auth files and report risks',
+          model: 'gpt-5.5',
+          reasoning_effort: 'high',
         }),
         parentToolUseId: undefined,
         isSubagent: true,
@@ -102,6 +106,44 @@ describe('normalizeCodexNotification', () => {
       { type: 'tool_call_update', toolId: 'agent-1', toolInput: 'No auth regressions found.' },
       { type: 'tool_call_complete', index: 0, toolId: 'agent-1' },
       { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false },
+    ])
+  })
+
+  test('associates child-thread results with the collab agent card', () => {
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+
+    expect(normalizer.push({
+      method: 'item/started',
+      params: {
+        threadId: 'parent-thread',
+        item: {
+          id: 'agent-1',
+          type: 'collabAgentToolCall',
+          tool: 'spawn_agent',
+          receiverThreadIds: ['child-thread'],
+          prompt: 'Inspect the auth flow',
+        },
+      },
+    })).toEqual([
+      expect.objectContaining({ type: 'tool_call', toolId: 'agent-1', isSubagent: true }),
+    ])
+
+    expect(normalizer.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'child-thread',
+        item: {
+          id: 'child-answer',
+          type: 'agentMessage',
+          text: 'The auth flow is safe.',
+        },
+      },
+    })).toEqual([
+      {
+        type: 'assistant_message',
+        text: 'The auth flow is safe.',
+        parentToolUseId: 'agent-1',
+      },
     ])
   })
 })

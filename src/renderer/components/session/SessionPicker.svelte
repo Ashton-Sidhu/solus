@@ -74,7 +74,10 @@
   let countBump = $state(false);
   let prevEntryCount = 0;
 
-  const scopeRoots = $derived(session.openProjectScopeRoots);
+  // Session backends already include a repo's worktree sessions when queried by
+  // its project key. Scanning every open worktree/cwd separately makes one
+  // picker open fan out into many duplicate full-history requests.
+  const scopeRoots = $derived(session.openProjectKeys);
   const historyScopeRoots = $derived.by(() => {
     if (scopeRoots.length > 0) return scopeRoots;
     return effectiveProjectPath ? [effectiveProjectPath] : [];

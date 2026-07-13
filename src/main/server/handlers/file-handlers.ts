@@ -28,8 +28,12 @@ export interface FileDeps {
   showAndFocusActiveWindow(): void
   /** Used by enterDesignMode to make the window invisible to screen capture. */
   setActiveWindowOpacity(opacity: number): void
+  /** Expands the hidden design-mode window over the captured work area. */
+  expandDesignModeWindow(bounds: { x: number; y: number; width: number; height: number }): void
   /** Restores the window after design mode (opacity, alwaysOnTop, visibility, focus). */
   restoreDesignModeWindow(): void
+  /** Leaves design mode and restores the window's original bounds. */
+  exitDesignModeWindow(): void
   bumpScreenshotCounter(): number
   bumpDesignModeCounter(): number
   bumpPasteCounter(): number
@@ -341,7 +345,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const { x: wx, y: wy, width: ww, height: wh } = deps.designModeCaptureRegion()
 
     deps.setActiveWindowOpacity(0)
-    await new Promise((r) => setTimeout(r, 300))
+    // One compositor frame is enough for the transparent window to disappear.
+    // Keeping this short makes the captured desktop and the overlay read as one
+    // continuous surface instead of exposing the desktop for 300ms.
+    await new Promise((r) => setTimeout(r, 50))
 
     try {
       const screenshotPath = join(tmpdir(), `solus-design-${Date.now()}.png`)
@@ -349,6 +356,9 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
       if (!existsSync(screenshotPath)) return null
 
+      // Resize only after capture so the invisible window cannot affect the
+      // pixels being sampled. It stays hidden until the renderer has painted.
+      deps.expandDesignModeWindow({ x: wx, y: wy, width: ww, height: wh })
       const buf = readFileSync(screenshotPath)
       const designIdx = deps.bumpDesignModeCounter()
       return {
@@ -365,6 +375,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
   server.register('designModeReady', () => {
     deps.restoreDesignModeWindow()
+  })
+
+  server.register('exitDesignMode', () => {
+    deps.exitDesignModeWindow()
   })
 
   server.register('submitDesignAnnotations', async (args) => {

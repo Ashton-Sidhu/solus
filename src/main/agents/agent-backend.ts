@@ -62,7 +62,7 @@ export interface AgentBackend extends EventEmitter {
   /** Runs that haven't received session_init yet (pre-session_init window). */
   getPendingHandles(): RunHandle[]
   getEnrichedError(sessionId: string | null, exitCode: number | null): EnrichedError
-  listSessions(projectPath: string, onBatch?: (sessions: SessionMeta[]) => void): Promise<SessionMeta[]>
+  listSessions(projectPath: string, onBatch?: (sessions: SessionMeta[]) => void, limit?: number): Promise<SessionMeta[]>
   /** When `limit` is set, returns only the most recent `limit` messages (windowed load for fast hydration). */
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>

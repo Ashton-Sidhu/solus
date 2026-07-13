@@ -6,12 +6,24 @@ import { createLogger } from '../logger'
 import { readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide } from './ledger'
 import { runReviewAgent } from './review-agent'
 import { normalizeGuide } from './review-guide-tool'
+import { guideKeyFor } from './review-target'
 
 const log = createLogger('review', 'guide-producer.ts')
+
+/** Cap on the diff we inline into the review prompt. The diff enters the agent's
+ *  context either way — as an inlined patch, or as the tool-result of the
+ *  `git diff` the agent would otherwise run — so this isn't about total tokens.
+ *  It's the point past which we'd rather the agent selectively scope the change
+ *  with `-- <path>` than load it whole. Below it, inlining removes the serial
+ *  git round-trips and lets the review run at lower reasoning. ~60KB ≈ a
+ *  ~1,500-line diff. */
+const MAX_INLINE_DIFF_CHARS = 60_000
 
 export interface GeneratedGuide {
   key: string
   guide: ReviewGuide
+  /** True only when this guide was atomically written to its stable target. */
+  persisted: boolean
 }
 
 export interface GenerateGuideOptions {
@@ -19,8 +31,8 @@ export interface GenerateGuideOptions {
   model?: string | null
   reasoningEffort?: ReasoningEffort | null
   /** `'session'` scopes the guide to the current session's changes (diffed from
-   *  the session base SHA, ledger filtered to this session) and caches it under a
-   *  session-suffixed key. `'branch'` (default) is the full-branch walkthrough. */
+   *  the session base SHA, ledger filtered to this session) and overwrites that
+   *  session's stable guide. `'branch'` (default) overwrites the branch guide. */
   scope?: 'branch' | 'session'
 }
 
@@ -43,10 +55,10 @@ function resolveTarget(ctx: IpcContext, review: ReviewContext, opts: GenerateGui
   if (opts.scope === 'session' && sessionId) {
     const sessionBase = getSessionBaseSha(review.repoRoot, sessionId)
     const branchBase = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
-    return { guideKey: `${review.key}__session-${sessionId}`, base: sessionBase ?? branchBase, sessionId }
+    return { guideKey: guideKeyFor(review, opts.scope, sessionId), base: sessionBase ?? branchBase, sessionId }
   }
   const base = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
-  return { guideKey: review.key, base, sessionId: null }
+  return { guideKey: guideKeyFor(review, opts.scope, sessionId ?? null), base, sessionId: null }
 }
 
 /** Emits a phase transition for the in-flight generation. The key is attached by
@@ -152,7 +164,7 @@ async function produceGuide(
     patch = diff?.patch?.trim() ?? ''
   } catch (err) {
     log.warn(`episode diff failed for ${target.guideKey}: ${String(err)}`)
-    return { key: target.guideKey, guide: fallbackGuide(target.guideKey, headSha, base, DIFF_FAILED) }
+    return { key: target.guideKey, guide: fallbackGuide(target.guideKey, headSha, base, DIFF_FAILED), persisted: false }
   }
 
   // Ledger is optional enrichment. The branch ledger is shared across sessions, so
@@ -163,9 +175,17 @@ async function produceGuide(
     : fullLedger
   const agent: AgentId = opts.agent ?? 'claude-code'
 
+  // Inline the diff we already computed when it's small enough. That lets the
+  // agent skip the serial git round-trips (stat → diff → ls-files → reads) and
+  // go straight to composing, and lets the review run at medium reasoning. The
+  // patch already includes untracked/new files (getEpisodeDiff stages them
+  // intent-to-add), so the inline path needs no git at all. Oversized diffs stay
+  // out of the prompt and the agent gathers (and selectively scopes) them itself.
+  const inlineDiff = patch.length <= MAX_INLINE_DIFF_CHARS ? patch : null
+
   if (patch) emit?.('analyzing')
   const draft = patch
-    ? await runReviewAgent({ workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, onProgress: emit, abortSignal })
+    ? await runReviewAgent({ workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, inlineDiff, onProgress: emit, abortSignal })
     : null
 
   if (abortSignal.aborted) return null
@@ -178,6 +198,7 @@ async function produceGuide(
     return {
       key: target.guideKey,
       guide: fallbackGuide(target.guideKey, headSha, base, patch ? AGENT_FAILED : NOTHING_TO_REVIEW),
+      persisted: false,
     }
   }
 
@@ -194,7 +215,7 @@ async function produceGuide(
 
   const ok = await writeGuide(review.repoRoot, guide)
   if (!ok) log.warn(`failed to cache review guide for ${target.guideKey}`)
-  return { key: target.guideKey, guide }
+  return { key: target.guideKey, guide, persisted: ok }
 }
 
 const NOTHING_TO_REVIEW = 'No changes to review on this branch yet.'

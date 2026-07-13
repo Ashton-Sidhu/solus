@@ -1,8 +1,13 @@
 import './index.css'
-import type { ConnectionStatus } from '@client-core/ws-transport'
+import { TransportDisconnectedError, type ConnectionStatus } from '@client-core/ws-transport'
+import { setConnectionState } from '@client-core/connection-state'
 import { installWsBackedSolusApi, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
 import { setTabPersistenceServerInstallationId } from './contexts/tab-persistence'
 import type { LocalConnectionInfo, NativeSolusAPI } from '../preload'
+
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
+})
 
 const root = document.getElementById('root')!
 
@@ -135,10 +140,6 @@ function connectionDetail(status: ConnectionStatus, attempt: number, target: Sol
   return `Waiting for ${target.label}`
 }
 
-function dispatchConnectionStatus(status: ConnectionStatus, attempt: number, target: SolusServerTarget): void {
-  document.dispatchEvent(new CustomEvent('solus:connection-status', { detail: { status, attempt, target } }))
-}
-
 async function getLocalConnection(nativeApi: NativeSolusAPI): Promise<LocalConnectionInfo> {
   return nativeApi.getLocalConnection()
 }
@@ -163,17 +164,14 @@ async function boot(): Promise<void> {
   // shell with the connecting splash.
   if (!target.local) renderBootState('Connecting to Solus', connectionDetail('connecting', 0, target))
 
-  const connectionState = { local, target, status: 'connecting' as ConnectionStatus, attempt: 0 }
-  ;(window as unknown as { __solusServerConnection?: typeof connectionState }).__solusServerConnection = connectionState
+  setConnectionState({ status: 'connecting', attempt: 0, target })
   setTabPersistenceServerInstallationId(target.installationId ?? target.id, { migrateLegacy: target.local })
 
   let appMounted = false
   const { transport } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
     onStatusChange: (status, attempt) => {
-      connectionState.status = status
-      connectionState.attempt = attempt
+      setConnectionState({ status, attempt, target })
       if (!appMounted && !target.local) renderBootState('Connecting to Solus', connectionDetail(status, attempt, target))
-      dispatchConnectionStatus(status, attempt, target)
     },
     onAuthFailed: () => {
       if (!appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))

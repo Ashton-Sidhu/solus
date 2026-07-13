@@ -112,7 +112,12 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
   attached.add(ctx)
   const snapshot = materializations.get(ctx)?.snapshot
   if (!snapshot?.tabs?.length) return
-  await _attachRuntimeTabs(ctx, snapshot.tabs)
+  try {
+    await _attachRuntimeTabs(ctx, snapshot.tabs)
+  } catch (error) {
+    attached.delete(ctx)
+    throw error
+  }
 }
 
 /**

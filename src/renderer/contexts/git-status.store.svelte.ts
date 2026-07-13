@@ -36,12 +36,9 @@ export class GitStatusStore {
         return true
       })
       .catch(() => {
-        // A failed optional detail probe should not erase the cheap branch/file
-        // status that the rest of the app can still use.
-        if (!includeDetails) {
-          this.byCwd[cwd] = null
-          this.lastRefresh.set(cwd, Date.now())
-        }
+        // A probe failure says nothing about whether the checkout is still a
+        // repository. Preserve the last known status and leave the throttle
+        // unstamped so the next lifecycle trigger can retry promptly.
         return false
       })
       .finally(() => this.inflight.delete(inflightKey))

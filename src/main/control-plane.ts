@@ -618,9 +618,9 @@ export class ControlPlane extends EventEmitter {
     }
   }
 
-  async listSessionsForProviders(agentIds: AgentId[], projectPath: string, onBatch?: (sessions: SessionMeta[]) => void): Promise<SessionMeta[]> {
+  async listSessionsForProviders(agentIds: AgentId[], projectPath: string, onBatch?: (sessions: SessionMeta[]) => void, limitPerProvider?: number): Promise<SessionMeta[]> {
     const settled = await Promise.allSettled(
-      agentIds.map((agentId) => this._backendFor(agentId).listSessions(projectPath, onBatch)),
+      agentIds.map((agentId) => this._backendFor(agentId).listSessions(projectPath, onBatch, limitPerProvider)),
     )
     const sessions = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
     sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())

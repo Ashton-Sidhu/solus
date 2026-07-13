@@ -52,12 +52,17 @@ export function parseHeadMeta(lines: string[]): {
   slug: string | null
   firstMessage: string | null
   cwd: string | null
+  isSidechain: boolean
 } {
-  const meta = { validated: false, slug: null as string | null, firstMessage: null as string | null, cwd: null as string | null }
+  const meta = { validated: false, slug: null as string | null, firstMessage: null as string | null, cwd: null as string | null, isSidechain: false }
 
   for (const line of lines) {
     try {
       const obj = JSON.parse(line)
+      if (obj.isSidechain) {
+        meta.isSidechain = true
+        break
+      }
       if (!meta.validated && obj.type && obj.uuid && obj.timestamp) {
         meta.validated = true
       }

@@ -199,7 +199,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
   const readOffset = !tracked || fileStat.size < lastOffset ? 0 : lastOffset
   const meta = await readSessionHeadMeta(filePath)
   if (activeGeneration !== generation) return
-  if (!meta.validated) {
+  if (!meta.validated || meta.isSidechain) {
     resetSession(filePath, sessionId, fileStat.size, mtime)
     getDb().prepare(`
       UPDATE session_files
@@ -312,8 +312,11 @@ async function listTranscriptFiles(activeGeneration: number): Promise<string[]> 
     }
     for (const entry of entries) {
       const entryPath = join(dir, entry.name)
-      if (entry.isDirectory()) pending.push(entryPath)
-      else if (entry.isFile() && entry.name.endsWith('.jsonl')) files.push(entryPath)
+      if (entry.isDirectory()) {
+        // `<sessionId>/subagents/` holds Task-tool sidechain transcripts, not real sessions.
+        if (entry.name === 'subagents') continue
+        pending.push(entryPath)
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) files.push(entryPath)
     }
     await yieldToMain()
   }
@@ -343,8 +346,13 @@ async function sweepAll(activeGeneration: number): Promise<void> {
 function scheduleSweep(filename: string | Buffer | null): void {
   if (filename) {
     const relativePath = filename.toString()
-    if (relativePath.endsWith('.jsonl')) changedPaths.add(join(PROJECTS_ROOT, relativePath))
-    else fullSweepPending = true
+    if (relativePath.split(/[\\/]/).includes('subagents')) {
+      // Sidechain transcript for a Task-tool subagent, not a real session.
+    } else if (relativePath.endsWith('.jsonl')) {
+      changedPaths.add(join(PROJECTS_ROOT, relativePath))
+    } else {
+      fullSweepPending = true
+    }
   } else {
     fullSweepPending = true
   }
@@ -419,7 +427,7 @@ function rowToSession(row: SessionRow): SessionMeta {
   }
 }
 
-export function listIndexedSessions(projectPaths: string[]): SessionMeta[] {
+export function listIndexedSessions(projectPaths: string[], limit?: number): SessionMeta[] {
   if (projectPaths.length === 0) return []
   const placeholders = projectPaths.map(() => '?').join(', ')
   const rows = getDb().prepare(`
@@ -427,11 +435,12 @@ export function listIndexedSessions(projectPaths: string[]): SessionMeta[] {
     FROM sessions
     WHERE provider = 'claude' AND project_path IN (${placeholders})
     ORDER BY last_timestamp DESC
-  `).all(...projectPaths) as unknown as SessionRow[]
+    ${limit === undefined ? '' : 'LIMIT ?'}
+  `).all(...projectPaths, ...(limit === undefined ? [] : [limit])) as unknown as SessionRow[]
   return rows.map(rowToSession)
 }
 
-export function listIndexedCodexSessions(projectPath: string): SessionMeta[] {
+export function listIndexedCodexSessions(projectPath: string, limit?: number): SessionMeta[] {
   const normalizedPath = projectPath.replace(/\/$/, '')
   const encodedPath = encodePathAsFolder(normalizedPath)
   const includeWorktrees = !isSolusWorktreePath(normalizedPath)
@@ -441,9 +450,11 @@ export function listIndexedCodexSessions(projectPath: string): SessionMeta[] {
     WHERE provider = 'codex'
       AND (project_path = ?${includeWorktrees ? ' OR project_path LIKE ?' : ''})
     ORDER BY last_timestamp DESC
+    ${limit === undefined ? '' : 'LIMIT ?'}
   `).all(
     encodedPath,
     ...(includeWorktrees ? [`${encodedPath}${SOLUS_WORKTREE_ENCODED_MARKER}%`] : []),
+    ...(limit === undefined ? [] : [limit]),
   ) as unknown as SessionRow[]
   return rows.map(rowToSession)
 }

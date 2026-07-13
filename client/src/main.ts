@@ -2,14 +2,21 @@ import { mount, unmount } from 'svelte'
 import App from './App.svelte'
 import '../../src/renderer/index.css'
 import ConnectFlow from './routes/ConnectFlow.svelte'
-import { WsTransport, type ConnectionStatus } from '@client-core/ws-transport'
+import { TransportDisconnectedError, WsTransport, type ConnectionStatus } from '@client-core/ws-transport'
+import { setConnectionState, subscribe } from '@client-core/connection-state'
 import { getActiveServerId, loadServers, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/tab-persistence'
 import { webState } from './lib/web-state.svelte'
 import { router } from './lib/router.svelte'
 import { webPushState } from './lib/web-push.svelte'
 
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
+})
+
 const root = document.getElementById('root')!
+
+subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 
 let activeTransport: WsTransport | null = null
 let connectFlowApp: Record<string, any> | null = null
@@ -35,7 +42,7 @@ function showConnectFlow(): void {
   delete (window as any).solus
 
   webState.setConnectedServer(null)
-  webState.setConnectionStatus('disconnected', 0)
+  setConnectionState({ status: 'disconnected', attempt: 0 })
   router.navigateToConnect()
 
   connectFlowApp = mount(ConnectFlow, {
@@ -54,8 +61,7 @@ function connectToServer(server: SavedServer): void {
     serverUrl: server.url,
     sessionToken: server.sessionToken,
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
-      webState.setConnectionStatus(status, attempt)
-      document.dispatchEvent(new CustomEvent('solus:connection-status', { detail: { status, attempt } }))
+      setConnectionState({ status, attempt })
       if (status === 'connected') void webPushState.ensureSubscribedSilently()
     },
     onSessionTokenRefreshed: (sessionToken: string) => {

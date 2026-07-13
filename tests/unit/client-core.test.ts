@@ -3,26 +3,33 @@ import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overla
 import { claimServer, normalizeServerUrl, pairServer, parsePairLink } from '../../src/client-core/pairing'
 import { base64UrlToUint8Array } from '../../src/client-core/push'
 import { encodeQrByteMode } from '../../src/client-core/qr'
-import { shouldAcceptSequencedEvent, WsTransport } from '../../src/client-core/ws-transport'
+import {
+  shouldRejectQueuedRequest,
+  TransportDisconnectedError,
+  WsTransport,
+} from '../../src/client-core/ws-transport'
 
 describe('client core transport helpers', () => {
-  test('drops stale sequenced events so WS resume cannot replay duplicates', () => {
-    expect(shouldAcceptSequencedEvent(5, 6)).toBe(true)
-    expect(shouldAcceptSequencedEvent(5, 5)).toBe(false)
-    expect(shouldAcceptSequencedEvent(5, 4)).toBe(false)
-    expect(shouldAcceptSequencedEvent(undefined, 1)).toBe(true)
-    expect(shouldAcceptSequencedEvent(5, undefined)).toBe(true)
+  test('rejects undeliverable requests with TransportDisconnectedError', async () => {
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
+    const request = api.connectionsGetServerInfo()
+
+    transport.destroy()
+
+    try {
+      await request
+      throw new Error('expected request to reject')
+    } catch (err) {
+      expect(err).toBeInstanceOf(TransportDisconnectedError)
+      expect(err).toMatchObject({ message: 'disconnected', code: 'TRANSPORT_DISCONNECTED' })
+    }
   })
 
-  test('seq-reset forgets topic watermarks omitted by a restarted server', () => {
-    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
-    transport.applySeqWatermark({ 'normalized-event': 12, 'tasks-changed': 4 })
-    transport.applySeqWatermark({ 'tasks-changed': 1 }, true)
-
-    const watermarks = (transport as unknown as { lastSeqByTopic: Map<string, number> }).lastSeqByTopic
-    expect(watermarks.get('normalized-event')).toBeUndefined()
-    expect(watermarks.get('tasks-changed')).toBe(1)
-    transport.destroy()
+  test('expires outage-queued requests after 15s but never ages out the boot queue', () => {
+    expect(shouldRejectQueuedRequest(1_000, false, 16_001)).toBe(true)
+    expect(shouldRejectQueuedRequest(1_000, false, 16_000)).toBe(false)
+    expect(shouldRejectQueuedRequest(1_000, true, 60_000)).toBe(false)
   })
 
   test('overlays only native methods so RPC calls keep riding WebSocket', () => {

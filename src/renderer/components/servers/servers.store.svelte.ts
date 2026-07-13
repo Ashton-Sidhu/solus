@@ -1,4 +1,5 @@
 import type { ConnectionStatus } from '@client-core/ws-transport'
+import { connectionState, subscribe } from '@client-core/connection-state'
 import type { LocalConnectionInfoLike, SolusServerTarget } from '@client-core/server-connection'
 import { SvelteSet } from 'svelte/reactivity'
 import {
@@ -19,7 +20,6 @@ import { discoveredServerUrl, filterNewDiscoveredServers } from './discovery'
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved'
 
 const DISCOVERY_INTERVAL_MS = 30_000
-
 export interface ServerItem {
   id: string
   label: string
@@ -30,12 +30,12 @@ export interface ServerItem {
 }
 
 class ServersStore {
-  local = $state<LocalConnectionInfoLike | null>(window.__solusServerConnection?.local ?? null)
+  local = $state<LocalConnectionInfoLike | null>(null)
   remotes = $state<SavedServer[]>(loadServers())
-  activeServerId = $state(window.__solusServerConnection?.target.id ?? getActiveServerId())
-  connectionStatus = $state<ConnectionStatus>(window.__solusServerConnection?.status ?? 'connected')
-  reconnectAttempt = $state(window.__solusServerConnection?.attempt ?? 0)
-  hasConnected = $state((window.__solusServerConnection?.status ?? 'connected') === 'connected')
+  activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
+  connectionStatus = $state<ConnectionStatus>(connectionState.status)
+  reconnectAttempt = $state(connectionState.attempt)
+  hasConnected = $state(connectionState.status === 'connected')
   addServerOpen = $state(false)
   addServerUrl = $state('')
   claimServerOpen = $state(false)
@@ -77,20 +77,12 @@ class ServersStore {
   }
 
   get activeTarget(): SolusServerTarget | null {
-    return window.__solusServerConnection?.target ?? null
+    return connectionState.target ?? null
   }
 
   init(): void {
     if (this.initialized) return
     this.initialized = true
-
-    const boot = window.__solusServerConnection
-    if (boot) {
-      this.local = boot.local
-      this.activeServerId = boot.target.id
-      this.connectionStatus = boot.status ?? this.connectionStatus
-      this.reconnectAttempt = boot.attempt ?? this.reconnectAttempt
-    }
 
     const updateAutoDiscovery = () => this.updateAutoDiscovery()
     window.addEventListener('focus', updateAutoDiscovery)
@@ -98,12 +90,16 @@ class ServersStore {
     document.addEventListener('visibilitychange', updateAutoDiscovery)
     updateAutoDiscovery()
 
-    document.addEventListener('solus:connection-status', (event) => {
-      const detail = (event as CustomEvent<{ status: ConnectionStatus; attempt: number; target?: SolusServerTarget }>).detail
-      if (detail.target) this.activeServerId = detail.target.id
-      this.connectionStatus = detail.status
-      this.reconnectAttempt = detail.attempt
-      if (detail.status === 'connected') this.hasConnected = true
+    void window.solusNative.getLocalConnection().then((local) => {
+      this.local = local
+      this.updateAutoDiscovery()
+    })
+
+    subscribe(({ status, attempt, target }) => {
+      if (target) this.activeServerId = target.id
+      this.connectionStatus = status
+      this.reconnectAttempt = attempt
+      if (status === 'connected') this.hasConnected = true
       this.updateAutoDiscovery()
     })
   }

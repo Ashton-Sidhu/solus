@@ -7,7 +7,7 @@
     type ReasoningEffort,
   } from "../../../shared/types";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { subToolLabel } from "./lib/subagent";
+  import { parseSubagentInput, subToolLabel } from "./lib/subagent";
 
   interface Props {
     message: Message;
@@ -18,19 +18,7 @@
   const session = getWorkspaceContext();
   const av = session.artifactViewer;
 
-  const parsedInput = $derived.by(() => {
-    try {
-      return JSON.parse(message.toolInput || "{}") as {
-        subagent_type?: string;
-        description?: string;
-        prompt?: string;
-        model?: string;
-        reasoning_effort?: string;
-      };
-    } catch {
-      return {};
-    }
-  });
+  const parsedInput = $derived(parseSubagentInput(message.toolInput));
   const subagentType = $derived(
     message.subagentType || parsedInput.subagent_type || "agent",
   );

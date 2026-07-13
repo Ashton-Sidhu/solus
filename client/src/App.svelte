@@ -9,9 +9,15 @@
     type PersistedTabs,
   } from "@renderer/contexts/tab-persistence";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
-  import { bootstrapRuntimeTabs, materializeTabs } from "@renderer/contexts/session-bootstrap";
+  import { materializeTabs } from "@renderer/contexts/session-bootstrap";
+  import {
+    createReconnectDetector,
+    initializeRuntime,
+    refreshTheme,
+  } from "@renderer/contexts/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app-core";
   import { connectionsStore } from "@renderer/contexts/connections.store.svelte";
+  import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,
     installGlobalDispatcher,
@@ -129,11 +135,7 @@
   );
 
   $effect(() => {
-    window.solus
-      .getTheme()
-      .then(({ isDark }: { isDark: boolean }) =>
-        settings.setSystemTheme(isDark),
-      );
+    refreshTheme(settings.setSystemTheme.bind(settings));
     const unsub = window.solus.onThemeChange((isDark: boolean) =>
       settings.setSystemTheme(isDark),
     );
@@ -166,14 +168,21 @@
   });
 
   $effect(() => {
-    session.initStaticInfo().then(async () => {
-      await bootstrapRuntimeTabs(session);
-      void sessionSidebarStore.loadPinnedSessions();
-    });
+    initializeRuntime(session, sessionSidebarStore);
   });
 
   $effect(() => {
     void connectionsStore.refreshCapabilities();
+  });
+
+  const detectReconnect = createReconnectDetector(webState.connectionStatus);
+  $effect(() => {
+    const connectionStatus = webState.connectionStatus;
+    if (detectReconnect(connectionStatus)) {
+      refreshTheme(settings.setSystemTheme.bind(settings));
+      initializeRuntime(session, sessionSidebarStore);
+      void connectionsStore.refreshCapabilities();
+    }
   });
 
   // ── Keybindings ──────────────────────────────────────────────────────────

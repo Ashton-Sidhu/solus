@@ -84,6 +84,7 @@ let editorWindow: BrowserWindow | null = null
 let lastFocusedWindow: BrowserWindow | null = null
 // Window whose opacity design mode zeroed, so restore hits the same one.
 let designModeWindow: BrowserWindow | null = null
+let designModeWindowBounds: Electron.Rectangle | null = null
 let powerSaveBlockerId: number | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
@@ -663,6 +664,12 @@ function setActiveWindowOpacity(o: number): void {
   win.setOpacity(o)
 }
 
+function expandDesignModeWindow(bounds: Electron.Rectangle): void {
+  if (!isLive(designModeWindow)) return
+  if (!designModeWindowBounds) designModeWindowBounds = designModeWindow.getBounds()
+  designModeWindow.setBounds(bounds, false)
+}
+
 function designModeCaptureRegion(): { x: number; y: number; width: number; height: number } {
   const win = activeWindow()
   if (!isLive(win)) return { x: 0, y: 0, width: 0, height: 0 }
@@ -835,7 +842,6 @@ ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: {
 
 function restoreDesignModeWindow(): void {
   const win = designModeWindow ?? mainWindow
-  designModeWindow = null
   if (!isLive(win)) return
   if (win === mainWindow) {
     // Pill-only level/workspace juggling; the editor is a normal window.
@@ -851,6 +857,17 @@ function restoreDesignModeWindow(): void {
     log.info('[spaces] design-mode overlay ready, window shown')
     snapshotWindowState('design-mode restore')
   }
+}
+
+function exitDesignModeWindow(): void {
+  const win = designModeWindow
+  const bounds = designModeWindowBounds
+  designModeWindow = null
+  designModeWindowBounds = null
+  if (!isLive(win)) return
+  if (bounds) win.setBounds(bounds, false)
+  if (win === mainWindow) focusPillWindow()
+  else focusEditorWindow()
 }
 
 // ─── Permission preflight (macOS) ───
@@ -959,7 +976,9 @@ if (isPairUrl) {
       hideAppWindow,
       showAndFocusActiveWindow,
       setActiveWindowOpacity,
+      expandDesignModeWindow,
       restoreDesignModeWindow,
+      exitDesignModeWindow,
       bumpScreenshotCounter: () => ++screenshotCounter,
       bumpDesignModeCounter: () => ++designModeCounter,
       bumpPasteCounter: () => ++pasteCounter,

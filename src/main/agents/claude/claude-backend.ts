@@ -363,7 +363,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     return this.agent.rewindFiles(sessionId, checkpointId, projectPath)
   }
 
-  async listSessions(projectPath?: string, onBatch?: (sessions: SessionMeta[]) => void): Promise<SessionMeta[]> {
+  async listSessions(projectPath?: string, onBatch?: (sessions: SessionMeta[]) => void, limit?: number): Promise<SessionMeta[]> {
     const cwd = projectPath || process.cwd()
     const encodedPath = encodePathAsFolder(cwd)
     const cacheKey = encodedPath + ':with-worktrees'
@@ -383,7 +383,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     }
 
     if (sessionIndexReady()) {
-      const sessions = listIndexedSessions(dirsToScan.map((dir) => dir.encodedPath))
+      const sessions = listIndexedSessions(dirsToScan.map((dir) => dir.encodedPath), limit)
       onBatch?.(sessions)
       return sessions
     }
@@ -400,8 +400,9 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
 
     const cached = _sessionListCache.get(cacheKey)
     if (cached && cached.latestDirMtime === currentMaxMtime) {
-      onBatch?.(cached.sessions)
-      return cached.sessions
+      const sessions = limit === undefined ? cached.sessions : cached.sessions.slice(0, limit)
+      onBatch?.(sessions)
+      return sessions
     }
 
     // Dedup concurrent cold scans of the same project. When two callers (e.g. the
@@ -411,7 +412,10 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     // RPC result as authoritative, so they only forgo the incremental `onBatch`
     // stream, not the data.
     const inFlight = _sessionScanInFlight.get(cacheKey)
-    if (inFlight) return inFlight
+    if (inFlight) {
+      const sessions = await inFlight
+      return limit === undefined ? sessions : sessions.slice(0, limit)
+    }
 
     const scan = (async () => {
       const scanTasks = dirsToScan.map((d) => scanSessionsInDir(d.path, d.encodedPath, cwd, d.isWorktree, onBatch ? (s) => onBatch([s]) : undefined))
@@ -423,7 +427,8 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     })()
     _sessionScanInFlight.set(cacheKey, scan)
     try {
-      return await scan
+      const sessions = await scan
+      return limit === undefined ? sessions : sessions.slice(0, limit)
     } finally {
       _sessionScanInFlight.delete(cacheKey)
     }

@@ -39,13 +39,13 @@ type Ctx = Context<Env>
 
 /**
  * Builds the HTTP server. Returns a node http.Server that the caller
- * `.listen()`s separately. The WebSocket transport mounts itself at `/ws`
- * on the same server via `http.on('upgrade')`.
+ * `.listen()`s separately. Engine.IO intercepts `/ws` requests on this server
+ * before they reach Hono.
  *
  * Routing/CORS/body-parsing/static-serving are handled by Hono; the raw Node
  * request is still reachable via `c.env.incoming` (used by the multipart
- * upload). We keep our own `http.Server` via `getRequestListener` so the WS
- * upgrade and the port-retry/rebind logic in server/index.ts stay unchanged.
+ * upload). We keep our own `http.Server` via `getRequestListener` so the
+ * port-retry/rebind logic in server/index.ts stays unchanged.
  */
 export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpServer; host: string; port: number } {
   const host = opts.host ?? '127.0.0.1'

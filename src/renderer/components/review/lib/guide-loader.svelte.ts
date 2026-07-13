@@ -5,11 +5,11 @@ import { requestInputFocus } from "../../../lib/inputFocus";
 export interface GuideLoaderOptions {
   /** The session IPC context to issue calls against. */
   getCtx: () => IpcContext;
-  /** Cached-guide key (branch, `main-<sha>`, or a session-suffixed key). */
+  /** Stable cached-guide key (sanitized branch name or `session-<id>`). */
   getKey: () => string;
   /** `'session'` regenerates against the session base; `'branch'` (default) is
-   *  the full-branch walkthrough. The key encodes this, but the producer needs
-   *  it told explicitly to pick the right base. */
+   *  the full-branch walkthrough. The stable key identifies storage; scope tells
+   *  the producer which point-in-time diff base to record. */
   getScope: () => "branch" | "session";
   /** Effective agent/model/reasoning for a fresh generation. */
   getAgent: () => { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null };

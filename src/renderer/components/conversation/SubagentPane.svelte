@@ -7,6 +7,7 @@
   } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { tooltip } from "../../lib/tooltip";
+  import { parseSubagentInput } from "./lib/subagent";
   import SubagentTranscript from "./SubagentTranscript.svelte";
 
   interface Props {
@@ -24,17 +25,7 @@
     session.sessionFor(tabId)?.messages.find((m) => m.id === messageId),
   );
 
-  const parsedInput = $derived.by(() => {
-    try {
-      return JSON.parse(message?.toolInput || "{}") as {
-        subagent_type?: string;
-        description?: string;
-        prompt?: string;
-      };
-    } catch {
-      return {};
-    }
-  });
+  const parsedInput = $derived(parseSubagentInput(message?.toolInput));
   const subagentType = $derived(
     message?.subagentType || parsedInput.subagent_type || "agent",
   );

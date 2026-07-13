@@ -126,7 +126,14 @@ export async function resolveRepoRoot(workTree: string): Promise<string | null> 
     const commonDir = await runAsync('git', ['rev-parse', '--git-common-dir'], workTree)
     const absolute = path.isAbsolute(commonDir) ? commonDir : path.resolve(workTree, commonDir)
     return path.dirname(absolute)
-  } catch {
+  } catch (err: any) {
+    log.warn('resolveRepoRoot failed', {
+      cwd: workTree,
+      error: err?.message ?? String(err),
+      stderr: typeof err?.stderr === 'string' ? err.stderr.trim() : undefined,
+      code: err?.code,
+      signal: err?.signal,
+    })
     return null
   }
 }

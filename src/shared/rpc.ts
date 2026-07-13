@@ -1,7 +1,7 @@
 // ─── RPC method/topic registry ───
 //
 // Single source of truth for every channel name in the Solus client/server
-// protocol. Both transports (Electron IPC and WebSocket) dispatch through
+// protocol. The WebSocket transport dispatches through
 // `SolusServer.handle(method, args)` and `SolusServer.broadcast(topic, ...)`.
 //
 // The renderer continues to call `window.solus.<method>(...args)`. The preload
@@ -28,6 +28,7 @@ export const RPC_INVOKE_METHODS = [
   'stopTab',
   'retry',
   'closeTab',
+  'resetTabSession',
 
   // Permission / interaction
   'respondPermission',
@@ -117,6 +118,8 @@ export const RPC_INVOKE_METHODS = [
 
   // Design mode
   'enterDesignMode',
+  'designModeReady',
+  'exitDesignMode',
   'submitDesignAnnotations',
 
   // Connections (server-side multi-client + pairing)
@@ -222,15 +225,8 @@ export const RPC_INVOKE_METHODS = [
   'automationReadRun',
 ] as const
 
-// Fire-and-forget messages — never wait for a result.
-export const RPC_SEND_METHODS = [
-  'resetTabSession',
-  'designModeReady',
-] as const
-
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
-export type RpcSendMethod = (typeof RPC_SEND_METHODS)[number]
-export type RpcMethod = RpcInvokeMethod | RpcSendMethod
+export type RpcMethod = RpcInvokeMethod
 
 export const RPC_TOPICS = [
   'normalized-event',
@@ -241,8 +237,6 @@ export const RPC_TOPICS = [
   'window-shown',
   'window-hidden',
   'presence',
-  'seq-watermark',
-  'seq-reset',
   'session-scan',
   'session-index-updated',
   'run-status',
@@ -270,11 +264,4 @@ export const ELECTRON_EVENT_CHANNEL = 'solus:event'
 export interface RpcEnvelope {
   method: RpcMethod
   args: unknown[]
-}
-
-export interface RpcEventEnvelope {
-  topic: RpcTopic
-  payload: unknown[]
-  /** Per-topic monotonic sequence number; used by web clients for resume. */
-  seq?: number
 }

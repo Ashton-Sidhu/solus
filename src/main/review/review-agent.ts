@@ -66,8 +66,12 @@ export interface ReviewAgentInput {
   context: ReviewContext
   agent: AgentId
   model?: string | null
-  /** Reasoning effort for the review run; falls back to 'high' when unset. */
+  /** Reasoning effort for the review run. When unset, defaults to 'medium' for an
+   *  inlined diff and 'high' when the agent must gather the diff itself. */
   reasoningEffort?: ReasoningEffort | null
+  /** Pre-computed diff to inline into the prompt so the agent skips gathering it
+   *  with git. Null/undefined ⇒ the agent gathers the diff itself (large-diff path). */
+  inlineDiff?: string | null
   /** Phase callback so the producer can stream progress to the UI. */
   onProgress?: (step: ReviewProgressStep) => void
   abortSignal?: AbortSignal
@@ -87,7 +91,7 @@ export interface ReviewAgentInput {
 export async function runReviewAgent(input: ReviewAgentInput): Promise<ReviewGuideDraft | null> {
   const ledgerPresent = !!input.ledger && input.ledger.records.length > 0
   const prompt = buildPrompt(input, ledgerPresent)
-  const reasoningEffort = input.reasoningEffort ?? 'high'
+  const reasoningEffort = input.reasoningEffort ?? (input.inlineDiff ? 'medium' : 'high')
 
   let captured: ReviewGuideDraft | null = null
   let unregisterCodexCapture: () => void = () => {}
@@ -159,8 +163,6 @@ function abortControllerFromSignal(signal?: AbortSignal): AbortController | unde
 // ─── prompt ───
 
 function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
-  const { context } = input
-  const reviewer = `${input.agent}/${input.model ?? 'default'}`
   const parts: string[] = []
 
   parts.push(
@@ -189,6 +191,16 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
     '',
   )
 
+  if (input.inlineDiff) {
+    parts.push(
+      'The COMPLETE diff for this change is provided at the end of this message — do NOT gather it',
+      'with git; review it directly. It already includes new/untracked files (as additions with full',
+      `content) and everything between base ${input.base} and the current working tree. If a hunk needs`,
+      'surrounding context, use Read/Grep on the working tree; otherwise you need no git commands.',
+      '',
+    )
+  }
+
   if (ledgerPresent && input.ledger) {
     parts.push(
       'A review ledger is available — the authoring sessions recorded, per change, what changed (title),',
@@ -208,5 +220,16 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
   //   'deliverable; do not also write the guide as prose. Do not call the tool until you have inspected',
   //   'the full change.',
   // )
+
+  if (input.inlineDiff) {
+    parts.push(
+      `Diff (\`git diff ${input.base}\`):`,
+      '```diff',
+      input.inlineDiff,
+      '```',
+      '',
+    )
+  }
+
   return parts.join('\n')
 }

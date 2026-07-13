@@ -50,6 +50,7 @@ export function codexSubagentSdkTool(deps: CodexSubagentDeps) {
         abortSignal: deps.abortSignal,
         readOnly: args.read_only === true,
         solusTools: true, // automation tools already excluded (fork-bomb guard)
+        ephemeral: false
       })
       log.info(`codex subagent ${sessionId} finished (${toolCallCount} tool calls)`)
       return { content: [{ type: 'text' as const, text: text || '(Codex subagent returned no text.)' }] }

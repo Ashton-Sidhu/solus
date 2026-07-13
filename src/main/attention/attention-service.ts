@@ -7,6 +7,11 @@ import type { AttentionEntry, AttentionKind } from '../../shared/attention-types
 
 const log = createLogger('attention', 'attention-service.ts')
 
+/** Entries only clear when their session is revisited, so a long-idle instance can
+ *  accumulate one per finished/failed session forever. Cap the list and evict the
+ *  oldest (by `since`) past this size. */
+const MAX_ENTRIES = 200
+
 /** Default persisted location: <dataDir>/state/attention.json (respects the
  *  SOLUS_DATA_DIR override that tests and the daemon use). Resolved lazily so
  *  the override can be set before the service is constructed. */
@@ -117,6 +122,7 @@ export class AttentionService {
       ...(input.projectKey ? { projectKey: input.projectKey } : {}),
     }
     this.entries.set(input.sessionId, entry)
+    this._evictOverflow()
     this._persist()
     this._emit()
   }
@@ -126,6 +132,14 @@ export class AttentionService {
     if (!this.entries.delete(sessionId)) return
     this._persist()
     this._emit()
+  }
+
+  /** Drop the oldest entries (by `since`) once the list exceeds MAX_ENTRIES. */
+  private _evictOverflow(): void {
+    const overflow = this.entries.size - MAX_ENTRIES
+    if (overflow <= 0) return
+    const oldest = [...this.entries.values()].sort((a, b) => a.since - b.since).slice(0, overflow)
+    for (const entry of oldest) this.entries.delete(entry.sessionId)
   }
 
   private _emit(): void {
@@ -143,6 +157,7 @@ export class AttentionService {
       for (const entry of Object.values(parsed.entries ?? {})) {
         if (entry?.sessionId) this.entries.set(entry.sessionId, entry)
       }
+      this._evictOverflow()
     } catch (err) {
       log.error(`failed to load attention state: ${String(err)}`)
     }

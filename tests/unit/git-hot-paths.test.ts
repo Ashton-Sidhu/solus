@@ -102,6 +102,52 @@ describe('git status hot path', () => {
       else (globalThis as unknown as { $state: unknown }).$state = previousState
     }
   })
+
+  test('a failed summary refresh preserves the last known repository status', async () => {
+    const previousWindow = globalThis.window
+    const previousState = (globalThis as unknown as { $state?: unknown }).$state
+    const status: GitProjectStatus = {
+      repoRoot: '/repo',
+      branch: 'feature',
+      targetBranch: 'main',
+      files: [{ path: 'changed.ts', conflicted: false }],
+      insertions: 1,
+      deletions: 0,
+      mergeInProgress: false,
+    }
+    let shouldFail = false
+
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          gitProjectStatus: async () => {
+            if (shouldFail) throw new Error('temporary probe failure')
+            return status
+          },
+        },
+      },
+    })
+
+    try {
+      const { GitStatusStore } = await import('../../src/renderer/contexts/git-status.store.svelte')
+      const store = new GitStatusStore()
+      expect(await store.refresh('/repo', { force: true })).toBe(true)
+      shouldFail = true
+      expect(await store.refresh('/repo', { force: true })).toBe(false)
+      expect(store.statusFor('/repo')).toBe(status)
+    } finally {
+      if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
+      else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
+      if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
+      else (globalThis as unknown as { $state: unknown }).$state = previousState
+    }
+  })
 })
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
