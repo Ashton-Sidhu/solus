@@ -71,6 +71,16 @@ export class RunManager {
     return this.statusForRoot(repoRoot, await this.resolveCommands(repoRoot))
   }
 
+  /** True while any managed dev-server process is starting or running. */
+  hasActiveRuns(): boolean {
+    for (const byId of this.runs.values()) {
+      for (const run of byId.values()) {
+        if (run.state === 'starting' || run.state === 'running') return true
+      }
+    }
+    return false
+  }
+
   private statusForRoot(repoRoot: string, specs: CommandSpec[]): RunProjectStatus {
     const byId = this.bucket(repoRoot)
     const runs: RunStatus[] = []

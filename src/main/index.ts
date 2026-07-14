@@ -86,6 +86,27 @@ let lastFocusedWindow: BrowserWindow | null = null
 let designModeWindow: BrowserWindow | null = null
 let designModeWindowBounds: Electron.Rectangle | null = null
 let powerSaveBlockerId: number | null = null
+
+// Hold the app-suspension blocker only while compute is actually happening
+// (an agent turn or a managed dev-server process). Holding it for the app's
+// lifetime disables macOS App Nap entirely, which keeps the machine warm at
+// idle. Re-synced on every control-plane active-work flip and run-status
+// broadcast; idempotent, so extra calls are free.
+function syncPowerSaveBlocker(): void {
+  if (isHeadless || isTestMode || !core) return
+  const shouldBlock = core.controlPlane.hasActiveWork() || core.runManager.hasActiveRuns()
+  const isBlocking = powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)
+  if (shouldBlock === isBlocking) return
+  if (shouldBlock) {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+    log.info(`Power save blocker started (id=${powerSaveBlockerId})`)
+  } else if (powerSaveBlockerId !== null) {
+    powerSaveBlocker.stop(powerSaveBlockerId)
+    log.info(`Power save blocker stopped (id=${powerSaveBlockerId})`)
+    powerSaveBlockerId = null
+  }
+}
+
 let tray: Tray | null = null
 let screenshotCounter = 0
 let designModeCounter = 0
@@ -951,11 +972,6 @@ if (isPairUrl) {
       app.dock.hide()
     }
 
-    if (!isHeadless && !isTestMode) {
-      powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
-      log.info(`Power save blocker started (id=${powerSaveBlockerId})`)
-    }
-
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
       switchMode,
@@ -1016,6 +1032,9 @@ if (isPairUrl) {
     core = bootedCore
     booted = bootedCore.booted
     resolveBoot(bootedCore)
+    bootedCore.controlPlane.on('active-work-changed', syncPowerSaveBlocker)
+    bootedCore.booted.server.subscribe('run-status', syncPowerSaveBlocker)
+    syncPowerSaveBlocker()
     // Independent of which window (if any) boots first — the editor is now the
     // default boot surface and the pill is created lazily on first summon, so
     // this can no longer live on the pill window's ready-to-show.
