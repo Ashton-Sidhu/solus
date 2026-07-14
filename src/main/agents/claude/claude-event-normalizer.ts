@@ -205,7 +205,9 @@ function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>, pendingToolI
           index: sub.index,
           ...(toolName === 'mcp__solus__codex_subagent'
             ? { isSubagent: true, subagentType: 'codex' as const }
-            : {}),
+            : toolName === 'Task' || toolName === 'Agent'
+              ? { isSubagent: true, subagentType: 'claude' as const }
+              : {}),
         }]
       }
       // Text blocks arrive via deltas; the start event carries no user-facing data.

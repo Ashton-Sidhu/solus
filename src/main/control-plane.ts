@@ -117,6 +117,7 @@ interface ControlPlaneOptions {
 export class ControlPlane extends EventEmitter {
   private tabs = new Map<string, TabRegistryEntry>()
   private activeSessions = new Map<string, BackendSession>()
+  private hadActiveWork = false
   private requestQueue = new Map<string, QueuedRequest[]>()
   private activeRunRequests = new Map<string, ActiveRunRequest>()
   private pendingRunRequestsByTab = new Map<string, ActiveRunRequest>()
@@ -231,6 +232,7 @@ export class ControlPlane extends EventEmitter {
           runInput: existingSession?.runInput ?? runReqInput,
           gitContext: existingSession?.gitContext ?? runReqInput?.gitContext ?? undefined,
         })
+        this._notifyActiveWork()
       }
 
       const session = this.activeSessions.get(sessionId)
@@ -1104,6 +1106,29 @@ export class ControlPlane extends EventEmitter {
     })
   }
 
+  /**
+   * True while any agent is actually executing ('connecting'/'running').
+   * Narrower than _isBusyStatus on purpose: sessions parked on user input or a
+   * rate-limit reset consume no compute, so they must not hold the process
+   * power-save blocker (see syncPowerSaveBlocker in main/index.ts).
+   */
+  hasActiveWork(): boolean {
+    for (const tab of this.tabs.values()) {
+      if (tab.status === 'connecting' || tab.status === 'running') return true
+    }
+    for (const session of this.activeSessions.values()) {
+      if (session.status === 'connecting' || session.status === 'running') return true
+    }
+    return false
+  }
+
+  private _notifyActiveWork(): void {
+    const active = this.hasActiveWork()
+    if (active === this.hadActiveWork) return
+    this.hadActiveWork = active
+    this.emit('active-work-changed', active)
+  }
+
   private _isBusyStatus(status: SessionStatus): boolean {
     return (
       status === 'connecting' ||
@@ -1339,6 +1364,7 @@ export class ControlPlane extends EventEmitter {
         lastActivityAt: Date.now(),
         promptCount: existingSession ? existingSession.promptCount : 1,
       })
+      this._notifyActiveWork()
     }
 
     // Session started from a task: hydrate the ticket and prepend its full
@@ -1940,6 +1966,10 @@ export class ControlPlane extends EventEmitter {
       backend.permissions.clearPendingForSession(sessionId)
       this.attention.resolve(sessionId)
     }
+
+    // Self-heal for any active-work transition that bypassed _setStatus
+    // (e.g. tab close while running); at worst the power blocker lingers one tick.
+    this._notifyActiveWork()
   }
 
   private _markSessionDead(tabId: string, sessionId: string): void {
@@ -2035,6 +2065,11 @@ export class ControlPlane extends EventEmitter {
   }
 
   private _setStatus(target: { tabId?: string; sessionId?: string }, newStatus: SessionStatus): void {
+    this._applyStatus(target, newStatus)
+    this._notifyActiveWork()
+  }
+
+  private _applyStatus(target: { tabId?: string; sessionId?: string }, newStatus: SessionStatus): void {
     const sessionId = target.sessionId ?? (target.tabId ? this.tabs.get(target.tabId)?.sessionId : undefined)
 
     if (sessionId) this._syncAttention(sessionId, newStatus)
