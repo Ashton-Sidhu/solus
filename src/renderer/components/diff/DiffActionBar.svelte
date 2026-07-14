@@ -123,7 +123,7 @@
       onblur={() => (focused = false)}
       {placeholder}
       rows={1}
-      class="flex-1 min-w-0 placeholder:text-(--solus-text-muted) text-[0.7188rem] md:text-[0.7188rem] leading-[1.55] py-0.5 px-0.5 max-h-40"
+      class="flex-1 min-w-0 placeholder:text-(--solus-text-muted) leading-[1.55] py-0.5 px-0.5 max-h-40"
     />
 
     <div class="flex items-center gap-1 shrink-0">

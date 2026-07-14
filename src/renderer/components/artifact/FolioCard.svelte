@@ -19,6 +19,7 @@
     onTogglePin: (event: MouseEvent) => void;
     onDuplicate: (event: MouseEvent) => void;
     onDelete: () => void;
+    onHover?: () => void;
   }
 
   let {
@@ -29,6 +30,7 @@
     onTogglePin,
     onDuplicate,
     onDelete,
+    onHover,
   }: Props = $props();
 
   const isDiagram = $derived(work.type === "diagram");
@@ -55,9 +57,10 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <Card.Root
-  class="folio-card folio-card--{work.type} gap-0 py-0"
+  class="folio-card folio-card--{work.type} gap-0 py-0 {selected ? 'selected' : ''}"
   data-selected={selected ? "true" : null}
   onclick={onOpen}
+  onmouseenter={onHover}
   role="option"
   aria-selected={selected}
   tabindex="-1"
@@ -164,7 +167,8 @@
       0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
       0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
   }
-  :global(.folio-card):focus-visible {
+  :global(.folio-card):focus-visible,
+  :global(.folio-card.selected) {
     border-color: color-mix(
       in srgb,
       var(--solus-accent) 40%,
@@ -174,6 +178,9 @@
       0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
       0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04),
       0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 8%, transparent);
+  }
+  :global(.folio-card.selected) .card-accent {
+    opacity: 0.95;
   }
 
   .card-accent {
@@ -244,7 +251,8 @@
       color 0.15s ease;
   }
   :global(.folio-card):hover .card-icon-btn,
-  :global(.folio-card):focus-within .card-icon-btn {
+  :global(.folio-card):focus-within .card-icon-btn,
+  :global(.folio-card.selected) .card-icon-btn {
     opacity: 1;
   }
   .card-icon-btn.always-show {

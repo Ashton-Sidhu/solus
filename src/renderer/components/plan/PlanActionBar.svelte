@@ -177,7 +177,7 @@
   .plan-action-input {
     border-radius: 0.4375rem;
     padding: 0.3125rem 0.625rem;
-    background: var(--solus-input-bg-soft);
+    background: transparent;
     border: 0.0625rem solid var(--solus-tool-border);
     line-height: 1.4;
     display: flex;
@@ -192,7 +192,7 @@
   .plan-action-input:focus-within {
     border-color: var(--solus-input-focus-border);
     box-shadow: 0 0 0 0.1875rem var(--solus-input-focus-ring);
-    background: var(--solus-container-bg);
+    background: transparent;
   }
   .plan-action-input--compact {
     padding: 0.25rem 0.5625rem;
