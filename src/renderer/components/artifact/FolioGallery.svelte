@@ -55,6 +55,7 @@
   let sortMode = $state<SortMode>("updated");
   let typeFilter = $state<TypeFilter>("all");
   let newMenuOpen = $state(false);
+  let mouseHasMoved = $state(false);
 
   const SORT_OPTIONS: { value: SortMode; label: string }[] = [
     { value: "updated", label: "Last updated" },
@@ -67,6 +68,7 @@
       query = "";
       selectedIndex = 0;
       newMenuOpen = false;
+      mouseHasMoved = false;
       void session.worksStore.loadAll(session.galleryProjectPath);
       if (!runtime.shouldSuppressFocus) {
         tick().then(() => searchEl?.focus());
@@ -286,6 +288,7 @@
     onTogglePin={(event) => togglePin(w, event)}
     onDuplicate={(event) => duplicateWork(w, event)}
     onDelete={() => handleDelete(w)}
+    onHover={() => { if (mouseHasMoved) selectedIndex = i; }}
   />
 {/snippet}
 
@@ -362,6 +365,7 @@
         class="outline-none"
         role="listbox"
         tabindex="-1"
+        onmousemove={() => { mouseHasMoved = true; }}
       >
         {#if filtered.length === 0}
           <div class="empty">

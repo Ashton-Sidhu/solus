@@ -56,7 +56,7 @@
 			bind:this={ref}
 			data-slot={dataSlot}
 			class={cn(
-				"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:aria-invalid:border-destructive/50 disabled:bg-input/50 dark:disabled:bg-input/80 field-sizing-content min-h-16 w-full rounded-lg border bg-transparent px-2.5 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+				"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 field-sizing-content min-h-16 w-full resize-none rounded-lg border bg-transparent! px-2.5 py-2 text-xs! leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:cursor-not-allowed disabled:opacity-50",
 				mic && "pr-8",
 				field.micState === "recording" && "invisible pointer-events-none",
 				className
@@ -88,7 +88,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:aria-invalid:border-destructive/50 disabled:bg-input/50 dark:disabled:bg-input/80 field-sizing-content min-h-16 w-full rounded-lg border bg-transparent px-2.5 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+			"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 field-sizing-content min-h-16 w-full resize-none rounded-lg border bg-transparent! px-2.5 py-2 text-xs! leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		bind:value

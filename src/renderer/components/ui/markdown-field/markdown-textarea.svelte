@@ -26,8 +26,8 @@
 	{submitOn}
 	{rows}
 	class={cn(
-		"min-h-8 max-h-40 overflow-y-auto text-[0.7813rem] md:text-[0.7813rem]",
-		bare && "min-h-0 rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent",
+		"min-h-8 max-h-40 overflow-y-auto",
+		bare && "h-auto! min-h-0! rounded-none border-0 bg-transparent! px-0 py-0! shadow-none focus-visible:ring-0 dark:bg-transparent!",
 		className
 	)}
 	{...restProps}
