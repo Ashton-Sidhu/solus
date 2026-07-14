@@ -2,8 +2,9 @@
   import type { DiagramNode, DiagramField } from '../../../shared/diagram-types'
   import IconPicker from './IconPicker.svelte'
   import DiagramDrawerShell from './DiagramDrawerShell.svelte'
-  import Dropdown from '../ui/Dropdown.svelte'
-  import DropdownItem from '../ui/DropdownItem.svelte'
+  import * as DropdownMenu from '../ui/dropdown-menu'
+  import { Input } from '../ui/input'
+  import { Textarea } from '../ui/textarea'
   import {
     DIAGRAM_GREEN,
     DIAGRAM_AMBER,
@@ -272,7 +273,7 @@
     <!-- Label -->
     <label class="diagram-drawer__field">
       <span class="diagram-drawer__label">Label</span>
-      <input
+      <Input
         class="diagram-drawer__input diagram-drawer__name-input"
         bind:value={label}
         oninput={onLabelInput}
@@ -284,7 +285,7 @@
     {#if !isGroup}
       <label class="diagram-drawer__field">
         <span class="diagram-drawer__label">Subtitle</span>
-        <input
+        <Input
           class="diagram-drawer__input"
           bind:value={subtitle}
           oninput={onSubtitleInput}
@@ -367,7 +368,7 @@
           {/each}
         </div>
       {/if}
-      <input
+      <Input
         class="diagram-drawer__input"
         bind:value={badgeDraft}
         onkeydown={(e) => onChipKeydown(e, addBadge)}
@@ -388,7 +389,7 @@
           {/each}
         </div>
       {/if}
-      <input
+      <Input
         class="diagram-drawer__input"
         bind:value={tagDraft}
         onkeydown={(e) => onChipKeydown(e, addTag)}
@@ -401,13 +402,13 @@
       <span class="diagram-drawer__label">Metrics</span>
       {#each metrics as metric, i}
         <div class="diagram-drawer__metric-edit">
-          <input
+          <Input
             class="diagram-drawer__input diagram-drawer__input--key"
             bind:value={metric.k}
             oninput={commitMetrics}
             placeholder="Key"
           />
-          <input
+          <Input
             class="diagram-drawer__input"
             bind:value={metric.v}
             oninput={commitMetrics}
@@ -442,7 +443,7 @@
               title="Key: none → PK → FK → unique"
               aria-label="Field key: {field.key ?? 'none'}"
             >{field.key ? FIELD_KEY_GLYPH[field.key] : '—'}</button>
-            <input
+            <Input
               class="diagram-drawer__input"
               bind:value={field.name}
               oninput={commitFields}
@@ -454,13 +455,13 @@
             </button>
           </div>
           <div class="flex items-center gap-1.5">
-            <input
+            <Input
               class="diagram-drawer__input"
               bind:value={field.type}
               oninput={commitFields}
               placeholder="Type"
             />
-            <input
+            <Input
               class="diagram-drawer__input"
               bind:value={field.ref}
               oninput={commitFields}
@@ -487,13 +488,13 @@
     <!-- Body -->
     <label class="diagram-drawer__field">
       <span class="diagram-drawer__label">Body</span>
-      <textarea
+      <Textarea
         class="diagram-drawer__textarea"
         bind:value={body}
         oninput={onBodyInput}
         rows="4"
         placeholder="Optional description"
-      ></textarea>
+      />
     </label>
 
     <!-- Click action -->
@@ -514,30 +515,27 @@
         <svg class="diagram-drawer__select-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 6.5l4 4 4-4" />
         </svg>
-        <Dropdown
-          bind:open={clickMenuOpen}
-          triggerEl={clickTriggerEl}
-          align="top"
-          width={clickTriggerW}
-        >
+        <DropdownMenu.Root bind:open={clickMenuOpen}>
+          <DropdownMenu.Content customAnchor={clickTriggerEl} side="top" align="start" sideOffset={6} style={`width:${clickTriggerW}px`}>
           <div class="py-1">
             {#each CLICK_OPTIONS as opt (opt.value)}
-              <DropdownItem
-                selected={clickKind === opt.value}
-                onclick={() => {
+              <DropdownMenu.Item
+                class={clickKind === opt.value ? "font-semibold" : undefined}
+                onSelect={() => {
                   clickKind = opt.value
                   onClickKindChange()
                   clickMenuOpen = false
                 }}
               >
                 {opt.label}
-              </DropdownItem>
+              </DropdownMenu.Item>
             {/each}
           </div>
-        </Dropdown>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       </div>
       {#if clickKind === 'openUrl'}
-        <input
+        <Input
           class="diagram-drawer__input"
           bind:value={clickValue}
           oninput={commitAction}

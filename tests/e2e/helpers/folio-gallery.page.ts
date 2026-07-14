@@ -48,11 +48,11 @@ export class FolioGalleryPage {
 
   /** Global undo toast shown after a delete (rendered at the app root). */
   undoToast(): Locator {
-    return this.page.getByTestId('undo-toast')
+    return this.page.locator('[data-sonner-toast]').filter({ hasText: 'Document deleted' })
   }
 
   undoToastAction(): Locator {
-    return this.page.getByTestId('undo-toast-action')
+    return this.undoToast().getByRole('button', { name: 'Undo' })
   }
 
   newButton(): Locator {

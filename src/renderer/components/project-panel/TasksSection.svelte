@@ -3,6 +3,7 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { STATUS_META, statusLabel, sortTasks } from "../tasks/lib/tasks-api";
+  import { Button } from "../ui/button";
   import {
     TASKS_AUTH_ERROR_PREFIX,
     type Task,
@@ -87,38 +88,43 @@
     </div>
     <div class="flex items-center gap-1">
       {#if isAuthError || providerStatus?.reason === "github_not_connected"}
-        <button
+        <Button
+          variant="secondary"
+          size="xs"
           type="button"
-          class="inline-flex cursor-pointer items-center gap-1 rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-normal text-(--solus-accent)"
           onclick={openConnections}
         >
           <PlugIcon size={11} />
           Connect
-        </button>
+        </Button>
       {:else if providerStatus?.reason === "missing_github_repo"}
-        <button
+        <Button
+          variant="secondary"
+          size="xs"
           type="button"
-          class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-normal text-(--solus-accent)"
           onclick={retry}
         >
           Retry
-        </button>
+        </Button>
       {:else}
-        <button
+        <Button
+          variant="secondary"
+          size="xs"
           type="button"
-          class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-(--solus-accent-light) px-2 py-1 text-[0.6875rem] font-normal text-(--solus-accent)"
           onclick={retry}
         >
           Retry
-        </button>
+        </Button>
       {/if}
-      <button
+      <Button
+        variant="ghost"
+        size="xs"
         type="button"
-        class="inline-flex cursor-pointer items-center rounded-[0.375rem] border-0 bg-transparent px-2 py-1 text-[0.6875rem] font-normal text-(--solus-text-tertiary) hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+        class="text-(--solus-text-tertiary)"
         onclick={openAll}
       >
         View
-      </button>
+      </Button>
     </div>
   </div>
 {:else if openTasks.length === 0}

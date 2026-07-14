@@ -40,7 +40,7 @@ export interface CodexPendingServerRequest {
   execute?: (approved: boolean) => void | Promise<void>
 }
 
-function normalizeCodexNotification(method: string, params: any, opts?: { planMode?: boolean }): NormalizedEvent[] {
+function normalizeCodexNotification(method: string, params: any, opts?: { planMode?: boolean; assembledAgentMessages?: boolean }): NormalizedEvent[] {
   const usageEvent = normalizeCodexTokenCount(method, params)
   if (usageEvent) return [usageEvent]
 
@@ -70,6 +70,7 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
     }
 
     case 'item/agentMessage/delta':
+      if (opts?.assembledAgentMessages) return []
       // Sub-agent text no longer streams — it arrives whole on item/completed.
       return typeof params?.delta === 'string' && params.delta && !codexParentToolUseId(params)
         ? [{ type: 'text_chunk', text: params.delta }]
@@ -83,7 +84,7 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
       return normalizeToolUpdate(params)
 
     case 'item/completed':
-      return normalizeItemCompleted(params)
+      return normalizeItemCompleted(params, opts)
 
     case 'turn/plan/updated': {
       if (opts?.planMode) return []
@@ -114,6 +115,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   private turnId: string | null = null
   private readonly subagentParentByThreadId = new Map<string, string>()
   private readonly planMode: boolean
+  private readonly assembledAgentMessages: boolean
   private readonly turnSummary: TurnSummary = {
     toolCallCount: 0,
     sawRateLimit: false,
@@ -121,8 +123,9 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
     permissionDenials: [],
   }
 
-  constructor(opts: { planMode: boolean }) {
+  constructor(opts: { planMode: boolean; assembledAgentMessages?: boolean }) {
     this.planMode = opts.planMode
+    this.assembledAgentMessages = opts.assembledAgentMessages ?? false
   }
 
   get summary(): TurnSummary {
@@ -183,7 +186,10 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
       }
     }
 
-    events.push(...normalizeCodexNotification(method, params, { planMode: this.planMode }))
+    events.push(...normalizeCodexNotification(method, params, {
+      planMode: this.planMode,
+      assembledAgentMessages: this.assembledAgentMessages,
+    }))
     return this.emit(events)
   }
 
@@ -458,7 +464,7 @@ function normalizeToolUpdate(params: any): NormalizedEvent[] {
   }]
 }
 
-function normalizeItemCompleted(params: any): NormalizedEvent[] {
+function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: boolean }): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id) return []
   const parentToolUseId = codexParentToolUseId(params)
@@ -467,7 +473,14 @@ function normalizeItemCompleted(params: any): NormalizedEvent[] {
     // Not parented: main-thread paragraph separator between streamed messages.
     // Parented: sub-agent prose no longer streams, so deliver the full text here
     // as the assembled assistant message the reducer lands in the sub-agent card.
-    if (!parentToolUseId) return [{ type: 'text_chunk', text: '\n\n' }]
+    if (!parentToolUseId) {
+      if (opts?.assembledAgentMessages) {
+        return typeof item.text === 'string' && item.text
+          ? [{ type: 'assistant_message', text: item.text }]
+          : []
+      }
+      return [{ type: 'text_chunk', text: '\n\n' }]
+    }
     return typeof item.text === 'string' && item.text
       ? [{ type: 'assistant_message', text: item.text, parentToolUseId }]
       : []

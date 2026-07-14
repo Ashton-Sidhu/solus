@@ -3,6 +3,7 @@
   import { CheckIcon } from "phosphor-svelte";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
+  import { Input } from "../ui/input";
 
   interface Props {
     anchorCoords: { left: number; top: number; bottom: number };
@@ -77,11 +78,11 @@
       class="editor-link-popover flex items-center gap-1.5 rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1.5"
       style="min-width:17rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow)"
     >
-      <input
-        bind:this={inputEl}
+      <Input
+        bind:ref={inputEl}
         bind:value={href}
         onkeydown={handleKeydown}
-        class="h-7 min-w-0 flex-1 rounded-md border-0 bg-transparent px-2 text-[0.75rem] leading-none text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary) focus:bg-(--solus-surface-hover)"
+        class="h-7 min-w-0 flex-1 rounded-md border-0 bg-transparent px-2 text-[0.75rem] leading-none text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus:bg-(--solus-surface-hover) focus-visible:ring-0 dark:bg-transparent"
         type="text"
         placeholder="Paste or type a link…"
         aria-label="Link URL"

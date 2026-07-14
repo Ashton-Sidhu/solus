@@ -10,6 +10,7 @@
     TextAaIcon,
   } from "phosphor-svelte";
   import { getSearchState } from "./searchExtension";
+  import { Input } from "../ui/input";
 
   interface Props {
     editor: Editor;
@@ -158,8 +159,8 @@
       </span>
     </button>
     <span class="doc-find-bar__icon"><MagnifyingGlassIcon size={13} /></span>
-    <input
-      bind:this={findInputEl}
+    <Input
+      bind:ref={findInputEl}
       bind:value={query}
       oninput={runSearch}
       onkeydown={handleFindKeydown}
@@ -217,7 +218,7 @@
     <div class="doc-find-bar__row">
       <span class="doc-find-bar__replace-spacer"></span>
       <span class="doc-find-bar__icon"></span>
-      <input
+      <Input
         bind:value={replacement}
         oninput={() => editor.commands.setReplaceTerm(replacement)}
         onkeydown={handleReplaceKeydown}
@@ -272,7 +273,7 @@
     color: var(--solus-text-tertiary);
     flex-shrink: 0;
   }
-  .doc-find-bar__input {
+  :global(.doc-find-bar__input) {
     flex: 1;
     min-width: 0;
     height: 1.625rem;
@@ -284,7 +285,7 @@
     font-size: 0.75rem;
     outline: none;
   }
-  .doc-find-bar__input:focus {
+  :global(.doc-find-bar__input:focus) {
     outline: 0.0625rem solid var(--solus-accent-border);
   }
   .doc-find-bar__count {

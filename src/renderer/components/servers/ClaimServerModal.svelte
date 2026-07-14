@@ -4,6 +4,7 @@
   import { claimServer, desktopDeviceLabel, type ClaimServerResult } from "@client-core/pairing";
   import { discoveredServerUrl } from "./discovery";
   import { serversStore } from "./servers.store.svelte";
+  import { Input } from "../ui/input";
 
   let code = $state("");
   let error = $state<string | null>(null);
@@ -121,7 +122,7 @@
 
           <label class="block">
             <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Claim code</span>
-            <input bind:this={codeInput} bind:value={code} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+            <Input bind:ref={codeInput} bind:value={code} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
           </label>
 
           {#if error}

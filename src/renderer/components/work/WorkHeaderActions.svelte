@@ -17,8 +17,8 @@
   import SoftPill from "../ui/SoftPill.svelte";
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import Diff from "../diff/Diff.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
@@ -91,7 +91,6 @@
 
   // Overflow (⋯) menu holding the secondary / destructive actions.
   let overflowOpen = $state(false);
-  let overflowEl: HTMLButtonElement | null = $state(null);
 
   const canDownload = $derived(docType === "doc" || docType === "slides");
   const canExportToFile = $derived(canDownload && connectionsStore.desktopHandlersAvailable);
@@ -193,86 +192,80 @@
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
 {#if hasOverflow}
-  <button
-    bind:this={overflowEl}
-    type="button"
-    onclick={() => (overflowOpen = !overflowOpen)}
-    class="wha-overflow"
-    class:wha-overflow--open={overflowOpen}
-    data-testid="work-actions-menu"
-    title="More actions"
-    aria-label="More actions"
-    aria-haspopup="menu"
-    aria-expanded={overflowOpen}
-  >
-    <DotsThreeIcon size={16} weight="bold" />
-  </button>
-  <Dropdown bind:open={overflowOpen} triggerEl={overflowEl} align="top" anchor="right" width={200}>
-    <div class="p-1">
+  <DropdownMenu.Root bind:open={overflowOpen}>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button {...props} type="button" class="wha-overflow" class:wha-overflow--open={overflowOpen} data-testid="work-actions-menu" title="More actions" aria-label="More actions">
+          <DotsThreeIcon size={16} weight="bold" />
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="top" align="end" sideOffset={6} class="w-[200px]">
       {#if showOpenInSplit}
-        <DropdownItem data-testid="open-in-split" onclick={() => { overflowOpen = false; onOpenInSplit?.(); }}>
+        <DropdownMenu.Item data-testid="open-in-split" onSelect={() => onOpenInSplit?.()}>
           {#if paneSlot === "secondary"}
             <ArrowsOutSimpleIcon size={14} /><span class="flex-1 text-left">Focus</span>
           {:else}
             <ArrowSquareOutIcon size={14} /><span class="flex-1 text-left">Open in split</span>
           {/if}
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/if}
       {#if onGoogleUpload}
         <!-- Keep the menu open so the upload state + any error stay visible. -->
-        <DropdownItem data-testid="google-upload" disabled={uploading} kbd="⌥G" onclick={() => onGoogleUpload?.()}>
+        <DropdownMenu.Item data-testid="google-upload" disabled={uploading} closeOnSelect={false} onSelect={() => onGoogleUpload?.()}>
           {#if uploaded}
             <CheckIcon size={14} /><span class="flex-1 text-left">Opened!</span>
           {:else}
             <ArrowSquareOutIcon size={14} /><span class="flex-1 text-left">{uploading ? "Uploading…" : "Open in Google Docs"}</span>
           {/if}
-        </DropdownItem>
+          <span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>
+        </DropdownMenu.Item>
         {#if uploadError}
           <div class="wha-upload-error">{uploadError}</div>
         {/if}
       {/if}
       {#if canPromote}
-        <DropdownItem data-testid="promote-work" disabled={promoting} onclick={() => { onPromoteToProject?.(); overflowOpen = false; }}>
+        <DropdownMenu.Item data-testid="promote-work" disabled={promoting} onSelect={() => onPromoteToProject?.()}>
           <FolderIcon size={14} /><span class="flex-1 text-left">{promoting ? "Saving…" : "Save to project"}</span>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {:else if isProjectWork}
-        <DropdownItem data-testid="project-work-location" disabled>
+        <DropdownMenu.Item data-testid="project-work-location" disabled>
           <FolderIcon size={14} /><span class="flex-1 text-left">Saved in project</span>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/if}
       {#if (showOpenInSplit || onGoogleUpload || canPromote || isProjectWork) && (onDuplicate || hasChanges || canDownload || onDelete)}
         <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
       {/if}
       {#if onDuplicate}
-        <DropdownItem data-testid="duplicate-work" onclick={() => { overflowOpen = false; onDuplicate?.(); }}>
+        <DropdownMenu.Item data-testid="duplicate-work" onSelect={() => onDuplicate?.()}>
           <CopyIcon size={14} /><span class="flex-1 text-left">Duplicate</span>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/if}
       {#if hasChanges}
-        <DropdownItem data-testid="view-changes" onclick={() => { overflowOpen = false; showDiff = true; }}>
+        <DropdownMenu.Item data-testid="view-changes" onSelect={() => { showDiff = true; }}>
           <ClockCounterClockwiseIcon size={14} /><span class="flex-1 text-left">View changes</span>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/if}
       {#if canDownload}
-        <DropdownItem data-testid="download-markdown" onclick={() => { overflowOpen = false; downloadMarkdown(); }}>
+        <DropdownMenu.Item data-testid="download-markdown" onSelect={downloadMarkdown}>
           <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Download .md</span>
-        </DropdownItem>
+        </DropdownMenu.Item>
         {#if canExportToFile}
-          <DropdownItem data-testid="export-markdown" onclick={() => { overflowOpen = false; void exportToFile(); }}>
+          <DropdownMenu.Item data-testid="export-markdown" onSelect={() => { void exportToFile(); }}>
             <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Export to file…</span>
-          </DropdownItem>
+          </DropdownMenu.Item>
         {/if}
       {/if}
       {#if onDelete}
         {#if onDuplicate || hasChanges || canDownload}
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
         {/if}
-        <DropdownItem data-testid="delete-work" danger onclick={() => { overflowOpen = false; onDelete?.(); }}>
+        <DropdownMenu.Item data-testid="delete-work" variant="destructive" onSelect={() => onDelete?.()}>
           <TrashIcon size={14} /><span class="flex-1 text-left">Delete</span>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/if}
-    </div>
-  </Dropdown>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 {/if}
 </div>
 

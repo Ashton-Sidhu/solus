@@ -30,6 +30,9 @@
   import { portal } from "./portal";
   import { tooltip } from "../lib/tooltip";
   import { requestInputFocus } from "../lib/inputFocus";
+  import { Button } from "./ui/button";
+  import { Switch } from "./ui/switch";
+  import { Input } from "./ui/input";
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
@@ -163,14 +166,17 @@
   }
 </script>
 
-<button
-  bind:this={triggerEl}
-  onclick={handleToggle}
-  class="shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.92] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
-  use:tooltip={open ? null : "Settings"}
->
-  <GearIcon size={15} />
-</button>
+<span class="inline-flex" use:tooltip={open ? null : "Settings"}>
+  <Button
+    bind:ref={triggerEl}
+    variant="ghost"
+    size="icon-xs"
+    onclick={handleToggle}
+    class="rounded-full text-(--solus-text-tertiary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+  >
+    <GearIcon size={15} />
+  </Button>
+</span>
 
 {#if open && layer.el}
   <div
@@ -196,11 +202,12 @@
             Notification sound
           </div>
         </div>
-        {@render rowToggle(
-          theme.soundEnabled,
-          (next) => theme.update({ soundEnabled: next }),
-          "Toggle notification sound",
-        )}
+        <Switch
+          checked={theme.soundEnabled}
+          onCheckedChange={(next) => theme.update({ soundEnabled: next })}
+          size="default"
+          aria-label="Toggle notification sound"
+        />
       </div>
 
       <div class="h-px bg-(--solus-popover-border)"></div>
@@ -212,11 +219,13 @@
             Dark theme
           </div>
         </div>
-        {@render rowToggle(
-          theme.themeMode === "dark",
-          (next) => theme.update({ themeMode: next ? "dark" : "light" }),
-          "Toggle dark theme",
-        )}
+        <Switch
+          checked={theme.themeMode === "dark"}
+          onCheckedChange={(next) =>
+            theme.update({ themeMode: next ? "dark" : "light" })}
+          size="default"
+          aria-label="Toggle dark theme"
+        />
       </div>
 
       <div class="h-px bg-(--solus-popover-border)"></div>
@@ -344,7 +353,7 @@
             class="px-2 py-0.5 text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >&minus;</button
           >
-          <input
+          <Input
             type="number"
             min="8"
             step="1"
@@ -416,7 +425,7 @@
             class="px-2 py-0.5 text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >&minus;</button
           >
-          <input
+          <Input
             type="number"
             min="8"
             step="1"
@@ -453,11 +462,12 @@
             </div>
           </div>
         </div>
-        {@render rowToggle(
-          theme.voiceModeEnabled,
-          (next) => theme.update({ voiceModeEnabled: next }),
-          "Toggle voice mode",
-        )}
+        <Switch
+          checked={theme.voiceModeEnabled}
+          onCheckedChange={(next) => theme.update({ voiceModeEnabled: next })}
+          size="default"
+          aria-label="Toggle voice mode"
+        />
       </div>
 
       {#if tools.detectedEditors.length > 0}
@@ -675,14 +685,15 @@
             </div>
           </div>
         </div>
-        {@render rowToggle(
-          theme.worktreeEnabled,
-          (next) => {
+        <Switch
+          checked={theme.worktreeEnabled}
+          onCheckedChange={(next) => {
             theme.update({ worktreeEnabled: next });
             session.syncWorktreeDefault(next);
-          },
-          "Toggle default worktree mode for new tabs",
-        )}
+          }}
+          size="default"
+          aria-label="Toggle default worktree mode for new tabs"
+        />
       </div>
 
       <div class="h-px bg-(--solus-popover-border)"></div>
@@ -719,23 +730,3 @@
     {/if}
   </div>
 {/if}
-
-{#snippet rowToggle(checked: boolean, onChange: (next: boolean) => void, label: string)}
-  <button
-    type="button"
-    aria-label={label}
-    aria-pressed={checked}
-    onclick={() => onChange(!checked)}
-    class="relative w-9 h-5 rounded-full transition-colors shrink-0"
-    class:bg-(--solus-accent)={checked}
-    class:bg-(--solus-surface-secondary)={!checked}
-    class:border-(--solus-accent)={checked}
-    class:border-(--solus-container-border)={!checked}
-    style="border-width:0.0625rem;border-style:solid"
-  >
-    <span
-      class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-[left]"
-      style="left:{checked ? 18 : 2}px;background:#fff"
-    ></span>
-  </button>
-{/snippet}

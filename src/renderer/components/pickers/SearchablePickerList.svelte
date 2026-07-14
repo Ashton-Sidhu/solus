@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { CheckIcon, MagnifyingGlassIcon } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
 
   interface Props {
     items: string[];
@@ -72,11 +72,10 @@
   >
     <MagnifyingGlassIcon size={isComfortable ? 13 : 11} class="text-(--solus-text-tertiary) shrink-0" />
     <Input
-      bind:el={inputEl}
+      bind:ref={inputEl}
       bind:value={query}
       type="text"
-      variant="bare"
-      size="sm"
+      class="h-auto rounded-none border-0 bg-transparent p-0 text-[0.6875rem] lg:text-xs shadow-none focus-visible:ring-0 dark:bg-transparent"
       {placeholder}
       oninput={() => { focusedIndex = 0 }}
     />
@@ -84,7 +83,7 @@
 </div>
 
 {#if filtered.length === 0}
-  <div class="px-3 py-2 {isComfortable ? 'text-xs' : 'text-sm sm:text-xs'} text-(--solus-text-tertiary) text-center">
+  <div class="px-3 py-2 {isComfortable ? 'text-xs lg:text-[0.8125rem]' : 'text-sm sm:text-xs lg:text-[0.8125rem]'} text-(--solus-text-tertiary) text-center">
     {emptyLabel}
   </div>
 {:else}
@@ -104,8 +103,8 @@
       <div {style}>
         <button
           class="relative w-full flex items-center justify-between transition-colors {isComfortable
-            ? 'px-3.5 text-xs'
-            : 'px-3 text-sm sm:text-[0.6875rem]'}"
+            ? 'px-3.5 text-xs lg:text-[0.8125rem]'
+            : 'px-3 text-sm sm:text-[0.6875rem] lg:text-xs'}"
           style="height:{itemSize}px;color:{isSelected
             ? 'var(--solus-text-primary)'
             : 'var(--solus-text-secondary)'};font-weight:{isSelected

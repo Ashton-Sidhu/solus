@@ -26,6 +26,7 @@
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeSpan from "../ui/CodeSpan.svelte";
+  import { Skeleton } from "../ui/skeleton";
   import { tooltip } from "../../lib/tooltip";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import type { PrActivityTarget, PostedComment } from "./lib/activity-data";
@@ -369,12 +370,10 @@
 
         <!-- Description -->
         {#if detailLoading}
-          <div
-            class="mt-8 flex animate-pulse flex-col gap-2.5 motion-reduce:animate-none"
-          >
-            <div class="h-3 w-full rounded bg-(--solus-art-border)"></div>
-            <div class="h-3 w-11/12 rounded bg-(--solus-art-border)"></div>
-            <div class="h-3 w-3/4 rounded bg-(--solus-art-border)"></div>
+          <div class="mt-8 flex flex-col gap-2.5">
+            <Skeleton class="h-3 w-full rounded bg-(--solus-art-border)" />
+            <Skeleton class="h-3 w-11/12 rounded bg-(--solus-art-border)" />
+            <Skeleton class="h-3 w-3/4 rounded bg-(--solus-art-border)" />
           </div>
         {:else if detail?.body?.trim()}
           <details open class="group mt-7">

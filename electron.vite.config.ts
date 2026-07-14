@@ -98,6 +98,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@client-core': resolve(__dirname, 'src/client-core'),
+        '@renderer': resolve(__dirname, 'src/renderer'),
         '@geist-fonts': geistFontsDir
       }
     },

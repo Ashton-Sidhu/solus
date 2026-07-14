@@ -25,6 +25,12 @@
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
+  import * as Resizable from "../ui/resizable";
+  import {
+    paneBoundsPercent,
+    percentToPixels,
+    pixelsToPercent,
+  } from "../../lib/resizablePane";
 
   interface Props {
     ctx: IpcContext;
@@ -66,10 +72,21 @@
     clampTreeWidth(Number(localStorage.getItem(TREE_WIDTH_KEY)) || 256),
   );
   let isResizing = $state(false);
-  let resizeStartX = 0;
-  let resizeStartWidth = 0;
-  let pendingWidth = 0;
-  let resizeRaf = 0;
+  let treePane: ReturnType<typeof Resizable.Pane> | undefined = $state();
+  const treeMaxWidth = $derived(
+    panelWidth > 0
+      ? Math.max(
+          TREE_MIN_WIDTH,
+          Math.min(TREE_MAX_WIDTH, panelWidth - EDITOR_MIN_WIDTH),
+        )
+      : TREE_MAX_WIDTH,
+  );
+  const treeBounds = $derived(
+    paneBoundsPercent(panelWidth, TREE_MIN_WIDTH, treeMaxWidth),
+  );
+  const treeDefaultSize = $derived(
+    panelWidth > 0 ? pixelsToPercent(treeWidth, panelWidth) : 32,
+  );
 
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -117,6 +134,8 @@
 
   function toggleTree() {
     treeCollapsed = !treeCollapsed;
+    if (treeCollapsed) treePane?.collapse();
+    else treePane?.expand();
     requestInputFocus();
   }
 
@@ -137,48 +156,15 @@
     localStorage.setItem(TREE_WIDTH_KEY, String(treeWidth));
   }
 
-  function startResize(e: MouseEvent) {
-    isResizing = true;
-    resizeStartX = e.clientX;
-    resizeStartWidth = treeWidth;
-    pendingWidth = treeWidth;
-    e.preventDefault();
-    window.addEventListener("mousemove", onResizeMove);
-    window.addEventListener("mouseup", onResizeEnd);
+  function handleTreeLayout(layout: number[]) {
+    if (runtime.isMobileViewport || layout.length !== 2 || panelWidth <= 0) return;
+    treeWidth = clampTreeWidth(percentToPixels(layout[0], panelWidth));
+    if (!isResizing) persistTreeWidth();
   }
 
-  function onResizeMove(e: MouseEvent) {
-    pendingWidth = clampTreeWidth(resizeStartWidth + (e.clientX - resizeStartX));
-    if (resizeRaf) return;
-    resizeRaf = requestAnimationFrame(() => {
-      resizeRaf = 0;
-      treeWidth = pendingWidth;
-    });
-  }
-
-  function onResizeEnd() {
-    if (resizeRaf) {
-      cancelAnimationFrame(resizeRaf);
-      resizeRaf = 0;
-    }
-    treeWidth = pendingWidth;
-    isResizing = false;
-    persistTreeWidth();
-    window.removeEventListener("mousemove", onResizeMove);
-    window.removeEventListener("mouseup", onResizeEnd);
-  }
-
-  function handleResizeKey(e: KeyboardEvent) {
-    const step = e.shiftKey ? 40 : 16;
-    if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      treeWidth = clampTreeWidth(treeWidth - step);
-      persistTreeWidth();
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault();
-      treeWidth = clampTreeWidth(treeWidth + step);
-      persistTreeWidth();
-    }
+  function handleTreeDragging(dragging: boolean) {
+    isResizing = dragging;
+    if (!dragging) persistTreeWidth();
   }
 
   async function loadFiles() {
@@ -290,8 +276,6 @@
   onMount(() => {
     mountTree();
     return () => {
-      window.removeEventListener("mousemove", onResizeMove);
-      window.removeEventListener("mouseup", onResizeEnd);
       treeInstance?.cleanUp();
       treeInstance = null;
     };
@@ -328,8 +312,6 @@
 
 <div
   class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
-  class:cursor-col-resize={isResizing}
-  class:select-none={isResizing}
   bind:clientWidth={panelWidth}
 >
   <header
@@ -399,140 +381,105 @@
     </button>
   </header>
 
-  <div class="flex min-h-0 flex-1 flex-col md:flex-row">
-    <aside
-      class="relative flex min-h-48 shrink-0 flex-col border-b border-(--solus-container-border) md:min-h-0 md:border-r md:border-b-0"
-      class:tree-hidden={treeCollapsed}
-      style={runtime.isMobileViewport ? "" : `width:${treeWidth}px`}
+  <Resizable.PaneGroup
+    direction={runtime.isMobileViewport ? "vertical" : "horizontal"}
+    keyboardResizeBy={2}
+    class="min-h-0 flex-1"
+    onLayoutChange={handleTreeLayout}
+  >
+    <Resizable.Pane
+      bind:this={treePane}
+      order={1}
+      defaultSize={runtime.isMobileViewport ? 35 : treeDefaultSize}
+      minSize={runtime.isMobileViewport ? 20 : treeBounds.min}
+      maxSize={runtime.isMobileViewport ? 55 : treeBounds.max}
+      collapsedSize={0}
+      collapsible
+      onCollapse={() => (treeCollapsed = true)}
+      onExpand={() => (treeCollapsed = false)}
+      class="tree-pane"
     >
-      <button
-        type="button"
-        onclick={toggleTree}
-        aria-label="Hide file tree"
-        class="tree-collapse-btn absolute top-[0.875rem] left-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
-        use:tooltip={"Hide file tree (⌥T)"}
+      <aside
+        class="relative flex h-full min-h-48 w-full flex-col border-b border-(--solus-container-border) md:min-h-0 md:border-r md:border-b-0"
+        aria-hidden={treeCollapsed}
       >
-        <span
-          class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-          aria-hidden="true"
-        ></span>
-        <CaretLeftIcon size={12} weight="bold" />
-      </button>
-      <div class="min-h-0 flex-1 overflow-hidden">
-        {#if loading && files.length === 0}
-          <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">Loading files...</div>
-        {:else if error}
-          <div class="flex gap-2 p-3 text-[0.75rem] text-(--solus-status-error)">
-            <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
-            <span class="min-w-0">{error}</span>
+        <button
+          type="button"
+          onclick={toggleTree}
+          aria-label="Hide file tree"
+          class="tree-collapse-btn absolute top-[0.875rem] left-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
+          use:tooltip={"Hide file tree (⌥T)"}
+        >
+          <span
+            class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+            aria-hidden="true"
+          ></span>
+          <CaretLeftIcon size={12} weight="bold" />
+        </button>
+        <div class="min-h-0 flex-1 overflow-hidden">
+          {#if loading && files.length === 0}
+            <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">Loading files...</div>
+          {:else if error}
+            <div class="flex gap-2 p-3 text-[0.75rem] text-(--solus-status-error)">
+              <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
+              <span class="min-w-0">{error}</span>
+            </div>
+          {:else if files.length === 0}
+            <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">No files found.</div>
+          {:else}
+            <div
+              bind:this={treeHost}
+              class="files-tree h-full min-h-0 overflow-auto"
+              style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
+            ></div>
+          {/if}
+        </div>
+      </aside>
+    </Resizable.Pane>
+
+    <Resizable.Handle
+      aria-label="Resize file tree"
+      disabled={treeCollapsed || runtime.isMobileViewport}
+      class={treeCollapsed || runtime.isMobileViewport ? "hidden" : ""}
+      onDraggingChange={handleTreeDragging}
+    />
+
+    <Resizable.Pane order={2} minSize={runtime.isMobileViewport ? 45 : 0}>
+      <section class="flex h-full min-h-0 min-w-0 flex-col">
+        {#if fileLoading}
+          <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
+            Opening file...
           </div>
-        {:else if files.length === 0}
-          <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">No files found.</div>
+        {:else if fileError}
+          <div class="flex flex-1 items-center justify-center p-6 text-center text-[0.75rem] text-(--solus-status-error)">
+            {fileError}
+          </div>
+        {:else if selectedPath && selectedContents !== null}
+          <FilePreviewStream
+            {ctx}
+            cwd={root || cwd}
+            filePath={selectedPath}
+            displayPath={selectedPath}
+            contents={selectedContents}
+            {isDark}
+            onSaveStateChange={(state, message) => {
+              saveState = state;
+              saveMessage = message;
+            }}
+          />
         {:else}
-          <div
-            bind:this={treeHost}
-            class="files-tree h-full min-h-0 overflow-auto"
-            style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
-          ></div>
+          <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
+            Select a file to edit.
+          </div>
         {/if}
-      </div>
-    </aside>
-
-    {#if !treeCollapsed && !runtime.isMobileViewport}
-      <div
-        class="files-tree-resize-handle"
-        class:is-resizing={isResizing}
-        onmousedown={startResize}
-        onkeydown={handleResizeKey}
-        role="slider"
-        tabindex="0"
-        aria-orientation="vertical"
-        aria-label="Resize file tree"
-        aria-valuenow={treeWidth}
-        aria-valuemin={TREE_MIN_WIDTH}
-        aria-valuemax={TREE_MAX_WIDTH}
-      >
-        <span class="files-tree-resize-grip" aria-hidden="true"></span>
-      </div>
-    {/if}
-
-    <section class="flex min-h-0 min-w-0 flex-1 flex-col">
-      {#if fileLoading}
-        <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
-          Opening file...
-        </div>
-      {:else if fileError}
-        <div class="flex flex-1 items-center justify-center p-6 text-center text-[0.75rem] text-(--solus-status-error)">
-          {fileError}
-        </div>
-      {:else if selectedPath && selectedContents !== null}
-        <FilePreviewStream
-          {ctx}
-          cwd={root || cwd}
-          filePath={selectedPath}
-          displayPath={selectedPath}
-          contents={selectedContents}
-          {isDark}
-          onSaveStateChange={(state, message) => {
-            saveState = state;
-            saveMessage = message;
-          }}
-        />
-      {:else}
-        <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
-          Select a file to edit.
-        </div>
-      {/if}
-    </section>
-  </div>
+      </section>
+    </Resizable.Pane>
+  </Resizable.PaneGroup>
 </div>
 
 <style>
-  .tree-hidden {
-    display: none !important;
-  }
-  .files-tree-resize-handle {
-    width: 0;
-    flex-shrink: 0;
-    cursor: col-resize;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: visible;
-    z-index: 11;
-  }
-  .files-tree-resize-handle::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: -3px;
-    width: 6px;
-  }
-  .files-tree-resize-handle:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
-  }
-  .files-tree-resize-grip {
-    position: relative;
-    width: 2px;
-    height: 28px;
-    border-radius: 2px;
-    background: var(--solus-text-tertiary);
-    opacity: 0;
-    transform: scaleY(0.6);
-    transition:
-      opacity 0.15s ease,
-      transform 0.15s ease,
-      background-color 0.15s ease;
-    pointer-events: none;
-  }
-  .files-tree-resize-handle:hover .files-tree-resize-grip,
-  .files-tree-resize-handle.is-resizing .files-tree-resize-grip {
-    opacity: 1;
-    transform: scaleY(1);
-    background: var(--solus-accent);
+  .tree-pane {
+    transition: flex-grow 180ms cubic-bezier(0.2, 0, 0, 1);
   }
   .tree-collapse-btn {
     transition:

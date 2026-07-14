@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Card from "../ui/card";
   import { fly } from "svelte/transition";
   import {
     ChatCircleTextIcon,
@@ -12,7 +13,7 @@
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "./MarkdownLink.svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import Input from "../ui/Input.svelte";
+  import { Textarea } from "../ui/textarea";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import type { AgentId, QuestionRequest, QuestionItem } from "../../../shared/types";
 
@@ -33,7 +34,7 @@
   let responded = $state(false);
   let noteOpen = $state(false);
   let previewOpen = $state(true);
-  let noteInputEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  let noteInputEl = $state<HTMLTextAreaElement | null>(null);
 
   $effect(() => {
     void request.questionId;
@@ -221,8 +222,8 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2">
-  <div
-    class="bg-(--solus-container-bg) border border-(--solus-container-border) px-4 py-3.5"
+  <Card.Root
+    class="gap-0 border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3.5"
     style="border-radius:0.875rem;box-shadow:var(--solus-card-shadow)"
   >
     <div class="flex items-center justify-between gap-2">
@@ -343,14 +344,12 @@
             <div
               class="mt-2.5 bg-(--solus-surface-primary) border border-(--solus-container-border) rounded-lg px-2.5 py-1.5"
             >
-              <Input
+              <Textarea
                 value={getComment(currentQuestion)}
-                type="textarea"
-                variant="bare"
-                size="md"
                 placeholder="Type your answer…"
                 disabled={responded}
                 rows={1}
+                class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.7813rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
                 oninput={(e) => {
                   ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
                 }}
@@ -363,14 +362,12 @@
 
     {#if hasOptions && currentQuestion && !responded && noteOpen}
       <div class="mt-3.5 border-b border-(--solus-container-border) pb-1">
-        <Input
-          bind:el={noteInputEl}
+        <Textarea
+          bind:ref={noteInputEl}
           value={getComment(currentQuestion)}
-          type="textarea"
-          variant="bare"
-          size="md"
           placeholder="Add a note…"
           rows={1}
+          class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.7813rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
           oninput={(e) => {
             ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
           }}
@@ -466,5 +463,5 @@
         {/if}
       </button>
     </div>
-  </div>
+  </Card.Root>
 </div>

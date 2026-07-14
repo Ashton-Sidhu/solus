@@ -4,7 +4,6 @@
   import InputBarRow from "../input/InputBarRow.svelte";
   import StatusBarControls from "./StatusBarControls.svelte";
   import WorkspaceBody from "./WorkspaceBody.svelte";
-  import ToastHost from "../ToastHost.svelte";
   import {
     FILE_PREVIEW_EVENT,
     type FilePreviewRequest,
@@ -89,8 +88,6 @@
       {/snippet}
     </WorkspaceBody>
   </div>
-
-  <ToastHost />
 </div>
 
 <style>

@@ -20,6 +20,7 @@
   import { tooltip } from "../../lib/tooltip";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import CodeSpan from "../ui/CodeSpan.svelte";
+  import { Skeleton } from "../ui/skeleton";
   import PrAvatar from "./PrAvatar.svelte";
   import PrStateIcon from "./PrStateIcon.svelte";
   import PrReviewStateBadge from "./PrReviewStateBadge.svelte";
@@ -156,10 +157,10 @@
 
         <!-- Description -->
         {#if detailLoading}
-          <div class="mt-8 flex animate-pulse flex-col gap-2.5 motion-reduce:animate-none">
-            <div class="h-3 w-full rounded bg-(--solus-art-border)"></div>
-            <div class="h-3 w-11/12 rounded bg-(--solus-art-border)"></div>
-            <div class="h-3 w-3/4 rounded bg-(--solus-art-border)"></div>
+          <div class="mt-8 flex flex-col gap-2.5">
+            <Skeleton class="h-3 w-full rounded bg-(--solus-art-border)" />
+            <Skeleton class="h-3 w-11/12 rounded bg-(--solus-art-border)" />
+            <Skeleton class="h-3 w-3/4 rounded bg-(--solus-art-border)" />
           </div>
         {:else if detail?.body?.trim()}
           <div class="mt-6">
@@ -266,8 +267,8 @@
             Reviewers
           </h3>
           {#if reviewersLoading}
-            <div class="flex animate-pulse flex-col gap-2 motion-reduce:animate-none">
-              <div class="h-4 w-24 rounded bg-(--solus-art-border)"></div>
+            <div class="flex flex-col gap-2">
+              <Skeleton class="h-4 w-24 rounded bg-(--solus-art-border)" />
             </div>
           {:else if reviewers.length === 0}
             <p class="text-[0.75rem] text-(--solus-text-tertiary)">No reviewers</p>
@@ -292,9 +293,9 @@
             {changedFiles.length} files changed
           </h3>
           {#if filesLoading}
-            <div class="flex animate-pulse flex-col gap-1.5 motion-reduce:animate-none">
+            <div class="flex flex-col gap-1.5">
               {#each Array(3) as _}
-                <div class="h-4 w-full rounded bg-(--solus-art-border)"></div>
+                <Skeleton class="h-4 w-full rounded bg-(--solus-art-border)" />
               {/each}
             </div>
           {:else}

@@ -25,7 +25,7 @@ import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
 import { MODEL_PROFILES } from '../../../shared/types'
 import { createLogger } from '../../logger'
-import type { ReasoningEffort } from '../../../shared/types'
+import type { NormalizedEvent, ReasoningEffort } from '../../../shared/types'
 
 const log = createLogger('CodexOneShot', 'codex-oneshot.ts')
 
@@ -59,6 +59,9 @@ export interface CodexOneShotOptions {
    *  The automation CRUD/run tools are intentionally excluded (fork-bomb guard).
    *  Off by default so callers that want no tools (or their own) are unaffected. */
   solusTools?: boolean
+  /** Receives this run's normalized events as they arrive. Headless callers that
+   *  render a live transcript can subscribe without consuming the shared client. */
+  onEvent?: (event: NormalizedEvent) => void
 }
 
 function toolArgsOf(params: any): Record<string, unknown> {
@@ -177,7 +180,10 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
 
   let turnId = ''
   let settled = false
-  const normalizer = new CodexTurnNormalizer({ planMode: false })
+  const normalizer = new CodexTurnNormalizer({
+    planMode: false,
+    assembledAgentMessages: !!opts.onEvent,
+  })
 
   try {
   await new Promise<void>((resolve, reject) => {
@@ -207,6 +213,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
       const params: any = msg.params || {}
       if (!isOurs(params)) return
       for (const evt of normalizer.push({ method: msg.method, params })) {
+        opts.onEvent?.(evt)
         if (evt.type === 'task_complete') done()
         else if (evt.type === 'error' && evt.isError) done(new Error(evt.message || 'Codex turn failed'))
       }

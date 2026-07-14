@@ -10,6 +10,8 @@
   import type { AgentId, PlanDescriptor } from '../../../shared/types'
   import { formatTimeAgo } from '../../lib/sessionUtils'
   import { tooltip } from '../../lib/tooltip'
+  import { Button } from '../ui/button'
+  import * as Card from '../ui/card'
 
   interface Props {
     descriptor: PlanDescriptor
@@ -65,9 +67,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="plan-card group"
-  class:selected
+<Card.Root
+  class="plan-card group gap-0 py-0 {selected ? 'selected' : ''}"
   data-selected={selected ? 'true' : null}
   onclick={(e) => { if (e.shiftKey) onResume(); else onOpen(); }}
   onmouseenter={onHover}
@@ -112,34 +113,36 @@
         {/if}
       </div>
       <div class="card-actions">
-        <button
-          type="button"
-          use:tooltip={"Resume session (⇧+Enter)"}
-          onclick={(e) => { e.stopPropagation(); onResume(); }}
-          class="card-icon-btn"
-        >
-          <ArrowUpRightIcon size={11} />
-        </button>
-        <button
-          type="button"
-          use:tooltip={descriptor.bookmarked ? "Remove bookmark (⌥B)" : "Bookmark (⌥B)"}
-          onclick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
-          class="card-icon-btn"
-          class:is-active={descriptor.bookmarked}
-          class:always-show={descriptor.bookmarked}
-        >
-          <BookmarkSimpleIcon size={11} weight={descriptor.bookmarked ? 'fill' : 'regular'} />
-        </button>
+        <span class="inline-flex" use:tooltip={"Resume session (⇧+Enter)"}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onclick={(e) => { e.stopPropagation(); onResume(); }}
+            class="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 group-data-[selected=true]:opacity-100 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+          >
+            <ArrowUpRightIcon size={11} />
+          </Button>
+        </span>
+        <span class="inline-flex" use:tooltip={descriptor.bookmarked ? "Remove bookmark (⌥B)" : "Bookmark (⌥B)"}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onclick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
+            class="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 group-data-[selected=true]:opacity-100 {descriptor.bookmarked ? 'opacity-100 text-(--solus-accent)' : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
+          >
+            <BookmarkSimpleIcon size={11} weight={descriptor.bookmarked ? 'fill' : 'regular'} />
+          </Button>
+        </span>
       </div>
     </div>
 
     <div class="plan-title">{descriptor.title}</div>
     <div class="plan-excerpt">{descriptor.excerpt}</div>
   </div>
-</div>
+</Card.Root>
 
 <style>
-  .plan-card {
+  :global(.plan-card) {
     position: relative;
     display: flex;
     width: 100%;
@@ -153,22 +156,18 @@
     outline: none;
     overflow: hidden;
   }
-  .plan-card:hover {
+  :global(.plan-card):hover {
     border-color: color-mix(in srgb, var(--solus-accent) 20%, var(--solus-container-border));
     box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.06), 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
   }
-  .plan-card:focus-visible,
-  .plan-card.selected {
+  :global(.plan-card):focus-visible,
+  :global(.plan-card.selected) {
     border-color: color-mix(in srgb, var(--solus-accent) 40%, var(--solus-container-border));
     box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.06), 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04), 0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 8%, transparent);
   }
-  .plan-card.selected .card-accent {
+  :global(.plan-card.selected) .card-accent {
     opacity: 0.95;
   }
-  .plan-card.selected .card-icon-btn {
-    opacity: 1;
-  }
-
   .card-accent {
     width: 0.1875rem;
     flex-shrink: 0;
@@ -176,7 +175,7 @@
     opacity: 0.5;
     transition: opacity 200ms ease;
   }
-  .plan-card:hover .card-accent {
+  :global(.plan-card):hover .card-accent {
     opacity: 0.85;
   }
 
@@ -278,34 +277,6 @@
     align-items: center;
     gap: 0.0625rem;
     flex-shrink: 0;
-  }
-
-  .card-icon-btn {
-    width: 1.25rem;
-    height: 1.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.3125rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
-    opacity: 0;
-  }
-  .plan-card:hover .card-icon-btn,
-  .plan-card:focus-within .card-icon-btn {
-    opacity: 1;
-  }
-  .card-icon-btn.always-show {
-    opacity: 1;
-  }
-  .card-icon-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .card-icon-btn.is-active {
-    color: var(--solus-accent);
   }
 
   .plan-title {

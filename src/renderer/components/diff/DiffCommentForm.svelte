@@ -2,8 +2,8 @@
   import { onMount, untrack } from 'svelte'
   import { XIcon } from 'phosphor-svelte'
   import { MONO_FONT } from '../../lib/diffTheme'
-  import Input from '../ui/Input.svelte'
-  import Button from '../ui/Button.svelte'
+  import { MarkdownTextarea } from '../ui/markdown-field'
+  import { Button } from '../ui/button'
 
   interface Props {
     onSave: (comment: string) => void
@@ -22,7 +22,7 @@
   }: Props = $props()
   let value = $state(untrack(() => initialValue))
   let lastInitialValue = $state(untrack(() => initialValue))
-  let inputEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null)
+  let inputEl: HTMLTextAreaElement | null = $state(null)
 
   onMount(() => {
     setTimeout(() => inputEl?.focus(), 30)
@@ -63,25 +63,22 @@
       {rangeLabel}
     </span>
   {/if}
-  <Input
-    bind:el={inputEl}
+  <MarkdownTextarea
+    bind:ref={inputEl}
     bind:value
-    type="textarea"
-    variant="bare"
-    size="md"
+    bare
     placeholder="Add a comment… ⌘↵"
     rows={1}
     oninput={handleInput}
     onkeydown={handleKeyDown}
     onSubmit={handleSave}
-    submitOn="mod-enter"
     class="min-h-8 max-h-30 overflow-y-auto"
   />
   <div class="flex items-center justify-end gap-1.5">
-    <Button variant="ghost" size="sm" icon onclick={onCancel} class="text-(--solus-text-tertiary)">
+    <Button variant="ghost" size="icon-sm" onclick={onCancel} class="text-(--solus-text-tertiary)">
       <XIcon size={13} />
     </Button>
-    <Button variant="primary" size="sm" disabled={!canSave} onclick={handleSave}>
+    <Button size="sm" disabled={!canSave} onclick={handleSave}>
       Comment
     </Button>
   </div>

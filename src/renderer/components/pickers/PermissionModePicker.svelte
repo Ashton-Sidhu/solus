@@ -5,8 +5,7 @@
   import { getStatusBarContext } from '../../contexts/status-bar.context.svelte'
   import { tooltip } from '../../lib/tooltip'
   import { requestInputFocus } from '../../lib/inputFocus'
-  import Dropdown from '../ui/Dropdown.svelte'
-  import DropdownItem from '../ui/DropdownItem.svelte'
+  import * as DropdownMenu from '../ui/dropdown-menu'
 
   const session = getWorkspaceContext()
   const agent = getAgentContext()
@@ -19,7 +18,6 @@
   let { compact = false, tabId }: Props = $props();
 
   let open = $state(false)
-  let triggerEl: HTMLButtonElement | null = $state(null)
 
   const ctx = $derived(statusBar.ctxFor(tabId ?? session.activeTabId))
   const permissionMode = $derived(ctx.permissionMode)
@@ -55,39 +53,32 @@
   }
 </script>
 
-<button
-  bind:this={triggerEl}
-  type="button"
-  onclick={handleToggle}
-  aria-haspopup="menu"
-  aria-expanded={open}
-  class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-1.5 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
-  style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
-  use:tooltip={open ? null : tooltipLabel}
->
-  {#if isPlan}
-    <PencilIcon size={11} weight="fill" />
-  {:else}
-    <ShieldCheckIcon size={11} weight={isAuto ? 'fill' : 'regular'} />
-  {/if}
-  {#if !compact}{modeLabel}{/if}
-  <CaretDownIcon size={10} style="opacity:0.6" />
-</button>
-
-<Dropdown bind:open {triggerEl} align="bottom" width={176}>
-  <div class="py-1">
-    {#each permissionOptions as opt (opt.id)}
-      {@const Icon = opt.icon}
-      <DropdownItem
-        selected={permissionMode === opt.id}
-        onclick={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}
+<DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && tabId === undefined) requestInputFocus() }}>
+  <DropdownMenu.Trigger disabled={!supportsPermissions}>
+    {#snippet child({ props })}
+      <button
+        {...props}
+        type="button"
+        class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-1.5 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+        style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
+        use:tooltip={open ? null : tooltipLabel}
       >
-        <Icon size={12} weight={opt.weight} class="shrink-0" />
-        <span>{opt.label}</span>
-        {#snippet trailing()}
+        {#if isPlan}<PencilIcon size={11} weight="fill" />{:else}<ShieldCheckIcon size={11} weight={isAuto ? 'fill' : 'regular'} />{/if}
+        {#if !compact}{modeLabel}{/if}
+        <CaretDownIcon size={10} style="opacity:0.6" />
+      </button>
+    {/snippet}
+  </DropdownMenu.Trigger>
+  <DropdownMenu.Content side="bottom" align="start" sideOffset={6} class="w-[176px]">
+    <DropdownMenu.RadioGroup value={permissionMode}>
+      {#each permissionOptions as opt (opt.id)}
+        {@const Icon = opt.icon}
+        <DropdownMenu.RadioItem value={opt.id} onSelect={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}>
+          <Icon size={12} weight={opt.weight} class="shrink-0" />
+          <span>{opt.label}</span>
           {#if permissionMode === opt.id}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
-        {/snippet}
-      </DropdownItem>
-    {/each}
-  </div>
-</Dropdown>
+        </DropdownMenu.RadioItem>
+      {/each}
+    </DropdownMenu.RadioGroup>
+  </DropdownMenu.Content>
+</DropdownMenu.Root>

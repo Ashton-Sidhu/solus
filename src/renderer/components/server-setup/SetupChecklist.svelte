@@ -25,6 +25,7 @@
     type SetupJourneyStepId,
   } from "./lib/setup-steps";
   import type { SetupStreamStep } from "../../../shared/types";
+  import { Input } from "../ui/input";
 
   interface Props {
     active?: boolean;
@@ -351,9 +352,9 @@
         {#if editingName}
           <div class="mb-3 flex flex-col gap-2 rounded-lg p-2 shadow-[0_0_0_1px_var(--solus-tool-border)] sm:flex-row sm:items-center">
             <label for="setup-server-name" class="shrink-0 text-[0.75rem] font-medium text-(--solus-text-secondary)">Server name</label>
-            <input
+            <Input
               id="setup-server-name"
-              bind:this={nameInput}
+              bind:ref={nameInput}
               bind:value={setup.serverNameDraft}
               oninput={() => setup.markServerNameDirty()}
               onkeydown={handleNameKeydown}

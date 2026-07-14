@@ -11,13 +11,12 @@
     connectionStatusLabel,
     presentedConnectionStatus,
   } from "@client-core/connection-display";
-  import Dropdown from "../ui/Dropdown.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serversStore, type ServerItem, type ServerItemStatus } from "./servers.store.svelte";
 
   let open = $state(false);
-  let triggerEl: HTMLButtonElement | null = $state(null);
   const active = $derived(serversStore.activeServer);
   const activePresentedStatus = $derived(
     presentedConnectionStatus(serversStore.connectionStatus, {
@@ -70,39 +69,24 @@
     requestInputFocus();
   }
 
-  function closeAndFocus() {
-    open = false;
-    requestInputFocus();
-  }
 </script>
 
-<button
-  bind:this={triggerEl}
-  type="button"
-  class="group relative inline-flex h-7 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-  aria-haspopup="menu"
-  aria-expanded={open}
-  onclick={() => (open = !open)}
-  use:tooltip={active ? `${active.label} · ${activeStatusLabel}` : "Servers"}
->
+<DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+  <DropdownMenu.Trigger>
+    {#snippet child({ props })}
+      <button {...props} type="button" class="group relative inline-flex h-7 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)" use:tooltip={active ? `${active.label} · ${activeStatusLabel}` : "Servers"}>
   <span class="relative flex h-3 w-3 shrink-0 items-center justify-center">
     <span
       class={`h-2 w-2 rounded-full ${active ? dotClass(active.status) : "bg-(--solus-text-quaternary)"} ${activePresentedStatus === "connecting" || activePresentedStatus === "reconnecting" ? "animate-pulse" : ""}`}
     ></span>
   </span>
   <span class="truncate">{active?.label ?? "Servers"}</span>
-</button>
-
-<Dropdown bind:open {triggerEl} width={284} anchor="right">
-  <div class="py-1" role="menu" aria-label="Servers">
+      </button>
+    {/snippet}
+  </DropdownMenu.Trigger>
+  <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[284px]" aria-label="Servers">
     {#each serversStore.servers as server (server.id)}
-      <div class="group/item flex items-center">
-        <button
-          type="button"
-          role="menuitem"
-          class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-[0.75rem] transition-[background-color,color] hover:bg-(--solus-accent-light) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
-          onclick={() => switchTo(server)}
-        >
+      <DropdownMenu.Item class="group/item py-2 text-[0.75rem]" onSelect={() => switchTo(server)}>
           <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
             {#if server.local}
               <DesktopTowerIcon size={14} />
@@ -123,42 +107,30 @@
           {#if server.id === serversStore.activeServerId}
             <CheckIcon size={13} class="text-(--solus-status-complete)" />
           {/if}
-        </button>
         {#if !server.local}
           <button
             type="button"
             aria-label="Remove {server.label}"
             class="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[background-color,color,opacity,transform] hover:bg-(--solus-status-error-bg) hover:text-(--solus-status-error) active:scale-[0.96] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring) group-hover/item:opacity-100"
+            onpointerdown={(event) => event.stopPropagation()}
             onclick={(event) => remove(event, server)}
           >
             <TrashIcon size={13} />
           </button>
         {/if}
-      </div>
+      </DropdownMenu.Item>
     {/each}
 
     <div class="my-1 h-px bg-(--solus-popover-border)"></div>
 
-    <button
-      type="button"
-      role="menuitem"
-      class="flex w-full items-center gap-2 px-3 py-2 text-[0.75rem] font-medium text-(--solus-text-secondary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
-      onclick={addServer}
-    >
+    <DropdownMenu.Item class="py-2 text-[0.75rem] font-medium" onSelect={addServer}>
       <PlusIcon size={13} />
       <span>Add server...</span>
-    </button>
+    </DropdownMenu.Item>
 
-    <button
-      type="button"
-      role="menuitem"
-      class="flex w-full items-center gap-2 px-3 py-2 text-[0.75rem] font-medium text-(--solus-text-secondary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
-      onclick={scanServers}
-    >
+    <DropdownMenu.Item class="py-2 text-[0.75rem] font-medium" onSelect={scanServers}>
       <MagnifyingGlassIcon size={13} />
       <span>{serversStore.discoveryBusy ? "Scanning..." : "Scan for servers"}</span>
-    </button>
-  </div>
-</Dropdown>
-
-<svelte:window onkeydown={(event) => { if (open && event.key === "Escape") closeAndFocus(); }} />
+    </DropdownMenu.Item>
+  </DropdownMenu.Content>
+</DropdownMenu.Root>

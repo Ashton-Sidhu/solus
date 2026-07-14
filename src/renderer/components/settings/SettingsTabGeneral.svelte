@@ -1,8 +1,7 @@
 <script lang="ts">
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
   import MarkdownEditor from "../MarkdownEditor.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import {
     BellIcon,
     MoonIcon,
@@ -25,6 +24,7 @@
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ChartBarIcon } from "phosphor-svelte";
+  import { Switch } from "../ui/switch";
 
   interface Props {
     searchQuery?: string;
@@ -168,11 +168,13 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Switch between light and dark appearance</div>
         </div>
       </div>
-      {@render toggle(
-        theme.themeMode === "dark",
-        (next) => theme.update({ themeMode: next ? "dark" : "light" }),
-        "Toggle dark theme",
-      )}
+      <Switch
+        checked={theme.themeMode === "dark"}
+        onCheckedChange={(next) =>
+          theme.update({ themeMode: next ? "dark" : "light" })}
+        size="default"
+        aria-label="Toggle dark theme"
+      />
     </div>
   {/if}
 
@@ -197,16 +199,18 @@
           <span class="max-w-28 truncate">{activeAgentLabel}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
         </button>
-        <Dropdown bind:open={agentOpen} triggerEl={agentTriggerEl} align="top" anchor="right" width={160}>
+        <DropdownMenu.Root bind:open={agentOpen}>
+          <DropdownMenu.Content customAnchor={agentTriggerEl} side="bottom" align="end" sideOffset={6} class="w-[160px]">
           <div class="py-1">
             {#each agentRows as agent (agent.id)}
-              <DropdownItem selected={agent.id === theme.activeAgent} onclick={() => selectAgent(agent.id)}>
+              <DropdownMenu.Item class={agent.id === theme.activeAgent ? "font-semibold" : undefined} onSelect={() => selectAgent(agent.id)}>
                 <span class="min-w-0 truncate">{agent.label}</span>
                 {#if agent.id === theme.activeAgent}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              </DropdownMenu.Item>
             {/each}
           </div>
-        </Dropdown>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       </div>
     </div>
   {/if}
@@ -220,11 +224,12 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Play a sound when a task completes</div>
         </div>
       </div>
-      {@render toggle(
-        theme.soundEnabled,
-        (next) => theme.update({ soundEnabled: next }),
-        "Toggle notification sound",
-      )}
+      <Switch
+        checked={theme.soundEnabled}
+        onCheckedChange={(next) => theme.update({ soundEnabled: next })}
+        size="default"
+        aria-label="Toggle notification sound"
+      />
     </div>
   {/if}
 
@@ -250,16 +255,18 @@
           <span class="truncate">{appFontLabel}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
         </button>
-        <Dropdown bind:open={appFontOpen} triggerEl={appFontTriggerEl} align="top" anchor="right" width={176}>
+        <DropdownMenu.Root bind:open={appFontOpen}>
+          <DropdownMenu.Content customAnchor={appFontTriggerEl} side="bottom" align="end" sideOffset={6} class="w-[176px]">
           <div class="py-1">
             {#each APP_FONT_FAMILIES as font (font.id)}
-              <DropdownItem selected={theme.fontFamily === font.id} onclick={() => selectAppFont(font.id)}>
+              <DropdownMenu.Item class={theme.fontFamily === font.id ? "font-semibold" : undefined} onSelect={() => selectAppFont(font.id)}>
                 <span class="truncate">{font.label}</span>
                 {#if theme.fontFamily === font.id}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              </DropdownMenu.Item>
             {/each}
           </div>
-        </Dropdown>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       </div>
     </div>
   {/if}
@@ -281,8 +288,6 @@
         >&minus;</button>
         <Input
           type="number"
-          variant="bare"
-          size="sm"
           min={8}
           step={1}
           value={String(theme.fontSize)}
@@ -291,7 +296,7 @@
             theme.update({ fontSize: v });
             (e.target as HTMLInputElement).value = String(v);
           }}
-          class="w-12 text-[0.8125rem]"
+          class="h-auto w-12 rounded-none border-0 bg-transparent p-0 text-center text-[0.8125rem] shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <span class="text-[0.6875rem] text-(--solus-text-tertiary) -ml-1 mr-1.5">px</span>
         <button
@@ -325,16 +330,18 @@
           <span class="truncate">{codeFontLabel}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
         </button>
-        <Dropdown bind:open={codeFontOpen} triggerEl={codeFontTriggerEl} align="top" anchor="right" width={192}>
+        <DropdownMenu.Root bind:open={codeFontOpen}>
+          <DropdownMenu.Content customAnchor={codeFontTriggerEl} side="bottom" align="end" sideOffset={6} class="w-[192px]">
           <div class="py-1">
             {#each APP_CODE_FONT_FAMILIES as font (font.id)}
-              <DropdownItem selected={theme.codeFontFamily === font.id} onclick={() => selectCodeFont(font.id)}>
+              <DropdownMenu.Item class={theme.codeFontFamily === font.id ? "font-semibold" : undefined} onSelect={() => selectCodeFont(font.id)}>
                 <span class="truncate">{font.label}</span>
                 {#if theme.codeFontFamily === font.id}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              </DropdownMenu.Item>
             {/each}
           </div>
-        </Dropdown>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       </div>
     </div>
   {/if}
@@ -356,8 +363,6 @@
         >&minus;</button>
         <Input
           type="number"
-          variant="bare"
-          size="sm"
           min={8}
           step={1}
           value={String(theme.codeFontSize)}
@@ -366,7 +371,7 @@
             theme.update({ codeFontSize: v });
             (e.target as HTMLInputElement).value = String(v);
           }}
-          class="w-12 text-[0.8125rem]"
+          class="h-auto w-12 rounded-none border-0 bg-transparent p-0 text-center text-[0.8125rem] shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <span class="text-[0.6875rem] text-(--solus-text-tertiary) -ml-1 mr-1.5">px</span>
         <button
@@ -399,19 +404,21 @@
           <span>{rateLimitLabel}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
         </button>
-        <Dropdown bind:open={rateLimitOpen} triggerEl={rateLimitTriggerEl} align="top" anchor="right" width={144}>
+        <DropdownMenu.Root bind:open={rateLimitOpen}>
+          <DropdownMenu.Content customAnchor={rateLimitTriggerEl} side="bottom" align="end" sideOffset={6} class="w-[144px]">
           <div class="py-1">
             {#each rateLimitStrats as [val, label] (val)}
-              <DropdownItem
-                selected={theme.rateLimitBehavior === val}
-                onclick={() => selectRateLimitBehavior(val as "ask" | "continue" | "stop" | "queue")}
+              <DropdownMenu.Item
+                class={theme.rateLimitBehavior === val ? "font-semibold" : undefined}
+                onSelect={() => selectRateLimitBehavior(val as "ask" | "continue" | "stop" | "queue")}
               >
                 {label}
                 {#if theme.rateLimitBehavior === val}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              </DropdownMenu.Item>
             {/each}
           </div>
-        </Dropdown>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       </div>
     </div>
   {/if}
@@ -425,14 +432,15 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Isolate each session in its own git worktree</div>
         </div>
       </div>
-      {@render toggle(
-        theme.worktreeEnabled,
-        (next) => {
+      <Switch
+        checked={theme.worktreeEnabled}
+        onCheckedChange={(next) => {
           theme.update({ worktreeEnabled: next });
           session.syncWorktreeDefault(next);
-        },
-        "Toggle default worktree mode",
-      )}
+        }}
+        size="default"
+        aria-label="Toggle default worktree mode"
+      />
     </div>
   {/if}
 
@@ -445,11 +453,12 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Help improve Solus with anonymous usage data</div>
         </div>
       </div>
-      {@render toggle(
-        theme.analyticsEnabled,
-        (next) => theme.update({ analyticsEnabled: next }),
-        "Toggle analytics",
-      )}
+      <Switch
+        checked={theme.analyticsEnabled}
+        onCheckedChange={(next) => theme.update({ analyticsEnabled: next })}
+        size="default"
+        aria-label="Toggle analytics"
+      />
     </div>
   {/if}
 
@@ -499,10 +508,11 @@
             <span class="truncate">{selectedModelLabel || "Select model"}</span>
             <CaretDownIcon size={11} style="opacity:0.6" />
           </button>
-          <Dropdown bind:open={modelInstructionsOpen} triggerEl={modelInstructionsTriggerEl} align="top" anchor="right" width={220}>
+          <DropdownMenu.Root bind:open={modelInstructionsOpen}>
+            <DropdownMenu.Content customAnchor={modelInstructionsTriggerEl} side="bottom" align="end" sideOffset={6} class="w-[220px]">
             <div class="py-1">
               {#each modelRows as model (model.id)}
-                <DropdownItem selected={model.id === selectedModelId} onclick={() => selectModelForInstructions(model.id)}>
+                <DropdownMenu.Item class={model.id === selectedModelId ? "font-semibold" : undefined} onSelect={() => selectModelForInstructions(model.id)}>
                   <span class="flex items-center gap-1.5 min-w-0">
                     {#if theme.modelInstructions[model.id]?.trim()}
                       <span class="w-1.5 h-1.5 rounded-full bg-(--solus-accent) shrink-0"></span>
@@ -510,10 +520,11 @@
                     <span class="truncate">{model.label}</span>
                   </span>
                   {#if model.id === selectedModelId}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-                </DropdownItem>
+                </DropdownMenu.Item>
               {/each}
             </div>
-          </Dropdown>
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
         </div>
       </div>
       <MarkdownEditor
@@ -535,16 +546,3 @@
     </div>
   {/if}
 </div>
-
-{#snippet toggle(checked: boolean, onChange: (next: boolean) => void, label: string)}
-  <button
-    type="button"
-    aria-label={label}
-    aria-pressed={checked}
-    onclick={() => onChange(!checked)}
-    class="relative w-[2.375rem] h-[1.375rem] rounded-[0.6875rem] border cursor-pointer shrink-0 [transition:background_0.2s_ease,border-color_0.2s_ease]
-      {checked ? 'bg-(--solus-accent) border-(--solus-accent)' : 'bg-(--solus-surface-secondary) border-(--solus-container-border)'}"
-  >
-    <span class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-lg bg-white [transition:left_0.2s_ease] shadow-[0_1px_3px_rgba(0,0,0,0.1)]" style="left:{checked ? 20 : 3}px"></span>
-  </button>
-{/snippet}

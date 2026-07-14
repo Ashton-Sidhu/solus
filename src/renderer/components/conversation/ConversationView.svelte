@@ -35,6 +35,7 @@
   import ProgressTracker from "./ProgressTracker.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
   import { previewText } from "./lib/minimap";
+  import { assistantMarkdownExtensions } from "./lib/assistant-markdown";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
@@ -519,6 +520,11 @@
   const isInterrupted = $derived(sess?.status === "interrupted");
   const isAwaitingPlan = $derived(sess?.status === "awaiting_plan");
   const currentActivity = $derived(sess ? computeCurrentActivity(sess) : "");
+  const showActivityStrip = $derived(
+    !!sess &&
+      (isRunning || isAwaitingPlan || isDead || isFailed || isInterrupted),
+  );
+  let activityReservedWidth = $state(0);
 
   // The pending plan whose approval the session is blocked on — used to jump
   // straight to it from the awaiting-plan footer below.
@@ -661,6 +667,7 @@
     <div class="prose-cloud prose-reading min-w-0">
       <SvelteMarkdown
         source={displayContent}
+        extensions={assistantMarkdownExtensions}
         renderers={markdownRenderers}
         sanitizeUrl={markdownSanitizeUrl}
       />
@@ -746,6 +753,7 @@
                         <SvelteMarkdown
                           source={item.content}
                           streaming
+                          extensions={assistantMarkdownExtensions}
                           renderers={markdownRenderers}
                           sanitizeUrl={markdownSanitizeUrl}
                         />
@@ -961,12 +969,16 @@
       {/if}
 
       {#if tab && !runtime.isMobileViewport}
-        <ActionOrb {tabId} {onDiffToggle} />
+        <ActionOrb
+          {tabId}
+          {onDiffToggle}
+          leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}
+        />
       {/if}
 
-      {#if sess && (isRunning || isAwaitingPlan || isDead || isFailed || isInterrupted)}
+      {#if showActivityStrip}
         <div
-          class="flex items-end gap-1.5 absolute px-4 pointer-events-none"
+          class="flex items-end gap-1.5 absolute pointer-events-none"
           style="bottom:{isEditorMode
             ? 3
             : 16}px;height:2rem;left:0;right:0;{isEditorMode
@@ -974,7 +986,10 @@
             : `padding-inline:calc(1rem + var(--cv-pill-gutter));`}z-index:7"
         >
           <div
+            bind:clientWidth={activityReservedWidth}
             class="flex items-center gap-1.5 text-[0.6875rem] pointer-events-auto"
+            class:pl-4={isEditorMode}
+            class:pr-2={isEditorMode}
           >
             {#if isRunning}
               <span class="flex items-center gap-1.5">

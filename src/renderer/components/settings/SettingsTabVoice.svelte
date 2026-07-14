@@ -6,7 +6,8 @@
   } from "phosphor-svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import { formatVoiceModelBytes, getVoiceModelStore } from "../../contexts/voice-model.store.svelte";
-  import Button from "../ui/Button.svelte";
+  import { Button } from "../ui/button";
+  import { Switch } from "../ui/switch";
 
   const theme = getSettingsContext();
   const voiceModel = getVoiceModelStore();
@@ -49,11 +50,12 @@
         </div>
       </div>
     </div>
-    {@render toggle(
-      theme.voiceModeEnabled,
-      (next) => theme.update({ voiceModeEnabled: next }),
-      "Toggle auto voice mode",
-    )}
+    <Switch
+      checked={theme.voiceModeEnabled}
+      onCheckedChange={(next) => theme.update({ voiceModeEnabled: next })}
+      size="default"
+      aria-label="Toggle auto voice mode"
+    />
   </div>
 
   <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
@@ -105,18 +107,4 @@
       <Button variant="outline" size="sm" onclick={() => void voiceModel.retry()}>Retry</Button>
     {/if}
   </div>
-
 </div>
-
-{#snippet toggle(checked: boolean, onChange: (next: boolean) => void, label: string)}
-  <button
-    type="button"
-    aria-label={label}
-    aria-pressed={checked}
-    onclick={() => onChange(!checked)}
-    class="relative w-[2.375rem] h-[1.375rem] rounded-[0.6875rem] border cursor-pointer shrink-0 [transition:background_0.2s_ease,border-color_0.2s_ease]
-      {checked ? 'bg-(--solus-accent) border-(--solus-accent)' : 'bg-(--solus-input-bg-soft) border-(--solus-container-border)'}"
-  >
-    <span class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-lg bg-white [transition:left_0.2s_ease] shadow-[0_1px_3px_rgba(0,0,0,0.1)]" style="left:{checked ? 20 : 3}px"></span>
-  </button>
-{/snippet}

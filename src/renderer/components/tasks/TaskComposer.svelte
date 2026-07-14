@@ -15,6 +15,7 @@
   import Kbd from "../ui/Kbd.svelte";
   import Dropdown from "../ui/Dropdown.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
+  import { Input } from "../ui/input";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import type { AgentId } from "../../../shared/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
@@ -658,7 +659,7 @@
             class="my-1 mx-2 h-px bg-(--solus-popover-border) opacity-40"
           ></div>
           <div class="px-2 pb-1">
-            <input
+            <Input
               type="date"
               bind:value={dueDate}
               aria-label="Custom due date"
@@ -723,8 +724,8 @@
               {/each}
             </div>
           {/if}
-          <input
-            bind:this={labelInputEl}
+          <Input
+            bind:ref={labelInputEl}
             bind:value={labelDraft}
             type="text"
             placeholder="Add a label…"

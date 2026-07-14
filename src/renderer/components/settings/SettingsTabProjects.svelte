@@ -4,6 +4,7 @@
   import type { ProjectEntry } from "../../../shared/types";
   import { projectsStore } from "../../contexts/projects.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { Button } from "../ui/button";
 
   const session = getWorkspaceContext();
   const projectMetadata = projectsStore;
@@ -72,23 +73,36 @@
 
         {#if confirming === project.path}
           <span class="inline-flex items-center gap-0.5 mr-1" role="group" aria-label="Confirm remove project">
-            <button type="button" class="inline-flex items-center justify-center w-7 h-7 shrink-0 border-none rounded-[0.4375rem] bg-transparent text-(--solus-text-tertiary) cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12" aria-label="Confirm remove" onclick={() => remove(project.path)}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="text-(--solus-text-tertiary) hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12"
+              aria-label="Confirm remove"
+              onclick={() => remove(project.path)}
+            >
               <CheckIcon size={13} />
-            </button>
-            <button type="button" class="inline-flex items-center justify-center w-7 h-7 shrink-0 border-none rounded-[0.4375rem] bg-transparent text-(--solus-text-tertiary) cursor-pointer [transition:background_0.15s_ease,color_0.15s_ease] hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)" aria-label="Cancel remove" onclick={() => (confirming = null)}>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="text-(--solus-text-tertiary)"
+              aria-label="Cancel remove"
+              onclick={() => (confirming = null)}
+            >
               <XIcon size={13} />
-            </button>
+            </Button>
           </span>
         {:else}
-          <button
-            type="button"
-            class="inline-flex items-center justify-center w-7 h-7 shrink-0 border-none rounded-[0.4375rem] bg-transparent text-(--solus-text-tertiary) cursor-pointer mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [transition:background_0.15s_ease,color_0.15s_ease,opacity_0.15s_ease] hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="mr-1 text-(--solus-text-tertiary) hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12 opacity-0 group-hover:opacity-100 focus-visible:opacity-100
               {selected === project.path ? '!opacity-100' : ''}"
             aria-label="Remove {project.folderName || folderName(project.path)}"
             onclick={() => (confirming = project.path)}
           >
             <TrashIcon size={14} />
-          </button>
+          </Button>
         {/if}
       </div>
     {/each}

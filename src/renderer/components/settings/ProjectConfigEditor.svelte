@@ -7,6 +7,8 @@
   } from "phosphor-svelte";
   import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
   import { getRunStore } from "../../contexts/run.store.svelte";
+  import { Button } from "../ui/button";
+  import { Input } from "../ui/input";
 
   interface Props {
     cwd: string;
@@ -121,7 +123,7 @@
     <div class="flex flex-col gap-2 pb-3.5">
       {#each rows as row, index (row.id)}
         <div class="flex items-center gap-2">
-          <input
+          <Input
             bind:value={row.name}
             oninput={scheduleSave}
             name="run-name-{index}"
@@ -129,8 +131,8 @@
             placeholder="Name (optional)"
             aria-label="Command name"
           />
-          <input
-            bind:this={commandInputs[index]}
+          <Input
+            bind:ref={commandInputs[index]}
             bind:value={row.command}
             oninput={scheduleSave}
             name="run-command-{index}"
@@ -138,7 +140,7 @@
             placeholder="npm run dev"
             aria-label="Run command"
           />
-          <input
+          <Input
             bind:value={row.port}
             oninput={scheduleSave}
             name="run-port-{index}"
@@ -147,23 +149,25 @@
             placeholder="Port"
             aria-label="Port override"
           />
-          <button
-            type="button"
-            class="w-7 h-7 inline-flex items-center justify-center shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer hover:bg-(--solus-status-error-bg) hover:text-(--solus-status-error) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="text-(--solus-text-tertiary) hover:bg-(--solus-status-error-bg) hover:text-(--solus-status-error)"
             aria-label="Remove command"
             onclick={() => removeRow(index)}
           >
             <TrashIcon size={13} />
-          </button>
+          </Button>
         </div>
       {/each}
-      <button
-        type="button"
-        class="self-start inline-flex items-center gap-1.5 min-h-7 px-2.5 border border-dashed border-(--solus-container-border) rounded-lg bg-transparent text-(--solus-text-tertiary) text-[0.71875rem] cursor-pointer hover:text-(--solus-text-primary) hover:border-(--solus-accent) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+      <Button
+        variant="outline"
+        size="sm"
+        class="self-start border-dashed text-(--solus-text-tertiary) hover:border-(--solus-accent)"
         onclick={addRow}
       >
         <PlusIcon size={12} /> Add command
-      </button>
+      </Button>
     </div>
   </section>
 

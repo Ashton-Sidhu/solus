@@ -32,12 +32,12 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { runtime } from "../../contexts/runtime.svelte";
   import { tooltip } from "../../lib/tooltip";
-  import SearchField from "../ui/SearchField.svelte";
+  import SearchField from "../ui/search-field";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import { Skeleton } from "../ui/skeleton";
   import {
     PAGE_GHOST_BTN,
     PAGE_ICON_BTN,
@@ -781,7 +781,7 @@
         <!-- Search + filters -->
         <div class="flex min-w-0 items-center">
           <SearchField
-            bind:el={searchEl}
+            bind:ref={searchEl}
             bind:value={query}
             placeholder="Search pull requests…"
           />
@@ -953,18 +953,13 @@
                   <span>{methodLabel}</span>
                   <CaretDownIcon size={9} class="shrink-0" />
                 </button>
-                <Dropdown
-                  bind:open={methodMenuOpen}
-                  triggerEl={methodTriggerEl}
-                  align="bottom"
-                  anchor="left"
-                  width={180}
-                >
+                <DropdownMenu.Root bind:open={methodMenuOpen}>
+                  <DropdownMenu.Content customAnchor={methodTriggerEl} side="bottom" align="start" sideOffset={6} class="w-[180px]">
                   <div class="py-1" role="listbox" aria-label="Merge method">
                     {#each METHOD_OPTIONS as opt (opt.value)}
-                      <DropdownItem
-                        selected={method === opt.value}
-                        onclick={() => {
+                      <DropdownMenu.Item
+                        class={method === opt.value ? "font-semibold" : undefined}
+                        onSelect={() => {
                           method = opt.value;
                           methodMenuOpen = false;
                         }}
@@ -974,10 +969,11 @@
                         >
                           {opt.label}
                         </span>
-                      </DropdownItem>
+                      </DropdownMenu.Item>
                     {/each}
                   </div>
-                </Dropdown>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Root>
               </div>
             </div>
             {#if mergeQueue.error}
@@ -1032,25 +1028,19 @@
         onkeydown={onListKeydown}
       >
         {#if store.loading && filtered.length === 0}
-          <div
-            class="flex animate-pulse flex-col p-2 motion-reduce:animate-none"
-            aria-hidden="true"
-          >
+          <div class="flex flex-col p-2" aria-hidden="true">
             {#each SKELETON_ROWS as width, i (i)}
               <div
                 class="flex items-start gap-2.5 px-2.5 py-3 opacity-(--row-fade)"
                 style="--row-fade: {100 - i * 12}%"
               >
-                <span
-                  class="mt-px size-3.5 shrink-0 rounded-full bg-(--solus-art-border)"
-                ></span>
+                <Skeleton class="mt-px size-3.5 shrink-0 rounded-full bg-(--solus-art-border)" />
                 <div class="flex min-w-0 flex-1 flex-col gap-2">
-                  <span
+                  <Skeleton
                     class="h-3 rounded bg-(--solus-art-border) w-(--line-w)"
                     style="--line-w: {width}%"
-                  ></span>
-                  <span class="h-2.5 w-24 rounded bg-(--solus-art-border)"
-                  ></span>
+                  />
+                  <Skeleton class="h-2.5 w-24 rounded bg-(--solus-art-border)" />
                 </div>
               </div>
             {/each}

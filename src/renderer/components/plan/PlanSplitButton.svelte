@@ -2,7 +2,7 @@
   import { CheckIcon, CaretDownIcon } from 'phosphor-svelte'
   import { getAgentContext } from '../../contexts/agent.context.svelte'
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
-  import Dropdown from '../ui/Dropdown.svelte'
+  import * as DropdownMenu from '../ui/dropdown-menu'
   import { MODEL_PROFILES, type AgentId } from '../../../shared/types'
 
   interface Props {
@@ -23,7 +23,6 @@
   const agentContext = getAgentContext()
 
   let open = $state(false)
-  let caretEl: HTMLButtonElement | null = $state(null)
 
   const sess = $derived(session.sessionFor(session.activeTabId))
   const currentProvider = $derived(sess?.provider ?? null)
@@ -72,10 +71,6 @@
     onDone?.()
   }
 
-  function handleCaretClick() {
-    open = !open
-  }
-
   function handleModelSelect(provider: AgentId, modelId: string) {
     open = false
     session.approvePlanWithModel(planId, mode, provider, modelId, actionComment || undefined, useWorktree)
@@ -89,42 +84,35 @@
     onclick={handleMainClick}
     data-testid="plan-action-yes-auto"
     class="plan-split-main plan-split-main--{variant} {sizeClass} flex items-center gap-1"
-    class:font-medium={variant === 'primary'}
   >
     <CheckIcon size={compact ? 12 : 14} />
     {label}
     <span class="plan-split-kbd">{kbdHint}</span>
   </button>
-  <button
-    bind:this={caretEl}
-    type="button"
-    onclick={handleCaretClick}
-    class="plan-split-caret plan-split-caret--{variant} {sizeClass}"
-    aria-label="Choose model to implement plan"
-  >
-    <CaretDownIcon size={10} />
-  </button>
-</div>
-
-<Dropdown bind:open triggerEl={caretEl} align="bottom" anchor="right" width={220}>
-  <div class="py-1">
-    {#each providers as prov (prov.id)}
-      <div class="plan-split-provider-header">{prov.label}</div>
-      {#each allModels.filter(m => m.provider === prov.id) as m (m.modelId)}
-        {@const isActive = m.provider === currentProvider && m.modelId === currentModelId}
-        <button
-          type="button"
-          onclick={() => handleModelSelect(m.provider, m.modelId)}
-          class="plan-split-model-row"
-          style="color:{isActive ? 'var(--solus-text-primary)' : 'var(--solus-text-secondary)'};font-weight:{isActive ? 600 : 400}"
-        >
-          {m.modelLabel}
-          {#if isActive}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
+  <DropdownMenu.Root bind:open>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button {...props} type="button" class="plan-split-caret plan-split-caret--{variant} {sizeClass}" aria-label="Choose model to implement plan">
+          <CaretDownIcon size={10} />
         </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[220px]">
+      {#each providers as prov (prov.id)}
+        <DropdownMenu.Group>
+          <DropdownMenu.GroupHeading class="plan-split-provider-header">{prov.label}</DropdownMenu.GroupHeading>
+          {#each allModels.filter(m => m.provider === prov.id) as m (m.modelId)}
+            {@const isActive = m.provider === currentProvider && m.modelId === currentModelId}
+            <DropdownMenu.Item onSelect={() => handleModelSelect(m.provider, m.modelId)} class={isActive ? "font-semibold" : undefined}>
+              <span class="flex-1 truncate">{m.modelLabel}</span>
+              {#if isActive}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
+            </DropdownMenu.Item>
+          {/each}
+        </DropdownMenu.Group>
       {/each}
-    {/each}
-  </div>
-</Dropdown>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
+</div>
 
 <style>
   .plan-split-wrap {
@@ -151,8 +139,9 @@
   /* Main button */
   .plan-split-main {
     height: 1.875rem;
-    font-size: 0.6875rem;
-    padding: 0 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0 0.625rem;
     border: 0.0625rem solid transparent;
     border-right: none;
     border-radius: 0.375rem 0 0 0.375rem;
@@ -164,8 +153,8 @@
   }
   .plan-split-main.plan-split--compact {
     height: 1.875rem;
-    font-size: 0.6875rem;
-    padding: 0 0.5rem;
+    font-size: 0.8rem;
+    padding: 0 0.625rem;
     border-radius: 0.375rem 0 0 0.375rem;
   }
   .plan-split-main:active {
@@ -298,8 +287,8 @@
     .plan-split-main {
       flex: 1;
       justify-content: center;
-      font-size: 0.6875rem;
-      padding: 0 0.25rem 0 0.5rem;
+      font-size: 0.8rem;
+      padding: 0 0.25rem 0 0.625rem;
     }
 
     .plan-split-caret {

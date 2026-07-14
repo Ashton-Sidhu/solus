@@ -72,13 +72,14 @@
         `Inline comments:\n${formatDiffInlineComments(reviewDrafts.diffComments)}`,
     );
     reviewDrafts.clear();
+    onClose();
     requestInputFocus();
   }
 </script>
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   <header
-    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]"
+    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] [.workspace-body.sidebar-collapsed_&]:pl-[max(2.75rem,calc(var(--solus-chrome-lead-inset,0px)+2rem))]"
   >
     <span class="text-[0.8125rem] font-semibold text-(--solus-text-primary)"
       >{scope === "session" ? "Session walkthrough" : "Review guide"}</span

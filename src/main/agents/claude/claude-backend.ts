@@ -7,6 +7,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, SAFE_TOOLS } from './claude-agent'
 import { createSolusMcpServer } from '../../folio/work-tools'
 import { codexSubagentSdkTool } from '../codex/codex-subagent-tool'
+import { CodexSubagentEventBridge } from '../codex/codex-subagent-event-bridge'
 import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
@@ -171,6 +172,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     const workTree = input.gitContext?.worktreePath ?? input.workingDirectory
     const baseModel = input.model
     const model = input.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
+    const codexSubagentEvents = new CodexSubagentEventBridge()
 
     // In-process MCP server giving the agent list/read/create/update access to
     // works plus render_artifact. onWorkCreated/onWorkUpdated/onArtifact fire
@@ -255,6 +257,8 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
       codexSubagentTool: codexSubagentSdkTool({
         cwd: workTree,
         abortSignal: abortController.signal,
+        claimParentToolUseId: (args) => codexSubagentEvents.claim(args),
+        onEvent: (_parentToolUseId, event) => this.emit('normalized', handle.sessionId, event),
       }),
     })
 
@@ -309,7 +313,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         },
       })
 
-      await this._runLoop(handle, events, result, sessionRef)
+      await this._runLoop(handle, events, result, sessionRef, codexSubagentEvents)
     })().catch((err: any) => {
       const sessionId = handle.sessionId
       log.error(`Run failed to start [${sessionId ?? 'pending'}]: ${err?.message}`)
@@ -325,9 +329,11 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     events: AsyncIterable<NormalizedEvent>,
     result: Promise<ClaudeRunResult>,
     sessionRef: { current: string | null },
+    codexSubagentEvents?: CodexSubagentEventBridge,
   ): Promise<void> {
     try {
       for await (const evt of events) {
+        codexSubagentEvents?.observe(evt)
         if (evt.type === 'session_init') {
           this.promoteToActive(handle, evt.sessionId)
           sessionRef.current = evt.sessionId

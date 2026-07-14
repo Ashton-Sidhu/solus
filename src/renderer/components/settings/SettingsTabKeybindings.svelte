@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ArrowCounterClockwiseIcon, KeyboardIcon, WarningCircleIcon } from "phosphor-svelte";
   import Kbd from "../ui/Kbd.svelte";
+  import { Button } from "../ui/button";
   import { KEYBINDINGS, bindingsForScope, type BindingId } from "../../lib/keybindings/manifest";
   import {
     comboEquals,
@@ -317,8 +318,24 @@
           <WarningCircleIcon size={13} class="text-(--solus-art-negative)" />
           Used by "{conflict.otherLabel}"
         </span>
-        <button type="button" class="text-[0.6875rem] py-[0.1875rem] px-2 rounded-md border border-(--solus-accent) text-(--solus-accent) [transition:background_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-accent)/12" onclick={applyConflictReassign}>Reassign</button>
-        <button type="button" class="text-[0.6875rem] py-[0.1875rem] px-2 rounded-md border border-(--solus-container-border) text-(--solus-text-secondary) [transition:background_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" onclick={() => { pendingConflict = null; requestInputFocus(); }}>Cancel</button>
+        <Button
+          variant="outline"
+          size="xs"
+          class="border-(--solus-accent) text-(--solus-accent) hover:bg-(--solus-accent)/12"
+          onclick={applyConflictReassign}
+        >
+          Reassign
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          onclick={() => {
+            pendingConflict = null;
+            requestInputFocus();
+          }}
+        >
+          Cancel
+        </Button>
       {:else if recording}
         <button type="button" class="inline-flex items-center gap-2 text-[0.75rem] text-(--solus-accent) py-1 px-2.5 rounded-md border border-dashed border-(--solus-accent) bg-(--solus-accent)/8" onclick={cancelRecord}>
           Press shortcut… <span class="text-[0.625rem] text-(--solus-text-tertiary)">Esc to cancel</span>
@@ -337,15 +354,16 @@
           {/each}
         </button>
         {#if isOverridden(id)}
-          <button
-            type="button"
-            class="inline-flex items-center justify-center w-6 h-6 rounded-md text-(--solus-text-tertiary) [transition:background_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="text-(--solus-text-tertiary)"
             aria-label={`Reset ${def.label} to default`}
             title="Reset to default"
             onclick={() => resetBinding(id)}
           >
             <ArrowCounterClockwiseIcon size={13} />
-          </button>
+          </Button>
         {/if}
       {/if}
     </div>
@@ -370,7 +388,14 @@
             <WarningCircleIcon size={13} class="text-(--solus-art-negative)" />
             Couldn't apply live
           </span>
-          <button type="button" class="text-[0.6875rem] py-[0.1875rem] px-2 rounded-md border border-(--solus-accent) text-(--solus-accent) [transition:background_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-accent)/12" onclick={restart}>Restart</button>
+          <Button
+            variant="outline"
+            size="xs"
+            class="border-(--solus-accent) text-(--solus-accent) hover:bg-(--solus-accent)/12"
+            onclick={restart}
+          >
+            Restart
+          </Button>
         {/if}
         <button
           type="button"
@@ -394,7 +419,9 @@
       <span class="text-[0.75rem] text-(--solus-text-tertiary)">Click a shortcut to rebind it. Saved on this device only.</span>
     </div>
     {#if anyOverride}
-      <button type="button" class="text-[0.75rem] text-(--solus-text-secondary) py-1 px-2 rounded-md [transition:background_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" onclick={resetAll}>Reset all ({overrideCount})</button>
+      <Button variant="ghost" size="xs" onclick={resetAll}>
+        Reset all ({overrideCount})
+      </Button>
     {/if}
   </div>
 

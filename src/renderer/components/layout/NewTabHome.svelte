@@ -52,8 +52,8 @@
   } from "./lib/home-control-hub";
   import { relativeTime } from "../automations/lib/automation-format";
   import { STATUS_META } from "../tasks/lib/tasks-api";
-  import SetupChecklist from "../server-setup/SetupChecklist.svelte";
   import Kbd from "../ui/Kbd.svelte";
+  import { Skeleton } from "../ui/skeleton";
 
   // Shared fade-in for staggered list items; per-item delay via --item-index.
   const fadeIn =
@@ -538,14 +538,14 @@
   <div
     class="flex items-center justify-between px-3.5 py-2.5 h-10 box-border border-b border-(--solus-tool-border) last:border-b-0"
   >
-    <span
-      class="block h-[0.6875rem] rounded bg-(--solus-surface-secondary) opacity-70 relative overflow-hidden [&::after]:content-[''] [&::after]:absolute [&::after]:inset-0 [&::after]:[background:linear-gradient(90deg,transparent_0%,var(--solus-surface-hover)_50%,transparent_100%)] [&::after]:[transform:translateX(-100%)] [&::after]:[animation:home-skel-shimmer_1.4s_ease-in-out_infinite]"
+    <Skeleton
+      class="h-[0.6875rem] rounded opacity-70"
       style="width:{[65, 48, 72][i]}%"
-    ></span>
-    <span
-      class="block h-[0.5625rem] rounded bg-(--solus-surface-secondary) opacity-45 relative overflow-hidden [&::after]:content-[''] [&::after]:absolute [&::after]:inset-0 [&::after]:[background:linear-gradient(90deg,transparent_0%,var(--solus-surface-hover)_50%,transparent_100%)] [&::after]:[transform:translateX(-100%)] [&::after]:[animation:home-skel-shimmer_1.4s_ease-in-out_infinite]"
+    />
+    <Skeleton
+      class="h-[0.5625rem] rounded opacity-45"
       style="width:{[22, 18, 26][i]}%"
-    ></span>
+    />
   </div>
 {/snippet}
 
@@ -872,8 +872,6 @@
     <div class="shrink-0 pt-3 mb-5">
       {@render launchTarget()}
     </div>
-    <SetupChecklist active={isActiveHome} />
-
     <div class="flex flex-col gap-6">
         {#if projects.length > 0}
           <section class="flex flex-col gap-2.5">
@@ -976,7 +974,6 @@
         : 'max-w-[38.75rem]'}"
     >
       {@render launchTarget()}
-      <SetupChecklist active={isActiveHome} />
 
       {#if projects.length > 0}
         {@render projectsRow()}

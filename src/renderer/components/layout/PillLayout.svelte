@@ -5,7 +5,6 @@
   import InputBarRow from "../input/InputBarRow.svelte";
   import StatusBarControls from "./StatusBarControls.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
-  import ToastHost from "../ToastHost.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getPlanStore } from "../../contexts/plan.store.svelte";
@@ -309,11 +308,6 @@
       </div>
 
     </div>
-
-    <!-- App-wide toast, anchored within the pill's bounds (top-right). -->
-    {#if !isEditorMode}
-      <ToastHost />
-    {/if}
   </div>
 </div>
 

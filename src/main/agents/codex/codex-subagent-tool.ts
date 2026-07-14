@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { runCodexOneShot } from './codex-oneshot'
 import { createLogger } from '../../logger'
+import type { NormalizedEvent } from '../../../shared/types'
+import type { CodexSubagentInput } from './codex-subagent-event-bridge'
 
 const log = createLogger('CodexSubagent', 'codex-subagent-tool.ts')
 
@@ -37,11 +39,26 @@ export interface CodexSubagentDeps {
   cwd: string
   /** The parent run's abort signal — stopping the session interrupts the Codex turn. */
   abortSignal: AbortSignal
+  claimParentToolUseId?: (input: CodexSubagentInput) => Promise<string>
+  onEvent?: (parentToolUseId: string, event: NormalizedEvent) => void
+}
+
+type CodexSubagentTranscriptEvent = Extract<NormalizedEvent, {
+  type: 'text_chunk' | 'assistant_message' | 'tool_call' | 'tool_call_update' | 'tool_call_complete' | 'tool_result'
+}>
+
+function isTranscriptEvent(event: NormalizedEvent): event is CodexSubagentTranscriptEvent {
+  return event.type === 'text_chunk' || event.type === 'assistant_message' ||
+    event.type === 'tool_call' || event.type === 'tool_call_update' ||
+    event.type === 'tool_call_complete' || event.type === 'tool_result'
 }
 
 export function codexSubagentSdkTool(deps: CodexSubagentDeps) {
   return tool('codex_subagent', CODEX_SUBAGENT_DESC, codexSubagentShape, async (args) => {
     try {
+      const parentToolUseId = deps.claimParentToolUseId
+        ? await deps.claimParentToolUseId(args)
+        : undefined
       const { text, sessionId, toolCallCount } = await runCodexOneShot({
         prompt: args.prompt,
         cwd: deps.cwd,
@@ -50,7 +67,13 @@ export function codexSubagentSdkTool(deps: CodexSubagentDeps) {
         abortSignal: deps.abortSignal,
         readOnly: args.read_only === true,
         solusTools: true, // automation tools already excluded (fork-bomb guard)
-        ephemeral: false
+        ephemeral: false,
+        onEvent: parentToolUseId && deps.onEvent
+          ? (event) => {
+              if (!isTranscriptEvent(event)) return
+              deps.onEvent?.(parentToolUseId, { ...event, parentToolUseId })
+            }
+          : undefined,
       })
       log.info(`codex subagent ${sessionId} finished (${toolCallCount} tool calls)`)
       return { content: [{ type: 'text' as const, text: text || '(Codex subagent returned no text.)' }] }

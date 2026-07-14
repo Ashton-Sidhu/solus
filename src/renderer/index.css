@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..600;1,400..600&display=swap');
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /* Explicitly tell Tailwind which folders to scan. Required because the web
    client (client/vite.config.ts) sets its Vite root to `client/`, which
@@ -11,6 +12,18 @@
 /* Class-based dark mode: the app toggles a `.dark` class on the root rather
    than relying on prefers-color-scheme, so map Tailwind's `dark:` variant to it. */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* shadcn-svelte registry styles target bare data-checked/data-open/… attributes
+   (an upcoming bits-ui convention), but released bits-ui still emits
+   data-state="checked|unchecked|open|closed". Bridge both forms so stock
+   generated components (switch track/thumb colors, select open/close
+   animations, …) work without editing them. */
+@custom-variant data-checked (&[data-checked], &[data-state="checked"]);
+@custom-variant data-unchecked (&[data-unchecked], &[data-state="unchecked"]);
+@custom-variant data-open (&[data-open], &[data-state="open"]);
+@custom-variant data-closed (&[data-closed], &[data-state="closed"]);
+@custom-variant data-active (&[data-active], &[data-state="active"]);
+@custom-variant data-inactive (&[data-inactive], &[data-state="inactive"]);
 
 @font-face {
   font-family: 'Geist Mono';
@@ -590,6 +603,95 @@
   --solus-art-6: #b79ae8; /* plum */
   --solus-art-positive: #6ec98b;
   --solus-art-negative: #e0846a;
+}
+
+/* shadcn-svelte theme bridge — maps the semantic vars that shadcn components
+   consume onto Solus tokens. Because `.dark` toggles on the same element as
+   `:root`, these var() references resolve to the correct mode automatically;
+   do NOT duplicate this block under `.dark`.
+   Naming gotcha: shadcn `primary` = brand accent (terracotta); shadcn
+   `accent` = subtle hover wash, NOT the brand color.
+   shadcn's `@layer base` global resets (`* { @apply border-border }` etc.)
+   are deliberately omitted — a global border-color reset would ripple
+   through the whole app. */
+:root {
+  --background: var(--solus-container-bg);
+  --foreground: var(--solus-text-primary);
+  --card: var(--solus-container-bg);
+  --card-foreground: var(--solus-text-primary);
+  --popover: var(--solus-popover-bg);
+  --popover-foreground: var(--solus-text-primary);
+  --primary: var(--solus-accent);
+  --primary-foreground: var(--solus-text-on-accent);
+  /* Carries the Solus "soft" button look; revisit if a neutral secondary is ever needed. */
+  --secondary: var(--solus-accent-light);
+  --secondary-foreground: var(--solus-accent);
+  /* The current registry drives ghost/outline hover and toggle pressed washes
+     through `muted` (older shadcn used `accent`), so muted must be the app's
+     subtle hover wash — not a solid panel color — or every ghost button hover
+     renders as a heavy tool-bg block. */
+  --muted: var(--solus-surface-hover);
+  --muted-foreground: var(--solus-text-tertiary);
+  --accent: var(--solus-surface-hover);
+  --accent-foreground: var(--solus-text-primary);
+  --destructive: var(--solus-stop-bg);
+  --destructive-foreground: var(--solus-text-on-accent);
+  --border: var(--solus-container-border);
+  --input: var(--solus-input-border);
+  --ring: var(--solus-input-focus-border);
+  --chart-1: var(--solus-art-1);
+  --chart-2: var(--solus-art-2);
+  --chart-3: var(--solus-art-3);
+  --chart-4: var(--solus-art-4);
+  --chart-5: var(--solus-art-5);
+  --sidebar: var(--solus-sidebar-bg);
+  --sidebar-foreground: var(--solus-text-primary);
+  --sidebar-primary: var(--solus-accent);
+  --sidebar-primary-foreground: var(--solus-text-on-accent);
+  --sidebar-accent: var(--solus-surface-hover);
+  --sidebar-accent-foreground: var(--solus-text-primary);
+  --sidebar-border: var(--solus-container-border);
+  --sidebar-ring: var(--solus-input-focus-border);
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 /* Shiki dual-theme support */
@@ -1738,8 +1840,8 @@ html.is-mac-editor {
   to   { opacity: 1; transform: scale(1); }
 }
 @keyframes skeleton-shimmer {
-  0%   { background-position: -25rem 0; }
-  100% { background-position: 25rem 0; }
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 /* ─── Session picker motion ─── */
@@ -1762,11 +1864,6 @@ html.is-mac-editor {
   75%  { width: 1em; }
   100% { width: 0; }
 }
-@keyframes picker-skeleton-shimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
 /* ─── Plan modal motion ─── */
 @keyframes plan-modal-enter {
   from { opacity: 0; transform: translate3d(0, 0.375rem, 0) scale(0.985); }
@@ -1821,8 +1918,4 @@ html.is-mac-editor {
 @keyframes home-fade-in {
   from { opacity: 0; transform: translateY(0.375rem); }
   to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes home-skel-shimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
 }

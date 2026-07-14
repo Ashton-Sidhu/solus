@@ -20,8 +20,7 @@
     relativeTime,
     visibleLabels,
   } from "./lib/tasks-api";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import { getTasksSelection } from "../../contexts/tasks-selection.store.svelte";
 
   interface Props {
@@ -355,18 +354,13 @@
     </div>
   {/if}
 
-  <Dropdown
-    bind:open={statusMenuOpen}
-    triggerEl={statusTriggerEl}
-    align="bottom"
-    anchor="left"
-    width={150}
-  >
+  <DropdownMenu.Root bind:open={statusMenuOpen}>
+    <DropdownMenu.Content customAnchor={statusTriggerEl} side="bottom" align="start" sideOffset={6} class="w-[150px]">
     <div class="py-1" role="listbox" aria-label="Set status">
       {#each STATUS_OPTIONS as opt (opt)}
-        <DropdownItem
-          selected={task.status === opt}
-          onclick={() => {
+        <DropdownMenu.Item
+          class={task.status === opt ? "font-semibold" : undefined}
+          onSelect={() => {
             statusMenuOpen = false;
             if (task.status !== opt) onSetStatus(task, opt);
           }}
@@ -376,8 +370,9 @@
             ></span>
             {STATUS_META[opt].label}
           </span>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/each}
     </div>
-  </Dropdown>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 </div>

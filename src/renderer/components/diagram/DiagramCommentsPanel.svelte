@@ -4,6 +4,7 @@
   import { PaperPlaneTiltIcon, XIcon } from "phosphor-svelte";
   import type { PlanComment } from "../../../shared/types";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
+  import { Textarea } from "../ui/textarea";
 
   interface Props {
     comments: PlanComment[];
@@ -113,14 +114,14 @@
         {:else}
           <span class="diagram-comments__anchor diagram-comments__anchor--whole">Whole diagram</span>
         {/if}
-        <textarea
-          bind:this={textareaEl}
+        <Textarea
+          bind:ref={textareaEl}
           bind:value={draft}
           class="diagram-comments__input"
           rows="2"
           placeholder="Add a comment…"
           onkeydown={onComposerKeydown}
-        ></textarea>
+        />
         <div class="diagram-comments__actions">
           <button
             type="button"
@@ -215,7 +216,7 @@
     opacity: 1;
   }
 
-  .diagram-comments__input {
+  :global(.diagram-comments__input) {
     width: 100%;
     padding: 0.4375rem 0.5rem;
     border-radius: 0.5rem;
@@ -232,7 +233,7 @@
       box-shadow var(--duration-base) var(--ease-premium);
   }
 
-  .diagram-comments__input:focus {
+  :global(.diagram-comments__input:focus) {
     border-color: var(--solus-accent-border);
     box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
   }

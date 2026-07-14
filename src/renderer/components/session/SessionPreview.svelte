@@ -7,6 +7,7 @@
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
   import type { Message } from "../../../shared/types";
   import type { SessionLoadMessage } from "../../../shared/session-history";
+  import { Skeleton } from "../ui/skeleton";
 
   interface Props {
     messages: Array<SessionLoadMessage | Message> | null;
@@ -136,18 +137,18 @@
     </div>
   {:else if loading}
     <div class="flex flex-1 flex-col gap-2.5 overflow-y-auto px-[1.125rem] pb-4 pt-0.5 [scrollbar-width:thin]">
-      <div
-        class="h-3 rounded-[0.375rem] bg-[linear-gradient(90deg,var(--solus-surface-hover)_25%,transparent_50%,var(--solus-surface-hover)_75%)] [background-size:25rem_100%] animate-[skeleton-shimmer_1.5s_ease-in-out_infinite]"
+      <Skeleton
+        class="h-3 rounded-[0.375rem]"
         style="width:55%"
-      ></div>
-      <div
-        class="h-3 rounded-[0.375rem] bg-[linear-gradient(90deg,var(--solus-surface-hover)_25%,transparent_50%,var(--solus-surface-hover)_75%)] [background-size:25rem_100%] animate-[skeleton-shimmer_1.5s_ease-in-out_infinite]"
+      />
+      <Skeleton
+        class="h-3 rounded-[0.375rem]"
         style="width:78%"
-      ></div>
-      <div
-        class="h-3 rounded-[0.375rem] bg-[linear-gradient(90deg,var(--solus-surface-hover)_25%,transparent_50%,var(--solus-surface-hover)_75%)] [background-size:25rem_100%] animate-[skeleton-shimmer_1.5s_ease-in-out_infinite]"
+      />
+      <Skeleton
+        class="h-3 rounded-[0.375rem]"
         style="width:42%"
-      ></div>
+      />
     </div>
   {:else}
     <div class="flex flex-1 flex-col gap-2.5 overflow-y-auto px-[1.125rem] pb-4 pt-0.5 [scrollbar-width:thin]">

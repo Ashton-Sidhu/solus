@@ -7,8 +7,8 @@
   import { uuid } from "../../../shared/uuid";
   import { portal } from "../portal";
   import { tooltip } from "../../lib/tooltip";
-  import Input from "../ui/Input.svelte";
-  import Button from "../ui/Button.svelte";
+  import { MarkdownTextarea } from "../ui/markdown-field";
+  import { Button } from "../ui/button";
   import { toasts } from "../../contexts/toast.store.svelte";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
   import PlanCommentPopover from "../plan/PlanCommentPopover.svelte";
@@ -61,7 +61,7 @@
   } | null>(null);
   let commentInput = $state("");
   let commentFormAnchor = $state<{ left: number; top: number; width: number } | null>(null);
-  let commentInputEl: HTMLTextAreaElement | HTMLInputElement | null = $state(null);
+  let commentInputEl: HTMLTextAreaElement | null = $state(null);
 
   let hoveredComment = $state<PlanComment | null>(null);
   let hoveredAnchor = $state<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -302,17 +302,18 @@
     style="left:{(selectionRange.left + selectionRange.right) / 2}px;top:{selectionRange.top}px;z-index:10001;transform:translate(-50%, calc(-100% - 0.375rem))"
     transition:fly={{ y: 4, duration: 120, opacity: 0 }}
   >
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="sm"
       onmousedown={(e) => e.preventDefault()}
       onclick={handleStartComment}
-      class="cl-floating-btn"
+      class="border-(--solus-popover-border) bg-(--solus-popover-bg) text-(--solus-accent) shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] hover:-translate-y-[0.0625rem] hover:border-(--solus-accent) hover:bg-(--solus-accent) hover:text-(--solus-text-on-accent)"
       data-testid="add-comment"
       title="Add comment"
     >
       <ChatCircleTextIcon size={13} />
       Comment
-    </button>
+    </Button>
   </div>
 {/if}
 
@@ -327,19 +328,16 @@
     style="--cf-left:{commentFormAnchor.left}px;--cf-top:{commentFormAnchor.top}px;--cf-width:{commentFormAnchor.width}px;z-index:10001"
   >
     <div class="cl-form">
-      <Input
-        bind:el={commentInputEl}
+      <MarkdownTextarea
+        bind:ref={commentInputEl}
         bind:value={commentInput}
-        type="textarea"
-        variant="bare"
+        bare
         placeholder="Add comment…"
         rows={1}
+        submitOn="enter"
+        onSubmit={handleSaveComment}
         onkeydown={(e: KeyboardEvent) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            e.stopPropagation();
-            handleSaveComment();
-          }
+          if (e.key === "Enter" && !e.shiftKey) e.stopPropagation();
           if (e.key === "Escape") {
             e.stopPropagation();
             clearCommentDraft();
@@ -347,11 +345,10 @@
         }}
       />
       <div class="cl-form__actions">
-        <button type="button" onclick={clearCommentDraft} class="cl-form__btn cl-form__btn--ghost" title="Cancel (Esc)">
+        <Button variant="ghost" size="icon-xs" onclick={clearCommentDraft} class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)" title="Cancel (Esc)">
           <XIcon size={13} />
-        </button>
+        </Button>
         <Button
-          variant="primary"
           size="sm"
           onclick={handleSaveComment}
           disabled={!commentInput.trim()}
@@ -403,17 +400,18 @@
           <span class="cl-send-bar__hint">
             {comments.length} comment{comments.length === 1 ? "" : "s"}
           </span>
-          <button
-            type="button"
-            class="cl-send-btn"
-            data-testid="send-comments"
-            disabled={submitting}
-            onclick={handleSend}
-            aria-label="Send comments to agent"
-            use:tooltip={"Send to agent"}
-          >
-            <ArrowUpIcon size={16} weight="bold" />
-          </button>
+          <span class="inline-flex" use:tooltip={"Send to agent"}>
+            <Button
+              size="icon"
+              class="rounded-full"
+              data-testid="send-comments"
+              disabled={submitting}
+              onclick={handleSend}
+              aria-label="Send comments to agent"
+            >
+              <ArrowUpIcon size={16} weight="bold" />
+            </Button>
+          </span>
         </div>
       {/snippet}
     </PlanCommentsRail>
@@ -421,32 +419,6 @@
 {/if}
 
 <style>
-  .cl-floating-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.6875rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    border-radius: 0.5rem;
-    background: var(--solus-popover-bg);
-    border: 0.0625rem solid var(--solus-popover-border);
-    color: var(--solus-accent);
-    box-shadow: var(--solus-popover-shadow);
-    backdrop-filter: blur(1.25rem);
-    -webkit-backdrop-filter: blur(1.25rem);
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      transform 100ms var(--ease-premium);
-  }
-  .cl-floating-btn:hover {
-    background: var(--solus-accent);
-    color: #fff;
-    transform: translateY(-0.0625rem);
-  }
-
   .cl-form-position {
     left: var(--cf-left);
     top: var(--cf-top);
@@ -470,26 +442,6 @@
     align-items: center;
     gap: 0.375rem;
   }
-  .cl-form__btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: none;
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  .cl-form__btn--ghost {
-    width: 1.5rem;
-    height: 1.5rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-  }
-  .cl-form__btn--ghost:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
   /* The rail renders a self-framed floating card, so the sleeve stays a
      transparent track — no extra border/fill to double-frame it. */
   .cl-rail-sleeve {
@@ -517,32 +469,5 @@
     font-size: 0.6875rem;
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
-  }
-  .cl-send-btn {
-    width: 2rem;
-    height: 2rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 624.9375rem;
-    border: none;
-    color: var(--solus-text-on-accent);
-    background: linear-gradient(145deg, #e08868 0%, #d97757 40%, #c96442 100%);
-    box-shadow: 0 0.0625rem 0.1875rem var(--solus-send-glow);
-    cursor: pointer;
-    transition:
-      box-shadow 0.15s ease,
-      transform 0.1s ease,
-      opacity 0.15s ease;
-  }
-  .cl-send-btn:hover:not(:disabled) {
-    box-shadow: 0 0.125rem 0.375rem var(--solus-send-glow);
-  }
-  .cl-send-btn:active:not(:disabled) {
-    transform: scale(0.96);
-  }
-  .cl-send-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 </style>

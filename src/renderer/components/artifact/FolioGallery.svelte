@@ -1,14 +1,13 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import { tick, untrack } from "svelte";
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
   import {
     MagnifyingGlassIcon,
     XIcon,
     FileTextIcon,
     GraphIcon,
     TrashIcon,
-    CopyIcon,
     PushPinIcon,
     PushPinSlashIcon,
     PlusIcon,
@@ -32,10 +31,11 @@
   import { PAGE_PRIMARY_BTN } from "../../lib/page-chrome";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
-  import SearchField from "../ui/SearchField.svelte";
+  import SearchField from "../ui/search-field";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SectionLabel from "../ui/SectionLabel.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
+  import FolioCard from "./FolioCard.svelte";
 
   type SortMode = "updated" | "created" | "title";
   type TypeFilter = "all" | "doc" | "slides" | "diagram";
@@ -272,108 +272,21 @@
     await session.createWorkFromContent(title, "doc", text);
   }
 
-  /** The doc preview is the first chars of content, which almost always opens
-   *  with the title heading — so the thumbnail would echo the footer title.
-   *  Drop a leading copy of the title so the peek shows real body text. */
-  function bodyPreview(w: Work): string {
-    const p = w.preview ?? "";
-    const t = w.title.trim();
-    if (t && p.toLowerCase().startsWith(t.toLowerCase())) {
-      const rest = p.slice(t.length).replace(/^[\s:–—-]+/, "").trim();
-      if (rest) return rest;
-    }
-    return p;
-  }
 </script>
-
-{#snippet cardActions(w: Work)}
-  <button
-    type="button"
-    class="card-icon-btn"
-    class:is-active={w.pinned}
-    class:always-show={w.pinned}
-    onclick={(e) => togglePin(w, e)}
-    aria-label={w.pinned ? "Unpin document" : "Pin document"}
-    title={w.pinned ? "Unpin" : "Pin"}
-  >
-    {#if w.pinned}
-      <PushPinSlashIcon size={11} />
-    {:else}
-      <PushPinIcon size={11} />
-    {/if}
-  </button>
-  <button
-    type="button"
-    class="card-icon-btn"
-    onclick={(e) => duplicateWork(w, e)}
-    aria-label="Duplicate document"
-    title="Duplicate"
-  >
-    <CopyIcon size={11} />
-  </button>
-  <button
-    type="button"
-    class="card-icon-btn card-icon-btn--danger"
-    onclick={(e) => { e.stopPropagation(); handleDelete(w); }}
-    aria-label="Delete document"
-    title="Delete (⌥⌫)"
-  >
-    <TrashIcon size={11} />
-  </button>
-{/snippet}
 
 <!-- Mirrors PlanCard: a tone-tinted accent rail, a meta header with actions,
      a one-line title, and a two-line preview. Docs show their body preview;
      diagrams (which have no body text) show a quiet type label. -->
 {#snippet gridCard(w: Work, i: number)}
-  {@const sel = i === selectedIndex}
-  {@const isDiagram = w.type === "diagram"}
-  {@const preview = isDiagram ? "" : bodyPreview(w)}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="folio-card folio-card--{w.type}"
-    data-selected={sel ? "true" : null}
-    onclick={() => handleOpen(w)}
-    role="option"
-    aria-selected={sel}
-    tabindex="-1"
-  >
-    <div class="card-accent"></div>
-
-    <div class="card-body">
-      <div class="card-header">
-        <div class="card-meta">
-          <span
-            class="type-badge"
-            aria-label={isDiagram ? "Diagram" : "Document"}
-            title={isDiagram ? "Diagram" : "Document"}
-          >
-            {#if isDiagram}
-              <GraphIcon size={10} weight="regular" />
-            {:else}
-              <FileTextIcon size={10} weight="regular" />
-            {/if}
-          </span>
-          <span class="meta-text">{formatTimeAgo(w.updatedAt)}</span>
-          {#if multiProject}
-            <span class="meta-sep">·</span>
-            <span class="meta-text" title={w.cwd}>{projectShort(w.cwd)}</span>
-          {/if}
-        </div>
-        <div class="folio-card__actions">{@render cardActions(w)}</div>
-      </div>
-
-      <div class="folio-title">{w.title}</div>
-      {#if isDiagram}
-        <div class="folio-excerpt folio-excerpt--muted">Diagram</div>
-      {:else if preview}
-        <div class="folio-excerpt">{preview}</div>
-      {:else}
-        <div class="folio-excerpt folio-excerpt--muted">Empty document</div>
-      {/if}
-    </div>
-  </div>
+  <FolioCard
+    work={w}
+    selected={i === selectedIndex}
+    showProject={multiProject}
+    onOpen={() => handleOpen(w)}
+    onTogglePin={(event) => togglePin(w, event)}
+    onDuplicate={(event) => duplicateWork(w, event)}
+    onDelete={() => handleDelete(w)}
+  />
 {/snippet}
 
 {#if open && isEditorMode}
@@ -425,7 +338,7 @@
       <!-- ── Command bar: search + type segments + sort ── -->
       <div class="flex flex-wrap items-center gap-2 pb-4">
         <SearchField
-          bind:el={searchEl}
+          bind:ref={searchEl}
           bind:value={query}
           placeholder="Search documents…"
         />
@@ -544,11 +457,10 @@
           class="text-(--solus-text-tertiary) flex-shrink-0"
         />
         <Input
-          bind:el={searchEl}
+          bind:ref={searchEl}
           bind:value={query}
           type="text"
-          variant="bare"
-          size="md"
+          class="h-auto rounded-none border-0 bg-transparent p-0 text-[0.7813rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
           placeholder="Search documents…"
           onkeydown={(e) => {
             if (e.key === "Enter" && runtime.isMobileViewport) {
@@ -886,194 +798,6 @@
     .card-grid {
       grid-template-columns: 1fr;
     }
-  }
-
-  .folio-card {
-    position: relative;
-    display: flex;
-    width: 100%;
-    border-radius: 0.625rem;
-    background: var(--solus-container-bg);
-    border: 0.0625rem solid transparent;
-    box-shadow:
-      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04),
-      0 0.0625rem 0.125rem rgba(0, 0, 0, 0.02);
-    transition:
-      border-color 200ms ease,
-      box-shadow 200ms ease;
-    cursor: pointer;
-    user-select: none;
-    outline: none;
-    overflow: hidden;
-  }
-  .folio-card:hover {
-    border-color: color-mix(
-      in srgb,
-      var(--solus-accent) 20%,
-      var(--solus-container-border)
-    );
-    box-shadow:
-      0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
-      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
-  }
-  .folio-card:focus-visible {
-    border-color: color-mix(
-      in srgb,
-      var(--solus-accent) 40%,
-      var(--solus-container-border)
-    );
-    box-shadow:
-      0 0.125rem 0.5rem rgba(0, 0, 0, 0.06),
-      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04),
-      0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 8%, transparent);
-  }
-
-  .card-accent {
-    width: 0.1875rem;
-    flex-shrink: 0;
-    border-radius: 0.1875rem 0 0 0.1875rem;
-    background: var(--card-tone, var(--solus-accent));
-    opacity: 0.5;
-    transition: opacity 200ms ease;
-  }
-  .folio-card:hover .card-accent {
-    opacity: 0.85;
-  }
-
-  .card-body {
-    flex: 1;
-    min-width: 0;
-    padding: 0.625rem 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-
-  .card-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.3125rem;
-    font-size: 0.6563rem;
-    color: var(--solus-text-tertiary);
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .meta-text {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .meta-sep {
-    opacity: 0.35;
-    flex-shrink: 0;
-  }
-
-  .folio-card__actions {
-    display: flex;
-    align-items: center;
-    gap: 0.0625rem;
-    flex-shrink: 0;
-  }
-  .card-icon-btn {
-    width: 1.25rem;
-    height: 1.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.3125rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      opacity 0.15s ease,
-      background 0.15s ease,
-      color 0.15s ease;
-    opacity: 0;
-  }
-  .folio-card:hover .card-icon-btn,
-  .folio-card:focus-within .card-icon-btn {
-    opacity: 1;
-  }
-  .card-icon-btn.always-show {
-    opacity: 1;
-  }
-  .card-icon-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .card-icon-btn.is-active {
-    color: var(--solus-accent);
-  }
-  .card-icon-btn--danger:hover {
-    background: color-mix(
-      in srgb,
-      var(--solus-status-error, #e53e3e) 12%,
-      transparent
-    );
-    color: var(--solus-status-error, #e53e3e);
-  }
-
-  /* Per-type tone: docs use the warm app accent, diagrams a sage hue, so a
-     glance separates the two without reading the label. */
-  .folio-card--doc {
-    --card-tone: var(--solus-accent);
-  }
-  .folio-card--diagram {
-    --card-tone: var(--solus-art-3, #5a9e6f);
-  }
-
-  /* Tone-tinted type glyph, mirroring PlanCard's provider badge. */
-  .type-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1rem;
-    height: 1rem;
-    border-radius: 0.3125rem;
-    color: var(--card-tone, var(--solus-accent));
-    background: color-mix(
-      in srgb,
-      var(--card-tone, var(--solus-accent)) 12%,
-      transparent
-    );
-    box-shadow: inset 0 0 0 0.0625rem
-      color-mix(in srgb, var(--card-tone, var(--solus-accent)) 18%, transparent);
-    flex-shrink: 0;
-  }
-
-  .folio-title {
-    font-size: 0.8125rem;
-    font-weight: 550;
-    color: var(--solus-text-primary);
-    line-height: 1.3;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    letter-spacing: -0.01em;
-  }
-
-  .folio-excerpt {
-    font-size: 0.7188rem;
-    color: var(--solus-text-tertiary);
-    line-height: 1.5;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-  .folio-excerpt--muted {
-    font-style: italic;
-    opacity: 0.8;
   }
 
   /* ── New button + menu ── */

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, onDestroy, onMount } from "svelte";
   import { fly } from "svelte/transition";
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
   import {
     MagnifyingGlassIcon,
     PlusIcon,
@@ -56,7 +56,7 @@
 
   let query = $state("");
   let selectedIndex = $state(0);
-  let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
+  let searchEl: HTMLInputElement | null = $state(null);
   let popoverEl: HTMLDivElement | null = $state(null);
   let showHistorySkeleton = $state(false);
   let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
@@ -393,15 +393,13 @@
       class="flex-shrink-0 text-(--solus-text-tertiary)"
     />
     <Input
-      bind:el={searchEl}
+      bind:ref={searchEl}
       bind:value={query}
       type="text"
-      variant="bare"
-      size="lg"
       placeholder={historyLoading
         ? "Loading sessions…"
         : `Search ${allEntries.length} sessions in ${historyScopeLabel}…`}
-      class="flex-1 tracking-[-0.005em]"
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none tracking-[-0.005em] focus-visible:ring-0 dark:bg-transparent"
       onkeydown={(e) => {
         if (e.key === "Enter" && runtime.isMobileViewport) {
           e.stopPropagation();

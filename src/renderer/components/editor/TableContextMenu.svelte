@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition'
-  import { getPopoverLayer, useClickOutside } from '../popoverLayer.svelte'
-  import { portal } from '../portal'
   import type { Editor } from '@tiptap/core'
+  import * as ContextMenu from '../ui/context-menu'
   import {
     ArrowLineLeft,
     ArrowLineRight,
@@ -19,23 +17,6 @@
   }
 
   let { editor, coords, onClose }: Props = $props()
-
-  const layer = getPopoverLayer()
-  let menuEl: HTMLDivElement | null = $state(null)
-
-  useClickOutside(
-    () => true,
-    () => [menuEl],
-    () => onClose(),
-  )
-
-  const posStyle = $derived.by(() => {
-    const spaceBelow = window.innerHeight - coords.y
-    const spaceRight = window.innerWidth - coords.x
-    const top = spaceBelow >= 260 ? coords.y : coords.y - 260
-    const left = spaceRight >= 180 ? coords.x : coords.x - 180
-    return `position:fixed;top:${top}px;left:${left}px`
-  })
 
   type TableAction = {
     label: string
@@ -88,45 +69,23 @@
     },
   ]
 
-  function handleAction(fn: () => void) {
-    fn()
-    onClose()
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      onClose()
-    }
-  }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if layer.el}
-  <div use:portal={layer.el} transition:fly={{ y: 4, duration: 140, opacity: 0 }} style={posStyle}>
-    <div
-      bind:this={menuEl}
-      class="table-ctx-menu overflow-y-auto rounded-xl py-1.5 px-1 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
-      style="min-width:11.25rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow)"
-      role="menu"
-    >
-      {#each actions as item}
-        {#if item.dividerBefore}
-          <div class="mx-1.5 my-1 h-px bg-(--solus-container-border)"></div>
-        {/if}
-        {@const Icon = item.icon}
-        <button
-          onclick={() => handleAction(item.action)}
-          class="flex w-full cursor-pointer items-center gap-[0.5625rem] rounded-md border-0 bg-transparent px-[0.5625rem] py-1.5 text-left transition-[background,color] duration-(--duration-quick,120ms) ease-(--ease-premium,cubic-bezier(0.16,1,0.3,1)) hover:bg-(--solus-surface-hover) motion-reduce:transition-none {item.danger ? 'hover:bg-[color-mix(in_srgb,var(--solus-error,#e05252)_10%,transparent)]' : ''}"
-          role="menuitem"
-        >
-          <span class="inline-flex shrink-0 items-center text-(--solus-text-tertiary) transition-colors duration-(--duration-quick,120ms) ease-(--ease-premium,cubic-bezier(0.16,1,0.3,1)) motion-reduce:transition-none {item.danger ? 'text-(--solus-error,#e05252)' : ''}">
-            <Icon size={13} />
-          </span>
-          <span class="text-[0.75rem] leading-tight font-medium text-(--solus-text-primary) transition-colors duration-(--duration-quick,120ms) ease-(--ease-premium,cubic-bezier(0.16,1,0.3,1)) motion-reduce:transition-none {item.danger ? 'text-(--solus-error,#e05252)' : ''}">{item.label}</span>
-        </button>
-      {/each}
-    </div>
-  </div>
-{/if}
+<ContextMenu.Root onOpenChange={(open) => { if (!open) onClose() }}>
+  <ContextMenu.PointTrigger x={coords.x} y={coords.y} />
+  <ContextMenu.Content class="min-w-44">
+    {#each actions as item}
+      {#if item.dividerBefore}
+        <ContextMenu.Separator />
+      {/if}
+      {@const Icon = item.icon}
+      <ContextMenu.Item
+        variant={item.danger ? 'destructive' : 'default'}
+        onSelect={item.action}
+      >
+        <Icon />
+        {item.label}
+      </ContextMenu.Item>
+    {/each}
+  </ContextMenu.Content>
+</ContextMenu.Root>

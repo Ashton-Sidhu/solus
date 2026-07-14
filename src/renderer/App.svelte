@@ -20,6 +20,7 @@
   } from "phosphor-svelte";
   import OfflineBanner from "./components/servers/OfflineBanner.svelte";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
+  import { Toaster } from "./components/ui/sonner/index.js";
   import type { Command } from "./components/command-palette/lib/commands";
   import { projectsStore } from "./contexts/projects.store.svelte";
   import { toasts } from "./contexts/toast.store.svelte";
@@ -63,6 +64,8 @@
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
   import { initAnalytics, analytics } from "./lib/analytics";
+
+  const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
   type EditorLayoutModule = typeof import("./components/layout/EditorLayout.svelte");
   type EditorLayoutComponent = EditorLayoutModule["default"];
@@ -1383,6 +1386,16 @@
     };
   });
 </script>
+
+<svelte:window onkeydowncapture={toasts.handleKeydown} />
+
+<Toaster
+  theme={settings.isDark ? "dark" : "light"}
+  position="top-right"
+  visibleToasts={1}
+  duration={6000}
+  hotkey={TOAST_HOTKEY}
+/>
 
 <!-- Popover overlay layer: sits above everything, ignores events except where portals opt in. -->
 <div

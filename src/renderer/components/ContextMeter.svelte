@@ -2,7 +2,7 @@
   import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
   import { tooltip } from "../lib/tooltip";
   import { requestInputFocus } from "../lib/inputFocus";
-  import Dropdown from "./ui/Dropdown.svelte";
+  import * as Popover from "./ui/popover";
   import {
     contextTokensUsed,
     resolveContextWindow,
@@ -25,12 +25,6 @@
   const result = $derived(sess?.lastResult ?? null);
 
   let open = $state(false);
-  let triggerEl = $state<HTMLButtonElement | null>(null);
-
-  function toggle() {
-    open = !open;
-    if (!open) requestInputFocus();
-  }
 
   const rows = $derived(
     [
@@ -45,17 +39,18 @@
 
 {#if tabId}
   <div class="flex items-center" data-testid="context-meter">
-    <button
-      bind:this={triggerEl}
-      type="button"
-      onclick={toggle}
-      aria-haspopup="dialog"
-      aria-expanded={open}
-      aria-label={`${pct}% of context window used`}
-      data-testid="context-meter-trigger"
-      class="group flex items-center rounded-full p-1 cursor-pointer transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
-      use:tooltip={`${pct}% of context window used`}
-    >
+    <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+      <Popover.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            type="button"
+            aria-haspopup="dialog"
+            aria-label={`${pct}% of context window used`}
+            data-testid="context-meter-trigger"
+            class="group flex items-center rounded-full p-1 cursor-pointer transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
+            use:tooltip={`${pct}% of context window used`}
+          >
       <svg
         class="h-3.5 w-3.5 -rotate-90"
         viewBox="0 0 16 16"
@@ -82,9 +77,10 @@
           class="transition-[stroke-dashoffset] duration-300 ease-out"
         />
       </svg>
-    </button>
-
-    <Dropdown bind:open {triggerEl} align="bottom" width={224}>
+          </button>
+        {/snippet}
+      </Popover.Trigger>
+      <Popover.Content side="bottom" align="start" sideOffset={6} class="z-[10002] w-[224px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
       <div
         role="dialog"
         aria-label="Context usage details"
@@ -150,6 +146,7 @@
           {/if}
         </div>
       </div>
-    </Dropdown>
+      </Popover.Content>
+    </Popover.Root>
   </div>
 {/if}

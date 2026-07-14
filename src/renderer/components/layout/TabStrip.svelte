@@ -32,8 +32,8 @@
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { createTabScroll } from "../../lib/tabScroll.svelte";
-  import { portal } from "../portal";
-  import { getPopoverLayer } from "../popoverLayer.svelte";
+  import * as ContextMenu from "../ui/context-menu";
+  import * as Tabs from "../ui/tabs";
   import {
     getAttentionState,
     attentionLabel,
@@ -280,27 +280,9 @@
     dragOverTabId = null;
   }
 
-  const popoverLayer = getPopoverLayer();
   let contextMenu = $state<{ tabId: string; x: number; y: number } | null>(
     null,
   );
-  let contextMenuEl = $state<HTMLDivElement | null>(null);
-
-  // Capture phase: the tab bar stops mousedown propagation, so a bubble-phase
-  // document listener never sees outside clicks. Capture runs before that.
-  $effect(() => {
-    if (!contextMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (!contextMenuEl?.contains(e.target as Node)) closeContextMenu();
-    };
-    const timer = window.setTimeout(() => {
-      document.addEventListener("mousedown", handler, true);
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("mousedown", handler, true);
-    };
-  });
 
   function openContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
@@ -454,7 +436,16 @@
   {/if}
 {/snippet}
 
-<div class="no-drag flex flex-col" class:editor-variant={variant === "editor"}>
+<Tabs.Root
+  value={session.activeTabId}
+  onValueChange={(value) => {
+    session.selectTab(value);
+    requestInputFocus();
+  }}
+  activationMode="manual"
+  class="contents"
+>
+  <div class="no-drag flex flex-col" class:editor-variant={variant === "editor"}>
   <div class="tab-bar-row flex items-center" bind:this={barEl}>
     <div class="tab-seam" aria-hidden="true"></div>
     {#if showSidebarToggle}
@@ -484,11 +475,12 @@
           <CaretLeftIcon size={9} />
         </button>
       {/if}
-      <div
-        class="tab-scroll-row flex items-center gap-0.5 overflow-x-auto min-w-0"
-        use:tabScroll.attach
-        style="scrollbar-width:none; padding-left:0.5rem; padding-right:0.875rem; mask-image:{maskImage}; -webkit-mask-image:{maskImage};"
-      >
+      <Tabs.List class="contents">
+        <div
+          class="tab-scroll-row flex items-center gap-0.5 overflow-x-auto min-w-0"
+          use:tabScroll.attach
+          style="scrollbar-width:none; padding-left:0.5rem; padding-right:0.875rem; mask-image:{maskImage}; -webkit-mask-image:{maskImage};"
+        >
         {#if isGrouped && groupedSections}
           {#each groupedSections as group, gi (group.key)}
             {@const gv = group.visual}
@@ -521,38 +513,31 @@
                   : null}
               {@const needsAttention = !!attention && attention !== "running"}
               {@const isUnread = attention === "unread"}
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div
-                onclick={() => {
-                  session.selectTab(tabId);
-                  requestInputFocus();
-                }}
-                oncontextmenu={(e) => openContextMenu(e, tabId)}
-                data-testid="tab-item"
-                data-status={sess?.status ?? "idle"}
-                class="tab-item {isActive ? 'active' : ''} {needsAttention
-                  ? 'needs-attention'
-                  : ''} {isUnread ? 'unread' : ''}"
-                role="tab"
-                aria-selected={isActive}
-                aria-label={tab
-                  ? needsAttention
-                    ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
-                    : tabLabel(tab, sess)
-                  : undefined}
-                title={tab
-                  ? `${tabLabel(tab, sess)} — ${projectByline(sess)}`
-                  : undefined}
-                tabindex="0"
-                onkeydown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    session.selectTab(tabId);
-                    requestInputFocus();
-                  }
-                }}
-              >
-                {@render tabInner(tabId, showTabStatusInGroup)}
-              </div>
+              <Tabs.Trigger value={tabId} class="contents">
+                {#snippet child({ props })}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    {...props}
+                    aria-controls={undefined}
+                    oncontextmenu={(e) => openContextMenu(e, tabId)}
+                    data-testid="tab-item"
+                    data-status={sess?.status ?? "idle"}
+                    class="tab-item {isActive ? 'active' : ''} {needsAttention
+                      ? 'needs-attention'
+                      : ''} {isUnread ? 'unread' : ''}"
+                    aria-label={tab
+                      ? needsAttention
+                        ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
+                        : tabLabel(tab, sess)
+                      : undefined}
+                    title={tab
+                      ? `${tabLabel(tab, sess)} — ${projectByline(sess)}`
+                      : undefined}
+                  >
+                    {@render tabInner(tabId, showTabStatusInGroup)}
+                  </div>
+                {/snippet}
+              </Tabs.Trigger>
             {/each}
           {/each}
         {:else}
@@ -566,51 +551,49 @@
                 : null}
             {@const needsAttention = !!attention && attention !== "running"}
             {@const isUnread = attention === "unread"}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               animate:flip={{ duration: TAB_FLIP_MS }}
               in:scale={{ start: 0.92, duration: 130 }}
               out:scale={{ start: 0.96, duration: 90, easing: quintOut }}
-              draggable="true"
-              ondragstart={(e) => onTabDragStart(e, tabId)}
-              ondragover={(e) => onTabDragOver(e, tabId)}
-              ondrop={(e) => onTabDrop(e, tabId)}
-              ondragend={onTabDragEnd}
-              onclick={() => {
-                session.selectTab(tabId);
-                requestInputFocus();
-              }}
-              oncontextmenu={(e) => openContextMenu(e, tabId)}
-              data-testid="tab-item"
-              data-status={sess?.status ?? "idle"}
-              class="tab-item {isActive ? 'active' : ''} {needsAttention
-                ? 'needs-attention'
-                : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
-                ? 'dragging'
-                : ''} {dragOverTabId === tabId ? 'drag-over' : ''}"
-              role="tab"
-              aria-selected={isActive}
-              aria-label={tab
-                ? needsAttention
-                  ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
-                  : tabLabel(tab, sess)
-                : undefined}
-              title={tab
-                ? `${tabLabel(tab, sess)} — ${projectByline(sess)}`
-                : undefined}
-              tabindex="0"
-              onkeydown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  session.selectTab(tabId);
-                  requestInputFocus();
-                }
-              }}
+              class="flex shrink-0"
             >
-              {@render tabInner(tabId, true)}
+              <Tabs.Trigger value={tabId} class="contents">
+                {#snippet child({ props })}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    {...props}
+                    aria-controls={undefined}
+                    draggable="true"
+                    ondragstart={(e) => onTabDragStart(e, tabId)}
+                    ondragover={(e) => onTabDragOver(e, tabId)}
+                    ondrop={(e) => onTabDrop(e, tabId)}
+                    ondragend={onTabDragEnd}
+                    oncontextmenu={(e) => openContextMenu(e, tabId)}
+                    data-testid="tab-item"
+                    data-status={sess?.status ?? "idle"}
+                    class="tab-item {isActive ? 'active' : ''} {needsAttention
+                      ? 'needs-attention'
+                      : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
+                      ? 'dragging'
+                      : ''} {dragOverTabId === tabId ? 'drag-over' : ''}"
+                    aria-label={tab
+                      ? needsAttention
+                        ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
+                        : tabLabel(tab, sess)
+                      : undefined}
+                    title={tab
+                      ? `${tabLabel(tab, sess)} — ${projectByline(sess)}`
+                      : undefined}
+                  >
+                    {@render tabInner(tabId, true)}
+                  </div>
+                {/snippet}
+              </Tabs.Trigger>
             </div>
           {/each}
         {/if}
-      </div>
+        </div>
+      </Tabs.List>
       {#if tabScroll.overflowing}
         <button
           class="tab-scroll-btn tab-scroll-btn--right"
@@ -701,75 +684,50 @@
   {#if variant === "pill"}
     <div class="tab-strip-divider"></div>
   {/if}
-</div>
+  </div>
+</Tabs.Root>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (contextMenu && e.key === "Escape") closeContextMenu();
-  }}
-/>
-
-{#if contextMenu && popoverLayer.el}
+{#if contextMenu}
   {@const ctxSess = session.sessionFor(contextMenu.tabId)}
-  <div
-    bind:this={contextMenuEl}
-    class="fixed z-[9999] flex min-w-40 flex-col gap-px rounded-lg border border-(--solus-container-border) bg-(--solus-popover-bg) p-1 shadow-[0_0.5rem_1.5rem_rgba(0,0,0,0.18)]"
-    use:portal={popoverLayer.el}
-    style="left:{contextMenu.x}px;top:{contextMenu.y}px"
-    role="menu"
-  >
+  <ContextMenu.Root onOpenChange={(open) => { if (!open) closeContextMenu() }}>
+    <ContextMenu.PointTrigger x={contextMenu.x} y={contextMenu.y} />
+    <ContextMenu.Content class="min-w-44">
     {#if ctxSess?.agentSessionId}
-      <button
-        class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-text-primary) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
-        role="menuitem"
-        onclick={() => forkFromContextMenu(contextMenu!.tabId)}
-      >
-        <GitForkIcon size={12} />
-        <span>Fork Session</span>
-        <span class="ml-auto font-mono text-[0.625rem] opacity-45">⌥F</span>
-      </button>
+      <ContextMenu.Item onSelect={() => forkFromContextMenu(contextMenu!.tabId)}>
+        <GitForkIcon />
+        Fork Session
+        <ContextMenu.Shortcut>⌥F</ContextMenu.Shortcut>
+      </ContextMenu.Item>
       {#if !ctxSess?.gitContext?.worktreePath}
-        <button
-          class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-text-primary) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
-          role="menuitem"
+        <ContextMenu.Item
           disabled={session.isContinuingInWorktree(contextMenu.tabId)}
-          onclick={() => continueWorktreeFromContextMenu(contextMenu!.tabId)}
+          onSelect={() => continueWorktreeFromContextMenu(contextMenu!.tabId)}
         >
           <TreeStructureIcon
-            size={12}
             class={session.isContinuingInWorktree(contextMenu.tabId)
               ? "tab-status-spin"
               : ""}
           />
-          <span
-            >{session.isContinuingInWorktree(contextMenu.tabId)
-              ? "Creating Worktree…"
-              : "Continue in Worktree"}</span
-          >
+          {session.isContinuingInWorktree(contextMenu.tabId)
+            ? "Creating Worktree…"
+            : "Continue in Worktree"}
           {#if !session.isContinuingInWorktree(contextMenu.tabId)}
-            <span class="ml-auto font-mono text-[0.625rem] opacity-45">⌥W</span>
+            <ContextMenu.Shortcut>⌥W</ContextMenu.Shortcut>
           {/if}
-        </button>
+        </ContextMenu.Item>
       {/if}
-      <div class="mx-1 my-0.5 h-px bg-(--solus-container-border)"></div>
+      <ContextMenu.Separator />
     {/if}
     {#if variant === "editor"}
-      <button
-        class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-text-primary) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
-        role="menuitem"
-        onclick={() => openInSplitFromContextMenu(contextMenu!.tabId)}
-      >
-        <ColumnsIcon size={12} />
-        <span>Open in Split</span>
-      </button>
+      <ContextMenu.Item onSelect={() => openInSplitFromContextMenu(contextMenu!.tabId)}>
+        <ColumnsIcon />
+        Open in Split
+      </ContextMenu.Item>
     {/if}
-    <button
-      class="flex w-full cursor-pointer items-center gap-[0.4375rem] rounded-[0.3125rem] border-0 bg-transparent px-2 py-1.5 text-left text-xs text-(--solus-status-error) transition-[background] duration-100 hover:bg-(--solus-surface-hover)"
-      role="menuitem"
-      onclick={() => closeFromContextMenu(contextMenu!.tabId)}
-    >
-      <XIcon size={12} />
-      <span>Close Tab</span>
-    </button>
-  </div>
+    <ContextMenu.Item variant="destructive" onSelect={() => closeFromContextMenu(contextMenu!.tabId)}>
+      <XIcon />
+      Close Tab
+    </ContextMenu.Item>
+    </ContextMenu.Content>
+  </ContextMenu.Root>
 {/if}

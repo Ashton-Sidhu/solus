@@ -9,11 +9,12 @@
     SpinnerGapIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import type { RemoteSkill } from "../../../shared/types";
+  import { Button } from "../ui/button";
 
   const agentContext = getAgentContext();
   const workspace = getWorkspaceContext();
@@ -27,7 +28,7 @@
   );
 
   let query = $state("");
-  let searchEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  let searchEl = $state<HTMLInputElement | null>(null);
   let results = $state<RemoteSkill[]>([]);
   const visibleResults = $derived(results.slice(0, 10));
   let searching = $state(false);
@@ -126,15 +127,13 @@
       class="absolute left-3 top-1/2 -translate-y-1/2 text-(--solus-text-tertiary) pointer-events-none z-10"
     />
     <Input
-      bind:el={searchEl}
+      bind:ref={searchEl}
       bind:value={query}
       oninput={onInput}
       onkeydown={onKeydown}
       type="text"
-      variant="bare"
-      size="md"
       placeholder="Search skills…"
-      class="w-full pl-9 pr-3 py-2 rounded-lg bg-(--solus-input-bg-soft) shadow-[inset_0_0_0_0.0625rem_var(--solus-container-border)] [transition:box-shadow_var(--duration-base)_var(--ease-premium)] focus:shadow-[inset_0_0_0_0.0625rem_var(--solus-input-focus-border),0_0_0_0.1875rem_var(--solus-input-focus-ring)]"
+      class="h-auto w-full rounded-lg border-0 bg-(--solus-input-bg-soft) py-2 pl-9 pr-3 text-[0.7813rem] shadow-[inset_0_0_0_0.0625rem_var(--solus-container-border)] [transition:box-shadow_var(--duration-base)_var(--ease-premium)] focus:shadow-[inset_0_0_0_0.0625rem_var(--solus-input-focus-border),0_0_0_0.1875rem_var(--solus-input-focus-ring)] focus-visible:ring-0 dark:bg-(--solus-input-bg-soft)"
     />
   </div>
 
@@ -193,11 +192,11 @@
               Installed
             </span>
           {:else}
-            <button
-              type="button"
+            <Button
+              size="sm"
               onclick={() => install(skill)}
               disabled={isInstalling}
-              class="flex items-center gap-1.5 shrink-0 text-[0.8125rem] font-medium py-1.5 px-3 rounded-lg text-white bg-(--solus-accent) border border-(--solus-accent) cursor-pointer transition-opacity duration-150 hover:not-disabled:opacity-90 disabled:opacity-65 disabled:cursor-default"
+              class="shrink-0"
               data-testid="skill-install"
             >
               {#if isInstalling}
@@ -207,7 +206,7 @@
                 <DownloadSimpleIcon size={13} />
                 Install
               {/if}
-            </button>
+            </Button>
           {/if}
         </div>
       {/each}

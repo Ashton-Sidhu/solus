@@ -1,4 +1,6 @@
-/** Visual tone of a toast — drives its icon and accent colour. */
+import { toast, type ExternalToast } from "svelte-sonner"
+
+/** Visual tone of a toast. */
 export type ToastVariant = "info" | "success" | "error" | "undo"
 
 /** Optional action button shown on the trailing edge of a toast. */
@@ -25,45 +27,73 @@ export interface ToastSpec {
   onDismiss?: () => void
 }
 
-interface ActiveToast extends ToastSpec {
+interface ActiveToast {
   id: number
-  variant: ToastVariant
+  action?: ToastAction
+  onDismiss?: () => void
+  settled: boolean
 }
 
-/** Options accepted by the convenience helpers (everything except the message
- *  and the variant, which the helper sets). */
 type ToastOptions = Omit<ToastSpec, "message" | "variant">
 
-/** App-wide toast queue. One toast shows at a time, top-right of the active shell.
- *  A module singleton (not context-injected) so non-component code — e.g. the
- *  session store — can raise toasts too. */
+/** App-wide Sonner adapter. It preserves the existing single-toast and deferred
+ *  commit semantics while allowing non-component code to raise toasts. */
 class ToastStore {
-  current = $state<ActiveToast | null>(null)
+  #active: ActiveToast | null = null
   #seq = 0
 
   /** Show a toast, committing (dismissing) any toast it replaces. */
   show(spec: ToastSpec): void {
-    this.current?.onDismiss?.()
-    this.current = { ...spec, variant: spec.variant ?? "info", id: ++this.#seq }
+    this.#commitActive()
+
+    const active: ActiveToast = {
+      id: ++this.#seq,
+      action: spec.action,
+      onDismiss: spec.onDismiss,
+      settled: false,
+    }
+    this.#active = active
+
+    const options: ExternalToast = {
+      id: active.id,
+      duration: spec.duration ?? 6000,
+      onDismiss: () => this.#settle(active, true),
+      onAutoClose: () => this.#settle(active, true),
+      action: spec.action
+        ? {
+            label: spec.action.label,
+            onClick: () => this.#runAction(active),
+          }
+        : undefined,
+    }
+
+    switch (spec.variant ?? "info") {
+      case "success":
+        toast.success(spec.message, options)
+        break
+      case "error":
+        toast.error(spec.message, options)
+        break
+      case "info":
+      case "undo":
+        toast.info(spec.message, options)
+        break
+    }
   }
 
-  /** Convenience: a success toast ("Saved", "Copied", …). */
   success(message: string, opts?: ToastOptions): void {
     this.show({ ...opts, message, variant: "success" })
   }
 
-  /** Convenience: an error toast ("Failed to save", …). */
   error(message: string, opts?: ToastOptions): void {
     this.show({ ...opts, message, variant: "error" })
   }
 
-  /** Convenience: a neutral informational / notification toast. */
   info(message: string, opts?: ToastOptions): void {
     this.show({ ...opts, message, variant: "info" })
   }
 
-  /** Convenience: an "X deleted — Undo" toast. `onUndo` runs if the user undoes;
-   *  `onDismiss` (the commit) runs if the undo window lapses instead. */
+  /** Show an Undo toast. The commit runs only if the undo window lapses. */
   undo(
     message: string,
     onUndo: () => void,
@@ -78,18 +108,36 @@ class ToastStore {
     })
   }
 
-  /** The user activated the current toast's action (e.g. Undo). */
-  runAction(): void {
-    const t = this.current
-    this.current = null
-    t?.action?.onAction()
+  /** Cmd/Ctrl+Z activates an Undo toast unless focus is in an editable field. */
+  handleKeydown = (event: KeyboardEvent): void => {
+    const active = this.#active
+    if (!active?.action || active.action.label !== "Undo") return
+    if (event.shiftKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return
+    const target = event.target as HTMLElement | null
+    if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+
+    event.preventDefault()
+    toast.dismiss(active.id)
+    this.#runAction(active)
   }
 
-  /** The current toast auto-dismissed or was manually dismissed. */
-  dismiss(): void {
-    const t = this.current
-    this.current = null
-    t?.onDismiss?.()
+  #runAction(active: ActiveToast): void {
+    this.#settle(active, false)
+    active.action?.onAction()
+  }
+
+  #commitActive(): void {
+    const active = this.#active
+    if (!active) return
+    this.#settle(active, true)
+    toast.dismiss(active.id)
+  }
+
+  #settle(active: ActiveToast, commit: boolean): void {
+    if (active.settled) return
+    active.settled = true
+    if (this.#active === active) this.#active = null
+    if (commit) active.onDismiss?.()
   }
 }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
   import {
     MagnifyingGlassIcon,
     FolderIcon,
@@ -359,11 +359,10 @@
             <div class="fn-search-row">
               <MagnifyingGlassIcon size={13} class="flex-shrink-0 text-(--solus-text-tertiary)" />
               <Input
-                bind:el={searchEl}
+                bind:ref={searchEl}
                 bind:value={filterQuery}
                 type="text"
-                variant="bare"
-                size="lg"
+                class="h-auto rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
                 placeholder="Filter..."
                 oninput={() => { selectedIndex = 0 }}
                 onkeydown={(e) => {
@@ -489,7 +488,7 @@
   .picker-container {
     width: clamp(32.5rem, 60vw, 60rem);
     height: clamp(21.25rem, 50vh, 36.25rem);
-    background: var(--solus-popover-bg);
+    background: #fcfbf8;
     border: 0.0625rem solid var(--solus-popover-border);
     border-radius: 1.125rem;
     box-shadow:
@@ -502,6 +501,7 @@
     transform-origin: center top;
   }
   :global(.dark) .picker-container {
+    background: #1e1d1a;
     box-shadow:
       var(--solus-popover-shadow),
       inset 0 0.0625rem 0 rgba(255, 255, 255, 0.06);

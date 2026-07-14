@@ -17,6 +17,7 @@
   import ActivityFeed from "./ActivityFeed.svelte";
   import PendingReviewTray from "./PendingReviewTray.svelte";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
+  import * as Tabs from "../ui/tabs";
 
   // The review surface (M3–M5): Activity · Guide · Diff content tabs over a PR's
   // change, living maximized in the secondary pane. The worktree-rooted chat is
@@ -175,19 +176,6 @@
     requestInputFocus();
   }
 
-  // Roving tablist focus (WAI-ARIA tabs pattern): arrows move and activate,
-  // and focus follows onto the newly selected tab instead of the input bar.
-  async function onTablistKeydown(e: KeyboardEvent) {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    const tablist = e.currentTarget as HTMLElement;
-    const idx = TABS.findIndex((t) => t.id === sub);
-    const step = e.key === "ArrowRight" ? 1 : TABS.length - 1;
-    av.prReviewTab = TABS[(idx + step) % TABS.length].id;
-    await tick();
-    tablist.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
-  }
-
   // File chips in the Guide / threads in Activity jump to the Diff tab rather
   // than spawning a separate diff pane (which would clobber this surface).
   let diffPanelRef: DiffPanel | null = $state(null);
@@ -239,26 +227,26 @@
   <header
     class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <div
-      class="inline-flex items-center gap-0.5 rounded-lg bg-(--solus-accent-light) p-0.5"
-      role="tablist"
-      aria-label="PR review tabs"
-      tabindex="-1"
-      onkeydown={onTablistKeydown}
+    <Tabs.Root
+      value={av.prReviewTab}
+      onValueChange={(value) => (av.prReviewTab = value as ContentTab)}
+      class="contents"
     >
-      {#each TABS as t (t.id)}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={sub === t.id}
-          tabindex={sub === t.id ? 0 : -1}
-          class={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${sub === t.id ? "bg-(--solus-container-bg) text-(--solus-text-primary) shadow-sm" : "text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"}`}
-          onclick={() => select(t.id)}
-        >
-          {t.label}
-        </button>
-      {/each}
-    </div>
+      <Tabs.List
+        aria-label="PR review tabs"
+        class="h-auto gap-0.5 rounded-lg bg-(--solus-accent-light) p-0.5"
+      >
+        {#each TABS as t (t.id)}
+          <Tabs.Trigger
+            value={t.id}
+            class="h-auto flex-none rounded-md border-0 px-2.5 py-1 text-xs font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-secondary) data-active:bg-(--solus-container-bg) data-active:text-(--solus-text-primary) data-active:shadow-sm"
+            onclick={requestInputFocus}
+          >
+            {t.label}
+          </Tabs.Trigger>
+        {/each}
+      </Tabs.List>
+    </Tabs.Root>
 
     <div class="flex min-w-0 flex-1 items-center text-xs text-(--solus-text-tertiary)">
       <button

@@ -14,8 +14,7 @@
   import { toasts } from "../../contexts/toast.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
 
   // Merge action for a single PR, backed by the merge queue as a run of one —
   // same live state broadcast as a batch run. The parent decides visibility
@@ -206,12 +205,13 @@
       <CaretDownIcon size={11} weight="bold" class="shrink-0" />
     </button>
   </div>
-  <Dropdown bind:open={menuOpen} {triggerEl} align="top" anchor="right" width={220}>
+  <DropdownMenu.Root bind:open={menuOpen}>
+    <DropdownMenu.Content customAnchor={triggerEl} side="top" align="end" sideOffset={6} class="w-[220px]">
     <div class="py-1" role="listbox" aria-label="Merge method">
       {#each METHOD_OPTIONS as opt (opt.value)}
-        <DropdownItem
-          selected={method === opt.value}
-          onclick={() => {
+        <DropdownMenu.Item
+          class={method === opt.value ? "font-semibold" : undefined}
+          onSelect={() => {
             method = opt.value;
             menuOpen = false;
           }}
@@ -224,8 +224,9 @@
               {opt.hint}
             </div>
           </div>
-        </DropdownItem>
+        </DropdownMenu.Item>
       {/each}
     </div>
-  </Dropdown>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 {/if}

@@ -10,6 +10,7 @@
   import type { AgentId, PlanDescriptor } from '../../../shared/types'
   import { formatTimeAgo } from '../../lib/sessionUtils'
   import { tooltip } from '../../lib/tooltip'
+  import { Button } from '../ui/button'
 
   interface Props {
     descriptor: PlanDescriptor
@@ -67,7 +68,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="row"
+  class="row group"
   class:selected
   data-selected={selected ? 'true' : null}
   onclick={(e) => { if (e.shiftKey) onResume(); else onOpen(); }}
@@ -106,24 +107,26 @@
     {/if}
     <span class="row-time">{timeLabel}</span>
     <div class="row-actions">
-      <button
-        type="button"
-        use:tooltip={descriptor.bookmarked ? 'Remove bookmark (⌥B)' : 'Bookmark (⌥B)'}
-        onclick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
-        class="row-icon-btn"
-        class:is-active={descriptor.bookmarked}
-        class:always-show={descriptor.bookmarked}
-      >
-        <BookmarkSimpleIcon size={11} weight={descriptor.bookmarked ? 'fill' : 'regular'} />
-      </button>
-      <button
-        type="button"
-        use:tooltip={'Resume session (⇧+Enter)'}
-        onclick={(e) => { e.stopPropagation(); onResume(); }}
-        class="row-icon-btn"
-      >
-        <ArrowUpRightIcon size={11} />
-      </button>
+      <span class="inline-flex" use:tooltip={descriptor.bookmarked ? 'Remove bookmark (⌥B)' : 'Bookmark (⌥B)'}>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onclick={(e) => { e.stopPropagation(); onToggleBookmark(); }}
+          class="opacity-0 transition-opacity group-hover:opacity-100 group-data-[selected=true]:opacity-100 {descriptor.bookmarked ? 'opacity-100 text-(--solus-accent)' : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
+        >
+          <BookmarkSimpleIcon size={11} weight={descriptor.bookmarked ? 'fill' : 'regular'} />
+        </Button>
+      </span>
+      <span class="inline-flex" use:tooltip={'Resume session (⇧+Enter)'}>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onclick={(e) => { e.stopPropagation(); onResume(); }}
+          class="opacity-0 transition-opacity group-hover:opacity-100 group-data-[selected=true]:opacity-100 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+        >
+          <ArrowUpRightIcon size={11} />
+        </Button>
+      </span>
     </div>
   </div>
 </div>
@@ -242,32 +245,5 @@
   .row-actions {
     display: flex;
     gap: 0.125rem;
-  }
-  .row-icon-btn {
-    width: 1.25rem;
-    height: 1.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    opacity: 0;
-    transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
-  }
-  .row:hover .row-icon-btn,
-  .row.selected .row-icon-btn {
-    opacity: 1;
-  }
-  .row-icon-btn.always-show {
-    opacity: 1;
-  }
-  .row-icon-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .row-icon-btn.is-active {
-    color: var(--solus-accent);
   }
 </style>

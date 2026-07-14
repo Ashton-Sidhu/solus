@@ -7,6 +7,7 @@
     WarningCircleIcon,
   } from "phosphor-svelte";
   import type { StatusCardState } from "../../../shared/types";
+  import * as Card from "../ui/card";
 
   interface Props {
     card: StatusCardState;
@@ -28,16 +29,14 @@
 </script>
 
 <div class="px-4 py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
-  <div
-    class="status-card w-full max-w-[28rem] overflow-hidden rounded-xl bg-(--solus-container-bg)"
-    class:is-error={card.status === "error"}
-    class:no-motion={skipMotion}
+  <Card.Root
+    class="status-card w-full max-w-[28rem] gap-0 overflow-hidden rounded-xl bg-(--solus-container-bg) py-0 {card.status === 'error' ? 'is-error' : ''} {skipMotion ? 'no-motion' : ''}"
     role="status"
     aria-live="polite"
     data-testid="status-card"
     style={`--status-progress:${progressPercent}%`}
   >
-    <div class="flex items-center gap-2.5 px-3.5 py-3">
+    <Card.Header class="flex grid-cols-none grid-rows-none items-center gap-2.5 px-3.5 py-3">
       <span
         class="icon-chip relative grid size-8 shrink-0 place-items-center rounded-lg bg-(--solus-accent-light)"
         class:is-active={card.status === "active"}
@@ -67,7 +66,7 @@
           <span class="status-progress-fill"></span>
         </span>
       </div>
-    </div>
+    </Card.Header>
 
     <ul class="status-steps flex flex-col" role="list">
       {#each card.steps as step, i (step.id)}
@@ -132,18 +131,18 @@
         </li>
       {/each}
     </ul>
-  </div>
+  </Card.Root>
 </div>
 
 <style>
-  .status-card {
+  :global(.status-card) {
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--solus-tool-border) 92%, transparent),
       0 0.5rem 1.25rem color-mix(in srgb, #000 12%, transparent),
       0 0.0625rem 0.25rem color-mix(in srgb, #000 8%, transparent),
       inset 0 0.0625rem 0 color-mix(in srgb, #fff 14%, transparent);
   }
-  .status-card.is-error {
+  :global(.status-card.is-error) {
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--solus-status-error) 48%, transparent),
       0 0.5rem 1.25rem color-mix(in srgb, #000 12%, transparent),
@@ -172,7 +171,7 @@
     box-shadow: 0 0 0.75rem color-mix(in srgb, var(--solus-accent) 45%, transparent);
     transition: width 0.35s var(--ease-premium);
   }
-  .status-card.is-error .status-progress-fill {
+  :global(.status-card.is-error) .status-progress-fill {
     background: var(--solus-status-error);
     box-shadow: 0 0 0.75rem color-mix(in srgb, var(--solus-status-error) 28%, transparent);
   }
@@ -243,7 +242,7 @@
     }
   }
 
-  .no-motion .status-step {
+  :global(.no-motion) .status-step {
     animation: none;
   }
 
