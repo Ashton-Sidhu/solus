@@ -3,9 +3,16 @@
   import { MagnifyingGlassIcon, CaretRightIcon, CaretLeftIcon } from 'phosphor-svelte'
   import Kbd from '../ui/Kbd.svelte'
   import VirtualizedList from '../ui/VirtualizedList.svelte'
+  import * as CommandMenu from '../ui/command'
   import { useScope, useKeybinding } from '../../lib/keybindings/use-keybinding.svelte'
   import { requestInputFocus } from '../../lib/inputFocus'
-  import { filterCommands, groupCommands, type Command } from './lib/commands'
+  import {
+    filterCommands,
+    groupCommands,
+    visibleCommandEdge,
+    type Command,
+    type CommandDisplayRow,
+  } from './lib/commands'
 
   interface Props {
     open: boolean
@@ -22,13 +29,15 @@
   const GROUP_HEADER_HEIGHT = 28
   const COMMAND_ROW_HEIGHT = 36
   const MAX_LIST_HEIGHT = 384
-
-  type DisplayRow =
-    | { kind: 'header'; title: string }
-    | { kind: 'command'; cmd: Command; commandIndex: number }
+  // Bits UI navigation scans every mounted item. Keep its native path for
+  // ordinary palettes, and window only provider-backed pages large enough for
+  // that DOM work to become noticeable.
+  const VIRTUALIZE_COMMAND_COUNT = 80
 
   let query = $state('')
-  let selected = $state(0)
+  let selectedValue = $state('')
+  let virtualSelected = $state(0)
+  let virtualScrollOffset = 0
   let searchEl: HTMLInputElement | null = $state(null)
   // Distinguishes a real pointer move from the mouseenter the browser fires
   // when keyboard nav scrolls a different row under a stationary cursor —
@@ -49,11 +58,10 @@
   })
   const filtered = $derived(filterCommands(activeCommands, query))
   const groups = $derived(groupCommands(filtered))
-  // Flat list in *render* order (grouped), so arrow-key nav matches what the
-  // user sees. `filtered` is in raw command order, which differs once grouped.
-  const ordered = $derived(groups.flatMap((g) => g.items))
-  const hasResults = $derived(ordered.length > 0)
-  const rows = $derived.by<DisplayRow[]>(() => {
+  const ordered = $derived(groups.flatMap((group) => group.items))
+  const hasResults = $derived(filtered.length > 0)
+  const isVirtualized = $derived(activeCommands.length >= VIRTUALIZE_COMMAND_COUNT)
+  const rows = $derived.by<CommandDisplayRow[]>(() => {
     let commandIndex = 0
     const result: DisplayRow[] = []
     for (const group of groups) {
@@ -66,7 +74,9 @@
     return result
   })
   const selectedRowIndex = $derived(
-    rows.findIndex((row) => row.kind === 'command' && row.commandIndex === selected),
+    rows.findIndex(
+      (row) => row.kind === 'command' && row.commandIndex === virtualSelected,
+    ),
   )
   const listHeight = $derived(
     Math.min(
@@ -81,23 +91,87 @@
 
   useScope('command-palette', { exclusive: true, active: () => open })
   useKeybinding('command-palette.close', () => close())
-  useKeybinding('command-palette.next', () => move(1))
-  useKeybinding('command-palette.prev', () => move(-1))
+  useKeybinding('command-palette.next', () => moveVirtualSelection(1), {
+    enabled: () => open && isVirtualized,
+  })
+  useKeybinding('command-palette.prev', () => moveVirtualSelection(-1), {
+    enabled: () => open && isVirtualized,
+  })
   useKeybinding('command-palette.select', () => {
-    const cmd = ordered[selected]
+    const cmd = ordered[virtualSelected]
     if (cmd) run(cmd)
+  }, {
+    enabled: () => open && isVirtualized,
   })
 
-  function move(delta: 1 | -1) {
-    if (ordered.length === 0) return
-    selected = (selected + delta + ordered.length) % ordered.length
-  }
-
-  function onRowPointerMove(e: MouseEvent, commandIndex: number) {
+  function onRowPointerMove(e: PointerEvent, commandId: string) {
     if (e.clientX === lastPointerX && e.clientY === lastPointerY) return
     lastPointerX = e.clientX
     lastPointerY = e.clientY
-    selected = commandIndex
+    selectedValue = commandId
+  }
+
+  function onVirtualRowPointerMove(e: MouseEvent, commandIndex: number) {
+    if (e.clientX === lastPointerX && e.clientY === lastPointerY) return
+    lastPointerX = e.clientX
+    lastPointerY = e.clientY
+    virtualSelected = commandIndex
+  }
+
+  function moveVirtualSelection(delta: 1 | -1) {
+    if (ordered.length === 0) return
+
+    const visibleEdge = visibleCommandEdge(
+      rows,
+      virtualSelected,
+      virtualScrollOffset,
+      listHeight,
+      GROUP_HEADER_HEIGHT,
+      COMMAND_ROW_HEIGHT,
+      delta,
+    )
+    if (visibleEdge !== null) {
+      virtualSelected = visibleEdge
+      return
+    }
+
+    virtualSelected =
+      (virtualSelected + delta + ordered.length) % ordered.length
+  }
+
+  function onVirtualScroll(detail: { offset: number }) {
+    virtualScrollOffset = detail.offset
+  }
+
+  function onVirtualKeydownCapture(e: KeyboardEvent) {
+    if (!isVirtualized) return
+
+    const next =
+      e.key === 'ArrowDown' ||
+      (e.ctrlKey && (e.key.toLowerCase() === 'n' || e.key.toLowerCase() === 'j'))
+    const previous =
+      e.key === 'ArrowUp' ||
+      (e.ctrlKey && (e.key.toLowerCase() === 'p' || e.key.toLowerCase() === 'k'))
+
+    if (next || previous) {
+      e.preventDefault()
+      e.stopPropagation()
+      moveVirtualSelection(next ? 1 : -1)
+      return
+    }
+    if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      e.stopPropagation()
+      virtualSelected = e.key === 'Home' ? 0 : Math.max(ordered.length - 1, 0)
+      return
+    }
+    if (e.key === 'Enter') {
+      const cmd = ordered[virtualSelected]
+      if (!cmd || e.isComposing || e.keyCode === 229) return
+      e.preventDefault()
+      e.stopPropagation()
+      run(cmd)
+    }
   }
 
   function rowSize(index: number) {
@@ -116,14 +190,18 @@
   function enterPage(id: string, title: string) {
     page = { id, title }
     query = ''
-    selected = 0
+    selectedValue = commands.find((command) => command.id === id)?.children?.[0]?.id ?? ''
+    virtualSelected = 0
+    virtualScrollOffset = 0
     Promise.resolve().then(() => searchEl?.focus())
   }
 
   function back() {
     page = null
     query = ''
-    selected = 0
+    selectedValue = commands[0]?.id ?? ''
+    virtualSelected = 0
+    virtualScrollOffset = 0
     Promise.resolve().then(() => searchEl?.focus())
   }
 
@@ -145,39 +223,56 @@
     }
   }
 
-  function onWindowKeydownCapture(e: KeyboardEvent) {
-    if (!open) return
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-    e.preventDefault()
-    e.stopPropagation()
-    move(e.key === 'ArrowDown' ? 1 : -1)
-  }
-
   // Reset query + selection each time the palette opens, honoring an `initialPage`
   // so callers can open straight into a sub-page; autofocus the search after the
   // scope is established (next microtask). Reads of initialPage are untracked so
   // clearing it here doesn't re-run this effect and wipe the page back to root.
-  $effect(() => {
+  $effect.pre(() => {
     if (open) {
       query = ''
-      selected = 0
+      virtualSelected = 0
+      virtualScrollOffset = 0
       untrack(() => {
         page = initialPage
+        const initialCommands = page
+          ? commands.find((command) => command.id === page!.id)?.children ?? []
+          : commands
+        selectedValue = initialCommands[0]?.id ?? ''
         if (initialPage) initialPage = null
       })
       Promise.resolve().then(() => searchEl?.focus())
     }
   })
 
-  // Keep the selection in range as the result set changes while typing.
   $effect(() => {
-    if (!open) return
+    if (!open || !isVirtualized) return
     void ordered.length
-    if (selected > ordered.length - 1) selected = 0
+    if (virtualSelected > ordered.length - 1) virtualSelected = 0
   })
+
 </script>
 
-<svelte:window onkeydowncapture={onWindowKeydownCapture} />
+{#snippet commandContent(cmd: Command, isSelected: boolean | null)}
+  {#if cmd.icon}
+    {@const Icon = cmd.icon}
+    <Icon
+      size={15}
+      weight="regular"
+      class="flex-shrink-0 {isSelected === true ? 'text-(--solus-accent)' : isSelected === false ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-tertiary) group-data-[selected]/command-item:text-(--solus-accent)'}"
+    />
+  {/if}
+  <span class="flex-1 text-[0.8125rem] tracking-[-0.005em]">{cmd.label}</span>
+  {#if cmd.hint}
+    <CommandMenu.Shortcut class="flex-shrink-0 text-[0.6875rem] tabular-nums tracking-[0.02em] text-(--solus-text-tertiary)">{cmd.hint}</CommandMenu.Shortcut>
+  {/if}
+  {#if cmd.children}
+    <CaretRightIcon
+      size={13}
+      weight="bold"
+      class="flex-shrink-0 {isSelected === true ? 'text-(--solus-text-secondary)' : isSelected === false ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-tertiary) group-data-[selected]/command-item:text-(--solus-text-secondary)'}"
+    />
+  {/if}
+{/snippet}
 
 {#if open}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -194,6 +289,15 @@
       aria-label="Command palette"
       aria-modal="true"
     >
+      <CommandMenu.Root
+        bind:value={selectedValue}
+        shouldFilter={false}
+        loop
+        disablePointerSelection
+        disableInitialScroll
+        class="h-auto"
+        label="Command palette"
+      >
       <!-- Search -->
       <div
         class="flex items-center gap-2.5 px-[1.125rem] h-[3.25rem] flex-shrink-0 relative after:content-[''] after:absolute after:left-[1.125rem] after:right-[1.125rem] after:bottom-0 after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35]"
@@ -211,26 +315,28 @@
         {:else}
           <MagnifyingGlassIcon size={15} class="flex-shrink-0 text-(--solus-text-tertiary)" />
         {/if}
-        <input
-          bind:this={searchEl}
+        <CommandMenu.Input
+          bind:ref={searchEl}
           bind:value={query}
+          onkeydowncapture={onVirtualKeydownCapture}
           onkeydown={onSearchKeydown}
           type="search"
           name="command-palette-search"
           aria-label={page ? `Search ${page.title}` : 'Search commands'}
           placeholder={page ? `Search ${page.title.toLowerCase()}…` : 'Type a command or search…'}
-          class="flex-1 bg-transparent border-none outline-none text-sm tracking-[-0.005em] text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+          class="flex-1 h-auto bg-transparent border-none outline-none text-sm tracking-[-0.005em] text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
           autocomplete="off"
           spellcheck="false"
         />
       </div>
 
       <!-- Results -->
-      <div
-        class="flex-1 overflow-hidden pt-1.5 px-1.5 pb-2 overscroll-y-contain [scrollbar-width:thin]"
+      <CommandMenu.List
+        style={hasResults ? `height: ${listHeight + 14}px` : undefined}
+        class="flex-1 max-h-none overflow-x-hidden overflow-y-auto pt-1.5 px-1.5 pb-2 overscroll-y-contain [scrollbar-width:thin]"
       >
         {#if !hasResults}
-          <div class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+          <CommandMenu.Empty forceMount class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
             <MagnifyingGlassIcon size={18} weight="light" class="text-(--solus-text-tertiary)" />
             <span>
               {#if activeCommands.length === 0}
@@ -239,50 +345,62 @@
                 No commands match “{query.trim()}”
               {/if}
             </span>
-          </div>
+          </CommandMenu.Empty>
         {:else}
-          <VirtualizedList
-            height={listHeight}
-            itemCount={rows.length}
-            itemSize={rowSize}
-            overscanCount={6}
-            scrollToIndex={selectedRowIndex >= 0 ? selectedRowIndex : 0}
-            scrollToAlignment="auto"
-            scrollToBehaviour="instant"
-          >
-            {#snippet item({ style, index })}
-              {@const row = rows[index]}
-              <div {style}>
-                {#if row.kind === 'header'}
-                  <div class="flex h-full items-end px-3.5 pb-[0.3125rem] pt-[0.1875rem] text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-(--solus-text-secondary) select-none pointer-events-none">{row.title}</div>
-                {:else}
-                  {@const cmd = row.cmd}
-                  {@const isSelected = row.commandIndex === selected}
-                  <!-- svelte-ignore a11y_mouse_events_have_key_events -->
-                  <button
-                    type="button"
-                    class="flex h-full items-center gap-2.5 w-full px-3.5 border-none rounded-lg cursor-pointer text-left transition-colors duration-100 {isSelected ? 'bg-(--solus-accent-light) text-(--solus-text-primary)' : 'bg-transparent text-(--solus-text-secondary)'}"
-                    onmousemove={(e) => onRowPointerMove(e, row.commandIndex)}
-                    onclick={() => run(cmd)}
+          {#if isVirtualized}
+            <VirtualizedList
+              height={listHeight}
+              itemCount={rows.length}
+              itemSize={rowSize}
+              overscanCount={6}
+              scrollToIndex={selectedRowIndex >= 0 ? selectedRowIndex : 0}
+              scrollToAlignment="auto"
+              scrollToBehaviour="instant"
+              onAfterScroll={onVirtualScroll}
+            >
+              {#snippet item({ style, index })}
+                {@const row = rows[index]}
+                <div {style}>
+                  {#if row.kind === 'header'}
+                    <div class="flex h-full items-end px-3.5 pb-[0.3125rem] pt-[0.1875rem] text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-(--solus-text-secondary) select-none pointer-events-none">{row.title}</div>
+                  {:else}
+                    {@const cmd = row.cmd}
+                    {@const isSelected = row.commandIndex === virtualSelected}
+                    <!-- svelte-ignore a11y_mouse_events_have_key_events -->
+                    <button
+                      type="button"
+                      class="flex h-full items-center gap-2.5 w-full px-3.5 border-none rounded-lg cursor-pointer text-left {isSelected ? 'bg-(--solus-accent-light) text-(--solus-text-primary)' : 'bg-transparent text-(--solus-text-secondary)'}"
+                      onmousemove={(e) => onVirtualRowPointerMove(e, row.commandIndex)}
+                      onclick={() => run(cmd)}
+                    >
+                      {@render commandContent(cmd, isSelected)}
+                    </button>
+                  {/if}
+                </div>
+              {/snippet}
+            </VirtualizedList>
+          {:else}
+            {#each groups as group (group.title)}
+              <CommandMenu.Group
+                heading={group.title}
+                class="p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:h-7 [&_[data-command-group-heading]]:items-end [&_[data-command-group-heading]]:px-3.5 [&_[data-command-group-heading]]:pb-[0.3125rem] [&_[data-command-group-heading]]:pt-[0.1875rem] [&_[data-command-group-heading]]:text-[0.6875rem] [&_[data-command-group-heading]]:font-semibold [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:tracking-[0.08em] [&_[data-command-group-heading]]:text-(--solus-text-secondary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none"
+              >
+                {#each group.items as cmd (cmd.id)}
+                  <CommandMenu.Item
+                    value={cmd.id}
+                    keywords={[cmd.label, cmd.group, ...(cmd.keywords ?? [])]}
+                    class="h-9 gap-2.5 w-full px-3.5 border-none rounded-lg cursor-pointer text-left bg-transparent text-(--solus-text-secondary) data-[selected]:bg-(--solus-accent-light) data-[selected]:text-(--solus-text-primary)"
+                    onpointermove={(e) => onRowPointerMove(e, cmd.id)}
+                    onSelect={() => run(cmd)}
                   >
-                    {#if cmd.icon}
-                      {@const Icon = cmd.icon}
-                      <Icon size={15} weight="regular" class="flex-shrink-0 {isSelected ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
-                    {/if}
-                    <span class="flex-1 text-[0.8125rem] tracking-[-0.005em]">{cmd.label}</span>
-                    {#if cmd.hint}
-                      <span class="flex-shrink-0 text-[0.6875rem] tabular-nums tracking-[0.02em] text-(--solus-text-tertiary)">{cmd.hint}</span>
-                    {/if}
-                    {#if cmd.children}
-                      <CaretRightIcon size={13} weight="bold" class="flex-shrink-0 {isSelected ? 'text-(--solus-text-secondary)' : 'text-(--solus-text-tertiary)'}" />
-                    {/if}
-                  </button>
-                {/if}
-              </div>
-            {/snippet}
-          </VirtualizedList>
+                    {@render commandContent(cmd, null)}
+                  </CommandMenu.Item>
+                {/each}
+              </CommandMenu.Group>
+            {/each}
+          {/if}
         {/if}
-      </div>
+      </CommandMenu.List>
 
       <!-- Footer -->
       <div class="flex items-center gap-4 px-[1.125rem] h-9 flex-shrink-0 relative text-xs text-(--solus-text-tertiary) before:content-[''] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35]">
@@ -300,6 +418,7 @@
           {page ? 'to go back' : 'to close'}
         </span>
       </div>
+      </CommandMenu.Root>
     </div>
   </div>
 {/if}

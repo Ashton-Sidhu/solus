@@ -8,8 +8,8 @@
   import type { ReviewThread, ReviewComment } from "../../../shared/providers";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { toasts } from "../../contexts/toast.store.svelte";
-  import Input from "../ui/Input.svelte";
-  import Button from "../ui/Button.svelte";
+  import { MarkdownTextarea } from "../ui/markdown-field";
+  import { Button } from "../ui/button";
 
   // A GitHub PR review thread rendered inline in the diff, anchored at its line.
   // Distinct from DiffInlineComment (an editable local draft): this is an existing
@@ -38,7 +38,7 @@
 
   let replying = $state(false);
   let replyText = $state("");
-  let replyEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  let replyEl = $state<HTMLTextAreaElement | null>(null);
   let busy = $state(false);
 
   function initials(name: string): string {
@@ -162,12 +162,10 @@
     <div class="border-t border-(--solus-container-border) px-2.5 py-2">
       {#if replying}
         <div class="flex flex-col gap-1.5">
-          <Input
-            bind:el={replyEl}
+          <MarkdownTextarea
+            bind:ref={replyEl}
             bind:value={replyText}
-            type="textarea"
-            variant="bare"
-            size="md"
+            bare
             placeholder="Reply… ⌘↵"
             rows={1}
             onkeydown={(e: KeyboardEvent) => {
@@ -177,14 +175,13 @@
               }
             }}
             onSubmit={submitReply}
-            submitOn="mod-enter"
             class="min-h-8 max-h-30 overflow-y-auto rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) px-2"
           />
           <div class="flex items-center justify-end gap-1.5">
             <Button variant="ghost" size="sm" onclick={cancelReply} class="text-(--solus-text-tertiary)">
               Cancel
             </Button>
-            <Button variant="primary" size="sm" disabled={busy || !replyText.trim()} onclick={submitReply}>
+            <Button size="sm" disabled={busy || !replyText.trim()} onclick={submitReply}>
               Reply
             </Button>
           </div>

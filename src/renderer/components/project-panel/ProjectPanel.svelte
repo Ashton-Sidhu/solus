@@ -12,11 +12,11 @@
   import {
     ArrowsClockwiseIcon,
     CheckIcon,
-    GearSixIcon,
     PlusIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
   import SidePanel from "../layout/SidePanel.svelte";
+  import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";
   import GitSection from "./GitSection.svelte";
   import WorksSection from "./WorksSection.svelte";
@@ -30,10 +30,10 @@
 
   interface Props {
     open?: boolean;
-    width?: number;
+    managedWidth?: boolean;
     onClose: () => void;
   }
-  let { open = true, width, onClose }: Props = $props();
+  let { open = true, managedWidth = false, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -147,12 +147,6 @@
     }, 1400);
   }
 
-  function openSettings() {
-    if (!cwd) return;
-    session.showProjectSettings(cwd);
-    requestInputFocus();
-  }
-
   function openFiles() {
     if (!cwd) return;
     session.artifactViewer.openFiles();
@@ -165,17 +159,6 @@
     requestInputFocus();
   }
 </script>
-
-{#snippet headerActions()}
-  <button
-    class="panel-header-btn"
-    type="button"
-    aria-label="Project settings"
-    onclick={openSettings}
-  >
-    <GearSixIcon size={15} />
-  </button>
-{/snippet}
 
 {#snippet gitHeaderExtra()}
   <span class="header-extra">
@@ -210,8 +193,10 @@
 
 {#snippet tasksHeaderExtra()}
   <span class="header-extra">
-    <button
-      class="tiny-icon"
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      class="text-(--solus-text-tertiary)"
       type="button"
       aria-label="New task"
       onclick={(e) => {
@@ -220,7 +205,7 @@
       }}
     >
       <PlusIcon size={14} />
-    </button>
+    </Button>
   </span>
 {/snippet}
 
@@ -228,7 +213,7 @@
   title={projectName() ?? "Project"}
   side="right"
   {open}
-  {width}
+  {managedWidth}
   minWidth={240}
   maxWidth={maxProjectPanelWidth}
   onAction={onClose}
@@ -236,7 +221,6 @@
   actionAriaLabel="Close project panel"
   background="color-mix(in srgb, var(--solus-container-bg) 90%, color-mix(in srgb, var(--solus-input-pill-bg) 70%, var(--solus-surface-primary)) 10%)"
   headerTopPadding="compact"
-  {headerActions}
 >
   <div class="project-sections">
     <PanelSection
@@ -287,7 +271,6 @@
     flex-direction: column;
   }
 
-  .panel-header-btn,
   .tiny-icon {
     display: inline-flex;
     align-items: center;
@@ -299,32 +282,20 @@
     transition:
       color 0.15s ease,
       background-color 0.15s ease;
-  }
-
-  .panel-header-btn {
-    width: 1.625rem;
-    height: 1.625rem;
-    border-radius: 0.375rem;
-  }
-
-  .tiny-icon {
     width: 1.5rem;
     height: 1.5rem;
     border-radius: 0.375rem;
     flex-shrink: 0;
   }
 
-  .panel-header-btn:hover,
   .tiny-icon:hover {
     color: var(--solus-text-primary);
     background: color-mix(in srgb, var(--solus-accent) 7%, transparent);
   }
-  .panel-header-btn:active,
   .tiny-icon:active {
     background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
   }
 
-  .panel-header-btn:focus-visible,
   .tiny-icon:focus-visible {
     outline: none;
     box-shadow: 0 0 0 0.125rem

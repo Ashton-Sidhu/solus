@@ -1,8 +1,6 @@
 <script lang="ts">
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import {
-    CheckIcon,
     CaretDownIcon,
     RobotIcon,
     SparkleIcon,
@@ -22,9 +20,6 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
 
-  let reviewAgentTriggerEl: HTMLButtonElement | null = $state(null);
-  let reviewModelTriggerEl: HTMLButtonElement | null = $state(null);
-  let reviewReasoningTriggerEl: HTMLButtonElement | null = $state(null);
   let reviewAgentOpen = $state(false);
   let reviewModelOpen = $state(false);
   let reviewReasoningOpen = $state(false);
@@ -121,30 +116,24 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Which agent reviews the diff for the code-review companion</div>
         </div>
       </div>
-      <div>
-        <button
-          bind:this={reviewAgentTriggerEl}
+      <DropdownMenu.Root bind:open={reviewAgentOpen} onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger>{#snippet child({ props })}<button
+          {...props}
           type="button"
           aria-label="Review companion agent"
-          aria-haspopup="menu"
-          aria-expanded={reviewAgentOpen}
-          onclick={() => { reviewAgentOpen = !reviewAgentOpen }}
           class="flex items-center justify-between gap-1.5 min-h-8 min-w-24 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-secondary) px-2.5 text-[0.8125rem] outline-none [transition:border-color_var(--duration-base)_var(--ease-premium),box-shadow_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:text-(--solus-text-primary) hover:border-(--solus-input-focus-border) focus-visible:text-(--solus-text-primary) focus-visible:border-(--solus-input-focus-border) focus-visible:shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)]"
         >
           <span class="truncate">{reviewAgentLabel}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
-        </button>
-        <Dropdown bind:open={reviewAgentOpen} triggerEl={reviewAgentTriggerEl} align="top" anchor="right" width={176}>
-          <div class="py-1">
+        </button>{/snippet}</DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[176px]">
+          <DropdownMenu.RadioGroup value={reviewAgentId}>
             {#each reviewAgentRows as agent (agent.id)}
-              <DropdownItem selected={agent.id === reviewAgentId} onclick={() => selectReviewAgent(agent.id)}>
-                <span class="truncate">{agent.label}</span>
-                {#if agent.id === reviewAgentId}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              <DropdownMenu.RadioItem value={agent.id} onSelect={() => selectReviewAgent(agent.id)}><span class="truncate">{agent.label}</span></DropdownMenu.RadioItem>
             {/each}
-          </div>
-        </Dropdown>
-      </div>
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     </div>
   {/if}
 
@@ -157,31 +146,24 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Model the review agent uses</div>
         </div>
       </div>
-      <div>
-        <button
-          bind:this={reviewModelTriggerEl}
+      <DropdownMenu.Root bind:open={reviewModelOpen} onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger disabled={reviewModels.length === 0}>{#snippet child({ props })}<button
+          {...props}
           type="button"
           aria-label="Review companion model"
-          aria-haspopup="menu"
-          aria-expanded={reviewModelOpen}
-          disabled={reviewModels.length === 0}
-          onclick={() => { reviewModelOpen = !reviewModelOpen }}
           class="flex items-center justify-between gap-1.5 min-h-8 min-w-24 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-secondary) px-2.5 text-[0.8125rem] outline-none [transition:border-color_var(--duration-base)_var(--ease-premium),box-shadow_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:text-(--solus-text-primary) hover:border-(--solus-input-focus-border) focus-visible:text-(--solus-text-primary) focus-visible:border-(--solus-input-focus-border) focus-visible:shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)] disabled:opacity-50"
         >
           <span class="truncate">{reviewModelLabel || "Default"}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
-        </button>
-        <Dropdown bind:open={reviewModelOpen} triggerEl={reviewModelTriggerEl} align="top" anchor="right" width={200}>
-          <div class="py-1">
+        </button>{/snippet}</DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[200px]">
+          <DropdownMenu.RadioGroup value={reviewModelId}>
             {#each reviewModels as model (model.id)}
-              <DropdownItem selected={model.id === reviewModelId} onclick={() => selectReviewModel(model.id)}>
-                <span class="truncate">{model.label}</span>
-                {#if model.id === reviewModelId}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              <DropdownMenu.RadioItem value={model.id} onSelect={() => selectReviewModel(model.id)}><span class="truncate">{model.label}</span></DropdownMenu.RadioItem>
             {/each}
-          </div>
-        </Dropdown>
-      </div>
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     </div>
   {/if}
 
@@ -194,31 +176,24 @@
           <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Reasoning effort the review agent uses</div>
         </div>
       </div>
-      <div>
-        <button
-          bind:this={reviewReasoningTriggerEl}
+      <DropdownMenu.Root bind:open={reviewReasoningOpen} onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger disabled={reviewReasoningLevels.length === 0}>{#snippet child({ props })}<button
+          {...props}
           type="button"
           aria-label="Review companion reasoning"
-          aria-haspopup="menu"
-          aria-expanded={reviewReasoningOpen}
-          disabled={reviewReasoningLevels.length === 0}
-          onclick={() => { reviewReasoningOpen = !reviewReasoningOpen }}
           class="flex items-center justify-between gap-1.5 min-h-8 min-w-24 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-secondary) px-2.5 text-[0.8125rem] outline-none [transition:border-color_var(--duration-base)_var(--ease-premium),box-shadow_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:text-(--solus-text-primary) hover:border-(--solus-input-focus-border) focus-visible:text-(--solus-text-primary) focus-visible:border-(--solus-input-focus-border) focus-visible:shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)] disabled:opacity-50"
         >
           <span class="truncate">{reviewReasoningLabel || "Default"}</span>
           <CaretDownIcon size={11} style="opacity:0.6" />
-        </button>
-        <Dropdown bind:open={reviewReasoningOpen} triggerEl={reviewReasoningTriggerEl} align="top" anchor="right" width={176}>
-          <div class="py-1">
+        </button>{/snippet}</DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[176px]">
+          <DropdownMenu.RadioGroup value={reviewReasoningId}>
             {#each reviewReasoningLevels as level (level)}
-              <DropdownItem selected={level === reviewReasoningId} onclick={() => selectReviewReasoning(level)}>
-                <span class="truncate">{REASONING_EFFORT_LABELS[level]}</span>
-                {#if level === reviewReasoningId}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
-              </DropdownItem>
+              <DropdownMenu.RadioItem value={level} onSelect={() => selectReviewReasoning(level)}><span class="truncate">{REASONING_EFFORT_LABELS[level]}</span></DropdownMenu.RadioItem>
             {/each}
-          </div>
-        </Dropdown>
-      </div>
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     </div>
   {/if}
 

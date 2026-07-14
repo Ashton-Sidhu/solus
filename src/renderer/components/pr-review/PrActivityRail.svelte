@@ -9,6 +9,7 @@
   import PrAvatar from "../prs/PrAvatar.svelte";
   import PrReviewStateBadge from "../prs/PrReviewStateBadge.svelte";
   import { fileName, dirName } from "./lib/activity-data";
+  import { Skeleton } from "../ui/skeleton";
 
   // Register the lazy (~12MB) `logos` icon set so changed-file rows can resolve
   // their vibrant brand icon. Idempotent and shared across the app.
@@ -74,9 +75,9 @@
         <dt class="mb-1.5 text-xs text-(--solus-text-tertiary)">Reviewers</dt>
           <dd>
             {#if reviewersLoading}
-              <div class="flex animate-pulse items-center gap-2 motion-reduce:animate-none">
-                <span class="size-5 shrink-0 rounded-full bg-(--solus-art-border)"></span>
-                <span class="h-3 w-24 rounded bg-(--solus-art-border)"></span>
+              <div class="flex items-center gap-2">
+                <Skeleton class="size-5 shrink-0 rounded-full bg-(--solus-art-border)" />
+                <Skeleton class="h-3 w-24 rounded bg-(--solus-art-border)" />
               </div>
             {:else if reviewers.length === 0}
               <span class="text-[0.75rem] text-(--solus-text-tertiary)">None</span>
@@ -112,8 +113,7 @@
           Changed files
         </h3>
         {#if filesLoading}
-          <span class="h-[1.125rem] w-5 animate-pulse rounded-full bg-(--solus-art-border) motion-reduce:animate-none"
-          ></span>
+          <Skeleton class="h-[1.125rem] w-5 rounded-full bg-(--solus-art-border)" />
         {:else}
           <span
             class="grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-(--solus-art-raised) px-1 text-[0.625rem] font-semibold tabular-nums text-(--solus-text-secondary)"
@@ -143,9 +143,9 @@
       <ul class="-mx-2 mt-2 flex flex-col gap-px" role="list">
         {#if filesLoading}
           {#each [0, 1, 2, 3] as i (i)}
-            <li class="flex animate-pulse items-center gap-2 px-2 py-1.5 motion-reduce:animate-none">
-              <span class="size-3.5 shrink-0 rounded bg-(--solus-art-border)"></span>
-              <span class="h-3 rounded bg-(--solus-art-border)" style={`width:${70 - i * 12}%`}></span>
+            <li class="flex items-center gap-2 px-2 py-1.5">
+              <Skeleton class="size-3.5 shrink-0 rounded bg-(--solus-art-border)" />
+              <Skeleton class="h-3 rounded bg-(--solus-art-border)" style={`width:${70 - i * 12}%`} />
             </li>
           {/each}
         {/if}

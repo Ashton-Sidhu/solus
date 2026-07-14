@@ -1,7 +1,6 @@
 <script lang="ts">
   import { ClockCounterClockwiseIcon, PlusIcon } from 'phosphor-svelte'
-  import Dropdown from '../ui/Dropdown.svelte'
-  import DropdownItem from '../ui/DropdownItem.svelte'
+  import * as DropdownMenu from '../ui/dropdown-menu'
   import type { SessionMeta } from '../../../shared/types'
 
   interface Props {
@@ -22,30 +21,10 @@
     loading = false,
   }: Props = $props()
 
-  let selectedIndex = $state(0)
-
   const options = [
     { id: 'resume', label: 'Resume original', Icon: ClockCounterClockwiseIcon },
     { id: 'new', label: 'New chat', Icon: PlusIcon },
   ]
-
-  $effect(() => {
-    if (!open) selectedIndex = 0
-  })
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (!open) return
-    if (e.key === 'ArrowDown') {
-      selectedIndex = (selectedIndex + 1) % options.length
-      e.preventDefault()
-    } else if (e.key === 'ArrowUp') {
-      selectedIndex = (selectedIndex - 1 + options.length) % options.length
-      e.preventDefault()
-    } else if (e.key === 'Enter') {
-      handleSelect(selectedIndex)
-      e.preventDefault()
-    }
-  }
 
   function handleSelect(index: number) {
     const option = options[index]
@@ -55,15 +34,12 @@
   }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
-<Dropdown bind:open {triggerEl} align="top" anchor="right" width={224}>
-  <div class="flex flex-col py-1" role="menu" aria-label="Document chat actions">
+<DropdownMenu.Root bind:open>
+  <DropdownMenu.Content customAnchor={triggerEl} side="top" align="end" sideOffset={6} class="w-[224px]" aria-label="Document chat actions" onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}>
     {#each options as option, index (option.id)}
-      <DropdownItem
+      <DropdownMenu.Item
         disabled={loading}
-        focused={selectedIndex === index && !loading}
-        onclick={() => handleSelect(index)}
+        onSelect={() => handleSelect(index)}
       >
         <span class="mt-[0.09375rem] flex shrink-0 items-center justify-center self-start text-inherit">
           <option.Icon size={14} />
@@ -82,7 +58,7 @@
             <span class="truncate text-[0.625rem] leading-[1.3] text-(--solus-text-tertiary)">Start fresh with this doc attached</span>
           {/if}
         </span>
-      </DropdownItem>
+      </DropdownMenu.Item>
     {/each}
-  </div>
-</Dropdown>
+  </DropdownMenu.Content>
+</DropdownMenu.Root>

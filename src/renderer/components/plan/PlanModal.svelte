@@ -39,10 +39,9 @@
   } from "./lib/comments";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import Input from "../ui/Input.svelte";
-  import Button from "../ui/Button.svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import { MarkdownTextarea } from "../ui/markdown-field";
+  import { Button } from "../ui/button";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import { toasts } from "../../contexts/toast.store.svelte";
   import { ArrowSquareOutIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
   import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
@@ -77,7 +76,6 @@
 
   // Overflow (⋯) menu holding the secondary header actions (Copy, Bookmark).
   let overflowOpen = $state(false);
-  let overflowEl = $state<HTMLButtonElement | null>(null);
 
   // Editor handles owned by the shell, surfaced here to drive comment features.
   let shell: DocumentShell | null = $state(null);
@@ -101,7 +99,7 @@
     top: number;
     width: number;
   } | null>(null);
-  let commentInputEl: HTMLTextAreaElement | HTMLInputElement | null = $state(null);
+  let commentInputEl: HTMLTextAreaElement | null = $state(null);
 
   // Comments rail
   let commentsRailOpen = $state(false);
@@ -476,37 +474,31 @@
       </button>
     {/if}
     <!-- Secondary actions (open session, Google Docs, copy) collapse into one overflow menu. -->
-    <button
-      bind:this={overflowEl}
-      type="button"
-      onclick={() => (overflowOpen = !overflowOpen)}
-      class="plan-soft-pill plan-soft-pill--icon"
-      class:plan-soft-pill--active={overflowOpen}
-      data-testid="work-actions-menu"
-      title="More actions"
-      aria-label="More actions"
-      aria-haspopup="menu"
-      aria-expanded={overflowOpen}
-    >
-      <DotsThreeIcon size={16} weight="bold" />
-    </button>
-    <Dropdown bind:open={overflowOpen} triggerEl={overflowEl} align="top" anchor="right" width={190}>
-      <div class="p-1">
+    <DropdownMenu.Root bind:open={overflowOpen}>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <button {...props} type="button" class="plan-soft-pill plan-soft-pill--icon" class:plan-soft-pill--active={overflowOpen} data-testid="work-actions-menu" title="More actions" aria-label="More actions">
+            <DotsThreeIcon size={16} weight="bold" />
+          </button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content side="top" align="end" sideOffset={6} class="w-[190px]">
         {#if isPreview}
-          <DropdownItem kbd={isMobile ? undefined : "⌥O"} onclick={() => { overflowOpen = false; const d = planStore.previewDescriptor; if (d) session.resumeSessionFromDescriptor(d); }}>
-            <ArrowUpRightIcon size={14} /><span class="flex-1 text-left">Open session</span>
-          </DropdownItem>
+          <DropdownMenu.Item onSelect={() => { const d = planStore.previewDescriptor; if (d) session.resumeSessionFromDescriptor(d); }}>
+            <ArrowUpRightIcon size={14} /><span class="flex-1 text-left">Open session</span>{#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥O</Kbd></span>{/if}
+          </DropdownMenu.Item>
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
         {/if}
         {#if googleUpload}
           <!-- Keep the menu open so the upload state + any error stay visible. -->
-          <DropdownItem data-testid="google-upload" disabled={uploading} kbd={isMobile ? undefined : "⌥G"} onclick={() => googleUpload?.()}>
+          <DropdownMenu.Item data-testid="google-upload" disabled={uploading} closeOnSelect={false} onSelect={() => googleUpload?.()}>
             {#if uploaded}
               <CheckIcon size={14} /><span class="flex-1 text-left">Opened!</span>
             {:else}
               <ArrowSquareOutIcon size={14} /><span class="flex-1 text-left">{uploading ? "Uploading…" : "Open in Google Docs"}</span>
             {/if}
-          </DropdownItem>
+            {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>{/if}
+          </DropdownMenu.Item>
           {#if uploadError}
             <div class="px-3 pb-[0.375rem] pt-1 text-[0.6875rem] text-[var(--solus-error,#e55)]">{uploadError}</div>
           {/if}
@@ -514,11 +506,12 @@
         {#if googleUpload}
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
         {/if}
-        <DropdownItem kbd={isMobile ? undefined : "⌥C"} onclick={() => { overflowOpen = false; copy(); }}>
+        <DropdownMenu.Item onSelect={copy}>
           {#if copied}<CheckIcon size={14} /><span class="flex-1 text-left">Copied!</span>{:else}<CopyIcon size={14} /><span class="flex-1 text-left">Copy plan</span>{/if}
-        </DropdownItem>
-      </div>
-    </Dropdown>
+          {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥C</Kbd></span>{/if}
+        </DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   {/snippet}
 
   {#snippet rail()}
@@ -575,17 +568,18 @@
           2}px;top:{selectionRange.top}px;z-index:10001;transform:translate(-50%, calc(-100% - 0.375rem))"
         transition:fly={{ y: 4, duration: 120, opacity: 0 }}
       >
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
           onmousedown={(e) => e.preventDefault()}
           onclick={handleStartComment}
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-popover-border) bg-(--solus-popover-bg) px-[0.6875rem] py-1.5 text-[0.6875rem] font-medium text-(--solus-accent) shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] transition-[background,color,border-color,transform] duration-(--duration-quick) ease-(--ease-premium) hover:-translate-y-[0.0625rem] hover:border-(--solus-accent) hover:bg-(--solus-accent) hover:text-white active:translate-y-0 active:scale-[0.97] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100"
+          class="border-(--solus-popover-border) bg-(--solus-popover-bg) text-(--solus-accent) shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] hover:-translate-y-[0.0625rem] hover:border-(--solus-accent) hover:bg-(--solus-accent) hover:text-(--solus-text-on-accent) active:translate-y-0 active:scale-[0.97] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100"
           title="Add comment (⌘M)"
         >
           <ChatCircleTextIcon size={13} />
           Comment
           <Kbd variant="inline" class="ml-[0.1875rem] opacity-45 max-md:hidden">⌘M</Kbd>
-        </button>
+        </Button>
       </div>
     {/if}
 
@@ -600,20 +594,17 @@
         style="--cf-left:{commentFormAnchor.left}px;--cf-top:{commentFormAnchor.top}px;--cf-width:{commentFormAnchor.width}px;z-index:10001"
       >
         <div class="plan-inline-comment-form flex flex-col gap-1.5 rounded-[0.625rem] border border-(--solus-accent-border) bg-(--solus-popover-bg) px-[0.625rem] pb-2 pt-2 shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] max-md:rounded-b-none">
-          <Input
-            bind:el={commentInputEl}
+          <MarkdownTextarea
+            bind:ref={commentInputEl}
             bind:value={commentInput}
-            type="textarea"
-            variant="bare"
+            bare
 placeholder="Add comment…"
             rows={1}
+            submitOn="enter"
+            onSubmit={handleSaveComment}
             class="plan-inline-comment-form__textarea"
             onkeydown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSaveComment();
-              }
+              if (e.key === "Enter" && !e.shiftKey) e.stopPropagation();
               if (e.key === "Escape") {
                 e.stopPropagation();
                 clearCommentDraft();
@@ -621,16 +612,16 @@ placeholder="Add comment…"
             }}
           />
           <div class="flex items-center justify-end gap-1.5">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onclick={clearCommentDraft}
-              class="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[background,color,opacity] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) motion-reduce:transition-none"
+              class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
               title="Cancel (Esc)"
             >
               <XIcon size={13} />
-            </button>
+            </Button>
             <Button
-              variant="primary"
               size="sm"
               onclick={handleSaveComment}
               disabled={!commentInput.trim()}

@@ -30,15 +30,19 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import Kbd from "../ui/Kbd.svelte";
+  import * as Popover from "../ui/popover";
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
+  import { actionOrbWouldOverflow } from "./lib/action-orb-layout";
   import "./ActionOrb.css";
 
   let {
     tabId,
     onDiffToggle,
+    leftReservedWidth = 0,
   }: {
     tabId: string;
     onDiffToggle?: () => void;
+    leftReservedWidth?: number;
   } = $props();
 
   type ActionId =
@@ -115,7 +119,6 @@
   let reviewProgressStep = $state<ReviewProgressStep>("preparing");
   let reviewGuideKey = $state<string | null>(null);
   let reviewPopoverOpen = $state(false);
-  let reviewCloseTimer: ReturnType<typeof setTimeout> | null = null;
   let reviewRunId = 0;
   // Fingerprint of the change set the current "done" guide covered. When the
   // session keeps editing past it, drop back to "Review" instead of latching
@@ -177,21 +180,6 @@
         : "Review",
   );
 
-  function openReviewPopover() {
-    if (reviewCloseTimer) {
-      clearTimeout(reviewCloseTimer);
-      reviewCloseTimer = null;
-    }
-    reviewPopoverOpen = true;
-  }
-  function closeReviewPopover() {
-    if (reviewCloseTimer) clearTimeout(reviewCloseTimer);
-    reviewCloseTimer = setTimeout(() => {
-      reviewPopoverOpen = false;
-      reviewCloseTimer = null;
-    }, 120);
-  }
-
   // ── Progress integrated into the action row ──
   // Circle when the row is cramped (compact), pill when there's room. Clicking
   // it swaps the action icons for a narrow inline progress bar.
@@ -221,21 +209,6 @@
   let stepsOpen = $state(false);
   let reviewFilesOpen = $state(false);
   let fileStats = $state<Record<string, FileStat>>({});
-  let stepsCloseTimer: ReturnType<typeof setTimeout> | null = null;
-  function openSteps() {
-    if (stepsCloseTimer) {
-      clearTimeout(stepsCloseTimer);
-      stepsCloseTimer = null;
-    }
-    stepsOpen = true;
-  }
-  function closeSteps() {
-    if (stepsCloseTimer) clearTimeout(stepsCloseTimer);
-    stepsCloseTimer = setTimeout(() => {
-      stepsOpen = false;
-      stepsCloseTimer = null;
-    }, 120);
-  }
   const itemIndices = $derived.by(() => {
     let idx = 0;
     return {
@@ -320,11 +293,10 @@
 
   let rootEl: HTMLDivElement | null = $state(null);
   let panelEl: HTMLDivElement | null = $state(null);
-  let filesPopoverEl: HTMLDivElement | null = $state(null);
-  let filesButtonEl: HTMLButtonElement | null = $state(null);
+  let orbScreenScale = $state("1");
   let compactByWidth = $state(false);
   const compact = $derived(compactByWidth || av.secondaryOpen);
-  let medium = $state(false);
+  let expandedPanelWidth: number | null = null;
 
   function shortcutLabel(bindingId: BindingId): string {
     return formatCombo(KEYBINDINGS[bindingId].combo).join("");
@@ -348,21 +320,25 @@
     focusAction(preferredAction);
   }
 
-  let lastOrbScale = "";
   $effect(() => {
     // Only observe the active tab's orb — hidden tabs don't need width-tier
     // tracking and an observer on display:none subtrees still fires callbacks
     // on layout passes, creating unnecessary churn across all mounted tabs.
     if (!rootEl || tabId !== session.activeTabId) return;
-    const ro = new ResizeObserver(([entry]) => {
+    const updateDensity = () => {
       // The root tracks the conversation reading column (capped at
       // --solus-reading-max, ≤~1152px), so width is our proxy for "how big is
       // the conversation view": wide in editor mode, narrow in the pill window.
-      const w = entry.contentRect.width;
-      // Width tiers: narrow panes collapse to icon-only (compact), laptop-width
-      // panes tighten (medium), full-width columns fall through to base.
-      compactByWidth = w < 520;
-      medium = w >= 520 && w < 820;
+      const w = rootEl?.clientWidth ?? 0;
+      // Measure the labeled row while it is visible, then retain that width
+      // while compact. This avoids a feedback loop where hiding labels makes
+      // the row appear to fit and immediately expands it again.
+      if (!compact && panelEl) expandedPanelWidth = panelEl.scrollWidth;
+      compactByWidth = actionOrbWouldOverflow(
+        w,
+        expandedPanelWidth,
+        leftReservedWidth,
+      );
       // Continuous size bump tied to the column width — so the orb is larger in
       // editor mode than in the pill window on the same screen. Ramps from 1.0
       // at the editor min column (~640px) to 1.12 at the max (~1152px).
@@ -370,12 +346,15 @@
       const scale = (1 - t * 0.05).toFixed(3);
       // Skip the style write (and the restyle it triggers) when the rounded
       // scale hasn't changed — most resize frames land on the same value.
-      if (scale !== lastOrbScale) {
-        lastOrbScale = scale;
+      if (scale !== orbScreenScale) {
+        orbScreenScale = scale;
         rootEl.style.setProperty("--orb-screen-scale", scale);
       }
-    });
+    };
+    const ro = new ResizeObserver(updateDensity);
     ro.observe(rootEl);
+    if (panelEl) ro.observe(panelEl);
+    updateDensity();
     return () => ro.disconnect();
   });
 
@@ -394,19 +373,6 @@
     };
     window.addEventListener("solus:review-changed-files", handler);
     return () => window.removeEventListener("solus:review-changed-files", handler);
-  });
-
-  $effect(() => {
-    if (!reviewFilesOpen) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (filesPopoverEl?.contains(target) || filesButtonEl?.contains(target)) return;
-      reviewFilesOpen = false;
-      requestInputFocus();
-    };
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
   });
 
   $effect(() => {
@@ -696,7 +662,6 @@
   class="action-orb-root"
   class:pill-mode={isPillMode}
   class:compact
-  class:medium
   class:orb-streaming={isRunning}
 >
   <!-- Trigger: always bottom-right, compact status button -->
@@ -763,10 +728,9 @@
           {progressAllDone}
           {progressFraction}
           {progressHeader}
-          {stepsOpen}
+          bind:stepsOpen
           {expanded}
-          {openSteps}
-          {closeSteps}
+          {orbScreenScale}
         />
         <span class="dock-divider" aria-hidden="true"></span>
       {/if}
@@ -797,11 +761,17 @@
       {/if}
 
       {#if showOpenFiles}
-        <span class="inline-flex">
-          {#if reviewFilesOpen}
-            <div
-              bind:this={filesPopoverEl}
-              class="files-pop progress-popover"
+        <Popover.Root
+          bind:open={reviewFilesOpen}
+          onOpenChange={(open) => {
+            if (!open) requestInputFocus();
+          }}
+        >
+          <Popover.Content
+              class="files-pop progress-popover gap-0 p-0"
+              side="top"
+              sideOffset={11}
+              style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
               role="dialog"
               aria-label="Review changed files"
             >
@@ -866,27 +836,28 @@
                   </div>
                 {/each}
               </div>
-            </div>
-          {/if}
-          <button
-            bind:this={filesButtonEl}
-            class="dock-btn stagger-item"
-            data-orb-action="files"
-            tabindex={tabIndexFor("files")}
-            style="--item-index:{itemIndices.files}"
-            onclick={() => (reviewFilesOpen = !reviewFilesOpen)}
-            title={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
-            aria-label={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
-            aria-expanded={reviewFilesOpen}
-            use:tooltip={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
-          >
-            <FilesIcon size={13} weight="regular" />
-            <span>Review Files ({changedFiles.length})</span>
-            <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
-              >{shortcutLabel("conversation.open-files")}</Kbd
-            >
-          </button>
-        </span>
+          </Popover.Content>
+          <Popover.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                class="dock-btn stagger-item"
+                data-orb-action="files"
+                tabindex={tabIndexFor("files")}
+                style="--item-index:{itemIndices.files}"
+                title={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
+                aria-label={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
+                use:tooltip={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
+              >
+                <FilesIcon size={13} weight="regular" />
+                <span>Review Files ({changedFiles.length})</span>
+                <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
+                  >{shortcutLabel("conversation.open-files")}</Kbd
+                >
+              </button>
+            {/snippet}
+          </Popover.Trigger>
+        </Popover.Root>
       {/if}
 
       {#if showNativeDesktopActions}
@@ -968,14 +939,19 @@
 
       {#if showReview}
         <span class="relative inline-flex">
-          {#if reviewPopoverOpen && reviewStatus === "generating"}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
+          <Popover.Root
+            bind:open={reviewPopoverOpen}
+            onOpenChange={(open) => {
+              reviewPopoverOpen = reviewStatus === "generating" && open;
+            }}
+          >
+            {#if reviewStatus === "generating"}
+              <Popover.Content
               class="review-pop"
+              side="top"
+              sideOffset={8}
               role="status"
               aria-label="Review progress"
-              onmouseenter={openReviewPopover}
-              onmouseleave={closeReviewPopover}
             >
               <div class="review-pop-head">
                 <span class="review-pop-title">Reviewing changes</span>
@@ -999,27 +975,33 @@
                   </div>
                 {/each}
               </div>
-            </div>
-          {/if}
-          <button
-            class="dock-btn stagger-item"
-            class:dock-btn-reviewing={reviewStatus === "generating"}
-            class:dock-btn-review-done={reviewStatus === "done"}
-            data-orb-action="review"
-            tabindex={tabIndexFor("review")}
-            style="--item-index:{itemIndices.review}"
-            onclick={handleReview}
-            onmouseenter={reviewStatus === "generating" ? openReviewPopover : undefined}
-            onmouseleave={reviewStatus === "generating" ? closeReviewPopover : undefined}
-            onfocus={reviewStatus === "generating" ? openReviewPopover : undefined}
-            onblur={reviewStatus === "generating" ? closeReviewPopover : undefined}
-            title={reviewLabel}
-            aria-label={reviewLabel}
-            use:tooltip={reviewLabel}
-          >
-            <BinocularsIcon size={13} weight="regular" />
-            <span>{reviewLabel}</span>
-          </button>
+              </Popover.Content>
+            {/if}
+            <Popover.Trigger
+              onclick={handleReview}
+              openOnHover={reviewStatus === "generating"}
+              openDelay={0}
+              closeDelay={120}
+            >
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  class="dock-btn stagger-item"
+                  class:dock-btn-reviewing={reviewStatus === "generating"}
+                  class:dock-btn-review-done={reviewStatus === "done"}
+                  data-orb-action="review"
+                  tabindex={tabIndexFor("review")}
+                  style="--item-index:{itemIndices.review}"
+                  title={reviewLabel}
+                  aria-label={reviewLabel}
+                  use:tooltip={reviewLabel}
+                >
+                  <BinocularsIcon size={13} weight="regular" />
+                  <span>{reviewLabel}</span>
+                </button>
+              {/snippet}
+            </Popover.Trigger>
+          </Popover.Root>
           {#if reviewStatus === "done"}
             <button
               class="dock-btn dock-btn-icon stagger-item"

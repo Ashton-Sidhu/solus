@@ -11,8 +11,8 @@
   } from "phosphor-svelte";
   import { getGitStatusStore } from "../contexts/git-status.store.svelte";
   import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
-  import SearchablePickerList from "./pickers/SearchablePickerList.svelte";
-  import Dropdown from "./ui/Dropdown.svelte";
+  import * as Popover from "./ui/popover";
+  import * as Command from "./ui/command";
   import Kbd from "./ui/Kbd.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import { worktreeProjectRoot, type IpcContext } from "../../shared/types";
@@ -51,7 +51,7 @@
 
   let copied = $state(false);
   let view = $state<View>("menu");
-  let pickerRef: SearchablePickerList | null = $state(null);
+  let query = $state("");
 
   const hasActiveSession = $derived(
     !!session.sessionFor(tabId)?.agentSessionId,
@@ -83,16 +83,10 @@
   $effect(() => {
     if (open) {
       view = initialView;
+      query = "";
     } else {
       view = "menu";
     }
-  });
-
-  $effect(() => {
-    if (!open) return;
-    const onKeydown = (e: KeyboardEvent) => handleKeydown(e);
-    document.addEventListener("keydown", onKeydown, true);
-    return () => document.removeEventListener("keydown", onKeydown, true);
   });
 
   async function copyBranch() {
@@ -141,24 +135,19 @@
 
   function openWorktreeView() {
     view = "worktrees";
+    query = "";
   }
 
   function openBranchView() {
     if (!repoCtx) return;
     if (projectRoot) void gitStatus.refreshRefs(projectRoot, repoCtx, { force: true });
     view = "branches";
+    query = "";
   }
 
   function goBack() {
     view = "menu";
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      open = false;
-      return;
-    }
-    if (view !== "menu" && pickerRef?.handleKeydown(e)) return;
+    query = "";
   }
 
   const menuItemClass =
@@ -166,13 +155,16 @@
 </script>
 
 {#if displayBranch}
-  <Dropdown
-    bind:open
-    {triggerEl}
-    align={dropDown ? "top" : "bottom"}
-    anchor="left"
-    width={232}
-  >
+  <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+    <Popover.Content
+      customAnchor={triggerEl}
+      side={dropDown ? "top" : "bottom"}
+      align="start"
+      sideOffset={6}
+      collisionPadding={8}
+      onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}
+      class="z-[10002] w-[232px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+    >
     <div class="py-1">
       {#if view === "menu"}
         <!-- Copy -->
@@ -299,14 +291,19 @@
         </button>
         <div class="h-px bg-(--solus-popover-border) my-1"></div>
 
-        <SearchablePickerList
-          bind:this={pickerRef}
-          items={worktrees.map((w) => w.branch)}
-          selected={null}
-          placeholder="Filter worktrees..."
-          emptyLabel="No worktrees found"
-          onselect={selectWorktree}
-        />
+        <Command.Root>
+          <div class="mx-2 mb-1.5 flex items-center rounded-lg border border-(--solus-popover-border) bg-(--solus-surface-hover) px-2">
+            <Command.Input bind:value={query} placeholder="Filter worktrees..." class="h-7 text-[0.6875rem]" />
+          </div>
+          <Command.List class="max-h-[196px]">
+            <Command.Empty class="px-3 py-2 text-center text-[0.6875rem] text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
+            {#each worktrees as worktree (worktree.branch)}
+              <Command.Item value={worktree.branch} onSelect={() => selectWorktree(worktree.branch)} class="rounded-none px-3 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) data-[selected]:bg-(--solus-accent-light) data-[selected]:text-(--solus-text-primary)">
+                <span class="truncate">{worktree.branch}</span>
+              </Command.Item>
+            {/each}
+          </Command.List>
+        </Command.Root>
       {:else if view === "branches"}
         <!-- Back + header -->
         <button
@@ -322,15 +319,22 @@
         </button>
         <div class="h-px bg-(--solus-popover-border) my-1"></div>
 
-        <SearchablePickerList
-          bind:this={pickerRef}
-          items={branches}
-          selected={worktreeBaseBranch}
-          placeholder="Filter branches..."
-          emptyLabel="No branches found"
-          onselect={selectBranch}
-        />
+        <Command.Root>
+          <div class="mx-2 mb-1.5 flex items-center rounded-lg border border-(--solus-popover-border) bg-(--solus-surface-hover) px-2">
+            <Command.Input bind:value={query} placeholder="Filter branches..." class="h-7 text-[0.6875rem]" />
+          </div>
+          <Command.List class="max-h-[196px]">
+            <Command.Empty class="px-3 py-2 text-center text-[0.6875rem] text-(--solus-text-tertiary)">No branches found</Command.Empty>
+            {#each branches as branch (branch)}
+              <Command.Item value={branch} onSelect={() => selectBranch(branch)} class="rounded-none px-3 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) data-[selected]:bg-(--solus-accent-light) data-[selected]:text-(--solus-text-primary)">
+                <span class="truncate">{branch}</span>
+                {#if branch === worktreeBaseBranch}<CheckIcon size={12} class="ml-auto text-(--solus-accent)" />{/if}
+              </Command.Item>
+            {/each}
+          </Command.List>
+        </Command.Root>
       {/if}
     </div>
-  </Dropdown>
+    </Popover.Content>
+  </Popover.Root>
 {/if}

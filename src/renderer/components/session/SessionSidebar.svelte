@@ -30,16 +30,17 @@
     type AttentionState,
   } from "../../lib/sessionUtils";
   import SidePanel from "../layout/SidePanel.svelte";
+  import * as Sidebar from "../ui/sidebar";
 
   interface Props {
     open?: boolean;
-    width?: number;
+    managedWidth?: boolean;
     onToggleCollapse?: () => void;
     onSessionSelect?: () => void;
   }
   let {
     open = true,
-    width,
+    managedWidth = false,
     onToggleCollapse,
     onSessionSelect,
   }: Props = $props();
@@ -164,60 +165,54 @@
 
 {#snippet pinnedSection()}
   {#if sidebarStore.pinnedSessions.length > 0}
-    <div class="flex-shrink-0 relative {dividerAfter}">
-      <div class="px-4 pt-3 pb-1.5 flex items-center gap-1.5">
-        <span class={sectionLabel}>
-          Pinned
-        </span>
-      </div>
-      <div class="flex flex-col gap-px px-2 pb-1.5">
-        {#each sidebarStore.pinnedSessions as pin (pin.sessionId)}
-          {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
-          {@const isActive = !!openTabId && openTabId === session.activeTabId}
-          <div
-            class="group flex items-center gap-1.5 h-8 px-2 rounded-[0.4375rem] cursor-pointer select-none border border-transparent outline-none transition-[background,border-color] duration-150 {activeRail} {focusRing} {isActive
-              ? rowActiveWash
-              : rowHoverWash}"
-            data-active={isActive ? "true" : undefined}
-            role="tab"
-            aria-selected={isActive}
-            aria-label={pin.title}
-            tabindex="0"
-            title={pin.title}
-            onclick={() => {
-              sidebarStore.openPinnedSession(pin);
-              onSessionSelect?.();
-            }}
-            onkeydown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                sidebarStore.openPinnedSession(pin);
-                onSessionSelect?.();
-              }
-            }}
-          >
-            <button
-              class="flex-shrink-0 flex items-center justify-center size-4 rounded bg-transparent text-(--solus-accent) cursor-pointer p-0 transition-[color,background] duration-[120ms] hover:text-(--solus-stop-bg) hover:bg-[color-mix(in_srgb,var(--solus-stop-bg)_12%,transparent)]"
-              aria-label="Unpin session"
-              use:tooltip={"Unpin"}
-              onclick={(e) => {
-                e.stopPropagation();
-                void sidebarStore.unpinSession(pin);
-                requestInputFocus();
-              }}
-            >
-              <PushPinIcon size={11} weight="fill" />
-            </button>
-            <span
-              class="flex-1 min-w-0 text-[0.8125rem] font-normal leading-[1.2] tracking-[-0.01em] overflow-hidden text-ellipsis whitespace-nowrap {isActive
-                ? 'text-(--solus-text-primary)'
-                : 'text-[color-mix(in_srgb,var(--solus-text-primary)_62%,var(--solus-text-secondary))]'}"
-              >{pin.title}</span
-            >
-          </div>
-        {/each}
-      </div>
-    </div>
+    <Sidebar.Group class="flex-shrink-0 p-0 pb-1.5 relative {dividerAfter}">
+      <Sidebar.GroupLabel class="h-auto px-4 pt-3 pb-1.5">
+        <span class={sectionLabel}>Pinned</span>
+      </Sidebar.GroupLabel>
+      <Sidebar.GroupContent>
+        <Sidebar.Menu class="gap-px px-2">
+          {#each sidebarStore.pinnedSessions as pin (pin.sessionId)}
+            {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
+            {@const isActive = !!openTabId && openTabId === session.activeTabId}
+            <Sidebar.MenuItem>
+              <Sidebar.MenuButton
+                class="gap-1.5 rounded-[0.4375rem] border border-transparent pl-8 pr-2 font-normal active:scale-[0.96] {activeRail} {focusRing} {isActive
+                  ? rowActiveWash
+                  : rowHoverWash}"
+                isActive={isActive}
+                role="tab"
+                aria-selected={isActive}
+                aria-label={pin.title}
+                title={pin.title}
+                onclick={() => {
+                  sidebarStore.openPinnedSession(pin);
+                  onSessionSelect?.();
+                }}
+              >
+                <span
+                  class="flex-1 min-w-0 font-normal leading-[1.2] tracking-[-0.01em] {isActive
+                    ? 'text-(--solus-text-primary)'
+                    : 'text-[color-mix(in_srgb,var(--solus-text-primary)_62%,var(--solus-text-secondary))]'}"
+                  >{pin.title}</span
+                >
+              </Sidebar.MenuButton>
+              <Sidebar.MenuAction
+                class="left-2 right-auto text-(--solus-accent) hover:text-(--solus-stop-bg) hover:bg-[color-mix(in_srgb,var(--solus-stop-bg)_12%,transparent)]"
+                aria-label="Unpin session"
+                tooltipContent="Unpin"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  void sidebarStore.unpinSession(pin);
+                  requestInputFocus();
+                }}
+              >
+                <PushPinIcon size={11} weight="fill" />
+              </Sidebar.MenuAction>
+            </Sidebar.MenuItem>
+          {/each}
+        </Sidebar.Menu>
+      </Sidebar.GroupContent>
+    </Sidebar.Group>
   {/if}
 {/snippet}
 
@@ -225,7 +220,7 @@
   title="Navigation"
   side="left"
   {open}
-  {width}
+  {managedWidth}
   minWidth={160}
   maxWidth={400}
   onAction={onToggleCollapse}
@@ -233,76 +228,97 @@
   actionAriaLabel="Collapse sidebar"
   background="color-mix(in srgb, var(--solus-container-bg) 90%, color-mix(in srgb, var(--solus-input-pill-bg) 70%, var(--solus-surface-primary)) 10%)"
 >
-  <div class="flex-shrink-0 relative pb-1 {dividerAfter}">
-    <div class="flex flex-col gap-0 px-2 pb-2.5">
-      <button class={navCardBase} onclick={() => session.togglePlansGallery()}>
-        <span class={navCardIcon}><ArticleIcon size={13} /></span>
-        <span class={navLabel}>Plans</span>
-        <span class={navHint}>⌥⇧L</span>
-      </button>
-      <button class={navCardBase} onclick={() => session.toggleFolioGallery()}>
-        <span class={navCardIcon}><FileTextIcon size={13} /></span>
-        <span class={navLabel}>Folio</span>
-        <span class={navHint}>⌥⇧;</span>
-      </button>
-      <button
-        class="{navCardBase} {session.automationsOpen ? navCardActive : ''}"
-        data-active={session.automationsOpen ? "true" : undefined}
-        onclick={() => session.toggleAutomations()}
-      >
-        <span class={navCardIcon}><LightningIcon size={13} /></span>
-        <span class={navLabel}>Automations</span>
-        <span class={navHint}>{comboHint("global.toggle-automations")}</span>
-      </button>
-      <button
-        class="{navCardBase} {session.prsOpen ? navCardActive : ''}"
-        data-active={session.prsOpen ? "true" : undefined}
-        onclick={() => session.togglePrs()}
-      >
-        <span class={navCardIcon}><GitPullRequestIcon size={13} /></span>
-        <span class={navLabel}
-          >Pull Requests<span class={navBeta}>Beta</span></span
-        >
-      </button>
-      <button
-        class="{navCardBase} {session.tasksOpen ? navCardActive : ''}"
-        data-active={session.tasksOpen ? "true" : undefined}
-        onclick={() => session.toggleTasks()}
-      >
-        <span class={navCardIcon}><ListChecksIcon size={13} /></span>
-        <span class={navLabel}>Tasks<span class={navBeta}>Beta</span></span>
-        <span class={navHint}>{comboHint("global.toggle-tasks")}</span>
-      </button>
-      <button
-        class={navCardBase}
-        onclick={() =>
-          window.dispatchEvent(new CustomEvent("solus:toggle-session-picker"))}
-      >
-        <span class={navCardIcon}><ClockIcon size={13} /></span>
-        <span class={navLabel}>History</span>
-        <span class={navHint}>{comboHint("global.session-picker")}</span>
-      </button>
-    </div>
-  </div>
+  <Sidebar.Group class="flex-shrink-0 p-0 pb-1 relative {dividerAfter}">
+    <Sidebar.GroupContent class="px-2 pb-2.5">
+      <Sidebar.Menu class="gap-0">
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            class={navCardBase}
+            onclick={() => session.togglePlansGallery()}
+          >
+            <span class={navCardIcon}><ArticleIcon size={13} /></span>
+            <span class={navLabel}>Plans</span>
+            <span class={navHint}>⌥⇧L</span>
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            class={navCardBase}
+            onclick={() => session.toggleFolioGallery()}
+          >
+            <span class={navCardIcon}><FileTextIcon size={13} /></span>
+            <span class={navLabel}>Folio</span>
+            <span class={navHint}>⌥⇧;</span>
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            class="{navCardBase} {session.automationsOpen ? navCardActive : ''}"
+            isActive={session.automationsOpen}
+            onclick={() => session.toggleAutomations()}
+          >
+            <span class={navCardIcon}><LightningIcon size={13} /></span>
+            <span class={navLabel}>Automations</span>
+            <span class={navHint}>{comboHint("global.toggle-automations")}</span>
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            class="{navCardBase} {session.prsOpen ? navCardActive : ''}"
+            isActive={session.prsOpen}
+            onclick={() => session.togglePrs()}
+          >
+            <span class={navCardIcon}><GitPullRequestIcon size={13} /></span>
+            <span class={navLabel}
+              >Pull Requests<span class={navBeta}>Beta</span></span
+            >
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            class="{navCardBase} {session.tasksOpen ? navCardActive : ''}"
+            isActive={session.tasksOpen}
+            onclick={() => session.toggleTasks()}
+          >
+            <span class={navCardIcon}><ListChecksIcon size={13} /></span>
+            <span class={navLabel}>Tasks<span class={navBeta}>Beta</span></span>
+            <span class={navHint}>{comboHint("global.toggle-tasks")}</span>
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+        <Sidebar.MenuItem>
+          <Sidebar.MenuButton
+            class={navCardBase}
+            onclick={() =>
+              window.dispatchEvent(
+                new CustomEvent("solus:toggle-session-picker"),
+              )}
+          >
+            <span class={navCardIcon}><ClockIcon size={13} /></span>
+            <span class={navLabel}>History</span>
+            <span class={navHint}>{comboHint("global.session-picker")}</span>
+          </Sidebar.MenuButton>
+        </Sidebar.MenuItem>
+      </Sidebar.Menu>
+    </Sidebar.GroupContent>
+  </Sidebar.Group>
   {@render pinnedSection()}
-  <div class="flex-shrink-0 flex items-center justify-between px-4 pt-3 pb-2">
-    <span class={sectionLabel}>
-      Projects
-    </span>
-    <div class="flex items-center gap-0.5">
-      <button
-        onclick={() => {
-          window.dispatchEvent(
-            new CustomEvent("solus:open-directory-picker-new-tab"),
-          );
-        }}
-        use:tooltip={"New session in project…"}
-        class="size-[1.625rem] flex items-center justify-center rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
-      >
-        <PlusIcon size={14} />
-      </button>
-    </div>
-  </div>
+  <Sidebar.Group class="flex-shrink-0 p-0">
+    <Sidebar.GroupLabel class="h-auto px-4 pt-3 pb-2">
+      <span class={sectionLabel}>Projects</span>
+    </Sidebar.GroupLabel>
+    <Sidebar.GroupAction
+      class="right-2 top-2.5 text-(--solus-text-tertiary)"
+      aria-label="New session in project"
+      onclick={() => {
+        window.dispatchEvent(
+          new CustomEvent("solus:open-directory-picker-new-tab"),
+        );
+      }}
+      tooltipContent="New session in project…"
+    >
+      <PlusIcon size={14} />
+    </Sidebar.GroupAction>
+  </Sidebar.Group>
 
   <div
     bind:this={scrollEl}
@@ -365,13 +381,14 @@
         {/if}
       {/if}
     {/snippet}
-    <div class="flex flex-col gap-1">
+    <Sidebar.Menu class="gap-1">
       {#each sidebarStore.projectBranchGroups as pg (pg.projectKey)}
         {@const groupKey = `project:${pg.projectKey}`}
         {@const collapsed = collapsedGroups.has(groupKey)}
         {@const projectTabIds = pg.branches.flatMap((b) => b.tabIds)}
         {@const isProjectActive = projectTabIds.includes(session.activeTabId)}
         {@const showProjectActive = isProjectActive && collapsed}
+        <Sidebar.MenuItem>
         <div
           class="group flex items-center gap-[0.3125rem] w-full h-8 pl-2 pr-3 cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {activeRail} {focusRing} {showProjectActive
             ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
@@ -540,36 +557,41 @@
             {/each}
           </div>
         {/if}
+        </Sidebar.MenuItem>
       {/each}
-    </div>
+    </Sidebar.Menu>
   </div>
 
-  <div
+  <Sidebar.Footer
     class="flex-shrink-0 relative px-2 pt-1.5 pb-2 before:content-[''] before:absolute before:top-0 before:left-3.5 before:right-3.5 before:h-px before:bg-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)]"
   >
-    <button
-      class="group flex items-center gap-2 w-full h-[1.875rem] px-2.5 rounded-lg bg-transparent cursor-pointer text-(--solus-text-tertiary) outline-none select-none transition-[background] duration-150 hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] {activeRail} {focusRing} {session.settingsOpen
-        ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
-        : ''}"
-      data-active={session.settingsOpen ? "true" : undefined}
-      onclick={() => session.showSettings()}
-    >
-      <span
-        class="flex items-center flex-shrink-0 motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90 {session.settingsOpen
-          ? 'text-(--solus-accent)'
-          : 'text-(--solus-text-tertiary) group-hover:text-(--solus-accent)'}"
-        ><GearIcon size={14} /></span
-      >
-      <span
-        class="text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left {session.settingsOpen
-          ? 'text-(--solus-text-primary)'
-          : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
-        >Settings</span
-      >
-      <span
-        class="text-[0.5938rem] text-(--solus-text-tertiary) font-mono flex-shrink-0 opacity-0 group-hover:opacity-70"
-        >{comboHint("global.settings")}</span
-      >
-    </button>
-  </div>
+    <Sidebar.Menu>
+      <Sidebar.MenuItem>
+        <Sidebar.MenuButton
+          class="group flex items-center gap-2 w-full h-[1.875rem] px-2.5 rounded-lg bg-transparent cursor-pointer text-(--solus-text-tertiary) outline-none select-none transition-[background,transform] duration-150 hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] {activeRail} {focusRing} {session.settingsOpen
+            ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
+            : ''}"
+          isActive={session.settingsOpen}
+          onclick={() => session.showSettings()}
+        >
+          <span
+            class="flex items-center flex-shrink-0 motion-safe:transition-transform motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:rotate-90 {session.settingsOpen
+              ? 'text-(--solus-accent)'
+              : 'text-(--solus-text-tertiary) group-hover:text-(--solus-accent)'}"
+            ><GearIcon size={14} /></span
+          >
+          <span
+            class="text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left {session.settingsOpen
+              ? 'text-(--solus-text-primary)'
+              : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
+            >Settings</span
+          >
+          <span
+            class="text-[0.5938rem] text-(--solus-text-tertiary) font-mono flex-shrink-0 opacity-0 group-hover:opacity-70"
+            >{comboHint("global.settings")}</span
+          >
+        </Sidebar.MenuButton>
+      </Sidebar.MenuItem>
+    </Sidebar.Menu>
+  </Sidebar.Footer>
 </SidePanel>

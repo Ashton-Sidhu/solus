@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Card from "../ui/card";
   import { fly } from 'svelte/transition'
   import { ShieldWarningIcon, TerminalIcon, PencilSimpleIcon, GlobeIcon, WrenchIcon } from 'phosphor-svelte'
   import type { Component } from 'svelte'
@@ -72,18 +73,18 @@
 {/snippet}
 
 <div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2" data-testid="permission-card">
-  <div
-    class="overflow-hidden bg-(--solus-container-bg) border border-(--solus-permission-border)"
+  <Card.Root
+    class="gap-0 overflow-hidden border border-(--solus-permission-border) bg-(--solus-container-bg) py-0"
     style="border-radius:0.75rem;box-shadow:var(--solus-permission-shadow)"
   >
-    <div
-      class="flex items-center gap-1.5 px-3 py-1.5 bg-(--solus-permission-header-bg) border-b border-(--solus-permission-header-border)"
+    <Card.Header
+      class="flex grid-cols-none grid-rows-none items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-permission-header-bg) px-3 py-1.5"
     >
       <ShieldWarningIcon size={12} class="text-(--solus-status-permission)" />
       <span class="text-xs sm:text-[0.6875rem] font-semibold text-(--solus-status-permission)">Permission Required</span>
-    </div>
+    </Card.Header>
 
-    <div class="px-3 py-2.5">
+    <Card.Content class="px-3 py-2.5">
       <div class="flex items-center gap-1.5 mb-1">
         <span class="text-(--solus-text-tertiary)"><ToolIcon size={14} /></span>
         <span class="text-[0.75rem] font-medium text-(--solus-text-primary)">{permission.toolTitle}</span>
@@ -196,6 +197,6 @@
           </span>
         {/if}
       </div>
-    </div>
-  </div>
+    </Card.Content>
+  </Card.Root>
 </div>

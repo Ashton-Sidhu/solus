@@ -6,8 +6,7 @@
   import { agentLabel, buildAgentAvailabilityRows } from '../../lib/agentAvailability'
   import { tooltip } from '../../lib/tooltip'
   import { requestInputFocus } from '../../lib/inputFocus'
-  import Dropdown from '../ui/Dropdown.svelte'
-  import DropdownItem from '../ui/DropdownItem.svelte'
+  import * as DropdownMenu from '../ui/dropdown-menu'
 
   interface Props {
     compact?: boolean;
@@ -24,7 +23,6 @@
   const agentRows = $derived(allAgentRows.filter((agent) => agent.enabled))
 
   let open = $state(false)
-  let triggerEl: HTMLButtonElement | null = $state(null)
 
   $effect(() => {
     const active = allAgentRows.find((agent) => agent.id === activeAgentId)
@@ -40,33 +38,28 @@
   }
 </script>
 
-<button
-  bind:this={triggerEl}
-  onclick={() => { open = !open }}
-  aria-keyshortcuts="Alt+Shift+G"
-  class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-2 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
-  use:tooltip={open ? null : (compact ? activeLabel : "Select agent (Opt+Shift+G)")}
->
-  {#if compact}
-    <RobotIcon size={12} />
-  {:else}
-    {activeLabel}
-  {/if}
-  <CaretDownIcon size={10} style="opacity:0.6" />
-</button>
-
-<Dropdown bind:open {triggerEl} align="bottom" anchor="right" width={160}>
-  <div class="py-1">
-    {#each agentRows as agent (agent.id)}
-      <DropdownItem
-        selected={agent.id === activeAgentId}
-        onclick={() => selectAgent(agent.id)}
+<DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+  <DropdownMenu.Trigger>
+    {#snippet child({ props })}
+      <button
+        {...props}
+        aria-keyshortcuts="Alt+Shift+G"
+        class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-2 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+        use:tooltip={open ? null : (compact ? activeLabel : "Select agent (Opt+Shift+G)")}
       >
-        <span class="min-w-0 truncate">{agent.label}</span>
-        {#snippet trailing()}
+        {#if compact}<RobotIcon size={12} />{:else}{activeLabel}{/if}
+        <CaretDownIcon size={10} style="opacity:0.6" />
+      </button>
+    {/snippet}
+  </DropdownMenu.Trigger>
+  <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[160px]">
+    <DropdownMenu.RadioGroup value={activeAgentId}>
+      {#each agentRows as agent (agent.id)}
+        <DropdownMenu.RadioItem value={agent.id} onSelect={() => selectAgent(agent.id)}>
+          <span class="min-w-0 truncate">{agent.label}</span>
           {#if agent.id === activeAgentId}<CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />{/if}
-        {/snippet}
-      </DropdownItem>
-    {/each}
-  </div>
-</Dropdown>
+        </DropdownMenu.RadioItem>
+      {/each}
+    </DropdownMenu.RadioGroup>
+  </DropdownMenu.Content>
+</DropdownMenu.Root>

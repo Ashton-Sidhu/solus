@@ -4,6 +4,7 @@
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
   import { requestInputFocus } from '../../lib/inputFocus'
   import { sendRateLimitedNow, cancelRateLimitedMessages, queueRateLimitedWait } from '../../lib/rate-limit-actions'
+  import * as Card from '../ui/card'
 
   interface Props {
     tabId: string
@@ -76,12 +77,12 @@
 
 {#if isVisible}
   <div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2" data-testid="rate-limit-card">
-    <div
-      class="overflow-hidden bg-(--solus-container-bg) border border-(--solus-permission-border)"
+    <Card.Root
+      class="gap-0 overflow-hidden border border-(--solus-permission-border) bg-(--solus-container-bg) py-0"
       style="border-radius:0.75rem;box-shadow:var(--solus-permission-shadow)"
     >
-      <div
-        class="flex items-center gap-1.5 px-3 py-1.5 bg-(--solus-permission-header-bg) border-b border-(--solus-permission-header-border)"
+      <Card.Header
+        class="flex grid-cols-none grid-rows-none items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-permission-header-bg) px-3 py-1.5"
       >
         <ClockIcon size={12} class="text-(--solus-accent)" />
         <span class="text-xs sm:text-[0.6875rem] font-semibold text-(--solus-accent)">
@@ -90,9 +91,9 @@
         <span class="ml-auto text-xs sm:text-[0.6875rem] text-(--solus-text-tertiary)">
           {showQueueUI ? statusText : `Resets in ${countdownText}`}
         </span>
-      </div>
+      </Card.Header>
 
-      <div class="px-3 py-2.5 flex flex-col gap-2.5">
+      <Card.Content class="flex flex-col gap-2.5 px-3 py-2.5">
         {#if showAskUI}
           <div class="text-sm sm:text-[0.75rem] text-(--solus-text-secondary)">
             {rateLimitInfo?.prompt ?? "You've been rate limited. What would you like to do?"}
@@ -157,7 +158,7 @@
             </button>
           </div>
         {/if}
-      </div>
-    </div>
+      </Card.Content>
+    </Card.Root>
   </div>
 {/if}

@@ -7,6 +7,7 @@
   import { useScope, useKeybinding } from '../lib/keybindings/use-keybinding.svelte'
   import { requestInputFocus } from '../lib/inputFocus'
   import type { Scope } from '../lib/keybindings/types'
+  import { Input } from './ui/input'
 
   interface Props {
     open: boolean
@@ -146,14 +147,14 @@
       <!-- Header -->
       <div class="shortcuts-header">
         <MagnifyingGlassIcon size={14} class="flex-shrink-0 text-(--solus-text-tertiary)" />
-        <input
-          bind:this={searchEl}
+        <Input
+          bind:ref={searchEl}
           bind:value={query}
-          type="search"
+          type="text"
           name="shortcuts-search"
           aria-label="Search shortcuts"
           placeholder="Search shortcuts…"
-          class="shortcuts-search"
+          class="shortcuts-search h-auto rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
           autocomplete="off"
           spellcheck="false"
         />
@@ -304,7 +305,7 @@
     opacity: 0.35;
   }
 
-  .shortcuts-search {
+  :global(.shortcuts-search) {
     flex: 1;
     background: transparent;
     border: none;
@@ -315,11 +316,11 @@
     caret-color: var(--solus-accent);
   }
 
-  .shortcuts-search::placeholder {
+  :global(.shortcuts-search::placeholder) {
     color: var(--solus-text-tertiary);
   }
 
-  .shortcuts-search::-webkit-search-cancel-button {
+  :global(.shortcuts-search::-webkit-search-cancel-button) {
     display: none;
   }
 

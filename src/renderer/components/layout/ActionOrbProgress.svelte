@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SessionProgress } from "../../../shared/types";
+  import * as Popover from "../ui/popover";
 
   interface Props {
     progress: SessionProgress;
@@ -9,8 +10,7 @@
     progressHeader: string | null;
     stepsOpen: boolean;
     expanded: boolean;
-    openSteps: () => void;
-    closeSteps: () => void;
+    orbScreenScale: string;
   }
 
   let {
@@ -19,10 +19,9 @@
     progressAllDone,
     progressFraction,
     progressHeader,
-    stepsOpen,
+    stepsOpen = $bindable(),
     expanded,
-    openSteps,
-    closeSteps,
+    orbScreenScale,
   }: Props = $props();
 
   function marquee(node: HTMLElement) {
@@ -52,17 +51,25 @@
       ?.closest("li")
       ?.scrollIntoView({ block: "nearest" });
   }
+
+  let stepsContentEl: HTMLDivElement | null = $state(null);
+  $effect(() => {
+    if (!stepsOpen || !stepsContentEl) return;
+    requestAnimationFrame(() => {
+      if (stepsContentEl) scrollToActiveStep(stepsContentEl);
+    });
+  });
 </script>
 
-{#if stepsOpen}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="steps-pop progress-popover"
+<Popover.Root bind:open={stepsOpen}>
+  <Popover.Content
+    bind:ref={stepsContentEl}
+    class="steps-pop progress-popover gap-0"
+    side="top"
+    sideOffset={8}
+    style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
     role="group"
     aria-label="Task steps"
-    use:scrollToActiveStep
-    onmouseenter={openSteps}
-    onmouseleave={closeSteps}
   >
     <div class="steps-head">
       <span class="steps-head-label">Steps</span>
@@ -89,53 +96,52 @@
         </li>
       {/each}
     </ul>
-  </div>
-{/if}
+  </Popover.Content>
 
-<button
-  class="progress-toggle stagger-item"
-  class:progress-toggle-active={stepsOpen}
-  class:progress-toggle-done={progressAllDone}
-  style="--progress:{progressFraction};--item-index:-1"
-  tabindex={expanded ? 0 : -1}
-  aria-expanded={stepsOpen}
-  aria-haspopup="true"
-  aria-label={`Progress: step ${progress.currentStep} of ${progress.totalSteps}`}
-  onmouseenter={openSteps}
-  onmouseleave={closeSteps}
-  onfocus={openSteps}
-  onblur={closeSteps}
->
-  <span
-    class="pt-fill {isRunning && !progressAllDone ? 'pt-fill-live' : ''}"
-    aria-hidden="true"
-  ></span>
-  <span class="pt-dial" aria-hidden="true">
-    <svg class="pt-svg" viewBox="0 0 36 36">
-      <circle class="pt-track" cx="18" cy="18" r="16.5" />
-      <circle
-        class="pt-arc {isRunning && !progressAllDone ? 'pt-arc-live' : ''}"
-        cx="18"
-        cy="18"
-        r="16.5"
-        pathLength="100"
-        stroke-dasharray="100"
-        style="stroke-dashoffset:{100 - progressFraction * 100}"
-      />
-    </svg>
-    <span class="pt-count tabular-nums"
-      >{progress.currentStep}<span class="pt-sep">/</span>{progress.totalSteps}</span
-    >
-  </span>
-  <span class="pt-text">
-    <span class="pt-count-text tabular-nums"
-      >{progress.currentStep}<span class="pt-sep">/</span>{progress.totalSteps}</span
-    >
-    {#if progressHeader}
-      <span class="pt-label">{progressHeader}</span>
-    {/if}
-  </span>
-</button>
+  <Popover.Trigger openOnHover openDelay={0} closeDelay={120}>
+    {#snippet child({ props })}
+      <button
+        {...props}
+        class="progress-toggle stagger-item"
+        class:progress-toggle-active={stepsOpen}
+        class:progress-toggle-done={progressAllDone}
+        style="--progress:{progressFraction};--item-index:-1"
+        tabindex={expanded ? 0 : -1}
+        aria-label={`Progress: step ${progress.currentStep} of ${progress.totalSteps}`}
+      >
+        <span
+          class="pt-fill {isRunning && !progressAllDone ? 'pt-fill-live' : ''}"
+          aria-hidden="true"
+        ></span>
+        <span class="pt-dial" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 36 36">
+            <circle class="pt-track" cx="18" cy="18" r="16.5" />
+            <circle
+              class="pt-arc {isRunning && !progressAllDone ? 'pt-arc-live' : ''}"
+              cx="18"
+              cy="18"
+              r="16.5"
+              pathLength="100"
+              stroke-dasharray="100"
+              style="stroke-dashoffset:{100 - progressFraction * 100}"
+            />
+          </svg>
+          <span class="pt-count tabular-nums"
+            >{progress.currentStep}<span class="pt-sep">/</span>{progress.totalSteps}</span
+          >
+        </span>
+        <span class="pt-text">
+          <span class="pt-count-text tabular-nums"
+            >{progress.currentStep}<span class="pt-sep">/</span>{progress.totalSteps}</span
+          >
+          {#if progressHeader}
+            <span class="pt-label">{progressHeader}</span>
+          {/if}
+        </span>
+      </button>
+    {/snippet}
+  </Popover.Trigger>
+</Popover.Root>
 
 <style>
   .progress-toggle {

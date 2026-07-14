@@ -17,6 +17,7 @@
   import { tooltip } from "../../lib/tooltip";
   import { fence, runLabel } from "../../lib/run-utils";
   import type { RunStatus } from "../../../shared/types";
+  import { Button } from "../ui/button";
 
   interface Props {
     cwd: string;
@@ -114,36 +115,48 @@
 
 {#snippet tools(run: RunStatus, active: boolean)}
   {#if active || run.state === "error"}
-    <button
-      class="svc-icon inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent"
-      type="button"
-      aria-label="Restart {runLabel(run)}"
-      onclick={() => restartRun(run)}
-      use:tooltip={`Restart ${runLabel(run)}`}
-    >
-      <ArrowClockwiseIcon size={12} />
-    </button>
+    <span class="inline-flex" use:tooltip={`Restart ${runLabel(run)}`}>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="text-[color-mix(in_srgb,var(--project-icon-blue)_70%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--project-icon-blue)_12%,transparent)] hover:text-(--project-icon-blue)"
+        type="button"
+        aria-label="Restart {runLabel(run)}"
+        onclick={() => restartRun(run)}
+      >
+        <ArrowClockwiseIcon size={12} />
+      </Button>
+    </span>
   {/if}
   {#if run.state === "error"}
-    <button
-      class="svc-icon svc-icon-agent inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent"
-      type="button"
-      aria-label="Debug {runLabel(run)} with an agent"
-      onclick={() => debugInNewSession(run)}
+    <span
+      class="inline-flex"
       use:tooltip={`Debug ${runLabel(run)} with an agent`}
     >
-      <RobotIcon size={13} />
-    </button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="text-(--project-icon-blue) hover:bg-[color-mix(in_srgb,var(--project-icon-blue)_12%,transparent)] hover:text-(--project-icon-blue)"
+        type="button"
+        aria-label="Debug {runLabel(run)} with an agent"
+        onclick={() => debugInNewSession(run)}
+      >
+        <RobotIcon size={13} />
+      </Button>
+    </span>
   {/if}
-  <button
-    class="svc-icon inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent"
-    type="button"
-    aria-label="Show logs for {runLabel(run)}"
-    onclick={() => openLogs(run)}
-    use:tooltip={`Show logs for ${runLabel(run)}`}
-  >
-    <ListBulletsIcon size={13} />
-  </button>
+  <span class="inline-flex" use:tooltip={`Show logs for ${runLabel(run)}`}>
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      class="text-[color-mix(in_srgb,var(--project-icon-blue)_70%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--project-icon-blue)_12%,transparent)] hover:text-(--project-icon-blue)"
+      type="button"
+      aria-label="Show logs for {runLabel(run)}"
+      onclick={() => openLogs(run)}
+    >
+      <ListBulletsIcon size={13} />
+    </Button>
+  </span>
 {/snippet}
 
 {#if runs.length === 0}
@@ -229,15 +242,21 @@
                 {@render tools(run, active)}
               </span>
               {#each ports as port (port)}
-                <button
-                  class="svc-url inline-flex cursor-pointer items-center gap-[0.1875rem] rounded-full border-0 px-1.5 py-0.5 text-[0.65625rem] font-[550] tabular-nums"
-                  type="button"
-                  aria-label="Open http://localhost:{port}"
-                  onclick={() => openPort(port)}
+                <span
+                  class="inline-flex"
                   use:tooltip={`Open http://localhost:${port}`}
                 >
-                  <ArrowSquareOutIcon size={10} /> :{port}
-                </button>
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    class="bg-(--solus-status-live-bg) text-(--solus-status-live) tabular-nums hover:bg-[color-mix(in_srgb,var(--solus-status-live)_18%,transparent)] hover:text-(--solus-status-live)"
+                    type="button"
+                    aria-label="Open http://localhost:{port}"
+                    onclick={() => openPort(port)}
+                  >
+                    <ArrowSquareOutIcon size={10} /> :{port}
+                  </Button>
+                </span>
               {/each}
             {:else}
               <!-- Status word sits flush-right at rest and cross-fades to the
@@ -402,42 +421,6 @@
   }
 
   /* ── Trailing actions ── */
-  .svc-url {
-    background: var(--solus-status-live-bg);
-    color: var(--solus-status-live);
-    transition: background-color 0.15s ease;
-  }
-  .svc-url:hover {
-    background: color-mix(in srgb, var(--solus-status-live) 18%, transparent);
-  }
-  .svc-url:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-  .svc-icon {
-    color: color-mix(in srgb, var(--project-icon-blue) 70%, var(--solus-text-tertiary));
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
-  }
-  .svc-icon:hover {
-    background: color-mix(in srgb, var(--project-icon-blue) 12%, transparent);
-    color: var(--project-icon-blue);
-  }
-  .svc-icon-agent {
-    color: var(--project-icon-blue);
-  }
-  .svc-icon-agent:hover {
-    background: color-mix(in srgb, var(--project-icon-blue) 12%, transparent);
-    color: var(--project-icon-blue);
-  }
-  .svc-icon:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-
   /* Secondary controls stay out of sight until the row is engaged, so each
      service reads as a single calm line at rest and only reveals its tools
      on hover / keyboard focus — the same restraint as the Git section. The

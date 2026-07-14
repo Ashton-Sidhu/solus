@@ -1,6 +1,6 @@
 <script lang="ts">
   import { UserIcon } from "phosphor-svelte";
-  import SearchField from "../ui/SearchField.svelte";
+  import SearchField from "../ui/search-field";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import type { StatusFilter, TaskSort } from "./lib/tasks-api";
@@ -41,7 +41,7 @@
 </script>
 
 <div class="flex flex-wrap items-center gap-2 pb-4">
-  <SearchField bind:el={searchEl} bind:value={query} placeholder="Search tasks…" />
+  <SearchField bind:ref={searchEl} bind:value={query} placeholder="Search tasks…" />
 
   {#if showStatus}
     <SegmentedControl

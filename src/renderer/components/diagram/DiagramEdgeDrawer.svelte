@@ -11,6 +11,7 @@
     diagramAccent,
   } from './diagram-colors'
   import { getSettingsContext } from '../../contexts/settings.context.svelte'
+  import { Input } from '../ui/input'
 
   interface Props {
     edge: Pick<DiagramEdge, 'id' | 'source' | 'target' | 'label' | 'kind' | 'color' | 'width' | 'arrows' | 'shape' | 'cardinality'>
@@ -151,7 +152,7 @@
     <!-- Label -->
     <label class="diagram-drawer__field">
       <span class="diagram-drawer__label">Label</span>
-      <input
+      <Input
         class="diagram-drawer__input diagram-drawer__name-input"
         bind:value={label}
         oninput={onLabelInput}

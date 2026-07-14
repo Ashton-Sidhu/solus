@@ -152,7 +152,7 @@
     bind:this={modalEl}
     onkeydown={onModalKeydown}
   >
-    <div class="w-full max-w-sm flex flex-col gap-5 p-6 rounded-2xl bg-(--solus-surface) border border-(--solus-container-border) shadow-xl">
+    <div class="w-full max-w-sm flex flex-col gap-5 p-6 rounded-2xl bg-(--solus-container-bg) border border-(--solus-container-border) shadow-xl">
       <div class="flex flex-col items-center gap-2 text-center">
         <div class="size-11 rounded-xl bg-(--solus-surface-hover) flex items-center justify-center">
           <GithubLogoIcon size={22} weight="fill" class="text-(--solus-text-primary)" />

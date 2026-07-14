@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import Dropdown from "../ui/Dropdown.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
 
   interface Props {
     title: string;
@@ -15,42 +15,26 @@
   let { title, ariaLabel, minWidth = "9rem", icon, children }: Props = $props();
 
   let open = $state(false);
-  let triggerEl: HTMLButtonElement | null = $state(null);
-
-  // Shared Dropdown takes a fixed pixel width; normalize the rem/number inputs.
-  const widthPx = $derived(
-    typeof minWidth === "number"
-      ? minWidth
-      : minWidth.trim().endsWith("rem")
-        ? parseFloat(minWidth) * 16
-        : parseFloat(minWidth),
-  );
-
   function close() {
     open = false;
   }
 </script>
 
 <div class="popover">
-  <button
-    bind:this={triggerEl}
-    type="button"
-    class="canvas-toolbar__btn"
-    class:popover__btn--active={open}
-    onclick={() => (open = !open)}
-    {title}
-    aria-label={ariaLabel}
-    aria-haspopup="menu"
-    aria-expanded={open}
-  >
-    {@render icon()}
-  </button>
-
-  <Dropdown bind:open {triggerEl} align="bottom" width={widthPx}>
+  <DropdownMenu.Root bind:open>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button {...props} type="button" class="canvas-toolbar__btn" class:popover__btn--active={open} {title} aria-label={ariaLabel}>
+          {@render icon()}
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="bottom" align="start" sideOffset={6} style={`min-width:${typeof minWidth === "number" ? `${minWidth}px` : minWidth}`}>
     <div class="popover__menu" role="menu">
       {@render children(close)}
     </div>
-  </Dropdown>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 </div>
 
 <style>

@@ -3,6 +3,7 @@
   import { ArrowLineRightIcon, CaretRightIcon } from "phosphor-svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
+  import * as Card from "../ui/card";
 
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -75,8 +76,8 @@
 <div class="py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="conversation-ref-card group mx-auto w-4/5 rounded-lg {extraClass}"
+  <Card.Root
+    class="conversation-ref-card group mx-auto w-4/5 gap-0 rounded-lg py-0 {extraClass}"
     data-testid={dataTestId}
     onclick={handleClick}
     role="button"
@@ -115,7 +116,7 @@
           size={14}
           weight="bold"
           aria-hidden="true"
-          class="conversation-ref-card__caret shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 ease-(--ease-premium) group-hover:text-(--solus-text-secondary) {expanded
+          class="conversation-ref-card__caret mr-1.5 shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 ease-(--ease-premium) group-hover:text-(--solus-text-secondary) {expanded
             ? 'rotate-90'
             : ''}"
         />
@@ -152,13 +153,14 @@
       {#if expandable}
         {#if expanded}
           <div
-            class="conversation-ref-card__body"
             transition:slide={{
               duration: reduceMotion ? 0 : 180,
               easing: cubicOut,
             }}
           >
-            {@render children()}
+            <div class="conversation-ref-card__body">
+              {@render children()}
+            </div>
           </div>
         {/if}
       {:else}
@@ -167,11 +169,11 @@
         </div>
       {/if}
     {/if}
-  </div>
+  </Card.Root>
 </div>
 
 <style>
-  .conversation-ref-card {
+  :global(.conversation-ref-card) {
     background: linear-gradient(
       180deg,
       color-mix(
@@ -191,11 +193,11 @@
       background var(--duration-base) var(--ease-premium);
   }
 
-  .conversation-ref-card:active {
+  :global(.conversation-ref-card):active {
     transform: scale(0.996);
   }
 
-  .conversation-ref-card:focus-visible {
+  :global(.conversation-ref-card):focus-visible {
     outline: 0.125rem solid var(--solus-accent-border-medium);
     outline-offset: 0.1875rem;
   }
@@ -255,10 +257,10 @@
     padding: 0;
   }
 
-  .conversation-ref-card:hover .conversation-ref-card__action,
-  .conversation-ref-card:hover .conversation-ref-card__secondary-action,
-  .conversation-ref-card:focus-within .conversation-ref-card__secondary-action,
-  .conversation-ref-card:focus-within .conversation-ref-card__action {
+  :global(.conversation-ref-card):hover .conversation-ref-card__action,
+  :global(.conversation-ref-card):hover .conversation-ref-card__secondary-action,
+  :global(.conversation-ref-card):focus-within .conversation-ref-card__secondary-action,
+  :global(.conversation-ref-card):focus-within .conversation-ref-card__action {
     color: var(--solus-text-secondary);
   }
 
@@ -277,10 +279,6 @@
   .conversation-ref-card__secondary-action:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border-medium);
     outline-offset: 0.125rem;
-  }
-
-  .conversation-ref-card__caret {
-    margin-right: 0.375rem;
   }
 
   .conversation-ref-card__body {
@@ -302,10 +300,10 @@
       opacity: 0;
     }
 
-    .conversation-ref-card:hover .conversation-ref-card__action,
-    .conversation-ref-card:hover .conversation-ref-card__secondary-action,
-    .conversation-ref-card:focus-within .conversation-ref-card__action,
-    .conversation-ref-card:focus-within
+    :global(.conversation-ref-card):hover .conversation-ref-card__action,
+    :global(.conversation-ref-card):hover .conversation-ref-card__secondary-action,
+    :global(.conversation-ref-card):focus-within .conversation-ref-card__action,
+    :global(.conversation-ref-card):focus-within
       .conversation-ref-card__secondary-action {
       opacity: 1;
     }

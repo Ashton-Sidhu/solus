@@ -7,6 +7,11 @@
     style: string
   }
 
+  type ScrollDetail = {
+    event: Event
+    offset: number
+  }
+
   interface Props {
     height: number | string
     itemCount: number
@@ -17,6 +22,7 @@
     scrollToIndex?: number
     scrollToAlignment?: string
     scrollToBehaviour?: string
+    onAfterScroll?: (detail: ScrollDetail) => void
   }
 
   let {
@@ -29,6 +35,7 @@
     scrollToIndex,
     scrollToAlignment,
     scrollToBehaviour,
+    onAfterScroll,
   }: Props = $props()
 </script>
 
@@ -41,6 +48,7 @@
   {scrollToIndex}
   {scrollToAlignment}
   {scrollToBehaviour}
+  on:afterScroll={(event) => onAfterScroll?.(event.detail)}
 >
   {#snippet item(args)}
     {@render item(args)}

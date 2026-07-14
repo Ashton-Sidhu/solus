@@ -3,10 +3,10 @@
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { runtime } from '../../contexts/runtime.svelte'
-  import Button from '../ui/Button.svelte'
-  import Input from '../ui/Input.svelte'
-  import Dropdown from '../ui/Dropdown.svelte'
-  import DropdownItem from '../ui/DropdownItem.svelte'
+  import { Button } from '../ui/button'
+  import { Toggle } from '../ui/toggle'
+  import { MarkdownTextarea } from '../ui/markdown-field'
+  import * as DropdownMenu from '../ui/dropdown-menu'
   import PlanSplitButton from './PlanSplitButton.svelte'
   import Kbd from '../ui/Kbd.svelte'
 
@@ -23,7 +23,7 @@
   const session = getWorkspaceContext()
 
   let actionComment = $state('')
-  let noteEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null)
+  let noteEl: HTMLTextAreaElement | null = $state(null)
   let menuOpen = $state(false)
   let triggerEl: HTMLButtonElement | null = $state(null)
 
@@ -72,12 +72,10 @@
 
 <div class="plan-action-bar flex items-center {gap}">
   <div class="plan-action-input flex-1 min-w-0" class:plan-action-input--compact={compact}>
-    <Input
-      bind:el={noteEl}
+    <MarkdownTextarea
+      bind:ref={noteEl}
       bind:value={actionComment}
-      type="textarea"
-      variant="bare"
-      size="md"
+      bare
       placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
       rows={1}
       data-testid="plan-action-comment"
@@ -85,17 +83,17 @@
   </div>
 
   {#if showWorktreeToggle && !compact}
-    <button
-      type="button"
+    <Toggle
+      variant="outline"
+      size="sm"
+      pressed={useWorktree}
+      onPressedChange={(v) => { useWorktree = v }}
       data-testid="plan-action-worktree"
-      onclick={() => { useWorktree = !useWorktree }}
-      class="plan-worktree-toggle"
-      class:plan-worktree-toggle--active={useWorktree}
+      class="w-7 min-w-0 shrink-0 px-0 text-(--solus-text-tertiary) data-[state=on]:border-(--solus-accent-border) data-[state=on]:bg-(--solus-accent-light) data-[state=on]:text-(--solus-accent)"
       title={useWorktree ? 'Worktree enabled — will implement in isolated branch (⌥W)' : 'Enable worktree — implement in isolated branch (⌥W)'}
-      aria-pressed={useWorktree}
     >
       <GitForkIcon size={14} />
-    </button>
+    </Toggle>
   {/if}
 
   <div class="flex items-center {gap} shrink-0">
@@ -112,17 +110,20 @@
         <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>
       </button>
     {:else}
-      <Button data-testid="plan-action-reject" variant="danger" size="sm" class="plan-btn-desktop" onclick={handleReject} kbd={isMobile ? undefined : "⌥R"}>
+      <Button data-testid="plan-action-reject" variant="outline" size="sm" class="plan-btn-desktop hover:text-(--solus-error)" onclick={handleReject}>
         <XIcon size={14} />
         Reject
+        {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥R</Kbd>{/if}
       </Button>
-      <Button data-testid="plan-action-revise" variant="danger" size="sm" class="plan-btn-desktop" onclick={handleRevise} kbd={isMobile ? undefined : "⌥V"}>
+      <Button data-testid="plan-action-revise" variant="outline" size="sm" class="plan-btn-desktop hover:text-(--solus-error)" onclick={handleRevise}>
         <ArrowCounterClockwiseIcon size={14} />
         Revise
+        {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥V</Kbd>{/if}
       </Button>
-      <Button data-testid="plan-action-yes" variant="soft" size="sm" class="plan-btn-desktop" onclick={handleAskApprove} kbd={isMobile ? undefined : "⌥Y"}>
+      <Button data-testid="plan-action-yes" variant="secondary" size="sm" class="plan-btn-desktop" onclick={handleAskApprove}>
         <CheckIcon size={14} />
         Yes
+        {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥Y</Kbd>{/if}
       </Button>
     {/if}
 
@@ -141,35 +142,35 @@
 </div>
 
 {#if compact && triggerEl}
-  <Dropdown bind:open={menuOpen} {triggerEl} align="bottom" width={180}>
-    <div class="p-1">
-      <DropdownItem data-testid="plan-action-yes" onclick={handleAskApprove}>
+  <DropdownMenu.Root bind:open={menuOpen}>
+    <DropdownMenu.Content customAnchor={triggerEl} side="bottom" align="start" sideOffset={6} class="w-[180px]">
+      <DropdownMenu.Item data-testid="plan-action-yes" onSelect={handleAskApprove}>
         <RobotIcon size={14} />
         <span class="flex-1 text-left">Yes</span>
-        {#if !isMobile}{#snippet trailing()}<Kbd variant="inline">⌥Y</Kbd>{/snippet}{/if}
-      </DropdownItem>
+        {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥Y</Kbd></span>{/if}
+      </DropdownMenu.Item>
       <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
-      <DropdownItem data-testid="plan-action-reject" danger onclick={handleReject}>
+      <DropdownMenu.Item data-testid="plan-action-reject" variant="destructive" onSelect={handleReject}>
         <XIcon size={14} />
         <span class="flex-1 text-left">Reject</span>
-        {#if !isMobile}{#snippet trailing()}<Kbd variant="inline">⌥R</Kbd>{/snippet}{/if}
-      </DropdownItem>
-      <DropdownItem data-testid="plan-action-revise" danger onclick={handleRevise}>
+        {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥R</Kbd></span>{/if}
+      </DropdownMenu.Item>
+      <DropdownMenu.Item data-testid="plan-action-revise" variant="destructive" onSelect={handleRevise}>
         <ArrowCounterClockwiseIcon size={14} />
         <span class="flex-1 text-left">Revise</span>
-        {#if !isMobile}{#snippet trailing()}<Kbd variant="inline">⌥V</Kbd>{/snippet}{/if}
-      </DropdownItem>
+        {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥V</Kbd></span>{/if}
+      </DropdownMenu.Item>
       {#if showWorktreeToggle}
         <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
-        <DropdownItem data-testid="plan-action-worktree" onclick={() => { useWorktree = !useWorktree }}>
+        <DropdownMenu.Item data-testid="plan-action-worktree" closeOnSelect={false} onSelect={() => { useWorktree = !useWorktree }}>
           <GitForkIcon size={14} class={useWorktree ? 'text-(--solus-accent)' : ''} />
           <span class="flex-1 text-left">Worktree</span>
           {#if useWorktree}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
-          {#if !isMobile}{#snippet trailing()}<Kbd variant="inline">⌥W</Kbd>{/snippet}{/if}
-        </DropdownItem>
+          {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥W</Kbd></span>{/if}
+        </DropdownMenu.Item>
       {/if}
-    </div>
-  </Dropdown>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 {/if}
 
 <style>
@@ -199,46 +200,6 @@
   }
   :global(.plan-btn-desktop) {
     height: 1.875rem !important;
-  }
-
-  .plan-worktree-toggle {
-    width: 1.875rem;
-    height: 1.875rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: 0.0625rem solid var(--solus-tool-border);
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      border-color var(--duration-quick) var(--ease-premium),
-      transform 80ms var(--ease-premium);
-  }
-  .plan-worktree-toggle:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-secondary);
-    border-color: color-mix(in srgb, var(--solus-tool-border) 50%, var(--solus-text-tertiary));
-  }
-  .plan-worktree-toggle:active {
-    transform: scale(0.95);
-  }
-  .plan-worktree-toggle--active {
-    background: var(--solus-accent-light);
-    color: var(--solus-accent);
-    border-color: var(--solus-accent-border);
-  }
-  .plan-worktree-toggle--active:hover {
-    background: var(--solus-accent-soft);
-    border-color: var(--solus-accent-border-medium);
-  }
-  .plan-worktree-toggle:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border-medium);
-    outline-offset: 0.125rem;
   }
 
   .plan-action-more {

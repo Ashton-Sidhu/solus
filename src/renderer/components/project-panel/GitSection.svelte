@@ -19,13 +19,14 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
+  import { toasts } from "../../contexts/toast.store.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { sessionEnvironment } from "../../lib/git-context";
   import { getRecommendedGitActionKey } from "../../lib/git-recommendation";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as Popover from "../ui/popover";
+  import { Button } from "../ui/button";
   import SearchablePickerList from "../pickers/SearchablePickerList.svelte";
   import {
     worktreeProjectRoot,
@@ -189,13 +190,13 @@
       },
       {
         key: "review",
-        label: reviewKey
-          ? "View report"
-          : reviewing
-            ? "Generating report…"
+        label: reviewing
+          ? "Generating report…"
+          : reviewKey
+            ? "View report"
             : "Review changes",
         icon: BinocularsIcon,
-        phase: reviewing ? "loading" : "idle",
+        phase: reviewing ? "loading" : reviewKey ? "success" : "idle",
         disabled: !canGit || reviewing,
         run: () => {
           void handleReview();
@@ -213,6 +214,18 @@
         },
       },
     ];
+    if (reviewKey) {
+      defs.push({
+        key: "review-regenerate",
+        label: "Regenerate report",
+        icon: ArrowsClockwiseIcon,
+        phase: "idle",
+        disabled: reviewing,
+        run: () => {
+          void handleReview(true);
+        },
+      });
+    }
     if (prUrl) {
       defs.push({
         key: "pr-view",
@@ -315,7 +328,7 @@
       });
     }
 
-    const review = pick(["review", "review-pr"]);
+    const review = pick(["review", "review-regenerate", "review-pr"]);
     if (review.length) {
       groups.push({ key: "review", primary: review[0], secondary: review.slice(1) });
     }
@@ -331,13 +344,7 @@
   // currently open group (mirrors the branch picker's open/triggerEl pattern).
   let groupMenuOpen = $state(false);
   let openGroupKey = $state<string | null>(null);
-  let openTriggerEl = $state<HTMLButtonElement | null>(null);
-  // Anchor the left-popout dropdowns to the side panel's edge (not the button),
-  // so they clear the whole project sidebar rather than overlapping it.
-  let envEl = $state<HTMLDivElement | null>(null);
-  const panelBoundaryEl = $derived(
-    (envEl?.closest(".side-panel-root") as HTMLElement | null) ?? null,
-  );
+  let openRowEl = $state<HTMLElement | null>(null);
   const openGroup = $derived(
     actionGroups.find((g) => g.key === openGroupKey) ?? null,
   );
@@ -348,7 +355,7 @@
       return;
     }
     openGroupKey = key;
-    openTriggerEl = el;
+    openRowEl = el.closest(".row-wrap") as HTMLElement | null;
     groupMenuOpen = true;
   }
 
@@ -372,7 +379,6 @@
   });
 
   let branchPickerOpen = $state(false);
-  let branchTriggerEl: HTMLButtonElement | null = $state(null);
   let branchPickerRef: SearchablePickerList | null = $state(null);
 
   const branchRefs = $derived(gitStatus.refsFor(branchRepoRoot));
@@ -386,10 +392,12 @@
   const branchPickerItems = $derived([...localBranchItems, ...worktreeItems]);
   const selectedBranchItem = $derived(currentBranch);
 
-  $effect(() => {
-    if (!branchPickerOpen || !branchRepoCtx) return;
-    void gitStatus.refreshRefs(branchRepoRoot, branchRepoCtx, { force: true });
-  });
+  function handleBranchOpenChange(next: boolean) {
+    branchPickerOpen = next;
+    if (next && branchRepoCtx) {
+      void gitStatus.refreshRefs(branchRepoRoot, branchRepoCtx, { force: true });
+    }
+  }
 
   $effect(() => {
     if (!branchPickerOpen) {
@@ -402,8 +410,8 @@
     return () => document.removeEventListener("keydown", onKeydown, true);
   });
 
-  async function handleReview() {
-    if (reviewKey) {
+  async function handleReview(regenerate = false) {
+    if (reviewKey && !regenerate) {
       av.enterReview(reviewKey);
       requestInputFocus();
       return;
@@ -420,7 +428,27 @@
       if (runId !== reviewRunId) return;
       // Fallback guides are intentionally not persisted. Only offer "View
       // report" when generation returned a real cached guide.
-      reviewKey = gen?.persisted ? gen.key : null;
+      const generatedKey = gen?.persisted ? gen.key : null;
+      if (generatedKey) {
+        reviewKey = generatedKey;
+        toasts.success(regenerate ? "Report regenerated" : "Report ready", {
+          action: {
+            label: "View",
+            onAction: () => {
+              av.enterReview(generatedKey);
+              requestInputFocus();
+            },
+          },
+        });
+      } else if (gen) {
+        toasts.info(gen.guide.summary);
+      }
+    } catch (error) {
+      if (runId === reviewRunId) {
+        toasts.error(
+          `Couldn't generate report: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     } finally {
       if (runId === reviewRunId) {
         reviewing = false;
@@ -435,11 +463,6 @@
     reviewing = false;
     void window.solus.cancelGenerateGuide(session.ctxFor(tabId));
     requestInputFocus();
-  }
-
-  function openBranchPicker() {
-    if (!currentBranch || env.pending) return;
-    branchPickerOpen = !branchPickerOpen;
   }
 
   async function selectBranchTarget(item: string) {
@@ -505,52 +528,17 @@
   <div class="inline-err" role="alert">
     <WarningCircleIcon size={11} />
     <span>{def.error}</span>
-    <button
-      class="inline-err-x"
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      class="text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_14%,transparent)] hover:text-(--solus-status-error)"
       type="button"
       aria-label="Dismiss error"
       onclick={dismiss}
     >
       <XIcon size={10} />
-    </button>
+    </Button>
   </div>
-{/snippet}
-
-{#snippet branchHeader()}
-  <button
-    bind:this={branchTriggerEl}
-    class="branch-row"
-    type="button"
-    title="Switch branch or worktree"
-    aria-haspopup="menu"
-    aria-expanded={branchPickerOpen}
-    onclick={openBranchPicker}
-  >
-    <span class="branch-row-icon">
-      {#if isWorktree || env.pending}
-        <GitForkIcon size={13} />
-      {:else}
-        <GitBranchIcon size={13} />
-      {/if}
-    </span>
-    <span class="branch-row-name" title={status?.branch ?? undefined}
-      >{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span
-    >
-    <span class="branch-row-trail">
-      {#if uncommittedFileCount > 0}
-        <span class="branch-row-stats">
-          <span class="menu-trail">{uncommittedFileCount}</span>
-          {#if insertions > 0}
-            <span class="stat-add">+{insertions}</span>
-          {/if}
-          {#if deletions > 0}
-            <span class="stat-del">−{deletions}</span>
-          {/if}
-        </span>
-      {/if}
-      <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
-    </span>
-  </button>
 {/snippet}
 
 {#snippet menuButton(def: ActionDef, split: boolean)}
@@ -622,16 +610,27 @@
     </span>
   </div>
 {:else}
-  <div class="env" bind:this={envEl}>
-    {@render branchHeader()}
-    <Dropdown
-      bind:open={branchPickerOpen}
-      triggerEl={branchTriggerEl}
-      boundaryEl={panelBoundaryEl}
-      width={420}
-      align="left"
-    >
-      <div class="py-1">
+  <div class="env">
+    <Popover.Root bind:open={branchPickerOpen} onOpenChange={handleBranchOpenChange}>
+      <Popover.Trigger disabled={!currentBranch || env.pending}>
+        {#snippet child({ props })}
+          <button {...props} class="branch-row" type="button" title="Switch branch or worktree">
+            <span class="branch-row-icon">{#if isWorktree || env.pending}<GitForkIcon size={13} />{:else}<GitBranchIcon size={13} />{/if}</span>
+            <span class="branch-row-name" title={status?.branch ?? undefined}>{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span>
+            <span class="branch-row-trail">
+              {#if uncommittedFileCount > 0}
+                <span class="branch-row-stats">
+                  <span class="menu-trail">{uncommittedFileCount}</span>
+                  {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
+                  {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
+                </span>
+              {/if}
+              <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
+            </span>
+          </button>
+        {/snippet}
+      </Popover.Trigger>
+      <Popover.Content side="left" align="start" sideOffset={6} collisionPadding={8} onOpenAutoFocus={(event) => event.preventDefault()} class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
         <SearchablePickerList
           bind:this={branchPickerRef}
           items={branchPickerItems}
@@ -641,34 +640,29 @@
           emptyLabel="No branches or worktrees found"
           onselect={selectBranchTarget}
         />
-      </div>
-    </Dropdown>
+      </Popover.Content>
+    </Popover.Root>
     <div class="menu-list">
       {#each actionGroups as group (group.key)}
         {@render groupRow(group)}
       {/each}
     </div>
-    <Dropdown
-      bind:open={groupMenuOpen}
-      triggerEl={openTriggerEl}
-      boundaryEl={panelBoundaryEl}
-      width={220}
-      align="left"
-    >
-      <div class="py-1">
+    <Popover.Root bind:open={groupMenuOpen}>
+      <Popover.Content customAnchor={openRowEl} side="left" align="start" sideOffset={6} collisionPadding={8} onInteractOutside={(event) => { if ((event.target as Element | null)?.closest?.(".split-caret")) event.preventDefault() }} class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
         {#each openGroup?.secondary ?? [] as def (def.key)}
           {@const Icon = def.icon}
-          <DropdownItem
-            danger={def.danger}
+          <button
+            type="button"
             disabled={def.disabled}
             onclick={() => runSecondary(def)}
+            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : ''}"
           >
             <Icon size={14} />
             <span>{def.label}</span>
-          </DropdownItem>
+          </button>
         {/each}
-      </div>
-    </Dropdown>
+      </Popover.Content>
+    </Popover.Root>
   </div>
 {/if}
 
@@ -1009,23 +1003,6 @@
   .inline-err span {
     min-width: 0;
     flex: 1;
-  }
-  .inline-err-x {
-    width: 1.125rem;
-    height: 1.125rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    padding: 0;
-    border: none;
-    border-radius: 0.25rem;
-    background: transparent;
-    color: var(--solus-status-error);
-    cursor: pointer;
-  }
-  .inline-err-x:hover {
-    background: color-mix(in srgb, var(--solus-status-error) 14%, transparent);
   }
   @keyframes err-slide {
     from {

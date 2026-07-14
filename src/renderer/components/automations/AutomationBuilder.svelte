@@ -33,9 +33,9 @@
   import { getAgentContext } from "../../contexts/agent.context.svelte";
   import { getPlanStore } from "../../contexts/plan.store.svelte";
   import { agentLabel } from "../../lib/agentAvailability";
-  import Select from "../ui/Select.svelte";
+  import * as Select from "../ui/select";
+  import { Input } from "../ui/input";
   import PromptEditor from "../ui/PromptEditor.svelte";
-  import TimeFields from "../ui/TimeFields.svelte";
   import DateTimePicker from "../ui/DateTimePicker.svelte";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import {
@@ -105,6 +105,18 @@
     "[&_dt]:shrink-0 [&_dt]:text-xs [&_dt]:text-(--solus-text-tertiary) " +
     "[&_dd]:m-0 [&_dd]:min-w-0";
   const ROW = "flex items-center justify-between gap-3 min-h-[1.875rem]";
+  // Ghost select trigger: borderless, compact, lifts on hover. `sel-ghost` is
+  // an inert marker the trigger column uses to retarget the hover tint.
+  const GHOST_TRIGGER =
+    "sel-ghost data-[size=default]:h-auto gap-1 border-0 bg-transparent px-1.5 py-1 text-xs " +
+    "hover:bg-(--solus-surface-hover) dark:bg-transparent dark:hover:bg-(--solus-surface-hover) [&_svg]:size-[11px] [&_svg]:opacity-60";
+  const TIME_FIELD =
+    "sel-ghost scheme-light dark:scheme-dark h-6 w-[4.75rem] min-w-0 appearance-none rounded-md border-0 bg-transparent px-1.5 py-0.5 text-[0.6875rem] tabular-nums " +
+    "text-(--solus-text-primary) transition-[background-color,outline-color] duration-120 hover:bg-(--solus-accent-light) " +
+    "focus-visible:border-transparent focus-visible:bg-(--solus-accent-light) focus-visible:ring-0 " +
+    "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
+    "pointer-coarse:h-10 pointer-coarse:w-24 pointer-coarse:rounded-lg pointer-coarse:px-2 pointer-coarse:text-xs " +
+    "[&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none [&::-webkit-datetime-edit]:p-0";
   const META_VALUE =
     "block text-xs font-normal text-right text-(--solus-text-primary) truncate";
 
@@ -327,12 +339,6 @@
   function parseHHMM(s: string): { hh: number; mm: number } {
     const [h, m] = s.split(":").map(Number);
     return { hh: Number.isFinite(h) ? h : 9, mm: Number.isFinite(m) ? m : 0 };
-  }
-
-  // Cron-style "time of day" (daily/weekly/monthly) edited via TimeFields.
-  function setCronTime(hh: number, mm: number) {
-    timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-    commitTrigger();
   }
 
   // "Once" run-at, edited via the reusable DateTimePicker (datetime-local format).
@@ -640,7 +646,7 @@
   >
     <!-- ── Main: name + prompt ── -->
     <section id="overview" class="flex flex-col gap-3.5 min-w-0 h-full min-h-0">
-      <input
+      <Input
         class={TITLE_INPUT}
         type="text"
         bind:value={name}
@@ -672,7 +678,7 @@
     <!-- Retarget the shared ghost-select hover to the brand accent wash within
            these cards (overrides Select.svelte's neutral hover via specificity). -->
     <aside
-      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-trigger--ghost:hover:not(:disabled)]:bg-(--solus-accent-light)"
+      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-ghost:hover]:bg-(--solus-accent-light)"
     >
       <!-- Status -->
       <section id="status" class={SECTION}>
@@ -743,33 +749,34 @@
           <div class={ROW}>
             <dt>Repeats</dt>
             <dd>
-              <Select
+              <Select.Root
+                type="single"
                 value={kind}
-                options={repeatOptions}
-                onChange={(v) => {
-                  kind = v;
+                onValueChange={(v) => {
+                  kind = v as BuilderTriggerKind;
                   commitTrigger();
                 }}
-                ariaLabel="Repeats"
-                anchor="right"
-                variant="ghost"
-              />
+              >
+                <Select.Trigger class={GHOST_TRIGGER} aria-label="Repeats">
+                  {repeatOptions.find((o) => o.value === kind)?.label}
+                </Select.Trigger>
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                  {#each repeatOptions as opt (opt.value)}
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                  {/each}
+                </Select.Content>
+              </Select.Root>
             </dd>
           </div>
 
           {#if kind === "once"}
             <div class="flex pb-1.5">
-              <DateTimePicker
-                value={onceLocal}
-                onChange={setOnceAt}
-                dateAnchor="right"
-                timeAlign="top"
-              />
+              <DateTimePicker value={onceLocal} onChange={setOnceAt} />
             </div>
           {:else if kind === "interval"}
             <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
               <span class={SUB_LABEL}>Every</span>
-              <input
+              <Input
                 class="{FIELD} {FIELD_NUM} w-16 pointer-coarse:w-[4.5rem]"
                 type="number"
                 min="1"
@@ -777,45 +784,77 @@
                 onchange={commitTrigger}
                 aria-label="Interval amount"
               />
-              <Select
-                bind:value={intervalUnit}
-                options={intervalUnitOptions}
-                onChange={commitTrigger}
-                ariaLabel="Interval unit"
-                variant="ghost"
-              />
+              <Select.Root
+                type="single"
+                value={intervalUnit}
+                onValueChange={(v) => {
+                  intervalUnit = v as "minutes" | "hours" | "days";
+                  commitTrigger();
+                }}
+              >
+                <Select.Trigger class={GHOST_TRIGGER} aria-label="Interval unit">
+                  {intervalUnit}
+                </Select.Trigger>
+                <Select.Content class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                  {#each intervalUnitOptions as opt (opt.value)}
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                  {/each}
+                </Select.Content>
+              </Select.Root>
             </div>
           {:else if kind === "daily"}
             <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
               <span class={SUB_LABEL}>At</span>
-              <TimeFields
-                hh={parseHHMM(timeStr).hh}
-                mm={parseHHMM(timeStr).mm}
-                onChange={setCronTime}
-                align="top"
+              <Input
+                type="time"
+                value={timeStr}
+                onchange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (!value) return;
+                  timeStr = value;
+                  commitTrigger();
+                }}
+                class={TIME_FIELD}
+                aria-label="Time"
               />
             </div>
           {:else if kind === "weekly"}
             <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
-              <Select
-                bind:value={weekday}
-                options={weekdayOptions}
-                onChange={commitTrigger}
-                ariaLabel="Day of week"
-                variant="ghost"
-              />
+              <Select.Root
+                type="single"
+                value={String(weekday)}
+                onValueChange={(v) => {
+                  weekday = Number(v);
+                  commitTrigger();
+                }}
+              >
+                <Select.Trigger class={GHOST_TRIGGER} aria-label="Day of week">
+                  {weekdayOptions.find((o) => o.value === weekday)?.label}
+                </Select.Trigger>
+                <Select.Content class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                  {#each weekdayOptions as opt (opt.value)}
+                    <Select.Item value={String(opt.value)} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                  {/each}
+                </Select.Content>
+              </Select.Root>
               <span class={SUB_LABEL}>at</span>
-              <TimeFields
-                hh={parseHHMM(timeStr).hh}
-                mm={parseHHMM(timeStr).mm}
-                onChange={setCronTime}
-                align="top"
+              <Input
+                type="time"
+                value={timeStr}
+                onchange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (!value) return;
+                  timeStr = value;
+                  commitTrigger();
+                }}
+                class={TIME_FIELD}
+                aria-label="Time"
               />
             </div>
           {:else if kind === "monthly"}
             <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
               <span class={SUB_LABEL}>Day</span>
-              <input
+              <Input
                 class="{FIELD} {FIELD_NUM} w-16 pointer-coarse:w-[4.5rem]"
                 type="number"
                 min="1"
@@ -825,16 +864,22 @@
                 aria-label="Day of month"
               />
               <span class={SUB_LABEL}>at</span>
-              <TimeFields
-                hh={parseHHMM(timeStr).hh}
-                mm={parseHHMM(timeStr).mm}
-                onChange={setCronTime}
-                align="top"
+              <Input
+                type="time"
+                value={timeStr}
+                onchange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (!value) return;
+                  timeStr = value;
+                  commitTrigger();
+                }}
+                class={TIME_FIELD}
+                aria-label="Time"
               />
             </div>
           {:else if kind === "cron"}
             <div class="flex flex-col gap-1 pb-1.5">
-              <input
+              <Input
                 class="{FIELD} w-full font-mono"
                 type="text"
                 bind:value={cronExpr}
@@ -871,45 +916,66 @@
           <div class={ROW}>
             <dt>Agent</dt>
             <dd>
-              <Select
+              <Select.Root
+                type="single"
                 value={agentProvider}
-                options={agentSelectOptions}
-                onChange={onAgentChange}
-                ariaLabel="Agent"
-                anchor="right"
-                variant="ghost"
-              />
+                onValueChange={(v) => onAgentChange(v as AgentId)}
+              >
+                <Select.Trigger class={GHOST_TRIGGER} aria-label="Agent">
+                  {agentSelectOptions.find((o) => o.value === agentProvider)?.label}
+                </Select.Trigger>
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                  {#each agentSelectOptions as opt (opt.value)}
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                  {/each}
+                </Select.Content>
+              </Select.Root>
             </dd>
           </div>
 
           <div class={ROW}>
             <dt>Model</dt>
             <dd>
-              <Select
-                value={effectiveModelId}
-                options={modelSelectOptions}
-                onChange={(v) => {
+              <Select.Root
+                type="single"
+                value={effectiveModelId ?? ""}
+                onValueChange={(v) => {
                   modelId = v;
                   commitAction();
                 }}
-                ariaLabel="Model"
-                anchor="right"
-                variant="ghost"
-              />
+              >
+                <Select.Trigger class={GHOST_TRIGGER} aria-label="Model">
+                  {modelSelectOptions.find((o) => o.value === effectiveModelId)?.label}
+                </Select.Trigger>
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                  {#each modelSelectOptions as opt (opt.value)}
+                    <Select.Item value={opt.value ?? ""} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                  {/each}
+                </Select.Content>
+              </Select.Root>
             </dd>
           </div>
 
           <div class={ROW}>
             <dt>Reasoning</dt>
             <dd>
-              <Select
-                bind:value={reasoningEffort}
-                options={reasoningSelectOptions}
-                onChange={commitAction}
-                ariaLabel="Reasoning"
-                anchor="right"
-                variant="ghost"
-              />
+              <Select.Root
+                type="single"
+                value={reasoningEffort}
+                onValueChange={(v) => {
+                  reasoningEffort = v as ReasoningEffort;
+                  commitAction();
+                }}
+              >
+                <Select.Trigger class={GHOST_TRIGGER} aria-label="Reasoning">
+                  {reasoningSelectOptions.find((o) => o.value === reasoningEffort)?.label}
+                </Select.Trigger>
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                  {#each reasoningSelectOptions as opt (opt.value)}
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                  {/each}
+                </Select.Content>
+              </Select.Root>
             </dd>
           </div>
 

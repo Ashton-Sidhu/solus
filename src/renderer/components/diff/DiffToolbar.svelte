@@ -29,8 +29,8 @@
   import { tooltip } from "../../lib/tooltip";
   import { MONO_FONT } from "../../lib/diffTheme";
   import type { TurnSnapshot } from "../../../shared/types";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import { Button } from "../ui/button";
 
   interface Props {
     isWorktree: boolean;
@@ -130,17 +130,19 @@
 
 <div class="diff-toolbar" data-testid="diff-toolbar">
   <!-- Mobile: back button -->
-  <button
+  <Button
+    variant="ghost"
+    size="default"
     type="button"
     onclick={onClose}
     aria-label="Close diff panel"
-    class="mobile-back-btn mobile-only"
+    class="hidden max-md:flex shrink-0 text-(--solus-accent) [-webkit-tap-highlight-color:transparent]"
   >
     <CaretLeftIcon size={16} weight="bold" />
     <span class="text-[0.8125rem] font-semibold text-(--solus-text-primary)"
       >Changes</span
     >
-  </button>
+  </Button>
 
   <!-- Left section -->
   <div class="toolbar-section toolbar-left">
@@ -245,28 +247,23 @@
             <CaretRightIcon size={10} weight="bold" />
           </button>
 
-          <Dropdown
-            bind:open={turnMenuOpen}
-            triggerEl={turnTriggerEl}
-            align="top"
-            anchor="left"
-            width={176}
-          >
+          <DropdownMenu.Root bind:open={turnMenuOpen}>
+            <DropdownMenu.Content customAnchor={turnTriggerEl} side="top" align="start" sideOffset={6} class="w-[176px]">
             <div class="turn-menu-scroll">
-              <DropdownItem
-                selected={selectedTurnIndex === null}
-                onclick={() => {
+              <DropdownMenu.Item
+                class={selectedTurnIndex === null ? "font-semibold" : undefined}
+                onSelect={() => {
                   turnMenuOpen = false;
                   onTurnSelect(null);
                 }}
               >
                 <StackIcon size={11} weight="bold" />
                 All changes
-              </DropdownItem>
+              </DropdownMenu.Item>
               {#each turns as turn (turn.index)}
-                <DropdownItem
-                  selected={selectedTurnIndex === turn.index}
-                  onclick={() => {
+                <DropdownMenu.Item
+                  class={selectedTurnIndex === turn.index ? "font-semibold" : undefined}
+                  onSelect={() => {
                     turnMenuOpen = false;
                     onTurnSelect(turn.index);
                   }}
@@ -282,15 +279,12 @@
                       : undefined}
                   />
                   <span>Turn {turn.index + 1}</span>
-                  {#snippet trailing()}
-                    <span class="turn-menu-stats"
-                      >+{turn.additions} −{turn.deletions}</span
-                    >
-                  {/snippet}
-                </DropdownItem>
+                  <span class="turn-menu-stats ml-auto">+{turn.additions} −{turn.deletions}</span>
+                </DropdownMenu.Item>
               {/each}
             </div>
-          </Dropdown>
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
         </div>
       {:else}
         <div class="turn-pills">
@@ -335,153 +329,192 @@
   <!-- Right section -->
   <div class="toolbar-section toolbar-right">
     {#if filesCount > 0}
-      <button
+      <Button
+        variant="secondary"
+        size="default"
         type="button"
         onclick={onOpenFiles}
-        class="mobile-files-btn mobile-only"
+        class="hidden max-md:flex shrink-0 text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
         aria-label="Browse changed files"
       >
         <SidebarSimpleIcon size={14} weight="bold" />
         <span class="tabular-nums">{filesCount}</span>
-      </button>
+      </Button>
     {/if}
 
-    <button
-      type="button"
-      onclick={onRefresh}
-      disabled={refreshing}
-      aria-label="Refresh diff"
-      class="ghost-btn flex items-center justify-center rounded"
-      style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
-      use:tooltip={"Refresh diff (⌥R)"}
-    >
-      <span class="flex" class:refresh-spin={refreshing}>
-        <ArrowClockwiseIcon size={12} weight="bold" />
-      </span>
-    </button>
+    <span class="inline-flex" use:tooltip={"Refresh diff (⌥R)"}>
+      <Button
+        variant="ghost"
+        size="icon"
+        type="button"
+        onclick={onRefresh}
+        disabled={refreshing}
+        aria-label="Refresh diff"
+        class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+      >
+        <span class="flex" class:refresh-spin={refreshing}>
+          <ArrowClockwiseIcon size={12} weight="bold" />
+        </span>
+      </Button>
+    </span>
 
     {#if filesCount > 0}
-      <button
-        type="button"
-        onclick={onToggleCollapseAll}
-        aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-        class="ghost-btn flex items-center justify-center rounded desktop-only"
-        style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
+      <span
+        class="desktop-only"
         use:tooltip={allCollapsed ? "Expand all files" : "Collapse all files"}
       >
-        {#if allCollapsed}
-          <ArrowsOutLineVerticalIcon size={12} weight="bold" />
-        {:else}
-          <ArrowsInLineVerticalIcon size={12} weight="bold" />
-        {/if}
-      </button>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          onclick={onToggleCollapseAll}
+          aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
+          class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+        >
+          {#if allCollapsed}
+            <ArrowsOutLineVerticalIcon size={12} weight="bold" />
+          {:else}
+            <ArrowsInLineVerticalIcon size={12} weight="bold" />
+          {/if}
+        </Button>
+      </span>
     {/if}
 
     {#if filesCount > 0}
-      <button
-        type="button"
-        onclick={onToggleTree}
-        aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-        class="ghost-btn flex items-center justify-center rounded desktop-only"
-        style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
-        class:is-active={!treeCollapsed}
+      <span
+        class="desktop-only"
         use:tooltip={treeCollapsed
           ? "Show file tree (⌥T)"
           : "Hide file tree (⌥T)"}
       >
-        <SidebarSimpleIcon size={11} weight="bold" />
-      </button>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          onclick={onToggleTree}
+          aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+          class="rounded [&_svg:not([class*='size-'])]:size-3 pointer-coarse:size-10 {!treeCollapsed
+            ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
+            : 'text-(--solus-text-tertiary)'}"
+        >
+          <SidebarSimpleIcon size={11} weight="bold" />
+        </Button>
+      </span>
     {/if}
 
-    <button
-      type="button"
-      onclick={() => onSetStyle(diffStyle === "split" ? "unified" : "split")}
-      aria-label={diffStyle === "split"
-        ? "Switch to unified view"
-        : "Switch to split view"}
-      class="ghost-btn flex items-center justify-center rounded"
-      style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
-      class:is-active={diffStyle === "split"}
+    <span
+      class="inline-flex"
       use:tooltip={diffStyle === "split"
         ? "Unified view (⌥V)"
         : "Split view (⌥V)"}
     >
-      <ColumnsIcon
-        size={12}
-        weight={diffStyle === "split" ? "fill" : "regular"}
-      />
-    </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        type="button"
+        onclick={() => onSetStyle(diffStyle === "split" ? "unified" : "split")}
+        aria-label={diffStyle === "split"
+          ? "Switch to unified view"
+          : "Switch to split view"}
+        class="rounded [&_svg:not([class*='size-'])]:size-3 pointer-coarse:size-10 {diffStyle === 'split'
+          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
+          : 'text-(--solus-text-tertiary)'}"
+      >
+        <ColumnsIcon
+          size={12}
+          weight={diffStyle === "split" ? "fill" : "regular"}
+        />
+      </Button>
+    </span>
 
-    <button
-      type="button"
-      onclick={onToggleTokenHighlight}
-      aria-label={tokenHighlight
-        ? "Disable token highlighting"
-        : "Enable token highlighting"}
-      aria-pressed={tokenHighlight}
-      class="ghost-btn flex items-center justify-center rounded desktop-only"
-      style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
-      class:is-active={tokenHighlight}
+    <span
+      class="desktop-only"
       use:tooltip={tokenHighlight
         ? "Token highlighting on (⌥H)"
         : "Token highlighting off (⌥H)"}
     >
-      <HighlighterIcon
-        size={12}
-        weight={tokenHighlight ? "fill" : "regular"}
-      />
-    </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        type="button"
+        onclick={onToggleTokenHighlight}
+        aria-label={tokenHighlight
+          ? "Disable token highlighting"
+          : "Enable token highlighting"}
+        aria-pressed={tokenHighlight}
+        class="rounded [&_svg:not([class*='size-'])]:size-3 pointer-coarse:size-10 {tokenHighlight
+          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
+          : 'text-(--solus-text-tertiary)'}"
+      >
+        <HighlighterIcon
+          size={12}
+          weight={tokenHighlight ? "fill" : "regular"}
+        />
+      </Button>
+    </span>
 
     {#if commentsCount > 0}
-      <button
-        bind:this={commentsBtn}
-        type="button"
-        onclick={onToggleComments}
-        class="ghost-btn inline-flex items-center gap-1 rounded"
-        style="height:var(--solus-tap-target)"
-        class:is-active={commentsOpen}
-        style:color="var(--solus-accent)"
-        aria-haspopup="dialog"
-        aria-expanded={commentsOpen}
+      <span
+        class="inline-flex"
         use:tooltip={commentsOpen ? "Hide comments" : "Show all comments"}
       >
-        <ChatCircleTextIcon size={12} weight="fill" />
-        <span
-          style="font-size:var(--solus-font-ui-sm);font-variant-numeric:tabular-nums"
-          class="font-semibold"
+        <Button
+          bind:ref={commentsBtn}
+          variant="ghost"
+          size="default"
+          type="button"
+          onclick={onToggleComments}
+          class="rounded [&_svg:not([class*='size-'])]:size-3 gap-1 px-1 text-(--solus-accent) hover:text-(--solus-accent) pointer-coarse:h-10 {commentsOpen
+            ? 'bg-(--solus-accent-light) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light)'
+            : ''}"
+          aria-haspopup="dialog"
+          aria-expanded={commentsOpen}
         >
-          {commentsCount}
-        </span>
-      </button>
+          <ChatCircleTextIcon size={12} weight="fill" />
+          <span
+            style="font-size:var(--solus-font-ui-sm);font-variant-numeric:tabular-nums"
+            class="font-semibold"
+          >
+            {commentsCount}
+          </span>
+        </Button>
+      </span>
     {/if}
 
     {#if onToggleMaximize}
-      <button
-        type="button"
-        onclick={onToggleMaximize}
-        aria-label={maximized ? "Restore panel size" : "Maximize panel"}
-        class="ghost-btn flex items-center justify-center rounded desktop-only"
-        style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
+      <span
+        class="desktop-only"
         use:tooltip={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
       >
-        {#if maximized}
-          <ArrowsInIcon size={12} />
-        {:else}
-          <ArrowsOutIcon size={12} />
-        {/if}
-      </button>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          onclick={onToggleMaximize}
+          aria-label={maximized ? "Restore panel size" : "Maximize panel"}
+          class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+        >
+          {#if maximized}
+            <ArrowsInIcon size={12} />
+          {:else}
+            <ArrowsOutIcon size={12} />
+          {/if}
+        </Button>
+      </span>
     {/if}
 
-    <button
-      type="button"
-      onclick={onClose}
-      aria-label="Close diff panel"
-      class="ghost-btn flex items-center justify-center rounded desktop-only"
-      style="width:var(--solus-tap-target);height:var(--solus-tap-target)"
-      use:tooltip={"Close (Esc)"}
-    >
-      <XIcon size={12} />
-    </button>
+    <span class="desktop-only" use:tooltip={"Close (Esc)"}>
+      <Button
+        variant="ghost"
+        size="icon"
+        type="button"
+        onclick={onClose}
+        aria-label="Close diff panel"
+        class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+      >
+        <XIcon size={12} />
+      </Button>
+    </span>
   </div>
 </div>
 
@@ -532,17 +565,11 @@
     gap: 0.125rem;
   }
 
-  .mobile-only {
-    display: none;
-  }
   .desktop-only {
     display: flex;
   }
 
   @media (max-width: 767px) {
-    .mobile-only {
-      display: flex;
-    }
     .desktop-only {
       display: none !important;
     }
@@ -554,31 +581,6 @@
     gap: 0.375rem;
     font-size: var(--solus-font-ui-sm);
     flex-shrink: 0;
-  }
-
-  .ghost-btn {
-    color: var(--solus-text-tertiary);
-    transition:
-      color 120ms ease,
-      background-color 120ms ease,
-      transform 120ms ease;
-    cursor: pointer;
-    padding-inline: 0.25rem;
-  }
-  .ghost-btn:hover {
-    color: var(--solus-text-primary);
-    background: var(--solus-surface-hover);
-  }
-  .ghost-btn:active {
-    transform: scale(0.96);
-  }
-  .ghost-btn.is-active {
-    color: var(--solus-accent);
-    background: var(--solus-accent-light);
-  }
-  .ghost-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
   }
 
   .refresh-spin {
@@ -593,44 +595,8 @@
     }
   }
 
-  .mobile-files-btn {
-    align-items: center;
-    gap: 0.25rem;
-    height: 2rem;
-    padding: 0 0.625rem;
-    border-radius: 0.5rem;
-    background: var(--solus-surface-hover);
-    border: none;
-    color: var(--solus-text-secondary);
-    font-size: 0.75rem;
-    font-weight: 600;
-    flex-shrink: 0;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .mobile-files-btn:active {
-    background: var(--solus-surface-active);
-  }
   .tabular-nums {
     font-variant-numeric: tabular-nums;
-  }
-
-  .mobile-back-btn {
-    align-items: center;
-    gap: 0.25rem;
-    min-height: 2.25rem;
-    padding: 0 0.5rem 0 0.25rem;
-    border-radius: 0.5rem;
-    background: transparent;
-    border: none;
-    color: var(--solus-accent);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background 0.15s ease;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .mobile-back-btn:active {
-    background: var(--solus-surface-hover);
   }
 
   .turn-pills {

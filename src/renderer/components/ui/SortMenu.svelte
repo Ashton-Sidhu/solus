@@ -1,7 +1,6 @@
 <script lang="ts" generics="T extends string">
   import { CaretDownIcon } from "phosphor-svelte";
-  import Dropdown from "./Dropdown.svelte";
-  import DropdownItem from "./DropdownItem.svelte";
+  import * as DropdownMenu from "./dropdown-menu";
   import { PAGE_GHOST_BTN } from "../../lib/page-chrome";
 
   /** Borderless sort trigger + listbox dropdown for command bars. */
@@ -13,36 +12,32 @@
   let { options, value = $bindable(), ariaLabel = "Sort" }: Props = $props();
 
   let open = $state(false);
-  let triggerEl = $state<HTMLButtonElement | null>(null);
   const label = $derived(options.find((o) => o.value === value)?.label ?? "");
 </script>
 
 <div class="relative flex shrink-0 items-center">
-  <button
-    type="button"
-    bind:this={triggerEl}
-    class="{PAGE_GHOST_BTN} px-2 py-1 [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-2.5"
-    aria-label={ariaLabel}
-    aria-haspopup="listbox"
-    aria-expanded={open}
-    onclick={() => (open = !open)}
-  >
-    <span>{label}</span>
-    <CaretDownIcon size={9} class="shrink-0" />
-  </button>
-  <Dropdown bind:open triggerEl={triggerEl} align="top" anchor="right" width={140}>
-    <div class="py-1" role="listbox" aria-label={ariaLabel}>
-      {#each options as opt (opt.value)}
-        <DropdownItem
-          selected={value === opt.value}
-          onclick={() => {
-            value = opt.value;
-            open = false;
-          }}
+  <DropdownMenu.Root bind:open>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button
+          {...props}
+          type="button"
+          class="{PAGE_GHOST_BTN} px-2 py-1 [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-2.5"
+          aria-label={ariaLabel}
         >
+          <span>{label}</span>
+          <CaretDownIcon size={9} class="shrink-0" />
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="top" align="end" sideOffset={6} class="w-[140px]">
+      <DropdownMenu.RadioGroup bind:value>
+      {#each options as opt (opt.value)}
+        <DropdownMenu.RadioItem value={opt.value}>
           {opt.label}
-        </DropdownItem>
+        </DropdownMenu.RadioItem>
       {/each}
-    </div>
-  </Dropdown>
+      </DropdownMenu.RadioGroup>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
 </div>

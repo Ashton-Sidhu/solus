@@ -2,7 +2,7 @@
   import { fly } from "svelte/transition";
   import { ArrowUpIcon, ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import Input from "../ui/Input.svelte";
+  import { MarkdownTextarea } from "../ui/markdown-field";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { tooltip } from "../../lib/tooltip";
   import type { DiffComment } from "../../../shared/types";
@@ -44,7 +44,7 @@
   const generalComment = $derived(tab?.diffGeneralComment ?? "");
 
   let submitting = $state(false);
-  let textareaEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
+  let textareaEl: HTMLTextAreaElement | null = $state(null);
   let focused = $state(false);
 
   const inlineCount = $derived(
@@ -97,10 +97,9 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
-      if (workingTree || e.shiftKey) void handleSendToNewSession();
-      else handleSend();
+      void handleSendToNewSession();
     }
   }
 </script>
@@ -113,19 +112,18 @@
     class="action-pill flex items-center gap-1.5 px-2 py-1.5"
     class:is-focused={focused}
   >
-    <Input
-      bind:el={textareaEl}
-      type="textarea"
-      variant="bare"
-      size="md"
+    <MarkdownTextarea
+      bind:ref={textareaEl}
+      bare
       value={generalComment}
       oninput={(e) => setGeneral((e.target as HTMLTextAreaElement).value)}
       onkeydown={handleKeyDown}
+      onSubmit={workingTree ? handleSendToNewSession : handleSend}
       onfocus={() => (focused = true)}
       onblur={() => (focused = false)}
       {placeholder}
       rows={1}
-      class="flex-1 min-w-0 placeholder:text-(--solus-text-muted) text-[0.7188rem] leading-[1.55] py-0.5 px-0.5 max-h-40"
+      class="flex-1 min-w-0 placeholder:text-(--solus-text-muted) text-[0.7188rem] md:text-[0.7188rem] leading-[1.55] py-0.5 px-0.5 max-h-40"
     />
 
     <div class="flex items-center gap-1 shrink-0">

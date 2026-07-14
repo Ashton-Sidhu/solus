@@ -37,9 +37,10 @@
     type TaskLinkedPr,
   } from "./lib/tasks-api";
   import { formatSavedAgo } from "../document-shell/saveStatus";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
-  import Select from "../ui/Select.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import * as Select from "../ui/select";
+  import { Skeleton } from "../ui/skeleton";
+  import { Input } from "../ui/input";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
   import DocumentPromptEditor from "../editor/DocumentPromptEditor.svelte";
@@ -178,10 +179,6 @@
   // the block drag handle, which tasks don't mount) so the description text lines
   // up flush with the title above it.
   const DESC_ALIGN = "[&_.ProseMirror]:!pl-0";
-  // Shimmer placeholder for content that only arrives with hydration (body,
-  // comments). Matches the app-wide skeleton-shimmer used elsewhere.
-  const SKELETON_BAR =
-    "rounded-[0.375rem] bg-[linear-gradient(90deg,var(--solus-surface-hover)_25%,transparent_50%,var(--solus-surface-hover)_75%)] [background-size:25rem_100%] animate-[skeleton-shimmer_1.5s_ease-in-out_infinite]";
   const markdownRenderers = {
     code: CodeBlock,
     codespan: TaskCommentCodeSpan,
@@ -573,9 +570,9 @@
               aria-busy="true"
               aria-label="Loading description"
             >
-              <div class="{SKELETON_BAR} h-3" style="width:92%"></div>
-              <div class="{SKELETON_BAR} h-3" style="width:78%"></div>
-              <div class="{SKELETON_BAR} h-3" style="width:64%"></div>
+              <Skeleton class="h-3 rounded-[0.375rem]" style="width:92%" />
+              <Skeleton class="h-3 rounded-[0.375rem]" style="width:78%" />
+              <Skeleton class="h-3 rounded-[0.375rem]" style="width:64%" />
             </div>
           {:else}
             <p class="text-[0.8125rem] italic text-(--solus-text-tertiary)">
@@ -664,19 +661,18 @@
                     class="rounded-[0.875rem] border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-(--solus-container-bg) px-3.5 py-3"
                   >
                     <div class="flex items-center gap-2">
-                      <span class="{SKELETON_BAR} size-6 shrink-0 rounded-full"
-                      ></span>
-                      <span class="{SKELETON_BAR} h-2.5 w-24"></span>
+                      <Skeleton class="size-6 shrink-0 rounded-full" />
+                      <Skeleton class="h-2.5 w-24 rounded-[0.375rem]" />
                     </div>
                     <div class="mt-2.5 flex flex-col gap-1.5">
-                      <span
-                        class="{SKELETON_BAR} h-2.5"
+                      <Skeleton
+                        class="h-2.5 rounded-[0.375rem]"
                         style="width:{bodyWidth}%"
-                      ></span>
-                      <span
-                        class="{SKELETON_BAR} h-2.5"
+                      />
+                      <Skeleton
+                        class="h-2.5 rounded-[0.375rem]"
                         style="width:{bodyWidth - 30}%"
-                      ></span>
+                      />
                     </div>
                   </li>
                 {/each}
@@ -805,18 +801,13 @@
                     class="text-(--solus-text-tertiary)"
                   />
                 </button>
-                <Dropdown
-                  bind:open={statusMenuOpen}
-                  triggerEl={statusTriggerEl}
-                  align="bottom"
-                  anchor="right"
-                  width={160}
-                >
+                <DropdownMenu.Root bind:open={statusMenuOpen}>
+                  <DropdownMenu.Content customAnchor={statusTriggerEl} side="bottom" align="end" sideOffset={6} class="w-[160px]">
                   <div class="py-1" role="listbox" aria-label="Set status">
                     {#each STATUS_OPTIONS as opt (opt)}
-                      <DropdownItem
-                        selected={display.status === opt}
-                        onclick={() => {
+                      <DropdownMenu.Item
+                        class={display.status === opt ? "font-semibold" : undefined}
+                        onSelect={() => {
                           statusMenuOpen = false;
                           if (display.status !== opt) {
                             onSetStatus(display, opt);
@@ -831,10 +822,11 @@
                           ></span>
                           {STATUS_META[opt].label}
                         </span>
-                      </DropdownItem>
+                      </DropdownMenu.Item>
                     {/each}
                   </div>
-                </Dropdown>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Root>
               </dd>
             </div>
 
@@ -842,14 +834,23 @@
               <dt class={ROW_LABEL}>Priority</dt>
               <dd>
                 {#if canEditExtras}
-                  <Select
+                  <Select.Root
+                    type="single"
                     value={priorityDraft}
-                    options={prioritySelectOptions}
-                    onChange={commitPriority}
-                    ariaLabel="Priority"
-                    anchor="right"
-                    variant="ghost"
-                  />
+                    onValueChange={(v) => commitPriority(v as TaskPriority | "")}
+                  >
+                    <Select.Trigger
+                      class="sel-ghost data-[size=default]:h-auto gap-1 border-0 bg-transparent px-1.5 py-1 text-xs hover:bg-(--solus-surface-hover) dark:bg-transparent dark:hover:bg-(--solus-surface-hover)"
+                      aria-label="Priority"
+                    >
+                      {prioritySelectOptions.find((o) => o.value === priorityDraft)?.label}
+                    </Select.Trigger>
+                    <Select.Content align="end" class="z-[10002]">
+                      {#each prioritySelectOptions as opt (opt.value)}
+                        <Select.Item value={opt.value} label={opt.label} />
+                      {/each}
+                    </Select.Content>
+                  </Select.Root>
                 {:else if display.priority}
                   <span
                     class="text-xs font-medium {PRIORITY_META[display.priority]
@@ -865,7 +866,7 @@
               <dt class={ROW_LABEL}>Assignee</dt>
               <dd class="min-w-0">
                 {#if canEdit}
-                  <input
+                  <Input
                     bind:value={assigneeDraft}
                     onblur={commitAssignee}
                     onkeydown={(e) => {
@@ -890,7 +891,7 @@
               <dt class={ROW_LABEL}>Due</dt>
               <dd class="min-w-0">
                 {#if canEditExtras}
-                  <input
+                  <Input
                     bind:value={dueDateDraft}
                     onchange={commitDueDate}
                     type="date"
@@ -941,7 +942,7 @@
               </div>
             {/if}
             {#if canEdit}
-              <input
+              <Input
                 bind:value={labelDraft}
                 onblur={addLabels}
                 onkeydown={(e) => {
@@ -968,7 +969,7 @@
                 class="flex flex-col gap-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary)"
               >
                 Branch
-                <input
+                <Input
                   bind:value={branchDraft}
                   onblur={commitBranch}
                   type="text"
@@ -980,7 +981,7 @@
                 class="flex flex-col gap-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary)"
               >
                 Pull request URL
-                <input
+                <Input
                   bind:value={prDraft}
                   onblur={commitPr}
                   type="url"

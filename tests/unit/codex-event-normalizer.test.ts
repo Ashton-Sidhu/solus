@@ -151,6 +151,18 @@ describe('normalizeCodexNotification', () => {
 describe('CodexTurnNormalizer', () => {
   afterEach(() => setSystemTime())
 
+  test('can emit assembled agent messages for a live headless transcript', () => {
+    const normalizer = new CodexTurnNormalizer({ planMode: false, assembledAgentMessages: true })
+    expect(normalizer.push({
+      method: 'item/agentMessage/delta',
+      params: { threadId: 'thread-1', delta: 'partial' },
+    })).toEqual([])
+    expect(normalizer.push({
+      method: 'item/completed',
+      params: { threadId: 'thread-1', item: { id: 'msg-1', type: 'agentMessage', text: 'Complete answer.' } },
+    })).toEqual([{ type: 'assistant_message', text: 'Complete answer.' }])
+  })
+
   test('normalizes a command turn and summarizes tool calls', async () => {
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
     const { events, normalizer } = await normalizeCodexFixture('codex-normal-turn.jsonl', { planMode: false })

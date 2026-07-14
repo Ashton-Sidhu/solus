@@ -3,6 +3,7 @@
   import Icon from '@iconify/svelte'
   import { ICON_SVG, isIconifyName, CURATED_ICONS } from './diagram-icons'
   import { ensureIconCollections } from './iconify'
+  import { Input } from '../ui/input'
 
   // Code-split, idempotent brand-icon registration (see DiagramNode).
   ensureIconCollections()
@@ -31,7 +32,7 @@
   // True when the last search failed (offline, API error) — distinct from a
   // genuine empty result so the user isn't told "no icons found" while offline.
   let searchFailed = $state(false)
-  let searchInput: HTMLInputElement | undefined
+  let searchInput = $state<HTMLInputElement | null>(null)
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   let activeController: AbortController | undefined
@@ -137,8 +138,8 @@
       <circle cx="7" cy="7" r="4.5" />
       <path d="M10.5 10.5L14 14" />
     </svg>
-    <input
-      bind:this={searchInput}
+    <Input
+      bind:ref={searchInput}
       class="icon-picker__input"
       bind:value={query}
       oninput={onQueryInput}
@@ -280,7 +281,7 @@
     pointer-events: none;
   }
 
-  .icon-picker__input {
+  :global(.icon-picker__input) {
     flex: 1;
     min-width: 0;
     padding: 0.4375rem 1.75rem;
@@ -294,12 +295,12 @@
     transition: border-color var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium);
   }
 
-  .icon-picker__input:focus {
+  :global(.icon-picker__input:focus) {
     border-color: var(--solus-accent-border);
     box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
   }
 
-  .icon-picker__input::placeholder {
+  :global(.icon-picker__input::placeholder) {
     color: var(--solus-text-tertiary);
     opacity: 0.7;
   }

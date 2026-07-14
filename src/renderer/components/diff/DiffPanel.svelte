@@ -7,18 +7,16 @@
   import DiffToolbar, { type HeaderStats } from "./DiffToolbar.svelte";
   import DiffEmptyState from "./DiffEmptyState.svelte";
   import DiffErrorState from "./DiffErrorState.svelte";
-  import DiffFileTreeColumn from "./DiffFileTreeColumn.svelte";
   import DiffLoadingSkeleton from "./DiffLoadingSkeleton.svelte";
   import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
   import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
   import DiffStream from "./DiffStream.svelte";
   import DiffFindBar from "./DiffFindBar.svelte";
-  import { FILE_TREE_CHEVRON_CSS } from "../../lib/fileTreeTheme";
+  import DiffResizableContent from "./DiffResizableContent.svelte";
   import { DiffState, type DiffFindMatch } from "../../lib/diff-state.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     toGitStatusEntries,
-    createRowDecorationRenderer,
     toTreeDisplayPath,
     diffFilePath,
     diffHeaderStats,
@@ -38,6 +36,7 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import type { DiffComment, DiffScope } from "../../../shared/types";
   import type { ReviewThread, ReviewComment } from "../../../shared/providers";
+  import { mountDiffFileTree } from "./lib/diff-file-tree";
 
   type ExternalDiffCommentSave = {
     id?: string;
@@ -161,15 +160,6 @@
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
-  const TREE_MIN_WIDTH = 192;
-  const DIFF_CONTENT_MIN_WIDTH = 360;
-  const TREE_WIDTH_KEY = "solus-diff-tree-width";
-  let treeWidth = $state(Number(localStorage.getItem(TREE_WIDTH_KEY)) || 272);
-  let isTreeResizing = $state(false);
-  let resizeStartX = 0;
-  let resizeStartWidth = 0;
-  let pendingTreeWidth = 0;
-  let resizeRaf = 0;
   let diffStyleState = $state<"unified" | "split">(
     (localStorage.getItem("solus-diff-style") as "unified" | "split") ||
       "unified",
@@ -179,73 +169,6 @@
   let tokenHighlightState = $state<boolean>(
     localStorage.getItem("solus-diff-token-highlight") !== "off",
   );
-  const treeMaxWidth = $derived(Math.floor(panelWidth * 0.4));
-
-  function clampTreeWidth(width: number) {
-    const responsiveMax =
-      panelWidth > 0
-        ? Math.max(
-            TREE_MIN_WIDTH,
-            Math.min(treeMaxWidth, panelWidth - DIFF_CONTENT_MIN_WIDTH),
-          )
-        : 360;
-    return Math.min(responsiveMax, Math.max(TREE_MIN_WIDTH, width));
-  }
-
-  function persistTreeWidth() {
-    localStorage.setItem(TREE_WIDTH_KEY, String(treeWidth));
-  }
-
-  function startTreeResize(e: MouseEvent) {
-    isTreeResizing = true;
-    resizeStartX = e.clientX;
-    resizeStartWidth = treeWidth;
-    pendingTreeWidth = treeWidth;
-    e.preventDefault();
-    window.addEventListener("mousemove", onTreeResizeMove);
-    window.addEventListener("mouseup", onTreeResizeEnd);
-  }
-
-  function onTreeResizeMove(e: MouseEvent) {
-    pendingTreeWidth = clampTreeWidth(resizeStartWidth + (e.clientX - resizeStartX));
-    if (resizeRaf) return;
-    resizeRaf = requestAnimationFrame(() => {
-      resizeRaf = 0;
-      treeWidth = pendingTreeWidth;
-    });
-  }
-
-  function onTreeResizeEnd() {
-    if (resizeRaf) {
-      cancelAnimationFrame(resizeRaf);
-      resizeRaf = 0;
-    }
-    treeWidth = pendingTreeWidth;
-    isTreeResizing = false;
-    persistTreeWidth();
-    window.removeEventListener("mousemove", onTreeResizeMove);
-    window.removeEventListener("mouseup", onTreeResizeEnd);
-  }
-
-  function handleTreeResizeKey(e: KeyboardEvent) {
-    const step = e.shiftKey ? 40 : 16;
-    if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      treeWidth = clampTreeWidth(treeWidth - step);
-      persistTreeWidth();
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault();
-      treeWidth = clampTreeWidth(treeWidth + step);
-      persistTreeWidth();
-    }
-  }
-
-  $effect(() => {
-    if (panelWidth <= 0) return;
-    const clamped = clampTreeWidth(treeWidth);
-    if (clamped !== treeWidth) treeWidth = clamped;
-  });
-
   const TREE_AUTO_OPEN_WIDTH = 640;
   let prevAboveTreeThreshold: boolean | null = null;
   $effect(() => {
@@ -300,8 +223,6 @@
     restoreDraftIfAny();
     return () => {
       diffState.dispose();
-      window.removeEventListener("mousemove", onTreeResizeMove);
-      window.removeEventListener("mouseup", onTreeResizeEnd);
     };
   });
 
@@ -871,87 +792,19 @@
   }
 
   function mountFileTree(node: HTMLDivElement) {
-    const paths = displayedTreePaths;
-    const tree = new FileTree({
-      paths,
-      flattenEmptyDirectories: true,
-      initialExpansion: "open",
+    const mounted = mountDiffFileTree({
+      node,
+      paths: displayedTreePaths,
       gitStatus: treeGitStatus,
-      search: true,
-      searchBlurBehavior: "close",
-      renderRowDecoration: createRowDecorationRenderer(treeFiles, diffComments),
-      onSelectionChange: (selectedPaths) => {
-        const next = selectedPaths[0] ?? null;
-        if (!next) return;
-        handleTreeSelect(next);
-      },
-      unsafeCSS: `
-        [data-type='item'][data-item-selected='true']::after {
-          content: '';
-          position: absolute;
-          top: 0.1875rem; bottom: 0.1875rem; left: 0;
-          width: 0.1563rem;
-          border-radius: 0 0.1875rem 0.1875rem 0;
-          background: var(--solus-accent);
-        }
-        [data-type='item'][data-item-selected='true']::before {
-          outline-color: transparent !important;
-        }
-        [data-item-section='icon'] {
-          cursor: pointer;
-        }
-        ${FILE_TREE_CHEVRON_CSS}
-        [data-item-section='decoration'] {
-          font-variant-numeric: tabular-nums;
-          font-size: 0.5938rem;
-          letter-spacing: 0.01em;
-          opacity: 0.75;
-        }
-        [data-item-selected='true'] [data-item-section='decoration'],
-        [data-item-focused='true'] [data-item-section='decoration'] {
-          opacity: 1;
-        }
-        [data-file-tree-search-container] {
-          padding-top: 0.375rem;
-          padding-left: calc(var(--trees-padding-inline) + 2.125rem);
-          margin-bottom: 0.625rem;
-        }
-        [data-file-tree-search-input] {
-          min-width: 0;
-        }
-      `,
+      files: treeFiles,
+      comments: diffComments,
+      onSelect: handleTreeSelect,
     });
-    tree.render({ containerWrapper: node });
-    treeInstance = tree;
-
-    // Intercept chevron/icon clicks on directories: toggle expand/collapse only,
-    // without triggering selection or file navigation.
-    function handleIconClick(event: MouseEvent) {
-      const composedPath = event.composedPath() as EventTarget[];
-      const iconSection = composedPath.find(
-        (el): el is HTMLElement =>
-          el instanceof HTMLElement && el.dataset.itemSection === "icon",
-      );
-      if (!iconSection) return;
-      const row = composedPath.find(
-        (el): el is HTMLElement =>
-          el instanceof HTMLElement &&
-          el.dataset.type === "item" &&
-          el.dataset.itemType === "folder",
-      );
-      if (!row) return;
-      const itemPath = row.dataset.itemPath;
-      if (!itemPath) return;
-      event.stopPropagation();
-      const item = tree.getItem(itemPath);
-      if (item?.isDirectory()) item.toggle();
-    }
-    node.addEventListener("click", handleIconClick, true);
+    treeInstance = mounted.tree;
 
     return {
       destroy() {
-        node.removeEventListener("click", handleIconClick, true);
-        tree.cleanUp();
+        mounted.destroy();
         treeInstance = null;
       },
     };
@@ -1034,31 +887,13 @@
       {onClose}
     />
   {:else}
-    <div class="flex flex-1 min-h-0 min-w-0">
-      {#if !treeCollapsed && !runtime.isMobileViewport}
-        <DiffFileTreeColumn
-          {treeWidth}
-          {treeMaxWidth}
-          {mountFileTree}
-          onToggleTree={toggleTreeCollapsed}
-        />
-        <div
-          class="diff-tree-resize-handle"
-          class:is-resizing={isTreeResizing}
-          onmousedown={startTreeResize}
-          onkeydown={handleTreeResizeKey}
-          role="slider"
-          tabindex="0"
-          aria-orientation="vertical"
-          aria-label="Resize file tree"
-          aria-valuenow={treeWidth}
-          aria-valuemin={TREE_MIN_WIDTH}
-          aria-valuemax={treeMaxWidth}
-        >
-          <span class="diff-tree-resize-grip" aria-hidden="true"></span>
-        </div>
-      {/if}
-      <div class="relative flex flex-1 min-h-0 min-w-0">
+    <DiffResizableContent
+      {panelWidth}
+      {treeCollapsed}
+      {mountFileTree}
+      onToggleTree={toggleTreeCollapsed}
+    >
+        <div class="relative flex h-full min-h-0 min-w-0">
         {#if findOpen}
           <DiffFindBar
             bind:this={findBarRef}
@@ -1100,8 +935,8 @@
           onEditComment={handleEditComment}
           onDeleteComment={handleDeleteComment}
         />
-      </div>
-    </div>
+        </div>
+    </DiffResizableContent>
   {/if}
 
   <DiffCommentsPopover
@@ -1140,49 +975,6 @@
   :global(.diff-panel-border) {
     border-left: 0.0625rem solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);
-  }
-  .diff-tree-resize-handle {
-    width: 0;
-    flex-shrink: 0;
-    cursor: col-resize;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: visible;
-    z-index: 11;
-  }
-  .diff-tree-resize-handle::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: -3px;
-    width: 6px;
-  }
-  .diff-tree-resize-handle:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
-  }
-  .diff-tree-resize-grip {
-    position: relative;
-    width: 2px;
-    height: 28px;
-    border-radius: 2px;
-    background: var(--solus-text-tertiary);
-    opacity: 0;
-    transform: scaleY(0.6);
-    transition:
-      opacity 0.15s ease,
-      transform 0.15s ease,
-      background-color 0.15s ease;
-    pointer-events: none;
-  }
-  .diff-tree-resize-handle:hover .diff-tree-resize-grip,
-  .diff-tree-resize-handle.is-resizing .diff-tree-resize-grip {
-    opacity: 1;
-    transform: scaleY(1);
-    background: var(--solus-accent);
   }
   @media (max-width: 767px) {
     :global(.diff-panel-border) {

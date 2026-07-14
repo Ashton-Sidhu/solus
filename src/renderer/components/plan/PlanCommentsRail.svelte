@@ -3,6 +3,7 @@
   import type { Snippet } from 'svelte'
   import type { PlanComment } from '../../../shared/types'
   import PlanCommentEditor from './PlanCommentEditor.svelte'
+  import { Button } from '../ui/button'
 
   interface Props {
     comments: PlanComment[]
@@ -66,15 +67,16 @@
           <span class="plan-comments-rail__count">{comments.length}</span>
         {/if}
       </div>
-      <button
-        type="button"
-        class="plan-comments-rail__close"
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
         onclick={onClose}
         title="Hide comments"
         aria-label="Hide comments"
       >
         <CaretRightIcon size={13} />
-      </button>
+      </Button>
     </div>
 
     <div class="plan-comments-rail__body" bind:this={bodyEl}>
@@ -126,22 +128,24 @@
           {:else}
             <p class="plan-comment-card__body">{comment.comment}</p>
             <div class="plan-comment-card__actions">
-              <button
-                type="button"
-                class="plan-comment-card__btn"
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
                 onclick={(e) => { e.stopPropagation(); onStartEdit(comment.id) }}
                 title="Edit comment"
               >
                 <PencilSimpleIcon size={11} />
-              </button>
-              <button
-                type="button"
-                class="plan-comment-card__btn"
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
                 onclick={(e) => { e.stopPropagation(); onDelete(comment.id) }}
                 title="Delete comment"
               >
                 <TrashIcon size={11} />
-              </button>
+              </Button>
             </div>
           {/if}
         </div>
@@ -212,32 +216,6 @@
     border: none;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0;
-  }
-  .plan-comments-rail__close {
-    width: 1.625rem;
-    height: 1.625rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    background: transparent;
-    border: none;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium),
-                color var(--duration-quick) var(--ease-premium);
-  }
-  .plan-comments-rail__close:hover {
-    color: var(--solus-text-primary);
-    background: color-mix(in srgb, var(--solus-accent) 7%, transparent);
-  }
-  .plan-comments-rail__close:active {
-    background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
-  }
-  .plan-comments-rail__close:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
   }
   .plan-comments-rail__body {
     flex: 1;
@@ -330,37 +308,9 @@
   .plan-comment-card:focus-visible .plan-comment-card__actions {
     opacity: 1;
   }
-  .plan-comment-card__btn {
-    width: 1.25rem;
-    height: 1.25rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.25rem;
-    background: transparent;
-    border: none;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium),
-                color var(--duration-quick) var(--ease-premium);
-  }
-  .plan-comment-card__btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .plan-comment-card__btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-
   @media (max-width: 767px) {
     .plan-comment-card__actions {
       opacity: 1;
-    }
-
-    .plan-comment-card__btn {
-      width: 1.75rem;
-      height: 1.75rem;
     }
 
     .plan-comment-card {
@@ -378,8 +328,6 @@
 
   @media (prefers-reduced-motion: reduce) {
     .plan-comment-card,
-    .plan-comments-rail__close,
-    .plan-comment-card__btn,
     .plan-comment-card__actions {
       transition: none !important;
     }

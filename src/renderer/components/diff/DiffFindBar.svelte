@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from "svelte";
   import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
   import { tooltip } from "../../lib/tooltip";
+  import { Input } from "../ui/input";
 
   interface Props {
     query: string;
@@ -78,8 +79,8 @@
     weight="bold"
     class="text-(--solus-text-tertiary) flex-shrink-0"
   />
-  <input
-    bind:this={inputEl}
+  <Input
+    bind:ref={inputEl}
     type="text"
     value={draftValue}
     oninput={(e) => handleInput(e.currentTarget.value)}
@@ -88,7 +89,7 @@
     aria-label="Find in diff"
     spellcheck="false"
     autocomplete="off"
-    class="w-40 min-w-0 border-0 bg-transparent text-[0.75rem] text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary)"
+    class="h-auto w-40 min-w-0 rounded-none border-0 bg-transparent p-0 text-[0.75rem] text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
   />
   <span
     class="min-w-[3.25rem] flex-shrink-0 text-right text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"

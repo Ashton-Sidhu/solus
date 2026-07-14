@@ -26,10 +26,11 @@
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
-  import SearchField from "../ui/SearchField.svelte";
+  import SearchField from "../ui/search-field";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SectionLabel from "../ui/SectionLabel.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
+  import { Skeleton } from "../ui/skeleton";
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -299,7 +300,7 @@
         {#if !showEmpty}
           <div class="flex flex-wrap items-center gap-2 pb-4">
             <SearchField
-              bind:el={searchEl}
+              bind:ref={searchEl}
               bind:value={query}
               placeholder="Search automations…"
             />
@@ -339,27 +340,13 @@
             aria-label="Loading automations"
           >
             {#each [28, 38, 22, 32] as width, i (i)}
-              <div
-                class="flex animate-pulse items-center gap-3 rounded-[0.625rem] px-3 py-3"
-                style="animation-delay: {i * 120}ms"
-                aria-hidden="true"
-              >
-                <span
-                  class="size-2 shrink-0 rounded-full bg-(--solus-surface-hover)"
-                ></span>
+              <div class="flex items-center gap-3 rounded-[0.625rem] px-3 py-3" aria-hidden="true">
+                <Skeleton class="size-2 shrink-0 rounded-full bg-(--solus-surface-hover)" style="animation-delay: {i * 120}ms" />
                 <span class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span
-                    class="h-2.5 rounded-full bg-(--solus-surface-hover)"
-                    style="width: {width}%"
-                  ></span>
-                  <span
-                    class="h-2 rounded-full bg-(--solus-surface-hover) opacity-60"
-                    style="width: {Math.round(width * 0.6)}%"
-                  ></span>
+                  <Skeleton class="h-2.5 rounded-full bg-(--solus-surface-hover)" style="width: {width}%; animation-delay: {i * 120}ms" />
+                  <Skeleton class="h-2 rounded-full bg-(--solus-surface-hover) opacity-60" style="width: {Math.round(width * 0.6)}%; animation-delay: {i * 120}ms" />
                 </span>
-                <span
-                  class="ml-auto h-2.5 w-20 shrink-0 rounded-full bg-(--solus-surface-hover)"
-                ></span>
+                <Skeleton class="ml-auto h-2.5 w-20 shrink-0 rounded-full bg-(--solus-surface-hover)" style="animation-delay: {i * 120}ms" />
               </div>
             {/each}
           </div>

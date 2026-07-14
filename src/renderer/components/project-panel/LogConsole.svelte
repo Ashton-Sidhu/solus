@@ -18,6 +18,8 @@
     RunLogLine,
     RunStatus,
   } from "../../../shared/types";
+  import { Button } from "../ui/button";
+  import { Input } from "../ui/input";
 
   interface Props {
     cwd: string;
@@ -266,13 +268,14 @@
   <div class="console-toolbar">
     <label class="filter">
       <MagnifyingGlassIcon size={12} />
-      <input
+      <Input
         data-run-log-filter
         type="text"
         placeholder="Filter logs…"
         bind:value={filterText}
         spellcheck={false}
         aria-label="Filter log lines"
+        class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 font-(family-name:--solus-font-family) text-[0.6875rem] text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
       />
       {#if filterText}
         <button
@@ -362,15 +365,17 @@
     </div>
 
     {#if !pinned && logLines.length > 0}
-      <button
+      <Button
+        variant="outline"
+        size="icon-sm"
         type="button"
-        class="jump-latest"
+        class="absolute right-2.5 bottom-2.5 text-(--solus-text-secondary)"
         onclick={jumpToLatest}
         title="Jump to latest"
         aria-label="Jump to latest output"
       >
         <CaretDoubleDownIcon size={13} weight="bold" />
-      </button>
+      </Button>
     {/if}
   </div>
 
@@ -404,9 +409,11 @@
         </div>
       </div>
       <div class="status-actions">
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           type="button"
-          class="status-action"
+          class="status-action text-(--solus-text-tertiary)"
           onclick={copyLogs}
           title={hasSelection ? "Copy selection" : "Copy all logs"}
         >
@@ -415,19 +422,23 @@
           {:else}
             <CopyIcon size={12} /> <span class="status-action-label">Copy</span>
           {/if}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
           type="button"
-          class="status-action"
+          class="status-action text-(--solus-text-tertiary)"
           onclick={sendToChat}
           title={hasSelection ? "Send selection to chat" : "Send logs to chat"}
         >
           <PaperPlaneTiltIcon size={12} />
           <span class="status-action-label">Send to chat</span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
           type="button"
-          class="status-action"
+          class="status-action text-(--solus-text-tertiary)"
           onclick={newSessionFromLogs}
           title={hasSelection
             ? "New session from selection"
@@ -435,7 +446,7 @@
         >
           <PlusIcon size={12} />
           <span class="status-action-label">New session</span>
-        </button>
+        </Button>
       </div>
     </div>
   {/if}
@@ -485,7 +496,7 @@
     border-color: var(--solus-accent-soft);
     background: color-mix(in srgb, var(--solus-text-tertiary) 4%, transparent);
   }
-  .filter input {
+  :global(.filter input) {
     flex: 1;
     min-width: 0;
     border: none;
@@ -495,7 +506,7 @@
     font-family: var(--solus-font-family);
     font-size: 0.6875rem;
   }
-  .filter input::placeholder {
+  :global(.filter input::placeholder) {
     color: var(--solus-text-tertiary);
   }
   .filter-clear {
@@ -768,39 +779,6 @@
   }
 
   /* ── Jump to latest ── */
-  .jump-latest {
-    position: absolute;
-    right: 0.625rem;
-    bottom: 0.625rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    border: 1px solid
-      color-mix(in srgb, var(--solus-text-tertiary) 16%, transparent);
-    border-radius: 999px;
-    background: var(--solus-input-bg-soft);
-    color: var(--solus-text-secondary);
-    cursor: pointer;
-    box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.18);
-    transition:
-      background 0.12s ease,
-      color 0.12s ease,
-      transform 0.12s ease;
-  }
-  .jump-latest:hover {
-    background: var(--solus-accent);
-    border-color: transparent;
-    color: #fff;
-    transform: translateY(-0.0625rem);
-  }
-  .jump-latest:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-
   /* ── Status bar ── */
   .console-status {
     flex-shrink: 0;
@@ -874,32 +852,6 @@
     align-items: center;
     gap: 0.125rem;
   }
-  .status-action {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.1875rem 0.375rem;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    font-size: 0.625rem;
-    font-weight: 550;
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      color 0.12s ease;
-  }
-  .status-action:hover {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 10%, transparent);
-    color: var(--solus-text-primary);
-  }
-  .status-action:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-
   /* ── Narrow dock: collapse labelled controls to icon-only ──
      The status bar (Live + count + directory + three actions) is the first
      thing to overflow when the dock is split or pulled narrow. Drop the
@@ -908,9 +860,6 @@
   @container log-console (max-width: 30rem) {
     .status-action-label {
       display: none;
-    }
-    .status-action {
-      padding: 0.1875rem;
     }
   }
   @container log-console (max-width: 18rem) {

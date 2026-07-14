@@ -29,6 +29,10 @@ export interface CommandGroup {
   items: Command[]
 }
 
+export type CommandDisplayRow =
+  | { kind: 'header'; title: string }
+  | { kind: 'command'; cmd: Command; commandIndex: number }
+
 const searchTextCache = new WeakMap<Command, string>()
 
 function commandSearchText(command: Command): string {
@@ -63,4 +67,39 @@ export function groupCommands(commands: Command[]): CommandGroup[] {
     arr.push(c)
   }
   return Array.from(map.entries()).map(([title, items]) => ({ title, items }))
+}
+
+/**
+ * Returns the visible edge command to adopt when the selected command is
+ * outside a virtual viewport. Returns null while selection is already visible.
+ */
+export function visibleCommandEdge(
+  rows: CommandDisplayRow[],
+  selectedIndex: number,
+  scrollOffset: number,
+  viewportHeight: number,
+  headerHeight: number,
+  commandHeight: number,
+  direction: 1 | -1,
+): number | null {
+  let offset = 0
+  let selectedIsVisible = false
+  let firstVisible = -1
+  let lastVisible = -1
+  const viewportEnd = scrollOffset + viewportHeight
+
+  for (const row of rows) {
+    const size = row.kind === 'header' ? headerHeight : commandHeight
+    const rowEnd = offset + size
+    if (row.kind === 'command' && rowEnd > scrollOffset && offset < viewportEnd) {
+      if (firstVisible === -1) firstVisible = row.commandIndex
+      lastVisible = row.commandIndex
+      if (row.commandIndex === selectedIndex) selectedIsVisible = true
+    }
+    offset = rowEnd
+  }
+
+  if (selectedIsVisible) return null
+  const edge = direction === 1 ? firstVisible : lastVisible
+  return edge === -1 ? null : edge
 }

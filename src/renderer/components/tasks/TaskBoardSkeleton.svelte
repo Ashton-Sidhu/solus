@@ -1,11 +1,10 @@
 <script lang="ts">
   import { STATUS_META, BOARD_COLUMNS } from "./lib/tasks-api";
+  import { Skeleton } from "../ui/skeleton";
 
   // Mirrors TaskBoard's column chrome (real labels + status dots) while the task
   // list loads, swapping cards for shimmer placeholders. A fixed per-column card
   // plan keeps the silhouette stable across renders (no random reflow).
-  const SHELL =
-    "h-2.5 rounded-[0.375rem] bg-[linear-gradient(90deg,var(--solus-surface-hover)_25%,transparent_50%,var(--solus-surface-hover)_75%)] [background-size:25rem_100%] animate-[skeleton-shimmer_1.5s_ease-in-out_infinite]";
   // Card title widths per column (% of row), one entry per placeholder card.
   const PLAN: Record<string, number[]> = {
     open: [72, 54, 64],
@@ -35,8 +34,8 @@
             class="rounded-[0.625rem] bg-(--solus-popover-bg) px-3 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.04)] ring-1 ring-black/5 dark:shadow-none dark:ring-white/10"
           >
             <div class="flex flex-col gap-2">
-              <div class="{SHELL} w-(--skeleton-w)" style="--skeleton-w: {width}%"></div>
-              <div class="{SHELL} w-(--skeleton-w)" style="--skeleton-w: {Math.max(28, width - 22)}%"></div>
+              <Skeleton class="h-2.5 w-(--skeleton-w) rounded-[0.375rem]" style="--skeleton-w: {width}%" />
+              <Skeleton class="h-2.5 w-(--skeleton-w) rounded-[0.375rem]" style="--skeleton-w: {Math.max(28, width - 22)}%" />
             </div>
           </div>
         {/each}

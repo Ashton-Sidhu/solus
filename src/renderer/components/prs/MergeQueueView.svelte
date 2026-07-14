@@ -22,8 +22,7 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import Dropdown from "../ui/Dropdown.svelte";
-  import DropdownItem from "../ui/DropdownItem.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import {
     PAGE_GHOST_BTN,
@@ -429,18 +428,13 @@
               <span>{methodLabel}</span>
               <CaretDownIcon size={9} class="shrink-0" />
             </button>
-            <Dropdown
-              bind:open={methodMenuOpen}
-              triggerEl={methodTriggerEl}
-              align="top"
-              anchor="left"
-              width={220}
-            >
+            <DropdownMenu.Root bind:open={methodMenuOpen}>
+              <DropdownMenu.Content customAnchor={methodTriggerEl} side="top" align="start" sideOffset={6} class="w-[220px]">
               <div class="py-1" role="listbox" aria-label="Merge method">
                 {#each METHOD_OPTIONS as opt (opt.value)}
-                  <DropdownItem
-                    selected={method === opt.value}
-                    onclick={() => {
+                  <DropdownMenu.Item
+                    class={method === opt.value ? "font-semibold" : undefined}
+                    onSelect={() => {
                       method = opt.value;
                       methodMenuOpen = false;
                     }}
@@ -453,10 +447,11 @@
                         {opt.hint}
                       </div>
                     </div>
-                  </DropdownItem>
+                  </DropdownMenu.Item>
                 {/each}
               </div>
-            </Dropdown>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
           </div>
           <button
             type="button"

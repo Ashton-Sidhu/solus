@@ -3,6 +3,7 @@
   import { PencilSimpleIcon, TrashIcon } from 'phosphor-svelte'
   import type { PlanComment } from '../../../shared/types'
   import { portal } from '../portal'
+  import { Button } from '../ui/button'
 
   interface Props {
     comment: PlanComment
@@ -71,22 +72,24 @@
       {comment.comment}
     </p>
     <div class="flex gap-1 mt-2 justify-end">
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         onclick={() => onEdit(comment)}
-        class="plan-comment-popover__btn"
+        class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
         title="Edit comment"
       >
         <PencilSimpleIcon size={12} />
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
         onclick={() => onDelete(comment)}
-        class="plan-comment-popover__btn"
+        class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
         title="Delete comment"
       >
         <TrashIcon size={12} />
-      </button>
+      </Button>
     </div>
   </div>
 </div>
@@ -117,26 +120,5 @@
   .plan-comment-popover__quote {
     background: var(--solus-surface-hover);
     border-left: 0.125rem solid var(--solus-accent);
-  }
-  .plan-comment-popover__btn {
-    width: 1.5rem;
-    height: 1.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: none;
-    color: var(--solus-text-tertiary);
-    background: transparent;
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium),
-                color var(--duration-quick) var(--ease-premium);
-  }
-  .plan-comment-popover__btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .plan-comment-popover__btn:active {
-    transform: scale(0.94);
   }
 </style>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import { tick, untrack } from "svelte";
-  import Input from "../ui/Input.svelte";
+  import { Input } from "../ui/input";
   import {
     MagnifyingGlassIcon,
     XIcon,
@@ -22,10 +22,11 @@
   import Kbd from "../ui/Kbd.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
-  import SearchField from "../ui/SearchField.svelte";
+  import SearchField from "../ui/search-field";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SectionLabel from "../ui/SectionLabel.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
+  import { Button } from "../ui/button";
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -312,11 +313,10 @@
       class="text-(--solus-text-tertiary) flex-shrink-0"
     />
     <Input
-      bind:el={searchEl}
+      bind:ref={searchEl}
       bind:value={query}
       type="text"
-      variant="bare"
-      size="lg"
+      class="h-auto rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
       placeholder="Search plans…"
       onkeydown={(e) => {
         if (e.key === 'Enter' && runtime.isMobileViewport) {
@@ -563,7 +563,7 @@
       <!-- ── Command bar: search + status segments + bookmarked + sort ── -->
       <div class="flex flex-wrap items-center gap-2 pb-4">
         <SearchField
-          bind:el={searchEl}
+          bind:ref={searchEl}
           bind:value={query}
           placeholder="Search plans…"
           onkeydown={(e) => {
@@ -581,11 +581,12 @@
           ariaLabel="Filter by status"
         />
         <div class="ml-auto flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            class="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 transition-[background-color,color] duration-100 ease-in-out focus-visible:bg-(--solus-accent-light) focus-visible:outline-none [@media(pointer:coarse)]:size-10 {showBookmarked
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="[@media(pointer:coarse)]:size-10 {showBookmarked
               ? 'bg-(--solus-accent-light) text-(--solus-accent)'
-              : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+              : 'text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
             onclick={() => (showBookmarked = !showBookmarked)}
             aria-pressed={showBookmarked}
             aria-label="Bookmarked plans"
@@ -595,7 +596,7 @@
               size={13}
               weight={showBookmarked ? "fill" : "regular"}
             />
-          </button>
+          </Button>
           <SortMenu
             bind:value={sortMode}
             options={SORT_OPTIONS}
@@ -623,14 +624,15 @@
         <span class="gallery-title">Plans</span>
         <div class="flex items-center gap-1">
           <Kbd variant="standalone">⌥⇧L</Kbd>
-          <button
-            type="button"
-            class="close-btn"
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
             onclick={close}
             aria-label="Close"
           >
             <XIcon size={14} />
-          </button>
+          </Button>
         </div>
       </div>
       {@render header()}
@@ -660,26 +662,6 @@
     font-weight: 600;
     color: var(--solus-text-primary);
   }
-  .close-btn {
-    width: 1.5rem;
-    height: 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      background 0.1s ease,
-      color 0.1s ease;
-  }
-  .close-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
   /* Search row (pill mode): its own gutter. */
   .gallery-search {
     display: flex;

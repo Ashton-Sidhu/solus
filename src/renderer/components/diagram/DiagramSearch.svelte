@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Panel, useSvelteFlow } from '@xyflow/svelte'
+  import { Input } from '../ui/input'
 
   interface Props {
     onMatchedChange: (ids: Set<string> | null) => void
@@ -11,7 +12,7 @@
   const flow = useSvelteFlow()
 
   let query = $state('')
-  let inputEl: HTMLInputElement | undefined
+  let inputEl = $state<HTMLInputElement | null>(null)
   let count = $state<number | null>(null)
 
   $effect(() => {
@@ -54,12 +55,12 @@
       <circle cx="7" cy="7" r="4.5" />
       <path d="M10.5 10.5L14 14" />
     </svg>
-    <input
-      bind:this={inputEl}
+    <Input
+      bind:ref={inputEl}
       bind:value={query}
       oninput={runSearch}
       onkeydown={handleKeydown}
-      class="w-36 border-0 bg-transparent text-[0.75rem] font-medium text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary)"
+      class="h-auto w-36 rounded-none border-0 bg-transparent p-0 text-[0.75rem] font-medium text-(--solus-text-primary) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
       placeholder="Search nodes…"
       aria-label="Search nodes"
     />

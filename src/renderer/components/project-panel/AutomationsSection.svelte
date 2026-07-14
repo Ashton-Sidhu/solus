@@ -15,6 +15,7 @@
     triggerSummary,
     relativeTime,
   } from "../automations/lib/automation-format";
+  import { Button } from "../ui/button";
 
   interface Props {
     board: AutomationBoard;
@@ -124,15 +125,17 @@
            pause / resume control on hover (mirrors the Git section's
            stats↔copy reveal). A live run keeps its stop control visible. -->
       {#if running}
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           type="button"
-          class="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-status-error) transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+          class="text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
           title="Stop run"
           aria-label="Stop run"
           onclick={(e) => stop(a, e)}
         >
           <StopIcon size={12} weight="fill" />
-        </button>
+        </Button>
       {:else}
         <span class="relative flex shrink-0 items-center justify-end">
           <span
@@ -141,9 +144,11 @@
           >
             {statusLabel(a)}
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-xs"
             type="button"
-            class="pointer-events-none absolute right-0 inline-flex size-6 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-[color-mix(in_srgb,var(--project-icon-blue)_74%,var(--solus-text-tertiary))] opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 hover:bg-[color-mix(in_srgb,var(--project-icon-blue)_10%,transparent)] hover:text-(--project-icon-blue) focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+            class="pointer-events-none absolute right-0 text-[color-mix(in_srgb,var(--project-icon-blue)_74%,var(--solus-text-tertiary))] opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 hover:bg-[color-mix(in_srgb,var(--project-icon-blue)_10%,transparent)] hover:text-(--project-icon-blue) focus-visible:pointer-events-auto focus-visible:opacity-100"
             title={a.enabled ? "Pause automation" : "Resume automation"}
             aria-label={a.enabled ? "Pause automation" : "Resume automation"}
             onclick={(e) => toggle(a, e)}
@@ -153,7 +158,7 @@
             {:else}
               <PlayIcon size={12} weight="fill" />
             {/if}
-          </button>
+          </Button>
         </span>
       {/if}
     </li>

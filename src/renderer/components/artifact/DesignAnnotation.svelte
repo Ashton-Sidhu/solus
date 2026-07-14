@@ -14,6 +14,7 @@
   import { portal } from "../portal";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { DesignAnnotation } from "../../../shared/types";
+  import { Input } from "../ui/input";
 
   interface Props {
     screenshotDataUrl: string;
@@ -690,10 +691,11 @@
   {/if}
 
   {#if textInputPos}
-    <input
-      bind:this={textInputEl}
+    <Input
+      bind:ref={textInputEl}
       bind:value={textInputValue}
       onpointerdown={(e) => e.stopPropagation()}
+      class="h-auto focus-visible:ring-0"
       style="position:fixed;left:{textInputPos.x}px;top:{textInputPos.y}px;background:var(--solus-container-bg);backdrop-filter:blur(1.25rem);-webkit-backdrop-filter:blur(1.25rem);color:var(--solus-text-primary);border:0.0625rem solid var(--solus-tool-border);border-left:0.1875rem solid var(--solus-accent);border-radius:0.5rem;padding:0.5rem 0.875rem 0.5rem 0.75rem;font-size:0.9375rem;outline:none;z-index:10001;min-width:28.125rem;box-shadow:var(--solus-container-shadow)"
       placeholder="Type annotation…"
       onkeydown={(e) => {
