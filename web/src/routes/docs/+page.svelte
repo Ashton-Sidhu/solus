@@ -10,6 +10,7 @@
 		{ id: 'plans',       label: 'Working with Plans' },
 		{ id: 'diff',        label: 'Diff Panel' },
 		{ id: 'review',      label: 'Review Companion' },
+		{ id: 'merge-queue', label: 'Merge Queue' },
 		{ id: 'design-mode', label: 'Design Mode' },
 		{ id: 'voice',       label: 'Voice Input' },
 		{ id: 'automations', label: 'Automations' },
@@ -218,7 +219,7 @@
 			<p class="text-base sm:text-[15px] max-[1440px]:sm:text-[14px] text-[#6B6158] leading-relaxed max-w-[560px]">
 				Everything you need to know — keybindings, workspace panes, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 8, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 13, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -237,6 +238,7 @@
 						['Plan mode', "Review your agent's plan before it executes. Annotate with inline comments, then approve or reject. Pin or save plans for later reference and browse revision history when the plan changes."],
 						['Diff panel', 'Review every file your agent touched in a side panel. Navigate between files, leave line-level comments, and send annotated feedback back in one click.'],
 						['Review companion', "A second agent reviews your branch's changes and writes an inline report — grouped findings you can click to jump straight to the relevant hunk in the diff."],
+						['Merge queue', 'Stage a set of reviewed pull requests and merge them one at a time. The queue pauses on conflicts so an agent can resolve them in the PR worktree, then resumes.'],
 						['Works', 'Generated documents and slides are saved as Works. Open the gallery to search, edit, copy, or delete them later.'],
 						['Design Mode', 'Take a screenshot, draw rectangles, arrows, pins, and text annotations on it, then send the annotated image directly to your agent — no screenshots app needed.'],
 						['Voice input', 'Dictate prompts hands-free with local Whisper transcription — audio never leaves your machine.'],
@@ -350,7 +352,15 @@
 					['⌥⇧Y', 'Open worktree in terminal'],
 				])}
 
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Input & menus</h3>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Pull requests</h3>
+					<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the Pull Requests page is open.</p>
+					{@render kbTable([
+						['⌥Q', 'Queue selected PR for merge'],
+						['⌥M', 'Open merge queue'],
+						['Esc', 'Close'],
+					])}
+
+					<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Input & menus</h3>
 				{@render kbTable([
 					['Enter', 'Send message'],
 					['⇧Enter', 'New line'],
@@ -610,6 +620,40 @@
 				</p>
 			</section>
 
+			<section id="merge-queue" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Merge Queue</h2>
+				<p>
+					The merge queue lands a batch of reviewed pull requests without babysitting each one. Stage the PRs
+					you want, pick a strategy, and Solus merges them sequentially — one at a time — pausing whenever a
+					PR hits conflicts so it can be resolved before the queue continues.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Open Pull Requests', 'From the sidebar, open the Pull Requests page for the current project to see open PRs and their review state.'],
+						['Stage PRs', `Select the PRs you want to land and queue them (${kbdHtml('⌥Q')}). A staged count appears on the merge-queue row under the list.`],
+						['Open the queue', `Press ${kbdHtml('⌥M')} or click the merge-queue row to open its dedicated view, where you can reorder or remove staged PRs.`],
+						['Choose ordering', 'Use <strong class="text-[#1A1714] font-medium">Auto order</strong> to let Solus merge the least-entangled PRs (fewest overlapping files) first, or <strong class="text-[#1A1714] font-medium">Queued order</strong> to keep the order you staged them in.'],
+						['Choose a method', 'Pick <strong class="text-[#1A1714] font-medium">Merge</strong>, <strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong> for how each PR is committed onto its base branch.'],
+						['Start & watch', 'Start the run and follow the live timeline as each PR merges. Progress stays visible from anywhere on the page via a spinner and mini progress bar.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Resolving conflicts</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					If merging the base branch into a PR hits conflicts, the queue pauses on that entry and lists the
+					conflicted files. Solus checks the PR out into an isolated worktree so an agent — or you — can
+					resolve the conflicts, then the queue resumes with the remaining PRs. You can also skip a stuck
+					entry to keep the rest moving.
+				</p>
+			</section>
+
 			<section id="design-mode" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Design Mode</h2>
 				<p>
@@ -822,7 +866,9 @@
 					The Solus desktop app doubles as a local server that serves a full web interface. Any browser on
 					your network — phone, tablet, or another computer — can connect and interact with your desktop
 					agent in real time. A one-time pairing step issues a session token; after that, subsequent visits
-					reconnect automatically.
+					reconnect automatically. You can also run Solus headless as a
+					<a href="#connections" class="text-[#C4973A] no-underline hover:underline">self-hosted server</a>
+					on macOS or Linux with no desktop app at all.
 				</p>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How it works</h3>
@@ -885,6 +931,11 @@
 					drops — waking from sleep, switching networks, or a momentary blip all recover without any manual
 					action. A connection status indicator appears while reconnecting.
 				</p>
+				<p class="text-base/7 sm:text-[14px] mt-3">
+					On supported browsers you can also enable <strong class="text-[#1A1714] font-medium">web push
+					notifications</strong> from the connected client, so a run finishing or needing your attention
+					reaches you even when the tab is in the background.
+				</p>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Managing devices</h3>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
@@ -907,6 +958,27 @@
 						['Session tokens', 'Each paired device holds a unique session token. Revoking one device has no effect on any other.'],
 						['Tailscale / VPN', 'Solus advertises all reachable addresses, including Tailscale IPs. Use a Tailscale pairing link to securely reach your desktop from outside your LAN.'],
 						['Loopback (same machine)', `Navigating to <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">http://localhost:3000</code> in a browser on the same Mac connects without pairing in development mode. In production builds, the normal pairing flow applies even on loopback.`],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+			<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Self-hosted server</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					Beyond the desktop app, Solus ships a standalone server you can run on a macOS or Linux machine —
+					a home server, a VPS, or any always-on box — and reach entirely from the browser. The easiest
+					install is through Homebrew:
+				</p>
+				<div class="mt-4 p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)] font-mono text-[13px] text-[#6B6158] whitespace-pre-wrap">brew install Ashton-Sidhu/tap/solus   # CLI + vendored server runtime
+brew services start solus             # run the daemon in the background
+solus claim                           # claim the server from this machine</div>
+				<ul class="mt-4 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Manage from the CLI', `Run <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus start</code>, <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus logs</code>, and <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus update</code> to run, tail, and upgrade the daemon. Data lives under <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">~/.solus</code>.`],
+						['Claim it once', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus claim</code> prints a claim link, code, and QR you scan or open in a browser to take ownership of a fresh server. After that, the normal device pairing flow applies.`],
+						['Stays updated', 'Homebrew installs self-update with <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">brew upgrade solus</code>; tarball installs update in place via <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus update</code>.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
