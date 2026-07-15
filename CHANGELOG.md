@@ -81,6 +81,24 @@
 - **`src/renderer/stores/sessionStore.ts`**
   - Default `permissionMode` changed from `'ask'` → `'auto'`. Combined with `--dangerously-skip-permissions`, tool calls are auto-approved by default.
 
+## [0.18.0] — 2026-07-14
+
+### Added
+
+- Added visible Claude subagent activity cards so delegated work is easier to follow in live and reloaded conversations.
+- Added an option to automatically send voice messages as soon as transcription completes.
+
+### Changed
+
+- Increased the available context window for supported Claude and GPT models, allowing substantially longer conversations.
+- Improved turn snapshots and changed-file reporting so the UI reflects the authoritative net file changes after a turn.
+- Added an active-work power-save blocker so the app remains responsive while agents are executing, while waiting states can release the blocker.
+
+### Fixed
+
+- Improved Claude and Codex turn completion ordering, session snapshots, file discovery, layout behavior, and input handling.
+- Added an asar-unpacked binary path fallback for the native dependency used by packaged desktop builds.
+
 ## [0.17.1] — 2026-07-13
 
 ### Fixed
