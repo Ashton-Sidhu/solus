@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.15.1-blue" alt="version" />
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="platform" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
+  <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="license" />
 </p>
 
 <p align="center">
@@ -324,4 +324,4 @@ To iterate on server code without repackaging the tarball each time, just re-run
 
 ## License
 
-MIT
+[Business Source License 1.1](./LICENSE) — free for personal and internal use; converts to Apache 2.0 on 2030-07-14. You may not resell Solus or offer it as a competing hosted service before then.
