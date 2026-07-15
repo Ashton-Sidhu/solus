@@ -71,8 +71,8 @@ export interface ClaudeRunOptions {
   abortController?: AbortController
   /** Fires once when the SDK first reports a session id for this run. */
   onSessionInit?: (sessionId: string) => Promise<void>
-  /** Fires after each `result` event and on abort. */
-  onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string; editedFiles: string[] }) => Promise<void>
+  /** Persists the turn and returns the authoritative net session paths. */
+  onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string; editedFiles: string[] }) => Promise<string[] | null>
   /** When true, the SDK creates a new forked session branching from opts.sessionId. */
   forkSession?: boolean
 }
@@ -169,14 +169,19 @@ export class ClaudeAgent {
 
           logRawClaudeEvent(state.sessionId, msg)
 
-          for (const evt of normalizer.push(msg)) {
-            yield evt
-          }
-
+          const normalized = normalizer.push(msg)
           if (msg.type === 'result' && state.sessionId && opts.onTurnComplete) {
-            try { await opts.onTurnComplete(state.sessionId, { partial: false, userMessagePreview, editedFiles: normalizer.editedFiles }) }
+            try {
+              const changedFiles = await opts.onTurnComplete(state.sessionId, {
+                partial: false,
+                userMessagePreview,
+                editedFiles: normalizer.editedFiles,
+              })
+              if (changedFiles) yield { type: 'changed_files_updated', paths: changedFiles }
+            }
             catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
           }
+          for (const evt of normalized) yield evt
         }
 
         resolveResult({
@@ -191,7 +196,14 @@ export class ClaudeAgent {
         if (isAbort) {
           normalizer.interrupt()
           if (state.sessionId && opts.onTurnComplete) {
-            try { await opts.onTurnComplete(state.sessionId, { partial: true, userMessagePreview, editedFiles: normalizer.editedFiles }) }
+            try {
+              const changedFiles = await opts.onTurnComplete(state.sessionId, {
+                partial: true,
+                userMessagePreview,
+                editedFiles: normalizer.editedFiles,
+              })
+              if (changedFiles) yield { type: 'changed_files_updated', paths: changedFiles }
+            }
             catch (e) { log.warn(`onTurnComplete (abort) failed: ${e}`) }
           }
           resolveResult({

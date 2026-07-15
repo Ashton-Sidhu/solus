@@ -305,11 +305,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         },
         onTurnComplete: async (sid, snapOpts) => {
           const repoRoot = await resolveRepoRoot(workTree)
-          if (!repoRoot) return
-          await snapshotTurn(workTree, repoRoot, sid, {
+          if (!repoRoot) return null
+          const result = await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
-            changedFiles: snapOpts.editedFiles,
+            changedFiles: [...new Set([...input.changedFiles, ...snapOpts.editedFiles])],
           })
+          return result?.changedFiles ?? null
         },
       })
 

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { computeGitProjectStatus } from '../../src/main/git/git-helpers'
-import { getDiffStats, initSessionBase, parseChangedFileStats } from '../../src/main/git/session-snapshots'
+import { getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '../../src/main/git/session-snapshots'
 import type { GitProjectStatus } from '../../src/shared/types'
 
 let repos: string[] = []
@@ -157,6 +157,26 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 }
 
 describe('diff statistics hot path', () => {
+  test('snapshot completion reports only paths with a net session change', async () => {
+    const { cwd, baseSha } = createRepo()
+    await initSessionBase(cwd, 'session-1', baseSha)
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\nsecond\n')
+    writeFileSync(join(cwd, 'temporary.txt'), 'temporary\n')
+
+    const first = await snapshotTurn(cwd, cwd, 'session-1', {
+      changedFiles: ['tracked.txt', 'temporary.txt'],
+    })
+    expect(first?.changedFiles?.sort()).toEqual(['temporary.txt', 'tracked.txt'])
+
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\n')
+    unlinkSync(join(cwd, 'temporary.txt'))
+    const second = await snapshotTurn(cwd, cwd, 'session-1', {
+      changedFiles: ['tracked.txt', 'temporary.txt'],
+    })
+
+    expect(second?.changedFiles).toEqual([])
+  })
+
   test('returns session-scoped live stats without materializing a patch', async () => {
     const { cwd, baseSha } = createRepo()
     await initSessionBase(cwd, 'session-1', baseSha)

@@ -73,7 +73,7 @@
 
   /* Editor content width/typography — narrower "reading" column for review. */
   .plan-document-editor .solus-doc-editor .ProseMirror {
-    max-width: 53.75rem;
+    max-width: 65rem;
     font-size: calc(0.9375rem * var(--solus-font-scale, 1));
     line-height: 1.66;
     /* Body at 400 (Regular) — the same reading-prose change. The base doc editor

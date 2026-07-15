@@ -114,12 +114,18 @@ export interface SnapshotOpts {
   changedFiles?: string[]
 }
 
+export interface SnapshotTurnResult {
+  snapshot: TurnSnapshot
+  /** Files with a net change across the whole session after this snapshot. */
+  changedFiles: string[] | null
+}
+
 export async function snapshotTurn(
   workTree: string,
   repoRoot: string,
   sessionId: string,
   opts: SnapshotOpts = {},
-): Promise<TurnSnapshot | null> {
+): Promise<SnapshotTurnResult | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) {
     log.warn(`Cannot snapshot — no base ref for session ${sessionId}`)
@@ -138,16 +144,11 @@ export async function snapshotTurn(
   const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
 
   try {
+    const baseSha = await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
     await runAsync('git', [...treeArgs, 'read-tree', prev.tree], repoRoot, { env: indexEnv })
 
     if (opts.changedFiles) {
-      for (const file of opts.changedFiles) {
-        try {
-          await runAsync('git', [...treeArgs, 'add', '--', file], repoRoot, { env: indexEnv })
-        } catch {
-          // File may have been deleted or moved — ignore
-        }
-      }
+      await stageLivePaths(treeArgs, opts.changedFiles, repoRoot, indexEnv)
     } else {
       await runAsync('git', [...treeArgs, 'add', '-A'], repoRoot, { env: indexEnv })
     }
@@ -182,7 +183,23 @@ export async function snapshotTurn(
     }
     sidecar.turns.push(snap)
     writeSidecar(repoRoot, sessionId, sidecar)
-    return snap
+    let changedFiles: string[] | null = null
+    try {
+      const sessionStats = baseSha === commitSha
+        ? []
+        : parseChangedFileStats(await runAsync('git', [
+          '-c',
+          'core.quotepath=false',
+          'diff',
+          baseSha,
+          commitSha,
+          '--numstat',
+        ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER }))
+      changedFiles = sessionStats.map((file) => file.path)
+    } catch (err) {
+      log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+    }
+    return { snapshot: snap, changedFiles }
   } catch (err) {
     log.error(`snapshotTurn failed sid=${sessionId} turn=${turnIndex}: ${err}`)
     return null

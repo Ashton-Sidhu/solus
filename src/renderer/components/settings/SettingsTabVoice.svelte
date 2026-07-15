@@ -60,6 +60,24 @@
 
   <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
     <div class="flex items-center gap-3 min-w-0">
+      <MicrophoneIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+      <div>
+        <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Auto-send transcripts</div>
+        <div class="text-[0.6875rem] text-(--solus-text-tertiary) mt-px">
+          Send voice messages as soon as they're transcribed, instead of just filling the composer
+        </div>
+      </div>
+    </div>
+    <Switch
+      checked={theme.autoSendVoiceTranscripts}
+      onCheckedChange={(next) => theme.update({ autoSendVoiceTranscripts: next })}
+      size="default"
+      aria-label="Toggle auto-send for voice transcripts"
+    />
+  </div>
+
+  <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
+    <div class="flex items-center gap-3 min-w-0">
       <WaveformIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
       <div>
         <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Silence threshold</div>

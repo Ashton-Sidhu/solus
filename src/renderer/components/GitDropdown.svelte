@@ -157,6 +157,7 @@
 {#if displayBranch}
   <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
     <Popover.Content
+      data-solus-ui
       customAnchor={triggerEl}
       side={dropDown ? "top" : "bottom"}
       align="start"
