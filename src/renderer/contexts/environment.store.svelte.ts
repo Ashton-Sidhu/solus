@@ -176,8 +176,8 @@ export class EnvironmentStore {
   /**
    * Incremental changed-files update for a single just-completed tool message.
    * Unions its paths into the session's existing list instead of rescanning and
-   * re-parsing every historical Write/Edit body. The full-scan recomputeChangedFiles
-   * still runs at turn boundaries (task_complete) and on hydration to reconcile.
+   * re-parsing every historical Write/Edit body. Transcript hydration still uses
+   * the full scan; the backend publishes authoritative net paths at turn completion.
    */
   addChangedFilesFromMessage(tabId: string, message: Message): void {
     const session = this.deps.registry.sessionFor(tabId)

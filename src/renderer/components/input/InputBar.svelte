@@ -161,7 +161,14 @@
     voice.setMessageHandler((transcript) => {
       const prompt = transcript.trim();
       if (!prompt || isConnecting || isReadOnly) return;
-      sendPrompt(prompt, { refocus: false });
+      if (theme.autoSendVoiceTranscripts) {
+        sendPrompt(prompt, { refocus: false });
+      } else {
+        const existing = input.text;
+        const next = existing.trim() ? `${existing} ${prompt}` : prompt;
+        input.text = next;
+        composerEl?.setValueAndCursor(next, true, true);
+      }
     });
     voice.setAutoRearm(() => canAutoStart());
     return () => voice.setAutoRearm(null);

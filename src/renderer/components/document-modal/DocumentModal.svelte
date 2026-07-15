@@ -195,7 +195,7 @@
      the works doc editor looks and feels identical (same measure, type scale,
      heading rhythm, and code-block treatment). */
   :global(.doc-document-editor .solus-doc-editor .ProseMirror) {
-    max-width: 53.75rem;
+    max-width: 65rem;
     font-size: calc(0.9375rem * var(--solus-font-scale, 1));
     line-height: 1.66;
     /* Body at 400 (Regular) so the 600/700 headings get a full 200-unit jump

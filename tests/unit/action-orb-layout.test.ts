@@ -10,6 +10,10 @@ describe('action orb fit', () => {
     expect(actionOrbWouldOverflow(900, 760)).toBe(false)
   })
 
+  test('collapses labels before the centered row reaches the action orb', () => {
+    expect(actionOrbWouldOverflow(820, 700)).toBe(true)
+  })
+
   test('collapses labels before the centered row reaches the current activity strip', () => {
     expect(actionOrbWouldOverflow(900, 600, 180)).toBe(true)
   })

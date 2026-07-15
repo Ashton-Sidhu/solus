@@ -149,7 +149,6 @@ export class WorkspaceContext {
       automationsStore: this.automationsStore,
       workStreamTracker: this.workStreamTracker,
       isTabVisible: (tabId) => this.isTabVisible(tabId),
-      recomputeChangedFiles: (tabId) => this.recomputeChangedFiles(tabId),
       addChangedFilesFromMessage: (tabId, message) => this.env.addChangedFilesFromMessage(tabId, message),
       refreshTurnSnapshots: (tabId) => { void this.refreshTurnSnapshots(tabId) },
       setGitStatus: (cwd, status) => this.gitStatus.set(cwd, status),

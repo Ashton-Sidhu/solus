@@ -529,15 +529,14 @@
     role="dialog"
     aria-label={title}
     aria-modal={inline ? undefined : "true"}
-    class="doc-shell-root {rootClass} flex flex-col {inline
+    class="doc-shell-root {rootClass} [container:doc-shell/inline-size] flex flex-col {inline
       ? 'h-full'
-      : 'doc-shell-root--floating rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
+      : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
       ? ''
       : 'border border-(--solus-tool-border)'}"
-    style={inline ? "" : "width:min(100rem, 96vw);height:min(86vh, 90vh);"}
   >
     <!-- Header -->
-    <div class="doc-shell-header flex items-center justify-between gap-1.5 px-5 shrink-0 border-b border-(--solus-tool-border)">
+    <div class="doc-shell-header relative flex h-[var(--solus-chrome-row-h,var(--solus-tap-target-lg))] shrink-0 items-center justify-between gap-1.5 border-b border-b-[var(--solus-chrome-row-border,var(--solus-tool-border))] px-5 pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]">
       {#if inline}
         <FrameExpandButton variant="sidebar" />
       {/if}
@@ -546,7 +545,7 @@
         {#if renaming}
           <!-- svelte-ignore a11y_autofocus -->
           <input
-            class="doc-shell-title-input text-[0.8125rem] font-semibold tracking-[-0.01em]"
+            class="doc-shell-title-input mx-[-0.25rem] min-w-24 max-w-96 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
             bind:value={renameValue}
             onblur={commitRename}
             onkeydown={renameKeydown}
@@ -557,7 +556,7 @@
         {:else if onRenameTitle}
           <button
             type="button"
-            class="doc-shell-title doc-shell-title--editable text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] truncate"
+            class="doc-shell-title doc-shell-title--editable mx-[-0.25rem] cursor-text truncate rounded-md border-0 bg-transparent px-1 py-0.5 text-left text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] transition-[background] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
             onclick={startRename}
             title="Rename"
             data-testid="rename-work"
@@ -566,14 +565,14 @@
           <span class="doc-shell-title text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] truncate">{title}</span>
         {/if}
         {@render headerMeta?.()}
-        <div class="doc-shell-save-status">
+        <div class="doc-shell-save-status inline-flex min-w-0 items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
           {#if showSaving}
-            <span class="doc-shell-save-dot" aria-hidden="true"></span>
+            <span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
             <span>Saving…</span>
           {:else if saveFailed}
             <button
               type="button"
-              class="doc-shell-save-retry"
+              class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium text-(--solus-status-error) transition-[background] duration-(--duration-quick) ease-(--ease-premium) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_10%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
               onclick={() => void flushSave()}
               title="The last save failed — click to retry"
             >
@@ -611,7 +610,7 @@
         </div>
       {/if}
       {#if showTocRail}
-        <div class="doc-shell-toc-sleeve w-60 shrink-0 overflow-y-auto px-3 py-6" style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain">
+        <div class="doc-shell-toc-sleeve w-60 shrink-0 overflow-y-auto overscroll-y-contain px-3 py-6 [-webkit-overflow-scrolling:touch]">
           <PlanTableOfContents headings={tocHeadings} activePos={activeHeadingPos} onScrollTo={scrollToHeading} />
         </div>
       {/if}
@@ -619,8 +618,8 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex: Focusable so keyboard users can scroll immediately on open. -->
       <div
         bind:this={scrollContainer}
-        class="doc-shell-scroll flex-1 min-w-0 overflow-y-auto {scrollClass}"
-        style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain;{keyboardInset > 0 ? ` padding-bottom:${keyboardInset}px` : ''}"
+        class="doc-shell-scroll min-w-0 flex-1 overflow-y-auto overscroll-y-contain outline-none [-webkit-overflow-scrolling:touch] {scrollClass}"
+        style:padding-bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}
         tabindex="0"
         role="region"
         aria-label={scrollAriaLabel}
@@ -668,10 +667,10 @@
               {/if}
             </button>
 
-            <div class="doc-shell-toolbar-spacer"></div>
+            <div class="min-w-2 flex-auto"></div>
 
             {#if counts.words > 0}
-              <span class="doc-shell-count" title="{counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens">
+              <span class="doc-shell-count shrink-0 select-none whitespace-nowrap px-1 text-[0.6875rem] text-(--solus-text-tertiary) tabular-nums" title="{counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens">
                 {counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens
               </span>
             {/if}
@@ -698,7 +697,7 @@
 
             <button type="button" class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="More formatting" aria-label="More formatting"><DotsThreeIcon size={20} weight="bold" /></button>
 
-            <div class="doc-shell-toolbar-spacer"></div>
+            <div class="min-w-2 flex-auto"></div>
 
             <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
               {#if editorMode === "rich"}<MarkdownLogoIcon size={17} />{:else}<TextAaIcon size={17} />{/if}
@@ -751,12 +750,11 @@
 {:else}
   <div
     use:portal={document.body}
-    class="doc-shell-backdrop fixed inset-0 flex items-center justify-center"
+    class="doc-shell-backdrop fixed inset-0 z-[10000] flex items-center justify-center bg-(--solus-modal-scrim) backdrop-blur-lg backdrop-saturate-[1.05] motion-reduce:backdrop-blur-none"
     onclick={(e) => {
       if (e.target === e.currentTarget) onClose();
     }}
     role="presentation"
-    style="z-index:10000"
   >
     {@render shellInner()}
   </div>
@@ -765,9 +763,6 @@
 {@render overlays?.()}
 
 <style>
-  .doc-shell-root {
-    container: doc-shell / inline-size;
-  }
   .doc-shell-root--floating {
     box-shadow:
       var(--solus-popover-shadow),
@@ -777,53 +772,6 @@
     box-shadow:
       var(--solus-popover-shadow),
       inset 0 0.0625rem 0 rgba(255, 255, 255, 0.05);
-  }
-
-  .doc-shell-backdrop {
-    background: var(--solus-modal-scrim);
-    backdrop-filter: blur(0.5rem) saturate(1.05);
-    -webkit-backdrop-filter: blur(0.5rem) saturate(1.05);
-  }
-
-  .doc-shell-header {
-    position: relative;
-    /* In the editor's secondary pane the header shares the tab strip's chrome
-       row — match its height and seam so they read as one continuous bar. */
-    height: var(--solus-chrome-row-h, var(--solus-tap-target-lg));
-    border-bottom-color: var(--solus-chrome-row-border, var(--solus-tool-border));
-    /* Clear the macOS traffic lights when this shell is the leftmost chrome
-       (maximized pane); no-op otherwise. The base 1.25rem matches the px-5 in
-       the header markup. */
-    padding-left: max(1.25rem, var(--solus-chrome-lead-inset, 0px));
-  }
-
-  .doc-shell-title--editable {
-    background: transparent;
-    border: none;
-    padding: 0.125rem 0.25rem;
-    margin-inline: -0.25rem;
-    border-radius: 0.375rem;
-    cursor: text;
-    text-align: left;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  .doc-shell-title--editable:hover {
-    background: var(--solus-surface-hover);
-  }
-  .doc-shell-title--editable:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-  .doc-shell-title-input {
-    min-width: 6rem;
-    max-width: 24rem;
-    padding: 0.125rem 0.25rem;
-    margin-inline: -0.25rem;
-    border-radius: 0.375rem;
-    color: var(--solus-text-primary);
-    background: var(--solus-surface-hover);
-    border: 0.0625rem solid var(--solus-accent-border);
-    outline: none;
   }
 
   .doc-shell-close {
@@ -851,44 +799,6 @@
     outline-offset: 0.0625rem;
   }
 
-  .doc-shell-save-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3125rem;
-    min-width: 0;
-    font-size: 0.6875rem;
-    color: var(--solus-text-tertiary);
-    transition: opacity var(--duration-base) ease;
-    white-space: nowrap;
-  }
-  .doc-shell-save-dot {
-    width: 0.375rem;
-    height: 0.375rem;
-    border-radius: 50%;
-    background: var(--solus-accent);
-    flex-shrink: 0;
-  }
-  .doc-shell-save-retry {
-    border: none;
-    background: transparent;
-    padding: 0.0625rem 0.25rem;
-    margin-inline: -0.25rem;
-    border-radius: 0.25rem;
-    font-size: inherit;
-    font-weight: 500;
-    color: var(--solus-status-error);
-    cursor: pointer;
-    white-space: nowrap;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  .doc-shell-save-retry:hover {
-    background: color-mix(in srgb, var(--solus-status-error) 10%, transparent);
-  }
-  .doc-shell-save-retry:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-
   /* Toolbar */
   .doc-shell-toolbar {
     background: color-mix(in srgb, var(--solus-container-bg) 92%, transparent);
@@ -899,7 +809,7 @@
       0 0.25rem 0.75rem rgba(0, 0, 0, 0.04);
   }
   .doc-shell-toolbar-row {
-    max-width: 62.5rem;
+    max-width: 65rem;
     margin-inline: auto;
   }
   .doc-shell-toolbar-btn {
@@ -941,20 +851,6 @@
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.0625rem;
   }
-  .doc-shell-toolbar-spacer {
-    flex: 1 1 auto;
-    min-width: 0.5rem;
-  }
-  .doc-shell-count {
-    flex-shrink: 0;
-    font-size: 0.6875rem;
-    font-variant-numeric: tabular-nums;
-    color: var(--solus-text-tertiary);
-    white-space: nowrap;
-    padding-inline: 0.25rem;
-    user-select: none;
-  }
-
   /* Find & replace floats top-right over the editor, clear of the TOC rail. */
   .doc-find-sleeve {
     position: absolute;
@@ -1001,9 +897,6 @@
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
     transition: scrollbar-color var(--duration-base) var(--ease-premium);
-  }
-  .doc-shell-scroll:focus {
-    outline: none;
   }
   .doc-shell-scroll:hover,
   .doc-shell-scroll:focus-within,

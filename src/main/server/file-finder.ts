@@ -33,15 +33,21 @@ export async function getFinder(basePath: string): Promise<FileFinder | null> {
     return hit.finder
   }
 
-  const { FileFinder } = await loadFff()
-  const created = FileFinder.create({
-    basePath,
-    disableMmapCache: true,
-    disableContentIndexing: true,
-    aiMode: false,
-    enableFsRootScanning: true,
-    enableHomeDirScanning: true,
-  })
+  let created: ReturnType<typeof FileFinder.create>
+  try {
+    const { FileFinder } = await loadFff()
+    created = FileFinder.create({
+      basePath,
+      disableMmapCache: true,
+      disableContentIndexing: true,
+      aiMode: false,
+      enableFsRootScanning: true,
+      enableHomeDirScanning: true,
+    })
+  } catch (err) {
+    log.warn(`FileFinder failed to load for ${basePath}: ${err}`)
+    return null
+  }
   if (!created.ok) {
     log.warn(`FileFinder.create failed for ${basePath}: ${created.error}`)
     return null

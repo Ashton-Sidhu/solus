@@ -21,7 +21,6 @@ export interface SessionEventReducerDeps {
   automationsStore: AutomationsStore
   workStreamTracker: WorkStreamTracker
   isTabVisible(tabId: string): boolean
-  recomputeChangedFiles(tabId: string): void
   addChangedFilesFromMessage(tabId: string, message: Message): void
   refreshTurnSnapshots(tabId: string): void
   setGitStatus(cwd: string, status: GitProjectStatus | null): void
@@ -246,7 +245,6 @@ export class SessionEventReducer {
             session.permissionDenied = null
           }
         }
-        if (session.provider !== 'codex') this.deps.recomputeChangedFiles(tabId)
         this.deps.onTurnSettled(tabId, session.workingDirectory)
         this.deps.refreshTurnSnapshots(tabId)
         this.deps.workStreamTracker.sweep(tabId, session)

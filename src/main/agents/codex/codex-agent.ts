@@ -78,7 +78,13 @@ export class CodexAppServerClient extends EventEmitter {
 
   private async start(): Promise<void> {
     this.stopped = false
-    const proc = spawn('codex', ['app-server', '--listen', 'stdio://'], {
+    const proc = spawn('codex', [
+      'app-server',
+      '--listen',
+      'stdio://',
+      '--enable',
+      'default_mode_request_user_input',
+    ], {
       env: getCliEnv(),
       stdio: ['pipe', 'pipe', 'pipe'],
     })

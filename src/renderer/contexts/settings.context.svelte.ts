@@ -33,6 +33,7 @@ export type SettingsFields = {
   themeMode: ThemeMode
   soundEnabled: boolean
   voiceModeEnabled: boolean
+  autoSendVoiceTranscripts: boolean
   vadSilenceMs: number
   defaultEditor: EditorId | null
   defaultTerminal: TerminalAppId | null
@@ -201,6 +202,7 @@ function loadSettings(): SettingsFields {
         themeMode: (['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         voiceModeEnabled: typeof parsed.voiceModeEnabled === 'boolean' ? parsed.voiceModeEnabled : false,
+        autoSendVoiceTranscripts: typeof parsed.autoSendVoiceTranscripts === 'boolean' ? parsed.autoSendVoiceTranscripts : false,
         vadSilenceMs: typeof parsed.vadSilenceMs === 'number' ? Math.max(1000, Math.min(8000, parsed.vadSilenceMs)) : 1500,
         defaultEditor: VALID_EDITORS.includes(parsed.defaultEditor) ? parsed.defaultEditor : null,
         defaultTerminal: VALID_TERMINALS.includes(parsed.defaultTerminal) ? parsed.defaultTerminal : null,
@@ -230,6 +232,7 @@ function loadSettings(): SettingsFields {
     themeMode: 'dark',
     soundEnabled: true,
     voiceModeEnabled: false,
+    autoSendVoiceTranscripts: false,
     vadSilenceMs: 1500,
     defaultEditor: 'vim',
     defaultTerminal: 'default-terminal',
@@ -259,6 +262,7 @@ export class SettingsContext {
   themeMode = $state<ThemeMode>('dark')
   soundEnabled = $state(true)
   voiceModeEnabled = $state(false)
+  autoSendVoiceTranscripts = $state(false)
   vadSilenceMs = $state(1500)
   defaultEditor = $state<EditorId | null>(null)
   defaultTerminal = $state<TerminalAppId | null>(null)
@@ -288,6 +292,7 @@ export class SettingsContext {
     this.themeMode = saved.themeMode
     this.soundEnabled = saved.soundEnabled
     this.voiceModeEnabled = saved.voiceModeEnabled
+    this.autoSendVoiceTranscripts = saved.autoSendVoiceTranscripts
     this.vadSilenceMs = saved.vadSilenceMs
     this.defaultEditor = saved.defaultEditor
     this.defaultTerminal = saved.defaultTerminal
@@ -355,6 +360,7 @@ export class SettingsContext {
     }
     if (patch.soundEnabled !== undefined) this.soundEnabled = patch.soundEnabled
     if (patch.voiceModeEnabled !== undefined) this.voiceModeEnabled = patch.voiceModeEnabled
+    if (patch.autoSendVoiceTranscripts !== undefined) this.autoSendVoiceTranscripts = patch.autoSendVoiceTranscripts
     if (patch.vadSilenceMs !== undefined) this.vadSilenceMs = Math.max(1000, Math.min(8000, patch.vadSilenceMs))
     if (patch.defaultEditor !== undefined) this.defaultEditor = patch.defaultEditor
     if (patch.defaultTerminal !== undefined) this.defaultTerminal = patch.defaultTerminal
@@ -409,6 +415,7 @@ export class SettingsContext {
         themeMode: this.themeMode,
         soundEnabled: this.soundEnabled,
         voiceModeEnabled: this.voiceModeEnabled,
+        autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
         vadSilenceMs: this.vadSilenceMs,
         defaultEditor: this.defaultEditor,
         defaultTerminal: this.defaultTerminal,

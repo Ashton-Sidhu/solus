@@ -873,89 +873,89 @@
       {@render launchTarget()}
     </div>
     <div class="flex flex-col gap-6">
-        {#if projects.length > 0}
-          <section class="flex flex-col gap-2.5">
-            <div class={sectionLabel}>Recent Projects</div>
-            <div class="relative">
-              <div
-                class="flex gap-2.5 overflow-x-hidden pb-1 [touch-action:pan-y_pinch-zoom] [&::-webkit-scrollbar]:hidden"
-                role="list"
-                aria-label="Recent projects"
-                bind:this={projectScrollEl}
-                onscroll={updateScrollIndicators}
-                ontouchstart={onProjectTouchStart}
-                ontouchend={onProjectTouchEnd}
-              >
-                {#each projects as proj, i}
-                  <button
-                    class="shrink-0 w-50 flex flex-col px-4 py-3.5 rounded-[0.875rem] bg-transparent border border-(--solus-tool-border) text-left cursor-pointer transition-[background-color,border-color] duration-150 [-webkit-tap-highlight-color:transparent] active:bg-(--solus-accent-light) active:border-(--solus-accent-border-medium) active:scale-[0.97] {fadeIn}"
-                    style="--item-index:{i}"
-                    onclick={() => activateProject(proj)}
+      {#if projects.length > 0}
+        <section class="flex flex-col gap-2.5">
+          <div class={sectionLabel}>Recent Projects</div>
+          <div class="relative">
+            <div
+              class="flex gap-2.5 overflow-x-hidden pb-1 [touch-action:pan-y_pinch-zoom] [&::-webkit-scrollbar]:hidden"
+              role="list"
+              aria-label="Recent projects"
+              bind:this={projectScrollEl}
+              onscroll={updateScrollIndicators}
+              ontouchstart={onProjectTouchStart}
+              ontouchend={onProjectTouchEnd}
+            >
+              {#each projects as proj, i}
+                <button
+                  class="shrink-0 w-50 flex flex-col px-4 py-3.5 rounded-[0.875rem] bg-transparent border border-(--solus-tool-border) text-left cursor-pointer transition-[background-color,border-color] duration-150 [-webkit-tap-highlight-color:transparent] active:bg-(--solus-accent-light) active:border-(--solus-accent-border-medium) active:scale-[0.97] {fadeIn}"
+                  style="--item-index:{i}"
+                  onclick={() => activateProject(proj)}
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <div
+                      class="w-7 h-7 rounded-lg flex items-center justify-center bg-(--solus-surface-hover) shrink-0"
+                    >
+                      <FolderOpenIcon
+                        size={16}
+                        weight="duotone"
+                        color="var(--solus-text-secondary)"
+                      />
+                    </div>
+                    <span
+                      class="text-[0.875rem] font-medium truncate text-(--solus-text-primary)"
+                    >
+                      {proj.folderName}
+                    </span>
+                  </div>
+                  <div
+                    class="text-[0.6875rem] font-mono truncate mt-1 text-(--solus-text-tertiary)"
                   >
-                    <div class="flex items-center gap-2 min-w-0">
-                      <div
-                        class="w-7 h-7 rounded-lg flex items-center justify-center bg-(--solus-surface-hover) shrink-0"
-                      >
-                        <FolderOpenIcon
-                          size={16}
-                          weight="duotone"
-                          color="var(--solus-text-secondary)"
-                        />
-                      </div>
-                      <span
-                        class="text-[0.875rem] font-medium truncate text-(--solus-text-primary)"
-                      >
-                        {proj.folderName}
-                      </span>
-                    </div>
-                    <div
-                      class="text-[0.6875rem] font-mono truncate mt-1 text-(--solus-text-tertiary)"
-                    >
-                      {abbreviateHome(proj.path)}
-                    </div>
-                    <div
-                      class="text-[0.6875rem] mt-0.5 text-(--solus-text-muted)"
-                    >
-                      {formatTimeAgo(proj.lastOpened)}
-                    </div>
-                  </button>
-                {/each}
-              </div>
-              <div
-                class="absolute top-0 right-0 bottom-1 w-10 [background:linear-gradient(to_right,transparent,var(--solus-surface-primary))] pointer-events-none rounded-r-[0.875rem] transition-opacity duration-200"
-                style:opacity={showScrollFadeRight ? 1 : 0}
-              ></div>
+                    {abbreviateHome(proj.path)}
+                  </div>
+                  <div
+                    class="text-[0.6875rem] mt-0.5 text-(--solus-text-muted)"
+                  >
+                    {formatTimeAgo(proj.lastOpened)}
+                  </div>
+                </button>
+              {/each}
             </div>
-            {#if projects.length > 1}
-              <div class="flex items-center justify-center gap-1.5 pt-2.5">
-                {#each projects as _, i}
-                  <span
-                    class="w-1.5 h-1.5 rounded-full bg-(--solus-text-tertiary) transition-[opacity,transform] duration-200 {i ===
-                    activeProjectDot
-                      ? 'opacity-85 scale-[1.35]'
-                      : 'opacity-30'}"
-                  ></span>
-                {/each}
-              </div>
-            {/if}
-          </section>
-        {/if}
+            <div
+              class="absolute top-0 right-0 bottom-1 w-10 [background:linear-gradient(to_right,transparent,var(--solus-surface-primary))] pointer-events-none rounded-r-[0.875rem] transition-opacity duration-200"
+              style:opacity={showScrollFadeRight ? 1 : 0}
+            ></div>
+          </div>
+          {#if projects.length > 1}
+            <div class="flex items-center justify-center gap-1.5 pt-2.5">
+              {#each projects as _, i}
+                <span
+                  class="w-1.5 h-1.5 rounded-full bg-(--solus-text-tertiary) transition-[opacity,transform] duration-200 {i ===
+                  activeProjectDot
+                    ? 'opacity-85 scale-[1.35]'
+                    : 'opacity-30'}"
+                ></span>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      {/if}
 
-        <!-- Sessions / worktrees / automations / tasks reuse the shared
+      <!-- Sessions / worktrees / automations / tasks reuse the shared
              control-hub snippets, which size up for touch on this viewport. -->
-        {@render sessionsCol()}
+      {@render sessionsCol()}
 
-        {#if visibleWorktrees.length > 0}
-          {@render worktreesCol()}
-        {/if}
+      {#if visibleWorktrees.length > 0}
+        {@render worktreesCol()}
+      {/if}
 
-        {#if hasTasks}
-          {@render tasksSection()}
-        {/if}
+      {#if hasTasks}
+        {@render tasksSection()}
+      {/if}
 
-        {#if hasAutomations}
-          {@render automationsSection()}
-        {/if}
+      {#if hasAutomations}
+        {@render automationsSection()}
+      {/if}
     </div>
   </div>
 {:else}
@@ -992,7 +992,9 @@
         {/if}
       </div>
 
-      {@render automationsSection()}
+      {#if isEditorMode}
+        {@render automationsSection()}
+      {/if}
     </div>
   </div>
 {/if}

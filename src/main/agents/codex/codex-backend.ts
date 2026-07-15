@@ -679,10 +679,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     const wasInterrupted = !!handle?.interrupted || isInterruptedTurnStatus(params?.turn?.status)
 
+    const normalized = handle?.normalizer.push({ method: msg.method, params }) ?? []
     if (handle) {
-      for (const event of handle.normalizer.push({ method: msg.method, params })) {
-        this.emit('normalized', sessionId, event)
-      }
       handle.toolCallCount = handle.normalizer.summary.toolCallCount
     }
 
@@ -697,15 +695,23 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
       const exitSignal = wasInterrupted ? 'SIGINT' : null
       if (handle) {
-        void this.snapshotOnTurnComplete(handle, wasInterrupted)
-        this.forgetRoutingForSession(sessionId)
-        this.finishRun(handle)
-        handle._resolveRun()
+        void this.finishCompletedTurn(
+          handle,
+          normalized,
+          wasInterrupted,
+          exitCode,
+          exitSignal,
+          params?.turnId || params?.turn?.id,
+        )
+        return
       }
       this.clearFileChangesForTurn(params?.turnId || params?.turn?.id)
       this.permissions.clearPendingForSession(sessionId)
       this.emit('exit', sessionId, exitCode, exitSignal)
+      return
     }
+
+    for (const event of normalized) this.emit('normalized', sessionId, event)
   }
 
   private emitAccountRateLimitUpdate(params: any): void {
@@ -971,18 +977,42 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private async snapshotOnTurnComplete(handle: CodexRunHandle, partial: boolean): Promise<void> {
+  private async snapshotOnTurnComplete(handle: CodexRunHandle, partial: boolean): Promise<string[] | null> {
     const { workTree, repoRoot, sessionId } = handle
-    if (!workTree || !repoRoot || !sessionId) return
+    if (!workTree || !repoRoot || !sessionId) return null
     try {
-      await snapshotTurn(workTree, repoRoot, sessionId, {
+      const result = await snapshotTurn(workTree, repoRoot, sessionId, {
         partial,
         userMessagePreview: handle.userMessagePreview,
         changedFiles: [...handle.trackedFiles],
       })
+      return result?.changedFiles ?? null
     } catch (e) {
       log.warn(`snapshotOnTurnComplete failed: ${e}`)
+      return null
     }
+  }
+
+  private async finishCompletedTurn(
+    handle: CodexRunHandle,
+    normalized: NormalizedEvent[],
+    partial: boolean,
+    exitCode: 0 | 1 | null,
+    exitSignal: 'SIGINT' | null,
+    turnId: unknown,
+  ): Promise<void> {
+    const sessionId = handle.sessionId
+    const changedFiles = await this.snapshotOnTurnComplete(handle, partial)
+    if (changedFiles) {
+      this.emit('normalized', sessionId, { type: 'changed_files_updated', paths: changedFiles })
+    }
+    for (const event of normalized) this.emit('normalized', sessionId, event)
+    this.forgetRoutingForSession(sessionId)
+    this.finishRun(handle)
+    handle._resolveRun()
+    this.clearFileChangesForTurn(turnId)
+    this.permissions.clearPendingForSession(sessionId)
+    this.emit('exit', sessionId, exitCode, exitSignal)
   }
 
   private sessionIdFor(params: any): string | null {

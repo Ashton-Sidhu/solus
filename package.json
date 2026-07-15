@@ -76,6 +76,9 @@
     "web-push": "^3.6.7",
     "zod": "^4.3.6"
   },
+  "patchedDependencies": {
+    "@ff-labs/fff-node@0.9.4": "patches/@ff-labs%2Ffff-node@0.9.4.patch"
+  },
   "build": {
     "appId": "com.solus.app",
     "productName": "Solus",
@@ -90,6 +93,10 @@
       "dist/client/**/*",
       "resources/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@ff-labs/fff-bin-*/**/*",
+      "node_modules/@yuuang/ffi-rs-*/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

@@ -522,7 +522,8 @@
                     oncontextmenu={(e) => openContextMenu(e, tabId)}
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
-                    class="tab-item {isActive ? 'active' : ''} {needsAttention
+                    data-pill-active={variant === "pill" && isActive}
+                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:relative data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] data-[pill-active=true]:before:absolute data-[pill-active=true]:before:top-0 data-[pill-active=true]:before:left-4 data-[pill-active=true]:before:right-4 data-[pill-active=true]:before:h-0.5 data-[pill-active=true]:before:rounded-full data-[pill-active=true]:before:bg-(--solus-accent) data-[pill-active=true]:before:content-[''] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''}"
                     aria-label={tab
@@ -571,7 +572,8 @@
                     oncontextmenu={(e) => openContextMenu(e, tabId)}
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
-                    class="tab-item {isActive ? 'active' : ''} {needsAttention
+                    data-pill-active={variant === "pill" && isActive}
+                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:relative data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] data-[pill-active=true]:before:absolute data-[pill-active=true]:before:top-0 data-[pill-active=true]:before:left-4 data-[pill-active=true]:before:right-4 data-[pill-active=true]:before:h-0.5 data-[pill-active=true]:before:rounded-full data-[pill-active=true]:before:bg-(--solus-accent) data-[pill-active=true]:before:content-[''] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
                       ? 'dragging'
