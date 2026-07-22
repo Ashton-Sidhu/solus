@@ -1,4 +1,5 @@
 import type { AgentId, PlanComment, Work, WorkAnnotations, WorkMeta, WorkPrevious } from '../../../shared/types'
+import { uuid } from '../../../shared/uuid'
 import { workPreview } from '../../../shared/work-preview'
 
 export class WorksStore {
@@ -25,8 +26,10 @@ export class WorksStore {
   /** Register a provisional work while a create_work tool call is in flight. The
    *  card shows a generating skeleton (content is not streamed in); on
    *  work_created, finalizeProvisional swaps in the persisted id and content.
-   *  The empty entry carries the agent/cwd so finalize can preserve them. */
-  addProvisional(tempId: string, agentProvider: AgentId, cwd: string): void {
+   *  The empty entry carries the agent/cwd so finalize can preserve them.
+   *  Returns the generated provisional id. */
+  addProvisional(agentProvider: AgentId, cwd: string): string {
+    const tempId = uuid()
     const now = new Date().toISOString()
     this.works[tempId] = {
       id: tempId,
@@ -42,14 +45,15 @@ export class WorksStore {
       storage: { kind: 'local' },
     }
     this.streaming[tempId] = true
+    return tempId
   }
 
   /** Reconcile a provisional to the persisted work: rekey temp→real id, set the
    *  authoritative content/title/type, and clear the streaming flag. When there
    *  is no provisional (Codex/mock emit work_created without streaming), this
    *  simply inserts the finished work. */
-  finalizeProvisional(tempId: string, realId: string, title: string, docType: 'doc' | 'slides' | 'diagram', content: string): void {
-    const provisional = this.works[tempId]
+  finalizeProvisional(tempId: string | null, realId: string, title: string, docType: 'doc' | 'slides' | 'diagram', content: string): void {
+    const provisional = tempId ? this.works[tempId] : undefined
     const now = new Date().toISOString()
     const base: Work = provisional ?? {
       id: realId,
@@ -64,8 +68,8 @@ export class WorksStore {
       cwd: '~',
       storage: { kind: 'local' },
     }
-    if (tempId !== realId) delete this.works[tempId]
-    delete this.streaming[tempId]
+    if (tempId && tempId !== realId) delete this.works[tempId]
+    if (tempId) delete this.streaming[tempId]
     base.id = realId
     base.title = title
     base.type = docType

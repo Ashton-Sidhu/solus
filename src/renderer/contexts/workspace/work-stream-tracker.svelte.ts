@@ -1,5 +1,4 @@
 import type { AgentId, NormalizedEvent, Session } from '../../../shared/types'
-import { uuid } from '../../../shared/uuid'
 import { nextMsgId } from './session.utils'
 import type { PaneViewStore } from './pane-view.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
@@ -38,8 +37,7 @@ export class WorkStreamTracker {
 
   beginToolArtifacts(tabId: string, session: Session, toolName: string | undefined, agentProvider: AgentId): void {
     if (isCreateWorkTool(toolName)) {
-      const tempId = uuid()
-      this.worksStore.addProvisional(tempId, agentProvider, session.workingDirectory)
+      const tempId = this.worksStore.addProvisional(agentProvider, session.workingDirectory)
       const msgId = nextMsgId()
       session.messages.push({
         id: msgId,
@@ -82,7 +80,7 @@ export class WorkStreamTracker {
       }
     } else {
       // No streamed provisional (Codex/mock emit work_created directly).
-      this.worksStore.finalizeProvisional('', event.workId, event.title, event.docType, event.content)
+      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content)
       session.messages.push({
         id: nextMsgId(),
         role: 'assistant' as const,
