@@ -136,7 +136,7 @@ export class WorkspaceContext {
       registry: this.registry,
       statusBar: this.statusBar,
       setPluginCommands: (commands) => { this.pluginCommands = commands },
-      createTab: () => this.createTab(),
+      createTab: (cwd) => this.createTab(cwd),
       ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
@@ -396,6 +396,11 @@ export class WorkspaceContext {
     return this.ipcContextBuilder.forDirectory(this.activeTabId, workingDirectory)
   }
 
+  /** Context scoped to an environment checkout, independent of chat-tab existence. */
+  ctxForEnvironment(workingDirectory: string, gitContext: GitCheckout | null, tabId = ''): IpcContext {
+    return this.ipcContextBuilder.forEnvironment(tabId, workingDirectory, gitContext)
+  }
+
   update(patch: Partial<SessionFields>): void {
     if (patch.isExpanded !== undefined) this.isExpanded = patch.isExpanded
     if (patch.staticInfo !== undefined) this.staticInfo = patch.staticInfo
@@ -494,16 +499,25 @@ export class WorkspaceContext {
     }
     const inheritedPermissionMode = this.globalDefaults.permissionMode
     const inheritedGitContext = options.gitContext === undefined
-      ? activeSession?.gitContext ?? this.globalDefaults.gitContext
+      ? cwd === undefined
+        ? activeSession?.gitContext ?? this.globalDefaults.gitContext
+        : null
       : options.gitContext
     // A fresh tab follows the saved default. Per-session toggles belong only to
     // that session and must not silently override where the next session starts.
     const worktreeRequested = !inheritedGitContext?.worktreePath && this.settings.worktreeEnabled
+    const resolvedStartTarget = cwd !== undefined && options.gitContext === undefined
+      ? await this.environment.resolveSessionStartTarget(cwd, { worktreeRequested })
+      : null
+    const initialGitContext = resolvedStartTarget?.gitContext ?? inheritedGitContext
+    const initialWorktreeBaseBranch = resolvedStartTarget
+      ? resolvedStartTarget.worktreeBaseBranch
+      : worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null
     const { tabId } = await window.solus.createTab()
     const session = makeSession(this.settings, {
       workingDirectory: inheritedDir,
-      gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
-      worktreeBaseBranch: worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null,
+      gitContext: initialGitContext ? { ...initialGitContext } : null,
+      worktreeBaseBranch: initialWorktreeBaseBranch,
       modelConfig: inheritedModelConfig,
       permissionMode: inheritedPermissionMode,
       sessionSkills: activeSession?.sessionSkills ?? [],
@@ -521,7 +535,11 @@ export class WorkspaceContext {
       this.globalDefaults.gitContext = null
       this.globalDefaults.worktreeBaseBranch = null
     }
-    const gitInitialization = this.environment.refreshTab(this, { tabId, worktreeRequested })
+    const gitInitialization = this.environment.refreshTab(this, {
+      tabId,
+      worktreeRequested,
+      force: resolvedStartTarget ? false : undefined,
+    })
     if (options.gitInitialization === 'background') void gitInitialization
     else await gitInitialization
     void this.refreshPluginCommands(inheritedDir)

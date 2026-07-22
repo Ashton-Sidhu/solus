@@ -377,18 +377,25 @@
     {@const PrReviewSkeleton = prReviewSkeletonModule.default}
     <PrReviewSkeleton number={content.number} title={content.title} />
   {/await}
-{:else if content.kind === 'diff' && overlayTab}
+{:else if content.kind === 'diff' && (overlayTab || content.cwd)}
   {#await import('../diff/DiffPanel.svelte')}
     {@render loadingSurface('Loading changes…')}
   {:then diffModule}
     {@const DiffPanel = diffModule.default}
     <DiffPanel
-      tabId={overlayTab.id}
-      projectPath={overlaySession?.workingDirectory ?? ''}
-      worktreePath={overlaySession?.gitContext?.worktreePath}
-      worktreeBranch={overlaySession?.gitContext?.branch ?? ''}
-      targetBranch={overlaySession?.gitContext?.targetBranch ?? 'HEAD'}
-      isWorktree={overlayIsWorktree}
+      tabId={overlayTab?.id ?? ''}
+      getCtx={content.cwd
+        ? () => session.ctxForEnvironment(
+            content.cwd!,
+            content.checkout ?? null,
+            overlayTab?.id ?? '',
+          )
+        : undefined}
+      projectPath={overlaySession?.workingDirectory ?? content.cwd ?? ''}
+      worktreePath={overlaySession?.gitContext?.worktreePath ?? content.cwd}
+      worktreeBranch={overlaySession?.gitContext?.branch ?? session.globalDefaults.gitContext?.branch ?? ''}
+      targetBranch={overlaySession?.gitContext?.targetBranch ?? session.globalDefaults.gitContext?.targetBranch ?? 'HEAD'}
+      isWorktree={overlayIsWorktree || !!session.globalDefaults.gitContext?.worktreePath}
       onClose={() => panes.closeOverlay()}
       maximized={panes.maximized}
       onToggleMaximize={onToggleSecondaryMaximize}
@@ -397,14 +404,20 @@
       navigationRequestId={content.navigationRequestId}
     />
   {/await}
-{:else if content.kind === 'files' && overlayTab}
+{:else if content.kind === 'files' && (overlayTab || content.cwd)}
   {#await import('../files/FilesPane.svelte')}
     {@render loadingSurface('Loading files…')}
   {:then filesModule}
     {@const FilesPane = filesModule.default}
     <FilesPane
-      ctx={session.ctxFor(overlayTab.id)}
-      cwd={overlaySession?.gitContext?.worktreePath ?? overlaySession?.workingDirectory ?? ''}
+      ctx={content.cwd
+        ? session.ctxForEnvironment(
+            content.cwd,
+            content.checkout ?? null,
+            overlayTab?.id ?? '',
+          )
+        : session.ctxFor(overlayTab!.id)}
+      cwd={content.cwd ?? overlaySession?.gitContext?.worktreePath ?? overlaySession?.workingDirectory ?? ''}
       isDark={session.settings.isDark}
       onClose={() => panes.closeOverlay()}
     />

@@ -23,15 +23,24 @@ export class GitActions {
     private environmentStore: SessionEnvironmentStore,
   ) {}
 
+  private target() {
+    const environment = this.environmentStore.environmentFor(this.tabId)
+    return {
+      cwd: environment.cwd,
+      gitContext: environment.checkout,
+      ctx: this.session.ctxForEnvironment(environment.cwd, environment.checkout, this.tabId),
+    }
+  }
+
   async commitPush(): Promise<void> {
-    const sess = this.session.sessionFor(this.tabId)
-    if (this.commitPushing || !sess?.gitContext) return
-    const gitCwd = sess.gitContext.worktreePath ?? sess.workingDirectory
+    const target = this.target()
+    if (this.commitPushing || !target.gitContext) return
+    const gitCwd = target.cwd
     this.commitPushing = true
     this.commitPushed = false
     this.commitPushError = null
     try {
-      const result = await window.solus.gitCommitPush(this.session.ctxFor(this.tabId))
+      const result = await window.solus.gitCommitPush(target.ctx)
       if (result.success) {
         this.commitPushed = true
         if (this.commitTimer) clearTimeout(this.commitTimer)
@@ -60,14 +69,14 @@ export class GitActions {
   }
 
   async sync(): Promise<void> {
-    const sess = this.session.sessionFor(this.tabId)
-    if (this.syncing || !sess?.gitContext) return
-    const gitCwd = sess.gitContext.worktreePath ?? sess.workingDirectory
+    const target = this.target()
+    if (this.syncing || !target.gitContext) return
+    const gitCwd = target.cwd
     this.syncing = true
     this.synced = false
     this.syncError = null
     try {
-      const result = await window.solus.gitSync(this.session.ctxFor(this.tabId))
+      const result = await window.solus.gitSync(target.ctx)
       if (result.success) {
         this.synced = true
         if (this.syncTimer) clearTimeout(this.syncTimer)
@@ -94,17 +103,17 @@ export class GitActions {
 
   openTerminal(): void {
     if (!connectionsStore.desktopHandlersAvailable) return
-    void window.solus.openWorktreeTerminal(this.session.ctxFor(this.tabId))
+    void window.solus.openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
   }
 
   async createPR(): Promise<void> {
-    const sess = this.session.sessionFor(this.tabId)
-    if (!sess?.workingDirectory || this.creatingPR) return
+    const target = this.target()
+    if (!target.cwd || target.cwd === '~' || !target.gitContext || this.creatingPR) return
     this.creatingPR = true
     this.prError = null
     try {
-      const result = await window.solus.worktreePR(this.session.ctxFor(this.tabId))
+      const result = await window.solus.worktreePR(target.ctx)
       if (result.success) this.prUrl = result.url || null
       else {
         this.prError = result.error || 'Create pull request failed'
@@ -115,10 +124,7 @@ export class GitActions {
       toasts.error(`Couldn't create pull request: ${this.prError}`)
     } finally {
       this.creatingPR = false
-      if (sess.workingDirectory) {
-        const gitCwd = sess.gitContext?.worktreePath ?? sess.workingDirectory
-        void this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
-      }
+      void this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: target.cwd, level: 'details' })
       requestInputFocus()
     }
   }

@@ -32,6 +32,7 @@
   import type {
     AgentId,
     DesignAnnotation as DesignAnnotationType,
+    GitCheckout,
     IpcContext,
     PlanDescriptor,
     ProjectEntry,
@@ -1403,14 +1404,20 @@
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
     const reviewPrHandler = (event: Event) => {
-      const targetTabId =
-        (event as CustomEvent<{ tabId?: string }>).detail?.tabId ?? activeTabId;
+      const detail = (event as CustomEvent<{
+        tabId?: string;
+        cwd?: string;
+        checkout?: GitCheckout | null;
+      }>).detail;
+      const targetTabId = detail?.tabId ?? activeTabId;
       const targetSession = session.sessionFor(targetTabId);
       const dir =
-        targetSession?.gitContext?.repoRoot ?? targetSession?.workingDirectory;
+        detail?.cwd ?? targetSession?.gitContext?.repoRoot ?? targetSession?.workingDirectory;
       paletteGitTarget = {
         tabId: targetTabId,
-        ctx: session.ctxFor(targetTabId),
+        ctx: detail?.cwd
+          ? session.ctxForEnvironment(detail.cwd, detail.checkout ?? null, targetTabId)
+          : session.ctxFor(targetTabId),
         projectRoot: dir && dir !== "~" ? worktreeProjectRoot(dir) : null,
       };
       paletteInitialPage = { id: "review-pr", title: "Review PR" };

@@ -47,9 +47,11 @@ describe('GitActions sync', () => {
       {
         sessionFor: () => session,
         ctxFor: () => ({ session: { tabId: 'tab-1' } }),
+        ctxForEnvironment: () => ({ session: { tabId: 'tab-1' } }),
       } as any,
       'tab-1',
       {
+        environmentFor: () => ({ cwd: '/repo', checkout: session.gitContext }),
         refreshTab: async (_workspace, options) => {
           refreshes.push(options)
           return { status: true, details: true, refs: true, registration: true, ok: true }
@@ -88,9 +90,14 @@ describe('GitActions commit and push', () => {
     } as Session
     const refreshes: unknown[] = []
     const actions = new GitActions(
-      { sessionFor: () => session, ctxFor: () => ({ session: { tabId: 'tab-1' } }) } as any,
+      {
+        sessionFor: () => session,
+        ctxFor: () => ({ session: { tabId: 'tab-1' } }),
+        ctxForEnvironment: () => ({ session: { tabId: 'tab-1' } }),
+      } as any,
       'tab-1',
       {
+        environmentFor: () => ({ cwd: '/repo', checkout: session.gitContext }),
         refreshTab: async (_workspace: unknown, options: unknown) => {
           refreshes.push(options)
           return { status: true, details: true, refs: true, registration: true, ok: true }
@@ -104,5 +111,57 @@ describe('GitActions commit and push', () => {
     expect(actions.commitPushing).toBe(false)
     expect(actions.commitPushError).toBe('transport disconnected')
     expect(refreshes).toEqual([{ tabId: 'tab-1', cwd: '/repo', level: 'details' }])
+  })
+
+  test('commits the selected environment when no chat tab exists', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    let receivedCtx: any
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        dispatchEvent: () => true,
+        solus: {
+          gitCommitPush: async (ctx: unknown) => {
+            receivedCtx = ctx
+            return { success: true, outcome: 'pushed', committed: true, pushed: true }
+          },
+        },
+      },
+    })
+    const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
+    const checkout = {
+      repoRoot: '/repo',
+      worktreePath: '/repo/.solus-worktrees/feature',
+      branch: 'feature',
+      targetBranch: 'main',
+    }
+    const actions = new GitActions(
+      {
+        sessionFor: () => undefined,
+        globalDefaults: { workingDirectory: '/repo', gitContext: checkout },
+        ctxForEnvironment: (cwd: string, gitContext: unknown, tabId: string) => ({
+          session: { tabId, workingDirectory: cwd, gitContext },
+        }),
+      } as any,
+      '',
+      {
+        environmentFor: () => ({ cwd: checkout.worktreePath, checkout }),
+        refreshTab: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+        statusFor: () => null,
+      } as any,
+    )
+
+    await actions.commitPush()
+
+    expect(receivedCtx.session).toEqual({
+      tabId: '',
+      workingDirectory: checkout.worktreePath,
+      gitContext: checkout,
+    })
   })
 })

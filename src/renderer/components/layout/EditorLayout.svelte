@@ -7,7 +7,7 @@
     FILE_PREVIEW_EVENT,
     type FilePreviewRequest,
   } from "../../lib/filePreview";
-  import type { DiffScope } from "../../../shared/types";
+  import type { DiffScope, GitCheckout } from "../../../shared/types";
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
@@ -42,6 +42,8 @@
       const detail = (
         e as CustomEvent<{
           tabId?: string;
+          cwd?: string;
+          checkout?: GitCheckout | null;
           scope?: DiffScope;
           switchScope?: boolean;
         }>
@@ -50,10 +52,12 @@
         detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       const scope = detail?.scope ?? { kind: "session" };
       panes.toggleDiff(
-        !!session.sessionFor(targetTabId)?.workingDirectory,
+        !!(detail?.cwd ?? session.sessionFor(targetTabId)?.workingDirectory),
         targetTabId,
         scope,
         detail?.switchScope ?? false,
+        detail?.cwd,
+        detail?.checkout,
       );
     };
     window.addEventListener("solus:toggle-diff-panel", handler);

@@ -67,6 +67,46 @@ describe('SessionConfigController branch switching', () => {
 })
 
 describe('SessionConfigController session start target', () => {
+  test('materializes a tab when a project is selected from the tab-less home', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        dispatchEvent: () => true,
+        solus: { trackRecentProject: async () => {} },
+      },
+    })
+
+    const { SessionConfigController } = await import('../../src/renderer/contexts/session-config.svelte')
+    let createdCwd: string | undefined
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      registry: { activeSession: undefined, activeTabId: '', tabOrder: [], sessionFor: () => undefined } as any,
+      statusBar: { ctx: { workingDirectory: '/workspace' } } as any,
+      setPluginCommands: () => {},
+      createTab: async (cwd) => {
+        createdCwd = cwd
+        return 'new-tab'
+      },
+      ctx: () => ({ session: { tabId: '' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: '' } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => {
+        throw new Error('tab creation owns Git initialization')
+      },
+    })
+
+    await controller.setBaseDirectory('/new-project')
+
+    expect(createdCwd).toBe('/new-project')
+  })
+
   test('keeps project selection pending until Git and worktree intent resolve together', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

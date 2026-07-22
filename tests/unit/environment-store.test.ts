@@ -79,6 +79,7 @@ describe('Git state initialization', () => {
       ctxFor: () => ({ session: {} }),
     } as any)
     expect(environmentStore.environmentFor().name).toBe('Main')
+    expect(environmentStore.environmentFor().checkout).toEqual(globalDefaults.gitContext)
   })
 
   test('refreshes and registers a worktree without erasing its path', async () => {
@@ -122,6 +123,60 @@ describe('Git state initialization', () => {
     expect(result.ok).toBe(true)
     expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature-updated', targetBranch: 'main', worktreePath })
     expect(registered).toEqual(session.gitContext)
+  })
+
+  test('live Git state is authoritative over the attached session snapshot', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const worktreePath = '/repo/.solus-worktrees/feature'
+    const attachedCheckout: GitCheckout = {
+      repoRoot: '/repo',
+      branch: 'stale-branch',
+      targetBranch: 'main',
+      worktreePath,
+    }
+    const session = {
+      workingDirectory: '/repo',
+      gitContext: attachedCheckout,
+      worktreeBaseBranch: null,
+    } as Session
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    store.bindWorkspace({
+      activeTabId: 'tab-1',
+      tabOrder: ['tab-1'],
+      globalDefaults: { workingDirectory: '/repo', gitContext: null, worktreeBaseBranch: null },
+      settings: { worktreeEnabled: false },
+      sessionFor: () => session,
+      ctxFor: () => ({ session: {} }),
+    } as any)
+    store.set(worktreePath, {
+      repoRoot: '/repo',
+      headSha: 'detached-abc123',
+      branch: null,
+      targetBranch: 'main',
+      uncommittedChanges: {
+        files: [],
+        hasMoreFiles: false,
+        insertions: 0,
+        deletions: 0,
+        mergeInProgress: false,
+      },
+    })
+
+    const environment = store.environmentFor('tab-1')
+
+    expect(environment.cwd).toBe(worktreePath)
+    expect(environment.checkout).toEqual({
+      repoRoot: '/repo',
+      branch: null,
+      detachedHeadSha: 'detached-abc123',
+      targetBranch: 'main',
+      worktreePath,
+    })
+    expect(session.gitContext).toBe(attachedCheckout)
   })
 
   test('records a non-Git directory when the Environment panel requests details first', async () => {

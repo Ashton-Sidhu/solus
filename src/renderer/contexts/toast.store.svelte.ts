@@ -40,6 +40,26 @@ interface ActiveToast {
 
 type ToastOptions = Omit<ToastSpec, "message" | "variant">
 
+async function copyText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.style.position = "fixed"
+    textarea.style.opacity = "0"
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand("copy")
+    textarea.remove()
+  } catch {
+    // Clipboard access can be denied by the browser or OS.
+  }
+}
+
 /** App-wide Sonner adapter. It preserves the existing single-toast and deferred
  *  commit semantics while allowing non-component code to raise toasts. */
 class ToastStore {
@@ -108,7 +128,22 @@ class ToastStore {
   }
 
   error(message: string, opts?: ToastOptions): void {
-    this.show({ ...opts, message, variant: "error" })
+    const copyAction: ToastAction = {
+      label: "Copy",
+      onAction: () => void copyText(message),
+    }
+
+    if (opts?.actions?.length) {
+      this.show({ ...opts, message, variant: "error", actions: [...opts.actions, copyAction] })
+      return
+    }
+
+    if (opts?.action) {
+      this.show({ ...opts, message, variant: "error", action: undefined, actions: [opts.action, copyAction] })
+      return
+    }
+
+    this.show({ ...opts, message, variant: "error", action: copyAction })
   }
 
   info(message: string, opts?: ToastOptions): void {

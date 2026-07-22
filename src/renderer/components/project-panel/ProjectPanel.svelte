@@ -52,13 +52,14 @@
     session.focusedChatTabId ?? session.activeTabId,
   );
   const panelSession = $derived(session.sessionFor(panelTabId));
+  const panelEnvironment = $derived(environmentStore.environmentFor(panelTabId));
   const cwd = $derived(
     panelSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
   const gitCtx = $derived(
-    panelSession?.gitContext ?? session.globalDefaults.gitContext,
+    panelEnvironment.checkout,
   );
-  const gitCwd = $derived(gitCtx?.worktreePath ?? cwd);
+  const gitCwd = $derived(panelEnvironment.cwd);
   const isSplitScope = $derived(panelTabId !== session.activeTabId);
   const projectName = $derived(() => {
     const dir = cwd?.replace(/\/$/, "");
@@ -157,8 +158,8 @@
   }
 
   function openFiles() {
-    if (!cwd) return;
-    session.panes.openFiles(panelTabId);
+    if (!gitCwd) return;
+    session.panes.openFiles(panelTabId, panelEnvironment.cwd, panelEnvironment.checkout);
     requestInputFocus();
   }
 
@@ -256,7 +257,7 @@
       onToggle={() => toggleSection("git")}
       headerExtra={gitHeaderExtra}
     >
-      <GitSection cwd={gitCwd} tabId={panelTabId} active={open} onOpenFiles={openFiles} />
+      <GitSection tabId={panelTabId} active={open} onOpenFiles={openFiles} />
     </PanelSection>
     {#if sessionWorkItems.length > 0}
       <PanelSection

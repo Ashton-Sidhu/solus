@@ -236,6 +236,84 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     expect(completed).toBe(true)
   })
 
+  test('resolves an explicitly selected project without inheriting the active worktree', async () => {
+    installRendererGlobals()
+
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace.context.svelte')
+    const sourceSession = {
+      id: 'source-session',
+      workingDirectory: '/old-project',
+      gitContext: {
+        repoRoot: '/old-project',
+        branch: 'feature',
+        targetBranch: 'main',
+        worktreePath: '/old-project/.solus-worktrees/feature',
+      },
+      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      provider: 'codex',
+      sessionSkills: [],
+    } as unknown as Session
+    const registry = {
+      tabs: {} as Record<string, Tab>,
+      sessions: {} as Record<string, Session>,
+      tabOrder: [] as string[],
+      activeTabId: 'source-tab',
+      get activeSession() {
+        const tab = this.tabs[this.activeTabId]
+        return tab ? this.sessions[tab.sessionId] : sourceSession
+      },
+    }
+    let initializedSession: Session | undefined
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    workspace.registry = registry
+    workspace.lifecycle = {
+      staticInfo: { workspacePath: '/workspace' },
+      pluginCommands: { global: [], project: [] },
+    }
+    workspace.environment = {
+      resolveSessionStartTarget: (cwd: string) => {
+        expect(cwd).toBe('/new-project')
+        return Promise.resolve({
+          workingDirectory: cwd,
+          gitContext: { repoRoot: cwd, branch: 'develop', targetBranch: 'main' },
+          worktreeBaseBranch: null,
+        })
+      },
+      refreshTab: (currentWorkspace: any, options: { tabId: string }) => {
+        initializedSession = currentWorkspace.sessionFor(options.tabId)
+        return Promise.resolve()
+      },
+    }
+    workspace.config = {
+      globalDefaults: {
+        permissionMode: 'auto',
+        workingDirectory: '/old-project',
+        gitContext: null,
+        worktreeBaseBranch: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      },
+      defaultReasoningEffortFor: () => 'high',
+    }
+    workspace.settings = { activeAgent: 'codex', rateLimitBehavior: 'ask', worktreeEnabled: false }
+    workspace.sessionFor = (tabId: string) => {
+      const tab = registry.tabs[tabId]
+      return tab ? registry.sessions[tab.sessionId] : undefined
+    }
+    workspace.setActiveTab = (tabId: string) => { registry.activeTabId = tabId }
+    workspace.addTabToOrder = (tabId: string) => { registry.tabOrder.push(tabId) }
+    workspace.resetOverlays = () => {}
+    workspace.refreshPluginCommands = () => Promise.resolve()
+
+    await workspace.createTab('/new-project')
+
+    expect(initializedSession?.workingDirectory).toBe('/new-project')
+    expect(initializedSession?.gitContext).toEqual({
+      repoRoot: '/new-project',
+      branch: 'develop',
+      targetBranch: 'main',
+    })
+  })
+
   test('reveals an attached PR chat without waiting for Git initialization', async () => {
     installRendererGlobals()
 

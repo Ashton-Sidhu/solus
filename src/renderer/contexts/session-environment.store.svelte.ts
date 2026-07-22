@@ -39,6 +39,8 @@ interface SessionEnvironmentWorkspace {
 export type EnvironmentKind = 'workspace' | 'branch' | 'worktree'
 
 export interface SessionEnvironment {
+  cwd: string
+  checkout: GitCheckout | null
   kind: EnvironmentKind
   name: string
   branch: string | null
@@ -47,7 +49,7 @@ export interface SessionEnvironment {
   pending: boolean
   repoRoot: string | null
   worktreePath: string | null
-  status: GitState | null
+  status: GitState | null | undefined
 }
 
 const WORKSPACE_NAME = 'Workspace'
@@ -75,7 +77,7 @@ export class SessionEnvironmentStore {
   environmentFor(tabId?: string | null): SessionEnvironment {
     if (!this.workspace) throw new Error('SessionEnvironmentStore must be bound to a workspace')
     const session = tabId ? this.workspace.sessionFor(tabId) : undefined
-    const gitContext = session ? session.gitContext : this.workspace.globalDefaults.gitContext
+    const attachedCheckout = session ? session.gitContext : this.workspace.globalDefaults.gitContext
     const worktreeBaseBranch = session
       ? session.worktreeBaseBranch
       : this.workspace.globalDefaults.worktreeBaseBranch
@@ -83,12 +85,15 @@ export class SessionEnvironmentStore {
       ?? session?.workingDirectory
       ?? this.workspace.globalDefaults.gitContext?.worktreePath
       ?? this.workspace.globalDefaults.workingDirectory
-    const status = this.statusFor(cwd) ?? null
-    const isolated = !!gitContext?.worktreePath
+    const status = this.statusFor(cwd)
+    const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath) ?? attachedCheckout
+    const isolated = !!checkout?.worktreePath
     const pending = !!worktreeBaseBranch && !isolated
 
-    if (!gitContext) {
+    if (!checkout) {
       return {
+        cwd,
+        checkout: null,
         kind: 'workspace',
         name: pending ? PENDING_WORKTREE_NAME : WORKSPACE_NAME,
         branch: null,
@@ -102,16 +107,18 @@ export class SessionEnvironmentStore {
     }
 
     return {
+      cwd,
+      checkout,
       kind: isolated ? 'worktree' : 'branch',
-      name: pending ? PENDING_WORKTREE_NAME : gitContext.branch
-        ? formatBranchDisplayName(gitContext.branch, gitContext.targetBranch, isolated)
+      name: pending ? PENDING_WORKTREE_NAME : checkout.branch
+        ? formatBranchDisplayName(checkout.branch, checkout.targetBranch, isolated)
         : 'Detached HEAD',
-      branch: gitContext.branch,
-      targetBranch: gitContext.targetBranch,
+      branch: checkout.branch,
+      targetBranch: checkout.targetBranch,
       isolated,
       pending,
-      repoRoot: gitContext.repoRoot ?? status?.repoRoot ?? null,
-      worktreePath: gitContext.worktreePath ?? null,
+      repoRoot: checkout.repoRoot ?? status?.repoRoot ?? null,
+      worktreePath: checkout.worktreePath ?? null,
       status,
     }
   }

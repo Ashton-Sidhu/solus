@@ -1,5 +1,5 @@
 import type { FilePreviewRequest } from '../lib/filePreview'
-import type { DiffScope, IpcContext, PrReviewContext } from '../../shared/types'
+import type { DiffScope, GitCheckout, IpcContext, PrReviewContext } from '../../shared/types'
 
 /** Full-page views — the former overlay flags. No payload; at most one is open
  *  across both slots, preserving the flags' mutual exclusion. */
@@ -31,8 +31,8 @@ export type BaseContent =
 /** Temporary viewers that cover the secondary pane without replacing its base
  *  content. `sourceTabId` identifies the chat session that opened the viewer. */
 export type OverlayContent =
-  | { kind: 'diff'; scope?: DiffScope; sourceTabId: string; filePath?: string; navigationRequestId?: number }
-  | { kind: 'files'; sourceTabId: string }
+  | { kind: 'diff'; scope?: DiffScope; sourceTabId: string; cwd?: string; checkout?: GitCheckout | null; filePath?: string; navigationRequestId?: number }
+  | { kind: 'files'; sourceTabId: string; cwd?: string; checkout?: GitCheckout | null }
   | { kind: 'file-editor'; file: FilePreviewRequest; sourceTabId: string }
   // A sub-agent's nested transcript, popped out of its conversation card. Not a
   // session/tab — `messageId` locates the parent tool message within `tabId`'s
@@ -255,8 +255,8 @@ export class PaneViewStore {
     this.setArtifact({ kind: 'automation', automationId })
   }
 
-  openFiles(sourceTabId: string): void {
-    this.showOverlay({ kind: 'files', sourceTabId })
+  openFiles(sourceTabId: string, cwd?: string, checkout?: GitCheckout | null): void {
+    this.showOverlay({ kind: 'files', sourceTabId, cwd, checkout })
   }
 
   openFilePreview(file: FilePreviewRequest, sourceTabId: string): void {
@@ -365,11 +365,15 @@ export class PaneViewStore {
     sourceTabId: string,
     scope: DiffScope = { kind: 'session' },
     filePath?: string,
+    cwd?: string,
+    checkout?: GitCheckout | null,
   ): void {
     this.showOverlay({
       kind: 'diff',
       scope,
       sourceTabId,
+      cwd,
+      checkout,
       filePath,
       navigationRequestId: filePath ? ++this.diffNavigationRequestId : undefined,
     })
@@ -387,6 +391,8 @@ export class PaneViewStore {
     sourceTabId: string,
     scope: DiffScope = { kind: 'session' },
     switchScope = false,
+    cwd?: string,
+    checkout?: GitCheckout | null,
   ): void {
     if (
       this.secondaryOverlay?.kind === 'diff' &&
@@ -394,7 +400,7 @@ export class PaneViewStore {
     ) {
       this.closeOverlay()
     } else if (canShow) {
-      this.enterDiff(sourceTabId, scope)
+      this.enterDiff(sourceTabId, scope, undefined, cwd, checkout)
     }
   }
 

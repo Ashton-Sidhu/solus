@@ -72,7 +72,7 @@ export function isSecondaryContentVisible(
   workspace: Pick<WorkspaceTabs, 'sessionFor'>,
 ): boolean {
   return content.kind !== 'empty' &&
-    (content.kind !== 'diff' || !!workspace.sessionFor(content.sourceTabId)?.workingDirectory)
+    (content.kind !== 'diff' || !!content.cwd || !!workspace.sessionFor(content.sourceTabId)?.workingDirectory)
 }
 
 export function shouldCollapseProjectPanelForSecondary(

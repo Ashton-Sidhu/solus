@@ -53,6 +53,13 @@ export class IpcContextBuilder {
     }
   }
 
+  /** Context for project/environment operations that do not require a chat tab. */
+  forEnvironment(tabId: string, workingDirectory: string, gitContext: GitCheckout | null): IpcContext {
+    const context = this.forDirectory(tabId, workingDirectory)
+    context.session.gitContext = gitContext ? { ...gitContext } : null
+    return context
+  }
+
   sessionCtx(tabId: string): SessionCtx {
     const tab = this.deps.tabs()[tabId]
     const session = this.deps.sessionFor(tabId)

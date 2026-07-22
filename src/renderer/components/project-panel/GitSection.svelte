@@ -32,12 +32,11 @@
   } from "../../../shared/types";
 
   interface Props {
-    cwd: string;
     tabId: string;
     active?: boolean;
     onOpenFiles?: () => void;
   }
-  let { cwd, tabId, active = true, onOpenFiles }: Props = $props();
+  let { tabId, active = true, onOpenFiles }: Props = $props();
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
@@ -45,7 +44,9 @@
   const agentContext = getAgentContext();
   const panes = session.panes;
   const sess = $derived(session.sessionFor(tabId));
-  const status = $derived(environmentStore.statusFor(cwd));
+  const env = $derived(environmentStore.environmentFor(tabId));
+  const cwd = $derived(env.cwd);
+  const status = $derived(env.status);
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
   );
@@ -53,20 +54,18 @@
   const insertions = $derived(status?.uncommittedChanges.insertions ?? 0);
   const deletions = $derived(status?.uncommittedChanges.deletions ?? 0);
   const actions = $derived(gitActionsFor(tabId, session, environmentStore));
-  const canGit = $derived(!!sess?.gitContext?.branch);
+  const canGit = $derived(!!env.branch);
   const canViewDiff = $derived(!!status);
   const canPr = $derived(
-    !!sess?.gitContext &&
-      sess.gitContext.branch !== sess.gitContext.targetBranch,
+    !!env.branch && env.branch !== env.targetBranch,
   );
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
-  const env = $derived(environmentStore.environmentFor(tabId));
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
   const isWorktree = $derived(env.isolated);
   const branchRepoRoot = $derived(
-    sess?.gitContext?.repoRoot ??
+    env.checkout?.repoRoot ??
       sess?.workingDirectory ??
       status?.repoRoot ??
       worktreeProjectRoot(cwd),
@@ -157,7 +156,12 @@
         run: () => {
           window.dispatchEvent(
             new CustomEvent("solus:toggle-diff-panel", {
-              detail: { scope: { kind: "working-tree" }, switchScope: true },
+              detail: {
+                scope: { kind: "working-tree" },
+                switchScope: true,
+                cwd: env.cwd,
+                checkout: env.checkout,
+              },
             }),
           );
           requestInputFocus();
@@ -202,7 +206,13 @@
         // Reuse the command palette's PR list (the "Review PR…" sub-page).
         run: () => {
           window.dispatchEvent(
-            new CustomEvent("solus:review-pr", { detail: { tabId } }),
+            new CustomEvent("solus:review-pr", {
+              detail: {
+                tabId: tabId || undefined,
+                cwd: env.cwd,
+                checkout: env.checkout,
+              },
+            }),
           );
         },
       },
@@ -412,7 +422,7 @@
     }
     if (reviewing) return;
     const runId = ++reviewRunId;
-    const ctx = session.ctxFor(tabId);
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
     reviewing = true;
     try {
       const gen = await window.solus.generateGuide(
@@ -455,7 +465,9 @@
     if (!reviewing) return;
     reviewRunId += 1;
     reviewing = false;
-    void window.solus.cancelGenerateGuide(session.ctxFor(tabId));
+    void window.solus.cancelGenerateGuide(
+      session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+    );
     requestInputFocus();
   }
 
@@ -463,19 +475,20 @@
     branchPickerOpen = false;
     const entry = worktrees.find((wt) => wt.branch === item);
     if (entry) {
-      await session.switchToWorktree(entry.path, tabId);
+      await session.switchToWorktree(entry.path, tabId || undefined);
     } else {
-      const ok = await session.switchToBranch(item, tabId);
+      const ok = await session.switchToBranch(item, tabId || undefined);
       if (!ok) {
         requestInputFocus();
         return;
       }
     }
-    const nextSession = session.sessionFor(tabId);
+    const nextSession = tabId ? session.sessionFor(tabId) : undefined;
     const nextCwd =
       nextSession?.gitContext?.worktreePath ??
       nextSession?.workingDirectory ??
-      cwd;
+      session.globalDefaults.gitContext?.worktreePath ??
+      session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
     requestInputFocus();
   }
@@ -495,8 +508,8 @@
     ].join("\n");
     await session.startNewSessionWithPrompt(
       prompt,
-      sess?.workingDirectory ?? status.repoRoot,
-      sess?.gitContext ?? null,
+      env.cwd,
+      env.checkout,
     );
     requestInputFocus();
   }
@@ -570,9 +583,9 @@
   </div>
 {/snippet}
 
-{#if !sess?.gitContext && status === undefined}
+{#if !env.branch && status === undefined}
   <p class="empty">Loading git status…</p>
-{:else if !sess?.gitContext && status === null}
+{:else if !env.branch && status === null}
   <div class="flex flex-col items-start gap-1 px-2 py-2">
     <span class="text-[0.8125rem] text-(--solus-text-secondary)">No Git repository</span>
     <span class="text-[0.6875rem] text-(--solus-text-tertiary)">

@@ -12,7 +12,7 @@ export interface SessionConfigControllerDeps {
   registry: TabRegistry
   statusBar: StatusBarContext
   setPluginCommands(commands: Session['pluginCommands']): void
-  createTab(): Promise<string>
+  createTab(cwd?: string): Promise<string>
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
   refreshPluginCommands(dir: string, tabId?: string): void
@@ -147,7 +147,9 @@ export class SessionConfigController {
     const targetSession = tabId
       ? this.deps.registry.sessionFor(tabId)
       : this.deps.registry.activeSession
-    const workingDirectory = targetSession?.workingDirectory ?? this.deps.statusBar.ctx.workingDirectory
+    const workingDirectory = targetSession?.workingDirectory
+      ?? this.globalDefaults.workingDirectory
+      ?? this.deps.statusBar.ctx.workingDirectory
     if (!workingDirectory || workingDirectory === '~') return
     if (!tabId && this.deps.registry.activeSession?.agentSessionId) {
       await this.deps.createTab()
@@ -242,14 +244,8 @@ export class SessionConfigController {
       await this.deps.createTab()
     }
     if (!tabId && this.deps.registry.tabOrder.length === 0) {
-      this.globalDefaults.workingDirectory = dir
-      this.globalDefaults.gitContext = null
-      this.globalDefaults.worktreeBaseBranch = null
+      await this.deps.createTab(dir)
       void window.solus.trackRecentProject(dir)
-      await this.trackSessionStartTargetResolution(
-        undefined,
-        this.deps.refreshGitState({ cwd: dir, worktreeRequested: this.deps.settings.worktreeEnabled }),
-      )
       return
     }
     const targetTabId = tabId ?? this.deps.registry.activeTabId
