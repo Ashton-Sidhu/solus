@@ -366,8 +366,27 @@
     const projectPath = activeProjectPath;
     void store
       .requestGuides(prsCtx(), numbers, {
-        notifyWhenDone: true,
-        onNotificationAction: () => session.openPrs(projectPath),
+        onSettled: ({ total, failed }) => {
+          const toastOptions = {
+            action: {
+              label: "View",
+              onAction: () => session.openPrs(projectPath),
+            },
+          };
+          if (failed > 0) {
+            toasts.error(
+              failed === total
+                ? `Couldn't generate ${total === 1 ? "the review guide" : `${total} review guides`}`
+                : `${total - failed} of ${total} review guides ready; ${failed} failed`,
+              toastOptions,
+            );
+            return;
+          }
+          toasts.success(
+            total === 1 ? "Review guide ready" : `${total} review guides ready`,
+            toastOptions,
+          );
+        },
       })
       .catch((error) => {
         toasts.error(

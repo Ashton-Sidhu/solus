@@ -14,7 +14,6 @@ import type { PrChecksSummary } from '../../../shared/checks-types'
 import type { PrGuideMetadata, PrGuideStatus } from '../../../shared/review'
 import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
 import { SvelteMap } from 'svelte/reactivity'
-import { toasts } from '../app/toast.store.svelte'
 
 const PR_CACHE_TTL_MS = 30_000
 const NEEDS_REVIEW_POLL_MS = 5 * 60_000
@@ -54,7 +53,7 @@ export class PrsStore {
   private guideStatusRepoRoot: string | null = null
   private guideMetadataContextKey: string | null = null
   private readonly requestedGuideNumbers = new Set<number>()
-  private requestedGuidesAction: (() => void) | null = null
+  private requestedGuidesOnSettled: ((outcome: { total: number; failed: number }) => void) | null = null
   private needsReviewContextKey = ''
   private needsReviewLoadSeq = 0
   private needsReviewInFlight: { key: string; promise: Promise<void> } | null = null
@@ -426,21 +425,20 @@ export class PrsStore {
     ctx: IpcContext,
     numbers: number[],
     options: {
-      notifyWhenDone?: boolean
-      onNotificationAction?: () => void
+      onSettled?: (outcome: { total: number; failed: number }) => void
     } = {},
   ): Promise<void> {
-    if (options.notifyWhenDone) {
+    if (options.onSettled) {
       this.requestedGuideNumbers.clear()
       for (const number of numbers) this.requestedGuideNumbers.add(number)
-      this.requestedGuidesAction = options.onNotificationAction ?? null
+      this.requestedGuidesOnSettled = options.onSettled
     }
     const targets = numbers.filter((number) => {
       const status = this.guideStatus.get(number)
       return status !== 'queued' && status !== 'generating'
     })
     if (targets.length === 0) {
-      this.notifyIfRequestedGuidesFinished()
+      this.settleRequestedGuides()
       return
     }
     // Optimistic: the broadcast back confirms (or corrects) these.
@@ -448,9 +446,9 @@ export class PrsStore {
     try {
       await window.solus.prGenerateGuides(snapshotCtx(ctx), targets)
     } catch (err) {
-      if (options.notifyWhenDone) {
+      if (options.onSettled) {
         this.requestedGuideNumbers.clear()
-        this.requestedGuidesAction = null
+        this.requestedGuidesOnSettled = null
       }
       for (const number of targets) {
         if (this.guideStatus.get(number) === 'queued') this.guideStatus.delete(number)
@@ -468,14 +466,14 @@ export class PrsStore {
         this.guideStatus.clear()
       }
       this.guideStatus.set(event.number, event.status)
-      this.notifyIfRequestedGuidesFinished()
+      this.settleRequestedGuides()
       if (event.metadata && this.guideMetadataContextKey === event.repoRoot) {
         this.guideMetadata.set(event.number, event.metadata)
       }
     })
   }
 
-  private notifyIfRequestedGuidesFinished(): void {
+  private settleRequestedGuides(): void {
     if (this.requestedGuideNumbers.size === 0) return
     const statuses = [...this.requestedGuideNumbers].map((number) =>
       this.guideStatus.get(number),
@@ -484,25 +482,10 @@ export class PrsStore {
 
     const total = this.requestedGuideNumbers.size
     const failed = statuses.filter((status) => status === 'failed').length
-    const action = this.requestedGuidesAction
+    const onSettled = this.requestedGuidesOnSettled
     this.requestedGuideNumbers.clear()
-    this.requestedGuidesAction = null
-    const toastOptions = action
-      ? { action: { label: 'View', onAction: action } }
-      : undefined
-    if (failed > 0) {
-      toasts.error(
-        failed === total
-          ? `Couldn't generate ${total === 1 ? 'the review guide' : `${total} review guides`}`
-          : `${total - failed} of ${total} review guides ready; ${failed} failed`,
-        toastOptions,
-      )
-      return
-    }
-    toasts.success(
-      total === 1 ? 'Review guide ready' : `${total} review guides ready`,
-      toastOptions,
-    )
+    this.requestedGuidesOnSettled = null
+    onSettled?.({ total, failed })
   }
 
   async loadChecks(ctx: IpcContext, numbers: number[] = []): Promise<void> {

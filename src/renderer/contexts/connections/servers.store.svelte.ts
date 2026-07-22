@@ -135,9 +135,8 @@ class ServersStore {
     requestInputFocus()
   }
 
-  async scanForServers(opts: { manual?: boolean } = {}): Promise<void> {
-    const manual = opts.manual === true
-    if (this.scanInFlight) return
+  async scanForServers(): Promise<{ newServers: number } | { error: string } | null> {
+    if (this.scanInFlight) return null
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
@@ -149,13 +148,10 @@ class ServersStore {
         selfInstallationId: this.local?.installationId,
       })
       this.discovered = filtered
-      if (filtered.length === 0) {
-        if (manual) toasts.info('No new Solus servers found')
-        return
-      }
-      this.showDiscoveryToast(filtered[0])
+      if (filtered.length > 0) this.showDiscoveryToast(filtered[0])
+      return { newServers: filtered.length }
     } catch (err) {
-      if (manual) toasts.error(`Server scan failed: ${err instanceof Error ? err.message : String(err)}`)
+      return { error: err instanceof Error ? err.message : String(err) }
     } finally {
       this.discoveryBusy = false
       this.scanInFlight = false

@@ -8,7 +8,7 @@
     SpinnerGapIcon,
   } from "phosphor-svelte";
   import { onMount } from "svelte";
-  import { getWorkspaceContext, connectionsStore } from "../../contexts";
+  import { getWorkspaceContext, connectionsStore, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
 
   const session = getWorkspaceContext();
@@ -42,7 +42,13 @@
   });
 
   async function connect() {
-    await connections.connectProvider(session.ctx);
+    try {
+      await connections.connectProvider(session.ctx);
+    } catch (error) {
+      toasts.error(
+        `Couldn't connect to GitHub: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   // Esc/Cancel aborts the main-side poll immediately; the store swallows the

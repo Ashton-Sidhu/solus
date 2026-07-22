@@ -14,7 +14,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { serversStore, type ServerItem, type ServerItemStatus } from "../../contexts";
+  import { serversStore, toasts, type ServerItem, type ServerItemStatus } from "../../contexts";
 
   let open = $state(false);
   const active = $derived(serversStore.activeServer);
@@ -63,9 +63,14 @@
     serversStore.openAddServer();
   }
 
-  function scanServers() {
+  async function scanServers() {
     open = false;
-    void serversStore.scanForServers({ manual: true });
+    const result = await serversStore.scanForServers();
+    if (result && "error" in result) {
+      toasts.error(`Server scan failed: ${result.error}`);
+    } else if (result?.newServers === 0) {
+      toasts.info("No new Solus servers found");
+    }
     requestInputFocus();
   }
 

@@ -1,6 +1,5 @@
 import type { AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../../shared/types'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
-import { toasts } from '../app/toast.store.svelte'
 
 export interface PairToken {
   token: string
@@ -135,9 +134,8 @@ export class ConnectionsStore {
       this.providerStatus = await window.solus.providerConnect($state.snapshot(ctx))
       this.providerLoaded = true
     } catch (e) {
-      if (!this.providerCancelling) {
-        toasts.error(`Couldn't connect to GitHub: ${e instanceof Error ? e.message : String(e)}`)
-      }
+      if (this.providerCancelling) return
+      throw e
     } finally {
       this.providerConnecting = false
       this.providerPrompt = null
