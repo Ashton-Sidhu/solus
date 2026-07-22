@@ -1,8 +1,8 @@
-// Frame-level chrome shared between EditorLayout (which owns the sidebar /
-// project-panel state) and the full-page sub-views (Folio, Plans, Settings)
-// that host the "expand" affordances inline in their own headers. EditorLayout
-// stays the source of truth and mirrors its state here; the page headers read
-// it to decide whether to show the control and which toggle to call.
+// Frame-level chrome shared between WorkspaceBody and the full-page sub-views
+// (Folio, Plans, Settings) that host the "expand" affordances inline in their
+// own headers. This is a one-way published projection written ONLY by
+// WorkspaceBody's mirror effect; settings owns the persisted project-panel
+// flag. Readers (FrameExpandButton and page headers) must never write it.
 class FrameChromeStore {
   sidebarOpen = $state(true)
   projectPanelOpen = $state(false)

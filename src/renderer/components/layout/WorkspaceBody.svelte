@@ -187,7 +187,6 @@
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
 
-  let projectPanelOpen = $state(settings.projectPanelOpen);
   const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
   let projectPanelClosedForSecondary = $state(false);
 
@@ -240,20 +239,18 @@
   }
 
   function closeProjectPanel() {
-    projectPanelOpen = false;
     projectPanelPane?.collapse();
     settings.update({ projectPanelOpen: false });
     requestInputFocus();
   }
 
   function openProjectPanel() {
-    projectPanelOpen = true;
     projectPanelPane?.expand();
     settings.update({ projectPanelOpen: true });
   }
 
   function toggleProjectPanel() {
-    if (!projectPanelOpen) {
+    if (!settings.projectPanelOpen) {
       openProjectPanel();
     } else {
       closeProjectPanel();
@@ -262,15 +259,15 @@
 
   // Publish the frame-level expand controls so full-page sub-views (Folio,
   // Plans, Settings) can host them inline in their own headers instead of in a
-  // separate chrome strip. This body stays the source of truth; this mirrors
-  // its state and registers the toggles for those headers to call. When this
-  // body is inactive (pill / mobile), report the panels as open so those
+  // separate chrome strip. Settings owns the persisted project-panel flag;
+  // this body owns the transient sidebar state and mirrors both here. When
+  // this body is inactive (pill / mobile), report the panels as open so those
   // headers don't offer to expand chrome that isn't on screen.
   frameChrome.expandSidebar = toggleSidebar;
   frameChrome.expandProjectPanel = toggleProjectPanel;
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
-    frameChrome.projectPanelOpen = active ? projectPanelOpen : true;
+    frameChrome.projectPanelOpen = active ? settings.projectPanelOpen : true;
   });
 
   useKeybinding("global.toggle-sidebar", () => toggleSidebar(), {
@@ -537,7 +534,7 @@
     if (trigger === prevPanelCollapseTrigger) return;
     prevPanelCollapseTrigger = trigger;
     if (trigger) {
-      if (projectPanelOpen) {
+      if (settings.projectPanelOpen) {
         projectPanelClosedForSecondary = true;
         closeProjectPanel();
       }
@@ -560,8 +557,8 @@
   $effect(() => {
     const pane = projectPanelPane;
     if (!pane) return;
-    if (projectPanelOpen && pane.isCollapsed()) pane.expand();
-    else if (!projectPanelOpen && !pane.isCollapsed()) pane.collapse();
+    if (settings.projectPanelOpen && pane.isCollapsed()) pane.expand();
+    else if (!settings.projectPanelOpen && !pane.isCollapsed()) pane.collapse();
   });
 
   // Opening a new secondary surface deliberately resets to its content-specific
@@ -585,7 +582,9 @@
         tabIds={visibleTabIds}
         sidebarOpen={sidebarOpenForChrome}
         onToggleSidebar={toggleSidebar}
-        projectPanelOpen={enableProjectPanel ? projectPanelOpen : undefined}
+        projectPanelOpen={enableProjectPanel
+          ? settings.projectPanelOpen
+          : undefined}
         onToggleProjectPanel={enableProjectPanel
           ? toggleProjectPanel
           : undefined}
@@ -603,8 +602,8 @@
   class:is-resizing={isResizingSecondary}
   class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
-  class:project-panel-open={enableProjectPanel && projectPanelOpen}
-  class:project-panel-collapsed={enableProjectPanel && !projectPanelOpen}
+  class:project-panel-open={enableProjectPanel && settings.projectPanelOpen}
+  class:project-panel-collapsed={enableProjectPanel && !settings.projectPanelOpen}
   bind:clientWidth={workspaceBodyWidth}
 >
   <OuterScrollbar target={active ? outerScrollTarget : null} />
@@ -807,24 +806,26 @@
     {#if enableProjectPanel}
       <Resizable.Handle
         aria-label="Resize project panel"
-        disabled={!projectPanelOpen}
-        class={!projectPanelOpen ? "pointer-events-none opacity-0" : ""}
+        disabled={!settings.projectPanelOpen}
+        class={!settings.projectPanelOpen
+          ? "pointer-events-none opacity-0"
+          : ""}
       />
       <Resizable.Pane
         bind:this={projectPanelPane}
         order={3}
-        defaultSize={projectPanelOpen ? projectPanelDefaultSize : 0}
+        defaultSize={settings.projectPanelOpen ? projectPanelDefaultSize : 0}
         minSize={projectPanelBounds.min}
         maxSize={projectPanelBounds.max}
         collapsedSize={0}
         collapsible
         onCollapse={closeProjectPanel}
         onExpand={openProjectPanel}
-        aria-hidden={!projectPanelOpen}
+        aria-hidden={!settings.projectPanelOpen}
         class="workspace-rail-pane"
       >
         <ProjectPanel
-          open={projectPanelOpen}
+          open={settings.projectPanelOpen}
           managedWidth
           onClose={closeProjectPanel}
         />
