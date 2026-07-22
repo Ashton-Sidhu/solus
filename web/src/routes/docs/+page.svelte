@@ -10,7 +10,8 @@
 		{ id: 'plans',       label: 'Working with Plans' },
 		{ id: 'diff',        label: 'Diff Panel' },
 		{ id: 'review',      label: 'Review Companion' },
-		{ id: 'pull-request-merge', label: 'Merging Pull Requests' },
+		{ id: 'pull-requests', label: 'Pull Requests' },
+		{ id: 'review-mode', label: 'Review Mode' },
 		{ id: 'design-mode', label: 'Design Mode' },
 		{ id: 'voice',       label: 'Voice Input' },
 		{ id: 'automations', label: 'Automations' },
@@ -217,9 +218,9 @@
 				Solus Reference
 			</h1>
 			<p class="text-base sm:text-[15px] max-[1440px]:sm:text-[14px] text-[#6B6158] leading-relaxed max-w-[560px]">
-				Everything you need to know — keybindings, workspace panes, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
+				Everything you need to know — keybindings, workspace panes, plans, diff review, Review Companion, pull requests, automations, tasks, voice input, connections, and settings.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 15, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 22, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -238,7 +239,9 @@
 						['Plan mode', "Review your agent's plan before it executes. Annotate with inline comments, then approve or reject. Pin or save plans for later reference and browse revision history when the plan changes."],
 						['Diff panel', 'Review every file your agent touched in a side panel. Navigate between files, leave line-level comments, and send annotated feedback back in one click.'],
 						['Review companion', "A second agent reviews your branch's changes and writes an inline report — grouped findings you can click to jump straight to the relevant hunk in the diff."],
-						['Pull request merging', 'Merge an individual pull request with a merge commit, squash, or rebase. Conflicted PRs can be handed to an agent in an isolated worktree.'],
+						['Pull requests', 'A per-project PR inbox with CI checks, effort estimates, and stacked PRs grouped under their parent. Review, merge, or hand a conflicted PR to an agent in an isolated worktree.'],
+						['Review mode', 'Queue a batch of pull requests and review them one after another with single-key controls — approve, request changes, comment, or defer without touching the mouse.'],
+						['Split chat', 'Pin a second conversation beside the first. Both take keyboard focus, and the split layout is restored the next time you open Solus.'],
 						['Works', 'Generated documents and slides are saved as Works. Open the gallery to search, edit, copy, or delete them later.'],
 						['Design Mode', 'Take a screenshot, draw rectangles, arrows, pins, and text annotations on it, then send the annotated image directly to your agent — no screenshots app needed.'],
 						['Voice input', 'Dictate prompts hands-free with local Whisper transcription — audio never leaves your machine.'],
@@ -299,6 +302,7 @@
 					['⌥⇧=', 'Expand / collapse input'],
 					['⌥H', 'Scroll to top'],
 					['⌥⇧\\', 'Move supported pane between focus and split'],
+					['⌥⇧/', 'New chat in split'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Compose</h3>
@@ -355,7 +359,11 @@
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Pull requests</h3>
 					<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the Pull Requests page is open.</p>
 					{@render kbTable([
-						['Esc', 'Close'],
+						['↑ / ↓', 'Move between pull requests'],
+						['Enter', 'Expand the review to full width'],
+						['X', 'Add / remove the highlighted PR from the review selection'],
+						['⌥A', 'Approve pull request (press again to confirm)'],
+						['Esc', 'Clear selection / close'],
 					])}
 
 					<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Input & menus</h3>
@@ -442,7 +450,9 @@
 						['Focus or split', `Use the pane header action or ${kbdHtml('⌥⇧\\')} to move supported plans, Works, automations, and reviews between the focused primary pane and the split side pane.`],
 						['Diffs and files', `Open the diff with ${kbdHtml('⌥⇧D')}, the files pane with ${kbdHtml('⌥⇧O')}, or changed files with ${kbdHtml('⌥⇧F')}; they appear beside the active conversation so you can inspect code and keep prompting.`],
 						['PR review', 'Opening a pull request starts with the review surface maximized. Use the Chat control to reveal the worktree-rooted conversation beside Activity, Guide, and Diff.'],
-						['State stays put', 'Closing a pane restores the conversation underneath without resetting scroll position, mounted tabs, or prompt drafts.'],
+						['Split chat', `Press ${kbdHtml('⌥⇧/')} to start a second conversation in the side pane. A split chat is a real chat — it takes keyboard focus, has its own composer, and session shortcuts apply to whichever side is focused. Use <strong class="text-[#1A1714] font-medium">Open as main tab</strong> from the conversation menu to promote it back.`],
+						['Viewers sit on top', 'Diffs, files, and subagent transcripts open as overlays over the side pane and stay bound to the session that opened them. Closing one reveals the split chat underneath instead of an empty pane.'],
+						['State stays put', 'Closing a pane restores the conversation underneath without resetting scroll position, mounted tabs, or prompt drafts. The split layout — which tab is pinned and how wide each side is — is restored the next time you launch Solus.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -583,6 +593,25 @@
 						</li>
 					{/each}
 				</ul>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Reading a large diff</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					Solus reshapes long diffs so the interesting changes come first. Nothing is hidden — anything collapsed
+					is labelled <strong class="text-[#1A1714] font-medium">unreviewed</strong> and expands with a click.
+				</p>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Narrative order', 'Files are ordered entry points first, then core code, then tests, then config and lockfiles — instead of raw git order. File navigation and search follow the same order.'],
+						['Noise collapses', 'Lockfiles and generated output (<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">dist/</code>, <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">coverage/</code>, minified bundles, snapshots) collapse to a single summary line such as <em>package-lock.json · 1,204 lines · lockfile · unreviewed</em>.'],
+						['Format-only hunks', 'Whitespace and reformatting hunks inside an otherwise real file fold away, so a rename or reindent never buries the actual edit.'],
+						['Moved code', 'Blocks that moved between files or hunks are marked as <em>moved (unchanged)</em> or <em>moved with edits</em>, with character-level highlighting of what actually changed inside them. A file that is nothing but an unchanged move collapses on its own.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+
 				<p class="mt-5 text-[14px] text-[#A09488]">See the <a href="#keybindings" class="text-[#C4973A] no-underline hover:underline">Keybindings → Diff panel</a> section for the full list of shortcuts.</p>
 			</section>
 
@@ -611,27 +640,41 @@
 					{/each}
 				</ul>
 
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Guides for pull requests</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					The same agent writes the <strong class="text-[#1A1714] font-medium">Guide</strong> tab on a pull
+					request — a walkthrough of the change grouped by concern. Guides are opt-in: turn on
+					<strong class="text-[#1A1714] font-medium">Generate PR guides on open</strong> to write one whenever
+					you open a PR that doesn't have a cached guide, or turn on
+					<strong class="text-[#1A1714] font-medium">Warm review guides</strong> for a project so Solus writes
+					them ahead of time and checks out the top few PR worktrees in the background — the guide and the diff
+					are already there when you open the PR. You can also generate guides for a selection of PRs straight
+					from the inbox with the <strong class="text-[#1A1714] font-medium">Guides</strong> button.
+				</p>
+
 				<p class="mt-5 text-[14px] text-[#A09488]">
-					Choose which agent and model write the review under
-					<strong class="text-[#A09488] font-medium">Settings → Review companion</strong>. By default it follows
+					Choose which agent, model, and reasoning effort write the review under
+					<strong class="text-[#A09488] font-medium">Settings → Review</strong>. By default it follows
 					your active agent and that agent's default model.
 				</p>
 			</section>
 
-			<section id="pull-request-merge" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
-				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Merging Pull Requests</h2>
+			<section id="pull-requests" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Pull Requests</h2>
 				<p>
-					Solus can merge an individual pull request directly from its review surface. Choose a merge commit,
-					squash, or rebase, then confirm the result without leaving the review.
+					The Pull Requests page is an inbox for one project at a time. The project name is the page title —
+					click it to switch to any other open project. Every PR fetch, review, and action follows the project
+					you pick, and it defaults to the one you're working in.
 				</p>
 
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Reading the inbox</h3>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Open Pull Requests', 'From the sidebar, open the Pull Requests page for the current project and select the PR you want to review.'],
-						['Check readiness', 'The review surface shows the PR status, required checks, reviewers, and unresolved conversations.'],
-						['Choose a method', 'Use the merge action to pick <strong class="text-[#1A1714] font-medium">Merge commit</strong>, <strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong>.'],
-						['Merge', 'Confirm the action. Solus calls the code host directly and reports any branch-protection or readiness refusal in place.'],
+						['Filter and sort', 'Search by title, switch between <strong class="text-[#1A1714] font-medium">Open</strong>, <strong class="text-[#1A1714] font-medium">Closed</strong>, and <strong class="text-[#1A1714] font-medium">All</strong>, narrow to <strong class="text-[#1A1714] font-medium">Needs your review</strong>, and sort by Updated, Created, or Effort.'],
+						['Effort estimate', 'Each row carries a <em>~N min</em> estimate based on size, file mix, and the areas it touches — lockfile-only churn reads as a couple of minutes, an auth change with no tests reads as involved. The header shows the total for everything currently listed.'],
+						['CI checks', 'A checks chip shows <strong class="text-[#1A1714] font-medium">Passing</strong>, <strong class="text-[#1A1714] font-medium">Failing</strong>, <strong class="text-[#1A1714] font-medium">Pending</strong>, or <strong class="text-[#1A1714] font-medium">No checks</strong> — quiet in the list when everything passes. Click it for a breakdown of required and optional checks; each row links out to the CI run.'],
+						['Stacked PRs', 'When a PR is built on another, it is indented under its parent with a connector line and a <em>stacked on #N</em> label. Solus detects stacks from PR bodies and git ancestry in the background; if a relationship is broken or circular the list falls back to flat — nothing is ever hidden.'],
+						['Review guides', 'A <em>Guide</em> chip shows when a review guide has already been written for that PR, and turns amber once the PR moves past it.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -640,13 +683,83 @@
 					{/each}
 				</ul>
 
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Reviewing a pull request</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					Selecting a PR docks the list to the left and opens the review beside it; {@render kbd('Enter')} expands
+					it to full width. The review has three tabs — <strong class="text-[#1A1714] font-medium">Activity</strong>,
+					<strong class="text-[#1A1714] font-medium">Guide</strong>, and <strong class="text-[#1A1714] font-medium">Diff</strong> —
+					plus a rail with merge readiness, reviewers, changed files, and check results.
+				</p>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Leave a review', `Comment inline on the diff to build a pending review, then submit it as <strong class="text-[#1A1714] font-medium">Approve</strong>, <strong class="text-[#1A1714] font-medium">Request changes</strong>, or <strong class="text-[#1A1714] font-medium">Comment</strong>. ${kbdHtml('⌥A')} opens the submit modal with Approve preselected; press it again to send.`],
+						['Since your review', 'Once you have reviewed a PR, reopening its Diff tab offers <strong class="text-[#1A1714] font-medium">Since review</strong> alongside <strong class="text-[#1A1714] font-medium">Full diff</strong> — only what actually changed in the patch since you last looked. Comments that were not obviously addressed are listed above it, and comments that were addressed are re-anchored inline as <em>Your comment here → this changed</em>.'],
+						['Stacked view', 'On a stacked PR, the Guide and Diff tabs show only that PR\'s own changes on top of its parent. Use <strong class="text-[#1A1714] font-medium">View full diff vs main</strong> to see everything, and switch back with <strong class="text-[#1A1714] font-medium">Back to own changes</strong>.'],
+						['Address comments', 'Hand the review feedback to an agent: it opens in the PR worktree, reads the unresolved threads, fixes and tests, then commits — it never pushes or replies on your behalf.'],
+						['Open a chat', 'Use the <strong class="text-[#1A1714] font-medium">Chat</strong> control to open an agent conversation rooted in that PR\'s worktree, beside the review.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Merging</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					The primary action on the review is <strong class="text-[#1A1714] font-medium">Merge pull request</strong>,
+					with a dropdown to pick <strong class="text-[#1A1714] font-medium">Merge commit</strong>,
+					<strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong>.
+					Solus calls the code host directly and reports any branch-protection or readiness refusal in place.
+				</p>
+
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Resolving conflicts</h3>
 				<p class="text-base/7 sm:text-[14px]">
-					When a PR conflicts with its base branch, choose <strong class="text-[#1A1714] font-medium">Resolve conflicts</strong>.
+					When a PR conflicts with its base branch, the merge action becomes <strong class="text-[#1A1714] font-medium">Resolve conflicts</strong>.
 					Solus checks the PR out into an isolated worktree, starts the merge, and opens an agent session with
 					the conflicted files. The agent resolves, tests, commits, and pushes the branch; you can then return
 					to the PR and merge it normally.
 				</p>
+			</section>
+
+			<section id="review-mode" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Review Mode</h2>
+				<p>
+					Review mode is for clearing a stack of pull requests in one sitting. It takes over the window, puts a
+					queue on the left and one PR in the middle, and drives entirely from single keys — approve, move on,
+					approve, move on.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Queue the PRs', `Press <strong class="text-[#1A1714] font-medium">Review</strong> on the Pull Requests page to queue everything currently filtered, or tick individual PRs first (hover the avatar, or press ${kbdHtml('X')} on the highlighted row) to queue just those.`],
+						['Work the queue', 'The queue rail lists each PR with its effort band, estimate, and unresolved-thread count, and shows how many minutes are left. Solus orders it shortest-first, keeping a stacked family together in parent-before-child order.'],
+						['Review each PR', `Switch between <strong class="text-[#1A1714] font-medium">Activity</strong>, <strong class="text-[#1A1714] font-medium">Guide</strong>, and <strong class="text-[#1A1714] font-medium">Diff</strong> with ${kbdHtml('1')}, ${kbdHtml('2')}, ${kbdHtml('3')}. Quick reviews skip the guide.`],
+						['Settle it', `Approve, request changes, comment, or defer. Requesting changes or commenting opens an inline composer — ${kbdHtml('↵')} submits, ${kbdHtml('⇧↵')} adds a line.`],
+						['Undo', `Comments and change requests are held for about five seconds before they post, so ${kbdHtml('u')} takes one back. Approvals post immediately.`],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Single-key controls</h3>
+				<p class="text-base/7 sm:text-[14px]">These are active whenever focus isn't in a text field.</p>
+				{@render kbTable([
+					['J', 'Next pull request'],
+					['K', 'Previous pull request'],
+					['A', 'Approve'],
+					['R', 'Request changes'],
+					['C', 'Comment'],
+					['D', 'Defer'],
+					['U', 'Undo the last pending action'],
+					['1 / 2 / 3', 'Activity / Guide / Diff'],
+					['Esc', 'Exit review mode'],
+				])}
+				<p class="mt-5 text-[14px] text-[#A09488]">Exiting flushes anything still pending and returns you to the Pull Requests page with the queue's outcomes recorded.</p>
 			</section>
 
 			<section id="design-mode" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
@@ -1017,13 +1130,16 @@ solus claim                           # claim the server from this machine</div>
 					{/each}
 				</div>
 
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Review companion</h3>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Review</h3>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
-						['Review agent', 'Which CLI agent reviews your branch for the <a href="#review" class="text-[#C4973A] no-underline hover:underline">Review Companion</a>. Defaults to your active agent.'],
-						['Review model', "The model the review agent uses. Defaults to that agent's default model."],
+						['Generate PR guides on open', 'Run the review agent when you open a <a href="#pull-requests" class="text-[#C4973A] no-underline hover:underline">pull request</a> that has no cached guide.'],
+						['Warm review guides', 'Per project — write guides for open PRs in the background and prefetch the top few PR worktrees, so a PR opens ready to read.'],
+						['Review companion agent', 'Which CLI agent reviews the diff for the <a href="#review" class="text-[#C4973A] no-underline hover:underline">Review Companion</a>. Defaults to your active agent.'],
+						['Review companion model', "The model the review agent uses. Defaults to that agent's default model."],
+						['Review companion reasoning', 'The reasoning effort the review agent uses.'],
 					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 4 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>
