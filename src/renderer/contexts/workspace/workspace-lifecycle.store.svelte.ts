@@ -40,6 +40,11 @@ export class WorkspaceLifecycleStore {
   staticInfo = $state<StaticInfo | null>(null)
   pluginCommands = $state<Session['pluginCommands']>({ global: [], project: [] })
   turnSnapshots = $state<Record<string, TurnSnapshot[]>>({})
+  /** True until materializeTabs has rebuilt the persisted tabs into memory; prevents
+   *  the persist effect from clobbering the saved snapshot with empty initial state. */
+  hydrating = $state(true)
+  /** True while a seq-reset recovery is re-registering tabs and re-binding sessions. */
+  runtimeSyncing = $state(false)
 
   // Non-reactive guards: callers share an in-flight initialization, and a failed
   // connection attempt remains retryable after the transport reconnects.

@@ -86,12 +86,6 @@ export class WorkspaceContext {
   pendingInput = $state<string | null>(null)
   eventReducer: SessionEventReducer
 
-  /** True until materializeTabs has rebuilt the persisted tabs into memory; prevents
-   *  the persist effect from clobbering the saved snapshot with empty initial state. */
-  hydrating = $state(true)
-  /** True while a seq-reset recovery is re-registering tabs and re-binding sessions. */
-  runtimeSyncing = $state(false)
-
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
@@ -197,6 +191,10 @@ export class WorkspaceContext {
   set pluginCommands(value: Session['pluginCommands']) { this.lifecycle.pluginCommands = value }
   get turnSnapshots(): Record<string, TurnSnapshot[]> { return this.lifecycle.turnSnapshots }
   set turnSnapshots(value: Record<string, TurnSnapshot[]>) { this.lifecycle.turnSnapshots = value }
+  get hydrating(): boolean { return this.lifecycle.hydrating }
+  set hydrating(value: boolean) { this.lifecycle.hydrating = value }
+  get runtimeSyncing(): boolean { return this.lifecycle.runtimeSyncing }
+  set runtimeSyncing(value: boolean) { this.lifecycle.runtimeSyncing = value }
   get streaming(): { text: Record<string, string> } { return this.eventReducer.streaming }
   set streaming(value: { text: Record<string, string> }) { this.eventReducer.streaming = value }
   get tabs(): Record<string, Tab> { return this.registry.tabs }
