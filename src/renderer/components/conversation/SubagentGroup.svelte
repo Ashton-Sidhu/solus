@@ -11,13 +11,16 @@
   let { messages, tabId, skipMotion = false }: Props = $props();
 
   const isBatch = $derived(messages.length > 1);
+  // toolStatus tracks the agent (see SubagentCard); toolResult only says whether
+  // the tool call answered, which a backgrounded agent does before it starts work.
   const runningCount = $derived(
-    messages.filter((message) => message.toolResult === undefined).length,
+    messages.filter((message) => message.toolStatus === "running").length,
   );
   const failedCount = $derived(
     messages.filter(
       (message) =>
-        message.toolResult !== undefined && !!message.toolResultIsError,
+        message.toolStatus !== "running" &&
+        (!!message.toolResultIsError || message.toolStatus === "error"),
     ).length,
   );
   const completeCount = $derived(messages.length - runningCount - failedCount);

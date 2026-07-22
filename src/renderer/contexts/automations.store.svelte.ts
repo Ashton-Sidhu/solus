@@ -63,7 +63,7 @@ export class AutomationsStore {
     // still open; commit/restore owns its fate).
     if (this.pendingDelete?.automation.id === event.automation.id) return
     this.upsert(event.automation)
-    if (event.kind === 'run-started' || event.kind === 'run-finished') {
+    if (event.kind === 'run-started' || event.kind === 'run-updated' || event.kind === 'run-finished') {
       const existing = this.runs.get(event.automation.id)
       if (!existing) return // history not loaded for this row; loaded lazily on demand
       const i = existing.findIndex((r) => r.id === event.run.id)

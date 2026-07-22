@@ -1,13 +1,14 @@
 import type { FilePreviewRequest } from '../lib/filePreview'
-import type { DiffScope, PrReviewContext } from '../../shared/types'
+import type { DiffScope, IpcContext, PrReviewContext } from '../../shared/types'
 
 /** Full-page views — the former overlay flags. No payload; at most one is open
  *  across both slots, preserving the flags' mutual exclusion. */
-export const PAGE_KINDS = ['tasks', 'prs', 'settings', 'plans-gallery', 'folio-gallery', 'automations-list'] as const
+export const PAGE_KINDS = ['tasks', 'prs', 'review-mode', 'settings', 'plans-gallery', 'folio-gallery', 'automations-list'] as const
 export type PageKind = (typeof PAGE_KINDS)[number]
 export type PagePaneContent = { kind: PageKind }
 
-export type PaneContent =
+/** What a pane shows until the user closes or replaces it. */
+export type BaseContent =
   | { kind: 'conversation'; tabId?: string }
   | { kind: 'plan'; planId: string | null }
   | { kind: 'work'; workId: string }
@@ -18,22 +19,27 @@ export type PaneContent =
   // having to parse it.
   | { kind: 'review'; key: string; scope?: 'branch' | 'session' }
   // PR review (M3): the review surface — Activity · Guide · Diff content tabs —
-  // lives MAXIMIZED in the secondary pane; the worktree-rooted chat is the
-  // ordinary primary conversation, popped out by un-maximizing. `key` is the
-  // branch-derived guide/companion key; `chatTabId` is that chat conversation.
-  | { kind: 'pr-review'; pr: PrReviewContext; chatTabId: string; key: string }
+  // lives MAXIMIZED in the secondary pane. The worktree-rooted chat is created
+  // lazily when requested; `chatTabId` identifies it once it exists.
+  | { kind: 'pr-review'; pr: PrReviewContext; chatTabId: string | null; key: string }
   // The skeleton shown the instant a PR is clicked, while its worktree is being
   // fetched/checked out. Swapped for `pr-review` once openPrReview resolves.
   | { kind: 'pr-review-loading'; number: number; title?: string }
-  | { kind: 'diff'; scope?: DiffScope }
-  | { kind: 'files' }
-  | { kind: 'file-editor'; file: FilePreviewRequest }
+  | PagePaneContent
+  | { kind: 'empty' }
+
+/** Temporary viewers that cover the secondary pane without replacing its base
+ *  content. `sourceTabId` identifies the chat session that opened the viewer. */
+export type OverlayContent =
+  | { kind: 'diff'; scope?: DiffScope; sourceTabId: string; filePath?: string; navigationRequestId?: number }
+  | { kind: 'files'; sourceTabId: string }
+  | { kind: 'file-editor'; file: FilePreviewRequest; sourceTabId: string }
   // A sub-agent's nested transcript, popped out of its conversation card. Not a
   // session/tab — `messageId` locates the parent tool message within `tabId`'s
   // conversation, whose `subMessages` hold the run.
   | { kind: 'subagent'; tabId: string; messageId: string }
-  | PagePaneContent
-  | { kind: 'empty' }
+
+export type PaneContent = BaseContent | OverlayContent
 
 export type PaneSlot = 'primary' | 'secondary'
 
@@ -49,7 +55,7 @@ export function isPageContent(content: PaneContent): content is PagePaneContent 
 }
 
 /** Content the open-in-split action may move between slots. */
-export function isMovableContent(content: PaneContent): boolean {
+export function isMovableContent(content: BaseContent): boolean {
   return isArtifactContent(content) || content.kind === 'review' || isPageContent(content)
 }
 
@@ -73,14 +79,22 @@ function clampSecondaryRatio(ratio: number): number {
 }
 
 /**
- * Pane view state: an ordered list of slots (primary first) plus secondary
- * geometry. Fixed at two slots today; the array is the seam for more.
+ * Pane view state: two named base-content slots, a temporary secondary overlay,
+ * focused-pane ownership, and secondary geometry.
  * Back-compat getters `activePlanId` / `activeWorkId` keep pill-mode and the
  * web client working without changes — they resolve from whichever slot holds
  * the plan/work.
  */
 export class PaneViewStore {
-  panes = $state<PaneContent[]>([{ kind: 'conversation' }, { kind: 'empty' }])
+  private diffNavigationRequestId = 0
+  /** Main (left) pane. Conversation means the active-tab chat pool. */
+  primaryContent = $state<BaseContent>({ kind: 'conversation' })
+  /** Long-lived occupant of the right pane. */
+  secondaryContent = $state<BaseContent>({ kind: 'empty' })
+  /** Temporary viewer covering the right pane. */
+  secondaryOverlay = $state<OverlayContent | null>(null)
+  /** Pane that owns keyboard input and per-session shortcuts. */
+  focusedPane = $state<PaneSlot>('primary')
   secondaryWidth = $state(DEFAULT_PANEL_WIDTH)
   secondaryRatio = $state(DEFAULT_SECONDARY_RATIO)
   hasResized = $state(false)
@@ -89,35 +103,38 @@ export class PaneViewStore {
    *  chrome around it can react to the selection. Chat is NOT a content tab — it
    *  is the primary conversation, toggled by `maximized`. */
   prReviewTab = $state<'activity' | 'guide' | 'diff'>('guide')
+  /** Fixed launch snapshot for Review Mode. The session store owns subsequent
+   *  ordering and dispositions, so list refreshes cannot move the active PR. */
+  reviewModeNumbers = $state<number[]>([])
+  reviewModeContext = $state<IpcContext | null>(null)
 
-  get primary(): PaneContent {
-    return this.panes[0]
-  }
-  set primary(content: PaneContent) {
-    this.panes[0] = content
-  }
-
-  get secondary(): PaneContent {
-    return this.panes[1]
-  }
-  set secondary(content: PaneContent) {
-    this.panes[1] = content
-  }
-
-  get secondaryOpen(): boolean {
-    return this.secondary.kind !== 'empty'
+  get secondaryVisible(): BaseContent | OverlayContent {
+    return this.secondaryOverlay ?? this.secondaryContent
   }
 
   /** Slot holding content that matches, preferring secondary — replace-in-place
    *  rules keep a Split layout split rather than migrating content to primary. */
-  private findSlot(match: (content: PaneContent) => boolean): PaneSlot | null {
-    if (match(this.secondary)) return 'secondary'
-    if (match(this.primary)) return 'primary'
+  private findSlot(match: (content: BaseContent) => boolean): PaneSlot | null {
+    if (match(this.secondaryContent)) return 'secondary'
+    if (match(this.primaryContent)) return 'primary'
     return null
   }
 
+  focusPane(slot: PaneSlot): void {
+    const content = slot === 'primary' ? this.primaryContent : this.secondaryContent
+    if (content.kind !== 'conversation') return
+    if (slot === 'secondary' && !content.tabId) return
+    this.focusedPane = slot
+  }
+
+  chatTabIn(slot: PaneSlot, activeTabId: string): string | null {
+    const content = slot === 'primary' ? this.primaryContent : this.secondaryContent
+    if (content.kind !== 'conversation') return null
+    return slot === 'primary' ? activeTabId : content.tabId ?? null
+  }
+
   isPageOpen(kind: PageKind): boolean {
-    return this.primary.kind === kind || this.secondary.kind === kind
+    return this.primaryContent.kind === kind || this.secondaryContent.kind === kind
   }
 
   /**
@@ -125,32 +142,48 @@ export class PaneViewStore {
    * they replaced: one already open is replaced in place (a Split stays split),
    * otherwise the page takes the primary slot, covering the conversation until
    * closed.
+   *
+   * Guarded to a no-op when the target slot already holds this exact page:
+   * reassigning `primaryContent`/`secondaryContent` produces a new object reference,
+   * which is enough to re-dirty any effect that read them (even indirectly,
+   * e.g. through `findSlot` below) — callers that re-invoke `openPage` with an
+   * already-open kind on every reactive tick (settings' router sync effect)
+   * would otherwise retrigger themselves forever (`effect_update_depth_exceeded`).
    */
   openPage(kind: PageKind): void {
-    if (this.findSlot(isPageContent) === 'secondary') this.secondary = { kind }
-    else this.primary = { kind }
+    if (this.findSlot(isPageContent) === 'secondary') {
+      if (this.secondaryContent.kind !== kind) this.secondaryContent = { kind }
+    } else if (this.primaryContent.kind !== kind) {
+      this.primaryContent = { kind }
+    }
+  }
+
+  openReviewMode(numbers: number[], ctx: IpcContext): void {
+    this.reviewModeNumbers.splice(0, this.reviewModeNumbers.length, ...numbers)
+    this.reviewModeContext = JSON.parse(JSON.stringify(ctx)) as IpcContext
+    this.openPage('review-mode')
   }
 
   closePage(kind: PageKind): void {
-    if (this.secondary.kind === kind) this.closeSecondary()
-    if (this.primary.kind === kind) this.primary = { kind: 'conversation' }
+    if (this.secondaryContent.kind === kind) this.closeSecondary()
+    if (this.primaryContent.kind === kind) this.primaryContent = { kind: 'conversation' }
   }
 
   /** Close whatever page is open, if any. */
   closePages(): void {
-    if (isPageContent(this.secondary)) this.closeSecondary()
-    if (isPageContent(this.primary)) this.primary = { kind: 'conversation' }
+    if (isPageContent(this.secondaryContent)) this.closeSecondary()
+    if (isPageContent(this.primaryContent)) this.primaryContent = { kind: 'conversation' }
   }
 
   get activePlanId(): string | null {
-    if (this.primary.kind === 'plan') return this.primary.planId
-    if (this.secondary.kind === 'plan') return this.secondary.planId
+    if (this.primaryContent.kind === 'plan') return this.primaryContent.planId
+    if (this.secondaryContent.kind === 'plan') return this.secondaryContent.planId
     return null
   }
 
   get activeWorkId(): string | null {
-    if (this.primary.kind === 'work') return this.primary.workId
-    if (this.secondary.kind === 'work') return this.secondary.workId
+    if (this.primaryContent.kind === 'work') return this.primaryContent.workId
+    if (this.secondaryContent.kind === 'work') return this.secondaryContent.workId
     return null
   }
 
@@ -160,28 +193,45 @@ export class PaneViewStore {
 
   /**
    * Review mode owns the primary pane (companion) directly, leaving the
-   * secondary free for the diff/preview a focus-hunk opens. Bypasses the
-   * conversation-in-primary assumption that `setArtifact`/`enterDiff` encode for
-   * plans and works — the companion is meant to sit beside the diff, not fight
-   * it for the primary slot.
+   * secondary available for the diff/preview overlay a focus-hunk opens.
    */
   enterReview(key: string, scope: 'branch' | 'session' = 'branch'): void {
-    this.primary = { kind: 'review', key, scope }
+    this.primaryContent = { kind: 'review', key, scope }
   }
 
-  /**
-   * Enter PR review (M3 layout): the review surface (Activity · Guide · Diff)
-   * takes the secondary pane MAXIMIZED (full-screen), and the PR's worktree-rooted
-   * chat is the ordinary primary conversation — hidden behind the overlay until
-   * the user clicks "Chat" to un-maximize and pop it out at ~30%.
-   */
-  enterPrReview(pr: PrReviewContext, chatTabId: string): void {
-    this.primary = { kind: 'conversation' }
-    this.secondary = { kind: 'pr-review', pr, chatTabId, key: pr.branch.replace(/\//g, '__') }
+  /** Place a prepared PR review in the secondary pane without disturbing the
+   * current primary surface. The same mounted review can then be maximized or
+   * shown beside a chat without being recreated. */
+  dockPrReview(pr: PrReviewContext, chatTabId: string | null = null): void {
+    this.secondaryContent = { kind: 'pr-review', pr, chatTabId, key: pr.branch.replace(/\//g, '__') }
+    this.secondaryOverlay = null
     this.prReviewTab = 'activity'
-    this.maximized = true
+    this.maximized = false
     this.hasResized = false
     this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO
+  }
+
+  /** Cold-entry review (command palette, deep link): reveal the canonical
+   * secondary review at full size after it has been prepared. */
+  enterPrReview(pr: PrReviewContext, chatTabId: string | null = null): void {
+    this.primaryContent = { kind: 'conversation' }
+    this.dockPrReview(pr, chatTabId)
+    this.maximized = true
+  }
+
+  dockPrReviewLoading(number: number, title?: string): void {
+    this.secondaryContent = { kind: 'pr-review-loading', number, title }
+    this.secondaryOverlay = null
+    this.prReviewTab = 'activity'
+    this.maximized = false
+    this.hasResized = false
+    this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO
+  }
+
+  attachPrReviewChat(prNumber: number, chatTabId: string): void {
+    if (this.secondaryContent.kind === 'pr-review' && this.secondaryContent.pr.number === prNumber) {
+      this.secondaryContent.chatTabId = chatTabId
+    }
   }
 
   /**
@@ -191,12 +241,9 @@ export class PaneViewStore {
    * swaps in the real surface once it resolves; on failure the caller closes the slot.
    */
   enterPrReviewLoading(number: number, title?: string): void {
-    this.primary = { kind: 'conversation' }
-    this.secondary = { kind: 'pr-review-loading', number, title }
-    this.prReviewTab = 'activity'
+    this.primaryContent = { kind: 'conversation' }
+    this.dockPrReviewLoading(number, title)
     this.maximized = true
-    this.hasResized = false
-    this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO
   }
 
   openWork(workId: string): void {
@@ -208,17 +255,17 @@ export class PaneViewStore {
     this.setArtifact({ kind: 'automation', automationId })
   }
 
-  openFiles(opts: SplitOpenOptions = {}): void {
-    this.moveToSecondary({ kind: 'files' }, { secondaryRatio: opts.secondaryRatio ?? DIFF_SECONDARY_RATIO })
+  openFiles(sourceTabId: string): void {
+    this.showOverlay({ kind: 'files', sourceTabId })
   }
 
-  openFilePreview(file: FilePreviewRequest): void {
-    this.moveToSecondary({ kind: 'file-editor', file }, { secondaryRatio: DIFF_SECONDARY_RATIO })
+  openFilePreview(file: FilePreviewRequest, sourceTabId: string): void {
+    this.showOverlay({ kind: 'file-editor', file, sourceTabId })
   }
 
   /** Pop a sub-agent's nested transcript out of its card into the secondary pane. */
   openSubagent(tabId: string, messageId: string): void {
-    this.moveToSecondary({ kind: 'subagent', tabId, messageId }, { secondaryRatio: DIFF_SECONDARY_RATIO })
+    this.showOverlay({ kind: 'subagent', tabId, messageId })
   }
 
   /** Swap a work id in either slot. Used when a streamed provisional work is
@@ -226,47 +273,76 @@ export class PaneViewStore {
    *  follows the rekey instead of pointing at the now-deleted provisional. */
   rekeyWork(oldId: string, newId: string): void {
     if (oldId === newId) return
-    if (this.primary.kind === 'work' && this.primary.workId === oldId) this.primary = { kind: 'work', workId: newId }
-    if (this.secondary.kind === 'work' && this.secondary.workId === oldId) this.secondary = { kind: 'work', workId: newId }
+    if (this.primaryContent.kind === 'work' && this.primaryContent.workId === oldId) {
+      this.primaryContent = { kind: 'work', workId: newId }
+    }
+    if (this.secondaryContent.kind === 'work' && this.secondaryContent.workId === oldId) {
+      this.secondaryContent = { kind: 'work', workId: newId }
+    }
   }
 
   /**
    * R3 — one plan/work artifact at a time. If the secondary already holds an
    * artifact, replace it there (stay Split); otherwise focus it in primary,
-   * covering any page there. P1 — entering Focus closes a diff in the
-   * secondary (diff needs the conversation in primary), but leaves any other
-   * secondary content untouched.
+   * covering any page there. A temporary overlay remains independent of the
+   * base content it covers.
    */
-  private setArtifact(content: PaneContent): void {
+  private setArtifact(content: BaseContent): void {
     if (this.findSlot(isArtifactContent) === 'secondary') {
-      this.secondary = content
+      this.secondaryContent = content
       this.maximized = false
     } else {
-      this.primary = content
-      if (this.secondary.kind === 'diff') this.closeSecondary()
+      this.primaryContent = content
     }
   }
 
-  moveToSecondary(content: PaneContent, opts: SplitOpenOptions = {}): void {
+  moveToSecondary(content: BaseContent, opts: SplitOpenOptions = {}): void {
     this.secondaryRatio = clampSecondaryRatio(opts.secondaryRatio ?? DEFAULT_SECONDARY_RATIO)
     this.hasResized = false
     this.maximized = false
-    this.secondary = content
-    this.primary = { kind: 'conversation' }
+    this.secondaryContent = content
+    this.secondaryOverlay = null
+    this.primaryContent = { kind: 'conversation' }
   }
 
-  moveToOppositeSlot(content: PaneContent, fromSlot: PaneSlot, opts: SplitOpenOptions = {}): void {
+  moveToOppositeSlot(content: BaseContent, fromSlot: PaneSlot, opts: SplitOpenOptions = {}): void {
     if (fromSlot === 'primary') {
       this.moveToSecondary(content, opts)
       return
     }
 
-    this.primary = content
+    this.primaryContent = content
     this.closeSecondary()
   }
 
+  openSplitChat(tabId: string): void {
+    this.secondaryRatio = DEFAULT_SECONDARY_RATIO
+    this.hasResized = false
+    this.maximized = false
+    this.secondaryContent = { kind: 'conversation', tabId }
+    this.secondaryOverlay = null
+    this.focusPane('secondary')
+  }
+
+  showOverlay(content: OverlayContent): void {
+    this.secondaryOverlay = content
+    this.hasResized = false
+    if (content.kind !== 'diff') this.maximized = false
+    this.secondaryRatio =
+      content.kind === 'diff' && this.primaryContent.kind === 'review'
+        ? DEFAULT_SECONDARY_RATIO
+        : DIFF_SECONDARY_RATIO
+  }
+
+  closeOverlay(): void {
+    this.secondaryOverlay = null
+    if (this.secondaryContent.kind === 'empty') this.closeSecondary()
+  }
+
   closeSecondary(): void {
-    this.secondary = { kind: 'empty' }
+    this.secondaryOverlay = null
+    this.secondaryContent = { kind: 'empty' }
+    this.focusedPane = 'primary'
     this.maximized = false
     this.hasResized = false
     this.secondaryRatio = DEFAULT_SECONDARY_RATIO
@@ -280,32 +356,23 @@ export class PaneViewStore {
       this.closeSecondary()
       return
     }
-    if (this.primary.kind !== 'conversation') {
-      this.primary = { kind: 'conversation' }
+    if (this.primaryContent.kind !== 'conversation') {
+      this.primaryContent = { kind: 'conversation' }
     }
   }
 
-  /**
-   * R2 + P1 — centralizes entering diff: a focused artifact drops back to the
-   * conversation (diff needs it in primary), then the diff takes the secondary
-   * with fresh geometry.
-   */
-  enterDiff(scope: DiffScope = { kind: 'session' }): void {
-    if (isArtifactContent(this.primary)) {
-      this.primary = { kind: 'conversation' }
-    }
-    // The companion drives the diff via focus-hunk anchors; if it's parked in the
-    // secondary slot, swap it to primary so the diff it requests sits beside it
-    // instead of clobbering it.
-    if (this.secondary.kind === 'review') {
-      this.primary = this.secondary
-    }
-    this.secondary = { kind: 'diff', scope }
-    this.hasResized = false
-    // Beside a review companion the two panes are equal partners — give them a
-    // 50/50 split. A diff opened over a plain conversation gets the wider default.
-    this.secondaryRatio =
-      this.primary.kind === 'review' ? DEFAULT_SECONDARY_RATIO : DIFF_SECONDARY_RATIO
+  enterDiff(
+    sourceTabId: string,
+    scope: DiffScope = { kind: 'session' },
+    filePath?: string,
+  ): void {
+    this.showOverlay({
+      kind: 'diff',
+      scope,
+      sourceTabId,
+      filePath,
+      navigationRequestId: filePath ? ++this.diffNavigationRequestId : undefined,
+    })
   }
 
   /**
@@ -315,11 +382,19 @@ export class PaneViewStore {
    * diff to the requested scope instead of closing, and only toggles off when
    * the same scope is already shown.
    */
-  toggleDiff(canShow: boolean, scope: DiffScope = { kind: 'session' }, switchScope = false): void {
-    if (this.secondary.kind === 'diff' && (!switchScope || this.secondary.scope?.kind === scope.kind)) {
-      this.closeSecondary()
+  toggleDiff(
+    canShow: boolean,
+    sourceTabId: string,
+    scope: DiffScope = { kind: 'session' },
+    switchScope = false,
+  ): void {
+    if (
+      this.secondaryOverlay?.kind === 'diff' &&
+      (!switchScope || this.secondaryOverlay.scope?.kind === scope.kind)
+    ) {
+      this.closeOverlay()
     } else if (canShow) {
-      this.enterDiff(scope)
+      this.enterDiff(sourceTabId, scope)
     }
   }
 

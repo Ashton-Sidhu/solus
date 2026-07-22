@@ -65,9 +65,18 @@ export interface ReviewGuide {
   key: string
   headSha: string
   baseSha: string
+  /** Persisted generation time. Older cached guides omit this; readers recover
+   *  it from the guide file's modification time. */
+  generatedAt?: string
   title: string
   summary: string
   sections: GuideSection[]
+}
+
+/** Keep guides for two real diff bases out of the same cache entry. The target
+ * guide retains its legacy key; only an alternate stacked base is suffixed. */
+export function reviewGuideKeyForBase(key: string, alternateBaseSha?: string | null): string {
+  return alternateBaseSha ? `${key}--base-${alternateBaseSha}` : key
 }
 
 export type GuideSignificance = 'core' | 'supporting' | 'low-signal'
@@ -116,6 +125,28 @@ export type ReviewProgressStep = 'preparing' | 'analyzing' | 'writing'
 export interface ReviewProgressEvent {
   key: string
   step: ReviewProgressStep
+}
+
+/** Lifecycle of an explicitly requested background PR-guide generation. */
+export type PrGuideStatus = 'queued' | 'generating' | 'ready' | 'failed'
+
+export interface PrGuideMetadataRequest {
+  number: number
+  headSha: string
+}
+
+export interface PrGuideMetadata {
+  number: number
+  headSha: string
+  generatedAt: string | null
+  current: boolean
+}
+
+export interface PrGuideStatusEvent {
+  repoRoot: string
+  number: number
+  status: PrGuideStatus
+  metadata?: PrGuideMetadata
 }
 
 export interface ReviewProgressStepDef {

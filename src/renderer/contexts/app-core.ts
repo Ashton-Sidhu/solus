@@ -3,7 +3,7 @@ import { WorkspaceContext, setWorkspaceContext } from './workspace.context.svelt
 import { WindowContext, setWindowContext } from './window.context.svelte'
 import { StatusBarContext, setStatusBarContext } from './status-bar.context.svelte'
 import { PlanStore, setPlanStore } from './plan.store.svelte'
-import { GitStatusStore, setGitStatusStore } from './git-status.store.svelte'
+import { SessionEnvironmentStore, setSessionEnvironmentStore } from './session-environment.store.svelte'
 import { RunStore, setRunStore } from './run.store.svelte'
 import { RunDockStore, setRunDockStore } from './run-dock.store.svelte'
 import { ProjectConfigStore, setProjectConfigStore } from './project-config.store.svelte'
@@ -17,7 +17,7 @@ export interface AppCore {
   windowCtx: WindowContext
   statusBar: StatusBarContext
   planStore: PlanStore
-  gitStatusStore: GitStatusStore
+  sessionEnvironmentStore: SessionEnvironmentStore
   runStore: RunStore
   runDockStore: RunDockStore
   projectConfigStore: ProjectConfigStore
@@ -42,12 +42,12 @@ export function createAppCore(): AppCore {
   const windowCtx = new WindowContext()
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
-  const gitStatusStore = new GitStatusStore()
+  const sessionEnvironmentStore = new SessionEnvironmentStore()
   const runStore = new RunStore()
   const runDockStore = new RunDockStore()
   const projectConfigStore = new ProjectConfigStore()
   const agent = new AgentContext(settings)
-  const session = new WorkspaceContext(settings, windowCtx, statusBar, planStore, gitStatusStore, agent)
+  const session = new WorkspaceContext(settings, windowCtx, statusBar, planStore, sessionEnvironmentStore, agent)
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore)
   const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
@@ -61,7 +61,7 @@ export function createAppCore(): AppCore {
   setStatusBarContext(statusBar)
   setWorkspaceContext(session)
   setPlanStore(planStore)
-  setGitStatusStore(gitStatusStore)
+  setSessionEnvironmentStore(sessionEnvironmentStore)
   setRunStore(runStore)
   setRunDockStore(runDockStore)
   setProjectConfigStore(projectConfigStore)
@@ -75,7 +75,7 @@ export function createAppCore(): AppCore {
     windowCtx,
     statusBar,
     planStore,
-    gitStatusStore,
+    sessionEnvironmentStore,
     runStore,
     runDockStore,
     projectConfigStore,

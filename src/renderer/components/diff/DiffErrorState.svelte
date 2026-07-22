@@ -34,7 +34,7 @@
     </div>
     <button
       onclick={onRetry}
-      class="flex items-center gap-1.5 text-[0.6875rem] font-medium px-2.5 py-1 rounded-md cursor-pointer transition-colors text-(--solus-text-primary) hover:bg-(--solus-surface-active) border border-(--solus-container-border)"
+      class="flex items-center gap-1.5 text-[0.6875rem] font-medium px-2.5 py-1 rounded-md cursor-pointer transition-colors text-(--solus-text-primary) hover:bg-(--solus-surface-hover) border border-(--solus-container-border)"
     >
       <ArrowClockwiseIcon size={11} weight="bold" />
       {retryLabel}

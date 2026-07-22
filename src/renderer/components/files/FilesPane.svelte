@@ -98,7 +98,6 @@
   let fileLoading = $state(false);
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
-  let saveMessage = $state<string | undefined>(undefined);
   let treeHost: HTMLDivElement | undefined = $state();
   let treeInstance: FileTree | null = $state(null);
   let treeFiles: string[] | null = null;
@@ -107,17 +106,13 @@
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
     if (saveState === "saved") return "Saved";
-    if (saveState === "conflict") return "Changed on disk";
-    if (saveState === "error") return "Save failed";
     return selectedSize == null ? "" : `${Math.ceil(selectedSize / 1024)} KB`;
   });
 
   const statusClass = $derived(
     saveState === "saved"
       ? "text-(--solus-status-complete)"
-      : saveState === "error" || saveState === "conflict"
-        ? "text-(--solus-status-error)"
-        : "text-(--solus-text-tertiary)",
+      : "text-(--solus-text-tertiary)",
   );
 
   useScope("files-pane");
@@ -195,7 +190,6 @@
     fileError = null;
     fileLoading = true;
     saveState = "idle";
-    saveMessage = undefined;
     const result = await window.solus.readProjectFile(ctx, { path, cwd: root || cwd });
     if (selectedPath !== path) return;
     if (result.ok) {
@@ -349,7 +343,7 @@
       </div>
     {/if}
     {#if statusLabel}
-      <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status" title={saveMessage}>
+      <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status">
         <FloppyDiskIcon size={11} class="shrink-0" />
         <span class="tabular-nums">{statusLabel}</span>
       </div>
@@ -462,9 +456,8 @@
             displayPath={selectedPath}
             contents={selectedContents}
             {isDark}
-            onSaveStateChange={(state, message) => {
+            onSaveStateChange={(state) => {
               saveState = state;
-              saveMessage = message;
             }}
           />
         {:else}

@@ -3,9 +3,9 @@ import { spawnSync } from 'child_process'
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { computeGitProjectStatus } from '../../src/main/git/git-helpers'
+import { computeGitState, parseStatus } from '../../src/main/git/git-helpers'
 import { getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '../../src/main/git/session-snapshots'
-import type { GitProjectStatus } from '../../src/shared/types'
+import type { GitState } from '../../src/shared/types'
 
 let repos: string[] = []
 
@@ -33,36 +33,80 @@ function createRepo(): { cwd: string; baseSha: string } {
 }
 
 describe('git status hot path', () => {
+  test('resolves checkout and worktree intent as one session start target', async () => {
+    const previousWindow = globalThis.window
+    const previousState = (globalThis as unknown as { $state?: unknown }).$state
+    const status: GitState = {
+      repoRoot: '/repo',
+      headSha: 'abc123',
+      branch: 'main',
+      targetBranch: 'main',
+      uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+    }
+
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: { gitRefreshState: async () => status } },
+    })
+
+    try {
+      const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+      const store = new SessionEnvironmentStore()
+      expect(await store.resolveSessionStartTarget('/repo', { worktreeRequested: true })).toEqual({
+        workingDirectory: '/repo',
+        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+        worktreeBaseBranch: 'main',
+      })
+    } finally {
+      if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
+      else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
+      if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
+      else (globalThis as unknown as { $state: unknown }).$state = previousState
+    }
+  })
+
   test('routine status omits worktree statistics until details are requested', async () => {
     const { cwd } = createRepo()
     writeFileSync(join(cwd, 'tracked.txt'), 'first\nsecond\n')
     writeFileSync(join(cwd, 'new.txt'), 'new\n')
 
-    const summaryRequest = computeGitProjectStatus(cwd)
-    expect(computeGitProjectStatus(cwd)).toBe(summaryRequest)
+    const summaryRequest = computeGitState(cwd)
+    expect(computeGitState(cwd)).toBe(summaryRequest)
     const summary = await summaryRequest
-    expect(summary?.files.map((file) => file.path).sort()).toEqual(['new.txt', 'tracked.txt'])
-    expect(summary?.insertions).toBe(0)
-    expect(summary?.deletions).toBe(0)
+    expect(summary?.uncommittedChanges.files.map((file) => file.path).sort()).toEqual(['new.txt', 'tracked.txt'])
+    expect(summary?.uncommittedChanges.insertions).toBe(0)
+    expect(summary?.uncommittedChanges.deletions).toBe(0)
 
-    const detailed = await computeGitProjectStatus(cwd, { includeDetails: true })
-    expect(detailed?.insertions).toBe(2)
-    expect(detailed?.deletions).toBe(0)
+    const detailed = await computeGitState(cwd, { includeDetails: true })
+    expect(detailed?.uncommittedChanges.insertions).toBe(2)
+    expect(detailed?.uncommittedChanges.deletions).toBe(0)
+  })
+
+  test('reports when the changed-file list omits entries beyond its limit', () => {
+    const statusLines = Array.from({ length: 201 }, (_, index) => `? file-${index}.txt`)
+
+    expect(parseStatus(statusLines.slice(0, 200).join('\n')).hasMoreFiles).toBe(false)
+    const truncated = parseStatus(statusLines.join('\n'))
+    expect(truncated.files).toHaveLength(200)
+    expect(truncated.hasMoreFiles).toBe(true)
   })
 
   test('a slow detail response cannot overwrite a newer summary', async () => {
     const previousWindow = globalThis.window
     const previousState = (globalThis as unknown as { $state?: unknown }).$state
-    const summary = deferred<GitProjectStatus | null>()
-    const details = deferred<GitProjectStatus | null>()
-    const status = (file: string, insertions = 0): GitProjectStatus => ({
+    const summary = deferred<GitState | null>()
+    const details = deferred<GitState | null>()
+    const status = (file: string, insertions = 0): GitState => ({
       repoRoot: '/repo',
+      headSha: 'abc123',
       branch: 'feature',
       targetBranch: 'main',
-      files: [{ path: file, conflicted: false }],
-      insertions,
-      deletions: 0,
-      mergeInProgress: false,
+      uncommittedChanges: { files: [{ path: file, conflicted: false }], hasMoreFiles: false, insertions, deletions: 0, mergeInProgress: false },
     })
 
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -74,15 +118,15 @@ describe('git status hot path', () => {
       writable: true,
       value: {
         solus: {
-          gitProjectStatus: (_cwd: string, options?: { includeDetails?: boolean }) =>
+          gitRefreshState: (_cwd: string, options?: { includeDetails?: boolean }) =>
             options?.includeDetails ? details.promise : summary.promise,
         },
       },
     })
 
     try {
-      const { GitStatusStore } = await import('../../src/renderer/contexts/git-status.store.svelte')
-      const store = new GitStatusStore()
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
       const detailsRequest = store.refresh('/repo', { force: true, details: true })
       const summaryRequest = store.refresh('/repo', { force: true })
 
@@ -106,14 +150,12 @@ describe('git status hot path', () => {
   test('a failed summary refresh preserves the last known repository status', async () => {
     const previousWindow = globalThis.window
     const previousState = (globalThis as unknown as { $state?: unknown }).$state
-    const status: GitProjectStatus = {
+    const status: GitState = {
       repoRoot: '/repo',
+      headSha: 'abc123',
       branch: 'feature',
       targetBranch: 'main',
-      files: [{ path: 'changed.ts', conflicted: false }],
-      insertions: 1,
-      deletions: 0,
-      mergeInProgress: false,
+      uncommittedChanges: { files: [{ path: 'changed.ts', conflicted: false }], hasMoreFiles: false, insertions: 1, deletions: 0, mergeInProgress: false },
     }
     let shouldFail = false
 
@@ -126,7 +168,7 @@ describe('git status hot path', () => {
       writable: true,
       value: {
         solus: {
-          gitProjectStatus: async () => {
+          gitRefreshState: async () => {
             if (shouldFail) throw new Error('temporary probe failure')
             return status
           },
@@ -135,8 +177,8 @@ describe('git status hot path', () => {
     })
 
     try {
-      const { GitStatusStore } = await import('../../src/renderer/contexts/git-status.store.svelte')
-      const store = new GitStatusStore()
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
       expect(await store.refresh('/repo', { force: true })).toBe(true)
       shouldFail = true
       expect(await store.refresh('/repo', { force: true })).toBe(false)
@@ -164,17 +206,17 @@ describe('diff statistics hot path', () => {
     writeFileSync(join(cwd, 'temporary.txt'), 'temporary\n')
 
     const first = await snapshotTurn(cwd, cwd, 'session-1', {
-      changedFiles: ['tracked.txt', 'temporary.txt'],
+      sessionChangedFiles: ['tracked.txt', 'temporary.txt'],
     })
-    expect(first?.changedFiles?.sort()).toEqual(['temporary.txt', 'tracked.txt'])
+    expect(first?.sessionChangedFiles?.sort()).toEqual(['temporary.txt', 'tracked.txt'])
 
     writeFileSync(join(cwd, 'tracked.txt'), 'first\n')
     unlinkSync(join(cwd, 'temporary.txt'))
     const second = await snapshotTurn(cwd, cwd, 'session-1', {
-      changedFiles: ['tracked.txt', 'temporary.txt'],
+      sessionChangedFiles: ['tracked.txt', 'temporary.txt'],
     })
 
-    expect(second?.changedFiles).toEqual([])
+    expect(second?.sessionChangedFiles).toEqual([])
   })
 
   test('returns session-scoped live stats without materializing a patch', async () => {

@@ -3,6 +3,7 @@
   import { XIcon } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
+  import { getOuterScrollbarContext } from "../../contexts/outer-scrollbar.context";
 
   /** Scroll shell for full-page library surfaces (Automations, Tasks, Folio,
    *  Plans): a centered content column with floating corner chrome. The parent
@@ -24,6 +25,13 @@
     children: Snippet;
   }
   let { onClose, leading, trailing, children }: Props = $props();
+  const outerScrollbar = getOuterScrollbarContext();
+  let scrollElement = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (!outerScrollbar || !scrollElement) return;
+    return outerScrollbar.register(scrollElement);
+  });
 </script>
 
 {#if leading}
@@ -46,7 +54,9 @@
 </div>
 
 <div
-  class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [scrollbar-width:thin]"
+  bind:this={scrollElement}
+  class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+  class:outer-scroll-source={!!outerScrollbar}
 >
   <div
     class="mx-auto w-full max-w-[72rem] px-8 pb-12 pt-10 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[44rem]:pt-9 @max-[34rem]:px-4"

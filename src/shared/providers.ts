@@ -4,6 +4,8 @@
 // interfaces (which carry Promise-returning methods) stay in
 // `src/main/providers/types.ts` and re-export these.
 
+import type { ReviewEffort } from './effort-types'
+
 /** owner/repo + host, derived from the local `origin` remote. */
 export interface RepoRef {
   owner: string
@@ -17,9 +19,29 @@ export interface PrFilter {
   author?: string
 }
 
+export interface PrListPage {
+  items: PullRequestSummary[]
+  page: number
+  hasMore: boolean
+}
+
+export interface PrEffortRequest {
+  number: number
+  headSha: string
+}
+
+export interface PrEffortResult extends PrEffortRequest {
+  effort?: ReviewEffort
+  /** Diff totals loaded alongside effort because PR list responses omit them. */
+  additions?: number
+  deletions?: number
+}
+
 export interface PullRequestSummary {
   number: number
   title: string
+  /** Current host head, used to key derived list metadata without another request. */
+  headSha: string
   /** Base repository remote identity for opening the PR on its host. */
   baseRepo?: RepoRef
   author: string
@@ -31,6 +53,20 @@ export interface PullRequestSummary {
   labels: { name: string; color: string }[]
   additions: number
   deletions: number
+  /** Pacing guidance only; review always opens the complete diff. */
+  effort?: ReviewEffort
+  /** Host logins currently requested to review this PR. */
+  requestedReviewers?: string[]
+  /** Host logins currently assigned to this PR. */
+  assignees?: string[]
+  /** Why this PR belongs in the connected viewer's review queue. */
+  reviewAttention?: 'requested' | 'assigned'
+  needsMyReview?: boolean
+  /** List responses already carry these fields; stack detection reuses them without detail calls. */
+  body?: string
+  baseRef?: string
+  headRef?: string
+  isCrossRepository?: boolean
 }
 
 export interface PullRequestDetail extends PullRequestSummary {
@@ -112,5 +148,19 @@ export interface DraftReview {
   event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES'
   /** Head SHA the comments are anchored to (the head we rendered to the user). */
   commitId: string
+  /** Exact merge-base used by the rendered diff, persisted after a successful review. */
+  baseSha?: string
   comments: DraftReviewComment[]
+}
+
+/** A top-level PR conversation entry, distinct from an inline review thread. */
+export interface PrConversationItem {
+  id: string
+  kind: 'comment' | 'review'
+  author: string
+  body: string
+  createdAt: string
+  /** Present only for review bodies; uses the host's canonical review state. */
+  reviewState?: Exclude<PrReviewer['state'], null>
+  url?: string
 }

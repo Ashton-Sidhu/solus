@@ -11,7 +11,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "gen": "wrangler types",
-    "deploy": "bun run build && wrangler deploy",
+    "deploy": "bun run --cwd .. build:demo && bun run build && wrangler deploy",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {

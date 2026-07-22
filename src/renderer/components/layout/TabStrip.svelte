@@ -32,6 +32,8 @@
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { createTabScroll } from "../../lib/tabScroll.svelte";
+  import SessionProgressRing from "./SessionProgressRing.svelte";
+  import { shouldShowSessionProgressRing } from "./lib/session-progress-ring";
   import * as ContextMenu from "../ui/context-menu";
   import * as Tabs from "../ui/tabs";
   import {
@@ -78,6 +80,9 @@
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const renderedTabIds = $derived(tabIds ?? session.tabOrder);
+  const splitTabId = $derived(
+    session.panes.chatTabIn("secondary", session.activeTabId),
+  );
 
   // Per-group binder-divider lead: a representative status icon, accent color,
   // and whether it spins. Grouped mode shows this glyph on the divider and hides
@@ -200,26 +205,6 @@
     return title;
   }
 
-  function progressPercent(sess: Session | undefined): number {
-    if (!sess?.progress || sess.progress.totalSteps === 0) return 0;
-    return Math.min(
-      100,
-      Math.max(0, (sess.progress.currentStep / sess.progress.totalSteps) * 100),
-    );
-  }
-
-  function isTabComplete(sess: Session | undefined): boolean {
-    return (
-      !!sess?.progress &&
-      sess.progress.totalSteps > 0 &&
-      sess.progress.currentStep >= sess.progress.totalSteps
-    );
-  }
-
-  function isSessionRunning(sess: Session | undefined): boolean {
-    return sess?.status === "running" || sess?.status === "connecting";
-  }
-
   let barEl = $state<HTMLElement | null>(null);
 
   // Position the seam's cut-out under the active tab so the bottom hairline
@@ -309,6 +294,12 @@
     session.openTabInSplit(tabId);
   }
 
+  function closeSplitFromContextMenu() {
+    closeContextMenu();
+    session.closeSplitChat();
+    requestInputFocus();
+  }
+
   function closeFromContextMenu(tabId: string) {
     closeContextMenu();
     session.closeTab(tabId);
@@ -336,6 +327,24 @@
     return sections.map((g) => `${g.key}:${g.tabIds.join(",")}`).join("|");
   });
 
+  function alignActiveTab(
+    scroller: HTMLElement,
+    activeEl: HTMLElement,
+    behavior: ScrollBehavior,
+  ) {
+    const tabs = scroller.querySelectorAll<HTMLElement>('[role="tab"]');
+    if (activeEl === tabs[0]) {
+      scroller.scrollTo({ left: 0, behavior });
+    } else if (activeEl === tabs[tabs.length - 1]) {
+      scroller.scrollTo({
+        left: scroller.scrollWidth - scroller.clientWidth,
+        behavior,
+      });
+    } else {
+      activeEl.scrollIntoView({ behavior, block: "nearest", inline: "nearest" });
+    }
+  }
+
   // Keep the active tab in view + seam gap synced when the active tab, order, or
   // grouping changes. A single tick→measure pass replaces the old
   // tick→rAF→scrollIntoView→setTimeout chain.
@@ -356,45 +365,49 @@
       // Bring a freshly-selected tab into view, but don't yank the strip back
       // just because a background status change re-ran this effect mid-scroll.
       if (activeEl && (activeChanged || !tabScroll.recentlyManual())) {
-        // When the active tab is the first one, scroll fully to 0 rather than
-        // `inline: "nearest"` — the latter stops at the scroller's leading
-        // padding (~8px), leaving canLeft true so the edge fade + left arrow
-        // overlay clip the first tab. This is the wrap-around case for ⌥⇧N.
-        const firstTab = sc.querySelector('[role="tab"]');
-        if (activeEl === firstTab) {
-          sc.scrollTo({ left: 0, behavior: activeChanged ? "smooth" : "auto" });
-        } else {
-          activeEl.scrollIntoView({
-            behavior: activeChanged ? "smooth" : "auto",
-            block: "nearest",
-            inline: "nearest",
-          });
-        }
+        // Boundary tabs align to the true scroll endpoints so the row padding
+        // cannot keep an edge fade active over an otherwise visible tab.
+        alignActiveTab(sc, activeEl, activeChanged ? "smooth" : "auto");
       }
       tabScroll.remeasure();
     });
-    // A reorder/close animates via flip; re-measure once it settles so the seam
-    // gap lands on the tab's final position rather than mid-flight.
-    const t = setTimeout(() => tabScroll.remeasure(), TAB_FLIP_MS + 40);
+    // A close can both move the tabs via flip and widen the newly active tab.
+    // Re-align after those transitions settle: the first scrollIntoView above
+    // measures the tab at its old width, which can leave its trailing edge just
+    // outside the viewport when the rightmost active tab is closed.
+    const t = setTimeout(() => {
+      if (activeChanged && session.activeTabId === activeId) {
+        const settledActiveEl = sc.querySelector(
+          '[aria-selected="true"]',
+        ) as HTMLElement | null;
+        if (settledActiveEl) alignActiveTab(sc, settledActiveEl, "auto");
+      }
+      tabScroll.remeasure();
+    }, TAB_FLIP_MS + 40);
     return () => clearTimeout(t);
   });
 </script>
 
 <!-- Inner content of a tab — shared by the grouped and flat layouts so the row,
-     status glyph, label, close button and progress bar live in one place. The
-     outer tab <div> stays per-layout because only the flat list animates/reorders. -->
+     status glyph, label and close button live in one place. The outer tab <div>
+     stays per-layout because only the flat list animates/reorders. -->
 {#snippet tabInner(tabId: string, showStatus: boolean)}
   {@const tab = session.tabs[tabId]}
   {@const sess = session.sessionFor(tabId)}
   {@const statusIcon =
     showStatus && tab && sess ? getStatusIcon(sess.status) : null}
-  {@const hasProgress =
-    isSessionRunning(sess) && !!sess?.progress && sess.progress.totalSteps > 0}
-  {@const pPercent = progressPercent(sess)}
-  {@const pComplete = isTabComplete(sess)}
+  {@const showProgressRing =
+    !!sess &&
+    shouldShowSessionProgressRing(
+      sess.progress,
+      sess.status,
+      tabId === session.activeTabId,
+    )}
   {#if tab}
     <div class="flex min-w-0 items-center gap-[0.3125rem]">
-      {#if statusIcon}
+      {#if showProgressRing && sess?.progress}
+        <SessionProgressRing progress={sess.progress} />
+      {:else if statusIcon}
         {@const Icon = statusIcon.component}
         <Icon
           size={10}
@@ -403,6 +416,14 @@
           style="color:{statusIcon.color};flex-shrink:0"
           class={statusIcon.spin ? "tab-status-spin" : ""}
         />
+      {/if}
+      {#if tabId === splitTabId}
+        <span
+          class="tab-split-icon flex shrink-0 items-center"
+          use:tooltip={"Open in split pane"}
+        >
+          <ColumnsIcon size={10} />
+        </span>
       {/if}
       <span
         class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -421,18 +442,6 @@
         <XIcon size={11} />
       </button>
     </div>
-    {#if hasProgress}
-      <div
-        class="mx-[0.0625rem] mb-[0.0625rem] h-[0.0938rem] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-tertiary)_10%,transparent)]"
-      >
-        <div
-          class="h-full rounded-full bg-[color-mix(in_srgb,var(--solus-status-running)_72%,transparent)] transition-[width,background] [transition-duration:400ms,300ms] [transition-timing-function:ease,ease] {pComplete
-            ? 'bg-[color-mix(in_srgb,var(--solus-status-complete)_72%,transparent)]'
-            : ''}"
-          style="width:{pPercent}%"
-        ></div>
-      </div>
-    {/if}
   {/if}
 {/snippet}
 
@@ -523,9 +532,11 @@
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
                     data-pill-active={variant === "pill" && isActive}
-                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:relative data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] data-[pill-active=true]:before:absolute data-[pill-active=true]:before:top-0 data-[pill-active=true]:before:left-4 data-[pill-active=true]:before:right-4 data-[pill-active=true]:before:h-0.5 data-[pill-active=true]:before:rounded-full data-[pill-active=true]:before:bg-(--solus-accent) data-[pill-active=true]:before:content-[''] {isActive ? 'active' : ''} {needsAttention
+                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
-                      : ''} {isUnread ? 'unread' : ''}"
+                      : ''} {isUnread ? 'unread' : ''} {tabId === splitTabId && session.panes.focusedPane === 'secondary'
+                      ? 'split-focused'
+                      : ''}"
                     aria-label={tab
                       ? needsAttention
                         ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
@@ -573,11 +584,13 @@
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
                     data-pill-active={variant === "pill" && isActive}
-                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:relative data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] data-[pill-active=true]:before:absolute data-[pill-active=true]:before:top-0 data-[pill-active=true]:before:left-4 data-[pill-active=true]:before:right-4 data-[pill-active=true]:before:h-0.5 data-[pill-active=true]:before:rounded-full data-[pill-active=true]:before:bg-(--solus-accent) data-[pill-active=true]:before:content-[''] {isActive ? 'active' : ''} {needsAttention
+                    class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
                       ? 'dragging'
-                      : ''} {dragOverTabId === tabId ? 'drag-over' : ''}"
+                      : ''} {dragOverTabId === tabId ? 'drag-over' : ''} {tabId === splitTabId && session.panes.focusedPane === 'secondary'
+                      ? 'split-focused'
+                      : ''}"
                     aria-label={tab
                       ? needsAttention
                         ? `${tabLabel(tab, sess)} — ${attentionLabel(attention)}`
@@ -721,10 +734,17 @@
       <ContextMenu.Separator />
     {/if}
     {#if variant === "editor"}
-      <ContextMenu.Item onSelect={() => openInSplitFromContextMenu(contextMenu!.tabId)}>
-        <ColumnsIcon />
-        Open in Split
-      </ContextMenu.Item>
+      {#if contextMenu.tabId === splitTabId}
+        <ContextMenu.Item onSelect={closeSplitFromContextMenu}>
+          <ColumnsIcon />
+          Close Split
+        </ContextMenu.Item>
+      {:else}
+        <ContextMenu.Item onSelect={() => openInSplitFromContextMenu(contextMenu!.tabId)}>
+          <ColumnsIcon />
+          Open in Split
+        </ContextMenu.Item>
+      {/if}
     {/if}
     <ContextMenu.Item variant="destructive" onSelect={() => closeFromContextMenu(contextMenu!.tabId)}>
       <XIcon />

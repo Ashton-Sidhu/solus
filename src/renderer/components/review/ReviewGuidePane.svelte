@@ -39,6 +39,7 @@
   const session = getWorkspaceContext();
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
+  const isDemo = document.documentElement.classList.contains("solus-demo");
 
   const loader = new GuideLoader({
     getCtx: () => session.ctx,
@@ -87,7 +88,7 @@
     <div class="inline-flex gap-1">
       {#if onOpenInSplit}
         <button
-          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
           onclick={onOpenInSplit}
           use:tooltip={slot === "secondary" ? "Move to main pane" : "Open in split"}
           aria-label={slot === "secondary" ? "Move review guide to main pane" : "Open review guide in split"}
@@ -99,16 +100,18 @@
           {/if}
         </button>
       {/if}
+      {#if !isDemo}
+        <button
+          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+          onclick={() => loader.refresh()}
+          use:tooltip={"Regenerate review"}
+          aria-label="Regenerate review guide"
+        >
+          <ArrowsClockwiseIcon size={15} weight="bold" />
+        </button>
+      {/if}
       <button
-        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
-        onclick={() => loader.refresh()}
-        use:tooltip={"Regenerate review"}
-        aria-label="Regenerate review guide"
-      >
-        <ArrowsClockwiseIcon size={15} weight="bold" />
-      </button>
-      <button
-        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
         onclick={onClose}
         use:tooltip={"Close"}
         aria-label="Close review guide"

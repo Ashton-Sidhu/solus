@@ -202,7 +202,7 @@
       opacity 0.15s ease;
   }
   .split-btn:hover:not(:disabled) {
-    background: var(--solus-surface-active);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .split-btn:active:not(:disabled) {
@@ -240,7 +240,7 @@
     transition: background-color 0.12s ease, transform 0.1s ease;
   }
   .comments-chip:hover {
-    background: var(--solus-surface-active);
+    background: var(--solus-surface-hover);
   }
   .comments-chip:active {
     transform: scale(0.96);

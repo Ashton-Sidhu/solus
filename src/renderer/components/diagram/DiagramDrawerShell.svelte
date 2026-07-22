@@ -159,7 +159,7 @@
   @media (hover: hover) {
     .diagram-drawer__close:hover {
       color: var(--solus-text-primary);
-      background: color-mix(in srgb, var(--solus-accent) 7%, transparent);
+      background: var(--solus-surface-hover);
     }
   }
 

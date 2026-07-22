@@ -30,7 +30,7 @@ export function registerReviewHandlers(server: SolusServer): void {
   })
 
   server.register('cancelGenerateGuide', async (args) => {
-    const [ctx, opts] = args as [IpcContext, Pick<GenerateGuideOptions, 'scope'> | undefined]
+    const [ctx, opts] = args as [IpcContext, Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> | undefined]
     return cancelGenerateGuide(ctx, opts)
   })
 

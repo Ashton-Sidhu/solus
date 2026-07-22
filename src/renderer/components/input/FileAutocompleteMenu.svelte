@@ -88,7 +88,7 @@
           <button
             type="button"
             data-index={i}
-            class="flex h-[1.625rem] w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-3 text-left font-mono text-[0.75rem] font-normal text-(--solus-text-primary) hover:bg-(--solus-accent-light)"
+            class="flex h-[1.625rem] w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-3 text-left font-mono text-[0.75rem] font-normal text-(--solus-text-primary) hover:bg-(--solus-surface-hover)"
             class:bg-(--solus-accent-light)={i === selectedIndex}
             class:shadow-[inset_0.125rem_0_0_var(--solus-accent)]={i === selectedIndex}
             role="option"

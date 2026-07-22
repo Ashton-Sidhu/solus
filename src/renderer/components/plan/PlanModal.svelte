@@ -435,7 +435,7 @@
     {/if}
   {/snippet}
 
-  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded, uploadError })}
+  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded })}
     <button
       type="button"
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
@@ -490,7 +490,7 @@
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
         {/if}
         {#if googleUpload}
-          <!-- Keep the menu open so the upload state + any error stay visible. -->
+          <!-- Keep the menu open so the upload state stays visible. -->
           <DropdownMenu.Item data-testid="google-upload" disabled={uploading} closeOnSelect={false} onSelect={() => googleUpload?.()}>
             {#if uploaded}
               <CheckIcon size={14} /><span class="flex-1 text-left">Opened!</span>
@@ -499,9 +499,6 @@
             {/if}
             {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>{/if}
           </DropdownMenu.Item>
-          {#if uploadError}
-            <div class="px-3 pb-[0.375rem] pt-1 text-[0.6875rem] text-[var(--solus-error,#e55)]">{uploadError}</div>
-          {/if}
         {/if}
         {#if googleUpload}
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>

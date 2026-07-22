@@ -1,23 +1,20 @@
 <script lang="ts">
+  import { tick, untrack } from "svelte";
   import {
     ArrowsClockwiseIcon,
-    CheckCircleIcon,
-    GitPullRequestIcon,
     GitBranchIcon,
-    ChatCircleIcon,
+    GitPullRequestIcon,
     ArrowUpIcon,
-    ArrowSquareOutIcon,
-    CaretRightIcon,
-    GitCommitIcon,
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import MarkdownEditor from "../MarkdownEditor.svelte";
-  import type { ChangedFileStat } from "../../../shared/types";
+  import type { ChangedFileStat, IpcContext } from "../../../shared/types";
   import type {
     ReviewThread,
     ReviewComment,
     PullRequestDetail,
     PrCommit,
+    PrConversationItem,
     PrReviewer,
   } from "../../../shared/providers";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
@@ -25,20 +22,24 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import CodeSpan from "../ui/CodeSpan.svelte";
+  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
+  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
+  import { Button } from "../ui/button";
   import { Skeleton } from "../ui/skeleton";
-  import { tooltip } from "../../lib/tooltip";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import type { PrActivityTarget, PostedComment } from "./lib/activity-data";
+  import type { ActivityFilter, PrActivityTarget } from "./lib/activity-data";
   import {
     buildActivityTimeline,
-    activityEventKey,
-    commitRunAuthorLabel,
+    filterActivityTimeline,
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
-  import PrThreadCard from "./PrThreadCard.svelte";
-  import MergeControl from "./MergeControl.svelte";
-  import ResolveConflictsButton from "./ResolveConflictsButton.svelte";
+  import ActivityTimeline from "./ActivityTimeline.svelte";
+  import PrActions from "./PrActions.svelte";
+  import {
+    markPrReviewProfile,
+    profilePrReviewWork,
+    settlePrReviewProfile,
+  } from "./lib/pr-review-profiler";
 
   // The Activity tab: a Linear-style PR overview. The centered main column shows
   // the title, author/branch meta, the PR description, and an activity timeline
@@ -50,9 +51,14 @@
     pr,
     threads,
     threadsFailed = false,
+    stackChain = [],
     showRemoteLink = false,
+    addressCommentsReady = true,
+    onAddressComments,
+    onChat,
     onJump,
     onRefreshThreads,
+    getCtx,
   }: {
     pr: PrActivityTarget;
     /** Review threads, owned by the parent so the Diff tab and this timeline
@@ -60,18 +66,30 @@
     threads: ReviewThread[];
     /** The parent's thread fetch failed — folded into this tab's error banner. */
     threadsFailed?: boolean;
+    /** Ordered PR numbers in this stack. The current PR is highlighted. */
+    stackChain?: number[];
     /** Render the Activity header's remote PR shortcut for embedded previews. */
     showRemoteLink?: boolean;
+    /** The host has a checked-out PR worktree ready for the fix session. */
+    addressCommentsReady?: boolean;
+    onAddressComments?: () => Promise<void>;
+    onChat?: () => void;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Refetch the shared threads (e.g. from this tab's Refresh button). */
     onRefreshThreads?: () => void;
+    /** Context override for hosts reviewing a PR outside the active tab's
+     *  project (the PRs page's project switcher, embedded review panes).
+     *  Defaults to the active tab's context. */
+    getCtx?: () => IpcContext;
   } = $props();
 
   const session = getWorkspaceContext();
+  const feedCtx = (): IpcContext => getCtx?.() ?? session.ctx;
 
   let detail = $state<PullRequestDetail | null>(null);
   let commits = $state<PrCommit[]>([]);
+  let comments = $state<PrConversationItem[]>([]);
   let reviewers = $state<PrReviewer[]>([]);
   let changedFiles = $state<ChangedFileStat[]>([]);
   // Per-section loading so each region fills in as its own request resolves,
@@ -79,49 +97,96 @@
   // parent (no flag here); the opened event + composer render immediately.
   let detailLoading = $state(true);
   let commitsLoading = $state(true);
+  let commentsLoading = $state(true);
   let reviewersLoading = $state(true);
   let filesLoading = $state(true);
-  // Any of the four loads rejecting (expired token, network) flips this so the
+  // Any provider load rejecting (expired token, network) flips this so the
   // tab shows an explicit error + retry instead of masquerading as an empty PR.
   let loadFailed = $state(false);
   const anyLoadFailed = $derived(loadFailed || threadsFailed);
 
-  // Comments posted from the composer this session — appended optimistically so
-  // they show in the timeline even though listReviewThreads only returns inline
-  // threads (not conversation-level comments).
-  let posted = $state<PostedComment[]>([]);
-
   let composer = $state("");
   let posting = $state(false);
+  let addressingComments = $state(false);
+  // The provider token's login — who a posted comment will belong to. Empty
+  // until the (cached) lookup resolves or when it fails; the avatar then shows
+  // a neutral "?" rather than guessing an identity.
+  let viewerLogin = $state("");
 
-  const markdownRenderers = { codespan: CodeSpan };
+  // Timeline focus: one quiet header control. `unresolvedOnly` and `filter`
+  // are mutually exclusive — selecting either clears the other.
+  let filter = $state<ActivityFilter>("all");
+  let unresolvedOnly = $state(false);
+
+  const filterChips: { value: ActivityFilter; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "conversation", label: "Conversation" },
+    { value: "commits", label: "Commits" },
+  ];
+
+  function setFilter(next: ActivityFilter) {
+    filter = next;
+    unresolvedOnly = false;
+    requestInputFocus();
+  }
+
+  function toggleUnresolved() {
+    unresolvedOnly = !unresolvedOnly;
+    if (unresolvedOnly) filter = "all";
+    requestInputFocus();
+  }
 
   // Composer styled like the message composer: bare field inside its own pill,
   // forced 400 weight so typed text never reads bold.
   const composerFieldClass =
     "flex-1 min-w-0 [&_.solus-md-editor_.ProseMirror]:![padding:0.25rem_0] [&_.solus-md-editor_.ProseMirror]:![min-height:1.25rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![top:0.25rem] [&_.solus-md-placeholder]:![left:0]";
 
+  const openedAt = $derived(detail ? new Date(detail.createdAt).getTime() : null);
   const openedTime = $derived(
-    detail
-      ? formatTimeAgoFromTimestamp(new Date(detail.createdAt).getTime())
-      : null,
+    openedAt ? formatTimeAgoFromTimestamp(openedAt) : null,
   );
   const authorName = $derived(detail?.author ?? pr.owner ?? "");
   const authorAvatarUrl = $derived(
     detail?.authorAvatarUrl ?? pr.authorAvatarUrl ?? "",
   );
+  // Providers only hand us avatar images per PR author, so reuse that image
+  // when the viewer authored this PR (the common Solus case); otherwise the
+  // login's initials disc.
+  const viewerAvatarUrl = $derived(
+    viewerLogin && viewerLogin === authorName ? authorAvatarUrl : "",
+  );
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
-  const headBranch = $derived(pr.branch ?? detail?.headRef ?? "");
-  const headSha = $derived(pr.headSha ?? detail?.headSha ?? "");
+  const headBranch = $derived(pr.headRef ?? detail?.headRef ?? "");
   const prUrl = $derived(
     pr.host && (pr.remoteOwner ?? pr.owner) && pr.repo
       ? `https://${pr.host}/${pr.remoteOwner ?? pr.owner}/${pr.repo}/pull/${pr.number}`
       : null,
   );
-  // Commits, review threads, and this session's comments, merged into one
+  // Commits, review threads, and the durable PR conversation, merged into one
   // chronological timeline (see buildActivityTimeline). The opened event is
   // rendered separately as the fixed first row and always leads.
-  const timeline = $derived(buildActivityTimeline(commits, threads, posted));
+  const timeline = $derived(
+    profilePrReviewWork(
+      "activity-timeline-build",
+      () => buildActivityTimeline(commits, threads, comments),
+      { commits: commits.length, threads: threads.length, comments: comments.length },
+    ),
+  );
+  const visibleTimeline = $derived(
+    filterActivityTimeline(timeline, filter, unresolvedOnly),
+  );
+  const timelineFiltered = $derived(filter !== "all" || unresolvedOnly);
+  // Ghost rows until both interleaved sources are in — threads pop in from the
+  // parent whenever its fetch lands (no flag), matching the previous behavior.
+  const timelineLoading = $derived(commitsLoading || commentsLoading);
+  const checks = $derived(session.prsStore.checksFor(pr.number));
+  const guideStatus = $derived(session.prsStore.guideStatusFor(pr.number));
+  const unresolvedCount = $derived(
+    threads.reduce((count, thread) => count + (thread.isResolved ? 0 : 1), 0),
+  );
+  const feedbackCount = $derived(
+    unresolvedCount + comments.reduce((count, item) => count + (item.body.trim() ? 1 : 0), 0),
+  );
 
   function markLoadFailed(n: number) {
     if (pr.number === n) loadFailed = true;
@@ -132,18 +197,33 @@
   // fast ones. `n` guards against a PR switch mid-flight clobbering newer data.
   function load(force = false) {
     const n = pr.number;
+    markPrReviewProfile("activity-load-start", { force });
     detail = null;
     commits = [];
+    comments = [];
     reviewers = [];
     changedFiles = [];
     loadFailed = false;
-    detailLoading = commitsLoading = reviewersLoading = filesLoading = true;
+    filter = "all";
+    unresolvedOnly = false;
+    detailLoading =
+      commitsLoading =
+      commentsLoading =
+      reviewersLoading =
+      filesLoading =
+        true;
 
+    // Not PR-scoped (and cached per project) — best-effort, never an error.
     session.prsStore
-      .loadDetail(session.ctx, n, { force })
+      .loadViewer(feedCtx())
+      .then((login) => (viewerLogin = login))
+      .catch(() => {});
+    session.prsStore
+      .loadDetail(feedCtx(), n, { force })
       .then((d) => {
         if (pr.number !== n) return;
         detail = d;
+        markPrReviewProfile("detail-ready", { bodyCharacters: d.body.length });
       })
       .catch(() => {
         markLoadFailed(n);
@@ -152,18 +232,36 @@
         if (pr.number === n) detailLoading = false;
       });
     session.prsStore
-      .loadCommits(session.ctx, n, { force })
+      .loadCommits(feedCtx(), n, { force })
       .then((c) => {
-        if (pr.number === n) commits = c;
+        if (pr.number === n) {
+          commits = c;
+          markPrReviewProfile("commits-ready", { count: c.length });
+        }
       })
       .catch(() => markLoadFailed(n))
       .finally(() => {
         if (pr.number === n) commitsLoading = false;
       });
     session.prsStore
-      .loadReviewers(session.ctx, n, { force })
+      .loadComments(feedCtx(), n, { force })
+      .then((c) => {
+        if (pr.number === n) {
+          comments = c;
+          markPrReviewProfile("comments-ready", { count: c.length });
+        }
+      })
+      .catch(() => markLoadFailed(n))
+      .finally(() => {
+        if (pr.number === n) commentsLoading = false;
+      });
+    session.prsStore
+      .loadReviewers(feedCtx(), n, { force })
       .then((r) => {
-        if (pr.number === n) reviewers = r;
+        if (pr.number === n) {
+          reviewers = r;
+          markPrReviewProfile("reviewers-ready", { count: r.length });
+        }
       })
       .catch(() => markLoadFailed(n))
       .finally(() => {
@@ -174,9 +272,12 @@
 
   function loadChangedFiles(n: number, force = false) {
     session.prsStore
-      .loadChangedFiles(session.ctx, n, { force })
+      .loadChangedFiles(feedCtx(), n, { force })
       .then((f) => {
-        if (pr.number === n) changedFiles = f;
+        if (pr.number === n) {
+          changedFiles = f;
+          markPrReviewProfile("changed-files-ready", { count: f.length });
+        }
       })
       .catch(() => {
         if (pr.number === n) loadFailed = true;
@@ -187,8 +288,7 @@
   }
 
   // The Refresh button reloads this tab's data and the parent-owned threads.
-  // Exported so the host can force a reload after submitting a review — the
-  // just-posted comments/review state should appear without a manual refresh.
+  // Exported so the host can force a reload after submitting a review.
   export function refresh() {
     load(true);
     onRefreshThreads?.();
@@ -196,20 +296,37 @@
 
   $effect(() => {
     void pr.number;
-    load();
+    untrack(() => load());
+  });
+
+  $effect(() => {
+    if (detailLoading || commitsLoading || commentsLoading || reviewersLoading || filesLoading) return;
+    const n = pr.number;
+    void tick().then(() => {
+      requestAnimationFrame(() => {
+        if (pr.number !== n) return;
+        markPrReviewProfile("activity-settled-paint", {
+          commits: commits.length,
+          comments: comments.length,
+          threads: threads.length,
+          changedFiles: changedFiles.length,
+        });
+        settlePrReviewProfile();
+      });
+    });
   });
 
   // Reply / resolve state lives in each PrThreadCard; the feed only supplies
   // the RPCs bound to this PR.
   function replyToThread(threadId: string, body: string): Promise<ReviewComment> {
-    return window.solus.prReplyThread(session.ctx, pr.number, threadId, body);
+    return window.solus.prReplyThread(feedCtx(), pr.number, threadId, body);
   }
 
   async function resolveThread(threadId: string, resolved: boolean): Promise<void> {
     if (resolved) {
-      await window.solus.prResolveThread(session.ctx, pr.number, threadId);
+      await window.solus.prResolveThread(feedCtx(), pr.number, threadId);
     } else {
-      await window.solus.prUnresolveThread(session.ctx, pr.number, threadId);
+      await window.solus.prUnresolveThread(feedCtx(), pr.number, threadId);
     }
   }
 
@@ -217,37 +334,50 @@
     const body = composer.trim();
     if (!body || posting) return;
     posting = true;
+    let commentCreated = false;
     try {
-      await window.solus.prSubmitReview(session.ctx, pr.number, {
-        body,
-        event: "COMMENT",
-        commitId: headSha,
-        comments: [],
-      });
-      // "You", not the PR author — the viewer wrote this comment, and there is
-      // no viewer-identity API yet to resolve the real login.
-      posted.push({
-        id: crypto.randomUUID(),
-        author: "You",
-        body,
-        ts: Date.now(),
-      });
-      composer = "";
-      // Posting goes through the review API, so the viewer's review state may
-      // change — refresh the rail quietly (no full-tab reload).
       const n = pr.number;
-      void session.prsStore
-        .loadReviewers(session.ctx, n, { force: true })
-        .then((r) => {
-          if (pr.number === n) reviewers = r;
-        })
-        .catch(() => {});
+      await window.solus.prAddIssueComment(feedCtx(), n, body);
+      commentCreated = true;
+      composer = "";
+      // Refetch rather than inventing an optimistic author/id; the server copy
+      // is the source of truth and survives a reload.
+      const serverComments = await session.prsStore.loadComments(feedCtx(), n, {
+        force: true,
+      });
+      if (pr.number === n) comments = serverComments;
     } catch (err) {
       toasts.error(
-        `Couldn't post comment: ${err instanceof Error ? err.message : String(err)}`,
+        commentCreated
+          ? `Comment posted, but activity couldn't refresh: ${err instanceof Error ? err.message : String(err)}`
+          : `Couldn't post comment: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
       posting = false;
+      requestInputFocus();
+    }
+  }
+
+  /** Queue this PR's review guide in the background (guides are opt-in now);
+   *  progress lands back in the shared store's guide-status map. */
+  function generateGuide() {
+    void session.prsStore.requestGuides(feedCtx(), [pr.number]).catch((err) => {
+      toasts.error(
+        `Couldn't queue the review guide: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+    requestInputFocus();
+  }
+
+  async function addressComments() {
+    if (!onAddressComments || !addressCommentsReady || addressingComments) return;
+    addressingComments = true;
+    try {
+      await onAddressComments();
+    } catch (err) {
+      toasts.error(`Couldn't open the fix agent: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      addressingComments = false;
       requestInputFocus();
     }
   }
@@ -271,9 +401,9 @@
   }
 </script>
 
-<div class="h-full min-h-0 overflow-y-auto">
+<div class="h-full min-h-0 overflow-y-auto bg-(--solus-container-bg)">
     {#if anyLoadFailed}
-      <div class="mx-auto w-full max-w-[92rem] px-8 pt-4">
+      <div class="mx-auto w-full max-w-[90rem] px-8 pt-4">
         <div
           class="flex items-center gap-2.5 rounded-lg border border-[color:color-mix(in_srgb,var(--solus-art-negative)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-art-negative)_8%,transparent)] px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary)"
           role="alert"
@@ -281,276 +411,201 @@
           <span class="min-w-0 flex-1 truncate">
             Couldn't load some of this pull request's data. Check your connection or provider sign-in.
           </span>
-          <button
+          <Button
             type="button"
-            class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-accent-light)"
+            variant="ghost"
+            class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-surface-hover)"
             onclick={refresh}
           >
             <ArrowsClockwiseIcon size={12} weight="bold" class="shrink-0" />
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     {/if}
-    <div class="mx-auto flex w-full max-w-[92rem] gap-10 px-8 py-9">
+    <!-- Capped measure: on wide windows the column centers instead of the
+         title and a sparse timeline stretching toward a distant rail. -->
+    <div class="mx-auto flex w-full max-w-[90rem] gap-8 px-6 py-7 xl:gap-10 xl:px-8 xl:py-9">
       <!-- ── Main column: title, meta, description, activity, composer ── -->
       <main class="flex min-w-0 flex-1 flex-col">
-        <div class="flex items-center justify-between gap-3">
+        <!-- Masthead, Linear-style: no chrome in the header at all — a quiet
+             mono eyebrow, the title at full measure, one line of plain-text
+             facts. Actions live with the merge-readiness status in the right
+             rail (prActions below); a compact copy appears under the meta only
+             when the rail is hidden. -->
+        <header>
+          <p
+            class="flex items-center gap-1.5 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+          >
+            <GitPullRequestIcon size={12} weight="bold" class="shrink-0" />
+            {pr.repo ? `${pr.repo} ` : ""}#{pr.number}
+          </p>
+
           <h1
-            class="text-xl font-semibold tracking-tight text-balance text-(--solus-text-primary)"
+            class="mt-2 text-[1.4375rem] leading-8 font-semibold tracking-[-0.02em] text-balance text-(--solus-text-primary)"
           >
             {pr.title}
           </h1>
-          <div class="flex shrink-0 items-center gap-2">
-            {#if showRemoteLink && prUrl}
-              <button
-                type="button"
-                class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
-                aria-label={`Open PR #${pr.number} on ${pr.host}`}
-                use:tooltip={"Open PR on " + pr.host}
-                onclick={openPr}
-              >
-                <ArrowSquareOutIcon size={15} weight="bold" />
-              </button>
-            {/if}
-            {#if detail?.state === "open" && !detail.draft}
-              {#if detail.mergeStateStatus === "dirty"}
-                <ResolveConflictsButton
-                  pr={{ number: pr.number, title: pr.title }}
-                />
-              {:else}
-                <MergeControl pr={{ number: pr.number, title: pr.title }} />
-              {/if}
-            {/if}
-            <button
-              type="button"
-              class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-95"
-              aria-label="Refresh activity"
-              use:tooltip={"Refresh"}
-              onclick={refresh}
-            >
-              <ArrowsClockwiseIcon size={15} />
-            </button>
-          </div>
-        </div>
 
-        <!-- Author / branch meta -->
-        <div
-          class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-(--solus-text-tertiary)"
-        >
-          <PrAvatar
-            name={authorName}
-            url={authorAvatarUrl}
-            size="size-5 text-[0.5625rem]"
-          />
-          <span class="font-medium text-(--solus-text-secondary)"
-            >{authorName}</span
+          <!-- One visual grammar for every fact — plain text separated by
+               whitespace, no dots or outlined chips competing for attention. -->
+          <div
+            class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[0.8125rem] text-(--solus-text-tertiary)"
           >
-          <span aria-hidden="true">·</span>
-          <span class="font-mono text-[0.75rem]">{pr.repo ? `${pr.repo}#` : "#"}{pr.number}</span>
-          {#if baseRef}
-            <span aria-hidden="true">·</span>
-            <span class="inline-flex min-w-0 items-center gap-1.5">
-              <span
-                class="inline-flex items-center gap-1 rounded-md bg-(--solus-art-raised) py-0.5 pr-1.5 pl-1 font-mono text-[0.6875rem] text-(--solus-text-secondary)"
+            <span class="flex min-w-0 items-center gap-2">
+              <PrAvatar
+                name={authorName}
+                url={authorAvatarUrl}
+                size="size-5 text-[0.5625rem]"
+              />
+              <span class="truncate font-medium text-(--solus-text-secondary)"
+                >{authorName}</span
               >
-                <GitBranchIcon size={11} class="shrink-0" />
-                {baseRef}
-              </span>
-              {#if headBranch}
-                <span aria-hidden="true">←</span>
-                <span
-                  class="truncate rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.6875rem] text-(--solus-text-secondary)"
-                  >{headBranch}</span
-                >
+              {#if openedTime}
+                <span class="shrink-0">opened {openedTime}</span>
               {/if}
             </span>
-          {/if}
-        </div>
+            {#if baseRef}
+              <!-- head → base, reading in merge direction ("move-func into main"). -->
+              <span class="flex min-w-0 items-center gap-1.5 font-mono text-[0.75rem]">
+                <GitBranchIcon size={12} class="shrink-0" />
+                {#if headBranch}
+                  <span class="truncate text-(--solus-text-secondary)">{headBranch}</span>
+                  <span class="shrink-0" aria-hidden="true">→</span>
+                {/if}
+                <span class="truncate text-(--solus-text-secondary)">{baseRef}</span>
+              </span>
+            {/if}
+            {#if stackChain.length > 1}
+              <span
+                class="flex items-center gap-1.5 tabular-nums"
+                aria-label={`Stack containing PR #${pr.number}`}
+              >
+                <span class="font-medium">Stack</span>
+                {#each stackChain as number, i (number)}
+                  {#if i > 0}<span aria-hidden="true">→</span>{/if}
+                  <span
+                    class={number === pr.number
+                      ? "font-semibold text-(--solus-accent)"
+                      : "text-(--solus-text-secondary)"}
+                  >#{number}</span>
+                {/each}
+              </span>
+            {/if}
+          </div>
 
-        <!-- Description -->
+          <!-- The rail owns the actions on wide windows; when it's hidden the
+               same cluster docks here at rail width so nothing is lost. -->
+          <div class="mt-6 w-full max-w-[19rem] lg:hidden">
+            {@render prActions()}
+          </div>
+        </header>
+
+        <!-- PR description belongs to the PR header, not the activity stream. -->
         {#if detailLoading}
-          <div class="mt-8 flex flex-col gap-2.5">
+          <div class="mt-6 flex flex-col gap-2.5">
             <Skeleton class="h-3 w-full rounded bg-(--solus-art-border)" />
             <Skeleton class="h-3 w-11/12 rounded bg-(--solus-art-border)" />
             <Skeleton class="h-3 w-3/4 rounded bg-(--solus-art-border)" />
           </div>
         {:else if detail?.body?.trim()}
-          <details open class="group mt-7">
-            <summary
-              class="flex w-fit cursor-pointer list-none items-center gap-1 text-[0.75rem] font-semibold tracking-wide text-(--solus-text-tertiary) uppercase select-none hover:text-(--solus-text-secondary)"
-            >
-              <CaretRightIcon
-                size={11}
-                weight="bold"
-                class="transition-transform duration-150 group-open:rotate-90"
-              />
-              Description
-            </summary>
-            <div
-              class="prose-cloud mt-3 text-base leading-relaxed text-(--solus-text-primary) [--solus-font-weight-body:400]"
-            >
-              <SvelteMarkdown
-                source={detail.body}
-                renderers={markdownRenderers}
-                sanitizeUrl={remoteMarkdownSanitizeUrl}
-              />
-            </div>
-          </details>
+          <!-- Masthead rule: closes the title/meta block before the body copy. -->
+          <div
+            class="mt-5 h-px w-full bg-[linear-gradient(to_right,var(--solus-art-border),transparent)]"
+            aria-hidden="true"
+          ></div>
+          <section
+            class="github-markdown prose-cloud mt-5 text-base leading-relaxed text-pretty text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+            aria-label="Pull request description"
+          >
+            <SvelteMarkdown
+              source={detail.body}
+              extensions={githubMarkdownExtensions}
+              renderers={githubMarkdownRenderers}
+              sanitizeUrl={remoteMarkdownSanitizeUrl}
+            />
+          </section>
         {/if}
 
-        <!-- Activity timeline -->
-        <h2
-          class="mt-8 mb-4 text-[0.75rem] font-semibold tracking-wide text-(--solus-text-tertiary) uppercase"
-        >
-          Activity
-        </h2>
-
-        <ol class="flex flex-col" role="list">
-          <!-- Opened event -->
-          <li class="relative flex gap-3">
-            <div class="flex flex-col items-center">
-              <span
-                class="grid size-6 shrink-0 place-items-center rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] text-(--solus-art-positive)"
-              >
-                <GitPullRequestIcon size={13} weight="bold" />
-              </span>
-              {#if timeline.length > 0}
-                <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
-              {/if}
-            </div>
-            <p
-              class="mt-0.5 pb-6 text-[0.8125rem] text-(--solus-text-secondary)"
-            >
-              <span class="font-medium text-(--solus-text-primary)"
-                >{authorName}</span
-              >
-              opened this pull request{#if openedTime}<span
-                  class="text-(--solus-text-tertiary)"
+        <!-- Activity timeline: an editorial rail — no cards; a continuous
+             hairline spine with icon nodes, content set directly on the canvas
+             with airy spacing. Commits, review threads, and the durable
+             conversation interleave by time (see buildActivityTimeline); the
+             opened event always leads. -->
+        <div class="mt-9 mb-6 flex items-center gap-3">
+          <h2
+            class="text-[0.6875rem] font-semibold tracking-[0.14em] text-(--solus-text-tertiary) uppercase"
+          >
+            Activity
+          </h2>
+          <span
+            class="h-px flex-1 bg-[linear-gradient(to_right,var(--solus-art-border),transparent)]"
+            aria-hidden="true"
+          ></span>
+          <!-- Quiet focus chips: filter the timeline without leaving the tab.
+               A couple of events don't need filtering, so the chips only appear
+               once the timeline is long enough for them to earn their spot; the
+               unresolved toggle is a real signal and always shows. The active
+               chip gets a hairline ring so it reads pressed, not hovered. -->
+          <div
+            class="flex items-center gap-1"
+            role="group"
+            aria-label="Filter activity"
+          >
+            {#if timeline.length > 3}
+              {#each filterChips as chip (chip.value)}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-pressed={!unresolvedOnly && filter === chip.value}
+                  class="cursor-pointer rounded-md px-2 py-1 text-[0.6875rem] font-medium transition-colors {!unresolvedOnly &&
+                  filter === chip.value
+                    ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-art-border)]'
+                    : 'text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                  onclick={() => setFilter(chip.value)}
                 >
-                  · {openedTime}</span
-                >{/if}
-            </p>
-          </li>
-
-          <!-- Commits, review threads, and session comments, interleaved by
-               time (see buildActivityTimeline). The connector threads through
-               every row but the last. -->
-          {#each timeline as event, i (activityEventKey(event))}
-            {@const isLast = i === timeline.length - 1}
-            {#if event.kind === "commits"}
-              <li class="relative flex gap-3">
-                <div class="flex flex-col items-center">
-                  <span
-                    class="grid size-6 shrink-0 place-items-center rounded-full bg-(--solus-art-raised) text-(--solus-text-tertiary)"
-                  >
-                    <GitCommitIcon size={13} weight="bold" />
-                  </span>
-                  {#if !isLast}
-                    <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
-                  {/if}
-                </div>
-                <div class="mt-0.5 min-w-0 flex-1 pb-6">
-                  <p class="text-[0.8125rem] text-(--solus-text-secondary)">
-                    <span class="font-medium text-(--solus-text-primary)"
-                      >{commitRunAuthorLabel(event.commits, authorName)}</span
-                    >
-                    added {event.commits.length}
-                    {event.commits.length === 1
-                      ? "commit"
-                      : "commits"}<span class="text-(--solus-text-tertiary)">
-                      · {formatTimeAgoFromTimestamp(event.ts)}</span
-                    >
-                  </p>
-                  <ul
-                    class="mt-2.5 flex flex-col divide-y divide-(--solus-art-border) overflow-hidden rounded-xl border border-(--solus-art-border) bg-white dark:bg-white/3"
-                    role="list"
-                  >
-                    {#each event.commits as commit (commit.sha)}
-                      <li class="flex items-center gap-2.5 px-3 py-2">
-                        <GitCommitIcon
-                          size={13}
-                          weight="bold"
-                          class="shrink-0 text-(--solus-text-tertiary)"
-                        />
-                        <span
-                          class="min-w-0 flex-1 truncate text-[0.8125rem] text-(--solus-text-secondary)"
-                          >{commit.message}</span
-                        >
-                        <span
-                          class="max-w-36 shrink truncate text-[0.75rem] font-medium text-(--solus-text-tertiary)"
-                          >{commit.author || authorName}</span
-                        >
-                        <code
-                          class="shrink-0 rounded-md bg-(--solus-art-raised) px-1.5 py-0.5 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
-                          >{commit.sha.slice(0, 7)}</code
-                        >
-                      </li>
-                    {/each}
-                  </ul>
-                </div>
-              </li>
-            {:else if event.kind === "thread"}
-              <li class="relative flex gap-3">
-                <div class="flex flex-col items-center">
-                  <span
-                    class={event.thread.isResolved
-                      ? "grid size-6 shrink-0 place-items-center rounded-full bg-[color:color-mix(in_srgb,var(--solus-art-positive)_12%,transparent)] text-(--solus-art-positive)"
-                      : "grid size-6 shrink-0 place-items-center rounded-full bg-(--solus-art-raised) text-(--solus-text-tertiary)"}
-                  >
-                    {#if event.thread.isResolved}
-                      <CheckCircleIcon size={13} weight="fill" />
-                    {:else}
-                      <ChatCircleIcon size={13} weight="fill" />
-                    {/if}
-                  </span>
-                  {#if !isLast}
-                    <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
-                  {/if}
-                </div>
-
-                <div class="-mt-1 min-w-0 flex-1 pb-6">
-                  <PrThreadCard
-                    thread={event.thread}
-                    onJump={jumpToFile}
-                    onReply={replyToThread}
-                    onResolve={resolveThread}
-                  />
-                </div>
-              </li>
-            {:else}
-              <li class="relative flex gap-3">
-                <div class="flex flex-col items-center">
-                  <PrAvatar name={event.comment.author} size="size-6 text-[0.625rem]" />
-                  {#if !isLast}
-                    <span class="my-1 w-px flex-1 bg-(--solus-art-border)"></span>
-                  {/if}
-                </div>
-                <div class="mt-0.5 min-w-0 flex-1 pb-6">
-                  <div class="mb-1 text-[0.8125rem]">
-                    <span class="font-medium text-(--solus-text-primary)"
-                      >{event.comment.author}</span
-                    >
-                    <span class="text-(--solus-text-tertiary)">
-                      · {formatTimeAgoFromTimestamp(event.comment.ts)}</span
-                    >
-                  </div>
-                  <p
-                    class="text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-(--solus-text-secondary)"
-                  >
-                    {event.comment.body}
-                  </p>
-                </div>
-              </li>
+                  {chip.label}
+                </Button>
+              {/each}
             {/if}
-          {/each}
-        </ol>
+            {#if unresolvedCount > 0}
+              <Button
+                type="button"
+                variant="ghost"
+                aria-pressed={unresolvedOnly}
+                class="cursor-pointer rounded-md px-2 py-1 text-[0.6875rem] font-medium tabular-nums transition-colors {unresolvedOnly
+                  ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-art-border)]'
+                  : 'text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                onclick={toggleUnresolved}
+              >
+                {unresolvedCount} unresolved
+              </Button>
+            {/if}
+          </div>
+        </div>
 
-        <!-- Composer -->
+        <ActivityTimeline
+          events={visibleTimeline}
+          loading={timelineLoading}
+          filtered={timelineFiltered}
+          {authorName}
+          {openedAt}
+          onJump={jumpToFile}
+          onReply={replyToThread}
+          onResolve={resolveThread}
+        />
+
+        <!-- Composer: aligned with the timeline's content column and
+             hairline-ringed like the thread panels so it reads as part of the
+             editorial system. -->
         <div
-          class="mt-3 flex items-center gap-2.5 rounded-xl border border-(--solus-art-border) bg-white px-3 py-2.5 focus-within:border-(--solus-accent) dark:bg-white/3"
+          class="mt-6 ml-11 flex items-center gap-2.5 rounded-xl bg-white/60 p-2.5 pr-3 shadow-[0_0_0_1px_var(--solus-art-border)] transition-[box-shadow] duration-150 ease-out focus-within:shadow-[0_0_0_1px_var(--solus-accent)] dark:bg-white/2"
         >
-          <PrAvatar name="You" size="size-6 text-[0.625rem]" />
+          <PrAvatar
+            name={viewerLogin || "?"}
+            url={viewerAvatarUrl}
+            size="size-6 text-[0.625rem]"
+          />
           <MarkdownEditor
             value={composer}
             onValueChange={(md) => (composer = md)}
@@ -558,23 +613,23 @@
             enterInsertsNewline
             hidePlaceholderOnFocus
             maxHeight={160}
-            placeholder="Leave a comment…"
+            placeholder="Write a comment…"
             class={composerFieldClass}
           />
-          <button
+          <Button
             type="button"
             disabled={!composer.trim() || posting}
-            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+            class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Post comment"
-            use:tooltip={"Comment · ⌘↵"}
+            title="Comment · ⌘↵"
             onclick={postComment}
           >
             <ArrowUpIcon size={15} weight="bold" />
-          </button>
+          </Button>
         </div>
       </main>
 
-      <!-- ── Right rail: status + meta, changed files ── -->
+      <!-- ── Right rail: status + actions, reviewers, changed files ── -->
       <PrActivityRail
         {detail}
         {reviewers}
@@ -582,7 +637,29 @@
         {changedFiles}
         {filesLoading}
         {openedTime}
+        {checks}
+        {unresolvedCount}
         onFileJump={(path) => jumpToFile(path)}
+        actions={prActions}
       />
     </div>
 </div>
+
+{#snippet prActions()}
+  <PrActions
+    pr={{ number: pr.number, title: pr.title, host: pr.host }}
+    {detail}
+    {showRemoteLink}
+    {prUrl}
+    {feedbackCount}
+    {guideStatus}
+    onGenerateGuide={generateGuide}
+    {addressCommentsReady}
+    {addressingComments}
+    onAddressComments={onAddressComments ? addressComments : undefined}
+    {onChat}
+    getCtx={feedCtx}
+    onOpenRemote={openPr}
+    onRefresh={refresh}
+  />
+{/snippet}

@@ -50,22 +50,82 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   }
   readonly permissions = new FakePermissions()
   running = new Set<string>()
+  lastInput: SessionRunInput | undefined
+  inputs: SessionRunInput[] = []
+  private nextSession = 1
+  private handles = new Map<string, RunHandle>()
+  private pendingHandles = new Set<RunHandle>()
 
-  startRun(_input: SessionRunInput, _options: PromptOptions): RunHandle {
-    throw new Error('not used')
+  startRun(input: SessionRunInput, _options: PromptOptions): RunHandle {
+    this.lastInput = input
+    this.inputs.push(input)
+    const sessionId = input.agentSessionId ?? `headless-${this.nextSession++}`
+    let resolveRun!: () => void
+    let rejectRun!: (err: Error) => void
+    const runPromise = new Promise<void>((resolve, reject) => {
+      resolveRun = resolve
+      rejectRun = reject
+    })
+    const handle: RunHandle = {
+      sessionId: input.agentSessionId,
+      startedAt: Date.now(),
+      toolCallCount: 0,
+      sawPermissionRequest: false,
+      permissionDenials: [],
+      abortController: new AbortController(),
+      runPromise,
+      _resolveRun: resolveRun,
+      _rejectRun: rejectRun,
+    }
+    this.pendingHandles.add(handle)
+    handle.abortController.signal.addEventListener('abort', () => {
+      this.pendingHandles.delete(handle)
+      rejectRun(new Error('Interrupted'))
+    }, { once: true })
+    queueMicrotask(() => {
+      if (handle.abortController.signal.aborted) return
+      handle.sessionId = sessionId
+      this.pendingHandles.delete(handle)
+      this.handles.set(sessionId, handle)
+      this.running.add(sessionId)
+      this.emit('normalized', sessionId, {
+        type: 'session_init',
+        sessionId,
+        model: input.model,
+        skills: [],
+      } satisfies NormalizedEvent)
+    })
+    return handle
+  }
+  complete(sessionId: string, result: string): void {
+    const handle = this.handles.get(sessionId)
+    if (!handle) throw new Error(`Unknown session ${sessionId}`)
+    this.emit('normalized', sessionId, {
+      type: 'task_complete',
+      result,
+      costUsd: 0,
+      durationMs: 1,
+      numTurns: 1,
+      usage: {},
+      sessionId,
+    } satisfies NormalizedEvent)
+    handle._resolveRun()
+    this.running.delete(sessionId)
+    this.emit('exit', sessionId, 0, null)
   }
   cancelSession(sessionId: string): boolean {
+    this.handles.get(sessionId)?.abortController.abort()
     this.running.delete(sessionId)
     return true
   }
   isSessionRunning(sessionId: string): boolean {
     return this.running.has(sessionId)
   }
-  getSessionHandle(): RunHandle | undefined {
-    return undefined
+  getSessionHandle(sessionId: string): RunHandle | undefined {
+    return this.handles.get(sessionId)
   }
   getPendingHandles(): RunHandle[] {
-    return []
+    return [...this.pendingHandles]
   }
   getEnrichedError() {
     return { message: 'error', isError: true, stderrTail: [] }
@@ -149,6 +209,183 @@ afterEach(() => {
   for (const plane of planes.splice(0)) plane.shutdown()
 })
 
+describe('ControlPlane headless sessions', () => {
+  test('starts a headless session without creating tab-scoped state', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+
+    const result = await env.controlPlane.createSession({
+      prompt: 'Run in the background',
+      provider: 'codex',
+      modelId: 'gpt-test',
+      reasoningEffort: 'medium',
+      contextWindow: null,
+      cwd: process.cwd(),
+    })
+
+    expect(result.agentSessionId).toBe('headless-1')
+    expect('tabId' in (env.backend.lastInput ?? {})).toBe(false)
+    const internals = env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+      tabWatchKeys: Map<string, string>
+    }
+    expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toEqual(env.backend.lastInput)
+    expect(internals.tabWatchKeys.size).toBe(0)
+  })
+
+  test('resumes an explicit session target without tab routing state', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: 'cold-session',
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'session', sessionId: 'cold-session' },
+      options: {
+        prompt: 'Continue in the background',
+        displayPrompt: 'Continue in the background',
+      },
+    })
+    const result = await lifecycle.agentSessionId
+
+    expect(result.agentSessionId).toBe('cold-session')
+    expect(lifecycle.disposition).toBe('started')
+    expect(env.backend.lastInput).toEqual(input)
+    const tabWatchKeys = (env.controlPlane as unknown as { tabWatchKeys: Map<string, string> }).tabWatchKeys
+    expect(tabWatchKeys.size).toBe(0)
+  })
+
+  test('exposes an automation session at init while completion stays attached to the same run', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+
+    const lifecycle = await env.controlPlane.startAutomationSession({
+      prompt: 'Run unattended',
+      automationId: 'automation-1',
+      automationName: 'Nightly check',
+      provider: 'codex',
+      modelId: 'gpt-test',
+      reasoningEffort: 'medium',
+      cwd: process.cwd(),
+    })
+
+    expect(lifecycle.agentSessionId).toBe('headless-1')
+    expect(env.backend.lastInput?.permissionMode).toBe('auto')
+    expect(env.backend.lastInput?.toolProfile).toBe('automation')
+
+    env.backend.complete(lifecycle.agentSessionId, 'Automation finished')
+    await expect(lifecycle.done).resolves.toEqual({ output: 'Automation finished' })
+  })
+
+  test('returns the same lifecycle shape for a queued turn and cancels by queue id', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('busy-session')
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: 'busy-session',
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'session', sessionId: 'busy-session' },
+      options: { prompt: 'Queue me' },
+    })
+
+    expect(lifecycle.disposition).toBe('queued')
+    await expect(lifecycle.agentSessionId).resolves.toEqual({ agentSessionId: 'busy-session' })
+    expect(env.backend.inputs).toHaveLength(0)
+
+    lifecycle.cancel()
+    await expect(lifecycle.done).rejects.toThrow('Cancelled by user')
+  })
+
+  test('cancels a new run before session_init through the shared lifecycle', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: null,
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'new-session' },
+      options: { prompt: 'Cancel before init' },
+    })
+    lifecycle.cancel()
+
+    await expect(lifecycle.agentSessionId).rejects.toThrow('Interrupted')
+    await expect(lifecycle.done).rejects.toThrow('Interrupted')
+  })
+})
+
+describe('ControlPlane idle-tab Git environments', () => {
+  test('broadcasts live Git state without requiring a backend session', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.controlPlane.createTab('idle-tab', { clientId: 'ws:a', deviceId: 'device-1' })
+    env.controlPlane.setTabGitEnvironment('idle-tab', process.cwd(), {
+      repoRoot: process.cwd(),
+      branch: 'stale-branch',
+      targetBranch: 'main',
+    })
+
+    await (env.controlPlane as unknown as { _onGitWatchFire(cwd: string): Promise<void> })._onGitWatchFire(process.cwd())
+
+    expect(env.events.some(({ tabId, event }) => tabId === 'idle-tab' && event.type === 'git_status')).toBe(true)
+    expect(env.events.some(({ tabId, event }) => tabId === 'idle-tab' && event.type === 'git_context')).toBe(true)
+  })
+})
+
 describe('ControlPlane device-scoped tab watches', () => {
   test('keeps a deferred Codex account limit hidden after the active turn settles', () => {
     const env = setup()
@@ -185,8 +422,11 @@ describe('ControlPlane device-scoped tab watches', () => {
     expect(terminalEvents.map((event) => event.type)).toEqual([
       'status_change',
       'task_complete',
-      'status_change',
     ])
+    expect(terminalEvents[0]).toMatchObject({
+      type: 'status_change',
+      status: 'completed',
+    })
     expect(terminalEvents.some((event) => event.type === 'prompt_queued')).toBe(false)
   })
 

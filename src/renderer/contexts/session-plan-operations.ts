@@ -17,11 +17,11 @@ function resolvePlanTabId(ctx: WorkspaceContext, plan: Plan): string {
 }
 
 export function clearPlanWaiting(ctx: WorkspaceContext, sessionId: string): void {
-  const planId = ctx.artifactViewer.activePlanId
+  const planId = ctx.panes.activePlanId
   if (!planId) return
   const plan = ctx.planStore.plans[planId]
   if (plan?.sessionId === sessionId && plan.status !== 'pending') {
-    ctx.artifactViewer.close()
+    ctx.panes.close()
   }
 }
 
@@ -59,13 +59,13 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
 
   // `secondary` forces the plan beside the conversation in the secondary pane
   // (the conversation-ref "pop out to side" action); otherwise it takes Focus.
-  if (opts.secondary) ctx.artifactViewer.moveToSecondary({ kind: 'plan', planId: targetPlanId })
-  else ctx.artifactViewer.openPlan(targetPlanId)
+  if (opts.secondary) ctx.panes.moveToSecondary({ kind: 'plan', planId: targetPlanId })
+  else ctx.panes.openPlan(targetPlanId)
   ctx.isExpanded = true
 }
 
 export function closePlanModal(ctx: WorkspaceContext): void {
-  ctx.artifactViewer.close()
+  ctx.panes.close()
 }
 
 export function requestConversationScrollToBottom(tabId: string): void {
@@ -117,7 +117,7 @@ export async function approvePlanWithModel(
   session.permissionMode = mode
 
   if (wasPreview && useWorktree && !session.gitContext) {
-    await ctx.env.refreshGitEnvironment({ tabId, cwd: plan.cwd })
+    await ctx.environment.refreshTab(ctx, { tabId, cwd: plan.cwd })
   }
 
   if (useWorktree !== undefined) {
@@ -251,7 +251,7 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
   ctx.plansGalleryOpen = false
   ctx.planStore.previewDescriptor = d
   ctx.planStore.openPreview(planId)
-  ctx.artifactViewer.openPlan(planId)
+  ctx.panes.openPlan(planId)
 }
 
 export async function resumeFromPreview(ctx: WorkspaceContext): Promise<void> {

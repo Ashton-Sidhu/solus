@@ -82,7 +82,10 @@
       session.openWorkModal(workParams.workId, workParams.title);
     } else if (fileRef) {
       e.preventDefault();
-      requestFilePreview({ ...fileRef, tabId: session.activeTabId });
+      requestFilePreview({
+        ...fileRef,
+        tabId: session.focusedChatTabId ?? session.activeTabId,
+      });
     } else if (href) {
       e.preventDefault();
       window.solus.openExternal(href);

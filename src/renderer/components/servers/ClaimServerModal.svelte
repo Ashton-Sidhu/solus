@@ -2,12 +2,12 @@
   import { tick } from "svelte";
   import { CheckCircleIcon, KeyIcon, XIcon } from "phosphor-svelte";
   import { claimServer, desktopDeviceLabel, type ClaimServerResult } from "@client-core/pairing";
+  import { toasts } from "../../contexts/toast.store.svelte";
   import { discoveredServerUrl } from "./discovery";
   import { serversStore } from "./servers.store.svelte";
   import { Input } from "../ui/input";
 
   let code = $state("");
-  let error = $state<string | null>(null);
   let busy = $state(false);
   let claimed = $state<ClaimServerResult | null>(null);
   let codeInput: HTMLInputElement | null = $state(null);
@@ -22,7 +22,6 @@
 
   function reset() {
     code = "";
-    error = null;
     busy = false;
     claimed = null;
   }
@@ -36,12 +35,11 @@
     if (!target) return;
     const trimmed = code.trim();
     if (!/^\d{6}$/.test(trimmed)) {
-      error = "Enter the 6-digit claim code from the server terminal.";
+      toasts.error("Enter the 6-digit claim code from the server terminal.");
       return;
     }
 
     busy = true;
-    error = null;
     try {
       const result = await claimServer({
         url: serverUrl,
@@ -53,7 +51,7 @@
       serversStore.dismissedDiscovered.add(target.installationId);
       claimed = result;
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      toasts.error(`Couldn't claim server: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       busy = false;
     }
@@ -124,10 +122,6 @@
             <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Claim code</span>
             <Input bind:ref={codeInput} bind:value={code} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 font-mono text-[0.8125rem] tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
           </label>
-
-          {#if error}
-            <div class="rounded-lg bg-(--solus-status-error-bg) px-3 py-2 text-[0.75rem] text-(--solus-status-error)">{error}</div>
-          {/if}
 
           <div class="flex justify-end gap-2 pt-1">
             <button type="button" class="rounded-lg px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Cancel</button>

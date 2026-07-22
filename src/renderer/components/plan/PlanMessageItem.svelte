@@ -65,7 +65,7 @@
   }
 
   function openWorkSecondary() {
-    if (ref.id) session.artifactViewer.moveToSecondary({ kind: "work", workId: ref.id });
+    if (ref.id) session.panes.moveToSecondary({ kind: "work", workId: ref.id });
   }
 
   function openPlan() {

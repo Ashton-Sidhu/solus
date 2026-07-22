@@ -177,7 +177,7 @@ export class ClaudeAgent {
                 userMessagePreview,
                 editedFiles: normalizer.editedFiles,
               })
-              if (changedFiles) yield { type: 'changed_files_updated', paths: changedFiles }
+              if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
             }
             catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
           }
@@ -202,7 +202,7 @@ export class ClaudeAgent {
                 userMessagePreview,
                 editedFiles: normalizer.editedFiles,
               })
-              if (changedFiles) yield { type: 'changed_files_updated', paths: changedFiles }
+              if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
             }
             catch (e) { log.warn(`onTurnComplete (abort) failed: ${e}`) }
           }

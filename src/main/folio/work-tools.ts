@@ -9,7 +9,6 @@ import { reapplyLayout } from '../../shared/diagram-layout'
 import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
 import { artifactTool, type ArtifactToolDeps } from './artifact-tools'
-import { reviewLedgerTool } from '../review/ledger-tool'
 import { automationSdkTools, type OnAutomationSaved } from '../automations/automation-tools'
 import { sessionSdkTools, type OnSessionCreated, type OnSessionPrompted, type OnSessionStopped } from '../sessions/session-tools'
 import { taskSdkTools, type OnTaskCreated } from '../tasks/task-tools'
@@ -306,11 +305,6 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
         toToolResult(await executeWorkTool('update_work', args as Record<string, unknown>, createDeps())),
       ),
       artifactTool({ onArtifact: deps.onArtifact }),
-      reviewLedgerTool({
-        cwd: deps.createCtx.cwd,
-        sessionId: deps.createCtx.sessionId,
-        now: () => new Date().toISOString(),
-      }),
       // Automation tools are omitted for headless runs (fork-bomb guard) — an
       // automation must not be able to create or trigger more automations.
       ...(deps.includeAutomationTools === false

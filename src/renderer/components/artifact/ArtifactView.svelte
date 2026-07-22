@@ -442,7 +442,15 @@
     transform: translateY(0) scale(1);
   }
 
-  .artifact-action:hover,
+  .artifact-action:hover {
+    background: var(--solus-surface-hover);
+    border-color: var(--solus-accent-border-medium);
+    color: var(--solus-accent);
+    box-shadow:
+      0 0.125rem 0.25rem rgba(0, 0, 0, 0.1),
+      0 0.375rem 1rem rgba(0, 0, 0, 0.08);
+  }
+
   .artifact-action.is-copied {
     background: color-mix(
       in srgb,

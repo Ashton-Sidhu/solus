@@ -24,6 +24,7 @@
     DotsThreeIcon,
   } from "phosphor-svelte";
   import { runtime } from "../../contexts/runtime.svelte";
+  import { toasts } from "../../contexts/toast.store.svelte";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import FindReplaceBar from "../editor/FindReplaceBar.svelte";
@@ -95,7 +96,6 @@
       googleUpload?: () => void;
       uploading: boolean;
       uploaded: boolean;
-      uploadError: string | null;
     }]>;
     rail?: Snippet;
     footer?: Snippet;
@@ -214,7 +214,6 @@
   let copied = $state(false);
   let uploading = $state(false);
   let uploaded = $state(false);
-  let uploadError = $state<string | null>(null);
   let isSaving = $state(false);
   let hasPendingSave = $state(false);
   let saveFailed = $state(false);
@@ -451,7 +450,6 @@
   async function handleGoogleUpload() {
     if (uploading) return;
     uploading = true;
-    uploadError = null;
     try {
       const markdown = currentMarkdown();
       const request = { title, markdown, oauthCallbackBaseUrl: googleOAuthCallbackBaseUrl() };
@@ -466,18 +464,18 @@
         }
       }
       if (isGoogleUploadError(result)) {
-        uploadError = result.error;
+        toasts.error(`Couldn't open in Google Docs: ${result.error}`);
       } else if (isGoogleAuthUrlResult(result)) {
-        uploadError = "Finish Google sign-in in your browser, then try again.";
+        toasts.error("Finish Google sign-in in your browser, then try again.");
       } else if (isGoogleDocResult(result)) {
         await openUrl(result.docUrl, { hideAppAfterOpen: true });
         uploaded = true;
         setTimeout(() => (uploaded = false), 1500);
       } else {
-        uploadError = "Google upload returned an unexpected response.";
+        toasts.error("Couldn't open in Google Docs: Google returned an unexpected response.");
       }
     } catch (err) {
-      uploadError = err instanceof Error ? err.message : "Upload failed";
+      toasts.error(`Couldn't open in Google Docs: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       uploading = false;
     }
@@ -492,11 +490,12 @@
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
       onDirtyChange?.(false);
-    } catch {
+    } catch (err) {
       // Keep the dirty flag on failure — clearing it would let the host treat
       // unsaved edits as clean (and an agent refresh clobber them). The header
       // shows a retry affordance and any further edit re-arms the save.
       saveFailed = true;
+      toasts.error(`Couldn't save document: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       isSaving = false;
     }
@@ -572,11 +571,11 @@
           {:else if saveFailed}
             <button
               type="button"
-              class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium text-(--solus-status-error) transition-[background] duration-(--duration-quick) ease-(--ease-premium) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_10%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
+              class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium transition-[background,color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
               onclick={() => void flushSave()}
               title="The last save failed — click to retry"
             >
-              Save failed — retry
+              Retry save
             </button>
           {:else if lastSavedAt !== null}
             <CheckIcon size={11} />
@@ -591,7 +590,6 @@
           googleUpload: bindings.googleUpload ? handleGoogleUpload : undefined,
           uploading,
           uploaded,
-          uploadError,
         })}
         <button type="button" data-testid={closeTestId} onclick={onClose} class="doc-shell-close" title="Close">
           <XIcon size={16} />

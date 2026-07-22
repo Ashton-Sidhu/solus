@@ -93,7 +93,7 @@
     ? 'bg-(--solus-accent-light)'
     : board
       ? 'focus-visible:bg-(--solus-surface-hover)'
-      : 'hover:bg-(--solus-accent-light) focus-visible:bg-(--solus-accent-light)'}"
+      : 'hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-accent-light)'}"
   role="button"
   tabindex="0"
   onclick={(e) => {

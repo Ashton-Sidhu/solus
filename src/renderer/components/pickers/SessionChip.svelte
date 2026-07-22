@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { CaretDownIcon, CodeIcon } from "phosphor-svelte";
+  import ClaudeIcon from "../ClaudeIcon.svelte";
+  import OpenAIBlossom from "./OpenAIBlossom.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
   import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
@@ -53,13 +55,22 @@
   );
   const agentName = $derived(agentLabel(ctx.activeAgent, agentContext.metadata));
 
+  // Leading brand glyph on the chip — Claude's starburst for claude-code, the
+  // OpenAI mark for codex, a generic code glyph otherwise.
+  const isClaude = $derived(ctx.activeAgent === "claude-code");
+  const isCodex = $derived(ctx.activeAgent === "codex");
+
   let open = $state(false);
   let triggerEl: HTMLButtonElement | null = $state(null);
 
-  function openFromShortcut() {
-    // The shortcut targets the main bar's chip; a split-scoped chip in the
-    // same visible layout must not also open.
-    if (tabId !== undefined) return;
+  function openFromShortcut(targetTabId?: string) {
+    const chipTabId = tabId ?? session.activeTabId;
+    if (
+      targetTabId === undefined
+        ? tabId !== undefined
+        : targetTabId !== chipTabId
+    )
+      return;
     if (isBusy) return;
     // Both the editor- and pill-mode layouts stay mounted, so two SessionChips
     // receive this shortcut. Only the one in the visible layout should open
@@ -79,7 +90,10 @@
   }
 
   $effect(() => {
-    const handler = () => openFromShortcut();
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      openFromShortcut(detail?.tabId);
+    };
     window.addEventListener("solus:toggle-session-settings-picker", handler);
     return () =>
       window.removeEventListener("solus:toggle-session-settings-picker", handler);
@@ -89,10 +103,21 @@
 <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && tabId === undefined) requestInputFocus() }}>
   <DropdownMenu.Trigger disabled={isBusy} bind:ref={triggerEl}>
     {#snippet child({ props })}
-      <button {...props} type="button" class="flex items-center gap-1 min-w-0 text-[0.75rem] rounded-full px-1.5 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)" style="cursor:{isBusy ? 'not-allowed' : 'pointer'}" use:tooltip={open ? null : isBusy ? "Stop the task to change session settings" : "Session settings"}>
-        <span class="truncate max-w-28">{modelLabel}</span>
-        <span class="flex-shrink-0 opacity-60">{reasoningLabel}</span>
-        <CaretDownIcon size={10} style="opacity:0.6" />
+      <button {...props} type="button" class="flex h-8 items-center gap-1.5 min-w-0 text-[0.8125rem] rounded-full pl-1 pr-2 transition-[background-color,color,scale] text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)" style="cursor:{isBusy ? 'not-allowed' : 'pointer'}" use:tooltip={open ? null : isBusy ? "Stop the task to change session settings" : "Session settings"}>
+        <span
+          class={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${isCodex ? "bg-white" : "bg-(--solus-accent-light) text-(--solus-accent)"}`}
+        >
+          {#if isClaude}
+            <ClaudeIcon size={14} />
+          {:else if isCodex}
+            <OpenAIBlossom size={14} />
+          {:else}
+            <CodeIcon size={14} class="flex-shrink-0" />
+          {/if}
+        </span>
+        <span class="truncate max-w-28 font-medium text-(--solus-text-primary)">{modelLabel}</span>
+        <span class="flex-shrink-0 text-(--solus-text-tertiary)">{reasoningLabel}</span>
+        <CaretDownIcon size={11} style="opacity:0.6" />
       </button>
     {/snippet}
   </DropdownMenu.Trigger>

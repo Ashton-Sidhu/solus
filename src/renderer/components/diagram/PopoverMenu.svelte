@@ -73,7 +73,7 @@
   }
 
   :global(.popover__item:hover) {
-    background: color-mix(in srgb, var(--solus-accent) 7%, transparent);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
 

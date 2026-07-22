@@ -41,7 +41,7 @@
     </div>
   {:else if loader.stale && loader.guide}
     <div
-      class="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[color:color-mix(in_srgb,var(--solus-accent)_25%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-accent)_7%,var(--solus-container-bg))] px-4 py-2 text-[0.75rem] text-(--solus-text-secondary)"
+      class="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[color:color-mix(in_srgb,var(--solus-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-accent)_12%,var(--solus-container-bg))] px-4 py-2 text-[0.75rem] text-(--solus-text-secondary)"
       role="status"
     >
       <span class="min-w-0 flex-1 truncate">
@@ -49,7 +49,7 @@
       </span>
       <button
         type="button"
-        class="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[0.6875rem] font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-accent-light)"
+        class="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[0.6875rem] font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-surface-hover)"
         onclick={() => loader.refresh()}
       >
         <ArrowsClockwiseIcon size={11} weight="bold" />
@@ -65,14 +65,27 @@
       ledger={loader.ledger}
       patch={loader.patch}
       {meta}
+      guideCurrent={!loader.stale}
       {onFileJump}
       {comments}
       {onCommentSave}
       {onCommentDelete}
     />
   {:else}
-    <p class="px-5 py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
-      {loader.guide?.summary ?? "No review guide for this branch yet."}
-    </p>
+    <div class="grid min-h-48 place-items-center px-5 py-8 text-center">
+      <div class="flex max-w-sm flex-col items-center">
+        <p class="text-[0.8125rem] text-pretty text-(--solus-text-tertiary)">
+          {loader.guide?.summary ?? "No review guide for this branch yet."}
+        </p>
+        <button
+          type="button"
+          class="mt-3 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-(--solus-accent-light) px-3 text-xs font-semibold text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+          onclick={() => loader.refresh()}
+        >
+          <ArrowsClockwiseIcon size={13} weight="bold" />
+          Generate guide
+        </button>
+      </div>
+    </div>
   {/if}
 </div>

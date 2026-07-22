@@ -146,7 +146,7 @@
     <FileTextIcon size={14} class="text-(--solus-text-tertiary) shrink-0" />
   {/snippet}
 
-  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded, uploadError })}
+  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded })}
     <WorkHeaderActions
       {inline}
       paneSlot={slot}
@@ -169,7 +169,6 @@
       onGoogleUpload={googleUpload}
       {uploading}
       {uploaded}
-      {uploadError}
     />
   {/snippet}
 

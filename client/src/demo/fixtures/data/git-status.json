@@ -1,0 +1,14 @@
+{
+  "repoRoot": "/home/demo/acme",
+  "branch": "feat/rate-limiting",
+  "targetBranch": "main",
+  "files": [
+    { "path": "src/ratelimit/tokenBucket.ts", "conflicted": false },
+    { "path": "src/middleware/rateLimit.ts", "conflicted": false },
+    { "path": "src/api/router.ts", "conflicted": false }
+  ],
+  "insertions": 52,
+  "deletions": 0,
+  "mergeInProgress": false,
+  "prUrl": "https://github.com/acme/acme/pull/142"
+}

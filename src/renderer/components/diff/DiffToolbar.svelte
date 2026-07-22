@@ -63,6 +63,10 @@
     onStepTurn: (dir: 1 | -1) => void;
     turnRunning?: boolean;
     mode?: "session" | "working-tree";
+    /** Hosted as a content tab inside another surface (PR review). That host
+     *  owns close/maximize chrome, so the panel's own would double it up —
+     *  and its X would read as "close the diff" while actually switching tabs. */
+    embedded?: boolean;
   }
 
   let {
@@ -96,6 +100,7 @@
     onStepTurn,
     turnRunning = false,
     mode = "session",
+    embedded = false,
   }: Props = $props();
 
   const showTurns = $derived(mode === "session" && turns.length > 0);
@@ -481,7 +486,7 @@
       </span>
     {/if}
 
-    {#if onToggleMaximize}
+    {#if onToggleMaximize && !embedded}
       <span
         class="desktop-only"
         use:tooltip={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
@@ -503,18 +508,20 @@
       </span>
     {/if}
 
-    <span class="desktop-only" use:tooltip={"Close (Esc)"}>
-      <Button
-        variant="ghost"
-        size="icon"
-        type="button"
-        onclick={onClose}
-        aria-label="Close diff panel"
-        class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
-      >
-        <XIcon size={12} />
-      </Button>
-    </span>
+    {#if !embedded}
+      <span class="desktop-only" use:tooltip={"Close (Esc)"}>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          onclick={onClose}
+          aria-label="Close diff panel"
+          class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+        >
+          <XIcon size={12} />
+        </Button>
+      </span>
+    {/if}
   </div>
 </div>
 

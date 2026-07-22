@@ -161,6 +161,23 @@ export const DIFFS_THEME_CSS = `
     color: var(--solus-diff-removed-text-vivid);
     background: var(--solus-diff-removed-number-vivid);
   }
+  /* Moved blocks keep their syntax shape but recede to context strength. Only
+     the character ranges changed inside a moved block regain vivid emphasis. */
+  [data-solus-moved],
+  [data-solus-moved] * {
+    color: var(--solus-text-tertiary) !important;
+    background-color: transparent !important;
+  }
+  [data-solus-move-edit] {
+    color: var(--solus-text-primary) !important;
+    border-radius: 2px;
+  }
+  [data-solus-move-edit='old'] {
+    background-color: var(--solus-diff-removed-emphasis-vivid) !important;
+  }
+  [data-solus-move-edit='new'] {
+    background-color: var(--solus-diff-added-emphasis-vivid) !important;
+  }
   /* Ensure annotations land in the correct grid column in split+wrap mode.
      Without these, auto-placement can put additions-side annotations in cols 1-2. */
   [data-diff-type='split'][data-overflow='wrap'] [data-deletions] > [data-gutter-buffer='annotation'] {

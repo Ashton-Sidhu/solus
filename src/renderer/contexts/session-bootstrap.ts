@@ -157,6 +157,7 @@ export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
           session.rateLimitInfo = null
         }
       }
+      await ctx.environment.refreshTab(ctx, { tabId, level: 'status' }).catch(() => null)
     }))
   } finally {
     ctx.runtimeSyncing = false
@@ -182,7 +183,7 @@ function _materializeTabs(
         agentSessionId: snapTab.agentSessionId,
         provider: snapTab.provider,
         status: 'idle',
-        workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.workspacePath || '~',
+        workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
         additionalDirs: [...snapTab.additionalDirs],
         gitContext: snapTab.gitContext,
         worktreeBaseBranch: snapTab.worktreeBaseBranch,
@@ -261,7 +262,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     if (!hasConversation(session)) {
       const sessionId = snapTab.agentSessionId
       const provider = (snapTab.provider ?? ctx.settings.activeAgent) as AgentId
-      const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.workspacePath || '~'
+      const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
       // Claude persists transcripts under the dir it actually ran in. Worktree
       // sessions ran in the worktree, not the project root, so load from there
       // or the .jsonl folder won't resolve and the transcript comes back empty.
@@ -313,6 +314,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     }
   }
 
-  await ctx.env.refreshGitEnvironment({ tabId: snapTab.tabId })
+  await ctx.environment.refreshTab(ctx, { tabId: snapTab.tabId })
   void ctx.refreshPluginCommands(session.workingDirectory, snapTab.tabId)
 }

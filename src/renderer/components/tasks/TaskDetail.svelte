@@ -50,6 +50,8 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
+  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
 
   interface Props {
     task: Task;
@@ -131,7 +133,7 @@
   const FIELD =
     "w-full text-xs text-(--solus-text-primary) bg-(--solus-surface-hover) rounded-md px-2 py-[0.375rem] border-0 " +
     "[outline:0.0625rem_solid_transparent] transition-[background-color,outline-color] duration-120 " +
-    "hover:bg-(--solus-accent-light) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
+    "hover:bg-(--solus-surface-hover) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
     "focus-visible:[outline:0.125rem_solid_color-mix(in_srgb,var(--solus-accent)_55%,transparent)] placeholder:text-(--solus-text-tertiary)";
   // Borderless right-aligned value input for dense property rows.
   const GHOST_INPUT =
@@ -146,7 +148,7 @@
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]";
   const ICON_BTN =
     "grid size-7 place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) cursor-pointer " +
-    "transition-colors duration-150 hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) " +
+    "transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)";
   const CRUMB_LINK =
     "border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer px-1 py-0.5 rounded-md " +
@@ -180,6 +182,7 @@
   // up flush with the title above it.
   const DESC_ALIGN = "[&_.ProseMirror]:!pl-0";
   const markdownRenderers = {
+    ...githubMarkdownRenderers,
     code: CodeBlock,
     codespan: TaskCommentCodeSpan,
     link: MarkdownLink,
@@ -700,10 +703,11 @@
                       >
                     </div>
                     <div
-                      class="prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+                      class="github-markdown prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
                     >
                       <SvelteMarkdown
                         source={c.body}
+                        extensions={githubMarkdownExtensions}
                         renderers={markdownRenderers}
                         sanitizeUrl={markdownSanitizeUrl}
                       />

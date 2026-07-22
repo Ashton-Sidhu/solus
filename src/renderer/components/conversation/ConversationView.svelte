@@ -138,7 +138,7 @@
 
   // The pool instance is on screen only while its tab is active; the split-pane
   // instance (forceVisible) is always on screen. Visibility gates autoscroll and
-  // streaming work; keybindings stay gated on the ACTIVE tab so the two visible
+  // streaming work; keybindings stay gated on the focused chat so the two visible
   // instances never both respond to one shortcut.
   const isVisible = $derived(forceVisible || tabId === session.activeTabId);
 
@@ -546,7 +546,7 @@
     session.retryLastMessage(tabId);
   }
 
-  const changedFiles = $derived(sess?.changedFiles ?? []);
+  const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
 
   useKeybinding(
     "conversation.scroll-top",
@@ -556,7 +556,7 @@
       await revealAll();
       if (scrollEl) animateScrollTo(scrollEl, 0);
     },
-    { enabled: () => tabId === session.activeTabId },
+    { enabled: () => tabId === session.focusedChatTabId },
   );
 
   useKeybinding(
@@ -566,7 +566,7 @@
       animateScrollTo(scrollEl, scrollEl.scrollHeight - scrollEl.clientHeight);
       isNearBottom = true;
     },
-    { enabled: () => tabId === session.activeTabId },
+    { enabled: () => tabId === session.focusedChatTabId },
   );
 
   useKeybinding(
@@ -578,7 +578,7 @@
         }),
       );
     },
-    { enabled: () => tabId === session.activeTabId },
+    { enabled: () => tabId === session.focusedChatTabId },
   );
 
   useKeybinding(
@@ -590,7 +590,7 @@
     },
     {
       enabled: () =>
-        tabId === session.activeTabId &&
+        tabId === session.focusedChatTabId &&
         (sess?.status === "running" || sess?.status === "connecting"),
     },
   );
@@ -972,18 +972,19 @@
         <ActionOrb
           {tabId}
           {onDiffToggle}
+          observeLayout={isVisible}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}
         />
       {/if}
 
       {#if showActivityStrip}
         <div
-          class="flex items-end gap-1.5 absolute pointer-events-none"
+          class="activity-strip flex items-end gap-1.5 absolute pointer-events-none"
+          class:activity-strip-editor={isEditorMode}
+          class:activity-strip-pill={!isEditorMode}
           style="bottom:{isEditorMode
             ? 3
-            : 16}px;height:2rem;left:0;right:0;{isEditorMode
-            ? `max-width:var(--solus-reading-max);margin-inline:auto;`
-            : `padding-inline:calc(1rem + var(--cv-pill-gutter));`}z-index:7"
+            : 16}px;height:2rem;z-index:7"
         >
           <div
             bind:clientWidth={activityReservedWidth}
@@ -1074,6 +1075,21 @@
      editor mode uses, just with locally-provided gutter room. */
   .cv-root {
     --cv-pill-gutter: 2.75rem;
+  }
+
+  /* Match the scroll area's 1rem side gutters before applying the reading
+     width cap. This keeps the activity label and orb on the same horizontal
+     bounds as the message column in narrow split panes. */
+  .activity-strip-editor {
+    left: 50%;
+    width: min(calc(100% - 2rem), var(--solus-reading-max));
+    transform: translateX(-50%);
+  }
+
+  .activity-strip-pill {
+    left: 0;
+    right: 0;
+    padding-inline: calc(1rem + var(--cv-pill-gutter));
   }
 
   /* Assistant rows whose timestamp sits in the column margin must opt out of

@@ -102,7 +102,6 @@ const SOLUS_TOOL_DECLINE_TEXT: Record<CodexSolusToolKind, string> = {
   session: 'The user declined this action.',
   pr: 'The user declined this PR review action.',
   artifact: 'The user declined this action.',
-  record_change: 'The user declined this action.',
 }
 const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
   work: 'Cannot modify works in plan mode. Exit plan mode to apply changes.',
@@ -111,7 +110,6 @@ const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
   session: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
   pr: 'Cannot modify PR review state in plan mode. Exit plan mode to apply changes.',
   artifact: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
-  record_change: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
 }
 const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
   work: 'Update a work the user has open',
@@ -120,7 +118,6 @@ const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
   session: 'Create a session',
   pr: 'Modify PR review state',
   artifact: 'Render an artifact',
-  record_change: 'Record a change',
 }
 
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
@@ -238,8 +235,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const handle: CodexRunHandle = {
       sessionId: runInput.agentSessionId,
-      tabId: runInput.tabId,
-      sourceTabId: runInput.tabId,
       threadId: runInput.agentSessionId,
       turnId: null,
       startedAt: Date.now(),
@@ -257,9 +252,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       repoRoot: null as string | null,
       cwd: runInput.workingDirectory,
       userMessagePreview: (options.prompt ?? '').slice(0, 80),
-      baseChangedFiles: new Set(runInput.changedFiles),
+      baseChangedFiles: new Set(runInput.sessionChangedFiles),
       turnDiffFiles: new Set(),
-      trackedFiles: new Set(runInput.changedFiles),
+      trackedFiles: new Set(runInput.sessionChangedFiles),
     }
 
     this.pendingRuns.push(handle)
@@ -296,7 +291,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // capability — include them unless a prior start rejected them.
       const toolsConfig = this.dynamicToolsUnavailable
         ? threadConfig
-        : { ...threadConfig, dynamicTools: codexSolusToolSchemas({ includeAutomationTools: true }) }
+        : {
+            ...threadConfig,
+            dynamicTools: codexSolusToolSchemas({ includeAutomationTools: runInput.toolProfile !== 'automation' }),
+          }
 
       const reasoningEffort = runInput.reasoningEffort ?? 'high'
 
@@ -673,7 +671,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.cacheFileChanges(params)
     if (msg.method === 'turn/diff/updated' && handle) {
       this.emit('normalized', sessionId, {
-        type: 'changed_files_updated',
+        type: 'session_changed_files_updated',
         paths: this.updateTrackedFilesFromTurnDiff(handle, params?.diff),
       })
     }
@@ -818,8 +816,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return (rawArgs && typeof rawArgs === 'object') ? rawArgs as Record<string, unknown> : {}
       }
 
-      // All solus dynamic tools (works, tasks, automations, sessions, artifacts,
-      // review ledger) dispatch through the shared executor. This backend keeps
+      // All solus dynamic tools (works, tasks, automations, sessions, and artifacts)
+      // dispatch through the shared executor. This backend keeps
       // the interactive concerns: gating mutating tools per permission mode and
       // emitting cards; the shared module owns the routing + execution.
       const cls = classifyCodexSolusTool(toolName)
@@ -984,9 +982,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const result = await snapshotTurn(workTree, repoRoot, sessionId, {
         partial,
         userMessagePreview: handle.userMessagePreview,
-        changedFiles: [...handle.trackedFiles],
+        sessionChangedFiles: [...handle.trackedFiles],
       })
-      return result?.changedFiles ?? null
+      return result?.sessionChangedFiles ?? null
     } catch (e) {
       log.warn(`snapshotOnTurnComplete failed: ${e}`)
       return null
@@ -1004,7 +1002,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const sessionId = handle.sessionId
     const changedFiles = await this.snapshotOnTurnComplete(handle, partial)
     if (changedFiles) {
-      this.emit('normalized', sessionId, { type: 'changed_files_updated', paths: changedFiles })
+      this.emit('normalized', sessionId, { type: 'session_changed_files_updated', paths: changedFiles })
     }
     for (const event of normalized) this.emit('normalized', sessionId, event)
     this.forgetRoutingForSession(sessionId)

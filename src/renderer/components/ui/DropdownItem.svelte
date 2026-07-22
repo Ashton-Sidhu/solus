@@ -77,7 +77,7 @@
 
   .dd-item:hover:not(:disabled),
   .dd-item--focused {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
 
@@ -89,7 +89,7 @@
   .dd-item--danger:hover:not(:disabled),
   .dd-item--danger.dd-item--focused {
     color: var(--solus-error);
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
 
   .dd-item:disabled {

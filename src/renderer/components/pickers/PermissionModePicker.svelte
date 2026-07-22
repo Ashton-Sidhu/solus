@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, CheckIcon, ShieldCheckIcon, PencilIcon, type IconWeight } from 'phosphor-svelte'
+  import { CaretDownIcon, ShieldCheckIcon, PencilIcon, type IconWeight } from 'phosphor-svelte'
   import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
   import { getAgentContext } from '../../contexts/agent.context.svelte'
   import { getStatusBarContext } from '../../contexts/status-bar.context.svelte'
@@ -59,13 +59,13 @@
       <button
         {...props}
         type="button"
-        class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-1.5 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+        class="flex h-8 items-center gap-1.5 text-[0.8125rem] rounded-full border border-(--solus-container-border) px-3 transition-[background-color,color,scale] text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
         use:tooltip={open ? null : tooltipLabel}
       >
-        {#if isPlan}<PencilIcon size={11} weight="fill" />{:else}<ShieldCheckIcon size={11} weight={isAuto ? 'fill' : 'regular'} />{/if}
+        {#if isPlan}<PencilIcon size={13} weight="fill" />{:else}<ShieldCheckIcon size={13} weight={isAuto ? 'fill' : 'regular'} />{/if}
         {#if !compact}{modeLabel}{/if}
-        <CaretDownIcon size={10} style="opacity:0.6" />
+        <CaretDownIcon size={11} style="opacity:0.6" />
       </button>
     {/snippet}
   </DropdownMenu.Trigger>
@@ -76,7 +76,6 @@
         <DropdownMenu.RadioItem value={opt.id} onSelect={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}>
           <Icon size={12} weight={opt.weight} class="shrink-0" />
           <span>{opt.label}</span>
-          {#if permissionMode === opt.id}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
         </DropdownMenu.RadioItem>
       {/each}
     </DropdownMenu.RadioGroup>

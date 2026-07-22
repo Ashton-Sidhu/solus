@@ -1,6 +1,6 @@
 import { existsSync } from 'fs'
 import path from 'path'
-import type { GitProjectStatus, GitProjectStatusFile, GitProjectStatusOptions } from '../../shared/types'
+import type { GitState, GitStateOptions, UncommittedFile } from '../../shared/types'
 import type { RepoRef } from '../providers/types'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
@@ -9,9 +9,10 @@ import { getDefaultBranch, getExistingPR } from './worktree-manager'
 
 const log = createLogger('main', 'git-helpers')
 
-export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'files'> {
+export function parseStatus(raw: string): { branch: string | null; files: UncommittedFile[]; hasMoreFiles: boolean } {
   let branch: string | null = null
-  const files: GitProjectStatusFile[] = []
+  const files: UncommittedFile[] = []
+  let hasMoreFiles = false
 
   for (const line of raw.split('\n')) {
     if (!line) continue
@@ -21,7 +22,10 @@ export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'fil
       continue
     }
     if (line.startsWith('#')) continue
-    if (files.length >= 200) continue
+    if (files.length >= 200) {
+      hasMoreFiles = true
+      continue
+    }
 
     const kind = line[0]
     let filePath = ''
@@ -41,10 +45,10 @@ export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'fil
     files.push({ path: filePath, conflicted })
   }
 
-  return { branch, files }
+  return { branch, files, hasMoreFiles }
 }
 
-const statusInflight = new Map<string, Promise<GitProjectStatus | null>>()
+const statusInflight = new Map<string, Promise<GitState | null>>()
 
 /**
  * Compute live branch, file, and conflict state for a working tree. The default
@@ -52,17 +56,17 @@ const statusInflight = new Map<string, Promise<GitProjectStatus | null>>()
  * every watcher fire and completed edit. Visible Git UI opts into those details.
  * Concurrent callers for the same cwd/detail level share one process pipeline.
  */
-export function computeGitProjectStatus(
+export function computeGitState(
   cwd: string,
-  options: GitProjectStatusOptions = {},
-): Promise<GitProjectStatus | null> {
+  options: GitStateOptions = {},
+): Promise<GitState | null> {
   if (!cwd || cwd === '~') return Promise.resolve(null)
 
   const key = `${cwd}\0${options.includeDetails ? 'details' : 'summary'}`
   const existing = statusInflight.get(key)
   if (existing) return existing
 
-  const pending = computeGitProjectStatusUncached(cwd, options)
+  const pending = computeGitStateUncached(cwd, options)
     .finally(() => {
       if (statusInflight.get(key) === pending) statusInflight.delete(key)
     })
@@ -70,25 +74,28 @@ export function computeGitProjectStatus(
   return pending
 }
 
-async function computeGitProjectStatusUncached(
+async function computeGitStateUncached(
   cwd: string,
-  options: GitProjectStatusOptions,
-): Promise<GitProjectStatus | null> {
+  options: GitStateOptions,
+): Promise<GitState | null> {
   if (options.includeDetails) {
     // Reuse an in-flight summary from the watcher/renderer instead of starting
     // a second status pipeline when the visible panel asks for details.
-    const status = await computeGitProjectStatus(cwd)
+    const status = await computeGitState(cwd)
     if (!status) return null
     const [workingTreeStats, prUrl] = await Promise.all([
       getWorkingTreeStats(cwd, status.repoRoot).catch(() => ({ additions: 0, deletions: 0 })),
       status.branch && status.branch !== status.targetBranch
-        ? getExistingPR(status.branch, cwd)
+        ? getExistingPR(status.branch, cwd, options.bypassCache === true)
         : Promise.resolve(null),
     ])
     return {
       ...status,
-      insertions: workingTreeStats.additions,
-      deletions: workingTreeStats.deletions,
+      uncommittedChanges: {
+        ...status.uncommittedChanges,
+        insertions: workingTreeStats.additions,
+        deletions: workingTreeStats.deletions,
+      },
       prUrl: prUrl ?? undefined,
     }
   }
@@ -97,10 +104,11 @@ async function computeGitProjectStatusUncached(
   if (!repoRoot) return null
 
   try {
-    const [statusRaw, inProgressPaths, targetBranch] = await Promise.all([
+    const [statusRaw, inProgressPaths, targetBranch, headSha] = await Promise.all([
       runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd),
       runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
       getDefaultBranch(cwd),
+      runAsync('git', ['rev-parse', 'HEAD'], cwd),
     ])
     const mergeInProgress = inProgressPaths
       .split('\n')
@@ -108,14 +116,19 @@ async function computeGitProjectStatusUncached(
     const status = parseStatus(statusRaw)
     return {
       repoRoot,
-      ...status,
+      headSha,
       targetBranch,
-      insertions: 0,
-      deletions: 0,
-      mergeInProgress,
+      branch: status.branch,
+      uncommittedChanges: {
+        files: status.files,
+        hasMoreFiles: status.hasMoreFiles,
+        insertions: 0,
+        deletions: 0,
+        mergeInProgress,
+      },
     }
   } catch (err: any) {
-    log.warn(`computeGitProjectStatus failed for ${cwd}: ${err?.message ?? err}`)
+    log.warn(`computeGitState failed for ${cwd}: ${err?.message ?? err}`)
     return null
   }
 }

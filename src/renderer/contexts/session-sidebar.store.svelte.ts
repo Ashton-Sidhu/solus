@@ -1,6 +1,5 @@
 import { createContext } from 'svelte'
 import type { AgentId, PinnedSession } from '../../shared/types'
-import { sessionEnvironment } from '../lib/git-context'
 import {
   branchKeyFor,
   findOpenTabForSession,
@@ -74,9 +73,8 @@ export class SessionSidebarStore {
       const projectKey = tabSess.gitContext?.repoRoot ?? tabSess.workingDirectory ?? '~'
       const projectLabel = projectByline(tabSess)
       const branchKey = branchKeyFor(tabSess)
-      // Sidebar needs identity only — pass no live status. env.name is the real
-      // branch name (or 'Workspace'); the Local/Worktree chip stays panel-only.
-      const env = sessionEnvironment(tabSess.gitContext ?? null, tabSess.worktreeBaseBranch ?? null)
+      const env = this.session.environment.environmentFor(tabId)
+      const branchLabel = tabSess.prReview?.title ?? env.name
       const attention = getAttentionState(tabSess, tabEntry, this.planStore.plans)
 
       if (!projectMap.has(projectKey)) {
@@ -86,7 +84,7 @@ export class SessionSidebarStore {
       const project = projectMap.get(projectKey)!
       if (!project.branches.has(branchKey)) {
         project.branches.set(branchKey, {
-          label: env.name,
+          label: branchLabel,
           kind: env.kind,
           pending: env.pending,
           tabIds: [],
@@ -94,6 +92,7 @@ export class SessionSidebarStore {
         })
       }
       const branch = project.branches.get(branchKey)!
+      if (tabSess.prReview) branch.label = tabSess.prReview.title
       branch.tabIds.push(tabId)
       // A group reads as pending only while every session in it is awaiting worktree creation.
       branch.pending = branch.pending && env.pending

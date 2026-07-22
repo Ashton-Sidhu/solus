@@ -111,13 +111,13 @@ export interface SnapshotOpts {
   /** Files this session modified. When provided, only these paths are staged
    *  instead of the full working tree — prevents cross-session leakage when
    *  multiple sessions share the same branch. */
-  changedFiles?: string[]
+  sessionChangedFiles?: string[]
 }
 
 export interface SnapshotTurnResult {
   snapshot: TurnSnapshot
   /** Files with a net change across the whole session after this snapshot. */
-  changedFiles: string[] | null
+  sessionChangedFiles: string[] | null
 }
 
 export async function snapshotTurn(
@@ -147,8 +147,8 @@ export async function snapshotTurn(
     const baseSha = await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
     await runAsync('git', [...treeArgs, 'read-tree', prev.tree], repoRoot, { env: indexEnv })
 
-    if (opts.changedFiles) {
-      await stageLivePaths(treeArgs, opts.changedFiles, repoRoot, indexEnv)
+    if (opts.sessionChangedFiles) {
+      await stageLivePaths(treeArgs, opts.sessionChangedFiles, repoRoot, indexEnv)
     } else {
       await runAsync('git', [...treeArgs, 'add', '-A'], repoRoot, { env: indexEnv })
     }
@@ -183,7 +183,7 @@ export async function snapshotTurn(
     }
     sidecar.turns.push(snap)
     writeSidecar(repoRoot, sessionId, sidecar)
-    let changedFiles: string[] | null = null
+    let sessionChangedFiles: string[] | null = null
     try {
       const sessionStats = baseSha === commitSha
         ? []
@@ -195,11 +195,11 @@ export async function snapshotTurn(
           commitSha,
           '--numstat',
         ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER }))
-      changedFiles = sessionStats.map((file) => file.path)
+      sessionChangedFiles = sessionStats.map((file) => file.path)
     } catch (err) {
       log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
     }
-    return { snapshot: snap, changedFiles }
+    return { snapshot: snap, sessionChangedFiles }
   } catch (err) {
     log.error(`snapshotTurn failed sid=${sessionId} turn=${turnIndex}: ${err}`)
     return null
@@ -432,6 +432,31 @@ function resolveNumstatPath(raw: string): string {
   return arrow.length === 2 ? arrow[1] : raw
 }
 
+/** Resolve a stacked comparison to the same merge-base semantics as a normal
+ * PR diff. Stack detection fetches these objects into the shared repository;
+ * the targeted fallback covers a cold worktree opened before that fetch. */
+export async function resolvePrDiffBase(
+  workTree: string,
+  repoRoot: string,
+  scope: Extract<DiffScope, { kind: 'pr' }>,
+): Promise<string> {
+  if (!scope.ownDeltaBaseSha) return scope.baseSha
+
+  const parentHead = scope.ownDeltaBaseSha
+  const available = await runAsync('git', ['rev-parse', '--verify', `${parentHead}^{commit}`], repoRoot)
+    .then(() => true, () => false)
+  if (!available && scope.parentPr) {
+    const ref = `refs/solus/pr/${scope.parentPr}`
+    await runAsync('git', ['fetch', 'origin', `pull/${scope.parentPr}/head:${ref}`], repoRoot)
+    // The graph's SHA is the contract. If the parent moved remotely, do not
+    // silently diff against the newly fetched head under the stale guide key.
+    await runAsync('git', ['rev-parse', '--verify', `${parentHead}^{commit}`], repoRoot)
+  }
+
+  const childHead = await runAsync('git', ['rev-parse', '--verify', 'HEAD'], workTree)
+  return runAsync('git', ['merge-base', parentHead, childHead], repoRoot)
+}
+
 /**
  * The single diff entry point for every scope. Resolves the scope to one
  * combined raw `git diff` patch:
@@ -462,7 +487,7 @@ export async function getDiff(
   // patch is exactly the PR's change set (same engine as the review companion).
   if (scope.kind === 'pr') {
     if (!workTree) return null
-    return getEpisodeDiff(workTree, repoRoot, scope.baseSha)
+    return getEpisodeDiff(workTree, repoRoot, await resolvePrDiffBase(workTree, repoRoot, scope))
   }
 
   if (!sessionId) return null
@@ -524,7 +549,7 @@ export async function getDiffStats(
 
   if (scope.kind === 'pr') {
     if (!workTree) return []
-    return getEpisodeNumstat(workTree, repoRoot, scope.baseSha)
+    return getEpisodeNumstat(workTree, repoRoot, await resolvePrDiffBase(workTree, repoRoot, scope))
   }
 
   if (!sessionId) return []

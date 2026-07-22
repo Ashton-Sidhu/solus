@@ -3,7 +3,9 @@ import type {
   DraftReview,
   DraftReviewComment,
   PrCommit,
+  PrConversationItem,
   PrFilter,
+  PrListPage,
   PrReviewer,
   PullRequestDetail,
   PullRequestOverview,
@@ -12,6 +14,7 @@ import type {
   ReviewComment,
   ReviewThread,
 } from '../../shared/providers'
+import type { NumberedPrChecksSummary } from '../../shared/checks-rpc-types'
 
 export type { AuthStatus, DeviceCodePrompt, ProviderId }
 // Host-neutral review DTOs now live in shared/ so preload + renderer can type
@@ -20,7 +23,9 @@ export type {
   DraftReview,
   DraftReviewComment,
   PrCommit,
+  PrConversationItem,
   PrFilter,
+  PrListPage,
   PrReviewer,
   PullRequestDetail,
   PullRequestOverview,
@@ -57,25 +62,28 @@ export interface ProviderAuth {
  */
 export interface ReviewProvider {
   listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequestSummary[]>
+  listPullRequestsPage(repo: RepoRef, filter?: PrFilter, page?: number, perPage?: number): Promise<PrListPage>
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequestDetail>
   getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
   listCommits(repo: RepoRef, number: number): Promise<PrCommit[]>
   listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]>
+  listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]>
+  listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]>
 
   createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void>
+  addIssueComment(repo: RepoRef, number: number, body: string): Promise<void>
   replyToThread(repo: RepoRef, threadId: string, body: string): Promise<ReviewComment>
   resolveThread(repo: RepoRef, threadId: string): Promise<void>
   unresolveThread(repo: RepoRef, threadId: string): Promise<void>
 
-  /** Merge via the host's merge button. `merged: false` + message when the host
-   *  refuses (conflicts, branch protection) — not an exception, so the merge
-   *  queue can fall back to local conflict resolution. */
+  /** Merge via the host's merge button. Host refusals are returned as
+   *  `merged: false` with a user-facing message. */
   mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }>
   /** Changed files with host-reported per-file add/delete counts. */
   listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]>
-  /** Changed file paths, for the merge queue's overlap-based auto-ordering. */
-  listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]>
+  /** Login for the token's viewer. Implementations cache this per token. */
+  getViewer(): Promise<string>
 }
 
 /** A host is the pair `{ auth, review }`, keyed by its `ProviderId`. */

@@ -1,13 +1,16 @@
 <script lang="ts">
   import { FileDashedIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import { Button } from "../ui/button";
 
   interface Props {
     selectedTurnIndex: number | null;
     isWorkingTreeScope: boolean;
     isWorktree: boolean;
     targetBranch: string;
-    onClose: () => void;
+    /** Absent when the panel is embedded in a host surface that owns closing. */
+    onClose?: () => void;
+    title?: string;
+    description?: string;
   }
 
   let {
@@ -16,6 +19,8 @@
     isWorktree,
     targetBranch,
     onClose,
+    title,
+    description,
   }: Props = $props();
 </script>
 
@@ -28,29 +33,32 @@
       <FileDashedIcon size={20} weight="duotone" />
     </span>
     <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
-      {selectedTurnIndex !== null
+      {title ?? (selectedTurnIndex !== null
         ? "No files touched in this turn"
         : isWorkingTreeScope
           ? "No uncommitted changes"
         : isWorktree
           ? `No changes since ${targetBranch}`
-          : "No changes yet"}
+          : "No changes yet")}
     </span>
     <span
       class="text-[0.6875rem] text-(--solus-text-tertiary) leading-snug max-w-[15rem]"
     >
-      {selectedTurnIndex !== null
+      {description ?? (selectedTurnIndex !== null
         ? "The agent didn't write or edit any files during this step."
         : isWorkingTreeScope
           ? "Staged and unstaged changes will appear here."
-          : "Changes will appear here as the agent edits files."}
+          : "Changes will appear here as the agent edits files.")}
     </span>
-    <button
-      onclick={onClose}
-      class="mt-1 text-[0.6875rem] text-(--solus-text-tertiary) hover:text-(--solus-text-secondary) transition-colors cursor-pointer"
-      use:tooltip={"Close diff panel (Esc)"}
-    >
-      Close panel
-    </button>
+    {#if onClose}
+      <Button
+        variant="link"
+        onclick={onClose}
+        class="mt-1 h-10 text-[0.6875rem] text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
+        title="Close diff panel (Esc)"
+      >
+        Close panel
+      </Button>
+    {/if}
   </div>
 </div>

@@ -58,7 +58,7 @@
           {@const isSelected = i === selectedIndex}
           <button
             onclick={() => onSelect(work)}
-            class="w-full flex items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-accent-light)"
+            class="w-full flex items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-surface-hover)"
             style="background:{isSelected ? 'var(--solus-accent-light)' : 'transparent'};box-shadow:{isSelected ? 'inset 0.125rem 0 0 var(--solus-accent)' : 'none'}"
           >
             <svg

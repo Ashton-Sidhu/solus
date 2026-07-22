@@ -65,7 +65,7 @@
       type="button"
       disabled
       aria-label="Finishing transcription"
-      class="w-9 h-9 rounded-full flex items-center justify-center bg-(--solus-mic-bg) text-(--solus-mic-color)"
+      class="w-9 h-9 rounded-full border border-(--solus-container-border) flex items-center justify-center text-(--solus-mic-color)"
     ><SpinnerGapIcon size={16} class="animate-spin" /></button>
   {:else}
     <button
@@ -74,18 +74,18 @@
       onclick={onToggle}
       {disabled}
       aria-label="Voice input"
-      class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:active:scale-[0.96]"
-      style="background:{waiting
-        ? 'var(--solus-accent)'
+      class="w-9 h-9 rounded-full border border-(--solus-container-border) flex items-center justify-center transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
+      style="{waiting
+        ? 'background:var(--solus-accent);'
         : progressPct !== null
-          ? `conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, var(--solus-mic-bg) 0deg)`
-          : 'var(--solus-mic-bg)'};color:{disabled
+          ? `background:conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, var(--solus-mic-bg) 0deg);`
+          : ''}color:{disabled
         ? 'var(--solus-mic-disabled)'
         : waiting
           ? 'var(--solus-text-on-accent)'
           : 'var(--solus-mic-color)'};opacity:{disabled ? 0.4 : 1}"
       use:tooltip={idleTooltip}
-    >{#if progressPct !== null}<span class="flex h-7 w-7 items-center justify-center rounded-full bg-(--solus-mic-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
+    >{#if progressPct !== null}<span class="flex h-7 w-7 items-center justify-center rounded-full bg-(--solus-input-pill-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
   {/if}
 {:else if state === 'recording'}
   <span class="rc-row">
@@ -169,7 +169,7 @@
       color var(--duration-base) var(--ease-premium);
   }
   .rc-action-btn:hover {
-    background: var(--solus-surface-active);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .rc-action-btn--confirm {

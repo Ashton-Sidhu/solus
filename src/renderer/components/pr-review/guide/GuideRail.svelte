@@ -143,7 +143,7 @@
   }
 </script>
 
-{#if items.length >= 2}
+{#if items.length >= 3}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <nav
     class="guide-nav"
@@ -153,10 +153,11 @@
     onmouseleave={() => (hovered = false)}
   >
     {#each items as it, i (it.id)}
+      <!-- Nav ticks, fully styled below: no button primitive, whose fixed height
+           would stretch the collapsed rail's 2px dashes into 32px rows. -->
       <button
         type="button"
-        class="guide-nav-row"
-        class:active={i === activeIndex}
+        class="guide-nav-row {i === activeIndex ? 'active' : ''}"
         title={it.title}
         aria-label={it.title}
         aria-current={i === activeIndex ? "true" : undefined}
@@ -207,7 +208,7 @@
     box-shadow: var(--solus-card-shadow-collapsed);
   }
 
-  .guide-nav-row {
+  :global(.guide-nav-row) {
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -219,7 +220,7 @@
     color: var(--solus-text-tertiary);
     cursor: pointer;
   }
-  .guide-nav.expanded .guide-nav-row {
+  .guide-nav.expanded :global(.guide-nav-row) {
     padding: 7px 11px;
   }
 
@@ -261,10 +262,10 @@
       opacity 0.16s ease,
       background-color 0.16s ease;
   }
-  .guide-nav-row.active {
+  :global(.guide-nav-row.active) {
     color: var(--solus-text-primary);
   }
-  .guide-nav-row.active .guide-nav-dash {
+  :global(.guide-nav-row.active) .guide-nav-dash {
     width: 25px;
     height: 2.5px;
     opacity: 1;
@@ -274,12 +275,15 @@
     display: none;
   }
 
-  .guide-nav.expanded .guide-nav-row:hover,
-  .guide-nav.expanded .guide-nav-row.active {
+  .guide-nav.expanded :global(.guide-nav-row:hover) {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .guide-nav.expanded :global(.guide-nav-row.active) {
     background: var(--solus-accent-light);
     color: var(--solus-text-primary);
   }
-  .guide-nav-row:focus-visible {
+  :global(.guide-nav-row:focus-visible) {
     outline: 2px solid var(--solus-accent);
     outline-offset: 2px;
   }

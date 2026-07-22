@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { GitProjectStatus, Session, TabGitContext } from '../../src/shared/types'
+import type { GitCheckout, GitState, Session } from '../../src/shared/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -11,20 +11,8 @@ afterEach(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
-describe('EnvironmentStore Git initialization', () => {
-  test('seeds the tab-less defaults before startup completes', async () => {
-    const status: GitProjectStatus = {
-      repoRoot: '/workspace',
-      branch: 'feature',
-      targetBranch: 'main',
-      files: [],
-      insertions: 0,
-      deletions: 0,
-      mergeInProgress: false,
-    }
-    let resolveStatus!: (status: GitProjectStatus) => void
-    const statusRequest = new Promise<GitProjectStatus>((resolve) => { resolveStatus = resolve })
-
+describe('Git state initialization', () => {
+  test('waits for tab-less Git state before startup completes', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
       { snapshot: <T>(value: T) => value },
@@ -32,121 +20,125 @@ describe('EnvironmentStore Git initialization', () => {
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
-      value: {
-        solus: {
-          start: async () => ({
-            version: 'test',
-            auth: null,
-            projectPath: '/workspace',
-            homePath: '/home/test',
-            workspacePath: '/workspace',
-            agents: [],
-          }),
-          gitProjectStatus: () => statusRequest,
-          getPluginCommands: async () => ({ global: [], project: [] }),
-        },
-      },
+      value: { solus: {
+        start: async () => ({ version: 'test', auth: null, projectPath: '/project', homePath: '/home/test', workspacePath: '/my-workspace', agents: [] }),
+        getPluginCommands: async () => ({ global: [], project: [] }),
+      } },
     })
-
-    const { EnvironmentStore } = await import('../../src/renderer/contexts/environment.store.svelte')
+    let finishRefresh!: () => void
+    const refresh = new Promise<void>((resolve) => { finishRefresh = resolve })
+    const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace-lifecycle.store.svelte')
     const globalDefaults = {
       permissionMode: 'auto' as const,
       workingDirectory: '~',
-      gitContext: null as TabGitContext | null,
+      gitContext: null as GitCheckout | null,
+      worktreeBaseBranch: null as string | null,
       modelConfig: { modelId: null, reasoningEffort: 'high' as const, contextWindow: null, fastMode: false },
     }
-    const store = new EnvironmentStore({
+    let refreshedDirectory: string | null = null
+    const store = new WorkspaceLifecycleStore({
       registry: { activeTabId: '', tabOrder: [], sessionFor: () => undefined } as any,
-      settings: {
-        activeAgent: 'codex',
-        worktreeEnabled: false,
-        update: () => {},
-      } as any,
+      settings: { activeAgent: 'codex', update: () => {} } as any,
       config: { globalDefaults } as any,
       planStore: {} as any,
-      setGitStatus: () => {},
+      refreshGitState: async () => {
+        refreshedDirectory = globalDefaults.workingDirectory
+        await refresh
+        globalDefaults.gitContext = { repoRoot: '/project', branch: 'main', targetBranch: 'main' }
+        return { status: true, details: true, refs: true, registration: true, ok: true }
+      },
       ctxFor: () => ({ session: { provider: null } }) as any,
       loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
     })
-
     let initialized = false
     const initialization = store.initStaticInfo().then(() => { initialized = true })
     await Promise.resolve()
     await Promise.resolve()
     expect(initialized).toBe(false)
-
-    resolveStatus(status)
+    finishRefresh()
     await initialization
-
-    expect(globalDefaults.workingDirectory).toBe('/workspace')
-    expect(globalDefaults.gitContext).toEqual({
-      repoRoot: '/workspace',
-      branch: 'feature',
-      targetBranch: 'main',
-    })
+    expect(globalDefaults.workingDirectory).toBe('/project')
+    expect(refreshedDirectory).toBe('/project')
+    expect(globalDefaults.gitContext?.targetBranch).toBe('main')
+    const { homeGitDetails } = await import('../../src/renderer/components/layout/lib/new-tab-home')
+    const home = homeGitDetails(
+      globalDefaults.workingDirectory,
+      undefined,
+      globalDefaults.gitContext,
+      globalDefaults.worktreeBaseBranch,
+    )
+    expect(home.canToggleWorktree).toBe(true)
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const environmentStore = new SessionEnvironmentStore()
+    environmentStore.bindWorkspace({
+      activeTabId: '',
+      tabOrder: [],
+      globalDefaults,
+      settings: { worktreeEnabled: false },
+      sessionFor: () => undefined,
+      ctxFor: () => ({ session: {} }),
+    } as any)
+    expect(environmentStore.environmentFor().name).toBe('Main')
   })
 
-  test('resolves a tab worktree checkout without erasing its environment identity', async () => {
+  test('refreshes and registers a worktree without erasing its path', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
       { snapshot: <T>(value: T) => value },
     )
-    const worktreeContext: TabGitContext = {
-      repoRoot: '/repo',
-      branch: 'solus/feature',
-      targetBranch: 'main',
-      worktreePath: '/repo/.solus-worktrees/feature',
-    }
+    const worktreePath = '/repo/.solus-worktrees/feature'
     const session = {
       workingDirectory: '/repo',
-      gitContext: worktreeContext,
+      gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath },
       worktreeBaseBranch: null,
     } as Session
-    let statusCwd: string | null = null
-    let storedCwd: string | null = null
+    let registered: GitCheckout | null = null
+    const state: GitState = {
+      repoRoot: '/repo',
+      headSha: 'abc123',
+      branch: 'feature-updated',
+      targetBranch: 'main',
+      uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+    }
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
-      value: {
-        solus: {
-          gitProjectStatus: async (cwd: string) => {
-            statusCwd = cwd
-            return {
-              repoRoot: cwd,
-              branch: 'solus/feature',
-              targetBranch: 'main',
-              files: [],
-              insertions: 0,
-              deletions: 0,
-              mergeInProgress: false,
-            } satisfies GitProjectStatus
-          },
-        },
-      },
+      value: { solus: {
+        gitRefreshState: async () => state,
+        gitRegisterEnvironment: async (_ctx: unknown, _cwd: string, gitContext: GitCheckout | null) => { registered = gitContext },
+      } },
     })
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const workspace = {
+      activeTabId: 'tab-1',
+      tabOrder: ['tab-1'],
+      globalDefaults: { workingDirectory: '/repo', gitContext: null },
+      settings: { worktreeEnabled: false },
+      sessionFor: () => session,
+      ctxFor: () => ({ session: {} }),
+    } as any
+    const result = await store.refreshTab(workspace, { tabId: 'tab-1' })
+    expect(result.ok).toBe(true)
+    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature-updated', targetBranch: 'main', worktreePath })
+    expect(registered).toEqual(session.gitContext)
+  })
 
-    const { EnvironmentStore } = await import('../../src/renderer/contexts/environment.store.svelte')
-    const store = new EnvironmentStore({
-      registry: {
-        activeTabId: 'tab-1',
-        tabOrder: ['tab-1'],
-        sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
-      } as any,
-      settings: { activeAgent: 'codex', worktreeEnabled: false } as any,
-      config: {
-        globalDefaults: { workingDirectory: '/repo', gitContext: null },
-      } as any,
-      planStore: {} as any,
-      setGitStatus: (cwd) => { storedCwd = cwd },
-      ctxFor: () => ({ session: { provider: null } }) as any,
-      loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
+  test('records a non-Git directory when the Environment panel requests details first', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: { gitRefreshState: async () => null } },
     })
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
 
-    const resolved = await store.refreshGitEnvironment({ tabId: 'tab-1' })
-
-    expect(statusCwd).toBe(worktreeContext.worktreePath!)
-    expect(storedCwd).toBe(worktreeContext.worktreePath!)
-    expect(resolved).toBe(worktreeContext)
-    expect(session.gitContext).toBe(worktreeContext)
+    expect(store.statusFor('/not-a-repo')).toBeUndefined()
+    expect(await store.refresh('/not-a-repo', { force: true, details: true })).toBe(true)
+    expect(store.statusFor('/not-a-repo')).toBeNull()
   })
 })

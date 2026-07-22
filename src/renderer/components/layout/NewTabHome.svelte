@@ -19,9 +19,11 @@
     CircleNotchIcon,
     ClockCountdownIcon,
     ArrowSquareInIcon,
+    GitPullRequestIcon,
+    ColumnsIcon,
   } from "phosphor-svelte";
   import { untrack } from "svelte";
-  import { getGitStatusStore } from "../../contexts/git-status.store.svelte";
+  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
   import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
@@ -30,18 +32,15 @@
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
-  import {
-    formatBranchDisplayName,
-    sessionEnvironment,
-  } from "../../lib/git-context";
+  import { formatBranchDisplayName } from "../../lib/git-context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import type {
     Tab,
     Automation,
     RecentProject,
     SessionMeta,
+    WorktreeEntry,
   } from "../../../shared/types";
-  import { worktreeProjectRoot } from "../../../shared/types";
   import type { Task } from "../../../shared/task-types";
   import {
     recentAutomationActivity,
@@ -50,6 +49,15 @@
     nextTasks,
     taskCounts,
   } from "./lib/home-control-hub";
+  import {
+    hasProjectScrollOverflow,
+    homeGitDetails,
+    homePresence,
+    homeShortcutTarget,
+    launchTargetDetails,
+    projectCarouselIndex,
+    sessionTitle,
+  } from "./lib/new-tab-home";
   import { relativeTime } from "../automations/lib/automation-format";
   import { STATUS_META } from "../tasks/lib/tasks-api";
   import Kbd from "../ui/Kbd.svelte";
@@ -67,16 +75,13 @@
   let { tab }: Props = $props();
 
   const session = getWorkspaceContext();
-  const gitStatus = getGitStatusStore();
+  const environmentStore = getSessionEnvironmentStore();
   const windowCtx = getWindowContext();
   const sess = $derived(tab ? session.sessionFor(tab.id) : undefined);
   const isEditorMode = $derived(
     windowCtx.viewMode === "editor" || windowCtx.isWeb,
   );
   const isMobile = $derived(runtime.isMobileViewport);
-  // On laptop-width screens, trim the recent-sessions list to reclaim vertical
-  // space — reuse the app's 1800px laptop/desktop cutoff (see InputBarRow).
-
   let sessionsLoaded = $state(false);
   let sessionsLoadSeq = 0;
   const projectMetadata = projectsStore;
@@ -87,72 +92,77 @@
   const currentDir = $derived(
     sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
   );
-  const projectRoot = $derived(
-    currentDir && currentDir !== "~" ? worktreeProjectRoot(currentDir) : null,
+  const gitHome = $derived(
+    homeGitDetails(
+      currentDir,
+      sess?.gitContext,
+      session.globalDefaults.gitContext,
+      sess?.worktreeBaseBranch ?? session.globalDefaults.worktreeBaseBranch,
+    ),
   );
-  const gitRefs = $derived(gitStatus.refsFor(projectRoot));
+  const projectRoot = $derived(gitHome.projectRoot);
+  const gitRefs = $derived(environmentStore.refsFor(projectRoot));
   const worktrees = $derived(gitRefs.worktrees);
   // One environment model so the hero matches the sidebar/panel. No live status
   // needed here — the hero is about identity (branch name) and worktree intent.
-  const env = $derived(
-    sessionEnvironment(
-      sess?.gitContext ?? session.globalDefaults.gitContext,
-      sess?.worktreeBaseBranch ?? null,
+  const env = $derived(environmentStore.environmentFor(tab?.id));
+  const worktreeBaseBranch = $derived(gitHome.baseBranch);
+  const canToggleWorktree = $derived(gitHome.canToggleWorktree);
+  const presence = $derived(
+    homePresence(
+      tab?.id,
+      session.activeTabId,
+      session.tabOrder.length,
+      session.panes.focusedPane,
+      session.panes.chatTabIn("secondary", session.activeTabId),
     ),
   );
-  const worktreeBaseBranch = $derived(
-    sess?.gitContext?.targetBranch ??
-      session.globalDefaults.gitContext?.targetBranch ??
-      "main",
-  );
-  // Worktree start only makes sense on a git repo that isn't already isolated.
-  const canToggleWorktree = $derived(
-    !!sess?.gitContext?.targetBranch && !sess?.gitContext?.worktreePath,
-  );
-  const isActiveHome = $derived(
-    tab ? session.activeTabId === tab.id : session.tabOrder.length === 0,
-  );
+  const isSplitHome = $derived(presence.isSplit);
+  const isActiveHome = $derived(presence.isActive);
+  const isFocusedHome = $derived(presence.isFocused);
 
   function toggleWorktree() {
     if (!canToggleWorktree) return;
-    session.toggleWorktreeMode();
-    requestInputFocus();
+    session.toggleWorktreeMode(tab?.id);
+    requestInputFocus(tab ? { tabId: tab.id } : undefined);
   }
 
   // ── Launch target: the cwd the next session starts in ──
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
-  const isWorkspaceTarget = $derived(
-    !!workspacePath &&
-      currentDir.replace(/\/+$/, "") === workspacePath.replace(/\/+$/, ""),
+  const launchDetails = $derived(
+    launchTargetDetails(currentDir, workspacePath),
   );
-  const launchName = $derived(
-    isWorkspaceTarget
-      ? "your workspace"
-      : currentDir.replace(/\/+$/, "").split("/").pop() ||
-          abbreviateHome(currentDir),
-  );
-  const sessionsLabel = $derived(
-    isWorkspaceTarget ? "Recent in workspace" : `Recent in ${launchName}`,
-  );
+  const isWorkspaceTarget = $derived(launchDetails.isWorkspace);
+  const launchName = $derived(launchDetails.name);
+  const sessionsLabel = $derived(launchDetails.sessionsLabel);
   const visibleSessions = $derived(sessions.slice(0, 3));
 
   function changeDirectory() {
-    window.dispatchEvent(new Event("solus:open-directory-picker"));
+    window.dispatchEvent(
+      new CustomEvent("solus:open-directory-picker", {
+        detail: { tabId: tab?.id },
+      }),
+    );
   }
 
   function goToWorkspace() {
     if (!workspacePath || isWorkspaceTarget) return;
     invalidateHomeCache();
-    void session.setBaseDirectory(workspacePath).then(
-      () => requestInputFocus(),
+    void session.setBaseDirectory(workspacePath, tab?.id).then(
+      () => requestInputFocus(tab ? { tabId: tab.id } : undefined),
       () => {},
     );
   }
 
+  async function openNewSplitChat() {
+    const splitTabId = await session.createTab(undefined, { activate: false });
+    session.openTabInSplit(splitTabId);
+  }
+
   const visibleWorktrees = $derived(worktrees.slice(0, 3));
 
-  // Empty-session tabs and the zero-tab home both mount NewTabHome. Hidden tab
-  // homes stay quiet, while the zero-tab home loads against the global defaults.
+  // Empty-session tabs and the zero-tab home both mount NewTabHome. The active
+  // primary and pinned split homes load; other mounted tab homes stay quiet.
   // Loaded flags start false, so a just-activated home shows its skeleton rather
   // than flashing empty while the first fetch resolves.
   $effect(() => {
@@ -196,12 +206,31 @@
     if (!projectRoot) return;
     const root = projectRoot;
     const ctx = untrack(() => session.ctxForDirectory(root));
-    void gitStatus.refreshRefs(root, ctx);
+    void environmentStore.refreshRefs(root, ctx);
   });
 
   // ── Control hub: automations + tasks ──
   const automationsStore = session.automationsStore;
   const tasksStore = session.tasksStore;
+  const prsStore = session.prsStore;
+
+  const needsReviewCount = $derived(
+    prsStore.needsReviewCountFor(session.ctxForDirectory(currentDir)),
+  );
+  const needsReviewMinutes = $derived(
+    prsStore.needsReviewMinutesFor(session.ctxForDirectory(currentDir)),
+  );
+
+  $effect(() => {
+    if (!isFocusedHome) return;
+    const dir = currentDir;
+    if (!dir || dir === "~") return;
+    untrack(() => {
+      void prsStore
+        .refreshNeedsReview(session.ctxForDirectory(dir))
+        .catch(() => {});
+    });
+  });
 
   $effect(() => {
     if (!isActiveHome) return;
@@ -230,7 +259,7 @@
   // Tasks for the launch-target directory. The store is project-scoped and
   // shared, so reads are guarded on cwd to never render a stale project.
   $effect(() => {
-    if (!isActiveHome) return;
+    if (!isFocusedHome) return;
     const dir = currentDir;
     if (dir && dir !== "~") void tasksStore.ensureLoaded(dir);
   });
@@ -258,72 +287,49 @@
     requestInputFocus();
   }
 
-  const totalItems = $derived(projects.length + visibleSessions.length);
+  function openNeedsReview() {
+    session.openNeedsReview();
+    requestInputFocus();
+  }
 
   function activateProject(proj: RecentProject) {
     invalidateHomeCache();
-    void session.setBaseDirectory(proj.path).then(
-      () => requestInputFocus(),
+    void session.setBaseDirectory(proj.path, tab?.id).then(
+      () => requestInputFocus(tab ? { tabId: tab.id } : undefined),
       () => {},
     );
   }
 
   function activateSession(meta: SessionMeta) {
-    void session.resumeSession(meta);
+    void session.resumeSession(
+      meta,
+      isSplitHome && tab ? { intoTabId: tab.id } : undefined,
+    );
   }
 
   function activateWorktree(wt: WorktreeEntry) {
-    void session.switchToWorktree(wt.path).then(
-      () => requestInputFocus(),
+    void session.switchToWorktree(wt.path, tab?.id).then(
+      () => requestInputFocus(tab ? { tabId: tab.id } : undefined),
       () => {},
     );
   }
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.defaultPrevented) return;
-    if (tab && session.activeTabId !== tab.id) return;
+    if (!isFocusedHome) return;
     if ((sess?.messages.length ?? 0) > 0) return;
-
-    // ⌥W = snap the launch target back to the workspace
-    if (
-      e.altKey &&
-      !e.shiftKey &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      e.code === "KeyW"
-    ) {
-      if (workspacePath && !isWorkspaceTarget) {
-        e.preventDefault();
-        goToWorkspace();
-      }
-      return;
-    }
-
-    const match = e.code.match(/^Digit(\d)$/);
-    if (!match) return;
-    const num = parseInt(match[1], 10);
-
-    // ⌥1-5 = worktrees (opt + digit, no shift)
-    if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      if (num < 1 || num > visibleWorktrees.length) return;
-      e.preventDefault();
-      activateWorktree(visibleWorktrees[num - 1]);
-      return;
-    }
-
-    // ⌥⇧1-8 = projects then sessions
-    if (!e.altKey || !e.shiftKey) return;
-    if (num < 1 || num > totalItems) return;
+    const target = homeShortcutTarget(e, {
+      canGoToWorkspace: !!workspacePath && !isWorkspaceTarget,
+      worktrees: visibleWorktrees,
+      projects,
+      sessions: visibleSessions,
+    });
+    if (!target) return;
     e.preventDefault();
-    const idx = num - 1;
-    if (idx < projects.length) {
-      activateProject(projects[idx]);
-    } else {
-      const sessionIdx = idx - projects.length;
-      if (sessionIdx < visibleSessions.length) {
-        activateSession(visibleSessions[sessionIdx]);
-      }
-    }
+    if (target.kind === "workspace") goToWorkspace();
+    else if (target.kind === "worktree") activateWorktree(target.worktree);
+    else if (target.kind === "project") activateProject(target.project);
+    else activateSession(target.session);
   }
 
   let projectScrollEl = $state<HTMLDivElement | null>(null);
@@ -354,53 +360,31 @@
   }
 
   function onProjectTouchEnd(e: TouchEvent) {
-    const diff = touchStartX - e.changedTouches[0].clientX;
-    const threshold = 40;
-    if (diff > threshold) {
-      scrollToCard(currentCardIndex + 1);
-    } else if (diff < -threshold) {
-      scrollToCard(currentCardIndex - 1);
-    } else {
-      scrollToCard(currentCardIndex);
-    }
+    scrollToCard(
+      projectCarouselIndex(
+        currentCardIndex,
+        touchStartX,
+        e.changedTouches[0].clientX,
+      ),
+    );
   }
 
   function updateScrollIndicators() {
     if (!projectScrollEl) return;
     const { scrollLeft, scrollWidth, clientWidth } = projectScrollEl;
-    showScrollFadeRight = scrollLeft + clientWidth < scrollWidth - 10;
+    showScrollFadeRight = hasProjectScrollOverflow(
+      scrollLeft,
+      scrollWidth,
+      clientWidth,
+    );
   }
 
   $effect(() => {
     if (projectScrollEl) updateScrollIndicators();
   });
-
-  function sessionTitle(meta: SessionMeta): string {
-    return (
-      meta.customTitle ||
-      meta.firstMessage?.replace(/\s+/g, " ") ||
-      meta.slug ||
-      "Unnamed session"
-    );
-  }
 </script>
 
 <svelte:window onkeydown={handleKeyDown} />
-
-<!-- On/off switch shared by the two worktree rows so both speak the same control
-     language (the per-session toggle and the persistent default). -->
-{#snippet wtSwitch(on: boolean)}
-  <span
-    class="relative w-[2.125rem] h-[1.1875rem] rounded-full border shrink-0 [transition:background_0.2s_ease,border-color_0.2s_ease] {on
-      ? 'bg-(--solus-accent) border-(--solus-accent)'
-      : 'bg-(--solus-surface-secondary) border-(--solus-container-border) group-hover/wt:border-(--solus-accent-border-medium)'}"
-  >
-    <span
-      class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.12)] [transition:left_0.2s_ease]"
-      style="left:{on ? 16 : 2}px"
-    ></span>
-  </span>
-{/snippet}
 
 <!-- Launch target hero: the directory the next session runs in (shared by all viewports) -->
 {#snippet launchTarget()}
@@ -432,7 +416,7 @@
             >Starting in</span
           >
           <button
-            class="group/dir inline-flex items-center gap-1.5 max-w-full min-w-0 py-px px-1.5 mx-[-0.125rem] rounded-[0.625rem] bg-transparent border-none cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] font-semibold text-(--solus-text-primary) transition-[background-color,color] duration-150 hover:bg-(--solus-accent-light) hover:text-(--solus-accent)"
+            class="group/dir inline-flex items-center gap-1.5 max-w-full min-w-0 py-px px-1.5 mx-[-0.125rem] rounded-[0.625rem] bg-transparent border-none cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] font-semibold text-(--solus-text-primary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent)"
             onclick={changeDirectory}
             title={`Change directory (${comboHint("global.select-project")})`}
           >
@@ -461,7 +445,7 @@
                 >Worktree · creating from {worktreeBaseBranch}</span
               >
             </span>
-          {:else if sess?.gitContext}
+          {:else if canToggleWorktree}
             <span
               class="inline-flex items-center gap-[0.1875rem] flex-none text-(--solus-text-secondary)"
             >
@@ -476,34 +460,17 @@
         </div>
       </div>
     </div>
-    {#if canToggleWorktree || (!isWorkspaceTarget && workspacePath)}
-      <!-- Bottom controls row: the worktree toggle moved off the crowded branch
-           line down here where it has room, sitting beside the workspace jump. -->
-      <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-        {#if canToggleWorktree}
-          <button
-            class="group/wt inline-flex items-center gap-1.5 bg-transparent border-none cursor-pointer"
-            type="button"
-            role="switch"
-            aria-checked={env.pending}
-            onclick={toggleWorktree}
-            title={env.pending
-              ? `Next session branches into its own worktree from ${worktreeBaseBranch}`
-              : `Start the next session in an isolated git worktree (branches from ${worktreeBaseBranch})`}
-          >
-            <span
-              class="text-[0.6875rem] font-medium {env.pending
-                ? 'text-(--solus-accent)'
-                : 'text-(--solus-text-secondary)'}">Worktree</span
-            >
-            <Kbd variant="standalone">{comboHint("global.toggle-worktree")}</Kbd
-            >
-            {@render wtSwitch(env.pending)}
-          </button>
-        {/if}
+    {#if isEditorMode || canToggleWorktree || (!isWorkspaceTarget && workspacePath)}
+      <!-- Compact launch dock: target first, then isolation and layout options. -->
+      <div
+        class="inline-flex max-w-full items-stretch gap-1 rounded-2xl bg-[color-mix(in_srgb,var(--solus-container-bg)_97%,var(--solus-text-primary)_3%)] p-1 shadow-[0_0_0_1px_rgba(0,0,0,0.045),0_1px_2px_-1px_rgba(0,0,0,0.06),0_4px_12px_-6px_rgba(0,0,0,0.12)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+        role="group"
+        aria-label="New chat options"
+      >
         {#if !isWorkspaceTarget && workspacePath}
           <button
-            class="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full border border-(--solus-tool-border) bg-transparent text-(--solus-text-secondary) text-[0.6875rem] cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-(--solus-surface-hover) hover:border-(--solus-accent-border-medium)"
+            class="group/workspace inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 bg-(--solus-container-bg) pl-2.5 pr-2 text-[0.6875rem] font-medium text-(--solus-text-primary) shadow-[0_0_0_1px_rgba(0,0,0,0.055),0_1px_2px_rgba(0,0,0,0.07)] cursor-pointer transition-[background-color,box-shadow,scale] duration-150 ease-out hover:bg-[color-mix(in_srgb,var(--solus-container-bg)_96%,var(--solus-text-primary)_4%)] hover:shadow-[0_0_0_1px_rgba(0,0,0,0.075),0_2px_4px_rgba(0,0,0,0.08)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) dark:shadow-[0_0_0_1px_rgba(255,255,255,0.09)]"
+            type="button"
             onclick={goToWorkspace}
             title="Back to My Workspace"
           >
@@ -525,7 +492,54 @@
               </svg>
             </span>
             <span>My Workspace</span>
-            <Kbd variant="standalone">⌥W</Kbd>
+            <Kbd class="ml-0.5">⌥W</Kbd>
+            <ArrowRightIcon
+              size={11}
+              class="text-(--solus-text-tertiary) transition-transform duration-150 group-hover/workspace:translate-x-px"
+              aria-hidden="true"
+            />
+          </button>
+        {/if}
+        {#if env.status}
+          <button
+            class="group/wt inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 px-2.5 text-[0.6875rem] font-medium cursor-pointer transition-[background-color,color,box-shadow,scale] duration-150 ease-out hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) {env.pending
+              ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)]'
+              : 'bg-transparent text-(--solus-text-secondary)'}"
+            type="button"
+            role="switch"
+            aria-checked={env.pending}
+            onclick={toggleWorktree}
+            title={`${
+              env.pending
+                ? `Next session branches into its own worktree from ${worktreeBaseBranch}`
+                : `Start the next session in an isolated git worktree (branches from ${worktreeBaseBranch})`
+            } (${comboHint("global.toggle-worktree")})`}
+          >
+            <GitForkIcon size={15} class="text-(--solus-accent)" />
+            <span>Worktree</span>
+            <span
+              class="inline-flex items-center gap-1 text-(--solus-text-tertiary)"
+            >
+              <span
+                class="size-1.5 rounded-full transition-[background-color,scale] duration-150 {env.pending
+                  ? 'scale-100 bg-(--solus-accent)'
+                  : 'scale-75 bg-(--solus-text-tertiary)'}"
+                aria-hidden="true"
+              ></span>
+              <span>{env.pending ? "On" : "Off"}</span>
+            </span>
+          </button>
+        {/if}
+        {#if isEditorMode && !isSplitHome}
+          <button
+            class="inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 bg-transparent pl-2.5 pr-2 text-[0.6875rem] font-medium text-(--solus-text-secondary) cursor-pointer transition-[background-color,color,box-shadow,scale] duration-150 ease-out hover:bg-(--solus-container-bg) hover:text-(--solus-text-primary) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+            type="button"
+            onclick={openNewSplitChat}
+            title="New split chat (⌥⇧/)"
+          >
+            <ColumnsIcon size={15} class="text-(--solus-accent)" />
+            <span>Split chat</span>
+            <Kbd class="ml-0.5">⌥⇧/</Kbd>
           </button>
         {/if}
       </div>
@@ -584,7 +598,7 @@
 {#snippet automationRow(a: Automation, itemIndex: number)}
   {@const output = automationOutput(a)}
   <button
-    class="group w-full flex items-start gap-2 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-accent-light) active:scale-[0.99] {fadeIn}"
+    class="group w-full flex items-start gap-2 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-surface-hover) active:scale-[0.99] {fadeIn}"
     style="--item-index:{itemIndex}"
     onclick={() => openAutomation(a)}
   >
@@ -653,7 +667,7 @@
      height of the session and worktree cards beside it. -->
 {#snippet taskRow(t: Task, itemIndex: number)}
   <button
-    class="group w-full flex items-center gap-2.5 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-accent-light) active:scale-[0.99] {fadeIn}"
+    class="group w-full flex items-center gap-2.5 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-surface-hover) active:scale-[0.99] {fadeIn}"
     style="--item-index:{itemIndex}"
     onclick={() => openTask(t)}
   >
@@ -739,7 +753,7 @@
         {#each visibleSessions as meta, i}
           {@const shortcut = projects.length + i + 1}
           <button
-            class="group w-full flex items-start gap-2 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-accent-light) active:scale-[0.99] [@media(max-height:900px)]:[&:nth-child(n+4)]:hidden [@media(max-height:900px)]:[&:nth-child(3)]:border-b-0 {fadeIn}"
+            class="group w-full flex items-start gap-2 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-surface-hover) active:scale-[0.99] [@media(max-height:900px)]:[&:nth-child(n+4)]:hidden [@media(max-height:900px)]:[&:nth-child(3)]:border-b-0 {fadeIn}"
             style="--item-index:{i + 1}"
             onclick={() => activateSession(meta)}
           >
@@ -782,7 +796,7 @@
     >
       {#each visibleWorktrees as wt, i}
         <button
-          class="group w-full flex items-center gap-2 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-accent-light) active:scale-[0.99] {fadeIn}"
+          class="group w-full flex items-center gap-2 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-surface-hover) active:scale-[0.99] {fadeIn}"
           style="--item-index:{i + 1}"
           onclick={() => activateWorktree(wt)}
         >
@@ -831,7 +845,7 @@
       {#each projects as proj, i}
         {@const shortcut = i + 1}
         <button
-          class="group min-w-0 flex flex-col gap-1.5 p-3 rounded-xl text-left cursor-pointer bg-transparent border border-(--solus-tool-border) transition-[background-color,border-color,transform] hover:bg-(--solus-accent-light) hover:border-(--solus-accent-border-medium) active:scale-[0.98] {fadeIn}"
+          class="group min-w-0 flex flex-col gap-1.5 p-3 rounded-xl text-left cursor-pointer bg-transparent border border-(--solus-tool-border) transition-[background-color,border-color,transform] hover:bg-(--solus-surface-hover) hover:border-(--solus-container-border) active:scale-[0.98] {fadeIn}"
           style="--item-index:{i + 1}"
           onclick={() => activateProject(proj)}
         >
@@ -864,6 +878,45 @@
   </section>
 {/snippet}
 
+{#snippet needsReviewBanner()}
+  {#if needsReviewCount > 0}
+    <button
+      type="button"
+      class="group flex min-h-10 w-full items-center gap-3 rounded-xl bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-surface-primary))] px-3.5 py-2.5 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_16%,transparent)] transition-[background-color,transform] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+      onclick={openNeedsReview}
+      aria-label={`Open ${needsReviewCount} pull ${needsReviewCount === 1 ? "request" : "requests"} that need your review`}
+    >
+      <span
+        class="grid size-8 shrink-0 place-items-center rounded-lg bg-(--solus-accent-light) text-(--solus-accent)"
+        aria-hidden="true"
+      >
+        <GitPullRequestIcon size={16} weight="fill" />
+      </span>
+      <span class="min-w-0 flex-1">
+        <span
+          class="block text-[0.8125rem] font-semibold text-(--solus-text-primary)"
+        >
+          Needs your review
+        </span>
+        <span
+          class="block truncate text-[0.6875rem] tabular-nums text-(--solus-text-secondary)"
+        >
+          {needsReviewCount}
+          {needsReviewCount === 1 ? "PR" : "PRs"}{needsReviewMinutes !==
+          undefined
+            ? ` · ~${needsReviewMinutes} min`
+            : ""}
+        </span>
+      </span>
+      <ArrowRightIcon
+        size={14}
+        class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 group-hover:translate-x-0.5"
+        aria-hidden="true"
+      />
+    </button>
+  {/if}
+{/snippet}
+
 {#if isMobile}
   <!-- ═══ Mobile New Tab Home ═══ -->
   <div
@@ -871,6 +924,7 @@
   >
     <div class="shrink-0 pt-3 mb-5">
       {@render launchTarget()}
+      {@render needsReviewBanner()}
     </div>
     <div class="flex flex-col gap-6">
       {#if projects.length > 0}
@@ -974,6 +1028,8 @@
         : 'max-w-[38.75rem]'}"
     >
       {@render launchTarget()}
+
+      {@render needsReviewBanner()}
 
       {#if projects.length > 0}
         {@render projectsRow()}

@@ -1,15 +1,10 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { ClaudeAgent, SAFE_TOOLS } from '../agents/claude/claude-agent'
-import { runCodexOneShot } from '../agents/codex/codex-oneshot'
-import { createSolusMcpServer } from '../folio/work-tools'
-import { buildSystemPrompt } from '../agents/system-hint'
 import { createWorktree } from '../git/worktree-manager'
-import { isWorkspacePath } from '../workspace'
 import { createLogger } from '../logger'
-import { startRun, finishRun } from './automations-store'
+import { startRun, attachRunSession, finishRun } from './automations-store'
 import { composeAutomationPrompt } from './compose-prompt'
-import type { Automation, AutomationRun, AgentId, ReasoningEffort } from '../../shared/types'
+import type { Automation, AutomationRun, AgentId, GitCheckout, ReasoningEffort } from '../../shared/types'
 
 const log = createLogger('automations', 'automation-runner.ts')
 
@@ -33,11 +28,25 @@ export function setAutomationSessionDispatcher(dispatcher: AutomationSessionDisp
   sessionDispatcher = dispatcher
 }
 
-// A single session-agnostic Claude agent drives every Claude-backed run.
-// ClaudeAgent is explicitly designed for background tasks (no IpcContext, no
-// permission UI). The Codex path uses runCodexOneShot, which talks to the
-// shared app-server client directly.
-const claudeAgent = new ClaudeAgent()
+/** Starts an isolated automation through the normal ControlPlane session
+ *  lifecycle. Resolves at session_init with a completion promise that continues
+ *  tracking the same backend run. */
+export type AutomationBackgroundSessionDispatcher = (opts: {
+  prompt: string
+  automationId: string
+  automationName: string
+  provider: AgentId
+  modelId: string | null
+  reasoningEffort: ReasoningEffort
+  cwd: string
+  gitContext?: GitCheckout | null
+  abortSignal?: AbortSignal
+}) => Promise<{ agentSessionId: string; done: Promise<{ output?: string }> }>
+
+let backgroundSessionDispatcher: AutomationBackgroundSessionDispatcher | null = null
+export function setAutomationBackgroundSessionDispatcher(dispatcher: AutomationBackgroundSessionDispatcher): void {
+  backgroundSessionDispatcher = dispatcher
+}
 
 // In-flight runs keyed by runId. Each entry holds an aborter (provider-specific)
 // and a `done` promise that settles once the run has been finalized in the store,
@@ -91,7 +100,7 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * and are read back via the run-result tools.
  *
  * Recursion guard: the spawned run gets the full `solus` tool suite (works,
- * tasks, review ledger, artifacts, create_session) EXCEPT the automation
+ * tasks, artifacts, create_session) EXCEPT the automation
  * CRUD/run tools, on both providers — so an automation cannot create or trigger
  * more automations. This is the fork-bomb guard; everything else is available.
  */
@@ -140,6 +149,8 @@ export async function cancelAutomationRun(automationId: string): Promise<boolean
 async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun): Promise<void> {
   const { action } = automation
   const runId = run.id
+  let agentSessionId: string | undefined
+  let branch: string | undefined
 
   try {
     // Session-bound ("heartbeat") automation: dispatch the prompt into the live
@@ -148,6 +159,8 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // only record that the run was handed off (its output lives in the thread).
     if (action.sessionId) {
       if (!sessionDispatcher) throw new Error('In-session automations require the app to be running with an active control plane.')
+      agentSessionId = action.sessionId
+      await attachRunSession(automation.id, runId, action.sessionId)
       const prompt = await composeAutomationPrompt(action)
       await sessionDispatcher({
         agentSessionId: action.sessionId,
@@ -179,124 +192,63 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // directory. A failure here surfaces as a failed run rather than silently
     // mutating the user's tree. No model-backed namer is available in the
     // headless runner, so the branch name falls back to a prompt slug.
-    let cwd = expandHome(action.cwd)
-    let branch: string | undefined
+    const cwd = expandHome(action.cwd)
+    let gitContext: GitCheckout | null = null
     if (action.useWorktree) {
-      const gitContext = await createWorktree(cwd, action.prompt)
+      gitContext = await createWorktree(cwd, action.prompt)
+      if (!gitContext.branch) throw new Error('Created automation worktree has no branch')
       branch = gitContext.branch
-      cwd = gitContext.worktreePath ?? cwd
     }
 
     // Expand any plan/work references into context blocks. Files (@) and skills
     // (/) stay inline in the prompt — the provider resolves those natively.
     const prompt = prependAutomationRunContext(await composeAutomationPrompt(action), run)
 
-    // Automations run unattended → 'auto' permission semantics on both providers.
-    const { text, sessionId } =
-      action.agentProvider === 'codex'
-        ? await runCodexOneShot({
-            prompt,
-            cwd,
-            model: action.modelId,
-            reasoningEffort: action.reasoningEffort,
-            abortSignal: entry.abort.signal,
-            // Full solus tool suite minus the automation tools (fork-bomb guard).
-            solusTools: true,
-          })
-        : await runViaClaude(action, cwd, prompt, entry.abort)
+    if (!backgroundSessionDispatcher) {
+      throw new Error('Isolated automations require the app to be running with an active control plane.')
+    }
+    const session = await backgroundSessionDispatcher({
+      prompt,
+      automationId: automation.id,
+      automationName: automation.name,
+      provider: action.agentProvider,
+      modelId: action.modelId,
+      reasoningEffort: action.reasoningEffort,
+      cwd,
+      gitContext,
+      abortSignal: entry.abort.signal,
+    })
+    agentSessionId = session.agentSessionId
+    await attachRunSession(automation.id, runId, agentSessionId, branch, gitContext?.worktreePath)
+    const { output } = await session.done
 
-    // A cancelled run that still returned (Claude resolves on SIGINT rather than
-    // throwing) is terminal as 'cancelled', not a partial success.
+    // A cancelled run that still resolved is terminal as 'cancelled', not a
+    // partial success.
     if (entry.cancelled) {
-      await finishRun(automation.id, runId, { status: 'cancelled', output: text, agentSessionId: sessionId, branch })
+      await finishRun(automation.id, runId, { status: 'cancelled', output, agentSessionId, branch })
       log.info(`Automation ${automation.id} run ${runId} cancelled`)
       return
     }
 
     await finishRun(automation.id, runId, {
       status: 'succeeded',
-      output: text,
-      agentSessionId: sessionId,
+      output,
+      agentSessionId,
       branch,
     })
-    log.info(`Automation ${automation.id} run ${runId} succeeded (session ${sessionId})`)
+    log.info(`Automation ${automation.id} run ${runId} succeeded (session ${agentSessionId})`)
   } catch (err: any) {
     if (entry.cancelled) {
-      await finishRun(automation.id, runId, { status: 'cancelled' })
+      await finishRun(automation.id, runId, { status: 'cancelled', agentSessionId, branch })
       log.info(`Automation ${automation.id} run ${runId} cancelled`)
       return
     }
     await finishRun(automation.id, runId, {
       status: 'failed',
+      agentSessionId,
+      branch,
       error: String(err?.message ?? err),
     })
     log.error(`Automation ${automation.id} run ${runId} failed: ${String(err)}`)
   }
-}
-
-// The solus tools a headless run may call — the full suite minus the automation
-// CRUD/run tools (which are never registered on the headless MCP server, per the
-// fork-bomb guard in createSolusMcpServer). Reads, writes, and create_session all
-// run unattended under 'auto' permissions.
-const HEADLESS_SOLUS_TOOLS = [
-  'mcp__solus__list_works',
-  'mcp__solus__read_work',
-  'mcp__solus__create_work',
-  'mcp__solus__update_work',
-  'mcp__solus__render_artifact',
-  'mcp__solus__record_change',
-  'mcp__solus__get_task',
-  'mcp__solus__list_tasks',
-  'mcp__solus__update_task_status',
-  'mcp__solus__create_task',
-  'mcp__solus__comment_task',
-  'mcp__solus__link_task_session',
-  'mcp__solus__create_session',
-  'mcp__solus__list_sessions',
-  'mcp__solus__read_session',
-  'mcp__solus__prompt_session',
-  'mcp__solus__stop_session',
-  'mcp__solus__list_prs',
-  'mcp__solus__read_pr',
-  'mcp__solus__list_pr_threads',
-  'mcp__solus__reply_pr_thread',
-  'mcp__solus__resolve_pr_thread',
-  'mcp__solus__submit_pr_review',
-]
-
-async function runViaClaude(action: Automation['action'], cwd: string, prompt: string, abortController: AbortController) {
-  const general = isWorkspacePath(cwd)
-
-  // The run's session id lands at session_init (before any tool runs); resolve it
-  // lazily so create_work/record_change can stamp the correct origin session.
-  let sessionId: string | null = null
-
-  // Full solus suite (works, tasks, review ledger, artifacts, create_session)
-  // minus automation tools. Callbacks are omitted — a headless run has no
-  // conversation to stream cards into, and works persist to disk regardless.
-  const solusServer = createSolusMcpServer({
-    createCtx: {
-      agentProvider: 'claude-code',
-      cwd,
-      sessionId: () => sessionId ?? undefined,
-    },
-    includeAutomationTools: false,
-  })
-
-  const { text, result } = await claudeAgent.runOneShot({
-    prompt,
-    cwd,
-    model: action.modelId ?? undefined,
-    reasoningEffort: action.reasoningEffort,
-    permissionMode: 'auto',
-    abortController,
-    mcpServers: { solus: solusServer },
-    allowedTools: [...SAFE_TOOLS, ...HEADLESS_SOLUS_TOOLS],
-    onSessionInit: async (sid) => { sessionId = sid },
-    systemPromptAppend: buildSystemPrompt({
-      agent: 'claude',
-      general,
-    }),
-  })
-  return { text, sessionId: result.sessionId }
 }

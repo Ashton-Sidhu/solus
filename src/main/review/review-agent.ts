@@ -82,9 +82,8 @@ export interface ReviewAgentInput {
  * gathers the diff ITSELF with git (the prompt tells it how), so the change never
  * bloats the prompt; the ledger, when present, is the only context handed inline.
  *
- * The guide arrives as the arguments of a `submit_review_guide` tool call — the
- * same structured-tool pattern record_change uses (see review-guide-tool.ts) —
- * so there is no text-scrape. Claude calls the tool through an in-process MCP
+ * The guide arrives as the arguments of a `submit_review_guide` tool call, so
+ * there is no text-scrape. Claude calls the tool through an in-process MCP
  * server; the Codex one-shot calls it via dynamicTools. Returns null when the
  * agent never produced a usable guide, so the producer can fall back.
  */

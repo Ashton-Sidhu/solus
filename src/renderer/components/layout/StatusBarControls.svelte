@@ -8,18 +8,15 @@
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getWindowContext } from "../../contexts/window.context.svelte";
   import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
-  import { getGitStatusStore } from "../../contexts/git-status.store.svelte";
+  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
   import { displayDirName } from "../../lib/paths";
   import ContextMeter from "../ContextMeter.svelte";
   import SettingsPopover from "../SettingsPopover.svelte";
   import GitDropdown from "../GitDropdown.svelte";
   import ServerSwitcher from "../servers/ServerSwitcher.svelte";
-  import SessionChip from "../pickers/SessionChip.svelte";
-  import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import { tooltip } from "../../lib/tooltip";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { sessionEnvironment } from "../../lib/git-context";
 
   interface Props {
     dirMaxWidth?: number;
@@ -33,7 +30,7 @@
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
   const statusBar = getStatusBarContext();
-  const gitStatus = getGitStatusStore();
+  const environmentStore = getSessionEnvironmentStore();
   const isPinned = $derived(tabId !== undefined);
   const targetTabId = $derived(tabId ?? session.activeTabId);
   const ctx = $derived(statusBar.ctxFor(targetTabId));
@@ -51,12 +48,12 @@
   const defaultGitContext = $derived(session.tabCtx.gitContext);
   const worktreePath = $derived(sess?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
-  const git = $derived(gitStatus.statusFor(gitStatusCwd));
+  const git = $derived(environmentStore.statusFor(gitStatusCwd));
   $effect(() => {
     if (mode !== "pill") return;
     const cwd = gitStatusCwd;
     if (!cwd || cwd === "~") return;
-    void gitStatus.refresh(cwd);
+    void environmentStore.refresh(cwd);
   });
 
   const worktreeBaseBranch = $derived(
@@ -67,35 +64,30 @@
   );
   // One environment model drives the pill echo. displayBranch stays the raw
   // branch (the GitDropdown switches by exact name); pending comes from env.
-  const env = $derived(
-    sessionEnvironment(sess?.gitContext ?? null, worktreeBaseBranch, git ?? null),
-  );
+  const env = $derived(environmentStore.environmentFor(targetTabId));
   const worktreeModePending = $derived(env.pending);
   const creatingWorktree = $derived(session.isContinuingInWorktree(targetTabId));
   // While the worktree is being created, hold the pending label instead of the
   // live base branch so the pill doesn't read "main" and then teleport.
   const displayBranch = $derived(
-    creatingWorktree ? "Creating worktree" : (worktreeModePending ? env.name : (git?.branch ?? env.branch ?? null)),
+    creatingWorktree
+      ? "Creating worktree"
+      : worktreeModePending
+        ? env.name
+        : git === undefined
+          ? env.branch
+          : (git?.branch ?? null),
   );
 
-  let barEl: HTMLDivElement | undefined = $state();
-  let barWidth = $state(9999);
   let gitOpen = $state(false);
   let gitInitialView: "menu" | "worktrees" | "branches" = $state("menu");
   let gitTriggerEl: HTMLButtonElement | null = $state(null);
-  const showBranch = $derived(mode === "pill" && barWidth >= 680);
-  const showDirLabel = $derived(barWidth >= 560);
-  // Hide the usage/context meter on tight bars so it doesn't crowd the chip.
-  const showUsage = $derived(barWidth >= 600);
-
-  $effect(() => {
-    if (!barEl) return;
-    const ro = new ResizeObserver(([entry]) => {
-      barWidth = entry.contentRect.width;
-    });
-    ro.observe(barEl);
-    return () => ro.disconnect();
-  });
+  // This cluster now lives on the full-width input toolbar row, so the old
+  // width-based collapse no longer applies: dir + usage always show, and branch
+  // shows in pill mode as before. Text truncates to degrade gracefully.
+  const showBranch = $derived(mode === "pill");
+  const showDirLabel = true;
+  const showUsage = true;
 
   $effect(() => {
     if (isPinned) return;
@@ -128,38 +120,34 @@
 
 </script>
 
-<div
-  bind:this={barEl}
-  class="relative flex items-center gap-2 px-3 py-1.5 text-[0.75rem] overflow-hidden"
-  style="min-height:1.75rem"
->
-  <!-- Left: project info (dir + branch). -->
+<!--
+  The dir/branch + usage + server/settings cluster. Rendered inline on the
+  input toolbar row (right of the mode/model pills), so it stays compact rather
+  than spanning a full-width status bar.
+-->
+<div class="relative flex min-w-0 items-center gap-2 text-[0.8125rem]">
+  <!-- Project info (dir + branch). -->
   {@render projectInfo()}
 
-  <!-- Right: session settings chip + usage + app settings. -->
-  <div class="flex flex-1 min-w-0 items-center justify-end gap-2">
-    {#if showUsage}
-      <ContextMeter tabId={targetTabId} />
+  {#if showUsage}
+    <ContextMeter tabId={targetTabId} />
+  {/if}
+  {#if !isPinned}
+    {#if session.runtimeSyncing}
+      <span
+        class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
+        use:tooltip={"Syncing runtime state"}
+      >
+        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
+        <span>Syncing...</span>
+      </span>
     {/if}
-    <PermissionModePicker compact={!showDirLabel} {tabId} />
-    <SessionChip {tabId} />
-    {#if !isPinned}
-      {#if session.runtimeSyncing}
-        <span
-          class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
-          use:tooltip={"Syncing runtime state"}
-        >
-          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
-          <span>Syncing...</span>
-        </span>
-      {/if}
-      <ServerSwitcher />
-    {/if}
-    {#if !runtime.isMobileViewport && mode !== "editor"}
-      <SettingsPopover />
-    {/if}
-    {@render trailingActions?.()}
-  </div>
+    <ServerSwitcher />
+  {/if}
+  {#if !runtime.isMobileViewport && mode !== "editor"}
+    <SettingsPopover />
+  {/if}
+  {@render trailingActions?.()}
 </div>
 
 {#if mode === "pill" && displayBranch}
@@ -189,7 +177,7 @@
         : `${dirTooltip} — click or press ${comboHint("global.select-project")} to change`}
     >
       {#if showDirIcon}
-        <FolderOpenIcon size={11} class="flex-shrink-0 opacity-50" />
+        <FolderOpenIcon size={13} class="flex-shrink-0 opacity-50" />
       {/if}
       {#if showDirLabel}
         <span class="truncate">{displayDir}</span>
@@ -207,7 +195,7 @@
         style="max-width:16rem"
         use:tooltip={displayBranch}
       >
-        <GitBranchIcon size={10} class="flex-shrink-0 opacity-50" />
+        <GitBranchIcon size={12} class="flex-shrink-0 opacity-50" />
         <span class="truncate">{displayBranch}</span>
         {#if creatingWorktree || worktreeModePending}
           <GitForkIcon

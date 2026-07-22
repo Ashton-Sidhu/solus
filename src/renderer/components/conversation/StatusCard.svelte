@@ -28,9 +28,9 @@
   );
 </script>
 
-<div class="px-4 py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
+<div class="mx-auto w-[88%] py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
   <Card.Root
-    class="status-card w-full max-w-[28rem] gap-0 overflow-hidden rounded-xl bg-(--solus-container-bg) py-0 {card.status === 'error' ? 'is-error' : ''} {skipMotion ? 'no-motion' : ''}"
+    class="status-card w-full gap-0 overflow-hidden rounded-xl bg-(--solus-container-bg) py-0 {card.status === 'error' ? 'is-error' : ''} {skipMotion ? 'no-motion' : ''}"
     role="status"
     aria-live="polite"
     data-testid="status-card"

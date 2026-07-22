@@ -52,7 +52,7 @@
             use:tooltip={`${pct}% of context window used`}
           >
       <svg
-        class="h-3.5 w-3.5 -rotate-90"
+        class="h-4 w-4 -rotate-90"
         viewBox="0 0 16 16"
         aria-hidden="true"
       >

@@ -228,31 +228,9 @@
             return true;
           }
 
-          const backtickIdx = textBefore.lastIndexOf("`");
-          if (backtickIdx >= 0) {
-            const content = textBefore.slice(backtickIdx + 1);
-            const charBefore =
-              backtickIdx > 0 ? textBefore[backtickIdx - 1] : "";
-            if (
-              content.length > 0 &&
-              (backtickIdx === 0 || /\s/.test(charBefore))
-            ) {
-              const absoluteStart = lineStart + backtickIdx;
-              const { tr, schema } = state;
-              const codeMark = schema.marks.code;
-              if (codeMark) {
-                tr.delete(absoluteStart, from);
-                tr.insert(
-                  absoluteStart,
-                  schema.text(content, [codeMark.create()]),
-                );
-                tr.setStoredMarks([]);
-                view.dispatch(tr);
-                return true;
-              }
-            }
-          }
-
+          // Let StarterKit's code input rule handle inline backticks. Its
+          // matcher deliberately excludes the character before the opening
+          // backtick, so adjacent whitespace is preserved.
           return false;
         },
         handleKeyDown(_view, event) {

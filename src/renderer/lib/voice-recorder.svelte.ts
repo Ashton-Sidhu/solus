@@ -1,5 +1,5 @@
 import { analytics } from './analytics'
-import { PcmCapture, type PcmChunk } from './pcm-capture'
+import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 
 // Hard ceiling on a single recording. Batch transcription decodes the whole
 // utterance in one pass, so an unbounded buffer means an unbounded decode; this
@@ -64,6 +64,7 @@ export class VoiceRecorder {
   #recordingStartedAtMs: number | null = null
   #recordingStartedAtIso: string | null = null
   #startGeneration = 0
+  #disposed = false
   // True during the async getUserMedia gap: `state` stays 'idle' until the
   // stream resolves.  Public + reactive so the UI can bridge the visual gap
   // when auto-voice re-arms (waveform stays visible while the mic opens).
@@ -83,7 +84,7 @@ export class VoiceRecorder {
   }
 
   async start(): Promise<void> {
-    if (this.state !== 'idle' || this.starting) return
+    if (this.#disposed || this.state !== 'idle' || this.starting) return
     const generation = ++this.#startGeneration
     this.starting = true
     this.#setError(null, null)
@@ -149,6 +150,16 @@ export class VoiceRecorder {
 
   clearError(): void {
     this.#setError(null, null)
+  }
+
+  /** Release renderer-lifetime microphone resources before reload/window close. */
+  dispose(): void {
+    if (this.#disposed) return
+    this.#disposed = true
+    this.onIdle = null
+    this.onTranscript = null
+    this.cancel()
+    void disposePcmCaptureResources()
   }
 
   async #startCapture(stream: MediaStream, generation: number): Promise<void> {

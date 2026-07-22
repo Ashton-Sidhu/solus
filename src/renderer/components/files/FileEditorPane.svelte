@@ -1,12 +1,14 @@
 <script lang="ts">
   import {
-    FileIcon,
     FloppyDiskIcon,
     WarningCircleIcon,
     XIcon,
   } from "phosphor-svelte";
+  import Icon from "@iconify/svelte";
   import type { IpcContext } from "../../../shared/types";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { fileTypeIcon } from "../../lib/fileTypeIcon";
+  import { ensureIconCollections } from "../diagram/iconify";
   import {
     useKeybinding,
     useScope,
@@ -25,6 +27,23 @@
 
   let { ctx, cwd, isDark, file, onClose }: Props = $props();
 
+  ensureIconCollections();
+
+  function ext(path: string): string {
+    const name = fileName(path);
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot + 1).toUpperCase() : "·";
+  }
+
+  function fileName(path: string): string {
+    return path.split("/").pop() ?? path;
+  }
+
+  function dirName(path: string): string {
+    const index = path.lastIndexOf("/");
+    return index > 0 ? path.slice(0, index + 1) : "";
+  }
+
   let loading = $state(false);
   let fileError = $state<string | null>(null);
   let filePath = $state("");
@@ -32,24 +51,21 @@
   let contents = $state<string | null>(null);
   let size = $state<number | null>(null);
   let saveState = $state<FileSaveState>("idle");
-  let saveMessage = $state<string | undefined>(undefined);
   let loadGeneration = 0;
+  const headerPath = $derived(displayPath || file.path);
+  const headerIcon = $derived(fileTypeIcon(headerPath));
 
   const statusLabel = $derived.by(() => {
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
     if (saveState === "saved") return "Saved";
-    if (saveState === "conflict") return "Changed on disk";
-    if (saveState === "error") return "Save failed";
     return size == null ? "" : `${Math.ceil(size / 1024)} KB`;
   });
 
   const statusClass = $derived(
     saveState === "saved"
       ? "text-(--solus-status-complete)"
-      : saveState === "error" || saveState === "conflict"
-        ? "text-(--solus-status-error)"
-        : "text-(--solus-text-tertiary)",
+      : "text-(--solus-text-tertiary)",
   );
 
   useScope("file-editor");
@@ -67,7 +83,6 @@
     contents = null;
     size = null;
     saveState = "idle";
-    saveMessage = undefined;
 
     const result = await window.solus.readProjectFile(ctx, { path, cwd });
     if (generation !== loadGeneration) return;
@@ -96,14 +111,24 @@
   <header
     class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <FileIcon size={13} weight="duotone" class="shrink-0 text-(--solus-text-tertiary)" />
-    <div class="min-w-0 flex-1">
-      <div class="truncate text-[0.75rem] font-semibold text-(--solus-text-primary)" title={displayPath}>
-        {displayPath}
-      </div>
+    {#if headerIcon}
+      <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
+    {:else}
+      <span
+        class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 font-mono text-[0.625rem] font-semibold text-(--solus-text-tertiary)"
+      >
+        {ext(headerPath)}
+      </span>
+    {/if}
+    <div
+      class="min-w-0 flex-1 truncate font-mono text-[0.8125rem]"
+      title={headerPath}
+    >
+      <span class="text-(--solus-text-tertiary)">{dirName(headerPath)}</span>
+      <span class="text-(--solus-text-primary)">{fileName(headerPath)}</span>
     </div>
     {#if statusLabel}
-      <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status" title={saveMessage}>
+      <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status">
         <FloppyDiskIcon size={11} class="shrink-0" />
         <span class="tabular-nums">{statusLabel}</span>
       </div>
@@ -145,9 +170,8 @@
       {contents}
       line={file.line}
       {isDark}
-      onSaveStateChange={(state, message) => {
+      onSaveStateChange={(state) => {
         saveState = state;
-        saveMessage = message;
       }}
     />
   {/if}

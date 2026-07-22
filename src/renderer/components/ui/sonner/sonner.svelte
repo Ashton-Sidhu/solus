@@ -34,3 +34,24 @@
     <TriangleAlertIcon class="size-4" />
   {/snippet}
 </Sonner>
+
+<style>
+  :global(.toaster [data-sonner-toast][data-styled="true"]) {
+    padding-right: 56px;
+  }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
+    top: 50%;
+    right: 4px;
+    left: auto;
+    width: 40px;
+    height: 40px;
+    transform: translateY(-50%);
+    border-color: transparent;
+    background: transparent;
+  }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]:hover) {
+    border-color: transparent;
+  }
+</style>

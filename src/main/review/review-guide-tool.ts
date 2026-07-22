@@ -9,9 +9,9 @@ const log = createLogger('review', 'review-guide-tool.ts')
 //
 // Replaces the old `extractHtml()` text-scrape. The review agent calls this tool
 // with the whole guide as its arguments — those args ARE the guide, captured
-// directly (no markup, no parsing of free text). Registered two ways, exactly
-// like record_change (ledger-tool.ts): an in-process MCP tool for Claude, and a
-// dynamicTools JSON-schema descriptor for the Codex one-shot.
+// directly (no markup, no parsing of free text). Registered two ways: as an
+// in-process MCP tool for Claude and a dynamicTools JSON-schema descriptor for
+// the Codex one-shot.
 
 const fileRefShape = z.object({
   path: z.string().describe('Repo-relative path EXACTLY as it appears in the diff (the b/ post-image path).'),

@@ -187,6 +187,7 @@ export class WorksStore {
     const load = (async () => {
       try {
         const metas = await window.solus.listWorks(targetCwd)
+        if (this.activeCwd !== targetCwd) return
         const liveIds = new Set<string>()
         for (const meta of metas) {
           liveIds.add(meta.id)

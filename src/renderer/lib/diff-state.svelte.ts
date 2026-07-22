@@ -1,10 +1,11 @@
 import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffMetadata } from '@pierre/diffs'
-import type { DiffResult, DiffScope } from '../../shared/types'
+import type { DiffResult, DiffScope, IpcContext } from '../../shared/types'
 import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
 
 interface DiffStateOptions {
   session: WorkspaceContext
   getTabId: () => string
+  getCtx?: () => IpcContext
 }
 
 export interface DiffLoadResult {
@@ -15,7 +16,7 @@ export interface DiffLoadResult {
 function scopeKey(scope: DiffScope): string {
   if (scope.kind === 'session') return 'session'
   if (scope.kind === 'working-tree') return 'working-tree'
-  if (scope.kind === 'pr') return `pr:${scope.baseSha}`
+  if (scope.kind === 'pr') return `pr:${scope.baseSha}:${scope.ownDeltaBaseSha ?? 'target'}`
   return `turn:${scope.index}`
 }
 
@@ -98,7 +99,7 @@ export class DiffState {
     }
 
     const session = this.opts.session.sessionFor(this.opts.getTabId())
-    const livePaths = session ? [...session.changedFiles] : undefined
+    const livePaths = session ? [...session.sessionChangedFiles] : undefined
 
     const requestScope = this.scope
     const response = await this.load(requestScope, livePaths)
@@ -113,6 +114,16 @@ export class DiffState {
     this.loading = false
 
     return response
+  }
+
+  /** Load an already-computed unified patch through the same parser/rendering state as RPC-backed scopes. */
+  setPatch(scope: DiffScope, patch: string): void {
+    this.generation++
+    this.scope = scope
+    this.diff = { patch }
+    this.loadError = null
+    this.applyPatch(scope, patch)
+    this.loading = false
   }
 
   isBinaryFile(path: string): boolean {
@@ -197,7 +208,7 @@ export class DiffState {
   private async load(scope: DiffScope, livePaths: string[] | undefined): Promise<DiffLoadResult> {
     try {
       const result = await window.solus.diff(
-        this.opts.session.ctxFor(this.opts.getTabId()),
+        this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
         { scope: { ...scope }, livePaths },
       )
       return { result, error: null }

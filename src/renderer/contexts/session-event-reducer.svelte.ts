@@ -1,4 +1,4 @@
-import type { AgentId, EnrichedError, GitProjectStatus, Message, NormalizedEvent, Session, Tab } from '../../shared/types'
+import type { AgentId, EnrichedError, GitState, Message, NormalizedEvent, Session, Tab } from '../../shared/types'
 import { encodePathAsFolder } from '../../shared/types'
 import { uuid } from '../../shared/uuid'
 import type { SettingsContext } from './settings.context.svelte'
@@ -23,7 +23,7 @@ export interface SessionEventReducerDeps {
   isTabVisible(tabId: string): boolean
   addChangedFilesFromMessage(tabId: string, message: Message): void
   refreshTurnSnapshots(tabId: string): void
-  setGitStatus(cwd: string, status: GitProjectStatus | null): void
+  setGitStatus(cwd: string, status: GitState | null): void
   playNotificationIfHidden(): void
   closePlanModal(): void
   onTurnSettled(tabId: string, cwd: string | null): void
@@ -43,7 +43,7 @@ export class SessionEventReducer {
     const session = this.deps.registry.sessions[tab.sessionId]
     if (!session) return
 
-    if (session.status === 'interrupted' && !['task_complete', 'checkpoint', 'session_init', 'user_message', 'status_change'].includes(event.type)) {
+    if (session.status === 'interrupted' && !['task_complete', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status'].includes(event.type)) {
       return
     }
 
@@ -150,7 +150,10 @@ export class SessionEventReducer {
             // the normalizer accumulated); set it before addChangedFilesFromMessage
             // parses it below.
             if (event.toolInput !== undefined) m.toolInput = event.toolInput
-            m.toolStatus = 'completed'
+            // This marks the end of the *call*, which for a sub-agent is only the
+            // moment its prompt finished streaming — the agent itself runs for
+            // minutes yet. Its card settles on the agent's own result instead.
+            if (!m.subMessages) m.toolStatus = 'completed'
             if (m.toolName === 'Write' || m.toolName === 'Edit' || m.toolName === 'exec_command') {
               completedFileMsg = m
             }
@@ -191,11 +194,11 @@ export class SessionEventReducer {
         if (event.sessionUsage) session.sessionUsage = event.sessionUsage
         break
 
-      case 'changed_files_updated': {
-        const prev = session.changedFiles.join('\n')
+      case 'session_changed_files_updated': {
+        const prev = session.sessionChangedFiles.join('\n')
         const next = event.paths.join('\n')
         if (prev !== next) {
-          session.changedFiles.splice(0, session.changedFiles.length, ...event.paths)
+          session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...event.paths)
           this.deps.onTurnSettled(tabId, session.workingDirectory)
         }
         break
@@ -207,6 +210,30 @@ export class SessionEventReducer {
           status: normalizeTodoStatus(todo.status),
         }))
         session.progress = progressFromTodos(todos)
+        break
+      }
+
+      // A sub-agent the SDK backgrounds reports its lifecycle out-of-band rather
+      // than through its tool call, which already returned. These two events are
+      // the only signal its card gets that the agent started and finished.
+      case 'background_task_started': {
+        if (event.toolUseId) {
+          const msg = this.findToolMsg(session.messages, event.toolUseId)
+          // Tag even a non-sub-agent task (backgrounded Bash): harmless, and it
+          // keeps the settle lookup from depending on how the task was spawned.
+          if (msg) msg.backgroundTaskId = event.taskId
+        }
+        break
+      }
+
+      case 'background_task_settled': {
+        const msg = this.findBackgroundTaskMsg(session, event.taskId, event.toolUseId)
+        // Only a card still awaiting its agent settles here; a blocking sub-agent
+        // already settled on its own tool_result, which is the richer signal.
+        if (msg && msg.toolStatus === 'running') {
+          msg.toolStatus = event.status === 'completed' ? 'completed' : 'error'
+          msg.toolResultIsError = event.status !== 'completed'
+        }
         break
       }
 
@@ -377,7 +404,7 @@ export class SessionEventReducer {
       case 'git_status':
         // Pushed live from the main-process git watcher — lands in the same
         // store the Environment panel and pill already read by cwd.
-        this.deps.setGitStatus(event.cwd, event.status)
+        this.deps.setGitStatus(event.cwd, event.state)
         break
 
       case 'checkpoint':
@@ -641,15 +668,37 @@ export class SessionEventReducer {
    * (parentToolUseId == null) lands in the main thread and flips the sub-agent
    * card to done/error; a sub-agent's inner tool result lands in that parent's
    * subMessages. Non-sub-agent results just set fields nothing else reads.
+   *
+   * A backgrounded sub-agent's result arrives at *launch*, not completion, and
+   * holds only launch metadata the SDK forbids surfacing. Drop it: the agent is
+   * still working, and `background_task_settled` reports its real outcome.
    */
   private applyToolResult(session: Session, event: Extract<NormalizedEvent, { type: 'tool_result' }>): void {
     const parent = event.parentToolUseId ? this.findToolMsg(session.messages, event.parentToolUseId) : undefined
     const list = parent?.subMessages ?? session.messages
     const target = this.findToolMsg(list, event.toolUseId)
     if (!target) return
+    if (event.isAsyncLaunch && !event.isError) return
     target.toolResult = event.content
     target.toolResultIsError = event.isError ?? false
     target.toolStatus = event.isError ? 'error' : 'completed'
+  }
+
+  /**
+   * Settle the sub-agent card for a background task. Only task_started carries the
+   * spawning `tool_use_id`, so the card is tagged with its task id then and found
+   * by that here — task_updated reports the outcome with no tool_use_id at all.
+   */
+  private findBackgroundTaskMsg(session: Session, taskId: string, toolUseId?: string): Message | undefined {
+    if (toolUseId) {
+      const byTool = this.findToolMsg(session.messages, toolUseId)
+      if (byTool) return byTool
+    }
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      const m = session.messages[i]
+      if (m.role === 'tool' && m.backgroundTaskId === taskId) return m
+    }
+    return undefined
   }
 
   /**

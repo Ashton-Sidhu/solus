@@ -1,7 +1,8 @@
-import type { AgentId, IpcContext, ModelConfig, ModelProfile, ReasoningEffort, Session, TabGitContext } from '../../shared/types'
-import { MODEL_PROFILES, isSolusWorktreePath, tabGitContextFromStatus, worktreeProjectRoot } from '../../shared/types'
+import type { AgentId, GitCheckout, IpcContext, ModelConfig, ModelProfile, ReasoningEffort, Session } from '../../shared/types'
+import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../shared/types'
 import { analytics } from '../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from './settings.context.svelte'
+import type { GitRefreshResult } from './session-environment.store.svelte'
 import type { StatusBarContext } from './status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from './toast.store.svelte'
@@ -12,26 +13,30 @@ export interface SessionConfigControllerDeps {
   statusBar: StatusBarContext
   setPluginCommands(commands: Session['pluginCommands']): void
   createTab(): Promise<string>
-  ctx(): IpcContext
+  ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
   refreshPluginCommands(dir: string, tabId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
-  refreshGitEnvironment(opts: { tabId?: string; cwd?: string }): void
+  refreshGitState(opts: { tabId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
 }
 
 export class SessionConfigController {
   globalDefaults = $state<{
     permissionMode: 'ask' | 'auto' | 'plan'
     workingDirectory: string
-    gitContext: TabGitContext | null
+    gitContext: GitCheckout | null
+    worktreeBaseBranch: string | null
     modelConfig: ModelConfig
   }>({
     permissionMode: 'auto',
     workingDirectory: '~',
     gitContext: null,
+    worktreeBaseBranch: null,
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
   })
   tabGroupMode = $state<TabGroupMode>('flat')
+  private switchingBranch = false
+  private sessionStartTargetResolutions = new Map<string, Promise<void>>()
 
   constructor(private deps: SessionConfigControllerDeps) {
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(deps.settings.activeAgent as AgentId)
@@ -106,6 +111,9 @@ export class SessionConfigController {
   }
 
   syncWorktreeDefault(enabled: boolean): void {
+    this.globalDefaults.worktreeBaseBranch = enabled
+      ? this.globalDefaults.gitContext?.targetBranch ?? null
+      : null
     for (const tabId of this.deps.registry.tabOrder) {
       const session = this.deps.registry.sessionFor(tabId)
       if (!session || session.agentSessionId || session.gitContext?.worktreePath) continue
@@ -114,10 +122,17 @@ export class SessionConfigController {
     }
   }
 
-  toggleWorktreeMode(): void {
-    const session = this.deps.registry.activeSession
+  toggleWorktreeMode(tabId?: string): void {
+    const session = tabId
+      ? this.deps.registry.sessionFor(tabId)
+      : this.deps.registry.activeSession
     if (!session) {
-      this.deps.settings.update({ worktreeEnabled: !this.deps.settings.worktreeEnabled })
+      if (tabId) return
+      const enabled = !this.deps.settings.worktreeEnabled
+      this.deps.settings.update({ worktreeEnabled: enabled })
+      this.globalDefaults.worktreeBaseBranch = enabled
+        ? this.globalDefaults.gitContext?.targetBranch ?? null
+        : null
       return
     }
     if (session.gitContext?.worktreePath) return
@@ -128,94 +143,159 @@ export class SessionConfigController {
     }
   }
 
-  async switchToWorktree(worktreePath: string): Promise<void> {
-    const workingDirectory = this.deps.statusBar.ctx.workingDirectory
+  async switchToWorktree(worktreePath: string, tabId?: string): Promise<void> {
+    const targetSession = tabId
+      ? this.deps.registry.sessionFor(tabId)
+      : this.deps.registry.activeSession
+    const workingDirectory = targetSession?.workingDirectory ?? this.deps.statusBar.ctx.workingDirectory
     if (!workingDirectory || workingDirectory === '~') return
-    if (this.deps.registry.activeSession?.agentSessionId) {
+    if (!tabId && this.deps.registry.activeSession?.agentSessionId) {
       await this.deps.createTab()
     }
-    const session = this.deps.registry.activeSession
+    const targetTabId = tabId ?? this.deps.registry.activeTabId
+    const session = tabId
+      ? this.deps.registry.sessionFor(tabId)
+      : this.deps.registry.activeSession
     const isSolusWorktree = isSolusWorktreePath(worktreePath)
     const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
     const repoCtx = this.deps.ctxForDirectory(projectRoot)
-    if (session) window.solus.resetTabSession(repoCtx)
-    const restored: TabGitContext | null = isSolusWorktree
+    if (session) window.solus.resetTabSession(this.deps.ctx(targetTabId))
+    const restored: GitCheckout | null = isSolusWorktree
       ? await window.solus.worktreeRestore(repoCtx, worktreePath, { includePr: false })
-      : tabGitContextFromStatus(await window.solus.gitProjectStatus(worktreePath).catch(() => null))
+      : gitCheckoutFromState(await window.solus.gitRefreshState(worktreePath).catch(() => null))
     if (session) {
       session.workingDirectory = projectRoot
       session.gitContext = restored
       session.worktreeBaseBranch = null
-      this.deps.refreshPluginCommands(projectRoot)
+      this.deps.refreshPluginCommands(projectRoot, targetTabId)
     } else if (restored) {
       this.globalDefaults.workingDirectory = projectRoot
       this.globalDefaults.gitContext = restored
       this.deps.refreshPluginCommands(projectRoot)
     }
     if (!restored && session) {
-      this.deps.refreshGitEnvironment({ tabId: this.deps.registry.activeTabId })
+      this.deps.refreshGitState({ tabId: targetTabId })
     }
     this.deps.refreshGitRefs(projectRoot, repoCtx)
   }
 
-  async switchToBranch(branch: string): Promise<boolean> {
-    const activeSession = this.deps.registry.activeSession
-    const baseDir = activeSession?.gitContext?.repoRoot ?? activeSession?.workingDirectory ?? this.globalDefaults.gitContext?.repoRoot ?? this.globalDefaults.workingDirectory
-    if (!baseDir || baseDir === '~') return false
-    const projectRoot = worktreeProjectRoot(baseDir)
-    if (activeSession?.agentSessionId) {
-      await this.deps.createTab()
-    }
-    const session = this.deps.registry.activeSession
-    const ctx = this.deps.ctxForDirectory(projectRoot)
-    if (session) window.solus.resetTabSession(ctx)
-    const result = await window.solus.gitCheckoutBranch(ctx, branch)
-    if (!result.success || !result.gitContext) {
-      toasts.error(result.error ? `Couldn't switch branch: ${result.error}` : "Couldn't switch branch")
+  async switchToBranch(branch: string, tabId?: string): Promise<boolean> {
+    if (this.switchingBranch) return false
+    this.switchingBranch = true
+    try {
+      const targetSession = tabId
+        ? this.deps.registry.sessionFor(tabId)
+        : this.deps.registry.activeSession
+      const baseDir = targetSession?.gitContext?.repoRoot ?? targetSession?.workingDirectory ?? this.globalDefaults.gitContext?.repoRoot ?? this.globalDefaults.workingDirectory
+      if (!baseDir || baseDir === '~') {
+        toasts.error("Couldn't switch branch: no active Git repository")
+        return false
+      }
+      const projectRoot = worktreeProjectRoot(baseDir)
+      if (!tabId && targetSession?.agentSessionId) {
+        await this.deps.createTab()
+      }
+      const targetTabId = tabId ?? this.deps.registry.activeTabId
+      const session = tabId
+        ? this.deps.registry.sessionFor(tabId)
+        : this.deps.registry.activeSession
+      const ctx = this.deps.ctxForDirectory(projectRoot)
+      const result = await window.solus.gitCheckoutBranch(ctx, branch)
+      if (!result.success || !result.gitContext) {
+        toasts.error(result.error ? `Couldn't switch branch: ${result.error}` : "Couldn't switch branch")
+        return false
+      }
+      if (session) {
+        session.workingDirectory = projectRoot
+        session.gitContext = result.gitContext
+        session.worktreeBaseBranch = null
+        session.agentSessionId = null
+        session.provider = null
+        session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length)
+        session.pluginCommands = { global: [], project: [] }
+        this.deps.refreshPluginCommands(projectRoot, targetTabId)
+        try {
+          await window.solus.resetTabSession(this.deps.ctx(targetTabId))
+        } catch (error) {
+          toasts.error(`Switched branch, but couldn't reset the tab session: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      } else {
+        this.globalDefaults.workingDirectory = projectRoot
+        this.globalDefaults.gitContext = result.gitContext
+        this.deps.refreshPluginCommands(projectRoot)
+      }
+      this.deps.refreshGitRefs(projectRoot, this.deps.ctxForDirectory(projectRoot))
+      return true
+    } catch (error) {
+      toasts.error(`Couldn't switch branch: ${error instanceof Error ? error.message : String(error)}`)
       return false
+    } finally {
+      this.switchingBranch = false
     }
-    if (session) {
-      session.workingDirectory = projectRoot
-      session.gitContext = result.gitContext
-      session.worktreeBaseBranch = null
-      session.agentSessionId = null
-      session.provider = null
-      session.changedFiles = []
-      session.pluginCommands = { global: [], project: [] }
-      this.deps.refreshPluginCommands(projectRoot)
-    } else {
-      this.globalDefaults.workingDirectory = projectRoot
-      this.globalDefaults.gitContext = result.gitContext
-      this.deps.refreshPluginCommands(projectRoot)
-    }
-    this.deps.refreshGitRefs(projectRoot, ctx)
-    return true
   }
 
-  async setBaseDirectory(dir: string): Promise<void> {
-    const activeSession = this.deps.registry.activeSession
-    if (activeSession?.agentSessionId) {
+  async setBaseDirectory(dir: string, tabId?: string): Promise<void> {
+    const targetSession = tabId
+      ? this.deps.registry.sessionFor(tabId)
+      : this.deps.registry.activeSession
+    if (!tabId && targetSession?.agentSessionId) {
       await this.deps.createTab()
     }
-    if (this.deps.registry.tabOrder.length === 0) {
+    if (!tabId && this.deps.registry.tabOrder.length === 0) {
       this.globalDefaults.workingDirectory = dir
       this.globalDefaults.gitContext = null
+      this.globalDefaults.worktreeBaseBranch = null
       void window.solus.trackRecentProject(dir)
+      await this.trackSessionStartTargetResolution(
+        undefined,
+        this.deps.refreshGitState({ cwd: dir, worktreeRequested: this.deps.settings.worktreeEnabled }),
+      )
       return
     }
-    const session = this.deps.registry.activeSession
+    const targetTabId = tabId ?? this.deps.registry.activeTabId
+    const session = tabId
+      ? this.deps.registry.sessionFor(tabId)
+      : this.deps.registry.activeSession
     if (!session) return
     session.workingDirectory = dir
     session.agentSessionId = null
     session.provider = null
     session.additionalDirs = []
     session.gitContext = null
+    session.worktreeBaseBranch = null
     session.readOnlyReason = null
     session.pluginCommands = { global: [], project: [] }
-    window.solus.resetTabSession(this.deps.ctx())
-    this.deps.refreshPluginCommands(dir)
-    this.deps.refreshGitEnvironment({ tabId: this.deps.registry.activeTabId, cwd: dir })
+    window.solus.resetTabSession(this.deps.ctx(targetTabId))
+    this.deps.refreshPluginCommands(dir, targetTabId)
+    await this.trackSessionStartTargetResolution(
+      targetTabId,
+      this.deps.refreshGitState({
+        tabId: targetTabId,
+        cwd: dir,
+        worktreeRequested: this.deps.settings.worktreeEnabled,
+      }),
+    )
     void window.solus.trackRecentProject(dir)
+  }
+
+  pendingSessionStartTarget(tabId?: string): Promise<void> | null {
+    return this.sessionStartTargetResolutions.get(tabId ?? '') ?? null
+  }
+
+  private async trackSessionStartTargetResolution(
+    tabId: string | undefined,
+    refresh: Promise<GitRefreshResult>,
+  ): Promise<void> {
+    const key = tabId ?? ''
+    const resolution = refresh.then(() => {})
+    this.sessionStartTargetResolutions.set(key, resolution)
+    try {
+      await resolution
+    } finally {
+      if (this.sessionStartTargetResolutions.get(key) === resolution) {
+        this.sessionStartTargetResolutions.delete(key)
+      }
+    }
   }
 
   addDirectory(dir: string): void {

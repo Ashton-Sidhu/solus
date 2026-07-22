@@ -33,7 +33,7 @@ export class WorkStreamTracker {
 
   constructor(
     private worksStore: WorksStore,
-    private artifactViewer: PaneViewStore,
+    private panes: PaneViewStore,
   ) {}
 
   beginToolArtifacts(tabId: string, session: Session, toolName: string | undefined, agentProvider: AgentId): void {
@@ -73,7 +73,7 @@ export class WorkStreamTracker {
       this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content)
       // If the user opened the provisional card mid-stream, follow the rekey
       // so the open pane points at the persisted id, not the deleted temp one.
-      this.artifactViewer.rekeyWork(stream.tempId, event.workId)
+      this.panes.rekeyWork(stream.tempId, event.workId)
       const msg = session.messages.find((m) => m.id === stream.msgId)
       if (msg?.workRef) {
         msg.workRef.workId = event.workId

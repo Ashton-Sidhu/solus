@@ -1,6 +1,7 @@
 import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
-import type { GitStatusStore } from '../contexts/git-status.store.svelte'
+import type { SessionEnvironmentStore } from '../contexts/session-environment.store.svelte'
 import { connectionsStore } from '../contexts/connections.store.svelte'
+import { toasts } from '../contexts/toast.store.svelte'
 import { requestInputFocus } from './inputFocus'
 
 export class GitActions {
@@ -19,7 +20,7 @@ export class GitActions {
   constructor(
     private session: WorkspaceContext,
     private tabId: string,
-    private gitStatus: GitStatusStore,
+    private environmentStore: SessionEnvironmentStore,
   ) {}
 
   async commitPush(): Promise<void> {
@@ -29,23 +30,33 @@ export class GitActions {
     this.commitPushing = true
     this.commitPushed = false
     this.commitPushError = null
-    const result = await window.solus.gitCommitPush(this.session.ctxFor(this.tabId))
-    this.commitPushing = false
-    if (result.success) {
-      this.commitPushed = true
-      if (this.commitTimer) clearTimeout(this.commitTimer)
-      this.commitTimer = setTimeout(() => {
-        this.commitPushed = false
-        this.commitTimer = null
-      }, 1800)
-      if (gitCwd) {
-        await this.gitStatus.refresh(gitCwd, { force: true, details: true })
-        this.prUrl = this.gitStatus.statusFor(gitCwd)?.prUrl || null
+    try {
+      const result = await window.solus.gitCommitPush(this.session.ctxFor(this.tabId))
+      if (result.success) {
+        this.commitPushed = true
+        if (this.commitTimer) clearTimeout(this.commitTimer)
+        this.commitTimer = setTimeout(() => {
+          this.commitPushed = false
+          this.commitTimer = null
+        }, 1800)
+      } else {
+        this.commitPushError = result.error || 'Commit & push failed'
+        toasts.error(result.outcome === 'committed-only'
+          ? `Committed locally, but couldn't push: ${this.commitPushError}`
+          : `Couldn't commit and push: ${this.commitPushError}`)
       }
-    } else {
-      this.commitPushError = result.error || 'Commit & push failed'
+    } catch (error) {
+      this.commitPushError = error instanceof Error ? error.message : String(error)
+      toasts.error(`Couldn't commit and push: ${this.commitPushError}`)
+    } finally {
+      if (gitCwd) {
+        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+          .catch(() => null)
+        this.prUrl = this.environmentStore.statusFor(gitCwd)?.prUrl || null
+      }
+      this.commitPushing = false
+      requestInputFocus()
     }
-    requestInputFocus()
   }
 
   async sync(): Promise<void> {
@@ -55,23 +66,30 @@ export class GitActions {
     this.syncing = true
     this.synced = false
     this.syncError = null
-    const result = await window.solus.gitSync(this.session.ctxFor(this.tabId))
-    this.syncing = false
-    if (result.success) {
-      this.synced = true
-      if (this.syncTimer) clearTimeout(this.syncTimer)
-      this.syncTimer = setTimeout(() => {
-        this.synced = false
-        this.syncTimer = null
-      }, 1800)
-      if (sess.workingDirectory) {
-        await this.session.env.refreshGitEnvironment({ tabId: this.tabId })
-        void this.gitStatus.refresh(gitCwd, { force: true, details: true })
+    try {
+      const result = await window.solus.gitSync(this.session.ctxFor(this.tabId))
+      if (result.success) {
+        this.synced = true
+        if (this.syncTimer) clearTimeout(this.syncTimer)
+        this.syncTimer = setTimeout(() => {
+          this.synced = false
+          this.syncTimer = null
+        }, 1800)
+      } else {
+        this.syncError = result.error || 'Sync failed'
+        toasts.error(`Couldn't sync with remote: ${this.syncError}`)
       }
-    } else {
-      this.syncError = result.error || 'Sync failed'
+    } catch (error) {
+      this.syncError = error instanceof Error ? error.message : String(error)
+      toasts.error(`Couldn't sync with remote: ${this.syncError}`)
+    } finally {
+      if (gitCwd) {
+        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+          .catch(() => null)
+      }
+      this.syncing = false
+      requestInputFocus()
     }
-    requestInputFocus()
   }
 
   openTerminal(): void {
@@ -88,33 +106,30 @@ export class GitActions {
     try {
       const result = await window.solus.worktreePR(this.session.ctxFor(this.tabId))
       if (result.success) this.prUrl = result.url || null
-      else this.prError = result.error || 'Failed'
+      else {
+        this.prError = result.error || 'Create pull request failed'
+        toasts.error(`Couldn't create pull request: ${this.prError}`)
+      }
     } catch (err) {
-      this.prError = err instanceof Error ? err.message : 'Failed'
+      this.prError = err instanceof Error ? err.message : String(err)
+      toasts.error(`Couldn't create pull request: ${this.prError}`)
     } finally {
       this.creatingPR = false
       if (sess.workingDirectory) {
         const gitCwd = sess.gitContext?.worktreePath ?? sess.workingDirectory
-        void this.gitStatus.refresh(gitCwd, { force: true, details: true })
+        void this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
       }
       requestInputFocus()
     }
-  }
-
-  dismissError(): void {
-    this.commitPushError = null
-    this.syncError = null
-    this.prError = null
-    requestInputFocus()
   }
 }
 
 const actions = new Map<string, GitActions>()
 
-export function gitActionsFor(tabId: string, session: WorkspaceContext, gitStatus: GitStatusStore): GitActions {
+export function gitActionsFor(tabId: string, session: WorkspaceContext, environmentStore: SessionEnvironmentStore): GitActions {
   let existing = actions.get(tabId)
   if (!existing) {
-    existing = new GitActions(session, tabId, gitStatus)
+    existing = new GitActions(session, tabId, environmentStore)
     actions.set(tabId, existing)
   }
   return existing

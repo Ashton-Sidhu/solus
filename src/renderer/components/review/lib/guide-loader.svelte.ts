@@ -11,6 +11,8 @@ export interface GuideLoaderOptions {
    *  the full-branch walkthrough. The stable key identifies storage; scope tells
    *  the producer which point-in-time diff base to record. */
   getScope: () => "branch" | "session";
+  /** Present only while a PR is using its live stacked-parent base. */
+  getOwnDeltaBase?: () => { parent: number; headSha: string } | null;
   /** Effective agent/model/reasoning for a fresh generation. */
   getAgent: () => { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null };
 }
@@ -40,7 +42,7 @@ export class GuideLoader {
     this.#opts = opts;
   }
 
-  async load(regenerate: boolean): Promise<void> {
+  async load(regenerate: boolean, generateIfMissing = true): Promise<void> {
     const ctx = this.#opts.getCtx();
     const key = this.#opts.getKey();
     this.loading = true;
@@ -49,6 +51,12 @@ export class GuideLoader {
     const cached = regenerate ? null : await window.solus.readGuide(ctx, key);
     if (cached) {
       this.guide = cached;
+    } else if (!generateIfMissing) {
+      this.guide = null;
+      this.ledger = null;
+      this.patch = "";
+      this.loading = false;
+      return;
     } else {
       this.progressStep = "preparing";
       // Match progress events to this key's generation (events broadcast to
@@ -61,6 +69,7 @@ export class GuideLoader {
         const generated = await window.solus.generateGuide(ctx, {
           ...this.#opts.getAgent(),
           scope: this.#opts.getScope(),
+          ownDeltaBase: this.#opts.getOwnDeltaBase?.() ?? undefined,
         });
         this.guide = generated?.guide ?? null;
       } finally {

@@ -276,7 +276,7 @@
     transition: background var(--duration-quick) var(--ease-premium);
   }
   .plan-split-model-row:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
 
   @media (max-width: 767px) {

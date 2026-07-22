@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
-import { resolveRepoRef } from '../git/git-helpers'
+import { resolveRepoRef, resolveRepoRoot } from '../git/git-helpers'
+import { runAsync } from '../git/exec'
+import { writeReviewCheckpoint } from '../review/checkpoints'
 import { providerForRepo } from './registry'
 import { GitHubReauthRequiredError } from './github/octokit'
 import type { DraftReview, DraftReviewComment, PrFilter, RepoRef, ReviewThread } from '../../shared/providers'
@@ -55,7 +57,7 @@ const submitReviewShape = {
 }
 
 const LIST_PRS_DESC = 'List pull requests for the current git repository.'
-const READ_PR_DESC = 'Read a pull request overview, including body, headSha, commits, reviewers, and mergeability.'
+const READ_PR_DESC = 'Read a pull request overview, including body, headSha, commits, reviewers, mergeability, and top-level conversation.'
 const LIST_THREADS_DESC = 'List PR review threads. Use the verbatim thread_id values when replying or resolving.'
 const REPLY_THREAD_DESC = 'Reply to a PR review thread by thread id.'
 const RESOLVE_THREAD_DESC = 'Resolve a PR review thread by thread id.'
@@ -93,7 +95,7 @@ function formatThreads(threads: ReviewThread[]): string {
   if (!threads.length) return 'No matching review threads.'
   return threads.map((thread) => {
     const loc = thread.line === null ? `${thread.filePath}:outdated` : `${thread.filePath}:${thread.line}`
-    const comments = thread.comments.map((comment) => `${comment.author}: ${truncate(comment.body, 220)}`).join(' | ')
+    const comments = thread.comments.map((comment) => `${comment.author}:\n${comment.body}`).join('\n\n')
     return `thread_id: ${thread.id}\n${loc}${thread.isOutdated || thread.line === null ? ' (outdated)' : ''}  ${thread.isResolved ? '[resolved]' : '[unresolved]'}\n${comments}`
   }).join('\n\n')
 }
@@ -141,7 +143,10 @@ export async function executePrTool(
     if (name === 'read_pr') {
       const number = Number(args.number ?? 0)
       if (!Number.isInteger(number) || number <= 0) return { ok: false, text: 'read_pr requires a positive PR number.' }
-      const overview = await provider.review.getPullRequestOverview(repo, number)
+      const [overview, conversation] = await Promise.all([
+        provider.review.getPullRequestOverview(repo, number),
+        provider.review.listComments(repo, number),
+      ])
       const d = overview.detail
       const lines = [
         `#${d.number} ${d.title}`,
@@ -161,6 +166,13 @@ export async function executePrTool(
       if (overview.reviewers.length) {
         lines.push('', 'Reviewers:')
         for (const reviewer of overview.reviewers) lines.push(`- ${reviewer.login}: ${reviewer.state ?? 'pending'}`)
+      }
+      if (conversation.length) {
+        lines.push('', 'Top-level conversation:')
+        for (const item of conversation) {
+          const state = item.kind === 'review' && item.reviewState ? ` [${item.reviewState}]` : ''
+          lines.push(`- ${item.author}${state} (${item.createdAt})\n${item.body}`)
+        }
       }
       return { ok: true, text: lines.join('\n') }
     }
@@ -201,13 +213,34 @@ export async function executePrTool(
       const body = typeof args.body === 'string' ? args.body.trim() : ''
       if (!body) return { ok: false, text: 'submit_pr_review requires a non-empty body.' }
       const detail = await provider.review.getPullRequest(repo, number)
+      const repoRoot = (await resolveRepoRoot(cwd)) ?? cwd
+      let baseSha: string | null = null
+      try {
+        // Keep fetches sequential: concurrent fetches contend on FETCH_HEAD and
+        // would make checkpoint capture flaky even though the review succeeds.
+        await runAsync('git', ['fetch', 'origin', detail.baseRef], repoRoot)
+        await runAsync('git', ['fetch', 'origin', `pull/${number}/head`], repoRoot)
+        baseSha = await runAsync('git', ['merge-base', detail.headSha, detail.baseSha], repoRoot)
+      } catch {}
       const review: DraftReview = {
         body,
         event: event as DraftReview['event'],
         commitId: detail.headSha,
+        baseSha: baseSha ?? undefined,
         comments: toReviewComments(args.comments),
       }
       await provider.review.createReview(repo, number, review)
+      if (baseSha) {
+        const saved = await writeReviewCheckpoint(repoRoot, {
+          prNumber: number,
+          headSha: detail.headSha,
+          base: baseSha,
+          reviewedAt: new Date().toISOString(),
+        })
+        if (!saved) log.warn(`review submitted for PR #${number}, but its checkpoint could not be saved`)
+      } else {
+        log.warn(`review submitted for PR #${number}, but its merge-base could not be resolved`)
+      }
       notifyPrsChanged?.(cwd)
       return { ok: true, text: `Submitted ${event} review on PR #${number} anchored to headSha ${detail.headSha}.` }
     }

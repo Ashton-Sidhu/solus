@@ -67,7 +67,7 @@ export function codexSubagentSdkTool(deps: CodexSubagentDeps) {
         abortSignal: deps.abortSignal,
         readOnly: args.read_only === true,
         solusTools: true, // automation tools already excluded (fork-bomb guard)
-        ephemeral: false,
+        ephemeral: true,
         onEvent: parentToolUseId && deps.onEvent
           ? (event) => {
               if (!isTranscriptEvent(event)) return

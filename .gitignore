@@ -46,6 +46,7 @@ scripts/fff.ts
 web/.svelte-kit/
 web/build/
 web/.wrangler
+web/static/demo/
 
 .solus/**
 .solus-worktrees/**

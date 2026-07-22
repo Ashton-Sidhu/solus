@@ -44,6 +44,7 @@ protocol.registerSchemesAsPrivileged([
 
 /** Image MIME types served over solus-artifact://, keyed by lowercased extension. */
 const ARTIFACT_MIME: Record<string, string> = {
+  '.ico': 'image/x-icon',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',

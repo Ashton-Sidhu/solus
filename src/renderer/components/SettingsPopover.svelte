@@ -513,7 +513,7 @@
                   {#each tools.detectedEditors as editor (editor.id)}
                     <button
                       onclick={() => selectEditor(editor.id)}
-                      class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
+                      class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-surface-hover)"
                       style="color:{selected === editor.id
                         ? 'var(--solus-text-primary)'
                         : 'var(--solus-text-secondary)'};font-weight:{selected ===
@@ -582,7 +582,7 @@
                   {#each tools.detectedTerminals as terminal (terminal.id)}
                     <button
                       onclick={() => selectTerminal(terminal.id)}
-                      class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
+                      class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-surface-hover)"
                       style="color:{selected === terminal.id
                         ? 'var(--solus-text-primary)'
                         : 'var(--solus-text-secondary)'};font-weight:{selected ===
@@ -654,7 +654,7 @@
                       selectRateLimitBehavior(
                         val as "ask" | "continue" | "stop" | "queue",
                       )}
-                    class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
+                    class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-surface-hover)"
                     style="color:{selected === val
                       ? 'var(--solus-text-primary)'
                       : 'var(--solus-text-secondary)'};font-weight:{selected ===

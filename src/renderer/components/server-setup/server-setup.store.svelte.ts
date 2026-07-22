@@ -1,5 +1,6 @@
 import { connectionsStore } from '../../contexts/connections.store.svelte'
 import { projectsStore } from '../../contexts/projects.store.svelte'
+import { toasts } from '../../contexts/toast.store.svelte'
 import type {
   SetupAgentAuthCheckResult,
   SetupGithubRepo,
@@ -24,18 +25,15 @@ export class ServerSetupStore {
   serverNameDraft = $state('')
   serverNameDirty = $state(false)
   savingName = $state(false)
-  nameError = $state<string | null>(null)
 
   logs = $state<Record<SetupStreamStep, string[]>>(emptyLogs())
   statuses = $state<Partial<Record<SetupStreamStep, SetupStepStatus>>>({})
-  errors = $state<Partial<Record<SetupStreamStep, string>>>({})
 
   authCheck = $state<SetupAgentAuthCheckResult | null>(null)
   repos = $state<SetupGithubRepo[]>([])
   reposLoaded = $state(false)
   reposLoading = $state(false)
   reposConnected = $state<boolean | null>(null)
-  reposError = $state<string | null>(null)
   clonedProjectPath = $state<string | null>(null)
 
   private listenerCount = 0
@@ -65,24 +63,24 @@ export class ServerSetupStore {
 
   markServerNameDirty(): void {
     this.serverNameDirty = true
-    this.nameError = null
   }
 
-  async saveServerName(): Promise<void> {
+  async saveServerName(): Promise<boolean> {
     const name = this.serverNameDraft.trim()
     if (!name) {
-      this.nameError = 'Enter a server name.'
-      return
+      toasts.error('Enter a server name.')
+      return false
     }
     this.savingName = true
-    this.nameError = null
     try {
       const result = await window.solus.setServerName(name)
       this.serverNameDraft = result.name ?? name
       this.serverNameDirty = false
       await connectionsStore.refreshCapabilities()
+      return true
     } catch (err) {
-      this.nameError = err instanceof Error ? err.message : String(err)
+      toasts.error(`Couldn't save server name: ${err instanceof Error ? err.message : String(err)}`)
+      return false
     } finally {
       this.savingName = false
     }
@@ -93,7 +91,7 @@ export class ServerSetupStore {
     try {
       await window.solus.setupInstallAgentCli({ agent: 'claude' })
     } catch (err) {
-      this.errors['install-claude'] = err instanceof Error ? err.message : String(err)
+      toasts.error(`Couldn't install Claude Code: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       await connectionsStore.refreshCapabilities()
     }
@@ -108,7 +106,6 @@ export class ServerSetupStore {
     if (this.reposLoading) return
     if (this.reposLoaded && !opts.force) return
     this.reposLoading = true
-    this.reposError = null
     try {
       const result = await window.solus.setupListGithubRepos()
       this.reposConnected = result.connected
@@ -119,7 +116,7 @@ export class ServerSetupStore {
       }
       this.reposLoaded = true
     } catch (err) {
-      this.reposError = err instanceof Error ? err.message : String(err)
+      toasts.error(`Couldn't load repositories: ${err instanceof Error ? err.message : String(err)}`)
       this.repos = []
       this.reposLoaded = true
     } finally {
@@ -138,7 +135,7 @@ export class ServerSetupStore {
       this.clonedProjectPath = result.path
       await projectsStore.loadProjects({ force: true })
     } catch (err) {
-      this.errors.clone = err instanceof Error ? err.message : String(err)
+      toasts.error(`Couldn't clone repository: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       await connectionsStore.refreshCapabilities()
     }
@@ -147,7 +144,6 @@ export class ServerSetupStore {
   clearStep(step: SetupStreamStep): void {
     this.logs[step].splice(0, this.logs[step].length)
     delete this.statuses[step]
-    delete this.errors[step]
   }
 
   private applyLog(event: SetupLogEvent): void {
@@ -158,8 +154,6 @@ export class ServerSetupStore {
 
   private applyStatus(event: SetupStatusEvent): void {
     this.statuses[event.step] = event.status
-    if (event.error) this.errors[event.step] = event.error
-    else delete this.errors[event.step]
   }
 }
 

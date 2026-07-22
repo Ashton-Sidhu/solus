@@ -81,7 +81,7 @@
     },
     {
       id: "github",
-      label: "GitHub",
+      label: "Providers",
       icon: GithubLogoIcon,
       group: "Capabilities",
       desktopOnly: true,

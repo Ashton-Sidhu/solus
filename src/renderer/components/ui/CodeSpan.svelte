@@ -37,7 +37,11 @@
   }
 
   function handleFileClick() {
-    requestFilePreview({ path: filePath, line: fileLine, tabId: session.activeTabId });
+    requestFilePreview({
+      path: filePath,
+      line: fileLine,
+      tabId: session.focusedChatTabId ?? session.activeTabId,
+    });
   }
 
 </script>

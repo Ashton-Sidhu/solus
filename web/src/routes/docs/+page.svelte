@@ -10,7 +10,7 @@
 		{ id: 'plans',       label: 'Working with Plans' },
 		{ id: 'diff',        label: 'Diff Panel' },
 		{ id: 'review',      label: 'Review Companion' },
-		{ id: 'merge-queue', label: 'Merge Queue' },
+		{ id: 'pull-request-merge', label: 'Merging Pull Requests' },
 		{ id: 'design-mode', label: 'Design Mode' },
 		{ id: 'voice',       label: 'Voice Input' },
 		{ id: 'automations', label: 'Automations' },
@@ -219,7 +219,7 @@
 			<p class="text-base sm:text-[15px] max-[1440px]:sm:text-[14px] text-[#6B6158] leading-relaxed max-w-[560px]">
 				Everything you need to know — keybindings, workspace panes, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 13, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 15, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -238,7 +238,7 @@
 						['Plan mode', "Review your agent's plan before it executes. Annotate with inline comments, then approve or reject. Pin or save plans for later reference and browse revision history when the plan changes."],
 						['Diff panel', 'Review every file your agent touched in a side panel. Navigate between files, leave line-level comments, and send annotated feedback back in one click.'],
 						['Review companion', "A second agent reviews your branch's changes and writes an inline report — grouped findings you can click to jump straight to the relevant hunk in the diff."],
-						['Merge queue', 'Stage a set of reviewed pull requests and merge them one at a time. The queue pauses on conflicts so an agent can resolve them in the PR worktree, then resumes.'],
+						['Pull request merging', 'Merge an individual pull request with a merge commit, squash, or rebase. Conflicted PRs can be handed to an agent in an isolated worktree.'],
 						['Works', 'Generated documents and slides are saved as Works. Open the gallery to search, edit, copy, or delete them later.'],
 						['Design Mode', 'Take a screenshot, draw rectangles, arrows, pins, and text annotations on it, then send the annotated image directly to your agent — no screenshots app needed.'],
 						['Voice input', 'Dictate prompts hands-free with local Whisper transcription — audio never leaves your machine.'],
@@ -355,8 +355,6 @@
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Pull requests</h3>
 					<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the Pull Requests page is open.</p>
 					{@render kbTable([
-						['⌥Q', 'Queue selected PR for merge'],
-						['⌥M', 'Open merge queue'],
 						['Esc', 'Close'],
 					])}
 
@@ -620,23 +618,20 @@
 				</p>
 			</section>
 
-			<section id="merge-queue" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
-				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Merge Queue</h2>
+			<section id="pull-request-merge" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Merging Pull Requests</h2>
 				<p>
-					The merge queue lands a batch of reviewed pull requests without babysitting each one. Stage the PRs
-					you want, pick a strategy, and Solus merges them sequentially — one at a time — pausing whenever a
-					PR hits conflicts so it can be resolved before the queue continues.
+					Solus can merge an individual pull request directly from its review surface. Choose a merge commit,
+					squash, or rebase, then confirm the result without leaving the review.
 				</p>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Open Pull Requests', 'From the sidebar, open the Pull Requests page for the current project to see open PRs and their review state.'],
-						['Stage PRs', `Select the PRs you want to land and queue them (${kbdHtml('⌥Q')}). A staged count appears on the merge-queue row under the list.`],
-						['Open the queue', `Press ${kbdHtml('⌥M')} or click the merge-queue row to open its dedicated view, where you can reorder or remove staged PRs.`],
-						['Choose ordering', 'Use <strong class="text-[#1A1714] font-medium">Auto order</strong> to let Solus merge the least-entangled PRs (fewest overlapping files) first, or <strong class="text-[#1A1714] font-medium">Queued order</strong> to keep the order you staged them in.'],
-						['Choose a method', 'Pick <strong class="text-[#1A1714] font-medium">Merge</strong>, <strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong> for how each PR is committed onto its base branch.'],
-						['Start & watch', 'Start the run and follow the live timeline as each PR merges. Progress stays visible from anywhere on the page via a spinner and mini progress bar.'],
+						['Open Pull Requests', 'From the sidebar, open the Pull Requests page for the current project and select the PR you want to review.'],
+						['Check readiness', 'The review surface shows the PR status, required checks, reviewers, and unresolved conversations.'],
+						['Choose a method', 'Use the merge action to pick <strong class="text-[#1A1714] font-medium">Merge commit</strong>, <strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong>.'],
+						['Merge', 'Confirm the action. Solus calls the code host directly and reports any branch-protection or readiness refusal in place.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -647,10 +642,10 @@
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Resolving conflicts</h3>
 				<p class="text-base/7 sm:text-[14px]">
-					If merging the base branch into a PR hits conflicts, the queue pauses on that entry and lists the
-					conflicted files. Solus checks the PR out into an isolated worktree so an agent — or you — can
-					resolve the conflicts, then the queue resumes with the remaining PRs. You can also skip a stuck
-					entry to keep the rest moving.
+					When a PR conflicts with its base branch, choose <strong class="text-[#1A1714] font-medium">Resolve conflicts</strong>.
+					Solus checks the PR out into an isolated worktree, starts the merge, and opens an agent session with
+					the conflicted files. The agent resolves, tests, commits, and pushes the branch; you can then return
+					to the PR and merge it normally.
 				</p>
 			</section>
 
@@ -1054,18 +1049,6 @@ solus claim                           # claim the server from this machine</div>
 						['Default terminal', 'Terminal app used when launching terminal-based editors. Supports the system default terminal and Ghostty.'],
 					] as [key, val], i}
 						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
-							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
-							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
-						</div>
-					{/each}
-				</div>
-
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Notifications</h3>
-				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
-					{#each [
-						['Notification sound', 'Play an audio chime when a response arrives while the Solus window is hidden. Useful for long-running tasks where you switch to another app.'],
-					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>

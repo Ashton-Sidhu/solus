@@ -301,7 +301,7 @@
     transition: background-color 0.15s ease;
   }
   .svc-row:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
 
   /* ── Leading toggle (start / stop / cancel) ── */
@@ -453,7 +453,7 @@
     transition: background-color 0.15s ease;
   }
   .empty-cta:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
   .empty-cta:focus-visible {
     outline: none;

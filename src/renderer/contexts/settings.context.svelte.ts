@@ -11,6 +11,10 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
 export type ProjectPanelSectionId = 'git' | 'run' | 'works' | 'automations' | 'tasks'
+export type SplitLayoutSettings = {
+  splitTabId: string
+  secondaryRatio: number
+}
 
 const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
   git: false,
@@ -41,6 +45,8 @@ export type SettingsFields = {
   reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
   reviewModel: string | null      // review companion model; null → backend default
   reviewReasoning: ReasoningEffort | null  // review companion reasoning effort; null → model default
+  generatePrGuidesOnOpen: boolean
+  reviewWarmingByProject: Record<string, boolean>
   rateLimitBehavior: RateLimitBehavior
   worktreeEnabled: boolean
   fontFamily: AppFontFamily
@@ -56,6 +62,7 @@ export type SettingsFields = {
   runDockOpen: boolean
   runDockHeight: number
   tabGroupMode: TabGroupMode
+  splitLayout: SplitLayoutSettings | null
 }
 
 function applyTheme(isDark: boolean): void {
@@ -183,6 +190,15 @@ function loadModelInstructions(value: unknown): Record<string, string> {
   return out
 }
 
+function loadBooleanRecord(value: unknown): Record<string, boolean> {
+  const out: Record<string, boolean> = {}
+  if (!value || typeof value !== 'object') return out
+  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof enabled === 'boolean') out[key] = enabled
+  }
+  return out
+}
+
 function loadProjectPanelCollapsed(value: unknown): Record<ProjectPanelSectionId, boolean> {
   const collapsed = { ...DEFAULT_PROJECT_PANEL_COLLAPSED }
   if (!value || typeof value !== 'object') return collapsed
@@ -191,6 +207,17 @@ function loadProjectPanelCollapsed(value: unknown): Record<ProjectPanelSectionId
     if (typeof next === 'boolean') collapsed[id] = next
   }
   return collapsed
+}
+
+function loadSplitLayout(value: unknown): SplitLayoutSettings | null {
+  if (!value || typeof value !== 'object') return null
+  const saved = value as Record<string, unknown>
+  if (typeof saved.splitTabId !== 'string' || !saved.splitTabId) return null
+  if (typeof saved.secondaryRatio !== 'number' || !Number.isFinite(saved.secondaryRatio)) return null
+  return {
+    splitTabId: saved.splitTabId,
+    secondaryRatio: Math.min(0.75, Math.max(0.25, saved.secondaryRatio)),
+  }
 }
 
 function loadSettings(): SettingsFields {
@@ -210,6 +237,8 @@ function loadSettings(): SettingsFields {
         reviewAgent: VALID_AGENTS.includes(parsed.reviewAgent) ? parsed.reviewAgent : null,
         reviewModel: typeof parsed.reviewModel === 'string' ? parsed.reviewModel : null,
         reviewReasoning: parsed.reviewReasoning in REASONING_EFFORT_LABELS ? parsed.reviewReasoning : null,
+        generatePrGuidesOnOpen: typeof parsed.generatePrGuidesOnOpen === 'boolean' ? parsed.generatePrGuidesOnOpen : false,
+        reviewWarmingByProject: loadBooleanRecord(parsed.reviewWarmingByProject),
         rateLimitBehavior: (['ask', 'queue', 'continue', 'stop'].includes(parsed.rateLimitBehavior) ? parsed.rateLimitBehavior : 'ask') as RateLimitBehavior,
         worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
         fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : 'inter',
@@ -225,6 +254,7 @@ function loadSettings(): SettingsFields {
         runDockOpen: typeof parsed.runDockOpen === 'boolean' ? parsed.runDockOpen : false,
         runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
+        splitLayout: loadSplitLayout(parsed.splitLayout),
       }
     }
   } catch {}
@@ -240,6 +270,8 @@ function loadSettings(): SettingsFields {
     reviewAgent: null,
     reviewModel: null,
     reviewReasoning: null,
+    generatePrGuidesOnOpen: false,
+    reviewWarmingByProject: {},
     rateLimitBehavior: 'ask',
     worktreeEnabled: false,
     fontFamily: 'inter',
@@ -255,6 +287,7 @@ function loadSettings(): SettingsFields {
     runDockOpen: false,
     runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
+    splitLayout: null,
   }
 }
 
@@ -270,6 +303,8 @@ export class SettingsContext {
   reviewAgent = $state<AgentId | null>(null)
   reviewModel = $state<string | null>(null)
   reviewReasoning = $state<ReasoningEffort | null>(null)
+  generatePrGuidesOnOpen = $state(false)
+  reviewWarmingByProject = $state<Record<string, boolean>>({})
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
   worktreeEnabled = $state(false)
   fontFamily = $state<AppFontFamily>('inter')
@@ -285,6 +320,7 @@ export class SettingsContext {
   runDockOpen = $state(false)
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
+  splitLayout = $state<SplitLayoutSettings | null>(null)
   private _systemIsDark = $state(true)
 
   constructor() {
@@ -300,6 +336,8 @@ export class SettingsContext {
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
     this.reviewReasoning = saved.reviewReasoning
+    this.generatePrGuidesOnOpen = saved.generatePrGuidesOnOpen
+    this.reviewWarmingByProject = saved.reviewWarmingByProject
     this.rateLimitBehavior = saved.rateLimitBehavior
     this.worktreeEnabled = saved.worktreeEnabled
     this.fontFamily = saved.fontFamily
@@ -315,6 +353,7 @@ export class SettingsContext {
     this.runDockOpen = saved.runDockOpen
     this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
+    this.splitLayout = saved.splitLayout
 
     // Must run before first paint so CSS variables resolve to the saved palette.
     applyTheme(saved.themeMode !== 'light')
@@ -338,6 +377,10 @@ export class SettingsContext {
       defaultEditor: this.defaultEditor,
       defaultTerminal: this.defaultTerminal,
       activeAgent: this.activeAgent,
+      reviewAgent: this.reviewAgent,
+      reviewModel: this.reviewModel,
+      reviewReasoning: this.reviewReasoning,
+      reviewWarmingEnabled: false,
       worktreeEnabled: this.worktreeEnabled,
       rateLimitBehavior: this.rateLimitBehavior,
       fontFamily: this.fontFamily,
@@ -350,6 +393,20 @@ export class SettingsContext {
       // that embeds this ctx (e.g. sending a prompt).
       modelInstructions: $state.snapshot(this.modelInstructions),
     }
+  }
+
+  ctxForProject(projectPath: string): SettingsCtx {
+    return { ...this.ctx, reviewWarmingEnabled: this.reviewWarmingByProject[projectPath] === true }
+  }
+
+  isReviewWarmingEnabled(projectPath: string): boolean {
+    return this.reviewWarmingByProject[projectPath] === true
+  }
+
+  setReviewWarmingEnabled(projectPath: string, enabled: boolean): void {
+    if (!projectPath || projectPath === '~') return
+    this.reviewWarmingByProject[projectPath] = enabled
+    this.saveSettings()
   }
 
   update(patch: Partial<SettingsFields>): void {
@@ -368,6 +425,8 @@ export class SettingsContext {
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
     if (patch.reviewReasoning !== undefined) this.reviewReasoning = patch.reviewReasoning
+    if (patch.generatePrGuidesOnOpen !== undefined) this.generatePrGuidesOnOpen = patch.generatePrGuidesOnOpen
+    if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
     if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
     if (patch.worktreeEnabled !== undefined) this.worktreeEnabled = patch.worktreeEnabled
     if (patch.fontFamily !== undefined) {
@@ -398,6 +457,7 @@ export class SettingsContext {
     if (patch.runDockOpen !== undefined) this.runDockOpen = patch.runDockOpen
     if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
+    if (patch.splitLayout !== undefined) this.splitLayout = patch.splitLayout
     this.saveSettings()
   }
 
@@ -423,6 +483,8 @@ export class SettingsContext {
         reviewAgent: this.reviewAgent,
         reviewModel: this.reviewModel,
         reviewReasoning: this.reviewReasoning,
+        generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
+        reviewWarmingByProject: this.reviewWarmingByProject,
         rateLimitBehavior: this.rateLimitBehavior,
         worktreeEnabled: this.worktreeEnabled,
         fontFamily: this.fontFamily,
@@ -438,6 +500,7 @@ export class SettingsContext {
         runDockOpen: this.runDockOpen,
         runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,
+        splitLayout: this.splitLayout,
       }))
     } catch {}
   }

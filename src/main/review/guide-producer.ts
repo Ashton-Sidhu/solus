@@ -1,6 +1,6 @@
 import type { IpcContext, AgentId, ReasoningEffort } from '../../shared/types'
-import type { ReviewContext, ReviewGuide, ReviewProgressEvent, ReviewProgressStep } from '../../shared/review'
-import { getEpisodeDiff, getSessionBaseSha } from '../git/session-snapshots'
+import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewProgressEvent, type ReviewProgressStep } from '../../shared/review'
+import { getEpisodeDiff, getSessionBaseSha, resolvePrDiffBase } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import { readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide } from './ledger'
@@ -34,11 +34,13 @@ export interface GenerateGuideOptions {
    *  the session base SHA, ledger filtered to this session) and overwrites that
    *  session's stable guide. `'branch'` (default) overwrites the branch guide. */
   scope?: 'branch' | 'session'
+  /** Live stacked parent selected by the renderer. Main resolves its merge-base
+   *  with the checked-out PR head before diffing. */
+  ownDeltaBase?: { parent: number; headSha: string }
 }
 
-/** Where a generation reads/writes and what it diffs. A session walkthrough
- *  points the same episode machinery at the session base SHA under a suffixed
- *  key; a branch walkthrough uses the branch merge-base under the plain key. */
+/** Where a generation reads/writes and what it diffs. Session and stacked
+ * walkthroughs suffix their stable key so distinct bases never coalesce. */
 interface GuideTarget {
   guideKey: string
   base: string
@@ -46,19 +48,32 @@ interface GuideTarget {
   sessionId: string | null
 }
 
-/** Resolve the target before dedupe/progress so concurrent session + branch
- *  generations key apart instead of coalescing onto one run. Falls back to the
- *  branch base (but keeps the session key) when no session base is captured, so
- *  the key never drifts from what the renderer asked for. */
-function resolveTarget(ctx: IpcContext, review: ReviewContext, opts: GenerateGuideOptions): GuideTarget {
+/** Resolve the target before dedupe/progress so concurrent base variants key
+ * apart instead of coalescing onto one run. Session fallback keeps its requested
+ * key; stacked generation resolves the parent/child merge-base once, up front. */
+async function resolveTarget(ctx: IpcContext, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
   const sessionId = ctx.session.agentSessionId
   if (opts.scope === 'session' && sessionId) {
     const sessionBase = getSessionBaseSha(review.repoRoot, sessionId)
     const branchBase = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
     return { guideKey: guideKeyFor(review, opts.scope, sessionId), base: sessionBase ?? branchBase, sessionId }
   }
-  const base = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
-  return { guideKey: guideKeyFor(review, opts.scope, sessionId ?? null), base, sessionId: null }
+  const branchBase = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
+  const baseKey = guideKeyFor(review, opts.scope, sessionId ?? null)
+  if (!opts.ownDeltaBase) return { guideKey: baseKey, base: branchBase, sessionId: null }
+
+  const workTree = reviewCheckout(ctx) ?? review.repoRoot
+  const base = await resolvePrDiffBase(workTree, review.repoRoot, {
+    kind: 'pr',
+    baseSha: branchBase,
+    ownDeltaBaseSha: opts.ownDeltaBase.headSha,
+    parentPr: opts.ownDeltaBase.parent,
+  })
+  return {
+    guideKey: reviewGuideKeyForBase(baseKey, opts.ownDeltaBase.headSha),
+    base,
+    sessionId: null,
+  }
 }
 
 /** Emits a phase transition for the in-flight generation. The key is attached by
@@ -101,7 +116,7 @@ export async function generateGuide(
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review) return null
 
-  const target = resolveTarget(ctx, review, opts)
+  const target = await resolveTarget(ctx, review, opts)
   const dedupeKey = `${review.repoRoot}::${target.guideKey}`
   const running = inFlight.get(dedupeKey)
   if (running) {
@@ -123,11 +138,11 @@ export async function generateGuide(
 
 export async function cancelGenerateGuide(
   ctx: IpcContext,
-  opts: Pick<GenerateGuideOptions, 'scope'> = {},
+  opts: Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> = {},
 ): Promise<boolean> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review) return false
-  const target = resolveTarget(ctx, review, opts)
+  const target = await resolveTarget(ctx, review, opts)
   const dedupeKey = `${review.repoRoot}::${target.guideKey}`
   const running = inFlight.get(dedupeKey)
   if (!running) return false
@@ -208,6 +223,7 @@ async function produceGuide(
     key: target.guideKey,
     headSha,
     baseSha: base,
+    generatedAt: new Date().toISOString(),
     ...normalizeGuide(draft, {
       changedFiles: changedFilesFromPatch(patch),
       ledgerIds: (ledger?.records ?? []).map((r) => r.id),
@@ -231,6 +247,7 @@ function fallbackGuide(key: string, headSha: string, baseSha: string, message: s
     key,
     headSha,
     baseSha,
+    generatedAt: new Date().toISOString(),
     title: 'Review guide',
     summary: message,
     sections: [],

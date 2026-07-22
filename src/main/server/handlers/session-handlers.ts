@@ -155,18 +155,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('bindRuntimeSession', bindRuntimeSession)
 
-  server.register('startAgentSession', async (args, handlerCtx) => {
-    const [ctx, options] = args as [IpcContext, PromptOptions]
-    log.info(`RPC startAgentSession: tab=${ctx.session.tabId || 'headless'}`)
-    return controlPlane.startAgentSession(ctx, options, handlerCtx.deviceId)
-  })
-
-  server.register('dispatchToAgentSession', async (args, handlerCtx) => {
-    const [ctx, agentSessionId, options] = args as [IpcContext, string, PromptOptions]
-    log.info(`RPC dispatchToAgentSession: session=${agentSessionId} tab=${ctx.session.tabId || 'headless'}`)
-    return controlPlane.dispatchToAgentSession(ctx, agentSessionId, options, handlerCtx.deviceId)
-  })
-
   server.register('resetTabSession', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
     log.info(`RPC resetTabSession: ${ctx.session.tabId}`)

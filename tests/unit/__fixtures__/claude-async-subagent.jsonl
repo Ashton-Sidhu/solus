@@ -1,0 +1,6 @@
+{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"agent-async-1","name":"Task"}}}
+{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"description\":\"Design plan\"}"}}}
+{"type":"system","subtype":"task_started","task_id":"task-async-1","tool_use_id":"agent-async-1","description":"Design plan","subagent_type":"Plan","task_type":"local_agent"}
+{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_stop","index":2}}
+{"type":"user","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"agent-async-1","content":[{"type":"text","text":"Async agent launched successfully. agentId: task-async-1. The agent is working in the background."}]}]},"tool_use_result":{"isAsync":true,"status":"async_launched","agentId":"task-async-1"}}
+{"type":"system","subtype":"task_notification","task_id":"task-async-1","tool_use_id":"agent-async-1","status":"completed","summary":"Design plan"}

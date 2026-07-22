@@ -19,14 +19,15 @@ import { registerFolioHandlers } from './handlers/folio-handlers'
 import { registerReviewHandlers } from './handlers/review-handlers'
 import { registerAutomationHandlers } from './handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from '../automations/automation-scheduler'
-import { setAutomationSessionDispatcher } from '../automations/automation-runner'
+import { setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher } from '../automations/automation-runner'
 import { setAutomationsChangedListener } from '../automations/automations-store'
 import { setSessionController, setSessionCreator } from '../sessions/session-tools'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
 import { setPrsChangedNotifier } from '../providers/pr-tools'
-import { registerMergeQueueHandlers } from './handlers/merge-queue-handlers'
+import { registerStackHandlers } from './handlers/stack-handlers'
+import { registerChecksHandlers } from './handlers/checks-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
 import { registerRunHandlers } from './handlers/run-handlers'
@@ -171,6 +172,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Let session-bound automations run their prompt inside the chat thread they
   // were created in (full conversation context), routed through the control plane.
   setAutomationSessionDispatcher((o) => opts.controlPlane.dispatchAutomationRun(o))
+  // Isolated automations use the same headless ControlPlane lifecycle as normal
+  // background sessions, so their live transcript can be opened mid-run.
+  setAutomationBackgroundSessionDispatcher((o) => opts.controlPlane.startAutomationSession(o))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
   setAutomationsChangedListener((event) => server.broadcast('automations-changed', event))
@@ -192,8 +196,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
-  registerProviderHandlers(server)
-  registerMergeQueueHandlers(server)
+  registerProviderHandlers(server, {
+    isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
+  })
+  registerStackHandlers(server)
+  registerChecksHandlers(server)
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
   registerSetupHandlers(server)

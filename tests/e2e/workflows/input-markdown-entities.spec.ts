@@ -29,6 +29,20 @@ test.describe('Input markdown entity serialization', () => {
     await expect(input).toHaveText('code rest')
   })
 
+  test('keeps the space before typed inline code', async ({ page }) => {
+    // WHY: the inline-code conversion must not consume prose immediately
+    // before the opening backtick, especially the word-separating space.
+    const app = new AppPage(page)
+    await app.waitForAppReady()
+
+    const input = page.locator(INPUT_EDITOR)
+    await input.click()
+    await page.keyboard.type('before `code`')
+
+    await expect(input.locator('code')).toHaveText('code')
+    await expect(input).toHaveText('before code')
+  })
+
   test('keeps literal entities inside inline code when sending', async ({ page }) => {
     // WHY: users paste entity examples into code spans; serialization must not
     // turn the literal `&lt;` text into a real less-than character.

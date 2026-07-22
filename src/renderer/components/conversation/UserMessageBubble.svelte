@@ -93,7 +93,10 @@
         {@const IconComponent = FILE_ICON_COMPONENTS[a.mimeType || ''] || FileIcon}
         <button
           type="button"
-          onclick={() => requestFilePreview({ path: a.path, tabId: session.activeTabId })}
+          onclick={() => requestFilePreview({
+            path: a.path,
+            tabId: session.focusedChatTabId ?? session.activeTabId,
+          })}
           class="flex items-center gap-1.5 bg-(--solus-surface-primary) border border-(--solus-surface-secondary)"
           style="border-radius:0.625rem;padding:0.25rem 0.5rem;max-width:11.25rem"
         >
@@ -131,7 +134,7 @@
             onclick={() => onCancel!(queueId!)}
             title="Remove from queue"
             aria-label="Remove from queue"
-            class="absolute -top-1.5 right-0 flex h-4 w-4 items-center justify-center rounded-full border border-(--solus-surface-tertiary) bg-(--solus-surface-secondary) text-(--solus-text-tertiary) transition-opacity duration-150 hover:bg-(--solus-surface-tertiary) hover:text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/queued:opacity-100'}"
+            class="absolute -top-1.5 right-0 flex h-4 w-4 items-center justify-center rounded-full border border-(--solus-surface-tertiary) bg-(--solus-surface-secondary) text-(--solus-text-tertiary) transition-opacity duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/queued:opacity-100'}"
           >
             <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
             <XIcon size={8} weight="bold" />

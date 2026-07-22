@@ -9,12 +9,15 @@ import { setTabPersistenceServerInstallationId } from '@renderer/contexts/tab-pe
 import { webState } from './lib/web-state.svelte'
 import { router } from './lib/router.svelte'
 import { webPushState } from './lib/web-push.svelte'
+import { toasts } from './lib/toast.store.svelte'
+import WebToast from './components/WebToast.svelte'
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
 })
 
 const root = document.getElementById('root')!
+mount(WebToast, { target: root })
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 
@@ -37,6 +40,7 @@ function installServiceWorkerMessageBridge(): void {
 }
 
 function showConnectFlow(): void {
+  toasts.dismiss()
   if (solusApp) { unmount(solusApp); solusApp = null }
   if (activeTransport) { activeTransport.destroy(); activeTransport = null }
   delete (window as any).solus
@@ -52,6 +56,7 @@ function showConnectFlow(): void {
 }
 
 function connectToServer(server: SavedServer): void {
+  toasts.dismiss()
   if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
   setTabPersistenceServerInstallationId(server.installationId ?? server.id, {
     migrateLegacy: loadServers().length <= 1,

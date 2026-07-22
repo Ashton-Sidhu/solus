@@ -16,7 +16,7 @@
   let { message, tabId }: Props = $props();
 
   const session = getWorkspaceContext();
-  const av = session.artifactViewer;
+  const panes = session.panes;
 
   const parsedInput = $derived(parseSubagentInput(message.toolInput));
   const subagentType = $derived(
@@ -50,8 +50,12 @@
     [subagentType, modelLabel, reasoningLabel].filter(Boolean),
   );
 
-  const isRunning = $derived(message.toolResult === undefined);
-  const isError = $derived(!!message.toolResultIsError);
+  // Track the agent, not its tool call: a backgrounded agent's tool_result lands
+  // at launch, so only toolStatus distinguishes "still working" from "done".
+  const isRunning = $derived(message.toolStatus === "running");
+  const isError = $derived(
+    !!message.toolResultIsError || message.toolStatus === "error",
+  );
   const statusLabel = $derived(
     isRunning ? "Working" : isError ? "Failed" : "Complete",
   );
@@ -70,7 +74,14 @@
     return "Working…";
   });
   const resultSummary = $derived.by(() => {
-    const first = (message.toolResult ?? "")
+    // A backgrounded agent never returns a tool_result, so fall back to the last
+    // thing it said in its own transcript — that is its answer.
+    const text =
+      message.toolResult ||
+      subs.findLast((m) => m.role === "assistant" && m.content.trim())
+        ?.content ||
+      "";
+    const first = text
       .split("\n")
       .map((line) => line.trim())
       .find(Boolean);
@@ -79,7 +90,8 @@
   });
   const activity = $derived(isRunning ? ticker : resultSummary);
   const isOpen = $derived(
-    av.secondary.kind === "subagent" && av.secondary.messageId === message.id,
+    panes.secondaryOverlay?.kind === "subagent" &&
+      panes.secondaryOverlay.messageId === message.id,
   );
 </script>
 
@@ -91,7 +103,7 @@
   aria-label={`${task}, ${statusLabel}`}
   aria-current={isOpen ? "true" : undefined}
   data-testid="subagent-card"
-  onclick={() => av.openSubagent(tabId, message.id)}
+  onclick={() => panes.openSubagent(tabId, message.id)}
 >
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
     <div

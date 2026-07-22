@@ -299,10 +299,10 @@
     requestInputFocus();
   }
 
-  async function handleAttachFile() {
+  async function handleAttachFile(tabId?: string) {
     const files = await window.solus.attachFiles();
     if (!files || files.length === 0) return;
-    session.addAttachments(files);
+    session.addAttachments(files, tabId);
   }
 
   async function cycleAgentProvider() {

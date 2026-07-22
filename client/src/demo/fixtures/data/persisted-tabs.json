@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "activeTabId": "demo-tab-webhooks",
+  "tabOrder": ["demo-tab-webhooks", "demo-tab-ratelimit", "demo-tab-billing", "demo-tab-new"],
+  "tabs": [
+    {
+      "tabId": "demo-tab-webhooks",
+      "title": "Fix flaky retry logic in webhook delivery",
+      "agentSessionId": "demo-session-webhooks",
+      "provider": "claude-code",
+      "workingDirectory": "/home/demo/acme",
+      "additionalDirs": [],
+      "gitContext": { "branch": "fix/webhook-retries", "targetBranch": "main", "repoRoot": "/home/demo/acme" },
+      "worktreeBaseBranch": "main",
+      "modelConfig": { "modelId": "claude-sonnet-5", "reasoningEffort": "high", "contextWindow": 1000000, "fastMode": false },
+      "permissionMode": "auto",
+      "hasUnread": false
+    },
+    {
+      "tabId": "demo-tab-ratelimit",
+      "title": "Add rate limiting to the API",
+      "agentSessionId": "demo-session-ratelimit",
+      "provider": "claude-code",
+      "workingDirectory": "/home/demo/acme",
+      "additionalDirs": [],
+      "gitContext": { "branch": "feat/rate-limiting", "targetBranch": "main", "repoRoot": "/home/demo/acme" },
+      "worktreeBaseBranch": "main",
+      "modelConfig": { "modelId": "claude-sonnet-5", "reasoningEffort": "high", "contextWindow": 1000000, "fastMode": false },
+      "permissionMode": "ask",
+      "hasUnread": false
+    },
+    {
+      "tabId": "demo-tab-billing",
+      "title": "Migrate billing to usage-based pricing",
+      "agentSessionId": "demo-session-billing",
+      "provider": "claude-code",
+      "workingDirectory": "/home/demo/acme",
+      "additionalDirs": [],
+      "gitContext": { "branch": "plan/usage-billing", "targetBranch": "main", "repoRoot": "/home/demo/acme" },
+      "worktreeBaseBranch": "main",
+      "modelConfig": { "modelId": "claude-opus-4-8", "reasoningEffort": "high", "contextWindow": 1000000, "fastMode": false },
+      "permissionMode": "plan",
+      "hasUnread": false
+    },
+    {
+      "tabId": "demo-tab-new",
+      "title": "New session",
+      "agentSessionId": null,
+      "provider": null,
+      "workingDirectory": "/home/demo/acme",
+      "additionalDirs": [],
+      "gitContext": { "branch": "feat/rate-limiting", "targetBranch": "main", "repoRoot": "/home/demo/acme" },
+      "worktreeBaseBranch": "main",
+      "modelConfig": { "modelId": "claude-sonnet-5", "reasoningEffort": "high", "contextWindow": 1000000, "fastMode": false },
+      "permissionMode": "auto",
+      "hasUnread": false
+    }
+  ]
+}

@@ -91,8 +91,7 @@
   }
 
   async function saveName() {
-    await setup.saveServerName();
-    if (!setup.nameError) editingName = false;
+    if (await setup.saveServerName()) editingName = false;
     requestInputFocus();
   }
 
@@ -178,8 +177,7 @@
 {#snippet setupLogs(step: SetupStreamStep)}
   {@const lines = setup.logs[step]}
   {@const status = setup.statuses[step]}
-  {@const error = setup.errors[step]}
-  {#if lines.length > 0 || error}
+  {#if lines.length > 0}
     <details
       class="group/log mt-3 overflow-hidden rounded-lg bg-(--solus-container-bg) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-container-border)_72%,transparent)]"
       open={status === "running" || status === "failed"}
@@ -198,9 +196,6 @@
         {#each lines as line, i}
           <div class="whitespace-pre-wrap break-words" data-line={i}>{line}</div>
         {/each}
-        {#if error}
-          <div class="mt-1 whitespace-pre-wrap break-words text-(--solus-status-error)">{error}</div>
-        {/if}
       </div>
     </details>
   {/if}
@@ -230,7 +225,7 @@
       <button
         type="button"
         onclick={checkClaudeAuth}
-        class="inline-flex min-h-10 w-fit items-center gap-2 rounded-lg bg-(--solus-container-bg) pl-3 pr-2.5 text-[0.8125rem] font-medium text-(--solus-text-secondary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-container-border)_72%,transparent)] transition-[background-color,box-shadow,color,scale] duration-150 hover:bg-(--solus-surface-active) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+        class="inline-flex min-h-10 w-fit items-center gap-2 rounded-lg bg-(--solus-container-bg) pl-3 pr-2.5 text-[0.8125rem] font-medium text-(--solus-text-secondary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-container-border)_72%,transparent)] transition-[background-color,box-shadow,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
       >
         <ArrowClockwiseIcon size={15} />
         Check again
@@ -280,15 +275,12 @@
             type="button"
             onclick={reloadRepos}
             disabled={setup.reposLoading}
-            class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-(--solus-container-bg) text-(--solus-text-secondary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-container-border)_72%,transparent)] transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-active) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+            class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-(--solus-container-bg) text-(--solus-text-secondary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-container-border)_72%,transparent)] transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
             aria-label="Refresh repositories"
           >
             <ArrowClockwiseIcon size={15} class={setup.reposLoading ? "animate-spin" : ""} />
           </button>
         </div>
-        {#if setup.reposError}
-          <p class="text-[0.75rem] text-(--solus-status-error)">{setup.reposError}</p>
-        {/if}
         {#if setup.clonedProjectPath}
           <p class="truncate text-[0.75rem] text-(--solus-status-complete)">Cloned to {setup.clonedProjectPath}</p>
         {/if}
@@ -370,9 +362,6 @@
               {setup.savingName ? "Saving…" : "Save"}
             </button>
           </div>
-          {#if setup.nameError}
-            <p class="-mt-1 mb-3 text-[0.75rem] text-(--solus-status-error)">{setup.nameError}</p>
-          {/if}
         {/if}
 
         <div class="mb-3 flex gap-1.5" aria-label="Setup progress">

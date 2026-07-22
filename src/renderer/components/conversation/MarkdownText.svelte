@@ -71,7 +71,10 @@
   const segments = $derived(tokenize(text));
 
   function handleFileClick(path: string) {
-    requestFilePreview({ path, tabId: session.activeTabId });
+    requestFilePreview({
+      path,
+      tabId: session.focusedChatTabId ?? session.activeTabId,
+    });
   }
 </script>
 

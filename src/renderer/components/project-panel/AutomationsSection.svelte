@@ -75,6 +75,14 @@
       return "var(--solus-status-error)";
     return "var(--solus-text-tertiary)";
   }
+
+  function toggleButtonClass(a: Automation): string {
+    if (a.enabled) {
+      return "text-[color-mix(in_srgb,var(--solus-status-error)_76%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)";
+    }
+
+    return "text-[color-mix(in_srgb,var(--project-icon-green)_76%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--project-icon-green)_12%,transparent)] hover:text-(--project-icon-green)";
+  }
 </script>
 
 {#if board.summary}
@@ -93,7 +101,7 @@
     <li class="group flex items-center gap-0.5">
       <button
         type="button"
-        class="flex min-h-[2rem] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+        class="flex min-h-[2rem] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
         onclick={() => open(a)}
       >
         <span
@@ -148,7 +156,9 @@
             variant="ghost"
             size="icon-xs"
             type="button"
-            class="pointer-events-none absolute right-0 text-[color-mix(in_srgb,var(--project-icon-blue)_74%,var(--solus-text-tertiary))] opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 hover:bg-[color-mix(in_srgb,var(--project-icon-blue)_10%,transparent)] hover:text-(--project-icon-blue) focus-visible:pointer-events-auto focus-visible:opacity-100"
+            class="pointer-events-none absolute right-0 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 {toggleButtonClass(
+              a,
+            )}"
             title={a.enabled ? "Pause automation" : "Resume automation"}
             aria-label={a.enabled ? "Pause automation" : "Resume automation"}
             onclick={(e) => toggle(a, e)}
@@ -174,7 +184,7 @@
 {#if board.total > board.rows.length}
   <button
     type="button"
-    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
     onclick={viewAll}
   >
     View all {board.total}

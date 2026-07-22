@@ -72,7 +72,7 @@
   </div>
 {/snippet}
 
-<div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2" data-testid="permission-card">
+<div transition:fly={{ y: 8, duration: 200 }} class="mx-auto mt-2 mb-2 w-[88%]" data-testid="permission-card">
   <Card.Root
     class="gap-0 overflow-hidden border border-(--solus-permission-border) bg-(--solus-container-bg) py-0"
     style="border-radius:0.75rem;box-shadow:var(--solus-permission-shadow)"

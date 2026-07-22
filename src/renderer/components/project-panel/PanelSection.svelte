@@ -61,7 +61,7 @@
   </Sidebar.GroupLabel>
   {#if !collapsed}
     <div
-      class="min-h-0 px-3.5 pb-3.5 {grow ? 'flex flex-1 overflow-hidden' : 'overflow-y-auto'}"
+      class="min-h-0 px-3.5 pb-3.5 {grow ? 'flex flex-1 overflow-hidden' : ''}"
       transition:slide={{ duration: reduceMotion ? 0 : 180, easing: cubicOut }}
     >
       {@render children()}

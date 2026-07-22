@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import ConversationView from "@renderer/components/conversation/ConversationView.svelte";
   import NewTabHome from "@renderer/components/layout/NewTabHome.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
@@ -6,11 +7,12 @@
   import { getPlanStore } from "@renderer/contexts/plan.store.svelte";
   import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
   import { runtime } from "@renderer/contexts/runtime.svelte";
-  import WebConnectionOverlay from "./WebConnectionOverlay.svelte";
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
   import { router } from "../lib/router.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
+  import { toasts } from "../lib/toast.store.svelte";
+  import { webState } from "../lib/web-state.svelte";
   import {
     FILE_PREVIEW_EVENT,
     type FilePreviewRequest,
@@ -18,13 +20,13 @@
   import type { DiffScope } from "@shared/types";
 
   interface Props {
-    onAttachFile: () => void;
+    onAttachFile: (tabId?: string) => void | Promise<void>;
   }
   let { onAttachFile }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
-  const av = session.artifactViewer;
+  const panes = session.panes;
 
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
@@ -32,22 +34,82 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const changedFiles = $derived(sess?.changedFiles ?? []);
-  const isWorktree = $derived(!!sess?.gitContext?.worktreePath);
-  const canShowDiffPanel = $derived(!!sess?.workingDirectory);
+  let sidePanelSourceTabId = $state(session.activeTabId);
+  const sidePanelTab = $derived(session.tabs[sidePanelSourceTabId]);
+  const sidePanelSession = $derived(session.sessionFor(sidePanelSourceTabId));
+  const isWorktree = $derived(!!sidePanelSession?.gitContext?.worktreePath);
+  const canShowDiffPanel = $derived(!!sidePanelSession?.workingDirectory);
   const activePlan = $derived.by(() => {
-    const planId = session.artifactViewer.activePlanId;
+    const planId = session.panes.activePlanId;
     if (planId) return planStore.get(planId) ?? null;
     return planStore.previewPlan;
   });
   const activeWork = $derived.by(() => {
-    const workId = session.artifactViewer.activeWorkId;
+    const workId = session.panes.activeWorkId;
     return workId ? session.worksStore.get(workId) ?? null : null;
   });
 
   const isMobile = $derived(runtime.isMobileViewport);
 
+  let connectionTimer: ReturnType<typeof setTimeout> | null = null;
+  let connectionToastId: number | null = null;
+  let connectionToastKind: "blocked" | "lost" | null = null;
+
+  function showConnectionLostToast() {
+    connectionTimer = null;
+    connectionToastKind = "lost";
+    connectionToastId = toasts.error("Connection lost — reconnecting…", {
+      duration: Infinity,
+      actions: [{ label: "Retry now", onAction: () => window.location.reload() }],
+    });
+  }
+
+  function showBlockedToast() {
+    connectionToastKind = "blocked";
+    connectionToastId = toasts.error("Re-pair this server to continue", {
+      duration: Infinity,
+      actions: [{
+        label: "Switch server",
+        onAction: () => document.dispatchEvent(new CustomEvent("solus:logout")),
+      }],
+    });
+  }
+
+  $effect(() => {
+    const status = webState.connectionStatus;
+    if (connectionTimer) clearTimeout(connectionTimer);
+    connectionTimer = null;
+
+    if (status === "blocked") {
+      showBlockedToast();
+      return;
+    }
+
+    if (status === "disconnected" || status === "connecting" || status === "reconnecting") {
+      const ownsActiveToast = connectionToastId !== null &&
+        untrack(() => toasts.active?.id === connectionToastId);
+      if (ownsActiveToast) {
+        if (connectionToastKind === "blocked") showConnectionLostToast();
+        return;
+      }
+
+      connectionTimer = setTimeout(showConnectionLostToast, 5000);
+      return () => {
+        if (connectionTimer) clearTimeout(connectionTimer);
+        connectionTimer = null;
+      };
+    }
+
+    const recoveredToastId = connectionToastId;
+    connectionToastId = null;
+    connectionToastKind = null;
+    if (recoveredToastId !== null && untrack(() => toasts.dismiss(recoveredToastId))) {
+      toasts.info("Reconnected", { duration: 3000 });
+    }
+  });
+
   // ── Mobile-only diff state ──
-  // The desktop layout reads the shared `artifactViewer` (av) for its diff /
+  // The desktop layout reads the shared `panes` (panes) for its diff /
   // plan / work panes. Mobile keeps its own lightweight state because it renders
   // a single full-screen diff via the snippets below, not the split-pane system.
   let diffPanelOpen = $state(false);
@@ -90,12 +152,13 @@
   $effect(() => {
     const current = session.activeTabId;
     if (prevActiveTabId !== undefined && prevActiveTabId !== current) {
+      sidePanelSourceTabId = current;
       if (isMobile) {
         diffPanelOpen = false;
         diffPanelMaximized = false;
         editorFile = null;
-      } else if (av.secondary.kind === "diff") {
-        av.closeSecondary();
+      } else if (panes.secondaryOverlay?.kind === "diff") {
+        panes.closeOverlay();
       }
       router.syncTabId(current);
     }
@@ -112,11 +175,16 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const scope = (e as CustomEvent<{ scope?: DiffScope }>).detail?.scope ?? { kind: "session" };
+      const detail = (e as CustomEvent<{ tabId?: string; scope?: DiffScope }>).detail;
+      const sourceTabId =
+        detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
+      const canShowSourceDiff = !!session.sessionFor(sourceTabId)?.workingDirectory;
+      const scope = detail?.scope ?? { kind: "session" };
       if (!isMobile) {
-        av.toggleDiff(canShowDiffPanel, scope);
+        panes.toggleDiff(canShowSourceDiff, sourceTabId, scope);
         return;
       }
+      sidePanelSourceTabId = sourceTabId;
       // Mobile bespoke toggle.
       if (editorFile) {
         editorFile = null;
@@ -125,13 +193,13 @@
           diffPanelMaximized = false;
           return;
         }
-        if (canShowDiffPanel) {
+        if (canShowSourceDiff) {
           diffScope = scope;
           diffPanelOpen = true;
         }
         return;
       }
-      if (canShowDiffPanel) {
+      if (canShowSourceDiff) {
         editorFile = null;
         if (diffPanelOpen && diffScope.kind === scope.kind) {
           diffPanelOpen = false;
@@ -150,13 +218,15 @@
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<FilePreviewRequest>).detail;
       if (!detail?.path) return;
-      if (detail.tabId && detail.tabId !== session.activeTabId) return;
+      const sourceTabId =
+        detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       session.settingsOpen = false;
       session.plansGalleryOpen = false;
       if (!isMobile) {
-        av.openFilePreview(detail);
+        panes.openFilePreview(detail, sourceTabId);
         return;
       }
+      sidePanelSourceTabId = sourceTabId;
       editorFile = detail;
       diffScope = { kind: "session" };
       diffPanelOpen = false;
@@ -165,10 +235,16 @@
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);
   });
 
+  // `session.showSettings` opens the settings pane, which internally reads
+  // pane state (to decide primary vs. secondary slot) — reading that inside
+  // this effect would make it depend on the pane, not just the route, so
+  // closing settings (which changes the pane) would re-trigger this effect
+  // and immediately reopen it before the effect below navigates away. Untrack
+  // the call so this effect only reacts to the route.
   $effect(() => {
     if (router.current.name === "settings") {
       const tab = router.current.tab as "general" | "connections" | "tools" | undefined;
-      session.showSettings(tab ?? "general");
+      untrack(() => session.showSettings(tab ?? "general"));
     }
   });
 
@@ -191,7 +267,9 @@
       diffPanelMaximized = false;
       return;
     }
-    if (canShowDiffPanel) {
+    const sourceTabId = session.activeTabId;
+    sidePanelSourceTabId = sourceTabId;
+    if (session.sessionFor(sourceTabId)?.workingDirectory) {
       editorFile = null;
       diffScope = { kind: "session" };
       diffPanelOpen = !diffPanelOpen;
@@ -269,7 +347,8 @@
               <ConversationView
                 tabId={tId}
                 onDiffToggle={() => {
-                  if (!canShowDiffPanel) return;
+                  sidePanelSourceTabId = tId;
+                  if (!session.sessionFor(tId)?.workingDirectory) return;
                   editorFile = null;
                   diffScope = { kind: "session" };
                   diffPanelOpen = !diffPanelOpen;
@@ -285,14 +364,14 @@
 {/snippet}
 
 {#snippet diffContent()}
-  {#if editorFile && tab && sess}
+  {#if editorFile && sidePanelTab && sidePanelSession}
     {#await import("@renderer/components/files/FileEditorPane.svelte")}
       {@render loadingSurface("Loading file…")}
     {:then fileEditorModule}
       {@const FileEditorPane = fileEditorModule.default}
       <FileEditorPane
-        ctx={session.ctxFor(tab.id)}
-        cwd={sess.gitContext?.worktreePath ?? sess.workingDirectory}
+        ctx={session.ctxFor(sidePanelTab.id)}
+        cwd={sidePanelSession.gitContext?.worktreePath ?? sidePanelSession.workingDirectory}
         isDark={session.settings.isDark}
         file={editorFile}
         onClose={() => {
@@ -300,17 +379,17 @@
         }}
       />
     {/await}
-  {:else if diffPanelOpen && tab && sess && canShowDiffPanel}
+  {:else if diffPanelOpen && sidePanelTab && sidePanelSession && canShowDiffPanel}
     {#await import("@renderer/components/diff/DiffPanel.svelte")}
       {@render loadingSurface("Loading changes…")}
     {:then diffModule}
       {@const DiffPanel = diffModule.default}
       <DiffPanel
-        tabId={tab.id}
-        projectPath={sess.workingDirectory}
-        worktreePath={sess.gitContext?.worktreePath}
-        worktreeBranch={sess.gitContext?.branch ?? ""}
-        targetBranch={sess.gitContext?.targetBranch ?? "HEAD"}
+        tabId={sidePanelTab.id}
+        projectPath={sidePanelSession.workingDirectory}
+        worktreePath={sidePanelSession.gitContext?.worktreePath}
+        worktreeBranch={sidePanelSession.gitContext?.branch ?? ""}
+        targetBranch={sidePanelSession.gitContext?.targetBranch ?? "HEAD"}
         {isWorktree}
         onClose={() => {
           diffPanelOpen = false;
@@ -358,8 +437,6 @@
   open={isMobile && session.sessionPickerOpen}
   onClose={() => { session.sessionPickerOpen = false; }}
 />
-
-<WebConnectionOverlay />
 
 <style>
   .tab-hidden { display: none !important; }

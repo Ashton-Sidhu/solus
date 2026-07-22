@@ -68,25 +68,6 @@ const AUTOMATION_GUIDANCE =
 const TODO_GUIDANCE =
   'Always use todo lists so users can see and track updates as you progress doing tasks, even if it is a 1 step task. No exceptions, even for trivial tasks, always use the TodoWrite tool.'
 
-const REVIEW_LEDGER_GUIDANCE = [
-  'MANDATORY — Review ledger: whenever you change code in a turn, your LAST action before yielding',
-  'MUST be a single `record_change` tool call. This is non-negotiable; do not end a turn that edited',
-  'code without it. The ledger is the durable context the Solus review companion is built from — a',
-  '"commit of cognition" separate from any git commit.',
-  '',
-  'For each semantic change you made, record one entry with:',
-  '  • id — a stable semantic key (reuse across turns to amend rather than duplicate)',
-  '  • title — what changed (short human-readable description)',
-  '  • intent — why the change was made (goal or purpose)',
-  '  • why — why this approach was chosen (rationale behind the implementation decision)',
-  '  • assumptions — assumptions made when implementing (optional but encouraged)',
-  '  • alternatives — alternative solutions considered and why they were not chosen (optional)',
-  '  • edgeCases — edge cases considered during implementation (optional)',
-  '  • file/line anchor — where it lives in the diff',
-  'Also note omissions (expected changes you deliberately did NOT make) and any questions for the reviewer.',
-  'If a turn changed no code at all, you may skip the call.',
-].join('\n')
-
 const CODEX_TOOL_RULES = [
   'Use apply_patch or the edit tool for all file modifications.',
   'Do not use sed, perl, awk, python, node, shell redirection, tee, or other command-line text rewriting to modify files unless the user explicitly asks for that exact mechanism.',
@@ -161,9 +142,6 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
   // The mandatory TodoWrite cadence fits a code project, not a general chat.
   if (!opts.general) parts.push(TODO_GUIDANCE, AUTOMATION_GUIDANCE)
   parts.push(WORK_GUIDANCE, ARTIFACT_GUIDANCE)
-  // The review ledger ritual is code-project-only; both claude (solus MCP) and
-  // codex (dynamicTools) expose `record_change`, so it applies to either agent.
-  if (!opts.general) parts.push(REVIEW_LEDGER_GUIDANCE)
   if (opts.agent === 'codex') {
     parts.push(CODEX_TOOL_RULES)
     if (opts.planMode) parts.push(CODEX_PLAN_MODE)

@@ -99,7 +99,7 @@
 {#snippet commandButton(cmd: SlashCommand, isSelected: boolean)}
   <button
     onclick={() => onSelect(cmd)}
-    class="w-full flex items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-accent-light)"
+    class="w-full flex items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-surface-hover)"
     style="background:{isSelected
       ? 'var(--solus-accent-light)'
       : 'transparent'};box-shadow:{isSelected

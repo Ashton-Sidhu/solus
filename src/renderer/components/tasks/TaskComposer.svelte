@@ -344,7 +344,7 @@
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.75rem] text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.75rem] text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
   // prompt area — the MarkdownEditor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.

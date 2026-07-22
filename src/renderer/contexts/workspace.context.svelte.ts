@@ -1,7 +1,8 @@
 import { createContext } from 'svelte'
-import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, TabGitContext, Work, StatusCardState, MergeQueueEntry } from '../../shared/types'
-import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard, type ConflictResolverPhase } from '../lib/merge-queue-utils'
-import { branchKeyFor } from '../lib/sessionUtils'
+import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext } from '../../shared/types'
+import type { PullRequestSummary } from '../../shared/providers'
+import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../lib/pr-conflict-resolution'
+import { adjacentTabAfterClose, branchKeyFor, buildTabSections } from '../lib/sessionUtils'
 import { uuid } from '../../shared/uuid'
 import { workPreview } from '../../shared/work-preview'
 import notificationSrc from '../../../resources/notification.mp3'
@@ -11,7 +12,7 @@ import { WorksStore } from './works.store.svelte'
 import { AutomationsStore } from './automations.store.svelte'
 import { TasksStore } from './tasks.store.svelte'
 import { PrsStore } from './prs.store.svelte'
-import { MergeQueueStore } from './merge-queue.store.svelte'
+import { StacksStore } from './stacks.store.svelte'
 import { type Task } from '../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from './toast.store.svelte'
@@ -22,17 +23,17 @@ import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
 import { TabRegistry } from './tab-registry.svelte'
 import { SessionConfigController } from './session-config.svelte'
-import { EnvironmentStore, type StaticInfo } from './environment.store.svelte'
+import { WorkspaceLifecycleStore, type StaticInfo } from './workspace-lifecycle.store.svelte'
 import { SessionEventReducer } from './session-event-reducer.svelte'
 import { type SettingsContext, type TabGroupMode } from './settings.context.svelte'
 import { type WindowContext } from './window.context.svelte'
 import { type StatusBarContext } from './status-bar.context.svelte'
 import { type AgentContext } from './agent.context.svelte'
-import { type GitStatusStore } from './git-status.store.svelte'
+import { type SessionEnvironmentStore } from './session-environment.store.svelte'
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
 import { nextMsgId } from './session.utils'
-import { isSolusWorktreePath, worktreeProjectRoot } from '../../shared/types'
+import { gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor } from './session-plan-operations'
@@ -40,6 +41,13 @@ import { analytics } from '../lib/analytics'
 import { requestInputFocus } from '../lib/inputFocus'
 import { disposeGitActions } from '../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
+import { buildPrCommentsFixPrompt, type PrFixFeedback } from './pr-fix-session'
+import { isPristineSplitTab } from '../lib/split-chat'
+import {
+  beginPrReviewProfile,
+  markPrReviewProfile,
+  settlePrReviewProfile,
+} from '../components/pr-review/lib/pr-review-profiler'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -63,12 +71,18 @@ export type SessionFields = {
   pendingInput: string | null
 }
 
+interface CreateTabOptions {
+  activate?: boolean
+  gitContext?: GitCheckout | null
+  gitInitialization?: 'blocking' | 'background'
+}
+
 const notificationAudio = new Audio(notificationSrc)
 notificationAudio.volume = 1.0
 
 export class WorkspaceContext {
   registry = new TabRegistry()
-  env: EnvironmentStore
+  lifecycle: WorkspaceLifecycleStore
   pendingInput = $state<string | null>(null)
   continuingWorktreeTabs = $state<Record<string, boolean>>({})
   eventReducer: SessionEventReducer
@@ -88,9 +102,9 @@ export class WorkspaceContext {
   automationsStore = new AutomationsStore()
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
-  mergeQueueStore = new MergeQueueStore()
+  stacksStore = new StacksStore()
   /** Global two-pane view state — not per-tab. */
-  artifactViewer = new PaneViewStore()
+  panes = new PaneViewStore()
   ui: WorkspaceUiStore
   /** A work pending deletion from the open-work view, held while the undo toast
    *  is visible. The work is removed from disk only on commit (toast dismiss). */
@@ -105,16 +119,17 @@ export class WorkspaceContext {
   private workStreamTracker: WorkStreamTracker
   private ipcContextBuilder: IpcContextBuilder
   private promptComposer: PromptComposer
-  private gitStatus: GitStatusStore
+  environment: SessionEnvironmentStore
   lastSnapshotAt = $state(0)
 
-  constructor(settings: SettingsContext, windowCtx: WindowContext, statusBar: StatusBarContext, planStore: PlanStore, gitStatus: GitStatusStore, agent?: AgentContext) {
+  constructor(settings: SettingsContext, windowCtx: WindowContext, statusBar: StatusBarContext, planStore: PlanStore, environment: SessionEnvironmentStore, agent?: AgentContext) {
     this.settings = settings
     this.window = windowCtx
     this.statusBar = statusBar
     this.agent = agent
     this.planStore = planStore
-    this.gitStatus = gitStatus
+    this.environment = environment
+    this.environment.bindWorkspace(this)
     this.worksStore = new WorksStore()
     this.config = new SessionConfigController({
       settings: this.settings,
@@ -122,24 +137,24 @@ export class WorkspaceContext {
       statusBar: this.statusBar,
       setPluginCommands: (commands) => { this.pluginCommands = commands },
       createTab: () => this.createTab(),
-      ctx: () => this.ctx,
+      ctx: (tabId) => tabId ? this.ctxFor(tabId) : this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
-      refreshGitRefs: (projectRoot, ctx) => { void this.gitStatus.refreshRefs(projectRoot, ctx, { force: true }) },
-      refreshGitEnvironment: (opts) => { void this.env.refreshGitEnvironment(opts) },
+      refreshGitRefs: (projectRoot, ctx) => { void this.environment.refreshRefs(projectRoot, ctx, { force: true }) },
+      refreshGitState: (opts) => this.environment.refreshTab(this, opts),
     })
-    this.env = new EnvironmentStore({
+    this.lifecycle = new WorkspaceLifecycleStore({
       registry: this.registry,
       settings: this.settings,
       config: this.config,
       planStore: this.planStore,
       agent: this.agent,
-      setGitStatus: (cwd, status) => this.gitStatus.set(cwd, status),
+      refreshGitState: (opts) => this.environment.refreshTab(this, opts),
       ctxFor: (tabId) => this.ctxFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
     })
-    this.ui = new WorkspaceUiStore(this.artifactViewer, this.planStore)
-    this.workStreamTracker = new WorkStreamTracker(this.worksStore, this.artifactViewer)
+    this.ui = new WorkspaceUiStore(this.panes, this.planStore)
+    this.workStreamTracker = new WorkStreamTracker(this.worksStore, this.panes)
     this.eventReducer = new SessionEventReducer({
       registry: this.registry,
       settings: this.settings,
@@ -149,9 +164,9 @@ export class WorkspaceContext {
       automationsStore: this.automationsStore,
       workStreamTracker: this.workStreamTracker,
       isTabVisible: (tabId) => this.isTabVisible(tabId),
-      addChangedFilesFromMessage: (tabId, message) => this.env.addChangedFilesFromMessage(tabId, message),
+      addChangedFilesFromMessage: (tabId, message) => this.lifecycle.addChangedFilesFromMessage(tabId, message),
       refreshTurnSnapshots: (tabId) => { void this.refreshTurnSnapshots(tabId) },
-      setGitStatus: (cwd, status) => this.gitStatus.set(cwd, status),
+      setGitStatus: (cwd, status) => this.environment.set(cwd, status),
       playNotificationIfHidden: () => { void this.playNotificationIfHidden() },
       closePlanModal: () => this.closePlanModal(),
       onTurnSettled: (tabId, cwd) => this.onTurnSettled?.(tabId, cwd),
@@ -179,23 +194,25 @@ export class WorkspaceContext {
   get globalDefaults(): {
     permissionMode: 'ask' | 'auto' | 'plan'
     workingDirectory: string
-    gitContext: TabGitContext | null
+    gitContext: GitCheckout | null
+    worktreeBaseBranch: string | null
     modelConfig: ModelConfig
   } { return this.config.globalDefaults }
   set globalDefaults(value: {
     permissionMode: 'ask' | 'auto' | 'plan'
     workingDirectory: string
-    gitContext: TabGitContext | null
+    gitContext: GitCheckout | null
+    worktreeBaseBranch: string | null
     modelConfig: ModelConfig
   }) { this.config.globalDefaults = value }
   get tabGroupMode(): TabGroupMode { return this.config.tabGroupMode }
   set tabGroupMode(value: TabGroupMode) { this.config.tabGroupMode = value }
-  get staticInfo(): StaticInfo | null { return this.env.staticInfo }
-  set staticInfo(value: StaticInfo | null) { this.env.staticInfo = value }
-  get pluginCommands(): Session['pluginCommands'] { return this.env.pluginCommands }
-  set pluginCommands(value: Session['pluginCommands']) { this.env.pluginCommands = value }
-  get turnSnapshots(): Record<string, TurnSnapshot[]> { return this.env.turnSnapshots }
-  set turnSnapshots(value: Record<string, TurnSnapshot[]>) { this.env.turnSnapshots = value }
+  get staticInfo(): StaticInfo | null { return this.lifecycle.staticInfo }
+  set staticInfo(value: StaticInfo | null) { this.lifecycle.staticInfo = value }
+  get pluginCommands(): Session['pluginCommands'] { return this.lifecycle.pluginCommands }
+  set pluginCommands(value: Session['pluginCommands']) { this.lifecycle.pluginCommands = value }
+  get turnSnapshots(): Record<string, TurnSnapshot[]> { return this.lifecycle.turnSnapshots }
+  set turnSnapshots(value: Record<string, TurnSnapshot[]>) { this.lifecycle.turnSnapshots = value }
   get streaming(): { text: Record<string, string> } { return this.eventReducer.streaming }
   set streaming(value: { text: Record<string, string> }) { this.eventReducer.streaming = value }
   get tabs(): Record<string, Tab> { return this.registry.tabs }
@@ -206,6 +223,9 @@ export class WorkspaceContext {
   set tabOrder(value: string[]) { this.registry.tabOrder = value }
   get activeTabId(): string { return this.registry.activeTabId }
   set activeTabId(value: string) { this.registry.activeTabId = value }
+  get focusedChatTabId(): string | null {
+    return this.panes.chatTabIn(this.panes.focusedPane, this.activeTabId)
+  }
   get activeInput(): InputState { return this.registry.activeInput }
   set activeInput(value: InputState) { this.registry.activeInput = value }
   get lastActiveTabByBranch() { return this.registry.lastActiveTabByBranch }
@@ -231,6 +251,8 @@ export class WorkspaceContext {
   set tasksOpen(value: boolean) { this.ui.tasksOpen = value }
   get prsOpen(): boolean { return this.ui.prsOpen }
   set prsOpen(value: boolean) { this.ui.prsOpen = value }
+  get prsProjectTarget(): { path: string; requestId: number } | null { return this.ui.prsProjectTarget }
+  get reviewModeOpen(): boolean { return this.ui.reviewModeOpen }
   /** The project the tasks page lists tickets for — the project shown in the
    *  status bar: the active session's cwd, or the global default when no session
    *  is active (e.g. a new-tab home with a project selected). Only one project's
@@ -261,14 +283,8 @@ export class WorkspaceContext {
   private setActiveTab(tabId: string): void {
     this.registry.setActiveTab(tabId)
     prioritizeTabHydration(this, tabId)
-    if (this.artifactViewer.primary.kind === 'review') {
-      this.artifactViewer.primary = { kind: 'conversation' }
-    }
-    // A chat pinned in the split can't also be the primary conversation —
-    // activating it promotes it back to a plain tab.
-    const secondary = this.artifactViewer.secondary
-    if (secondary.kind === 'conversation' && secondary.tabId === tabId) {
-      this.artifactViewer.closeSecondary()
+    if (this.panes.primaryContent.kind === 'review') {
+      this.panes.primaryContent = { kind: 'conversation' }
     }
   }
 
@@ -276,12 +292,12 @@ export class WorkspaceContext {
     const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
     // A chat pinned in the split pane is on screen too — but only in editor/web,
     // where the secondary pane actually renders.
-    const secondary = this.artifactViewer.secondary
+    const secondary = this.panes.secondaryContent
     if (editorLike && secondary.kind === 'conversation' && secondary.tabId === tabId) return true
     return tabId === this.activeTabId && (editorLike || this.isExpanded)
   }
 
-  private resetOverlays(opts: { closeArtifactViewer?: boolean } = {}): void {
+  private resetOverlays(opts: { closeArtifact?: boolean } = {}): void {
     this.ui.resetOverlays(opts)
   }
 
@@ -398,25 +414,25 @@ export class WorkspaceContext {
   // ─── Static info ───
 
   async initStaticInfo(): Promise<void> {
-    return this.env.initStaticInfo()
+    return this.lifecycle.initStaticInfo()
   }
 
   /** Synchronously apply the cached start() payload so staticInfo/agents are ready
    *  before first paint. Reconciled with fresh data by initStaticInfo. */
   hydrateStaticInfoFromCache(): void {
-    this.env.hydrateStaticInfoFromCache()
+    this.lifecycle.hydrateStaticInfoFromCache()
   }
 
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
-    return this.env.refreshPluginCommands(workingDirectory, tabId)
+    return this.lifecycle.refreshPluginCommands(workingDirectory, tabId)
   }
 
-  async switchToBranch(branch: string): Promise<boolean> {
-    return this.config.switchToBranch(branch)
+  async switchToBranch(branch: string, tabId?: string): Promise<boolean> {
+    return this.config.switchToBranch(branch, tabId)
   }
 
   recomputeChangedFiles(tabId: string): void {
-    this.env.recomputeChangedFiles(tabId)
+    this.lifecycle.recomputeChangedFiles(tabId)
   }
 
   /**
@@ -425,19 +441,19 @@ export class WorkspaceContext {
    * rest when the user scrolls back to the top.
    */
   async expandHistory(tabId: string): Promise<void> {
-    return this.env.expandHistory(tabId)
+    return this.lifecycle.expandHistory(tabId)
   }
 
   async hydrateChangedFilesFromDiff(tabId: string): Promise<void> {
-    return this.env.hydrateChangedFilesFromDiff(tabId)
+    return this.lifecycle.hydrateChangedFilesFromDiff(tabId)
   }
 
   async refreshTurnSnapshots(tabId: string): Promise<void> {
-    return this.env.refreshTurnSnapshots(tabId)
+    return this.lifecycle.refreshTurnSnapshots(tabId)
   }
 
   reconcileQueuedPrompts(tabId: string, queuedPrompts: QueuedPromptSnapshot[]): void {
-    this.env.reconcileQueuedPrompts(tabId, queuedPrompts)
+    this.lifecycle.reconcileQueuedPrompts(tabId, queuedPrompts)
   }
 
   private forEachSiblingTab(tabId: string, fn: (siblingId: string) => void): void {
@@ -466,8 +482,8 @@ export class WorkspaceContext {
 
   // ─── Tab management ───
 
-  async createTab(cwd?: string): Promise<string> {
-    const defaultDir = this.staticInfo?.workspacePath || '~'
+  async createTab(cwd?: string, options: CreateTabOptions = {}): Promise<string> {
+    const defaultDir = this.staticInfo?.projectPath || this.staticInfo?.workspacePath || '~'
     const activeSession = this.activeSession
     const inheritedDir = cwd ?? (activeSession?.workingDirectory || this.globalDefaults.workingDirectory || defaultDir)
     const sourceConfig = activeSession?.modelConfig ?? this.globalDefaults.modelConfig
@@ -477,12 +493,17 @@ export class WorkspaceContext {
       reasoningEffort: this.defaultReasoningEffortFor(provider, sourceConfig.modelId),
     }
     const inheritedPermissionMode = this.globalDefaults.permissionMode
-    const inheritedGitContext = activeSession?.gitContext ?? this.globalDefaults.gitContext
+    const inheritedGitContext = options.gitContext === undefined
+      ? activeSession?.gitContext ?? this.globalDefaults.gitContext
+      : options.gitContext
+    // A fresh tab follows the saved default. Per-session toggles belong only to
+    // that session and must not silently override where the next session starts.
+    const worktreeRequested = !inheritedGitContext?.worktreePath && this.settings.worktreeEnabled
     const { tabId } = await window.solus.createTab()
     const session = makeSession(this.settings, {
       workingDirectory: inheritedDir,
       gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
-      ...(inheritedGitContext?.worktreePath ? { worktreeBaseBranch: null } : {}),
+      worktreeBaseBranch: worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null,
       modelConfig: inheritedModelConfig,
       permissionMode: inheritedPermissionMode,
       sessionSkills: activeSession?.sessionSkills ?? [],
@@ -492,12 +513,19 @@ export class WorkspaceContext {
     this.sessions[session.id] = session
     this.tabs[tab.id] = tab
     this.addTabToOrder(tab.id)
-    this.setActiveTab(tab.id)
-    this.resetOverlays({ closeArtifactViewer: true })
-    if (!activeSession?.gitContext && inheritedGitContext) this.globalDefaults.gitContext = null
-    await this.env.refreshGitEnvironment({ tabId })
+    if (options.activate !== false) {
+      this.setActiveTab(tab.id)
+      this.resetOverlays({ closeArtifact: true })
+    }
+    if (options.activate !== false && !activeSession?.gitContext && inheritedGitContext) {
+      this.globalDefaults.gitContext = null
+      this.globalDefaults.worktreeBaseBranch = null
+    }
+    const gitInitialization = this.environment.refreshTab(this, { tabId, worktreeRequested })
+    if (options.gitInitialization === 'background') void gitInitialization
+    else await gitInitialization
     void this.refreshPluginCommands(inheritedDir)
-    requestInputFocus()
+    if (options.activate !== false) requestInputFocus()
     return tabId
   }
 
@@ -518,8 +546,9 @@ export class WorkspaceContext {
     session.gitContext = null
     const dir = session.workingDirectory
     if (!dir || dir === '~') return
-    const gitContext = await this.env.refreshGitEnvironment({ tabId, cwd: dir })
-    if (gitContext?.targetBranch) session.worktreeBaseBranch = gitContext.targetBranch
+    await this.environment.refreshTab(this, { tabId, cwd: dir })
+    const refreshedContext = this.sessionFor(tabId)?.gitContext
+    if (refreshedContext?.targetBranch) session.worktreeBaseBranch = refreshedContext.targetBranch
   }
 
   /** Fork a session into a new tab. The fork inherits all messages and resumes on first prompt. */
@@ -564,7 +593,7 @@ export class WorkspaceContext {
     this.addTabToOrder(forkTab.id)
     this.setActiveTab(forkTab.id)
     this.resetOverlays()
-    await this.env.refreshGitEnvironment({ tabId })
+    await this.environment.refreshTab(this, { tabId })
     requestInputFocus()
     return tabId
   }
@@ -606,7 +635,7 @@ export class WorkspaceContext {
       session.gitContext = result.gitContext
       session.worktreeBaseBranch = null
       const projectRoot = worktreeProjectRoot(result.gitContext.worktreePath ?? session.workingDirectory)
-      void this.gitStatus.refreshRefs(projectRoot, this.ctxForDirectory(projectRoot), { force: true })
+      void this.environment.refreshRefs(projectRoot, this.ctxForDirectory(projectRoot), { force: true })
       session.forkedFromSessionId = session.agentSessionId
       session.forked = true
       session.messages.push({
@@ -614,7 +643,7 @@ export class WorkspaceContext {
         role: 'system',
         content: '',
         timestamp: Date.now(),
-        worktreeMovedTo: result.gitContext.branch,
+        worktreeMovedTo: result.gitContext.branch ?? result.gitContext.detachedHeadSha ?? 'detached HEAD',
       })
       requestInputFocus()
     } finally {
@@ -631,6 +660,11 @@ export class WorkspaceContext {
   }
 
   selectTab(tabId: string): void {
+    if (tabId === this.panes.chatTabIn('secondary', this.activeTabId)) {
+      this.panes.focusPane('secondary')
+      requestInputFocus({ tabId })
+      return
+    }
     const tab = this.tabs[tabId]
     const session = this.sessionFor(tabId)
     const previousTabId = this.activeTabId
@@ -643,7 +677,7 @@ export class WorkspaceContext {
     } else {
       this.setActiveTab(tabId)
       this.isExpanded = true
-      this.resetOverlays({ closeArtifactViewer: true })
+      this.resetOverlays({ closeArtifact: true })
       if (tab) {
         tab.hasUnread = false
       }
@@ -688,8 +722,44 @@ export class WorkspaceContext {
       }
     }
     tab.hasUnread = false
-    this.artifactViewer.moveToSecondary({ kind: 'conversation', tabId })
-    requestInputFocus()
+    this.panes.openSplitChat(tabId)
+    requestInputFocus({ tabId })
+  }
+
+  /** Move the split chat back into the primary tab pool. */
+  promoteSplitToMainTab(): void {
+    const splitTabId = this.panes.chatTabIn('secondary', this.activeTabId)
+    if (!splitTabId) return
+    const splitTab = this.tabs[splitTabId]
+    const splitSession = this.sessionFor(splitTabId)
+    if (!splitTab || !splitSession) return
+
+    this.setActiveTab(splitTabId)
+    this.isExpanded = true
+    splitTab.hasUnread = false
+    this.panes.closeSecondary()
+    if (splitSession.provider && this.settings.activeAgent !== splitSession.provider) {
+      this.settings.update({ activeAgent: splitSession.provider })
+    }
+    requestInputFocus({ tabId: splitTabId })
+  }
+
+  /** Close the pinned chat, discarding only a never-used split-created tab. */
+  closeSplitChat(): void {
+    const splitTabId = this.panes.chatTabIn('secondary', this.activeTabId)
+    if (!splitTabId) {
+      this.panes.closeSecondary()
+      return
+    }
+    const splitTab = this.tabs[splitTabId]
+    const splitSession = this.sessionFor(splitTabId)
+    const shouldCloseTab = splitTabId !== this.activeTabId
+      && !!splitTab
+      && !!splitSession
+      && isPristineSplitTab(splitTab, splitSession)
+
+    this.panes.closeSecondary()
+    if (shouldCloseTab) this.closeTab(splitTabId)
   }
 
   /** ⌥⇧E: continue the active session in the other mode's window. Writes a
@@ -714,10 +784,19 @@ export class WorkspaceContext {
 
 
   private createTabFromDefaults(): string {
-    const inheritedGitContext = this.globalDefaults.gitContext
+    const workingDirectory = this.globalDefaults.workingDirectory
+    const inheritedWorktreePath = this.globalDefaults.gitContext?.worktreePath
+    const inheritedGitContext = gitCheckoutFromState(
+      this.environment.statusFor(inheritedWorktreePath ?? workingDirectory),
+      inheritedWorktreePath,
+    )
+    const inheritedWorktreeBaseBranch = inheritedGitContext?.worktreePath
+      ? null
+      : this.globalDefaults.worktreeBaseBranch
     const session = makeSession(this.settings, {
-      workingDirectory: this.globalDefaults.workingDirectory,
+      workingDirectory,
       gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
+      worktreeBaseBranch: inheritedWorktreeBaseBranch,
       modelConfig: { ...this.globalDefaults.modelConfig },
       permissionMode: this.globalDefaults.permissionMode,
     })
@@ -730,28 +809,46 @@ export class WorkspaceContext {
     this.addTabToOrder(tab.id)
     this.setActiveTab(tab.id)
     this.resetOverlays()
-    if (inheritedGitContext) this.globalDefaults.gitContext = null
-    void this.env.refreshGitEnvironment({ tabId })
-    void this.refreshPluginCommands(this.globalDefaults.workingDirectory)
+    if (inheritedGitContext) {
+      this.globalDefaults.gitContext = null
+      this.globalDefaults.worktreeBaseBranch = null
+    }
+    void this.environment.refreshTab(this, {
+      tabId,
+      worktreeRequested: !!inheritedWorktreeBaseBranch || this.settings.worktreeEnabled,
+    })
+    void this.refreshPluginCommands(workingDirectory)
     return tabId
   }
 
   closeTab(tabId: string): void {
     window.solus.closeTab(this.ctxFor(tabId))
-    const splitContent = this.artifactViewer.secondary
+    const splitContent = this.panes.secondaryContent
     if (splitContent.kind === 'conversation' && splitContent.tabId === tabId) {
-      this.artifactViewer.closeSecondary()
+      this.panes.closeSecondary()
     }
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
     const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
+    const openTabIds = this.tabOrder.filter((id) => this.tabs[id])
+    const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
+    const displayedTabIds = editorLike
+      ? openTabIds.filter((id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey)
+      : openTabIds
+    const visualTabIds = buildTabSections(
+      displayedTabIds,
+      this.tabGroupMode,
+      (id) => this.resolveTab(id),
+      this.planStore.plans,
+    ).flatMap((section) => section.tabIds)
+    const adjacentDisplayedTabId = adjacentTabAfterClose(visualTabIds, tabId)
     const newOrder = this.tabOrder.filter((id) => id !== tabId)
     delete this.tabs[tabId]
     // Purge the closed tab's persisted input draft so the drafts map can't grow
     // unbounded (patchActiveDraft only ever adds/updates, never removes).
     removeDraft(tabId)
     disposeGitActions(tabId)
-    this.env.disposeTab(tabId)
+    this.lifecycle.disposeTab(tabId)
 
     // Clean up session if no other tabs point to it
     if (sessionId && !Object.values(this.tabs).some((t) => t.sessionId === sessionId)) {
@@ -762,18 +859,11 @@ export class WorkspaceContext {
       if (newOrder.length === 0) {
         this.activeTabId = ''
       } else {
-        const closedIdx = this.tabOrder.indexOf(tabId)
-        // Prefer a tab on the same branch; fall back to positional neighbour
-        const sameBranch = newOrder.filter((id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey)
-        if (sameBranch.length > 0) {
-          this.setActiveTab(sameBranch.reduce((best, id) => {
-            const idxA = this.tabOrder.indexOf(id)
-            const idxB = this.tabOrder.indexOf(best)
-            return Math.abs(idxA - closedIdx) < Math.abs(idxB - closedIdx) ? id : best
-          }))
-        } else {
-          this.setActiveTab(newOrder[Math.min(closedIdx, newOrder.length - 1)])
-        }
+        // Follow the order the strip actually displayed. In editor/web this
+        // keeps navigation within the visible branch; if it was the branch's
+        // final tab, fall back to the adjacent tab in the underlying order.
+        const fallbackTabId = adjacentTabAfterClose(this.tabOrder, tabId) ?? newOrder[0]
+        this.setActiveTab(adjacentDisplayedTabId ?? fallbackTabId)
       }
     }
     this.tabOrder = newOrder
@@ -787,7 +877,7 @@ export class WorkspaceContext {
     session.agentSessionId = null
     session.provider = null
     session.messages = []
-    session.changedFiles = []
+    session.sessionChangedFiles = []
     session.lastResult = null
     session.sessionUsage = null
     session.isStreamingText = false
@@ -805,12 +895,16 @@ export class WorkspaceContext {
     if (tab) tab.title = 'New Tab'
     delete this.streaming.text[targetTabId]
     if (session.workingDirectory && !session.gitContext) {
-      void this.env.refreshGitEnvironment({ tabId: targetTabId })
+      void this.environment.refreshTab(this, { tabId: targetTabId })
     }
   }
 
-  async resumeSession(meta: SessionMeta, opts?: { background?: boolean }): Promise<string> {
+  async resumeSession(
+    meta: SessionMeta,
+    opts?: { background?: boolean; intoTabId?: string },
+  ): Promise<string> {
     const background = opts?.background ?? false
+    const intoTabId = opts?.intoTabId
     const provider = meta.provider ?? this.settings.activeAgent
     const defaultDir = meta.cwd || this.staticInfo?.homePath || '~'
     const workingDirectory = worktreeProjectRoot(defaultDir)
@@ -821,13 +915,16 @@ export class WorkspaceContext {
         : meta.slug || 'Resumed'
 
     const hadActiveTab = !!this.activeTab
-    let tabId = this.activeTabId
-    const activeTab = this.activeTab
-    const activeSession = this.activeSession
-    const canTakeOver = activeTab && activeSession && !activeSession.agentSessionId
-      && activeSession.status !== 'connecting' && activeSession.status !== 'running'
-      && activeSession.messages.length === 0
-    const shouldCreateNewTab = background || !canTakeOver
+    let tabId = intoTabId ?? this.activeTabId
+    const targetTab = intoTabId ? this.tabs[intoTabId] : this.activeTab
+    const targetSession = intoTabId ? this.sessionFor(intoTabId) : this.activeSession
+    const canTakeOver = targetTab && targetSession && !targetSession.agentSessionId
+      && targetSession.status !== 'connecting' && targetSession.status !== 'running'
+      && targetSession.messages.length === 0
+    if (intoTabId && !canTakeOver) {
+      throw new Error('A session can only resume into an empty, idle tab')
+    }
+    const shouldCreateNewTab = !intoTabId && (background || !canTakeOver)
     if (shouldCreateNewTab) {
       const newTab = await window.solus.createTab()
       tabId = newTab.tabId
@@ -852,7 +949,7 @@ export class WorkspaceContext {
         }
       }
     } else {
-      const session = this.sessions[activeTab!.sessionId]
+      const session = targetSession!
       session.provider = provider
       session.agentSessionId = meta.sessionId
       session.workingDirectory = workingDirectory
@@ -860,17 +957,17 @@ export class WorkspaceContext {
       session.readOnlyReason = null
       session.gitContext = null
       session.loadingHistory = true
-      activeTab!.title = title
+      targetTab!.title = title
 
-      if (!background) {
-        this.setActiveTab(activeTab!.id)
+      if (!background && !intoTabId) {
+        this.setActiveTab(targetTab!.id)
         this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
           this.settings.update({ activeAgent: provider })
         }
       }
     }
-    if (!background) {
+    if (!background && !intoTabId) {
       this.resetOverlays()
     }
 
@@ -904,7 +1001,7 @@ export class WorkspaceContext {
           session.gitContext = restoredGitContext
           session.readOnlyReason = null
         }
-        await this.env.refreshGitEnvironment({ tabId })
+        await this.environment.refreshTab(this, { tabId })
         await this.hydrateChangedFilesFromDiff(tabId)
       } else if (isSolusWorktreePath(defaultDir)) {
         if (session) {
@@ -912,7 +1009,7 @@ export class WorkspaceContext {
           session.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
         }
       } else {
-        await this.env.refreshGitEnvironment({ tabId })
+        await this.environment.refreshTab(this, { tabId })
       }
 
     } finally {
@@ -921,6 +1018,7 @@ export class WorkspaceContext {
     }
 
     requestConversationScrollToBottom(tabId)
+    if (intoTabId) requestInputFocus({ tabId })
     return tabId
   }
 
@@ -946,16 +1044,16 @@ export class WorkspaceContext {
     this.config.syncWorktreeDefault(enabled)
   }
 
-  toggleWorktreeMode(): void {
-    this.config.toggleWorktreeMode()
+  toggleWorktreeMode(tabId?: string): void {
+    this.config.toggleWorktreeMode(tabId)
   }
 
-  async switchToWorktree(worktreePath: string): Promise<void> {
-    return this.config.switchToWorktree(worktreePath)
+  async switchToWorktree(worktreePath: string, tabId?: string): Promise<void> {
+    return this.config.switchToWorktree(worktreePath, tabId)
   }
 
-  async setBaseDirectory(dir: string): Promise<void> {
-    return this.config.setBaseDirectory(dir)
+  async setBaseDirectory(dir: string, tabId?: string): Promise<void> {
+    return this.config.setBaseDirectory(dir, tabId)
   }
 
   addDirectory(dir: string): void {
@@ -993,25 +1091,16 @@ export class WorkspaceContext {
 
   private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string }): void {
     window.solus.createTab(tabId)
+      .then(() => this.config.pendingSessionStartTarget(tabId))
       .then(() => {
         // Guard: user may have interrupted between createTab resolving and this tick.
         // If so, stopTab already fired before prompt — skip submission to avoid a
         // phantom run that can never be cancelled.
         const session = this.sessionFor(tabId)
         if (!session) return
-        if (session.agentSessionId) {
-          return window.solus.dispatchToAgentSession(this.ctxFor(tabId), session.agentSessionId, options)
-        }
-        return window.solus.startAgentSession(this.ctxFor(tabId), options).then(({ agentSessionId }) => {
-          const current = this.sessionFor(tabId)
-          if (current && !current.agentSessionId) current.agentSessionId = agentSessionId
-        })
+        return window.solus.prompt(this.ctxFor(tabId), options)
       })
       .catch((err: Error) => {
-        // A queued prompt the user removed from the queue rejects with this
-        // sentinel. The dequeue is intentional and already reflected in the UI
-        // via the prompt_dequeued event, so don't surface it as an error.
-        if (err.message.endsWith('Cancelled by user')) return
         this.handleError(tabId, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
       })
   }
@@ -1020,6 +1109,11 @@ export class WorkspaceContext {
    *  conversation pane's composer). */
   sendMessage(prompt: string, projectPath?: string, tabId?: string): void {
     if (!tabId && this.tabOrder.length === 0) {
+      const sessionStartTargetResolution = this.config.pendingSessionStartTarget()
+      if (sessionStartTargetResolution) {
+        void sessionStartTargetResolution.then(() => this.sendMessage(prompt, projectPath, tabId))
+        return
+      }
       this.createTabFromDefaults()
     }
     const targetTabId = tabId ?? this.activeTabId
@@ -1120,12 +1214,7 @@ export class WorkspaceContext {
     session.latestCheckpointId = null
     session.progress = null
 
-    const retry = session.agentSessionId
-      ? window.solus.dispatchToAgentSession(this.ctxFor(tabId), session.agentSessionId, { prompt: lastUserMsg.content })
-      : window.solus.startAgentSession(this.ctxFor(tabId), { prompt: lastUserMsg.content }).then(({ agentSessionId }) => {
-        const current = this.sessionFor(tabId)
-        if (current && !current.agentSessionId) current.agentSessionId = agentSessionId
-      })
+    const retry = window.solus.retry(this.ctxFor(tabId), { prompt: lastUserMsg.content })
 
     retry.catch((err: Error) => {
       this.handleError(tabId, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
@@ -1175,7 +1264,7 @@ export class WorkspaceContext {
     if (sessionAfter) sessionAfter.latestCheckpointId = null
   }
 
-  // ─── Plans (open state lives in artifactViewer, not on Tab) ───
+  // ─── Plans (open state lives in panes, not on Tab) ───
 
   clearPlanWaiting(sessionId: string): void { clearPlanWaiting(this, sessionId) }
   async openPlanModal(planId: string, ref?: { sessionId?: string; planToolUseId?: string; status?: 'pending' | 'accepted' | 'rejected' }, opts: { secondary?: boolean } = {}): Promise<void> {
@@ -1213,19 +1302,19 @@ export class WorkspaceContext {
       resolvedId = entry[0]
     }
     this.folioGalleryOpen = false
-    if (opts.secondary) this.artifactViewer.moveToSecondary({ kind: 'work', workId: resolvedId })
-    else this.artifactViewer.openWork(resolvedId)
+    if (opts.secondary) this.panes.moveToSecondary({ kind: 'work', workId: resolvedId })
+    else this.panes.openWork(resolvedId)
   }
 
   closeWorkModal(): void {
-    this.artifactViewer.close()
+    this.panes.close()
   }
 
   /** Delete a work with a brief undo window. The on-disk delete is deferred until
    *  the toast commits, so the work just hides from the gallery (filtered out via
    *  pendingWorkDelete) until then — undo is a no-op restore, commit is permanent. */
   requestWorkDelete(work: Work): void {
-    if (this.artifactViewer.activeWorkId === work.id) this.artifactViewer.close()
+    if (this.panes.activeWorkId === work.id) this.panes.close()
     // Show the toast before recording the pending delete: showing commits any
     // toast it replaces (permanently deleting the *previous* pendingWorkDelete),
     // so set ours afterwards to avoid it being wiped by that commit.
@@ -1264,7 +1353,7 @@ export class WorkspaceContext {
     const work = await window.solus.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
     this.worksStore.works[work.id] = work
     this.folioGalleryOpen = false
-    this.artifactViewer.openWork(work.id)
+    this.panes.openWork(work.id)
   }
 
   async openChatForWork(workId: string, mode: 'resume' | 'new'): Promise<void> {
@@ -1279,7 +1368,7 @@ export class WorkspaceContext {
 
     let targetTabId: string | null = null
     let resumed = false
-    this.artifactViewer.moveToSecondary({ kind: 'work', workId })
+    this.panes.moveToSecondary({ kind: 'work', workId })
     void this.worksStore.ensureContent(workId, 'open-chat-for-work', this.sessionFor(this.activeTabId)?.workingDirectory)
     if (mode === 'resume' && resumeSid) {
       // find an open tab with this session, else resume from history
@@ -1398,11 +1487,29 @@ export class WorkspaceContext {
   // once. Loading here too would double every `pulls.list` on open (and race the
   // filter reset), so leave the fetch to the page.
   togglePrs(): void {
-    this.ui.togglePrs()
+    if (this.ui.togglePrs()) this.prsStore.needsReviewOnly = false
   }
 
-  openPrs(): void {
-    this.ui.openPrs()
+  openPrs(projectPath: string | null = null): void {
+    this.prsStore.needsReviewOnly = false
+    this.ui.openPrs(projectPath)
+  }
+
+  async openReviewMode(
+    items: Array<Pick<PullRequestSummary, 'number'>>,
+    ctx: IpcContext = this.ctx,
+  ): Promise<void> {
+    if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    this.ui.openReviewMode(items.map((item) => item.number), ctx)
+  }
+
+  /** Single destination seam for review-attention entry points. */
+  openNeedsReview(): void {
+    const open = () => void this.openReviewMode(this.prsStore.needsReviewItems)
+    if (this.prsStore.needsReviewItems.length > 0) open()
+    else void this.prsStore.refreshNeedsReview(this.ctx).then(open).catch((error) => {
+      toasts.error(`Couldn't load reviews: ${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 
   // ─── Automations page ───
@@ -1456,7 +1563,7 @@ export class WorkspaceContext {
   async startNewSessionWithPrompt(
     prompt: string,
     workingDirectory: string,
-    gitContext?: TabGitContext | null,
+    gitContext?: GitCheckout | null,
     statusCard?: StatusCardState | null,
   ): Promise<void> {
     const tabId = await this.createTab(workingDirectory)
@@ -1469,30 +1576,40 @@ export class WorkspaceContext {
     this.sendMessage(prompt)
   }
 
+  /** Hand request-changes feedback to a normal agent session in the PR's
+   *  existing review worktree. prOpenReview created this checkout before the
+   *  modal became available, so the new tab can bind to it directly and follow
+   *  the same create-tab -> git-context -> prompt path as conflict resolution. */
+  async startPrCommentsFixSession(pr: PrReviewContext, feedback?: PrFixFeedback): Promise<void> {
+    const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath))
+    const session = this.sessionFor(tabId)
+    if (!session) return
+    session.gitContext = { branch: pr.branch, targetBranch: pr.baseRef, worktreePath: pr.worktreePath }
+    session.worktreeBaseBranch = null
+    session.permissionMode = 'auto'
+    session.prReview = pr
+
+    const prompt = buildPrCommentsFixPrompt(pr, feedback)
+    this.sendMessage(prompt, undefined, tabId)
+    const tab = this.tabs[tabId]
+    if (tab) tab.title = `Fix PR #${pr.number}`
+    requestInputFocus()
+  }
+
   /**
    * Resolve a PR's merge conflicts in a fresh agent session. Opens the session
    * tab immediately — the click lands in a new window right away — then prepares
    * the conflict worktree behind a live status card and, once it's ready, sends
    * the resolution prompt. Agents bind their cwd at prompt time (see promptTab),
    * so we can re-point this tab to the worktree before the first message.
-   *
-   * The merge queue owns the worktree + base merge, so we drive it as a run of
-   * one (unless it's already paused on conflicts, e.g. mid batch-run or from
-   * MergeControl), poll it to conflicts, and mirror its progress in the card.
    */
-  async startConflictResolverSession(pr: { number: number; title: string }): Promise<void> {
-    const queue = this.mergeQueueStore
-    const existing = queue.entryFor(pr.number)
-    // A different run owns the queue and this PR isn't part of it — can't prepare
-    // its worktree yet. Toast rather than open a session that can never fill in.
-    if (queue.active && !existing) {
-      toasts.error('A merge queue run is already in progress. Try again once it finishes.')
-      return
-    }
-
-    // 1. Open the session immediately with a setup card. The placeholder cwd is
-    //    only cosmetic until we re-point to the worktree below; nothing runs yet.
-    const placeholderDir = this.mergeQueueStore.state?.repoRoot
+  async startConflictResolverSession(
+    pr: { number: number; title: string },
+    opts: { ctx?: IpcContext } = {},
+  ): Promise<void> {
+    const actionCtx = opts.ctx ?? this.ctx
+    const placeholderDir = actionCtx.session.projectPath
+      ?? actionCtx.session.workingDirectory
       ?? this.activeSession?.gitContext?.repoRoot
       ?? (this.activeSession?.workingDirectory && this.activeSession.workingDirectory !== '~'
         ? worktreeProjectRoot(this.activeSession.workingDirectory)
@@ -1504,12 +1621,6 @@ export class WorkspaceContext {
     if (tab) tab.title = `Resolve #${pr.number}`
     session.statusCard = buildConflictResolverCard(pr.number, 'worktree')
 
-    // Show the resolution prompt right away, exactly like a new worktree session
-    // renders the user's message the moment it's sent (with the setup card below).
-    // The message is pushed now — its base branch + conflicted files are filled in
-    // once the merge surfaces them — but it's only dispatched to the agent in step
-    // 4, after the worktree exists. On failure (steps 2/3) we drop it so the error
-    // card stands alone.
     const promptMsgId = nextMsgId()
     session.messages.push({
       id: promptMsgId,
@@ -1526,114 +1637,153 @@ export class WorkspaceContext {
       session.status = 'idle'
     }
 
-    // 2. Kick off a run of one to build the worktree + merge the base, unless a
-    //    prior/batch run already paused this PR on conflicts.
-    if (existing?.status !== 'conflicts') {
-      await queue.startSingle(this.ctx, { number: pr.number, title: pr.title }, 'merge').catch(() => {})
-      if (queue.error) {
-        abandonPrompt()
-        session.statusCard = buildConflictResolverErrorCard(pr.number, queue.error)
-        return
-      }
-    }
-
-    // 3. Wait for the queue to reach conflicts with a ready worktree, advancing
-    //    the card only when the phase actually changes (the poll ticks faster).
-    let cardPhase: ConflictResolverPhase = 'worktree'
-    const entry = await this.awaitMergeConflicts(pr.number, (phase) => {
-      if (phase !== cardPhase && session.statusCard?.status !== 'error') {
-        cardPhase = phase
-        session.statusCard = buildConflictResolverCard(pr.number, phase)
-      }
-    })
-    if (!entry) {
+    session.statusCard = buildConflictResolverCard(pr.number, 'merge')
+    const prepared = await window.solus.prPrepareConflictResolution(actionCtx, pr.number).catch((err) => ({
+      success: false as const,
+      error: err instanceof Error ? err.message : String(err),
+    }))
+    if (!prepared.success || !prepared.review) {
       abandonPrompt()
       session.statusCard = buildConflictResolverErrorCard(
         pr.number,
-        queue.error ?? 'The merge finished without conflicts to resolve.',
+        prepared.error ?? 'The conflict-resolution worktree could not be prepared.',
       )
       return
     }
 
-    // 4. Re-point the tab into the conflict worktree and dispatch the prompt —
-    //    now that the base branch + conflicted files are known, fill in the
-    //    message shown in step 1. The backend runs the agent in the worktree and
-    //    the reducer clears the card on start.
-    session.workingDirectory = worktreeProjectRoot(entry.worktreePath!)
-    session.gitContext = { branch: entry.branch!, targetBranch: entry.baseRef!, worktreePath: entry.worktreePath! }
+    const review = prepared.review
+    session.workingDirectory = worktreeProjectRoot(review.worktreePath)
+    session.gitContext = { branch: review.branch, targetBranch: review.baseRef, worktreePath: review.worktreePath }
     session.worktreeBaseBranch = null
+    session.permissionMode = 'auto'
     session.statusCard = buildConflictResolverCard(pr.number, 'session')
-    const prompt = buildConflictResolutionPrompt(entry)
+    const prompt = buildConflictResolutionPrompt({
+      number: review.number,
+      title: review.title,
+      baseRef: review.baseRef,
+      headRef: prepared.headRef,
+      conflictFiles: prepared.conflictFiles,
+    })
     const promptMsg = session.messages.find((m) => m.id === promptMsgId)
     if (promptMsg) promptMsg.content = prompt
     this.promptTab(tabId, { prompt, displayPrompt: prompt })
     requestInputFocus()
   }
 
-  /** Poll the merge queue until this PR's entry is paused on conflicts with a
-   *  worktree (resolved), or reaches a terminal non-conflict state / the queue
-   *  errors (both → null). `onPhase` mirrors interim status into the setup card. */
-  private async awaitMergeConflicts(
-    prNumber: number,
-    onPhase: (phase: ConflictResolverPhase) => void,
-  ): Promise<MergeQueueEntry | null> {
-    const deadline = Date.now() + 3 * 60_000
-    while (Date.now() < deadline) {
-      const entry = this.mergeQueueStore.entryFor(prNumber)
-      if (entry?.status === 'conflicts' && entry.worktreePath) return entry
-      if (this.mergeQueueStore.error) return null
-      if (entry && (entry.status === 'failed' || entry.status === 'merged' || entry.status === 'skipped')) return null
-      onPhase(entry?.status === 'merging' ? 'merge' : 'worktree')
-      await new Promise((r) => setTimeout(r, 200))
-    }
-    return null
-  }
-
-  /**
-   * Enter PR review: check out the PR's worktree, open a worktree-rooted chat
-   * session with full powers, and arrange the panes (M3: review surface maximized
-   * in the secondary pane, the chat as the primary conversation). The checked-out
-   * worktree IS the PR head, so the agent's reads see the real post-change files
-   * and the diff renders the PR change set.
-   */
-  async enterPrReview(number: number, title?: string): Promise<void> {
+  /** Enter PR review without creating a chat. The checked-out worktree supplies
+   *  the review context; a worktree-rooted chat is created only on demand. */
+  async enterPrReview(
+    number: number,
+    title?: string,
+    opts: { openChat?: boolean; ctx?: IpcContext } = {},
+  ): Promise<void> {
+    beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately,
     // then mount the review surface skeleton BEFORE the (slow) PR fetch/checkout
     // so the click gets instant feedback instead of a blank pane. The real
     // surface swaps in below once the worktree is ready.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
-    this.artifactViewer.enterPrReviewLoading(number, title)
+    this.panes.enterPrReviewLoading(number, title)
     try {
-      const pr = await window.solus.prOpenReview(this.ctx, number)
-      const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath))
-      const session = this.sessionFor(tabId)
-      if (session) {
-        session.gitContext = { branch: pr.branch, targetBranch: pr.baseRef, worktreePath: pr.worktreePath }
-        session.worktreeBaseBranch = null
-        // Full powers in the PR worktree (edit/run/push) per the spec.
-        session.permissionMode = 'auto'
-        session.prReview = pr
+      const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
+      markPrReviewProfile('review-worktree-ready')
+      this.panes.enterPrReview(pr)
+      if (opts.openChat) {
+        await this.openPrReviewChat(pr)
       }
-      const tab = this.tabs[tabId]
-      if (tab) tab.title = `PR #${pr.number}`
-      this.artifactViewer.enterPrReview(pr, tabId)
-      requestInputFocus()
     } catch (err) {
       // Tear down the skeleton so a failed open doesn't strand the user on it.
-      this.artifactViewer.closeSlot('secondary')
+      this.panes.closeSlot('secondary')
       toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
-  /**
-   * Exit PR review: tear down the maximized review surface AND close its
-   * worktree-rooted chat tab. The chat exists only to work alongside the review,
-   * so leaving it behind strands the user in an empty `PR #N` tab — closing it
-   * instead drops focus back onto the neighbour tab they came from (see closeTab).
-   */
-  exitPrReview(chatTabId: string): void {
-    this.artifactViewer.closeSlot('secondary')
-    this.closeTab(chatTabId)
+  /** Prepare one review without changing pane placement. Review Mode uses this
+   * seam to warm the next item in its queue. */
+  async preparePrReview(number: number, opts: { ctx?: IpcContext } = {}): Promise<{ pr: PrReviewContext }> {
+    const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
+    return { pr }
+  }
+
+  /** Dock a PR selected from the PR inbox. Preparation may be slow, but it never
+   * replaces the primary page; stale results are ignored when selection moves. */
+  async dockPrReview(number: number, title?: string, opts: { ctx?: IpcContext } = {}): Promise<void> {
+    const current = this.panes.secondaryContent
+    if (current.kind === 'pr-review' && current.pr.number === number) return
+    if (current.kind === 'pr-review-loading' && current.number === number) return
+
+    beginPrReviewProfile(number)
+    this.panes.dockPrReviewLoading(number, title)
+    try {
+      const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
+      markPrReviewProfile('review-worktree-ready')
+      const pending = this.panes.secondaryContent
+      if (pending.kind !== 'pr-review-loading' || pending.number !== number) return
+      this.panes.dockPrReview(pr)
+    } catch (err) {
+      const pending = this.panes.secondaryContent
+      if (pending.kind === 'pr-review-loading' && pending.number === number) {
+        this.panes.closeSlot('secondary')
+        toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
+  /** Create (once), activate, and reveal the chat associated with a PR review. */
+  async openPrReviewChat(pr: PrReviewContext, existingTabId: string | null = null): Promise<string> {
+    const hasExistingChat = Boolean(existingTabId && this.tabs[existingTabId])
+    beginPrReviewProfile(pr.number, { restart: true })
+    markPrReviewProfile('chat-open-start', { hasExistingChat })
+    if (existingTabId && this.tabs[existingTabId]) {
+      this.tabs[existingTabId].title = pr.title
+      this.setActiveTab(existingTabId)
+      this.panes.primaryContent = { kind: 'conversation' }
+      this.panes.maximized = false
+      this.isExpanded = true
+      this.tabs[existingTabId].hasUnread = false
+      requestInputFocus()
+      requestAnimationFrame(() => {
+        markPrReviewProfile('chat-split-first-paint', { hasExistingChat })
+        settlePrReviewProfile()
+      })
+      return existingTabId
+    }
+
+    const reviewGitContext: GitCheckout = {
+      branch: pr.branch,
+      targetBranch: pr.baseRef,
+      worktreePath: pr.worktreePath,
+    }
+    const tabId = await this.createTab(worktreeProjectRoot(pr.worktreePath), {
+      activate: false,
+      gitContext: reviewGitContext,
+      gitInitialization: 'background',
+    })
+    markPrReviewProfile('chat-tab-ready')
+    const reviewSession = this.sessionFor(tabId)
+    if (reviewSession) {
+      reviewSession.worktreeBaseBranch = null
+      reviewSession.permissionMode = 'auto'
+      reviewSession.prReview = pr
+    }
+    const tab = this.tabs[tabId]
+    if (tab) tab.title = pr.title
+    this.setActiveTab(tabId)
+    this.panes.primaryContent = { kind: 'conversation' }
+    this.panes.maximized = false
+    this.isExpanded = true
+    this.panes.attachPrReviewChat(pr.number, tabId)
+    requestInputFocus()
+    requestAnimationFrame(() => {
+      markPrReviewProfile('chat-split-first-paint', { hasExistingChat })
+      settlePrReviewProfile()
+    })
+    return tabId
+  }
+
+  /** Close the review surface. Its agent chat remains an ordinary workspace tab. */
+  exitPrReview(): void {
+    this.panes.closeSlot('secondary')
   }
 
   // ─── Settings page ───

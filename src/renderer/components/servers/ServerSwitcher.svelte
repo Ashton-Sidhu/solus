@@ -74,7 +74,7 @@
 <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
-      <button {...props} type="button" class="group relative inline-flex h-7 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)" use:tooltip={active ? `${active.label} · ${activeStatusLabel}` : "Servers"}>
+      <button {...props} type="button" class="group relative inline-flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.8125rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)" use:tooltip={active ? `${active.label} · ${activeStatusLabel}` : "Servers"}>
   <span class="relative flex h-3 w-3 shrink-0 items-center justify-center">
     <span
       class={`h-2 w-2 rounded-full ${active ? dotClass(active.status) : "bg-(--solus-text-quaternary)"} ${activePresentedStatus === "connecting" || activePresentedStatus === "reconnecting" ? "animate-pulse" : ""}`}

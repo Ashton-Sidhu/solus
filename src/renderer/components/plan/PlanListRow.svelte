@@ -141,7 +141,9 @@
     cursor: pointer;
     transition: background 0.1s ease;
   }
-  .row:hover,
+  .row:hover {
+    background: var(--solus-surface-hover);
+  }
   .row.selected {
     background: var(--solus-accent-light);
   }

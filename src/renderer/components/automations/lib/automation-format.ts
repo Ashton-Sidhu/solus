@@ -1,5 +1,5 @@
 import { Cron } from 'croner'
-import type { AutomationTrigger, AutomationRunStatus } from '../../../../shared/types'
+import { SOLUS_WORKTREE_DIR, type AutomationRun, type AutomationTrigger, type AutomationRunStatus } from '../../../../shared/types'
 
 // Pure formatting + trigger <-> builder-preset mapping for the Automations UI.
 // Kept out of the .svelte files so the cron math and human summaries are easy to
@@ -252,4 +252,19 @@ export const RUN_STATUS_META: Record<
   cancelled: { label: 'Cancelled', tone: 'cancelled' },
   // In-session runs: handed to the chat thread, which owns the real outcome.
   dispatched: { label: 'Sent to chat', tone: 'success' },
+}
+
+/** Resolve the provider transcript directory for an automation run. Older run
+ *  records only stored the branch, so retain the worktree manager's deterministic
+ *  path convention as a compatibility fallback. */
+export function automationRunCwd(run: AutomationRun, automationCwd: string, homePath?: string): string {
+  if (run.worktreePath) return run.worktreePath
+  if (!run.branch) return automationCwd
+
+  const expandedCwd = automationCwd === '~'
+    ? homePath ?? automationCwd
+    : automationCwd.startsWith('~/') && homePath
+      ? `${homePath}/${automationCwd.slice(2)}`
+      : automationCwd
+  return `${expandedCwd.replace(/\/$/, '')}/${SOLUS_WORKTREE_DIR}/${run.branch.replace(/\//g, '-')}`
 }

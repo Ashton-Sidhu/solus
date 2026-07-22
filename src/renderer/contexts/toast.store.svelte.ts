@@ -1,4 +1,5 @@
 import { toast, type ExternalToast } from "svelte-sonner"
+import MultiActionToast from "../components/ui/sonner/MultiActionToast.svelte"
 
 /** Visual tone of a toast. */
 export type ToastVariant = "info" | "success" | "error" | "undo"
@@ -22,6 +23,9 @@ export interface ToastSpec {
   duration?: number
   /** Optional trailing action (e.g. Undo). */
   action?: ToastAction
+  /** Multi-button toast rendered via a custom component. When present,
+   *  {@link action} is ignored. */
+  actions?: ToastAction[]
   /** Called when the toast auto-dismisses, is replaced, or is manually dismissed.
    *  NOT called when the user activates {@link action}. */
   onDismiss?: () => void
@@ -48,11 +52,29 @@ class ToastStore {
 
     const active: ActiveToast = {
       id: ++this.#seq,
-      action: spec.action,
+      action: spec.actions?.length ? undefined : spec.action,
       onDismiss: spec.onDismiss,
       settled: false,
     }
     this.#active = active
+
+    if (spec.actions?.length) {
+      toast.custom(MultiActionToast, {
+        id: active.id,
+        duration: spec.duration ?? 6000,
+        onDismiss: () => this.#settle(active, true),
+        onAutoClose: () => this.#settle(active, true),
+        componentProps: {
+          message: spec.message,
+          variant: spec.variant ?? "info",
+          actions: spec.actions.map((action) => ({
+            label: action.label,
+            onClick: () => this.#runAction(active, action),
+          })),
+        },
+      })
+      return
+    }
 
     const options: ExternalToast = {
       id: active.id,
@@ -121,9 +143,9 @@ class ToastStore {
     this.#runAction(active)
   }
 
-  #runAction(active: ActiveToast): void {
+  #runAction(active: ActiveToast, action = active.action): void {
     this.#settle(active, false)
-    active.action?.onAction()
+    action?.onAction()
   }
 
   #commitActive(): void {

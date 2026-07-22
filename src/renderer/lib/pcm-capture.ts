@@ -26,8 +26,47 @@ class SolusPcmCaptureProcessor extends AudioWorkletProcessor {
 registerProcessor('solus-pcm-capture', SolusPcmCaptureProcessor)
 `
 
+// One capture context per renderer. Recreating and asynchronously closing an
+// AudioContext for every utterance makes Chromium's shared audio service retain
+// teardown work across rapid starts and renderer reloads. Reusing the context
+// also means the worklet module is compiled only once instead of on every ⌥⇧K.
+let captureAudioCtx: AudioContext | null = null
+let captureWorkletReady: Promise<void> | null = null
+
+function getCaptureAudioContext(): AudioContext {
+  if (!captureAudioCtx || captureAudioCtx.state === 'closed') {
+    captureAudioCtx = new AudioContext()
+    captureWorkletReady = null
+  }
+  return captureAudioCtx
+}
+
+async function prepareCaptureContext(): Promise<AudioContext> {
+  const audioCtx = getCaptureAudioContext()
+  if (!captureWorkletReady) {
+    const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }))
+    captureWorkletReady = audioCtx.audioWorklet.addModule(url).finally(() => URL.revokeObjectURL(url))
+  }
+  try {
+    await captureWorkletReady
+  } catch (error) {
+    // A transient module-load failure must not poison every later recording.
+    captureWorkletReady = null
+    throw error
+  }
+  if (audioCtx.state === 'suspended') await audioCtx.resume()
+  return audioCtx
+}
+
+/** Close renderer-lifetime audio resources before a reload or window close. */
+export async function disposePcmCaptureResources(): Promise<void> {
+  const audioCtx = captureAudioCtx
+  captureAudioCtx = null
+  captureWorkletReady = null
+  if (audioCtx && audioCtx.state !== 'closed') await audioCtx.close()
+}
+
 export class PcmCapture {
-  private audioCtx: AudioContext | null = null
   private source: MediaStreamAudioSourceNode | null = null
   private node: AudioWorkletNode | null = null
   private gain: GainNode | null = null
@@ -38,15 +77,8 @@ export class PcmCapture {
   constructor(private stream: MediaStream, private onChunk: (chunk: PcmChunk) => void) {}
 
   async start(): Promise<void> {
-    const audioCtx = new AudioContext()
-    this.audioCtx = audioCtx
+    const audioCtx = await prepareCaptureContext()
     this.resampler = new StreamingLinearResampler(audioCtx.sampleRate, SAMPLE_RATE)
-    const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }))
-    try {
-      await audioCtx.audioWorklet.addModule(url)
-    } finally {
-      URL.revokeObjectURL(url)
-    }
     const source = audioCtx.createMediaStreamSource(this.stream)
     const node = new AudioWorkletNode(audioCtx, 'solus-pcm-capture')
     const gain = audioCtx.createGain()
@@ -78,8 +110,6 @@ export class PcmCapture {
     this.gain = null
     this.source = null
     this.stream.getTracks().forEach((track) => track.stop())
-    if (this.audioCtx) void this.audioCtx.close()
-    this.audioCtx = null
     this.resampler = null
   }
 

@@ -28,7 +28,11 @@
     matchesOpenProjects,
     type DateGroup,
   } from "../../lib/sessionUtils";
-  import { PAGE_PRIMARY_BTN } from "../../lib/page-chrome";
+  import {
+    PAGE_PRIMARY_BTN,
+    PAGE_SECONDARY_BTN,
+  } from "../../lib/page-chrome";
+  import PageEmpty from "../ui/PageEmpty.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
   import SearchField from "../ui/search-field";
@@ -368,12 +372,37 @@
         onmousemove={() => { mouseHasMoved = true; }}
       >
         {#if filtered.length === 0}
-          <div class="empty">
-            <p class="empty-title">{query ? "No matches." : "No documents yet."}</p>
-            {#if !query}
-              <p class="empty-sub">Press <span class="empty-kbd">New</span> to start one, or ask the agent to write a document.</p>
-            {/if}
-          </div>
+          {#if !query && typeFilter === "all"}
+            <PageEmpty icon={BooksIcon} title="No documents yet.">
+              Ask the agent to write a document, or start one yourself.
+              {#snippet actions()}
+                <button
+                  type="button"
+                  class={PAGE_PRIMARY_BTN}
+                  onclick={() => createNew("doc")}
+                >
+                  <PlusIcon size={13} weight="bold" />
+                  <span>New document</span>
+                </button>
+              {/snippet}
+            </PageEmpty>
+          {:else}
+            <PageEmpty title="No documents match.">
+              Try a different search or filter.
+              {#snippet actions()}
+                <button
+                  type="button"
+                  class={PAGE_SECONDARY_BTN}
+                  onclick={() => {
+                    query = "";
+                    typeFilter = "all";
+                  }}
+                >
+                  Clear filters
+                </button>
+              {/snippet}
+            </PageEmpty>
+          {/if}
         {:else}
           {#if folioPinned.length > 0}
             <SectionLabel label="Pinned" count={folioPinned.length}>
@@ -484,16 +513,15 @@
       tabindex="-1"
     >
       {#if filtered.length === 0}
-        <div class="empty">
-          <p class="empty-title">
-            {query ? "No matches." : "No documents yet."}
-          </p>
-          {#if !query}
-            <p class="empty-sub">
-              Press New to start one, or ask the agent to write a document.
-            </p>
-          {/if}
-        </div>
+        {#if !query}
+          <PageEmpty compact icon={BooksIcon} title="No documents yet.">
+            Ask the agent to write a document, or start one yourself.
+          </PageEmpty>
+        {:else}
+          <PageEmpty compact title="No documents match.">
+            Try a different search or filter.
+          </PageEmpty>
+        {/if}
       {:else}
         {#each filtered as w, i (w.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -766,25 +794,6 @@
     flex-shrink: 0;
   }
 
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 3rem 1rem;
-    gap: 0.25rem;
-    text-align: center;
-  }
-  .empty-title {
-    font-size: 0.8125rem;
-    color: var(--solus-text-secondary);
-    font-weight: 500;
-  }
-  .empty-sub {
-    font-size: 0.75rem;
-    color: var(--solus-text-tertiary);
-  }
-
   /* ── Card-grid (Plans-style) ── */
   .card-grid {
     display: grid;
@@ -856,11 +865,6 @@
   }
   .new-menu__item:hover {
     background: var(--solus-surface-hover);
-  }
-
-  .empty-kbd {
-    font-weight: 600;
-    color: var(--solus-accent);
   }
 
   .sr-only-input {

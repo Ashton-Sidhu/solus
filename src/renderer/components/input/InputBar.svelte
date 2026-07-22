@@ -41,8 +41,19 @@
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const windowCtx = getWindowContext();
+  const panes = session.panes;
 
   const targetTabId = $derived(tabId ?? session.activeTabId);
+  const isFocusedPaneComposer = $derived(
+    (isPrimary && panes.focusedPane === "primary") ||
+      (!isPrimary &&
+        panes.focusedPane === "secondary" &&
+        tabId === panes.chatTabIn("secondary", session.activeTabId)),
+  );
+  const receivesFocusedInput = $derived(
+    isFocusedPaneComposer ||
+      (isPrimary && session.focusedChatTabId === null),
+  );
   const sess = $derived(session.sessionFor(targetTabId));
   const input = $derived(session.inputFor(targetTabId));
   const isActiveMode = $derived(mode === windowCtx.viewMode);
@@ -126,11 +137,13 @@
   let retryClock = $state(Date.now());
 
   // The recorder is shared, so gate this bar's voice UI on conversational mode:
-  // a plain field dictating elsewhere must not light up the input bar. A
-  // tab-pinned (secondary) instance never owns the recorder, so it always
-  // reads idle — recording in the main bar must not hide the split's editor.
+  // a plain field dictating elsewhere must not light up the input bar. Primary
+  // and split composers claim ownership on focus so transcripts land in the
+  // draft the user is actually working in.
+  const voiceOwnerId = $derived(`input-bar:${mode}:${tabId ?? "primary"}`);
+  const ownsVoice = $derived(voice.messageOwner === voiceOwnerId);
   const voiceState = $derived(
-    isPrimary && voice.mode === "message" ? voice.state : "idle",
+    ownsVoice && voice.mode === "message" ? voice.state : "idle",
   );
 
   // Lazy-mount the waveform: once true, never resets so the canvas stays alive.
@@ -152,26 +165,47 @@
     voice.starting && showWaveform ? "recording" : voiceState,
   );
 
-  // Register the conversational transcript→send handler and auto-rearm callback
-  // while this bar is the active mode. The inactive (pill/editor) instance
-  // leaves them untouched, so the stored handlers always belong to whichever
-  // bar is visible.
+  function handleVoiceTranscript(transcript: string) {
+    const prompt = transcript.trim();
+    if (!prompt || isConnecting || isReadOnly) return;
+    if (theme.autoSendVoiceTranscripts) {
+      sendPrompt(prompt, { refocus: false });
+    } else {
+      const existing = input.text;
+      const next = existing.trim() ? `${existing} ${prompt}` : prompt;
+      input.text = next;
+      composerEl?.setValueAndCursor(next, true, true);
+    }
+  }
+
+  function claimVoice(startIfEnabled = false) {
+    if (!isActiveMode || isReadOnly) return;
+    const claimed = voice.claimMessageConsumer(
+      voiceOwnerId,
+      handleVoiceTranscript,
+      () => canAutoStart(),
+    );
+    if (claimed && startIfEnabled && canAutoStart()) voice.startConversational();
+  }
+
+  function toggleVoice() {
+    voice.toggleConversationalFor(
+      voiceOwnerId,
+      handleVoiceTranscript,
+      () => canAutoStart(),
+    );
+  }
+
+  // The visible primary composer is the default owner. A split composer takes
+  // over when the user focuses or activates its controls.
   $effect(() => {
-    if (!isActiveMode || !isPrimary) return;
-    voice.setMessageHandler((transcript) => {
-      const prompt = transcript.trim();
-      if (!prompt || isConnecting || isReadOnly) return;
-      if (theme.autoSendVoiceTranscripts) {
-        sendPrompt(prompt, { refocus: false });
-      } else {
-        const existing = input.text;
-        const next = existing.trim() ? `${existing} ${prompt}` : prompt;
-        input.text = next;
-        composerEl?.setValueAndCursor(next, true, true);
-      }
-    });
-    voice.setAutoRearm(() => canAutoStart());
-    return () => voice.setAutoRearm(null);
+    if (!isActiveMode) return;
+    const ownerId = voiceOwnerId;
+    // Claiming reads recorder state to decide whether auto-start is allowed.
+    // Keep those reads out of this ownership effect: otherwise starting the
+    // recorder reruns the effect, whose cleanup immediately cancels it.
+    if (isPrimary) untrack(() => claimVoice(true));
+    return () => voice.releaseMessageConsumer(ownerId);
   });
 
   // ─── Derived state ───
@@ -215,6 +249,7 @@
   }
   const isVoiceWaiting = $derived(
     voiceModeEnabled &&
+      ownsVoice &&
       voiceModel.ready &&
       isBusy &&
       !isReadOnly &&
@@ -255,12 +290,10 @@
         : voiceState === "transcribing"
           ? "Transcribing..."
           : isBusy
-            ? voiceModeEnabled && isPrimary
+            ? voiceModeEnabled && ownsVoice
               ? "Waiting for Claude..."
               : "Type to queue a message..."
-            : activeProvider === "codex"
-              ? "Ask Codex anything..."
-              : "Ask Claude Code anything...",
+            : "Plan, Build, Automate / @ for context",
   );
 
   // ─── Focus management ───
@@ -325,7 +358,7 @@
   }
 
   $effect(() => {
-    if (!isActiveMode || !isPrimary) return;
+    if (!isActiveMode || !receivesFocusedInput) return;
     return window.solus.onQuoteSelection((text) => {
       if (isReadOnly) return;
       insertQuote(text);
@@ -333,7 +366,7 @@
   });
 
   $effect(() => {
-    if (!isPrimary) return;
+    if (!receivesFocusedInput) return;
     const p = session.pendingInput;
     if (!p) return;
     if (isReadOnly) {
@@ -346,8 +379,15 @@
   });
 
   $effect(() => {
-    if (!isPrimary) return;
-    const handleFocusRequest = () => {
+    const handleFocusRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      const requestedTabId = detail?.tabId;
+      if (
+        requestedTabId === undefined
+          ? !isFocusedPaneComposer
+          : requestedTabId !== targetTabId
+      )
+        return;
       if (!isActiveMode || session.sessionPickerOpen || isReadOnly) return;
       requestAnimationFrame(() => {
         if (isActiveMode && !session.sessionPickerOpen && !isReadOnly) {
@@ -374,7 +414,7 @@
       voiceModeEnabled &&
       voiceModel.ready &&
       isActiveMode &&
-      isPrimary &&
+      ownsVoice &&
       windowCtx.visible &&
       !isReadOnly &&
       errorAllowsStart &&
@@ -408,7 +448,7 @@
     // shared recorder — it would immediately kill the active bar's recording.
     if (
       isActiveMode &&
-      isPrimary &&
+      ownsVoice &&
       isReadOnly &&
       (voiceState === "recording" || voice.starting)
     )
@@ -428,9 +468,12 @@
   });
 
   $effect(() => {
-    if (!isPrimary) return;
     const unsub = window.solus.onWindowHidden(() => {
-      if (isActiveMode && (voiceState === "recording" || voice.starting))
+      if (
+        isActiveMode &&
+        ownsVoice &&
+        (voiceState === "recording" || voice.starting)
+      )
         voice.cancel();
     });
     return unsub;
@@ -449,7 +492,7 @@
   let prevDictationFocus = untrack(() => dictation.focusedTarget);
   let prevVoiceModelReady = untrack(() => voiceModel.ready);
   $effect(() => {
-    if (!isPrimary) return;
+    if (!ownsVoice) return;
     const enabled = voiceModeEnabled;
     const visible = windowCtx.visible;
     const busy = isBusy;
@@ -489,13 +532,13 @@
     "voice.toggle-mode",
     () => theme.update({ voiceModeEnabled: !theme.voiceModeEnabled }),
     {
-      enabled: () => isActiveMode && isPrimary && !isReadOnly,
+      enabled: () => isActiveMode && ownsVoice && !isReadOnly,
     },
   );
-  useKeybinding("voice.toggle-recorder", () => voice.toggleConversational(), {
+  useKeybinding("voice.toggle-recorder", toggleVoice, {
     enabled: () =>
       isActiveMode &&
-      isPrimary &&
+      ownsVoice &&
       !isReadOnly &&
       !isDictationTarget(document.activeElement),
   });
@@ -698,7 +741,11 @@
   }
 </script>
 
-<div class="flex flex-col w-full relative" style="contain:layout paint">
+<div
+  class="flex flex-col w-full relative"
+  style="contain:layout paint"
+  onfocusin={() => claimVoice(true)}
+>
   {#if boundWork}
     <div class="flex pt-1.5">
       <div
@@ -757,7 +804,11 @@
       <div class="min-w-0">
         {@render editorOrWaveform()}
       </div>
-      <div class="flex items-center w-full" style="padding-top:0.125rem">
+      <!-- Keep the controls proportional to the composer text preference. -->
+      <div
+        class="flex items-center w-full"
+        style="padding-top:0.125rem;zoom:var(--solus-font-scale,1)"
+      >
         {@render leadingActions()}
         <div
           class="flex items-center gap-1 shrink-0 ml-auto"
@@ -776,13 +827,14 @@
         class="flex items-center gap-1 shrink-0 {isMobile
           ? 'pb-[0.125rem]'
           : 'pb-[0.375rem]'}"
+        style="zoom:var(--solus-font-scale,1)"
       >
         {@render actionButtons()}
       </div>
     </div>
   {/if}
 
-  {#if isPrimary && voice.error}
+  {#if ownsVoice && voice.error}
     <div class="px-1 pb-2 text-[0.6875rem] text-(--solus-status-error)">
       {voice.error}
     </div>
@@ -794,7 +846,7 @@
     {@render stopButton()}
   {/if}
   {#if !(isMobile && isBusy)}
-    {#if isPrimary}{@render voiceButtons()}{/if}
+    {@render voiceButtons()}
     {@render sendButton()}
   {/if}
 {/snippet}
@@ -877,6 +929,6 @@
     idleTooltip={idleVoiceTooltip}
     onCancel={() => voice.cancel()}
     onConfirm={() => voice.stop()}
-    onToggle={() => voice.toggleConversational()}
+    onToggle={toggleVoice}
   />
 {/snippet}

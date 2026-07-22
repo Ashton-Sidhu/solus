@@ -1,9 +1,9 @@
-import type { IpcContext, PrReviewContext, Session, SessionCtx, Tab, TabGitContext } from '../../shared/types'
+import type { GitCheckout, IpcContext, PrReviewContext, Session, SessionCtx, Tab } from '../../shared/types'
 import { worktreeProjectRoot } from '../../shared/types'
 import type { SettingsContext } from './settings.context.svelte'
 import type { StatusBarContext } from './status-bar.context.svelte'
 import type { WindowContext } from './window.context.svelte'
-import type { StaticInfo } from './environment.store.svelte'
+import type { StaticInfo } from './workspace-lifecycle.store.svelte'
 
 export interface IpcContextBuilderDeps {
   tabs(): Record<string, Tab>
@@ -11,7 +11,8 @@ export interface IpcContextBuilderDeps {
   globalDefaults: {
     permissionMode: 'ask' | 'auto' | 'plan'
     workingDirectory: string
-    gitContext: TabGitContext | null
+    gitContext: GitCheckout | null
+    worktreeBaseBranch: string | null
     modelConfig: {
       modelId: string | null
       reasoningEffort: SessionCtx['reasoningEffort']
@@ -33,10 +34,11 @@ export class IpcContextBuilder {
   }
 
   forTab(tabId: string): IpcContext {
+    const session = this.sessionCtx(tabId)
     return {
-      session: this.sessionCtx(tabId),
+      session,
       window: { viewMode: this.deps.window.viewMode },
-      settings: this.deps.settings.ctx,
+      settings: this.deps.settings.ctxForProject?.(session.projectPath) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctxFor(tabId),
     }
   }
@@ -46,7 +48,7 @@ export class IpcContextBuilder {
     return {
       session: { ...base, workingDirectory, projectPath: worktreeProjectRoot(workingDirectory) },
       window: { viewMode: this.deps.window.viewMode },
-      settings: this.deps.settings.ctx,
+      settings: this.deps.settings.ctxForProject?.(worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
     }
   }
@@ -55,7 +57,11 @@ export class IpcContextBuilder {
     const tab = this.deps.tabs()[tabId]
     const session = this.deps.sessionFor(tabId)
     if (!session) {
-      const workingDirectory = this.deps.globalDefaults.workingDirectory || this.deps.staticInfo()?.workspacePath || '~'
+      const staticInfo = this.deps.staticInfo()
+      const workingDirectory = this.deps.globalDefaults.workingDirectory
+        || staticInfo?.projectPath
+        || staticInfo?.workspacePath
+        || '~'
       return {
         tabId,
         provider: null,
@@ -70,8 +76,8 @@ export class IpcContextBuilder {
         fastMode: this.deps.globalDefaults.modelConfig.fastMode,
         permissionMode: this.deps.globalDefaults.permissionMode,
         gitContext: this.deps.globalDefaults.gitContext ? { ...this.deps.globalDefaults.gitContext } : null,
-        worktreeBaseBranch: null,
-        changedFiles: [],
+        worktreeBaseBranch: this.deps.globalDefaults.worktreeBaseBranch,
+        sessionChangedFiles: [],
         readOnlyReason: null,
         latestCheckpointId: null,
         title: tab?.title ?? null,
@@ -92,7 +98,7 @@ export class IpcContextBuilder {
       permissionMode: session.permissionMode,
       gitContext: session.gitContext ? { ...session.gitContext } : null,
       worktreeBaseBranch: session.worktreeBaseBranch,
-      changedFiles: [...session.changedFiles],
+      sessionChangedFiles: [...session.sessionChangedFiles],
       readOnlyReason: session.readOnlyReason,
       latestCheckpointId: session.latestCheckpointId,
       title: tab?.title ?? null,

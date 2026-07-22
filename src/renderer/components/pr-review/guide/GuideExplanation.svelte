@@ -43,7 +43,7 @@
   {/each}
 
   {#if detailRecords.length > 0}
-    <details class="group rounded-lg border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2">
+    <details class="group rounded-lg bg-(--solus-art-surface) px-3 py-2">
       <summary
         class="flex cursor-pointer list-none items-center gap-1.5 text-[0.875rem] font-semibold text-(--solus-text-tertiary) select-none"
       >
