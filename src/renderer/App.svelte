@@ -1042,7 +1042,7 @@
         (w) =>
           w.title &&
           !session.worksStore.streaming[w.id] &&
-          session.pendingWorkDelete?.id !== w.id,
+          session.worksStore.pendingWorkDelete?.id !== w.id,
       )
       .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
       .map((w) => ({

@@ -5,6 +5,9 @@ import { workPreview } from '../../../shared/work-preview'
 export class WorksStore {
   works = $state<Record<string, Work>>({})
   activeCwd = $state<string | undefined>(undefined)
+  /** A work pending deletion from the open-work view, held while the undo toast
+   *  is visible. The work is removed from disk only on commit (toast dismiss). */
+  pendingWorkDelete = $state<Work | null>(null)
   annotations = $state<Record<string, WorkAnnotations>>({})
   previousSnapshots = $state<Record<string, WorkPrevious | null>>({})
   /** Per-work counter, bumped only on agent-driven (mid-turn) updates. Open
@@ -283,6 +286,26 @@ export class WorksStore {
       delete this.streaming[workId]
       this.clearCachedSidecars(workId)
     }
+  }
+
+  /** Open the undo window: the work hides from the gallery (callers filter on
+   *  pendingWorkDelete) but stays on disk until commit. Callers must already have
+   *  shown their undo affordance — showing one commits the affordance it replaces,
+   *  which would wipe the pending delete recorded here. */
+  beginWorkDelete(work: Work): void {
+    this.pendingWorkDelete = work
+  }
+
+  /** Undo window closed — permanently delete the work from disk. */
+  commitWorkDelete(): void {
+    const work = this.pendingWorkDelete
+    this.pendingWorkDelete = null
+    if (work) void this.remove(work.id)
+  }
+
+  /** Undo — keep the work; clearing the pending state un-hides it. */
+  undoWorkDelete(): void {
+    this.pendingWorkDelete = null
   }
 
   async duplicate(workId: string): Promise<Work> {

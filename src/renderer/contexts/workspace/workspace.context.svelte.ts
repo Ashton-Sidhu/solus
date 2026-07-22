@@ -102,9 +102,6 @@ export class WorkspaceContext {
   /** Global two-pane view state — not per-tab. */
   panes = new PaneViewStore()
   ui: WorkspaceUiStore
-  /** A work pending deletion from the open-work view, held while the undo toast
-   *  is visible. The work is removed from disk only on commit (toast dismiss). */
-  pendingWorkDelete = $state<Work | null>(null)
   config: SessionConfigController
   onTurnSettled?: (tabId: string, cwd: string | null) => void
 
@@ -1312,30 +1309,18 @@ export class WorkspaceContext {
     this.panes.close()
   }
 
-  /** Delete a work with a brief undo window. The on-disk delete is deferred until
-   *  the toast commits, so the work just hides from the gallery (filtered out via
-   *  pendingWorkDelete) until then — undo is a no-op restore, commit is permanent. */
+  /** Delete a work with a brief undo window: close its pane, offer the undo, and
+   *  open the store's undo window. The on-disk delete is deferred until the toast
+   *  commits — undo is a no-op restore, commit is permanent. */
   requestWorkDelete(work: Work): void {
     if (this.panes.activeWorkId === work.id) this.panes.close()
     // Show the toast before recording the pending delete: showing commits any
     // toast it replaces (permanently deleting the *previous* pendingWorkDelete),
-    // so set ours afterwards to avoid it being wiped by that commit.
-    toasts.undo('Document deleted', () => this.undoWorkDelete(), {
-      onDismiss: () => this.commitWorkDelete(),
+    // so record ours afterwards to avoid it being wiped by that commit.
+    toasts.undo('Document deleted', () => this.worksStore.undoWorkDelete(), {
+      onDismiss: () => this.worksStore.commitWorkDelete(),
     })
-    this.pendingWorkDelete = work
-  }
-
-  /** Toast dismissed — permanently delete the work from disk. */
-  commitWorkDelete(): void {
-    const work = this.pendingWorkDelete
-    this.pendingWorkDelete = null
-    if (work) void this.worksStore.remove(work.id)
-  }
-
-  /** Toast undo — keep the work; clearing the pending state un-hides it. */
-  undoWorkDelete(): void {
-    this.pendingWorkDelete = null
+    this.worksStore.beginWorkDelete(work)
   }
 
   /** Create an empty user-authored work and open it. Persisted immediately so it

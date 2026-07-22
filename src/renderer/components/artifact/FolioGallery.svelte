@@ -101,7 +101,7 @@
   const scopedWorks: Work[] = $derived(
     Object.values(session.worksStore.works).filter(
       (w) =>
-        session.pendingWorkDelete?.id !== w.id &&
+        session.worksStore.pendingWorkDelete?.id !== w.id &&
         matchesOpenProjects(w.cwd, scopeRoots),
     ),
   );
