@@ -125,6 +125,51 @@ describe('Git state initialization', () => {
     expect(registered).toEqual(session.gitContext)
   })
 
+  test('applies a tab-less resolved target through session config', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const state: GitState = {
+      repoRoot: '/repo',
+      headSha: 'abc123',
+      branch: 'main',
+      targetBranch: 'main',
+      uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+    }
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: { gitRefreshState: async () => state } },
+    })
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const globalDefaults = {
+      workingDirectory: '/repo',
+      gitContext: null as GitCheckout | null,
+      worktreeBaseBranch: null as string | null,
+    }
+    const appliedTargets: Array<{ gitContext: GitCheckout | null; worktreeBaseBranch: string | null }> = []
+    const workspace = {
+      activeTabId: '',
+      tabOrder: [],
+      globalDefaults,
+      config: { applyGlobalStartTarget: (target: typeof appliedTargets[number]) => appliedTargets.push(target) },
+      settings: { worktreeEnabled: false },
+      sessionFor: () => undefined,
+      ctxFor: () => ({ session: {} }),
+    } as any
+
+    const result = await store.refreshTab(workspace)
+
+    expect(result.ok).toBe(true)
+    expect(appliedTargets).toEqual([{
+      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+      worktreeBaseBranch: null,
+    }])
+    expect(globalDefaults.gitContext).toBeNull()
+  })
+
   test('live Git state is authoritative over the attached session snapshot', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

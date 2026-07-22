@@ -198,13 +198,6 @@ export class WorkspaceContext {
     worktreeBaseBranch: string | null
     modelConfig: ModelConfig
   } { return this.config.globalDefaults }
-  set globalDefaults(value: {
-    permissionMode: 'ask' | 'auto' | 'plan'
-    workingDirectory: string
-    gitContext: GitCheckout | null
-    worktreeBaseBranch: string | null
-    modelConfig: ModelConfig
-  }) { this.config.globalDefaults = value }
   get tabGroupMode(): TabGroupMode { return this.config.tabGroupMode }
   set tabGroupMode(value: TabGroupMode) { this.config.tabGroupMode = value }
   get staticInfo(): StaticInfo | null { return this.lifecycle.staticInfo }
@@ -532,8 +525,7 @@ export class WorkspaceContext {
       this.resetOverlays({ closeArtifact: true })
     }
     if (options.activate !== false && !activeSession?.gitContext && inheritedGitContext) {
-      this.globalDefaults.gitContext = null
-      this.globalDefaults.worktreeBaseBranch = null
+      this.config.applyGlobalStartTarget({ gitContext: null, worktreeBaseBranch: null })
     }
     const gitInitialization = this.environment.refreshTab(this, {
       tabId,
@@ -828,8 +820,7 @@ export class WorkspaceContext {
     this.setActiveTab(tab.id)
     this.resetOverlays()
     if (inheritedGitContext) {
-      this.globalDefaults.gitContext = null
-      this.globalDefaults.worktreeBaseBranch = null
+      this.config.applyGlobalStartTarget({ gitContext: null, worktreeBaseBranch: null })
     }
     void this.environment.refreshTab(this, {
       tabId,

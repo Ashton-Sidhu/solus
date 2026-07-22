@@ -43,6 +43,16 @@ export class SessionConfigController {
     this.tabGroupMode = deps.settings.tabGroupMode
   }
 
+  /** Single write path for the global Git start target: environment resolution
+   * applies a resolved target, and tab creation clears a consumed one. */
+  applyGlobalStartTarget(target: {
+    gitContext: GitCheckout | null
+    worktreeBaseBranch: string | null
+  }): void {
+    this.globalDefaults.gitContext = target.gitContext
+    this.globalDefaults.worktreeBaseBranch = target.worktreeBaseBranch
+  }
+
   toggleTabGroupMode(): void {
     const i = TAB_GROUP_MODES.indexOf(this.tabGroupMode)
     const tabGroupMode = TAB_GROUP_MODES[(i + 1) % TAB_GROUP_MODES.length]

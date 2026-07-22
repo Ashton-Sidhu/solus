@@ -31,6 +31,12 @@ interface SessionEnvironmentWorkspace {
     gitContext: GitCheckout | null
     worktreeBaseBranch: string | null
   }
+  config: {
+    applyGlobalStartTarget(target: {
+      gitContext: GitCheckout | null
+      worktreeBaseBranch: string | null
+    }): void
+  }
   settings: { worktreeEnabled: boolean }
   sessionFor(tabId: string): Session | undefined
   ctxFor(tabId: string): IpcContext
@@ -175,8 +181,7 @@ export class SessionEnvironmentStore {
       if (workspace.globalDefaults.workingDirectory !== cwd) {
         return { status: true, details: false, refs: false, registration: true, ok: false }
       }
-      workspace.globalDefaults.gitContext = gitContext
-      workspace.globalDefaults.worktreeBaseBranch = worktreeBaseBranch
+      workspace.config.applyGlobalStartTarget({ gitContext, worktreeBaseBranch })
     }
 
     const detailsOk = level === 'status'

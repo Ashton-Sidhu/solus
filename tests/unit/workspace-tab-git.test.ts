@@ -83,6 +83,10 @@ describe('WorkspaceContext new-tab Git initialization', () => {
         worktreeBaseBranch: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       },
+      applyGlobalStartTarget(target: { gitContext: Session['gitContext']; worktreeBaseBranch: string | null }) {
+        this.globalDefaults.gitContext = target.gitContext
+        this.globalDefaults.worktreeBaseBranch = target.worktreeBaseBranch
+      },
     }
     workspace.settings = { activeAgent: 'codex', rateLimitBehavior: 'ask', worktreeEnabled: false }
     workspace.activeInput = { text: 'first prompt', attachments: [], planRefs: [], workRefs: [] }
