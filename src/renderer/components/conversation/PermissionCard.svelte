@@ -3,7 +3,7 @@
   import { fly } from 'svelte/transition'
   import { ShieldWarningIcon, TerminalIcon, PencilSimpleIcon, GlobeIcon, WrenchIcon } from 'phosphor-svelte'
   import type { Component } from 'svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
+  import { getWorkspaceContext } from '../../contexts'
   import type { PermissionRequest } from '../../../shared/types'
   import { fileChangePreviews } from './lib/fileChangePreview'
 

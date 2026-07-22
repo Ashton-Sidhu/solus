@@ -15,9 +15,7 @@
     BooksIcon,
   } from "phosphor-svelte";
   import type { Work } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext, getWindowContext, runtime } from "../../contexts";
   import {
     useKeybinding,
     useScope,

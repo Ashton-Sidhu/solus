@@ -5,7 +5,7 @@
     RobotIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { tooltip } from "../../lib/tooltip";
   import { parseSubagentInput } from "./lib/subagent";
   import SubagentTranscript from "./SubagentTranscript.svelte";

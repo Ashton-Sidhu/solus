@@ -115,9 +115,10 @@ Add an RPC method/topic in `src/shared/rpc.ts`, then register a handler on `Solu
 
 ### `src/renderer/` — Svelte 5 UI
 - **Entry:** `App.svelte`, `main.ts`
-- **`contexts/`** — state stores (`*.store.svelte.ts`, `*.context.svelte.ts`):
-  - `workspace.context.svelte.ts` — **tabs/session core** (large) · `session-*` — session lifecycle/transcript/events
-  - `run.store` · `tasks.store` · `works.store` · `automations.store` · `prs.store` · `git-status.store` · `plan.store` · `settings.context` · `toast.store`
+- **`contexts/`** — state stores, foldered by domain. **Public surface = `contexts/index.ts`** (curated barrel); import authoritative stores from it. `workspace/` contents (reducer, transcript, bootstrap, registry, pane-view, …) are private organs — deep-import them only from boot files or for organ-local types.
+  - `app/` — boot wiring (`app-core`, `runtime-boot`), `runtime`, `settings.context`, `window.context`, `agent.context`, `status-bar.context`, `toast.store`, `voice-model.store`, `tools.store`
+  - `workspace/` — **tabs/session core** (`workspace.context.svelte.ts`, large) + its internal organs (`session-*`, `tab-*`, `pane-view.store`, `prompt-composer`, `ipc-context`, `work-stream-tracker`, …)
+  - `git/` `plans/` `tasks/` `prs/` `works/` `automations/` `run/` `projects/` `connections/` — one folder per domain store (`session-environment.store`, `plan.store`, `tasks.store`, `prs.store`+`stacks.store`, `works.store`, `automations.store`, `run.store`+`run-dock.store`, `projects.store`+`project-config.store`, `connections.store`+`servers.store`)
 - **`lib/`** — cross-feature utils: `diff*`, `git-actions`, `keybindings/`, `highlight`, `changedFiles`, `contextUsage`, `inputFocus`…
 - **`hooks/`** — `agentEvents.svelte.ts`
 

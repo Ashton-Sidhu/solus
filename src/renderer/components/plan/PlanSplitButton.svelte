@@ -1,7 +1,6 @@
 <script lang="ts">
   import { CheckIcon, CaretDownIcon } from 'phosphor-svelte'
-  import { getAgentContext } from '../../contexts/agent.context.svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
+  import { getAgentContext, getWorkspaceContext } from '../../contexts'
   import * as DropdownMenu from '../ui/dropdown-menu'
   import { MODEL_PROFILES, type AgentId } from '../../../shared/types'
 

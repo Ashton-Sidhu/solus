@@ -20,19 +20,16 @@
     type TaskPriority,
     type TaskProviderId,
   } from "../../../shared/task-types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
+  import { getWorkspaceContext, getProjectConfigStore, runtime, toasts } from "../../contexts";
   import {
     TasksSelectionStore,
     setTasksSelection,
-  } from "../../contexts/tasks-selection.store.svelte";
+  } from "./tasks-selection.store.svelte";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { runtime } from "../../contexts/runtime.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import {
     buildTaskGroups,
     relativeTime,

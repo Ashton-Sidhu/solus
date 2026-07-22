@@ -10,10 +10,7 @@
   } from "phosphor-svelte";
   import type { PlanDescriptor } from "../../../shared/types";
   import { planKey } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext, getPlanStore, getWindowContext, runtime } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getDateGroup, matchesOpenProjects, type DateGroup } from "../../lib/sessionUtils";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";

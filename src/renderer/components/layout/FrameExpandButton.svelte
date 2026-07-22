@@ -1,7 +1,7 @@
 <script lang="ts">
   import { SidebarSimpleIcon } from "phosphor-svelte";
   import { tooltip } from "../../lib/tooltip";
-  import { frameChrome } from "../../contexts/frame-chrome.store.svelte";
+  import { frameChrome } from "./frame-chrome.store.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
 
   // `sidebar` expands the collapsed session sidebar; `projectPanel` expands the

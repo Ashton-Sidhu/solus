@@ -1,7 +1,7 @@
 <script lang="ts">
   import { WarningCircleIcon } from "phosphor-svelte";
   import type { IpcContext } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
 
   // Shown in the PR header when the PR conflicts with its base. One button, one

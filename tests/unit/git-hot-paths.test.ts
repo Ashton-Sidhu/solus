@@ -55,7 +55,7 @@ describe('git status hot path', () => {
     })
 
     try {
-      const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+      const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
       const store = new SessionEnvironmentStore()
       expect(await store.resolveSessionStartTarget('/repo', { worktreeRequested: true })).toEqual({
         workingDirectory: '/repo',
@@ -125,7 +125,7 @@ describe('git status hot path', () => {
     })
 
     try {
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
       const detailsRequest = store.refresh('/repo', { force: true, details: true })
       const summaryRequest = store.refresh('/repo', { force: true })
@@ -177,7 +177,7 @@ describe('git status hot path', () => {
     })
 
     try {
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
       expect(await store.refresh('/repo', { force: true })).toBe(true)
       shouldFail = true

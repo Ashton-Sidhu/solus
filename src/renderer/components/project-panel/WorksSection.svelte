@@ -1,6 +1,6 @@
 <script lang="ts">
   import { FileTextIcon, GraphIcon, PresentationIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import type { SessionWork } from "./lib/session-works";

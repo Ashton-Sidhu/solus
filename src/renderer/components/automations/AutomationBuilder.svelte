@@ -26,14 +26,11 @@
     WorkReference,
   } from "../../../shared/types";
   import { REASONING_EFFORT_LABELS } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts, getAgentContext, getPlanStore } from "../../contexts";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
   import { agentLabel } from "../../lib/agentAvailability";
   import * as Select from "../ui/select";
   import { Input } from "../ui/input";
@@ -65,7 +62,7 @@
 
   import { untrack } from "svelte";
 
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
 
   interface Props {
     automation: Automation | null;

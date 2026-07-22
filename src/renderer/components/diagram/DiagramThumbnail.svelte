@@ -1,7 +1,7 @@
 <script lang="ts">
   import { parseDiagram, type DiagramDoc, type DiagramEdge, type DiagramNode } from '../../../shared/diagram-types'
   import { applyLayout } from '../../../shared/diagram-layout'
-  import { getSettingsContext } from '../../contexts/settings.context.svelte'
+  import { getSettingsContext } from '../../contexts'
   import { diagramAccent } from './diagram-colors'
 
   interface Props {

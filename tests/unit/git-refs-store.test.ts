@@ -28,7 +28,7 @@ describe('SessionEnvironmentStore refs', () => {
       },
     })
 
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.refsByRoot['/repo'] = {
       worktrees: [{ path: '/repo/.worktrees/existing', branch: 'existing' }],

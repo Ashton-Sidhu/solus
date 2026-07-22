@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import AddFilesButton from "./AddFilesButton.svelte";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";

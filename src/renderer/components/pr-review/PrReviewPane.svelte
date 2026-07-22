@@ -14,9 +14,7 @@
   import { reviewGuideKeyForBase } from "../../../shared/review";
   import type { DraftReview, ReviewThread } from "../../../shared/providers";
   import type { GuideDiffCommentSave } from "./guide/lib/guide-data";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
+  import { getWorkspaceContext, getSettingsContext, getAgentContext } from "../../contexts";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";

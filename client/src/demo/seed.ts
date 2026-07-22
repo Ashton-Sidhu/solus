@@ -1,7 +1,7 @@
 import {
   saveCachedStart,
   savePersistedTabs,
-} from '../../../src/renderer/contexts/tab-persistence'
+} from '../../../src/renderer/contexts/workspace/tab-persistence'
 import { DEMO_INSTALLATION_ID, type DemoFixtures } from './fixtures/types'
 
 const SETTINGS_KEY = 'solus-settings'

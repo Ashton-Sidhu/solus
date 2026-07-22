@@ -1,6 +1,6 @@
 <script lang="ts">
   import { FileTextIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";

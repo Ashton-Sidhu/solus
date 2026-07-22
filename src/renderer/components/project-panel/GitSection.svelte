@@ -15,11 +15,13 @@
     WarningCircleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import {
+    getSessionEnvironmentStore,
+    getWorkspaceContext,
+    getSettingsContext,
+    getAgentContext,
+    toasts,
+  } from "../../contexts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { getRecommendedGitActionKey } from "../../lib/git-recommendation";
   import { resolveReviewAgent } from "../../lib/reviewAgent";

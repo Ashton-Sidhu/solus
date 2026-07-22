@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { DiffComment } from '../../src/shared/types'
-import { formatDiffInlineComments } from '../../src/renderer/contexts/session.utils'
+import { formatDiffInlineComments } from '../../src/renderer/contexts/workspace/session.utils'
 
 function diffComment(selectedCode: string): DiffComment {
   return {

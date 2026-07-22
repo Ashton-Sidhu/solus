@@ -3,7 +3,7 @@
   import EditorInputCard from "@renderer/components/input/EditorInputCard.svelte";
   import WorkspaceBody from "@renderer/components/layout/WorkspaceBody.svelte";
   import { connectionStatusLabel } from "@client-core/connection-display";
-  import { runtime } from "@renderer/contexts/runtime.svelte";
+  import { runtime } from "@renderer/contexts";
   import { tooltip } from "@renderer/lib/tooltip";
   import { webState } from "../lib/web-state.svelte";
   import WebPushBell from "./WebPushBell.svelte";

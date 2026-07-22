@@ -8,12 +8,14 @@
     GitForkIcon,
     TreeStructureIcon,
   } from "phosphor-svelte";
-  import { computeCurrentActivity } from "../../contexts/session.utils";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    createSessionHistoryStore,
+    getWindowContext,
+    runtime,
+  } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";

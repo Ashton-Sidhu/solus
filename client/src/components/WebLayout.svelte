@@ -4,9 +4,7 @@
   import NewTabHome from "@renderer/components/layout/NewTabHome.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getPlanStore } from "@renderer/contexts/plan.store.svelte";
-  import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
-  import { runtime } from "@renderer/contexts/runtime.svelte";
+  import { getPlanStore, getWorkspaceContext, runtime } from "@renderer/contexts";
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
   import { router } from "../lib/router.svelte";

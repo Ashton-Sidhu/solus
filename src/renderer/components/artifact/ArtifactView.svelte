@@ -5,7 +5,7 @@
     CheckIcon,
     CopyIcon,
   } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import { wrapSandboxSrcdoc } from "../../lib/artifactSandbox";

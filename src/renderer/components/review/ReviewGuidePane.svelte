@@ -5,11 +5,9 @@
     ArrowSquareOutIcon,
     ArrowsOutSimpleIcon,
   } from "phosphor-svelte";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { formatDiffInlineComments } from "../../contexts/session.utils";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import { getWorkspaceContext, getSettingsContext, getAgentContext } from "../../contexts";
+  import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";

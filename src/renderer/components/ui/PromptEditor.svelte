@@ -1,7 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
+  import { getWorkspaceContext, getPlanStore } from "../../contexts";
   import type {
     AgentId,
     PlanReference,

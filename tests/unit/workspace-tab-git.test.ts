@@ -42,7 +42,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('seeds the first prompt tab from the cached Git environment', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace.context.svelte')
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const registry = {
       tabs: {} as Record<string, Tab>,
       sessions: {} as Record<string, Session>,
@@ -104,7 +104,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('uses the saved worktree default for a fresh session even when its source session is direct', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace.context.svelte')
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       workingDirectory: '/repo',
@@ -168,7 +168,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('waits for the shared Git environment boundary', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace.context.svelte')
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       workingDirectory: '/repo',
@@ -239,7 +239,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('resolves an explicitly selected project without inheriting the active worktree', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace.context.svelte')
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       workingDirectory: '/old-project',
@@ -317,7 +317,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('reveals an attached PR chat without waiting for Git initialization', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace.context.svelte')
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       workingDirectory: '/repo',

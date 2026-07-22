@@ -5,9 +5,7 @@
     SpinnerGapIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getRunDockStore } from "../../contexts/run-dock.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getRunStore, getRunDockStore, getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { runLabel } from "../../lib/run-utils";
   import LogConsole from "../project-panel/LogConsole.svelte";

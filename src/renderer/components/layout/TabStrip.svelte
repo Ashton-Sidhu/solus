@@ -26,9 +26,7 @@
     CircleDashedIcon,
     CircleIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import type { TabGroupMode } from "../../contexts/settings.context.svelte";
+  import { getWorkspaceContext, getPlanStore, type TabGroupMode } from "../../contexts";
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { createTabScroll } from "../../lib/tabScroll.svelte";

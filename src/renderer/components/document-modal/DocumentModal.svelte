@@ -6,9 +6,9 @@
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
   import { removeCommentMark } from "../plan/lib/comments";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { formatInlineComments } from "../../contexts/session.utils";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import { getWorkspaceContext } from "../../contexts";
+  import { formatInlineComments } from "../../contexts/workspace/session.utils";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
 
   interface DocumentModalProps {

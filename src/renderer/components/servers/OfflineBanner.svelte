@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ArrowClockwiseIcon, WifiXIcon } from "phosphor-svelte";
   import { connectionStatusLabel } from "@client-core/connection-display";
-  import { serversStore } from "./servers.store.svelte";
+  import { serversStore } from "../../contexts";
 
   const active = $derived(serversStore.activeServer);
   const show = $derived(!!active && !active.local && active.status !== "online");

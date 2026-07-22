@@ -12,14 +12,12 @@
   } from "phosphor-svelte";
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { IpcContext } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts, runtime, getSessionSidebarStore } from "../../contexts";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { runtime } from "../../contexts/runtime.svelte";
   import { tooltip } from "../../lib/tooltip";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
@@ -45,8 +43,7 @@
     type PrSortMode,
   } from "./lib/pr-utils";
   import { groupStackedPrRows } from "./lib/stack-grouping";
-  import { getSessionSidebarStore } from "../../contexts/session-sidebar.store.svelte";
-  import { getOuterScrollbarContext } from "../../contexts/outer-scrollbar.context";
+  import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   const session = getWorkspaceContext();
   const sessionSidebar = getSessionSidebarStore();

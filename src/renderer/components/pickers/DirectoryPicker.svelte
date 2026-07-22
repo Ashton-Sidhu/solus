@@ -12,13 +12,10 @@
     XIcon,
   } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
-  import { projectsStore } from "../../contexts/projects.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
+  import { projectsStore, getWorkspaceContext, getStatusBarContext, runtime } from "../../contexts";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { abbreviateHome } from "../../lib/paths";
-  import { runtime } from "../../contexts/runtime.svelte";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import Kbd from "../ui/Kbd.svelte";
   import type { DirectoryEntry } from "../../../shared/types";

@@ -21,15 +21,12 @@
     diffFilePath,
     diffHeaderStats,
   } from "../../lib/diffTreeAdapter";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext, toasts, getSettingsContext, runtime } from "../../contexts";
   import {
     InlineCommentDraft,
     setInlineCommentDraft,
-  } from "../../contexts/diff-comment-draft.store.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  } from "./diff-comment-draft.store.svelte";
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
-  import { runtime } from "../../contexts/runtime.svelte";
   import {
     useKeybinding,
     useScope,

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition'
   import { ClockIcon } from 'phosphor-svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
+  import { getWorkspaceContext } from '../../contexts'
   import { requestInputFocus } from '../../lib/inputFocus'
   import { sendRateLimitedNow, cancelRateLimitedMessages, queueRateLimitedWait } from '../../lib/rate-limit-actions'
   import * as Card from '../ui/card'

@@ -17,8 +17,7 @@
     PrConversationItem,
     PrReviewer,
   } from "../../../shared/providers";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";

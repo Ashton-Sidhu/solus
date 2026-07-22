@@ -17,13 +17,15 @@
     REVIEW_PROGRESS_STEPS,
     type ReviewProgressStep,
   } from "../../../shared/review";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSessionSidebarStore } from "../../contexts/session-sidebar.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import {
+    getSettingsContext,
+    getAgentContext,
+    getWorkspaceContext,
+    getSessionSidebarStore,
+    getWindowContext,
+    getSessionEnvironmentStore,
+    runtime,
+  } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
   import { formatCombo } from "../../lib/keybindings/match";

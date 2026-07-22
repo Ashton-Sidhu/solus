@@ -1,4 +1,6 @@
-import { runtime } from "../contexts/runtime.svelte";
+// Deep import (not the barrel): workspace.context and servers.store import this
+// module, so importing contexts/index here would create a cycle.
+import { runtime } from "../contexts/app/runtime.svelte";
 
 export const FOCUS_INPUT_EVENT = "solus:focus-input";
 

@@ -1,7 +1,7 @@
 import { onDestroy } from 'svelte'
-import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
+import type { WorkspaceContext } from '../contexts'
 import type { NormalizedEvent, SkillStatus } from '../../shared/types'
-import { resyncRuntime } from '../contexts/session-bootstrap'
+import { resyncRuntime } from '../contexts/workspace/session-bootstrap'
 
 /**
  * Bridges ControlPlane IPC events into the session context. Call from App.svelte's top-level script,

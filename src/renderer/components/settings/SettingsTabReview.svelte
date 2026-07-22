@@ -9,9 +9,7 @@
     PlayCircleIcon,
   } from "phosphor-svelte";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from "../../../shared/types";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
 

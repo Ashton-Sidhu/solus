@@ -22,10 +22,7 @@
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
   import type { Command } from "./components/command-palette/lib/commands";
-  import { projectsStore } from "./contexts/projects.store.svelte";
-  import { toasts } from "./contexts/toast.store.svelte";
-  import { connectionsStore } from "./contexts/connections.store.svelte";
-  import { serversStore } from "./components/servers/servers.store.svelte";
+  import { projectsStore, toasts, connectionsStore, serversStore } from "./contexts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
@@ -39,23 +36,23 @@
   } from "../shared/types";
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
-  import { materializeTabs } from "./contexts/session-bootstrap";
+  import { materializeTabs } from "./contexts/workspace/session-bootstrap";
   import {
     createReconnectDetector,
     initializeRuntime,
     refreshTheme,
-  } from "./contexts/runtime-boot";
+  } from "./contexts/app/runtime-boot";
   import {
     savePersistedTabsDebounced,
     flushPersistedTabs,
     patchActiveDraft,
     flushDrafts,
     type PersistedTabs,
-  } from "./contexts/tab-persistence";
+  } from "./contexts/workspace/tab-persistence";
   import {
     consumeSessionHandoff,
-  } from "./contexts/active-session-pointer";
-  import { createAppCore } from "./contexts/app-core";
+  } from "./contexts/workspace/active-session-pointer";
+  import { createAppCore } from "./contexts/app/app-core";
   import {
     useKeybinding,
     installGlobalDispatcher,

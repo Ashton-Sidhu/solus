@@ -16,7 +16,7 @@
   import Dropdown from "../ui/Dropdown.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import { Input } from "../ui/input";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import type { AgentId } from "../../../shared/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
   import {

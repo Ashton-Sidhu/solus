@@ -29,7 +29,7 @@ import type {
   TurnSnapshot,
 } from '../../../../src/shared/git-types'
 import type { RpcInvokeMethod, RpcTopic } from '../../../../src/shared/rpc'
-import type { PersistedTabs } from '../../../../src/renderer/contexts/tab-persistence'
+import type { PersistedTabs } from '../../../../src/renderer/contexts/workspace/tab-persistence'
 
 export const DEMO_PROJECT = '/home/demo/acme'
 export const DEMO_INSTALLATION_ID = 'demo'

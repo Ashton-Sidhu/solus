@@ -9,7 +9,7 @@
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import type { AutomationBoard } from "./lib/automation-board";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     triggerSummary,

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { getWorkspaceContext, getWindowContext } from "../../contexts";
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import WorkspaceBody from "./WorkspaceBody.svelte";
   import {

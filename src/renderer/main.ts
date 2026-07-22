@@ -2,7 +2,7 @@ import './index.css'
 import { TransportDisconnectedError, type ConnectionStatus } from '@client-core/ws-transport'
 import { setConnectionState } from '@client-core/connection-state'
 import { installWsBackedSolusApi, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
-import { setTabPersistenceServerInstallationId } from './contexts/tab-persistence'
+import { setTabPersistenceServerInstallationId } from './contexts/workspace/tab-persistence'
 import type { LocalConnectionInfo, NativeSolusAPI } from '../preload'
 
 window.addEventListener('unhandledrejection', (event) => {

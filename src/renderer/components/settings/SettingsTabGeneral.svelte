@@ -17,10 +17,8 @@
   import {
     APP_FONT_FAMILIES,
     APP_CODE_FONT_FAMILIES,
-    getSettingsContext,
-  } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  } from "../../contexts/app/settings.context.svelte";
+  import { getAgentContext, getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ChartBarIcon } from "phosphor-svelte";

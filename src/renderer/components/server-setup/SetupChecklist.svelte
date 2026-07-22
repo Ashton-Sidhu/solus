@@ -12,7 +12,7 @@
     SpinnerGapIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
-  import { connectionsStore } from "../../contexts/connections.store.svelte";
+  import { connectionsStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import GitHubConnect from "../connections/GitHubConnect.svelte";
   import { serverSetupStore } from "./server-setup.store.svelte";

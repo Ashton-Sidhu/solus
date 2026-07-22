@@ -9,7 +9,7 @@
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
   } from "../../lib/diff-worker-pool";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { toasts } from "../../contexts";
   import {
     useKeybinding,
     useScope,

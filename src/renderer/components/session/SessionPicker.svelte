@@ -9,9 +9,12 @@
     XIcon,
   } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import {
+    getWorkspaceContext,
+    getStatusBarContext,
+    runtime,
+    createSessionHistoryStore,
+  } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getPopoverLayer, useClickOutside } from "../popoverLayer.svelte";
   import { portal } from "../portal";
@@ -30,7 +33,6 @@
   } from "../../lib/pickerEntries";
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
-  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
   import SessionPickerItem from "./SessionPickerItem.svelte";
   import SessionPickerSkeleton from "./SessionPickerSkeleton.svelte";
   import SessionPreview from "./SessionPreview.svelte";

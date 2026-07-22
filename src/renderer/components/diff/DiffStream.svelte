@@ -25,13 +25,13 @@
     setDiffWorkerPoolLineDiffType,
   } from "../../lib/diff-worker-pool";
   import { getIcon, buildIcon, replaceIDs } from "@iconify/svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { runtime } from "../../contexts";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
   import DiffCommentForm from "./DiffCommentForm.svelte";
   import DiffInlineComment from "./DiffInlineComment.svelte";
   import DiffThreadComment from "./DiffThreadComment.svelte";
-  import { getInlineCommentDraft } from "../../contexts/diff-comment-draft.store.svelte";
+  import { getInlineCommentDraft } from "./diff-comment-draft.store.svelte";
   import { DiffCollapseState, appendDiffErgonomicsLabel } from "./lib/diff-ergonomics";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
 

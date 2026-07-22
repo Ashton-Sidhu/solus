@@ -7,16 +7,16 @@
     saveDraftsDebounced,
     flushDrafts,
     type PersistedTabs,
-  } from "@renderer/contexts/tab-persistence";
+  } from "@renderer/contexts/workspace/tab-persistence";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
-  import { materializeTabs } from "@renderer/contexts/session-bootstrap";
+  import { materializeTabs } from "@renderer/contexts/workspace/session-bootstrap";
   import {
     createReconnectDetector,
     initializeRuntime,
     refreshTheme,
-  } from "@renderer/contexts/runtime-boot";
-  import { createAppCore } from "@renderer/contexts/app-core";
-  import { connectionsStore } from "@renderer/contexts/connections.store.svelte";
+  } from "@renderer/contexts/app/runtime-boot";
+  import { createAppCore } from "@renderer/contexts/app/app-core";
+  import { connectionsStore } from "@renderer/contexts";
   import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,

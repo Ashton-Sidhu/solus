@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import {
+    getWorkspaceContext,
     getSettingsContext,
     type ProjectPanelSectionId,
-  } from "../../contexts/settings.context.svelte";
-  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
-  import { DEFAULT_PANEL_WIDTH } from "../../contexts/pane-view.store.svelte";
+    getSessionEnvironmentStore,
+  } from "../../contexts";
+  import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/pane-view.store.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -27,7 +27,7 @@
   import { sessionWorks } from "./lib/session-works";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { getOuterScrollbarContext } from "../../contexts/outer-scrollbar.context";
+  import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   interface Props {
     open?: boolean;

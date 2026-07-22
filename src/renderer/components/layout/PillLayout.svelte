@@ -6,9 +6,7 @@
   import InputToolbar from "../input/InputToolbar.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
   import NewTabHome from "./NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
 

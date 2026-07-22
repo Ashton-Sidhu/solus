@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { FileDiff, File as PierreFile } from "@pierre/diffs";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getSettingsContext } from "../../contexts";
   import { parsePatchMetadata } from "../../lib/diff";
   import { detectMovedBlocks } from "../../lib/diff-moves";
   import { decorateMovedLines } from "../../lib/diff-move-highlight";

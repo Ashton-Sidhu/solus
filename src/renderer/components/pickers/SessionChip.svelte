@@ -2,9 +2,7 @@
   import { CaretDownIcon, CodeIcon } from "phosphor-svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
+  import { getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { REASONING_EFFORT_LABELS, type ReasoningEffort, type AgentId } from "../../../shared/types";
   import { tooltip } from "../../lib/tooltip";

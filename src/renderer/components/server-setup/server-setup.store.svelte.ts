@@ -1,6 +1,4 @@
-import { connectionsStore } from '../../contexts/connections.store.svelte'
-import { projectsStore } from '../../contexts/projects.store.svelte'
-import { toasts } from '../../contexts/toast.store.svelte'
+import { connectionsStore, projectsStore, toasts } from '../../contexts'
 import type {
   SetupAgentAuthCheckResult,
   SetupGithubRepo,

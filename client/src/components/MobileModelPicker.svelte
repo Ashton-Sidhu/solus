@@ -1,8 +1,6 @@
 <script lang="ts">
   import { CaretRightIcon, CheckIcon, XIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
-  import { getAgentContext } from "@renderer/contexts/agent.context.svelte";
-  import { getStatusBarContext } from "@renderer/contexts/status-bar.context.svelte";
+  import { getWorkspaceContext, getAgentContext, getStatusBarContext } from "@renderer/contexts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";
   import type { ReasoningEffort } from "../../../src/shared/types";

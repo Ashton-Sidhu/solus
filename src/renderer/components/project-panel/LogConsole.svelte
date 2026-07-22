@@ -9,8 +9,7 @@
     SpinnerGapIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getRunStore, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { runLabel } from "../../lib/run-utils";
   import type {

@@ -5,7 +5,7 @@
   import { serializeMermaid } from '../../../shared/diagram-mermaid'
   import type { DiagramDoc } from '../../../shared/diagram-types'
   import PopoverMenu from './PopoverMenu.svelte'
-  import { toasts } from '../../contexts/toast.store.svelte'
+  import { toasts } from '../../contexts'
 
   interface Props {
     getDoc: () => DiagramDoc

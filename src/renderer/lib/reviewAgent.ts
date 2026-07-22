@@ -1,6 +1,5 @@
 import { MODEL_PROFILES, type AgentId, type ReasoningEffort } from '../../shared/types'
-import type { SettingsContext } from '../contexts/settings.context.svelte'
-import type { AgentContext } from '../contexts/agent.context.svelte'
+import { type SettingsContext, type AgentContext } from '../contexts'
 
 /**
  * Resolve the review guide's effective agent + model + reasoning effort for a

@@ -1,8 +1,6 @@
 <script lang="ts">
   import { CaretDownIcon, CheckIcon, RobotIcon } from 'phosphor-svelte'
-  import { getAgentContext } from '../../contexts/agent.context.svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
-  import { getStatusBarContext } from '../../contexts/status-bar.context.svelte'
+  import { getAgentContext, getWorkspaceContext, getStatusBarContext } from '../../contexts'
   import { agentLabel, buildAgentAvailabilityRows } from '../../lib/agentAvailability'
   import { tooltip } from '../../lib/tooltip'
   import { requestInputFocus } from '../../lib/inputFocus'

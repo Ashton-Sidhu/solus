@@ -14,7 +14,7 @@
   import { hunkToPatch, fileName, dirName } from "./lib/activity-data";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { toasts } from "../../contexts";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { ReviewThread, ReviewComment } from "../../../shared/providers";

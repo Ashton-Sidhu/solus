@@ -1,10 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getRunDockStore } from "../../contexts/run-dock.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import {
+    getWorkspaceContext,
+    getWindowContext,
+    getRunStore,
+    getRunDockStore,
+    getSettingsContext,
+  } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import RunDock from "../run/RunDock.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -17,14 +19,14 @@
   import ConversationView from "../conversation/ConversationView.svelte";
   import NewTabHome from "./NewTabHome.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { frameChrome } from "../../contexts/frame-chrome.store.svelte";
+  import { frameChrome } from "./frame-chrome.store.svelte";
   import {
     DEFAULT_PANEL_WIDTH,
     isArtifactContent,
     isMovableContent,
     isPageContent,
     type PaneContent,
-  } from "../../contexts/pane-view.store.svelte";
+  } from "../../contexts/workspace/pane-view.store.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     clampSecondaryPaneWidth,
@@ -45,7 +47,7 @@
     percentToPixels,
     pixelsToPercent,
   } from "../../lib/resizablePane";
-  import { provideOuterScrollbarContext } from "../../contexts/outer-scrollbar.context";
+  import { provideOuterScrollbarContext } from "./lib/outer-scrollbar.context";
 
   interface Props {
     /** Whether this body is the active layout (drives keybindings + chrome reporting). */

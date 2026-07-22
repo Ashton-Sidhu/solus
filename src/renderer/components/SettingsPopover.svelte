@@ -18,13 +18,15 @@
   import {
     APP_FONT_FAMILIES,
     APP_CODE_FONT_FAMILIES,
-    getSettingsContext,
-  } from "../contexts/settings.context.svelte";
+  } from "../contexts/app/settings.context.svelte";
   import { useKeybinding } from "../lib/keybindings/use-keybinding.svelte";
-  import { getAgentContext } from "../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../contexts/window.context.svelte";
-  import { toolsStore } from "../contexts/tools.store.svelte";
+  import {
+    getAgentContext,
+    getSettingsContext,
+    getWorkspaceContext,
+    getWindowContext,
+    toolsStore,
+  } from "../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../lib/agentAvailability";
   import { getPopoverLayer, useClickOutside } from "./popoverLayer.svelte";
   import { portal } from "./portal";

@@ -3,7 +3,7 @@
   import { XIcon } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import { getOuterScrollbarContext } from "../../contexts/outer-scrollbar.context";
+  import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   /** Scroll shell for full-page library surfaces (Automations, Tasks, Folio,
    *  Plans): a centered content column with floating corner chrome. The parent

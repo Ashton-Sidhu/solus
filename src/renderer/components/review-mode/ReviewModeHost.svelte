@@ -11,8 +11,7 @@
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { IpcContext, PrReviewContext } from "../../../shared/types";
   import type { ReviewOutcome } from "../../../shared/review-session-types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts } from "../../contexts";
   import { Button } from "../ui/button";
   import PrChecksChip from "../prs/PrChecksChip.svelte";
   import PrReviewPane from "../pr-review/PrReviewPane.svelte";

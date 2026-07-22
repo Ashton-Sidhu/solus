@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { SidebarSimpleIcon } from "phosphor-svelte";
   import { tooltip } from "../../lib/tooltip";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { getWindowContext } from "../../contexts";
   import * as Sidebar from "../ui/sidebar";
 
   interface Props {

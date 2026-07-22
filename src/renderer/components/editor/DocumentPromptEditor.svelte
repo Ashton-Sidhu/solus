@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { AnyExtension, Editor } from "@tiptap/core";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
+  import { getWorkspaceContext, getPlanStore } from "../../contexts";
   import type {
     AgentId,
     PlanReference,

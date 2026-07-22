@@ -9,8 +9,7 @@
     TreeStructureIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getPlanStore, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     attentionLabel,

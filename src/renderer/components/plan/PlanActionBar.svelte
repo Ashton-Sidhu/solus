@@ -1,8 +1,7 @@
 <script lang="ts">
   import { XIcon, ArrowCounterClockwiseIcon, RobotIcon, CheckIcon, GitForkIcon } from 'phosphor-svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
+  import { getWorkspaceContext, runtime } from '../../contexts'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
-  import { runtime } from '../../contexts/runtime.svelte'
   import { Button } from '../ui/button'
   import { Toggle } from '../ui/toggle'
   import { MarkdownTextarea } from '../ui/markdown-field'

@@ -3,7 +3,7 @@
   import { ArrowUpIcon, ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { MarkdownTextarea } from "../ui/markdown-field";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { tooltip } from "../../lib/tooltip";
   import type { DiffComment } from "../../../shared/types";
 

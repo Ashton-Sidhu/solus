@@ -8,7 +8,7 @@ import {
   stackPairKey,
   type StackPullRequestInput,
 } from '../../src/main/git/stack-detect'
-import { resolveStackDiffBase } from '../../src/renderer/contexts/stack-diff-base'
+import { resolveStackDiffBase } from '../../src/shared/stack-types'
 import type { StackGraph } from '../../src/shared/stack-types'
 
 const detectedAt = '2026-07-15T00:00:00.000Z'

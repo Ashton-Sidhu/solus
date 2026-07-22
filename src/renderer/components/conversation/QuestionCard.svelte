@@ -14,7 +14,7 @@
   import MarkdownLink from "./MarkdownLink.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { Textarea } from "../ui/textarea";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import type { AgentId, QuestionRequest, QuestionItem } from "../../../shared/types";
 
   interface Props {

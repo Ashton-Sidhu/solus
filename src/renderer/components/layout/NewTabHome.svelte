@@ -1,5 +1,12 @@
 <script lang="ts" module>
-  import { projectsStore } from "../../contexts/projects.store.svelte";
+  import {
+    projectsStore,
+    getSessionEnvironmentStore,
+    createSessionHistoryStore,
+    getWorkspaceContext,
+    getWindowContext,
+    runtime,
+  } from "../../contexts";
 
   export function invalidateHomeCache(): void {
     projectsStore.invalidateRecentProjects();
@@ -23,11 +30,6 @@
     ColumnsIcon,
   } from "phosphor-svelte";
   import { untrack } from "svelte";
-  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
-  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
   import { abbreviateHome } from "../../lib/paths";
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";

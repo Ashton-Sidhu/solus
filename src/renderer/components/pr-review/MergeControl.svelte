@@ -6,7 +6,7 @@
     GitMergeIcon,
   } from "phosphor-svelte";
   import type { IpcContext, MergeMethod } from "../../../shared/types";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";

@@ -17,9 +17,7 @@
     ArrowUpRightIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
+  import { runtime, getWorkspaceContext, getPlanStore, toasts } from "../../contexts";
   import PlanActionBar from "./PlanActionBar.svelte";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import { CommentMark } from "../editor/commentMark";
@@ -42,9 +40,8 @@
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import { ArrowSquareOutIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
 
   const commentExtensions = [CommentMark];
 

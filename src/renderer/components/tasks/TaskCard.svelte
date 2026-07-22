@@ -21,7 +21,7 @@
     visibleLabels,
   } from "./lib/tasks-api";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { getTasksSelection } from "../../contexts/tasks-selection.store.svelte";
+  import { getTasksSelection } from "./tasks-selection.store.svelte";
 
   interface Props {
     task: Task;

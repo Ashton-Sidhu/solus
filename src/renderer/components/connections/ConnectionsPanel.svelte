@@ -14,7 +14,7 @@
   import {
     connectionsStore,
     type ConnectionEndpoint,
-  } from "../../contexts/connections.store.svelte";
+  } from "../../contexts";
   import { pairQrSvgPath } from "./lib/qrcode";
   import Switch from "../ui/switch/switch.svelte";
 

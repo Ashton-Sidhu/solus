@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../contexts";
   import { tooltip } from "../lib/tooltip";
   import { requestInputFocus } from "../lib/inputFocus";
   import * as Popover from "./ui/popover";

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { CodeIcon, OpenAiLogoIcon } from "phosphor-svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getSettingsContext } from "../../contexts";
   import {
     entryTitle,
     entryByline,

@@ -10,7 +10,7 @@
     DIAGRAM_GRAY,
     diagramAccent,
   } from './diagram-colors'
-  import { getSettingsContext } from '../../contexts/settings.context.svelte'
+  import { getSettingsContext } from '../../contexts'
   import { Input } from '../ui/input'
 
   interface Props {

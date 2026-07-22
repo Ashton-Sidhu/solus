@@ -1,8 +1,6 @@
 <script lang="ts">
   import { CaretDownIcon, ShieldCheckIcon, PencilIcon, type IconWeight } from 'phosphor-svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
-  import { getAgentContext } from '../../contexts/agent.context.svelte'
-  import { getStatusBarContext } from '../../contexts/status-bar.context.svelte'
+  import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
   import { tooltip } from '../../lib/tooltip'
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'

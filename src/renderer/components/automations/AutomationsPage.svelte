@@ -11,9 +11,7 @@
     LightningIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext, getWindowContext, runtime, toasts } from "../../contexts";
   import {
     useKeybinding,
     useScope,
@@ -27,7 +25,6 @@
   } from "../../lib/page-chrome";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import { triggerSummary, relativeTime } from "./lib/automation-format";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";

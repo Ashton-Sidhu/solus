@@ -5,8 +5,7 @@
     PlusIcon,
     TrashIcon,
   } from "phosphor-svelte";
-  import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
+  import { getProjectConfigStore, getRunStore } from "../../contexts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
 

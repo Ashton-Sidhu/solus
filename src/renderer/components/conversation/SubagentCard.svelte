@@ -6,7 +6,7 @@
     type Message,
     type ReasoningEffort,
   } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { parseSubagentInput, subToolLabel } from "./lib/subagent";
 
   interface Props {

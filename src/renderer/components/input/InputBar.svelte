@@ -1,11 +1,14 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { ArrowUpIcon, SquareIcon, XIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getVoiceModelStore } from "../../contexts/voice-model.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import {
+    getWorkspaceContext,
+    getStatusBarContext,
+    getSettingsContext,
+    getVoiceModelStore,
+    getWindowContext,
+    runtime,
+  } from "../../contexts";
   import type { PlanReference, WorkReference } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import AttachmentChips from "./AttachmentChips.svelte";
@@ -17,7 +20,6 @@
   import { tooltip } from "../../lib/tooltip";
   import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
   import { requestFilePreview } from "../../lib/filePreview";
-  import { runtime } from "../../contexts/runtime.svelte";
   import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
 
   const HISTORY_KEY = "solus-prompt-history";

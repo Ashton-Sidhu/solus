@@ -5,11 +5,13 @@
     GitForkIcon,
   } from "phosphor-svelte";
   import type { Snippet } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
-  import { getSessionEnvironmentStore } from "../../contexts/session-environment.store.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import {
+    getWorkspaceContext,
+    getWindowContext,
+    getStatusBarContext,
+    getSessionEnvironmentStore,
+    runtime,
+  } from "../../contexts";
   import { displayDirName } from "../../lib/paths";
   import ContextMeter from "../ContextMeter.svelte";
   import SettingsPopover from "../SettingsPopover.svelte";

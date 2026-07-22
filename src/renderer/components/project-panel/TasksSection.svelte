@@ -1,7 +1,6 @@
 <script lang="ts">
   import { ArrowRightIcon, PlugIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { STATUS_META, statusLabel, sortTasks } from "../tasks/lib/tasks-api";

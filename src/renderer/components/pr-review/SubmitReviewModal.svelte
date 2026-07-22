@@ -11,8 +11,7 @@
   import type { IpcContext, PrReviewContext } from "../../../shared/types";
   import type { DraftReview, DraftReviewComment } from "../../../shared/providers";
   import type { ReviewDraftComment } from "../../../shared/review";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";

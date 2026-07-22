@@ -47,8 +47,7 @@
   import PromptEditor from "../ui/PromptEditor.svelte";
   import TaskCommentCodeSpan from "./TaskCommentCodeSpan.svelte";
   import type { AgentId } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
+  import { getWorkspaceContext, getAgentContext } from "../../contexts";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";

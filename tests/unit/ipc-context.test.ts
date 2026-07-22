@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { runInputFromContext } from '../../src/main/agents/run-input'
-import { IpcContextBuilder, type IpcContextBuilderDeps } from '../../src/renderer/contexts/ipc-context'
+import { IpcContextBuilder, type IpcContextBuilderDeps } from '../../src/renderer/contexts/workspace/ipc-context'
 import type { StatusBarCtx } from '../../src/shared/types'
 
 function statusBar(model: string, reasoningEffort: StatusBarCtx['reasoningEffort']): StatusBarCtx {

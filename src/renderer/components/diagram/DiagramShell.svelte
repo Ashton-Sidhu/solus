@@ -16,12 +16,11 @@
   import { ChatsCircleIcon, CheckIcon, GraphIcon, XIcon } from "phosphor-svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { formatInlineComments } from "../../contexts/session.utils";
+  import { getWorkspaceContext, toasts, getSettingsContext } from "../../contexts";
+  import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { uuid } from "../../../shared/uuid";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import { formatSavedAgo } from "../document-shell/saveStatus";
   import DiagramNodeComponent from "./nodes/DiagramNode.svelte";
   import DiagramGroupNode from "./nodes/DiagramGroupNode.svelte";
@@ -81,7 +80,6 @@
     reapplyLayout,
     type LayoutDirection,
   } from "../../../shared/diagram-layout";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import {
     useKeybinding,
     useScope,

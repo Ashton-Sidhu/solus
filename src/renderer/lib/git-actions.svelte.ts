@@ -1,7 +1,11 @@
-import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
-import type { SessionEnvironmentStore } from '../contexts/session-environment.store.svelte'
-import { connectionsStore } from '../contexts/connections.store.svelte'
-import { toasts } from '../contexts/toast.store.svelte'
+import {
+  type WorkspaceContext,
+  type SessionEnvironmentStore,
+} from '../contexts'
+// Value imports stay deep (not the barrel): workspace.context imports this
+// module, so a runtime barrel import here would create a cycle.
+import { connectionsStore } from '../contexts/connections/connections.store.svelte'
+import { toasts } from '../contexts/app/toast.store.svelte'
 import { requestInputFocus } from './inputFocus'
 
 export class GitActions {

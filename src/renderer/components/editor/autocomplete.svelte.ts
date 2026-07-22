@@ -25,8 +25,7 @@ import {
   type SlashCommand,
   type CategorizedSlashCommands,
 } from "../input/slash-commands";
-import type { WorkspaceContext } from "../../contexts/workspace.context.svelte";
-import type { PlanStore } from "../../contexts/plan.store.svelte";
+import { type WorkspaceContext, type PlanStore } from "../../contexts";
 import * as refs from "./references";
 
 // Trigger patterns shared by every reference-aware composer. Re-exported by

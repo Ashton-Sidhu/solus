@@ -10,7 +10,7 @@
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { toasts } from "../../contexts";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";

@@ -9,16 +9,18 @@
     TreeStructureIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getSessionEnvironmentStore } from "../contexts/session-environment.store.svelte";
-  import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
+  import {
+    getSessionEnvironmentStore,
+    getWorkspaceContext,
+    getWindowContext,
+    connectionsStore,
+    toasts,
+  } from "../contexts";
   import * as Popover from "./ui/popover";
   import * as Command from "./ui/command";
   import Kbd from "./ui/Kbd.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import { worktreeProjectRoot, type IpcContext } from "../../shared/types";
-  import { getWindowContext } from "../contexts/window.context.svelte";
-  import { connectionsStore } from "../contexts/connections.store.svelte";
-  import { toasts } from "../contexts/toast.store.svelte";
 
   type View = "menu" | "worktrees" | "branches";
 

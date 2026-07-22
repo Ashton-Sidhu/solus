@@ -14,7 +14,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { serversStore, type ServerItem, type ServerItemStatus } from "./servers.store.svelte";
+  import { serversStore, type ServerItem, type ServerItemStatus } from "../../contexts";
 
   let open = $state(false);
   const active = $derived(serversStore.activeServer);

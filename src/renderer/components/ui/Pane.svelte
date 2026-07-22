@@ -6,9 +6,8 @@
     type PageKind,
     type PaneContent,
     type PaneSlot,
-  } from '../../contexts/pane-view.store.svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
-  import { getPlanStore } from '../../contexts/plan.store.svelte'
+  } from '../../contexts/workspace/pane-view.store.svelte'
+  import { getWorkspaceContext, getPlanStore } from '../../contexts'
   import { requestInputFocus } from '../../lib/inputFocus'
 
   // Keep every non-conversation surface behind an actual async boundary. Pane

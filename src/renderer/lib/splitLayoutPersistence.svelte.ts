@@ -1,8 +1,6 @@
 import { untrack } from 'svelte'
-import { MAX_SECONDARY_RATIO, MIN_SECONDARY_RATIO } from '../contexts/pane-view.store.svelte'
-import type { SettingsContext } from '../contexts/settings.context.svelte'
-import type { WindowContext } from '../contexts/window.context.svelte'
-import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
+import { MAX_SECONDARY_RATIO, MIN_SECONDARY_RATIO } from '../contexts/workspace/pane-view.store.svelte'
+import { type SettingsContext, type WindowContext, type WorkspaceContext } from '../contexts'
 
 export function setupSplitLayoutPersistence(
   settings: SettingsContext,

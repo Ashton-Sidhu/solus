@@ -31,8 +31,8 @@ describe('SessionConfigController branch switching', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/session-config.svelte')
-    const { toasts } = await import('../../src/renderer/contexts/toast.store.svelte')
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { toasts } = await import('../../src/renderer/contexts/app/toast.store.svelte')
     const messages: string[] = []
     const originalError = toasts.error
     toasts.error = (message: string) => { messages.push(message) }
@@ -82,7 +82,7 @@ describe('SessionConfigController session start target', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/session-config.svelte')
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     let createdCwd: string | undefined
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
@@ -125,7 +125,7 @@ describe('SessionConfigController session start target', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/session-config.svelte')
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
     const session = {
       workingDirectory: '/old-project',
       gitContext: { repoRoot: '/old-project', branch: 'main', targetBranch: 'main' },

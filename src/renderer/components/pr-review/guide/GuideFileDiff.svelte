@@ -7,7 +7,7 @@
     type SelectionSide,
   } from "@pierre/diffs";
   import type { DiffComment } from "../../../../shared/types";
-  import { getSettingsContext } from "../../../contexts/settings.context.svelte";
+  import { getSettingsContext } from "../../../contexts";
   import { parsePatchMetadata } from "../../../lib/diff";
   import {
     detectMovedBlocks,
@@ -30,7 +30,7 @@
   import DiffCommentForm from "../../diff/DiffCommentForm.svelte";
   import DiffInlineComment from "../../diff/DiffInlineComment.svelte";
   import { Button } from "../../ui/button";
-  import { InlineCommentDraft } from "../../../contexts/diff-comment-draft.store.svelte";
+  import { InlineCommentDraft } from "../../diff/diff-comment-draft.store.svelte";
   import type { GuideDiffCommentSave } from "./lib/guide-data";
   import { profilePrReviewWork } from "../lib/pr-review-profiler";
 

@@ -1,5 +1,5 @@
 import type { EditorId, IpcContext, TerminalAppId } from "../../shared/types";
-import { connectionsStore } from "../contexts/connections.store.svelte";
+import { connectionsStore } from "../contexts";
 import { toAbsoluteFilePaths } from "./changedFiles";
 
 export function openInConfiguredEditor(

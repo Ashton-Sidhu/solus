@@ -1,6 +1,6 @@
 <script lang="ts">
   import { LightningIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
   import { triggerSummary } from "./lib/automation-format";
   import type { AutomationTrigger } from "../../../shared/types";

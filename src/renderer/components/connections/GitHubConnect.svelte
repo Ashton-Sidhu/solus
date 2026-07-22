@@ -8,8 +8,7 @@
     SpinnerGapIcon,
   } from "phosphor-svelte";
   import { onMount } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { connectionsStore } from "../../contexts/connections.store.svelte";
+  import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
 
   const session = getWorkspaceContext();

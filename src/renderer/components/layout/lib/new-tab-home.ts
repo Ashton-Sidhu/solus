@@ -1,4 +1,4 @@
-import type { PaneSlot } from '../../../contexts/pane-view.store.svelte'
+import type { PaneSlot } from '../../../contexts/workspace/pane-view.store.svelte'
 import { abbreviateHome } from '../../../lib/paths'
 import { worktreeProjectRoot, type GitCheckout, type RecentProject, type SessionMeta, type WorktreeEntry } from '../../../../shared/types'
 

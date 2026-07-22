@@ -13,9 +13,7 @@
     BinocularsIcon,
     GithubLogoIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext, getWindowContext, runtime } from "../../contexts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";

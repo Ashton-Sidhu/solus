@@ -1,6 +1,6 @@
 import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffMetadata } from '@pierre/diffs'
 import type { DiffResult, DiffScope, IpcContext } from '../../shared/types'
-import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
+import type { WorkspaceContext } from '../contexts'
 
 interface DiffStateOptions {
   session: WorkspaceContext

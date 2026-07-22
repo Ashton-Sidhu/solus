@@ -8,8 +8,7 @@
     XIcon,
     PushPinIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
-  import { getSessionSidebarStore } from "@renderer/contexts/session-sidebar.store.svelte";
+  import { getWorkspaceContext, getSessionSidebarStore } from "@renderer/contexts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
 

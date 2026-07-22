@@ -2,9 +2,8 @@
   import { tick } from "svelte";
   import { CheckCircleIcon, KeyIcon, XIcon } from "phosphor-svelte";
   import { claimServer, desktopDeviceLabel, type ClaimServerResult } from "@client-core/pairing";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { serversStore, toasts } from "../../contexts";
   import { discoveredServerUrl } from "./discovery";
-  import { serversStore } from "./servers.store.svelte";
   import { Input } from "../ui/input";
 
   let code = $state("");

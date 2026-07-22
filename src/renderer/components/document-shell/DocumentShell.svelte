@@ -23,8 +23,7 @@
     MagnifyingGlassIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { runtime, toasts } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import FindReplaceBar from "../editor/FindReplaceBar.svelte";

@@ -3,8 +3,7 @@
   import { CheckCircleIcon, LinkSimpleIcon, XIcon } from "phosphor-svelte";
   import { desktopDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
   import type { SavedServer } from "@client-core/server-registry";
-  import { toasts } from "../../contexts/toast.store.svelte";
-  import { serversStore } from "./servers.store.svelte";
+  import { serversStore, toasts } from "../../contexts";
   import * as Tabs from "../ui/tabs";
   import { Input } from "../ui/input";
 

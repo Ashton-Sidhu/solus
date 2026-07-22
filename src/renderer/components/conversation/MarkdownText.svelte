@@ -61,7 +61,7 @@
 </script>
 
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
 
   let { text = "" }: { text?: string } = $props();

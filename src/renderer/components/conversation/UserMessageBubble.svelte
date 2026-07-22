@@ -7,9 +7,7 @@
   import CodeSpan from "../ui/CodeSpan.svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import { FileTextIcon, ImageIcon, FileCodeIcon, FileIcon, XIcon, LightningIcon } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getSettingsContext, getWorkspaceContext, runtime } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { portal } from "../portal";
   import { formatMessageTime } from "../../lib/sessionUtils";

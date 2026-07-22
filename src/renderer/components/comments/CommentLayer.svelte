@@ -9,7 +9,7 @@
   import { tooltip } from "../../lib/tooltip";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { toasts } from "../../contexts";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
   import PlanCommentPopover from "../plan/PlanCommentPopover.svelte";
   import {

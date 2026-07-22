@@ -1,5 +1,5 @@
 import { onDestroy } from 'svelte'
-import { getVoiceModelStore } from '../contexts/voice-model.store.svelte'
+import { getVoiceModelStore } from '../contexts'
 import { dictation, isDictationTarget, type DictationTarget } from './dictation.svelte'
 
 export type FieldSubmitKey = 'enter' | 'mod-enter'

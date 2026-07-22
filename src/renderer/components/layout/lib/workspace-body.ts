@@ -1,4 +1,4 @@
-import type { PaneContent, PaneSlot } from '../../../contexts/pane-view.store.svelte'
+import type { PaneContent, PaneSlot } from '../../../contexts/workspace/pane-view.store.svelte'
 import type { Session, Tab } from '../../../../shared/types'
 import { branchKeyFor } from '../../../lib/sessionUtils'
 import { paneBoundsPercent, pixelsToPercent } from '../../../lib/resizablePane'

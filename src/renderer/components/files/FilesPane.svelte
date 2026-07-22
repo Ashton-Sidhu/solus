@@ -24,7 +24,7 @@
   import FilePreviewStream, {
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { runtime } from "../../contexts";
   import * as Resizable from "../ui/resizable";
   import {
     paneBoundsPercent,

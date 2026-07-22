@@ -20,9 +20,8 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { connectionsStore } from "../../contexts/connections.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
 
   interface Props {

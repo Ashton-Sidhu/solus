@@ -8,7 +8,7 @@ import {
   ClockIcon,
 } from 'phosphor-svelte'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '../../shared/types'
-import type { TabGroupMode } from '../contexts/settings.context.svelte'
+import type { TabGroupMode } from '../contexts'
 
 export type PickerEntry =
   | { kind: 'open'; tabId: string; tab: Tab; session: Session }

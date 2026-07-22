@@ -27,7 +27,7 @@ describe('Git state initialization', () => {
     })
     let finishRefresh!: () => void
     const refresh = new Promise<void>((resolve) => { finishRefresh = resolve })
-    const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace-lifecycle.store.svelte')
+    const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
     const globalDefaults = {
       permissionMode: 'auto' as const,
       workingDirectory: '~',
@@ -68,7 +68,7 @@ describe('Git state initialization', () => {
       globalDefaults.worktreeBaseBranch,
     )
     expect(home.canToggleWorktree).toBe(true)
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const environmentStore = new SessionEnvironmentStore()
     environmentStore.bindWorkspace({
       activeTabId: '',
@@ -109,7 +109,7 @@ describe('Git state initialization', () => {
         gitRegisterEnvironment: async (_ctx: unknown, _cwd: string, gitContext: GitCheckout | null) => { registered = gitContext },
       } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const workspace = {
       activeTabId: 'tab-1',
@@ -142,7 +142,7 @@ describe('Git state initialization', () => {
       gitContext: attachedCheckout,
       worktreeBaseBranch: null,
     } as Session
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.bindWorkspace({
       activeTabId: 'tab-1',
@@ -189,7 +189,7 @@ describe('Git state initialization', () => {
       writable: true,
       value: { solus: { gitRefreshState: async () => null } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
 
     expect(store.statusFor('/not-a-repo')).toBeUndefined()

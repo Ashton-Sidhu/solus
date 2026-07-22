@@ -9,7 +9,7 @@
     CheckCircleIcon,
     XCircleIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
   import { summarizeDiagram, parseDiagram } from "../../../shared/diagram-types";
