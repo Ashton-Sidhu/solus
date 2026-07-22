@@ -7,8 +7,10 @@ import type { SettingsContext } from './settings.context.svelte'
  * this once from `start().agents`; UI components only read from this store.
  */
 export class AgentContext {
-  metadata = $state<Record<string, AgentMetadata | null>>({})
   agents = $state<AgentMetadata[]>([])
+  metadata: Record<string, AgentMetadata | null> = $derived(
+    Object.fromEntries(this.agents.map((meta) => [meta.id, meta])),
+  )
 
   private settings: SettingsContext
 
@@ -22,9 +24,6 @@ export class AgentContext {
 
   hydrate(agents: AgentMetadata[]): void {
     this.agents = agents
-    for (const meta of agents) {
-      this.metadata[meta.id] = meta
-    }
   }
 }
 
