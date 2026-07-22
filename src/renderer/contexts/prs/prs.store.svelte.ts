@@ -37,6 +37,14 @@ export class PrsStore {
   filter = $state<PrFilter>({ state: 'open' })
   checks = new SvelteMap<number, PrChecksSummary>()
   checksLoadFailed = $state(false)
+  /** Active content tab of the `pr-review` surface. Lifted out of PrReviewPane so
+   *  chrome around it can react to the selection. Chat is NOT a content tab — it
+   *  is the primary conversation, toggled by `maximized`. */
+  prReviewTab = $state<'activity' | 'guide' | 'diff'>('guide')
+  /** Fixed launch snapshot for Review Mode. The session store owns subsequent
+   *  ordering and dispositions, so list refreshes cannot move the active PR. */
+  reviewModeNumbers = $state<number[]>([])
+  reviewModeContext = $state<IpcContext | null>(null)
   /** Lifecycle of explicitly requested guide generations, shared by the PRs
    *  page and the Activity tab so both surfaces reflect one queue. */
   guideStatus = new SvelteMap<number, PrGuideStatus>()
@@ -64,6 +72,11 @@ export class PrsStore {
   private readonly changedFilesCache = new Map<string, CacheEntry<ChangedFileStat[]>>()
   private readonly interdiffCache = new Map<string, CacheEntry<PrInterdiffResult>>()
   private readonly viewerCache = new Map<string, CacheEntry<string>>()
+
+  beginReviewMode(numbers: number[], ctx: IpcContext): void {
+    this.reviewModeNumbers.splice(0, this.reviewModeNumbers.length, ...numbers)
+    this.reviewModeContext = structuredClone($state.snapshot(ctx))
+  }
 
   private contextKey(ctx: IpcContext): string {
     return ctx.session.projectPath || ctx.session.workingDirectory || ''

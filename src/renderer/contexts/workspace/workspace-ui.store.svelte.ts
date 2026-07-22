@@ -1,6 +1,5 @@
 import type { PageKind, PaneViewStore, SplitOpenOptions } from './pane-view.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
-import type { IpcContext } from '../../../shared/types'
 
 export type SettingsTab = 'general' | 'review' | 'github' | 'api-access' | 'tools' | 'skills' | 'voice' | 'projects' | 'keybindings'
 
@@ -164,10 +163,5 @@ export class WorkspaceUiStore {
       ? null
       : { path: projectPath, requestId: ++this.prsProjectRequestId }
     this.showPage('prs')
-  }
-
-  openReviewMode(numbers: number[], ctx: IpcContext): void {
-    this.panes.openReviewMode(numbers, ctx)
-    this.isExpanded = true
   }
 }

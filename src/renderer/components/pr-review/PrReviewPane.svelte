@@ -155,10 +155,10 @@
     });
   });
 
-  // The active content tab lives in the pane store so chrome outside this
-  // component can react to it (see PaneViewStore.prReviewTab).
+  // The active content tab lives in the PR store so chrome outside this
+  // component can react to it (see PrsStore.prReviewTab).
   type ContentTab = "activity" | "guide" | "diff";
-  const sub = $derived(activeTab ?? panes.prReviewTab);
+  const sub = $derived(activeTab ?? session.prsStore.prReviewTab);
 
   const diffScope = $derived<DiffScope>(
     ownDeltaBase && !showingFullDiff
@@ -370,14 +370,14 @@
 
   function select(next: ContentTab) {
     if (next === "guide" && showingFullDiff) return;
-    if (activeTab === undefined) panes.prReviewTab = next;
+    if (activeTab === undefined) session.prsStore.prReviewTab = next;
     onActiveTabChange?.(next);
     requestInputFocus();
   }
 
   function toggleFullDiff() {
     showingFullDiff = !showingFullDiff;
-    if (activeTab === undefined) panes.prReviewTab = "diff";
+    if (activeTab === undefined) session.prsStore.prReviewTab = "diff";
     onActiveTabChange?.("diff");
     mountedDiff = true;
     requestInputFocus();
@@ -388,7 +388,7 @@
   let diffPanelRef: DiffPanel | null = $state(null);
 
   function jumpToDiff(path?: string, line?: number | null, side: "old" | "new" = "new") {
-    if (activeTab === undefined) panes.prReviewTab = "diff";
+    if (activeTab === undefined) session.prsStore.prReviewTab = "diff";
     onActiveTabChange?.("diff");
     mountedDiff = true;
     if (path) {

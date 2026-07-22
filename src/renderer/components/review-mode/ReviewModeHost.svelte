@@ -91,7 +91,7 @@
     prepareErrors.delete(number);
     try {
       const result = await session.preparePrReview(number, {
-        ctx: postingContext ?? panes.reviewModeContext ?? session.ctx,
+        ctx: postingContext ?? session.prsStore.reviewModeContext ?? session.ctx,
       });
       if (disposed) return;
       prepared.set(number, result);
@@ -270,7 +270,7 @@
   }
 
   onMount(() => {
-    const launchNumbers = [...panes.reviewModeNumbers];
+    const launchNumbers = [...session.prsStore.reviewModeNumbers];
     items = launchNumbers.map((number) => {
       const item = findSummary(number);
       return item
@@ -278,7 +278,7 @@
         : { number, title: `Pull request #${number}`, author: "Unknown" };
     });
     postingContext = JSON.parse(
-      JSON.stringify(panes.reviewModeContext ?? session.ctx),
+      JSON.stringify(session.prsStore.reviewModeContext ?? session.ctx),
     ) as IpcContext;
     let cancelled = false;
     void session.prsStore.loadViewer(postingContext).then((login) => {

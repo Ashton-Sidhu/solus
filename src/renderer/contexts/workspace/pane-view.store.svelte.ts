@@ -1,5 +1,5 @@
 import type { FilePreviewRequest } from '../../lib/filePreview'
-import type { DiffScope, GitCheckout, IpcContext, PrReviewContext } from '../../../shared/types'
+import type { DiffScope, GitCheckout, PrReviewContext } from '../../../shared/types'
 
 /** Full-page views — the former overlay flags. No payload; at most one is open
  *  across both slots, preserving the flags' mutual exclusion. */
@@ -99,15 +99,6 @@ export class PaneViewStore {
   secondaryRatio = $state(DEFAULT_SECONDARY_RATIO)
   hasResized = $state(false)
   maximized = $state(false)
-  /** Active content tab of the `pr-review` surface. Lifted out of PrReviewPane so
-   *  chrome around it can react to the selection. Chat is NOT a content tab — it
-   *  is the primary conversation, toggled by `maximized`. */
-  prReviewTab = $state<'activity' | 'guide' | 'diff'>('guide')
-  /** Fixed launch snapshot for Review Mode. The session store owns subsequent
-   *  ordering and dispositions, so list refreshes cannot move the active PR. */
-  reviewModeNumbers = $state<number[]>([])
-  reviewModeContext = $state<IpcContext | null>(null)
-
   get secondaryVisible(): BaseContent | OverlayContent {
     return this.secondaryOverlay ?? this.secondaryContent
   }
@@ -158,12 +149,6 @@ export class PaneViewStore {
     }
   }
 
-  openReviewMode(numbers: number[], ctx: IpcContext): void {
-    this.reviewModeNumbers.splice(0, this.reviewModeNumbers.length, ...numbers)
-    this.reviewModeContext = JSON.parse(JSON.stringify(ctx)) as IpcContext
-    this.openPage('review-mode')
-  }
-
   closePage(kind: PageKind): void {
     if (this.secondaryContent.kind === kind) this.closeSecondary()
     if (this.primaryContent.kind === kind) this.primaryContent = { kind: 'conversation' }
@@ -205,7 +190,6 @@ export class PaneViewStore {
   dockPrReview(pr: PrReviewContext, chatTabId: string | null = null): void {
     this.secondaryContent = { kind: 'pr-review', pr, chatTabId, key: pr.branch.replace(/\//g, '__') }
     this.secondaryOverlay = null
-    this.prReviewTab = 'activity'
     this.maximized = false
     this.hasResized = false
     this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO
@@ -222,7 +206,6 @@ export class PaneViewStore {
   dockPrReviewLoading(number: number, title?: string): void {
     this.secondaryContent = { kind: 'pr-review-loading', number, title }
     this.secondaryOverlay = null
-    this.prReviewTab = 'activity'
     this.maximized = false
     this.hasResized = false
     this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO

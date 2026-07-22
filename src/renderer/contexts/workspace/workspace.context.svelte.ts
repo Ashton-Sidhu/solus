@@ -1518,7 +1518,9 @@ export class WorkspaceContext {
     ctx: IpcContext = this.ctx,
   ): Promise<void> {
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
-    this.ui.openReviewMode(items.map((item) => item.number), ctx)
+    this.prsStore.beginReviewMode(items.map((item) => item.number), ctx)
+    this.panes.openPage('review-mode')
+    this.isExpanded = true
   }
 
   /** Single destination seam for review-attention entry points. */
@@ -1701,6 +1703,7 @@ export class WorkspaceContext {
     // so the click gets instant feedback instead of a blank pane. The real
     // surface swaps in below once the worktree is ready.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    this.prsStore.prReviewTab = 'activity'
     this.panes.enterPrReviewLoading(number, title)
     try {
       const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
@@ -1730,6 +1733,7 @@ export class WorkspaceContext {
     if (current.kind === 'pr-review' && current.pr.number === number) return
     if (current.kind === 'pr-review-loading' && current.number === number) return
 
+    this.prsStore.prReviewTab = 'activity'
     beginPrReviewProfile(number)
     this.panes.dockPrReviewLoading(number, title)
     try {
