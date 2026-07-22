@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity'
 import type { PageKind, PaneViewStore, SplitOpenOptions } from './pane-view.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 
@@ -21,12 +22,26 @@ export class WorkspaceUiStore {
    *  action such as a completed guide-generation toast. The request id makes
    *  repeated navigation to the same project observable while the page is open. */
   prsProjectTarget = $state<{ path: string; requestId: number } | null>(null)
+  /** Transient, live-only — which tabs are mid "continue in worktree" setup. */
+  readonly continuingWorktreeTabIds = new SvelteSet<string>()
   private prsProjectRequestId = 0
 
   constructor(
     private panes: PaneViewStore,
     private planStore: PlanStore,
   ) {}
+
+  beginContinueInWorktree(tabId: string): void {
+    this.continuingWorktreeTabIds.add(tabId)
+  }
+
+  endContinueInWorktree(tabId: string): void {
+    this.continuingWorktreeTabIds.delete(tabId)
+  }
+
+  isContinuingInWorktree(tabId: string | null | undefined): boolean {
+    return !!tabId && this.continuingWorktreeTabIds.has(tabId)
+  }
 
   // ─── Page open state ───
   // The pane store is the source of truth: in editor/web the pages render as

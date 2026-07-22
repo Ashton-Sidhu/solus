@@ -84,7 +84,6 @@ export class WorkspaceContext {
   registry = new TabRegistry()
   lifecycle: WorkspaceLifecycleStore
   pendingInput = $state<string | null>(null)
-  continuingWorktreeTabs = $state<Record<string, boolean>>({})
   eventReducer: SessionEventReducer
 
   /** True until materializeTabs has rebuilt the persisted tabs into memory; prevents
@@ -606,12 +605,12 @@ export class WorkspaceContext {
    *  under the worktree, so the session truly lives there. Same tab, same history. */
   async continueInWorktree(tabId: string): Promise<void> {
     const session = this.sessionFor(tabId)
-    if (!session?.agentSessionId || session.gitContext?.worktreePath || this.continuingWorktreeTabs[tabId]) return
+    if (!session?.agentSessionId || session.gitContext?.worktreePath || this.ui.isContinuingInWorktree(tabId)) return
 
     const firstUser = session.messages.find((m) => m.role === 'user')
     const namePrompt = typeof firstUser?.content === 'string' ? firstUser.content.slice(0, 200) : ''
 
-    this.continuingWorktreeTabs[tabId] = true
+    this.ui.beginContinueInWorktree(tabId)
     // Live status card while the (eager, ~1-2s) worktree setup runs — branch-name
     // generation + `git worktree add` — mirroring the backend's new-session card
     // so the wait shows progress instead of a bare "Creating Worktree…" label.
@@ -653,12 +652,12 @@ export class WorkspaceContext {
       // divider now marks completion) or failed (toast already shown). Nothing
       // runs here, so no status_change will clear it for us.
       if (session.statusCard?.id === `continue-worktree-${tabId}`) session.statusCard = null
-      this.continuingWorktreeTabs[tabId] = false
+      this.ui.endContinueInWorktree(tabId)
     }
   }
 
   isContinuingInWorktree(tabId: string | null | undefined): boolean {
-    return !!tabId && !!this.continuingWorktreeTabs[tabId]
+    return this.ui.isContinuingInWorktree(tabId)
   }
 
   selectTab(tabId: string): void {
