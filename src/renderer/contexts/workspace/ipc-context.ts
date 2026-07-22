@@ -63,58 +63,47 @@ export class IpcContextBuilder {
   sessionCtx(tabId: string): SessionCtx {
     const tab = this.deps.tabs()[tabId]
     const session = this.deps.sessionFor(tabId)
-    if (!session) {
-      const staticInfo = this.deps.staticInfo()
-      const workingDirectory = this.deps.globalDefaults.workingDirectory
+    const globalDefaults = this.deps.globalDefaults
+    const staticInfo = session ? null : this.deps.staticInfo()
+    const workingDirectory = session
+      ? session.workingDirectory
+      : globalDefaults.workingDirectory
         || staticInfo?.projectPath
         || staticInfo?.workspacePath
         || '~'
-      return {
-        tabId,
-        provider: null,
-        agentSessionId: null,
-        status: 'idle',
-        workingDirectory,
-        projectPath: worktreeProjectRoot(workingDirectory),
-        additionalDirs: [],
-        preferredModel: this.deps.globalDefaults.modelConfig.modelId,
-        reasoningEffort: this.deps.globalDefaults.modelConfig.reasoningEffort,
-        contextWindow: this.deps.globalDefaults.modelConfig.contextWindow,
-        fastMode: this.deps.globalDefaults.modelConfig.fastMode,
-        permissionMode: this.deps.globalDefaults.permissionMode,
-        gitContext: this.deps.globalDefaults.gitContext ? { ...this.deps.globalDefaults.gitContext } : null,
-        worktreeBaseBranch: this.deps.globalDefaults.worktreeBaseBranch,
-        sessionChangedFiles: [],
-        readOnlyReason: null,
-        latestCheckpointId: null,
-        title: tab?.title ?? null,
-      }
-    }
+    const modelConfig = session ? session.modelConfig : globalDefaults.modelConfig
+    const gitContext = session ? session.gitContext : globalDefaults.gitContext
+    const sessionExtras = session
+      ? {
+          forked: session.forked ?? false,
+          // Deep plain-object copy: session.prReview is a Svelte $state proxy with a
+          // nested headRepo, and proxies aren't structured-cloneable over IPC. A
+          // shallow spread wouldn't unwrap headRepo; this file is plain .ts so no
+          // $state.snapshot — JSON round-trip is safe for this pure-data struct.
+          prReview: session.prReview ? (JSON.parse(JSON.stringify(session.prReview)) as PrReviewContext) : null,
+        }
+      : {}
+
     return {
       tabId,
-      provider: session.provider ?? null,
-      agentSessionId: session.agentSessionId,
-      status: session.status,
-      workingDirectory: session.workingDirectory,
-      projectPath: worktreeProjectRoot(session.workingDirectory),
-      additionalDirs: [...session.additionalDirs],
-      preferredModel: session.modelConfig.modelId,
-      reasoningEffort: session.modelConfig.reasoningEffort,
-      contextWindow: session.modelConfig.contextWindow,
-      fastMode: session.modelConfig.fastMode,
-      permissionMode: session.permissionMode,
-      gitContext: session.gitContext ? { ...session.gitContext } : null,
-      worktreeBaseBranch: session.worktreeBaseBranch,
-      sessionChangedFiles: [...session.sessionChangedFiles],
-      readOnlyReason: session.readOnlyReason,
-      latestCheckpointId: session.latestCheckpointId,
+      provider: session ? session.provider ?? null : null,
+      agentSessionId: session ? session.agentSessionId : null,
+      status: session ? session.status : 'idle',
+      workingDirectory,
+      projectPath: worktreeProjectRoot(workingDirectory),
+      additionalDirs: session ? [...session.additionalDirs] : [],
+      preferredModel: modelConfig.modelId,
+      reasoningEffort: modelConfig.reasoningEffort,
+      contextWindow: modelConfig.contextWindow,
+      fastMode: modelConfig.fastMode,
+      permissionMode: session ? session.permissionMode : globalDefaults.permissionMode,
+      gitContext: gitContext ? { ...gitContext } : null,
+      worktreeBaseBranch: session ? session.worktreeBaseBranch : globalDefaults.worktreeBaseBranch,
+      sessionChangedFiles: session ? [...session.sessionChangedFiles] : [],
+      readOnlyReason: session ? session.readOnlyReason : null,
+      latestCheckpointId: session ? session.latestCheckpointId : null,
       title: tab?.title ?? null,
-      forked: session.forked ?? false,
-      // Deep plain-object copy: session.prReview is a Svelte $state proxy with a
-      // nested headRepo, and proxies aren't structured-cloneable over IPC. A
-      // shallow spread wouldn't unwrap headRepo; this file is plain .ts so no
-      // $state.snapshot — JSON round-trip is safe for this pure-data struct.
-      prReview: session.prReview ? (JSON.parse(JSON.stringify(session.prReview)) as PrReviewContext) : null,
+      ...sessionExtras,
     }
   }
 }
