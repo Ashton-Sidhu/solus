@@ -6,6 +6,7 @@ import { REASONING_EFFORT_LABELS } from '../../../shared/types'
 import type { KeyCombo } from '../../lib/keybindings/types'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
 import { setAnalyticsEnabled } from '../../lib/analytics'
+import { MOBILE_QUERY } from './runtime.svelte'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -87,7 +88,6 @@ function applyTheme(isDark: boolean): void {
 }
 
 const BASE_FONT_SIZE = 13
-const MOBILE_QUERY = '(max-width: 767px)'
 const DEFAULT_FONT_SIZE = typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 11 : 13
 
 function applyFontSize(size: number): void {

@@ -1,8 +1,7 @@
 import { createContext } from 'svelte'
+import { MOBILE_QUERY } from './runtime.svelte'
 
 export type ViewMode = 'pill' | 'editor'
-
-const WEB_MOBILE_QUERY = '(max-width: 767px)'
 
 export class WindowContext {
   viewMode = $state<ViewMode>('pill')
@@ -52,14 +51,14 @@ export class WindowContext {
     window.solus.onWindowHidden(() => { this.visible = false })
 
     if (this.isWeb) {
-      const mq = window.matchMedia(WEB_MOBILE_QUERY)
+      const mq = window.matchMedia(MOBILE_QUERY)
       mq.addEventListener('change', (e) => { this.viewMode = e.matches ? 'pill' : 'editor' })
     }
   }
 
   private loadViewMode(): ViewMode {
     if (this.isWeb) {
-      return window.matchMedia(WEB_MOBILE_QUERY).matches ? 'pill' : 'editor'
+      return window.matchMedia(MOBILE_QUERY).matches ? 'pill' : 'editor'
     }
     // On Electron each window is mode-locked: main puts `?mode=` in the URL
     // and the mode never changes for the window's lifetime. Main persists the

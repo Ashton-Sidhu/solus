@@ -1,5 +1,5 @@
 // Layout: which shell to render (mobile vs desktop)
-const MOBILE_QUERY = '(max-width: 767px)'
+export const MOBILE_QUERY = '(max-width: 767px)'
 // Layout: collapse secondary panels (sidebar, TOC rail)
 const COMPACT_QUERY = '(max-width: 1100px)'
 // Input: primary pointer is imprecise (phone, tablet)
