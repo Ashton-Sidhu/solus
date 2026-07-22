@@ -93,10 +93,6 @@ export class WorkspaceContext {
   /** True while a seq-reset recovery is re-registering tabs and re-binding sessions. */
   runtimeSyncing = $state(false)
 
-  /** Tab that last sent a prompt — that tab's session is "the latest session"
-   *  for the cross-window pickup pointer (see active-session-pointer.ts). */
-  lastPromptTabId = $state<string | null>(null)
-
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
@@ -120,7 +116,6 @@ export class WorkspaceContext {
   private ipcContextBuilder: IpcContextBuilder
   private promptComposer: PromptComposer
   environment: SessionEnvironmentStore
-  lastSnapshotAt = $state(0)
 
   constructor(settings: SettingsContext, windowCtx: WindowContext, statusBar: StatusBarContext, planStore: PlanStore, environment: SessionEnvironmentStore, agent?: AgentContext) {
     this.settings = settings
@@ -1157,8 +1152,6 @@ export class WorkspaceContext {
     const agent = session.provider ?? this.settings.activeAgent
     if (isFirstMessage) analytics.conversationStarted({ agent })
     analytics.messageSent({ agent, isFirstMessage })
-
-    this.lastPromptTabId = targetTabId
 
     if (session.status === 'rate_limited' && (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue')) {
       tab.title = title

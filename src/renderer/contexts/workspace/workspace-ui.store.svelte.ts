@@ -75,11 +75,6 @@ export class WorkspaceUiStore {
     this.planStore.dismissPreview()
   }
 
-  toggleExpanded(): boolean {
-    this.isExpanded = !this.isExpanded
-    return this.isExpanded
-  }
-
   showSettings(tab: SettingsTab): void {
     this.settingsProjectCwd = null
     this.settingsTab = tab
