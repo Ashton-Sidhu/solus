@@ -1414,8 +1414,7 @@ export class WorkspaceContext {
       if (s) {
         s.boundWorkId = workId
         if (s.agentSessionId) {
-          this.worksStore.linkSessionLocal(workId, s.agentSessionId)
-          void window.solus.linkWorkSession(workId, s.agentSessionId, s.workingDirectory)
+          this.worksStore.linkSession(s.workingDirectory, workId, s.agentSessionId)
         }
       }
     }

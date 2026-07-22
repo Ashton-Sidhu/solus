@@ -84,8 +84,7 @@ export class SessionEventReducer {
         session.sessionSkills = event.skills
         if (session.forked) session.forked = false
         if (session.boundWorkId) {
-          this.deps.worksStore.linkSessionLocal(session.boundWorkId, event.sessionId)
-          void window.solus.linkWorkSession(session.boundWorkId, event.sessionId, session.workingDirectory)
+          this.deps.worksStore.linkSession(session.workingDirectory, session.boundWorkId, event.sessionId)
         }
         if (session.boundTaskId) {
           // Persist the task↔session link so the card can surface live work and a

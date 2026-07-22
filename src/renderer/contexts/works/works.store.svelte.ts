@@ -308,6 +308,12 @@ export class WorksStore {
     return promoted
   }
 
+  linkSession(cwd: string, workId: string, sessionId: string): void {
+    this.linkSessionLocal(workId, sessionId)
+    void window.solus.linkWorkSession(workId, sessionId, cwd)
+  }
+
+  /** Local-only sync for links the main process already persisted (work_created events). */
   linkSessionLocal(workId: string, sessionId: string): void {
     const work = this.works[workId]
     if (!work) return
