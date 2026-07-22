@@ -1,4 +1,3 @@
-import { SvelteMap } from 'svelte/reactivity'
 import type { PendingDisposition } from '../../../shared/review-session-types'
 import type { StackGraph } from '../../../shared/stack-types'
 import {
@@ -19,6 +18,7 @@ export interface StartReviewSessionOptions {
   items: ReviewQueueItem[]
   stackGraph: StackGraph | null
   poster: DispositionPoster
+  minutesFor: (prNumber: number) => number | undefined
   now?: () => number
   visibilitySource?: ReviewVisibilitySource | null
 }
@@ -26,9 +26,9 @@ export interface StartReviewSessionOptions {
 /** Reactive ownership around the pure core: one expiry timer and one visibility listener. */
 export class ReviewSessionStore {
   state = $state<ReviewSessionCoreState | null>(null)
-  readonly minutesByPr = new SvelteMap<number, number>()
 
   private core: ReviewSessionCore | null = null
+  private minutesFor: (prNumber: number) => number | undefined = () => undefined
   private now: () => number = Date.now
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private visibilitySource: ReviewVisibilitySource | null = null
@@ -46,9 +46,12 @@ export class ReviewSessionStore {
 
   get totalMinutes(): number | null {
     if (!this.state) return 0
-    if (this.state.entries.some((entry) => !this.minutesByPr.has(entry.prNumber))) return null
     let total = 0
-    for (const minutes of this.minutesByPr.values()) total += minutes
+    for (const entry of this.state.entries) {
+      const minutes = this.minutesFor(entry.prNumber)
+      if (minutes === undefined) return null
+      total += minutes
+    }
     return total
   }
 
@@ -57,7 +60,7 @@ export class ReviewSessionStore {
     let remaining = 0
     for (const entry of this.state.entries) {
       if (entry.outcome === null && !this.pendingFor(entry.prNumber)) {
-        const minutes = this.minutesByPr.get(entry.prNumber)
+        const minutes = this.minutesFor(entry.prNumber)
         if (minutes === undefined) return null
         remaining += minutes
       }
@@ -68,14 +71,11 @@ export class ReviewSessionStore {
   start(options: StartReviewSessionOptions): void {
     this.detach()
     this.now = options.now ?? Date.now
+    this.minutesFor = options.minutesFor
     this.core = new ReviewSessionCore(options.poster, this.now)
     const ordered = orderReviewQueue(options.items, options.stackGraph)
     this.core.start(ordered.map((item) => item.number), this.now())
 
-    this.minutesByPr.clear()
-    for (const item of ordered) {
-      if (item.effort) this.minutesByPr.set(item.number, item.effort.minutes)
-    }
     this.sync()
 
     const defaultVisibilitySource = typeof document === 'undefined' ? null : document

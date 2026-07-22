@@ -298,6 +298,8 @@
           ...(item.effort ? { effort: item.effort } : {}),
         })),
         stackGraph,
+        minutesFor: (number) => findSummary(number)?.effort?.minutes
+          ?? items.find((item) => item.number === number)?.effort?.minutes,
         poster: {
           async post(disposition) {
             try {
