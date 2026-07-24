@@ -27,7 +27,10 @@
 	{rows}
 	class={cn(
 		"min-h-8 max-h-40 overflow-y-auto",
-		bare && "h-auto! min-h-0! rounded-none border-0 bg-transparent! px-0 py-0! shadow-none focus-visible:ring-0 dark:bg-transparent!",
+		bare &&
+			(mic
+				? "h-auto! min-h-0! rounded-none border-0 bg-transparent! pl-0! py-0! pr-7! shadow-none focus-visible:ring-0 dark:bg-transparent!"
+				: "h-auto! min-h-0! rounded-none border-0 bg-transparent! px-0 py-0! shadow-none focus-visible:ring-0 dark:bg-transparent!"),
 		className
 	)}
 	{...restProps}

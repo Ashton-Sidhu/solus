@@ -268,6 +268,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
       },
     }
     let initializedSession: Session | undefined
+    let handedOffGitContext: unknown
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.registry = registry
     workspace.lifecycle = {
@@ -283,9 +284,17 @@ describe('WorkspaceContext new-tab Git initialization', () => {
           worktreeBaseBranch: null,
         })
       },
-      refreshTab: (currentWorkspace: any, options: { tabId: string }) => {
+      // The store is the single funnel: it resolves the start target for the
+      // session's own cwd and applies it. Mirror that here so the test sees both
+      // what createTab hands over and what the session ends up with.
+      refreshTab: async (currentWorkspace: any, options: { tabId: string }) => {
         initializedSession = currentWorkspace.sessionFor(options.tabId)
-        return Promise.resolve()
+        handedOffGitContext = initializedSession?.gitContext
+        const target = await workspace.environment.resolveSessionStartTarget(
+          initializedSession!.workingDirectory,
+          { worktreeRequested: false },
+        )
+        initializedSession!.gitContext = target.gitContext
       },
     }
     workspace.config = {
@@ -311,6 +320,9 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     await workspace.createTab('/new-project')
 
     expect(initializedSession?.workingDirectory).toBe('/new-project')
+    // The tab paints before any Git work, so it must start with no checkout at
+    // all rather than the active session's worktree.
+    expect(handedOffGitContext).toBeNull()
     expect(initializedSession?.gitContext).toEqual({
       repoRoot: '/new-project',
       branch: 'develop',
@@ -391,5 +403,168 @@ describe('WorkspaceContext new-tab Git initialization', () => {
 
     resolveGit()
     await creation
+  })
+})
+
+describe('WorkspaceContext resumed-session tab creation', () => {
+  test('uses the normal tab lifecycle instead of constructing an orphan tab', async () => {
+    installRendererGlobals()
+    ;(window.solus as any).loadSession = async () => []
+    ;(window.solus as any).worktreeRestore = async () => null
+
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const sourceSession = {
+      id: 'source-session',
+      agentSessionId: 'source-agent-session',
+      provider: 'codex',
+      status: 'idle',
+      messages: [{}],
+      workingDirectory: '/repo',
+    } as unknown as Session
+    const registry = {
+      tabs: {
+        'source-tab': { id: 'source-tab', sessionId: 'source-session' },
+      } as Record<string, Tab>,
+      sessions: { 'source-session': sourceSession } as Record<string, Session>,
+      tabOrder: ['source-tab'],
+      activeTabId: 'source-tab',
+      get activeTab() {
+        return this.tabs[this.activeTabId]
+      },
+      get activeSession() {
+        return this.sessionFor(this.activeTabId)
+      },
+      sessionFor(tabId: string) {
+        const tab = this.tabs[tabId]
+        return tab ? this.sessions[tab.sessionId] : undefined
+      },
+    }
+    let createOptions: Record<string, unknown> | undefined
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    workspace.registry = registry
+    workspace.config = {
+      globalDefaults: {
+        permissionMode: 'auto',
+        workingDirectory: '/repo',
+        gitContext: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      },
+    }
+    workspace.settings = {
+      activeAgent: 'codex',
+      update: () => {},
+    }
+    workspace.ui = { isExpanded: false }
+    workspace.createTab = async (cwd: string, options: Record<string, unknown>) => {
+      expect(cwd).toBe('/repo')
+      createOptions = options
+      const resumedSession = {
+        id: 'resumed-session',
+        agentSessionId: null,
+        provider: null,
+        status: 'idle',
+        messages: [],
+        workingDirectory: cwd,
+      } as unknown as Session
+      registry.sessions['resumed-session'] = resumedSession
+      registry.tabs['resumed-tab'] = {
+        id: 'resumed-tab',
+        sessionId: 'resumed-session',
+        title: 'New Tab',
+      } as Tab
+      registry.tabOrder.push('resumed-tab')
+      registry.activeTabId = 'resumed-tab'
+      return 'resumed-tab'
+    }
+    workspace.ctxFor = () => ({ session: {} })
+    workspace.attachRuntimeSession = async () => {}
+    workspace.environment = { refreshTab: async () => null }
+    workspace.recomputeChangedFiles = () => {}
+    workspace.refreshPluginCommands = async () => {}
+    workspace.planStore = { hydrateAnnotations: async () => {} }
+    workspace.resetOverlays = () => {}
+
+    const tabId = await workspace.resumeSession({
+      provider: 'codex',
+      sessionId: 'resumed-agent-session',
+      slug: null,
+      firstMessage: 'Resumed work',
+      lastTimestamp: '',
+      size: 0,
+      cwd: '/repo',
+      projectPath: '/repo',
+    })
+
+    expect(tabId).toBe('resumed-tab')
+    expect(createOptions).toEqual({
+      activate: true,
+      gitContext: null,
+      gitInitialization: 'background',
+      worktreeRequested: false,
+    })
+    expect(registry.sessions['resumed-session'].agentSessionId).toBe('resumed-agent-session')
+    expect(registry.tabs['resumed-tab'].title).toBe('Resumed work')
+  })
+})
+
+describe('Session bootstrap Git ordering', () => {
+  test('starts the Git environment refresh without waiting on the runtime bind', async () => {
+    installRendererGlobals()
+
+    const order: string[] = []
+    let releaseBind!: () => void
+    const bindPending = new Promise<void>((resolve) => { releaseBind = resolve })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          createTab: async () => ({ tabId: 'tab-1' }),
+          bindRuntimeSession: async () => {
+            order.push('bind:start')
+            await bindPending
+            order.push('bind:end')
+            return null
+          },
+        },
+      },
+    })
+
+    const { resyncRuntime } = await import('../../src/renderer/contexts/workspace/session-bootstrap')
+    const session = {
+      agentSessionId: 'agent-1',
+      workingDirectory: '/repo',
+      status: 'running',
+      rateLimitInfo: {},
+    } as unknown as Session
+    const ctx = {
+      tabOrder: ['tab-1'],
+      tabs: { 'tab-1': { id: 'tab-1', sessionId: 'session-1' } },
+      sessions: { 'session-1': session },
+      streaming: { text: {} },
+      turnSnapshots: {},
+      runtimeSyncing: false,
+      ctxFor: () => ({ session: {} }),
+      reconcileQueuedPrompts: () => {},
+      environment: {
+        refreshTab: async () => {
+          order.push('git:start')
+          return null
+        },
+      },
+    } as any
+
+    const resync = resyncRuntime(ctx)
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+
+    // The sidebar, home, and Git panel all read the environment. Queueing it
+    // behind a runtime round-trip leaves them blank for the whole bind, so Git
+    // must already be in flight while the bind is still outstanding.
+    expect(order).toEqual(['git:start', 'bind:start'])
+
+    releaseBind()
+    await resync
+    expect(order).toEqual(['git:start', 'bind:start', 'bind:end'])
+    expect(ctx.runtimeSyncing).toBe(false)
   })
 })

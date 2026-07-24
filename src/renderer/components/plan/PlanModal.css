@@ -71,9 +71,15 @@
     padding: 0.3125rem;
   }
 
+  /* Toolbar tracks the editor column so their centered edges line up (base doc
+     shell caps this at 65rem). */
+  .plan-shell .doc-shell-toolbar-row {
+    max-width: 74rem;
+  }
+
   /* Editor content width/typography — narrower "reading" column for review. */
   .plan-document-editor .solus-doc-editor .ProseMirror {
-    max-width: 65rem;
+    max-width: 74rem;
     font-size: calc(0.9375rem * var(--solus-font-scale, 1));
     line-height: 1.66;
     /* Body at 400 (Regular) — the same reading-prose change. The base doc editor

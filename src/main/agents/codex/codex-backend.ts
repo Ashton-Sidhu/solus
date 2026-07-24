@@ -27,7 +27,9 @@ import { MemoryCache } from '../../../shared/cache'
 import {
   cacheIndexedSessions,
   getCodexSessionIndexWatermark,
+  getCodexSessionsWithMessages,
   getIndexedCodexSessionTimestamps,
+  indexSessionMessages,
   listIndexedCodexSessions,
   setCodexSessionIndexWatermark,
 } from '../../db/session-indexer'
@@ -89,8 +91,29 @@ import {
   type CodexSolusToolKind,
 } from './codex-solus-tools'
 import { executeCodexReviewGuideTool, SUBMIT_REVIEW_GUIDE_TOOL_NAME } from '../../review/review-guide-tool'
+import {
+  CLAUDE_SUBAGENT_TOOL_NAME,
+  CLAUDE_SUBAGENT_TOOL_SCHEMA,
+  executeClaudeSubagent,
+} from '../claude/claude-subagent-tool'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
+
+/** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
+ *  new user's first full sweep from spiking the RPC channel. */
+const CODEX_INDEX_READ_CONCURRENCY = 6
+
+/** Run `task` over `items` with at most `limit` in flight at once. */
+async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      await task(items[index])
+    }
+  })
+  await Promise.all(workers)
+}
 
 // Per-kind copy for the permission UI when a mutating solus tool gates. Only the
 // mutating kinds (work/automation/task) reach these paths; the rest are covered
@@ -271,13 +294,16 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       let threadId = handle.threadId
       const model = this.resolveModel(runInput.model)
       const general = isWorkspacePath(runInput.workingDirectory)
-      const developerInstructions = buildSystemPrompt({
+      const baseDeveloperInstructions = buildSystemPrompt({
         agent: 'codex',
         general,
         extraInstructions: runInput.extraInstructions,
         modelInstructions: runInput.modelInstructions,
         prReview: runInput.prReview,
       })
+      const developerInstructions = !runInput.agentSessionId && runInput.handoff
+        ? `${baseDeveloperInstructions}\n\n${runInput.handoff.seedSystemAppend}`
+        : baseDeveloperInstructions
       const threadConfig: CodexThreadStartParams = {
         model,
         cwd: runInput.workingDirectory,
@@ -293,7 +319,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         ? threadConfig
         : {
             ...threadConfig,
-            dynamicTools: codexSolusToolSchemas({ includeAutomationTools: runInput.toolProfile !== 'automation' }),
+            dynamicTools: [
+              ...codexSolusToolSchemas({ includeAutomationTools: runInput.toolProfile !== 'automation' }),
+              CLAUDE_SUBAGENT_TOOL_SCHEMA,
+            ],
           }
 
       const reasoningEffort = runInput.reasoningEffort ?? 'high'
@@ -461,21 +490,50 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     } while (cursor)
 
     const candidates = changedThreads.filter((thread) => thread.id && thread.cwd)
-    const indexedTimestamps = getIndexedCodexSessionTimestamps(
-      candidates.map((thread) => thread.id!),
-    )
+    const candidateIds = candidates.map((thread) => thread.id!)
+    const indexedTimestamps = getIndexedCodexSessionTimestamps(candidateIds)
+    // Threads whose body is already indexed. A thread is (re)read when its row is
+    // new, its activity advanced, OR it has no indexed body yet — the last clause
+    // covers a session written at session_init whose init timestamp could sit at
+    // or past the thread's reported updatedAt, without trusting clock ordering.
+    const withMessages = getCodexSessionsWithMessages(candidateIds)
     const sessions = await Promise.all(
       candidates
         .filter((thread) => {
           const indexedTimestamp = indexedTimestamps.get(thread.id!)
           return indexedTimestamp === undefined ||
-            toEpochMs(thread.updatedAt ?? thread.createdAt) > indexedTimestamp
+            toEpochMs(thread.updatedAt ?? thread.createdAt) > indexedTimestamp ||
+            !withMessages.has(thread.id!)
         })
         .map((thread) => this.threadToSessionMeta(thread, thread.cwd!, { scanActivity: false })),
     )
     if (sessions.length > 0) {
       cacheIndexedSessions(sessions)
       this.mergeSessionListCache(sessions)
+      // Throttle the thread/read fan-out: a new user's first sweep can span
+      // thousands of threads, and reading them all at once spikes the RPC channel.
+      await runWithConcurrency(sessions, CODEX_INDEX_READ_CONCURRENCY, async (session) => {
+        try {
+          const response: CodexThreadReadResponse = await this.client.request('thread/read', {
+            threadId: session.sessionId,
+            includeTurns: true,
+          })
+          const messages: SessionLoadMessage[] = []
+          this.appendCodexTurnMessages(messages, response.thread?.turns ?? [])
+          indexSessionMessages(
+            session.sessionId,
+            'codex',
+            messages.filter((message) =>
+              (message.role === 'user' || message.role === 'assistant') &&
+              message.content.trim(),
+            ),
+          )
+        } catch (err) {
+          log.warn(
+            `Failed to index Codex messages for ${session.sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+      })
     }
     if (newestTimestamp > 0) setCodexSessionIndexWatermark(newestTimestamp)
     if (sessions.length === 0) return
@@ -814,6 +872,22 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         let rawArgs: unknown = params?.arguments ?? params?.input ?? params?.args ?? {}
         if (typeof rawArgs === 'string') { try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {} } }
         return (rawArgs && typeof rawArgs === 'object') ? rawArgs as Record<string, unknown> : {}
+      }
+
+      if (bareToolName(toolName) === CLAUDE_SUBAGENT_TOOL_NAME) {
+        const parentToolUseId = typeof params?.callId === 'string' && params.callId
+          ? params.callId
+          : String(msg.id)
+        void executeClaudeSubagent(parseToolArgs(), {
+          cwd: handle?.workTree ?? handle?.cwd ?? '~',
+          abortController: handle?.abortController ?? new AbortController(),
+          parentToolUseId,
+          forceReadOnly: handle?.permissionMode === 'plan',
+          onEvent: (_parentToolUseId, event) => this.emit('normalized', sessionId, event),
+        })
+          .then((result) => respondWithWorkToolText(result.text, result.ok))
+          .catch((err) => respondWithWorkToolText(`Claude subagent failed: ${String(err)}`, false))
+        return
       }
 
       // All solus dynamic tools (works, tasks, automations, sessions, and artifacts)

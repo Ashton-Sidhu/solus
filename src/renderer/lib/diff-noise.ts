@@ -143,6 +143,11 @@ export function collapseFormatOnlyHunks(file: FileDiffMetadata): FileDiffMetadat
   const collapsed: FileDiffMetadata = {
     ...file,
     hunks,
+    // Dropping hunks while keeping the line arrays leaves the surviving hunks'
+    // `collapsedBefore` gaps describing regions that are no longer there, so this
+    // filtered view can't support hunk expansion. Saying so explicitly also keeps
+    // the trailing-context arithmetic (which assumes hunks cover the file) off it.
+    isPartial: true,
     splitLineCount: splitLineStart,
     unifiedLineCount: unifiedLineStart,
     cacheKey: file.cacheKey ? `${file.cacheKey}:solus-format-collapsed` : undefined,

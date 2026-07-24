@@ -6,6 +6,7 @@ import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from '../app/toast.store.svelte'
+import { buildHandoffDividerMessage } from './session-transcript'
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
@@ -35,6 +36,7 @@ export class SessionConfigController {
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
   })
   tabGroupMode = $state<TabGroupMode>('flat')
+  handoffInProgress = $state(false)
   private switchingBranch = false
   private sessionStartTargetResolutions = new Map<string, Promise<void>>()
 
@@ -79,30 +81,62 @@ export class SessionConfigController {
     if ('fastMode' in patch) mc.fastMode = patch.fastMode!
   }
 
-  switchActiveAgent(agentId: AgentId): void {
+  async switchActiveAgent(agentId: AgentId): Promise<void> {
     const session = this.deps.registry.activeSession
+    if (this.handoffInProgress) return
     if (session) {
       if (session.provider === agentId) return
-      const isLocked = session.status === 'connecting' || session.status === 'running'
-      const hasLiveSession = !!session.agentSessionId && session.status !== 'interrupted'
-      if (isLocked || hasLiveSession) return
+      if (session.status === 'connecting' || session.status === 'running') return
     }
-    analytics.agentSwitched({ from: this.deps.settings.activeAgent, to: agentId })
-    this.deps.settings.update({ activeAgent: agentId })
+
     const newModelConfig = this.defaultModelConfigFor(agentId)
-    this.globalDefaults.modelConfig = newModelConfig
-    this.deps.setPluginCommands({ global: [], project: [] })
-    if (!session) {
-      this.deps.refreshPluginCommands(this.globalDefaults.workingDirectory)
+    if (!session?.agentSessionId) {
+      analytics.agentSwitched({ from: this.deps.settings.activeAgent, to: agentId })
+      this.deps.settings.update({ activeAgent: agentId })
+      this.globalDefaults.modelConfig = newModelConfig
+      this.deps.setPluginCommands({ global: [], project: [] })
+      if (!session) {
+        this.deps.refreshPluginCommands(this.globalDefaults.workingDirectory)
+        return
+      }
+      session.provider = agentId
+      session.agentSessionId = null
+      session.modelConfig = { ...newModelConfig }
+      session.sessionModel = null
+      session.sessionSkills = []
+      session.pluginCommands = { global: [], project: [] }
+      this.deps.refreshPluginCommands(session.workingDirectory, this.deps.registry.activeTabId)
       return
     }
-    session.provider = agentId
-    session.agentSessionId = null
-    session.modelConfig = { ...newModelConfig }
-    session.sessionModel = null
-    session.sessionSkills = []
-    session.pluginCommands = { global: [], project: [] }
-    this.deps.refreshPluginCommands(session.workingDirectory, this.deps.registry.activeTabId)
+
+    const tabId = this.deps.registry.activeTabId
+    this.handoffInProgress = true
+    try {
+      const result = await window.solus.switchSessionAgent(tabId, agentId)
+      analytics.agentSwitched({ from: result.fromProvider, to: agentId })
+      this.deps.settings.update({ activeAgent: agentId })
+      this.globalDefaults.modelConfig = newModelConfig
+      this.deps.setPluginCommands({ global: [], project: [] })
+      session.provider = agentId
+      session.agentSessionId = null
+      session.modelConfig = { ...newModelConfig }
+      session.sessionModel = null
+      session.sessionSkills = []
+      session.pluginCommands = { global: [], project: [] }
+      session.handoffFrom = {
+        provider: result.fromProvider,
+        sessionId: result.fromSessionId,
+      }
+      session.messages.push(buildHandoffDividerMessage({
+        fromProvider: result.fromProvider,
+        toProvider: agentId,
+      }))
+      this.deps.refreshPluginCommands(session.workingDirectory, tabId)
+    } catch (error) {
+      toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      this.handoffInProgress = false
+    }
   }
 
   setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {

@@ -335,8 +335,18 @@ async function buildLiveTree(
 const COMBINED_DIFF_MAX_BUFFER = 256 * 1024 * 1024
 
 // Explicit prefixes + quotepath off keep renderer-side @pierre/diffs parsing
-// stable against the user's gitconfig.
-const DIFF_FORMAT_ARGS = ['--no-ext-diff', '--unified=3', '--src-prefix=a/', '--dst-prefix=b/']
+// stable against the user's gitconfig. `contextLines` is the renderer's lever
+// for a full-context patch (see FULL_CONTEXT_LINES), which it re-parses to
+// recover whole file contents for hunk expansion.
+function diffFormatArgs(contextLines = 3): string[] {
+  return ['--no-ext-diff', `--unified=${contextLines}`, '--src-prefix=a/', '--dst-prefix=b/']
+}
+
+/** A patch built with a non-default context is content, not display text: its
+ *  last line may legitimately be blank, so stdout must not be trimmed. */
+function diffExecOptions(contextLines: number | undefined, env?: NodeJS.ProcessEnv) {
+  return { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: contextLines !== undefined }
+}
 
 const EMPTY_DIFF: DiffResult = { patch: '' }
 
@@ -375,12 +385,13 @@ export async function getEpisodeDiff(
   workTree: string,
   repoRoot: string,
   baseSha: string,
+  contextLines?: number,
 ): Promise<DiffResult> {
   const combined = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
-    runAsync('git', 
-      ['-c', 'core.quotepath=false', 'diff', baseSha, ...DIFF_FORMAT_ARGS],
+    runAsync('git',
+      ['-c', 'core.quotepath=false', 'diff', baseSha, ...diffFormatArgs(contextLines)],
       workTree,
-      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+      diffExecOptions(contextLines, env),
     ),
   )
   return { patch: combined }
@@ -470,14 +481,15 @@ export async function getDiff(
   scope: DiffScope,
   sessionId: string | null,
   livePaths: string[],
+  contextLines?: number,
 ): Promise<DiffResult | null> {
   if (scope.kind === 'working-tree') {
     if (!workTree) return null
     const combined = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
-      runAsync('git', 
-        ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...DIFF_FORMAT_ARGS],
+      runAsync('git',
+        ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...diffFormatArgs(contextLines)],
         workTree,
-        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+        diffExecOptions(contextLines, env),
       ),
     )
     return { patch: combined }
@@ -487,7 +499,8 @@ export async function getDiff(
   // patch is exactly the PR's change set (same engine as the review companion).
   if (scope.kind === 'pr') {
     if (!workTree) return null
-    return getEpisodeDiff(workTree, repoRoot, await resolvePrDiffBase(workTree, repoRoot, scope))
+    const base = await resolvePrDiffBase(workTree, repoRoot, scope)
+    return getEpisodeDiff(workTree, repoRoot, base, contextLines)
   }
 
   if (!sessionId) return null
@@ -500,9 +513,9 @@ export async function getDiff(
         if (live.baseSha === live.treeSha) return EMPTY_DIFF
         return {
           patch: await runAsync('git',
-            ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, ...DIFF_FORMAT_ARGS],
+            ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, ...diffFormatArgs(contextLines)],
             repoRoot,
-            { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+            diffExecOptions(contextLines),
           ),
         }
       } finally {
@@ -517,9 +530,9 @@ export async function getDiff(
   if (range.from === range.to) return EMPTY_DIFF
   return {
     patch: await runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', range.from, range.to, ...DIFF_FORMAT_ARGS],
+      ['-c', 'core.quotepath=false', 'diff', range.from, range.to, ...diffFormatArgs(contextLines)],
       repoRoot,
-      { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+      diffExecOptions(contextLines),
     ),
   }
 }

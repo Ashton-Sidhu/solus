@@ -513,7 +513,16 @@
       lineDiffType: "none" as const,
       lineHoverHighlight: "number" as const,
       overflow: "wrap" as const,
-      hunkSeparators: "metadata" as const,
+      // "line-info-basic" trades the @@-metadata rule for "N unchanged lines"
+      // with up/down/expand-all controls. The buttons only appear on files whose
+      // metadata carries full file contents (see diff-expandable.ts); everything
+      // else keeps a plain, inert separator.
+      hunkSeparators: "line-info-basic" as const,
+      // Lines revealed per click (library default 100 — too big a jump to keep
+      // your place) and the gap size below which we just render the lines
+      // inline instead of asking for a click (default 1).
+      expansionLineCount: 20,
+      collapsedContextThreshold: 10,
       disableFileHeader: false,
       disableErrorHandling: true,
       enableLineSelection: true,

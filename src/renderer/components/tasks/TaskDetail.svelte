@@ -105,7 +105,7 @@
   }: Props = $props();
 
   // The description reuses the input bar / automation prompt editor so a task can
-  // embed @files, /skills, #plans, and %docs. Refs round-trip through the saved
+  // embed @files, /skills, #plans, %docs, and !PRs. Refs round-trip through the saved
   // body markdown (serialized as `[title](plan://…)` links), so no separate ref
   // store is needed. The working directory + provider scope @-file search and the
   // slash menu to the task's project and the user's active agent.
@@ -545,9 +545,15 @@
                 onPlanRefClick={(planId) => session.openPlanModal(planId)}
                 onWorkRefClick={(workId, title) =>
                   session.openWorkModal(workId, title)}
+                onPrRefClick={(number, title) =>
+                  void session.enterPrReview(number, title, {
+                    ctx: editorCwd
+                      ? session.ctxForDirectory(editorCwd)
+                      : session.ctx,
+                  })}
                 menuPlacement="down"
                 dragHandle={false}
-                placeholder="Add a description… Use @ for files, # for plans, % for docs, / to format."
+                placeholder="Add a description… Use @ for files, # for plans, % for docs, ! for PRs, / to format."
                 class="{DESC_TEXT} {DESC_FILL} {DESC_ALIGN}"
               />
             </div>
@@ -563,6 +569,12 @@
               onPlanRefClick={(planId) => session.openPlanModal(planId)}
               onWorkRefClick={(workId, title) =>
                 session.openWorkModal(workId, title)}
+              onPrRefClick={(number, title) =>
+                void session.enterPrReview(number, title, {
+                  ctx: editorCwd
+                    ? session.ctxForDirectory(editorCwd)
+                    : session.ctx,
+                })}
               maxHeight={4000}
               class="{DESC_TEXT} {DESC_ALIGN}"
             />
@@ -732,6 +744,12 @@
                     onPlanRefClick={(planId) => session.openPlanModal(planId)}
                     onWorkRefClick={(workId, title) =>
                       session.openWorkModal(workId, title)}
+                    onPrRefClick={(number, title) =>
+                      void session.enterPrReview(number, title, {
+                        ctx: editorCwd
+                          ? session.ctxForDirectory(editorCwd)
+                          : session.ctx,
+                      })}
                     menuPlacement="down"
                     maxHeight={200}
                     placeholder="Add a comment…"

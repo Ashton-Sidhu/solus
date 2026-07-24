@@ -264,6 +264,16 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return result
   })
 
+  server.register('prNeedsReview', async (args) => {
+    const [ctx] = args as [IpcContext]
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const viewer = await provider.review.getViewer()
+    return attachReviewAttention(
+      await provider.review.listPullRequestsNeedingReview(repo, viewer),
+      viewer,
+    ).filter((pr) => pr.needsMyReview)
+  })
+
   server.register('prGetEfforts', async (args) => {
     const [ctx, requests] = args as [IpcContext, PrEffortRequest[]]
     const { repo, provider } = await reviewTargetFor(ctx)

@@ -3,6 +3,7 @@
   import { ClockIcon } from "phosphor-svelte";
   import type { ReviewGuide, ReviewLedger } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
+  import type { FileVersions } from "../../../lib/diff-expandable";
   import {
     formatAbsoluteTimestamp,
     formatTimeAgoFromTimestamp,
@@ -24,6 +25,7 @@
     guide,
     ledger,
     patch,
+    fileVersions,
     meta,
     guideCurrent = true,
     onFileJump,
@@ -34,6 +36,9 @@
     guide: ReviewGuide;
     ledger: ReviewLedger | null;
     patch: string;
+    /** Both versions of each changed file, keyed by path. Present only when the
+     *  host could fetch them; without it the cards' hunk gaps aren't expandable. */
+    fileVersions?: Map<string, FileVersions>;
     /** PR identity for the intro header's metadata line (`repo#number · base ←
      *  branch`). Absent for standalone local-branch reviews. */
     meta?: { repo?: string; number?: number; baseRef: string; branch: string };
@@ -132,6 +137,7 @@
               {section}
               {records}
               {patchByPath}
+              {fileVersions}
               {onFileJump}
               {comments}
               {onCommentSave}
@@ -158,6 +164,7 @@
                   {section}
                   {records}
                   {patchByPath}
+                  {fileVersions}
                   {onFileJump}
                   {comments}
                   {onCommentSave}

@@ -332,6 +332,7 @@
         bind:ref={commentInputEl}
         bind:value={commentInput}
         bare
+        mic
         placeholder="Add comment…"
         rows={1}
         submitOn="enter"

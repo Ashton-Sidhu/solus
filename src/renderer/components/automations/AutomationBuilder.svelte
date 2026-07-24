@@ -665,8 +665,12 @@
           onPlanRefClick={(planId) => session.openPlanModal(planId)}
           onWorkRefClick={(workId, title) =>
             session.openWorkModal(workId, title)}
+          onPrRefClick={(number, title) =>
+            void session.enterPrReview(number, title, {
+              ctx: session.ctxForDirectory(cwd),
+            })}
           menuPlacement="down"
-          placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs."
+          placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs, ! for PRs."
         />
       </div>
     </section>
@@ -757,7 +761,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Repeats">
                   {repeatOptions.find((o) => o.value === kind)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each repeatOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -792,7 +796,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Interval unit">
                   {intervalUnit}
                 </Select.Trigger>
-                <Select.Content class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each intervalUnitOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -828,7 +832,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Day of week">
                   {weekdayOptions.find((o) => o.value === weekday)?.label}
                 </Select.Trigger>
-                <Select.Content class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each weekdayOptions as opt (opt.value)}
                     <Select.Item value={String(opt.value)} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -922,7 +926,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Agent">
                   {agentSelectOptions.find((o) => o.value === agentProvider)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each agentSelectOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -945,7 +949,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Model">
                   {modelSelectOptions.find((o) => o.value === effectiveModelId)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each modelSelectOptions as opt (opt.value)}
                     <Select.Item value={opt.value ?? ""} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -968,7 +972,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Reasoning">
                   {reasoningSelectOptions.find((o) => o.value === reasoningEffort)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each reasoningSelectOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}

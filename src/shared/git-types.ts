@@ -58,7 +58,17 @@ export type DiffScope =
   // parent's head; main resolves its merge-base with the checked-out child.
   | { kind: 'pr'; baseSha: string; ownDeltaBaseSha?: string; parentPr?: number }
 
-export type DiffRequest = { scope: DiffScope; livePaths?: string[] }
+export type DiffRequest = {
+  scope: DiffScope
+  livePaths?: string[]
+  /** Context lines per hunk (`git diff --unified`). Omit for the default 3. */
+  contextLines?: number
+}
+
+/** A context so large every hunk swallows the whole file, so the parsed patch's
+ *  addition/deletion line arrays are the complete new/old file contents. That is
+ *  what lets the diff panel expand the unchanged gaps between hunks. */
+export const FULL_CONTEXT_LINES = 1_000_000
 
 export interface GitStateOptions {
   /** Include worktree line totals and any existing pull-request URL. These
@@ -114,11 +124,16 @@ export interface UncommittedChanges {
   mergeInProgress: boolean
 }
 
-export interface GitState {
+/** Which repo and branch a working tree is on — all O(1) to obtain, unlike the
+ * working-tree scan `GitState` adds on top. */
+export interface GitIdentity {
   repoRoot: string
   headSha: string
   branch: string | null
   targetBranch: string
+}
+
+export interface GitState extends GitIdentity {
   uncommittedChanges: UncommittedChanges
   prUrl?: string
 }

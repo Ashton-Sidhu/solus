@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PullRequestSummary } from '../../src/shared/providers'
 import { attachReviewAttention } from '../../src/main/server/handlers/review-attention'
+import { needsReviewSearchTerms } from '../../src/main/providers/github/provider'
 
 function pr(overrides: Partial<PullRequestSummary> = {}): PullRequestSummary {
   return {
@@ -21,6 +22,16 @@ function pr(overrides: Partial<PullRequestSummary> = {}): PullRequestSummary {
 }
 
 describe('review attention', () => {
+  test('asks GitHub only for PRs that need the viewer instead of scanning every open PR', () => {
+    expect(needsReviewSearchTerms(
+      { host: 'github.com', owner: 'acme', repo: 'app' },
+      'viewer',
+    )).toEqual({
+      requestedQuery: 'repo:acme/app is:pr is:open review-requested:viewer',
+      assignedQuery: 'repo:acme/app is:pr is:open assignee:viewer',
+    })
+  })
+
   test('keeps current and repeated review requests impossible to miss', () => {
     const [result] = attachReviewAttention([pr({ requestedReviewers: ['Viewer'] })], 'viewer')
 

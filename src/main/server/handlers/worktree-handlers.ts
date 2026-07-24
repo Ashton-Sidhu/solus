@@ -3,7 +3,7 @@ import type { ControlPlane } from '../../control-plane'
 import { gitCheckoutFromState, type IpcContext, type DiffRequest, type GitCheckoutBranchResult, type GitStateOptions } from '../../../shared/types'
 import { createPR, commitAndPushChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runAsync } from '../../git/exec'
-import { computeGitState, resolveRepoRoot } from '../../git/git-helpers'
+import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
 import { getDiff, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
@@ -58,7 +58,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.agentSessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
-    return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
+    return await getDiff(workTree, repoRoot, request.scope, sid, livePaths, request.contextLines)
   })
 
   server.register('diffStats', async (args) => {
@@ -213,6 +213,8 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const [cwd, options] = args as [string, GitStateOptions | undefined]
     return computeGitState(cwd, options)
   })
+
+  server.register('gitIdentity', async (args) => computeGitIdentity((args as [string])[0]))
 
   server.register('gitRegisterEnvironment', (args) => {
     const [ctx, cwd, gitContext] = args as [IpcContext, string, ReturnType<typeof gitCheckoutFromState>]

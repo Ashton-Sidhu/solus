@@ -111,6 +111,7 @@ test.describe('Worktree sessions', () => {
 
     expect(gitContext.branch).toMatch(/^solus\/dark-mode-toggle-/)
     expect(gitContext.branch).not.toContain('implement-this-plan')
+    expect(gitContext.repoRoot).toBe(repo)
     expect(git(gitContext.worktreePath!, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(gitContext.branch)
   })
 
@@ -156,6 +157,7 @@ test.describe('Worktree sessions', () => {
       branch: 'solus/resume-test',
       targetBranch: 'main',
       worktreePath,
+      repoRoot: repo,
     })
   })
 })

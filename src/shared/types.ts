@@ -1,5 +1,5 @@
 import rawModelProfiles from './model-profiles.json'
-import type { GitState } from './git-types'
+import type { GitIdentity, GitState } from './git-types'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
@@ -272,11 +272,17 @@ export interface Tab {
   diffCommentDraft: DiffCommentDraft | null
 }
 
+export interface SessionHandoffLineage {
+  provider: AgentId
+  sessionId: string
+}
+
 /** Backend-driven session state. Shared across tabs watching the same session. */
 export interface Session {
   id: string
   agentSessionId: string | null
   provider: AgentId | null
+  handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
   currentActivity: string
@@ -483,6 +489,12 @@ export interface Message {
   planRefs?: PlanReference[]
   /** Work references attached via the work reference picker */
   workRefs?: WorkReference[]
+  /** Set on the system divider inserted between provider handoff transcripts. */
+  handoffDivider?: {
+    fromProvider: AgentId
+    toProvider: AgentId
+    truncated: boolean
+  }
   /** Set on the fork-divider system message to identify it. */
   forkSourceSessionId?: string
   /** Snapshot of the source session title at fork time. */
@@ -687,7 +699,7 @@ export interface StatusCardState {
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
-  | { type: 'session_init'; sessionId: string; model: string; skills: string[] }
+  | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
@@ -762,6 +774,7 @@ export interface SessionCtx {
   tabId: string
   provider: AgentId | null
   agentSessionId: string | null
+  handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   workingDirectory: string
   projectPath: string
@@ -879,6 +892,12 @@ export interface SessionRunInput {
   modelInstructions?: string
   /** PR review context — when set, the backend appends a PR-context system hint. */
   prReview?: PrReviewContext | null
+  /** System-level context used only when starting a new provider session. */
+  handoff?: {
+    fromProvider: AgentId
+    fromSessionId: string
+    seedSystemAppend: string
+  }
 }
 
 // ─── Control Plane Types ───
@@ -909,6 +928,12 @@ export interface RuntimeSessionInfo {
   status: SessionStatus
   queuedPrompts: QueuedPromptSnapshot[]
   rateLimitInfo: RateLimitInfo | null
+  handoffFrom?: SessionHandoffLineage
+}
+
+export interface SessionProviderSwitchResult {
+  fromProvider: AgentId
+  fromSessionId: string
 }
 
 export type QueuedPromptReason = 'busy' | 'rate_limit'
@@ -922,6 +947,8 @@ export interface TabRegistryEntry {
   deviceId?: string
   /** Points into the activeSessions map (= agent session ID). Null until session_init fires. */
   sessionId: string | null
+  provider: AgentId | null
+  handoffFrom?: SessionHandoffLineage
   createdAt: number
   /** Per-tab display status. Mirrors session status after session_init; tracks 'connecting' before. */
   status: SessionStatus
@@ -994,6 +1021,11 @@ export interface SessionMeta {
   projectPath: string // raw encoded folder name, e.g. "-Users-sidhu-clui-cc"
   isWorktree?: boolean
   status?: SessionStatus
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  /** Git-root that groups a repo with all its worktrees. The canonical
+   *  "project" key for cross-project search and grouping. */
+  projectRoot?: string
 }
 
 export interface SessionSearchResult {
@@ -1287,7 +1319,7 @@ export interface GitCheckout {
 }
 
 export function gitCheckoutFromState(
-  status: GitState | null | undefined,
+  status: GitIdentity | null | undefined,
   worktreePath?: string,
 ): GitCheckout | null {
   if (!status) return null

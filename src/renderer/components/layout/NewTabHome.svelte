@@ -25,7 +25,6 @@
     XCircleIcon,
     CircleNotchIcon,
     ClockCountdownIcon,
-    ArrowSquareInIcon,
     GitPullRequestIcon,
     ColumnsIcon,
   } from "phosphor-svelte";
@@ -43,13 +42,10 @@
     SessionMeta,
     WorktreeEntry,
   } from "../../../shared/types";
-  import type { Task } from "../../../shared/task-types";
   import {
     recentAutomationActivity,
     latestRun,
     runPreview,
-    nextTasks,
-    taskCounts,
   } from "./lib/home-control-hub";
   import {
     hasProjectScrollOverflow,
@@ -61,8 +57,8 @@
     sessionTitle,
   } from "./lib/new-tab-home";
   import { relativeTime } from "../automations/lib/automation-format";
-  import { STATUS_META } from "../tasks/lib/tasks-api";
   import Kbd from "../ui/Kbd.svelte";
+  import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import { Skeleton } from "../ui/skeleton";
 
   // Shared fade-in for staggered list items; per-item delay via --item-index.
@@ -211,9 +207,8 @@
     void environmentStore.refreshRefs(root, ctx);
   });
 
-  // ── Control hub: automations + tasks ──
+  // ── Control hub: automations ──
   const automationsStore = session.automationsStore;
-  const tasksStore = session.tasksStore;
   const prsStore = session.prsStore;
 
   const needsReviewCount = $derived(
@@ -258,20 +253,6 @@
   }
   const hasAutomations = $derived(automationActivity.length > 0);
 
-  // Tasks for the launch-target directory. The store is project-scoped and
-  // shared, so reads are guarded on cwd to never render a stale project.
-  $effect(() => {
-    if (!isFocusedHome) return;
-    const dir = currentDir;
-    if (dir && dir !== "~") void tasksStore.ensureLoaded(dir);
-  });
-  const tasksForDir = $derived(
-    tasksStore.cwd === currentDir && !tasksStore.error ? tasksStore.tasks : [],
-  );
-  const visibleTasks = $derived(nextTasks(tasksForDir, 3));
-  const tCounts = $derived(taskCounts(tasksForDir));
-  const hasTasks = $derived(visibleTasks.length > 0);
-
   function openAutomation(a: Automation) {
     session.openAutomations(a.id);
     requestInputFocus();
@@ -280,15 +261,6 @@
     session.openAutomations();
     requestInputFocus();
   }
-  function openTask(t: Task) {
-    session.goToTask(t);
-    requestInputFocus();
-  }
-  function viewAllTasks() {
-    session.toggleTasks();
-    requestInputFocus();
-  }
-
   function openNeedsReview() {
     session.openNeedsReview();
     requestInputFocus();
@@ -477,21 +449,10 @@
             title="Back to My Workspace"
           >
             <span
-              class="inline-flex w-3.5 h-3.5 text-(--solus-accent)"
+              class="inline-flex w-3.5 h-3.5 text-(--solus-brand-gold)"
               aria-hidden="true"
             >
-              <svg viewBox="0 0 18 18" fill="none" class="w-full h-full">
-                <circle cx="9" cy="9" r="4.8" fill="currentColor" />
-                <g
-                  stroke="currentColor"
-                  stroke-width="1.7"
-                  stroke-linecap="round"
-                >
-                  <path d="M9,1 A8,8 0 0 1 17,9" />
-                  <path d="M15.72,14.44 A8,8 0 0 1 6.44,16.68" />
-                  <path d="M2.28,14.44 A8,8 0 0 1 1,6.44" />
-                </g>
-              </svg>
+              <WorkspaceMark class="w-full h-full" />
             </span>
             <span>My Workspace</span>
             <Kbd class="ml-0.5">⌥W</Kbd>
@@ -502,7 +463,7 @@
             />
           </button>
         {/if}
-        {#if env.status}
+        {#if canToggleWorktree}
           <button
             class="group/wt inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 px-2.5 text-[0.6875rem] font-medium cursor-pointer transition-[background-color,color,box-shadow,scale] duration-150 ease-out hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) {env.pending
               ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)]'
@@ -662,74 +623,6 @@
         No automation runs yet — set one up
       </button>
     {/if}
-  </section>
-{/snippet}
-
-<!-- One pending task — two lines (title + priority/status) so it matches the
-     height of the session and worktree cards beside it. -->
-{#snippet taskRow(t: Task, itemIndex: number)}
-  <button
-    class="group w-full flex items-center gap-2.5 text-left cursor-pointer px-4 py-3 sm:px-3.5 sm:py-2.5 bg-transparent border-b border-(--solus-tool-border) last:border-b-0 transition-[background-color,transform] hover:bg-(--solus-surface-hover) active:scale-[0.99] {fadeIn}"
-    style="--item-index:{itemIndex}"
-    onclick={() => openTask(t)}
-  >
-    <span
-      class="shrink-0 w-2 h-2 rounded-full {STATUS_META[t.status].dotClass}"
-      aria-hidden="true"
-    ></span>
-    <div class="flex flex-col min-w-0 flex-1">
-      <span
-        class="truncate text-[0.875rem] sm:text-[0.75rem] text-(--solus-text-primary)"
-      >
-        {t.title}
-      </span>
-      <span
-        class="truncate text-[0.6875rem] sm:text-[0.625rem] mt-0.5 text-(--solus-text-tertiary)"
-      >
-        {#if t.priority}<span class="uppercase tracking-wide font-medium"
-            >{t.priority}</span
-          > ·
-        {/if}{STATUS_META[t.status].label}
-      </span>
-    </div>
-    <ArrowSquareInIcon
-      size={13}
-      class="shrink-0 text-(--solus-text-tertiary) opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-    />
-  </button>
-{/snippet}
-
-{#snippet tasksSection()}
-  <section class="flex flex-col gap-2 flex-1 min-w-0">
-    <div class="flex items-center justify-between px-1">
-      <div class="flex items-center gap-2 min-w-0">
-        <div class={sectionLabel}>Tasks</div>
-        {#if tCounts.open + tCounts.inProgress > 0}
-          <span
-            class="truncate text-[0.6875rem] sm:text-[0.625rem] tabular-nums text-(--solus-text-tertiary)"
-          >
-            {tCounts.inProgress} in progress · {tCounts.open} open
-          </span>
-        {/if}
-      </div>
-      <button
-        class="group inline-flex shrink-0 items-center gap-1 text-[0.6875rem] sm:text-[0.625rem] text-(--solus-text-tertiary) cursor-pointer bg-transparent border-none hover:text-(--solus-accent) transition-colors"
-        onclick={viewAllTasks}
-      >
-        View all
-        <ArrowRightIcon
-          size={10}
-          class="transition-transform group-hover:translate-x-0.5"
-        />
-      </button>
-    </div>
-    <div
-      class="rounded-[0.875rem] sm:rounded-xl overflow-hidden border border-(--solus-tool-border)"
-    >
-      {#each visibleTasks as t, i (t.id)}
-        {@render taskRow(t, i + 1)}
-      {/each}
-    </div>
   </section>
 {/snippet}
 
@@ -997,16 +890,12 @@
         </section>
       {/if}
 
-      <!-- Sessions / worktrees / automations / tasks reuse the shared
+      <!-- Sessions, worktrees, and automations reuse the shared
              control-hub snippets, which size up for touch on this viewport. -->
       {@render sessionsCol()}
 
       {#if visibleWorktrees.length > 0}
         {@render worktreesCol()}
-      {/if}
-
-      {#if hasTasks}
-        {@render tasksSection()}
       {/if}
 
       {#if hasAutomations}
@@ -1037,16 +926,12 @@
         {@render projectsRow()}
       {/if}
 
-      <!-- Work row: sessions, active worktrees, and the task agenda as up to
-           three equal columns. They drop to a single column on narrow windows
-           so nothing cramps on a laptop. Automation activity follows below. -->
+      <!-- Work row: recent sessions and active worktrees as two equal columns.
+           They stack on narrow windows so neither column feels cramped. -->
       <div class="flex flex-col min-[34rem]:flex-row gap-3">
         {@render sessionsCol()}
         {#if visibleWorktrees.length > 0}
           {@render worktreesCol()}
-        {/if}
-        {#if hasTasks}
-          {@render tasksSection()}
         {/if}
       </div>
 

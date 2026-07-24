@@ -885,6 +885,10 @@
       onPaste={handlePaste}
       onPlanRefClick={(planId) => session.openPlanModal(planId)}
       onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
+      onPrRefClick={(number, title) =>
+        void session.enterPrReview(number, title, {
+          ctx: session.ctxForDirectory(composerCwd),
+        })}
       onFileRefClick={previewFile}
       {placeholder}
       readOnly={isReadOnly}

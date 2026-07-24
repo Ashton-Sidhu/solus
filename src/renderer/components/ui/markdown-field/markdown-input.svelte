@@ -26,7 +26,10 @@
 	{submitOn}
 	class={cn(
 		"text-[0.7813rem] md:text-[0.7813rem]",
-		bare && "h-auto rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent",
+		bare &&
+			(mic
+				? "h-auto rounded-none border-0 bg-transparent py-0 pl-0 pr-7! shadow-none focus-visible:ring-0 dark:bg-transparent"
+				: "h-auto rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"),
 		className
 	)}
 	{...restProps}

@@ -16,7 +16,8 @@
   }: {
     drafts: ReviewDraftComment[];
     submitLabel?: string;
-    onSubmit: () => void;
+    /** Omit where the host owns the send action (the review guide's composer). */
+    onSubmit?: () => void;
     onRemove: (id: string) => void;
     onJump?: (path: string, line: number, side: "old" | "new") => void;
   } = $props();
@@ -64,13 +65,15 @@
       <CaretUpIcon size={13} class={expanded ? "rotate-180 transition-transform" : "transition-transform"} />
       {drafts.length} pending {drafts.length === 1 ? "comment" : "comments"}
     </Button>
-    <Button
-      type="button"
-      class="ml-auto inline-flex items-center gap-1.5 rounded-md bg-(--solus-accent) px-3 py-1.5 text-[0.8125rem] font-semibold text-(--solus-on-accent,#fff) transition-opacity hover:opacity-90"
-      onclick={onSubmit}
-    >
-      <PaperPlaneTiltIcon size={14} weight="bold" />
-      {submitLabel}
-    </Button>
+    {#if onSubmit}
+      <Button
+        type="button"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-md bg-(--solus-accent) px-3 py-1.5 text-[0.8125rem] font-semibold text-(--solus-on-accent,#fff) transition-opacity hover:opacity-90"
+        onclick={onSubmit}
+      >
+        <PaperPlaneTiltIcon size={14} weight="bold" />
+        {submitLabel}
+      </Button>
+    {/if}
   </div>
 </div>

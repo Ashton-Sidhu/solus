@@ -50,7 +50,7 @@
     canPlan?: boolean;
     /** Known project labels, offered as suggestions in the labels picker. */
     knownLabels?: string[];
-    /** Project directory for @-file / #-plan / %-work autocomplete in the body. */
+    /** Project directory for @-file / #-plan / %-work / !-PR autocomplete. */
     workingDirectory?: string;
     /** Agent provider whose built-in slash commands populate the body's / menu. */
     provider: AgentId;
@@ -475,12 +475,18 @@
           onPlanRefClick={(planId) => session.openPlanModal(planId)}
           onWorkRefClick={(workId, title) =>
             session.openWorkModal(workId, title)}
+          onPrRefClick={(number, title) =>
+            void session.enterPrReview(number, title, {
+              ctx: workingDirectory
+                ? session.ctxForDirectory(workingDirectory)
+                : session.ctx,
+            })}
           menuPlacement="down"
           useRelativeFilePaths
           readOnly={saving}
           maxHeight={expanded ? undefined : 170}
           enterInsertsNewline
-          placeholder="Add a description… Use @ for files, # for plans, % for docs, / to format."
+          placeholder="Add a description… Use @ for files, # for plans, % for docs, ! for PRs, / to format."
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();

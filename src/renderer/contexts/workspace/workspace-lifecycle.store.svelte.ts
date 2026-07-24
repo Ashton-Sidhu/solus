@@ -103,10 +103,14 @@ export class WorkspaceLifecycleStore {
     const initialization = (async () => {
       // Paint from cache first (safety net if setup didn't already), then reconcile.
       this.hydrateStaticInfoFromCache()
+      const optimisticEnvironmentRefresh = this.deps.registry.tabOrder.length === 0
+        ? this.deps.refreshGitState().catch(() => null)
+        : null
       const result = await window.solus.start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
       if (this.deps.registry.tabOrder.length === 0) {
+        await optimisticEnvironmentRefresh
         await this.deps.refreshGitState()
       }
       void this.refreshPluginCommands(this.deps.config.globalDefaults.workingDirectory).catch((error) => {

@@ -12,6 +12,91 @@ afterEach(() => {
 })
 
 describe('SessionConfigController branch switching', () => {
+  test('preserves a started session and switches the new active tab to the selected worktree', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const originalSession = {
+      workingDirectory: '/repo',
+      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+      worktreeBaseBranch: null,
+      agentSessionId: 'session-1',
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const destinationSession = {
+      workingDirectory: '/repo',
+      gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
+      worktreeBaseBranch: null,
+      agentSessionId: null,
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const registry = {
+      activeTabId: 'tab-1',
+      activeSession: originalSession,
+      sessionFor(tabId: string) {
+        return tabId === 'tab-1' ? originalSession : destinationSession
+      },
+    }
+    const resetTabIds: string[] = []
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        dispatchEvent: () => true,
+        solus: {
+          resetTabSession: async (ctx: IpcContext) => {
+            resetTabIds.push(ctx.session.tabId)
+          },
+          worktreeRestore: async () => ({
+            repoRoot: '/repo',
+            branch: 'feature',
+            targetBranch: 'main',
+            worktreePath: '/repo/.solus-worktrees/feature',
+          }),
+        },
+      },
+    })
+
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', tabGroupMode: 'flat' } as any,
+      registry: registry as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      createTab: async () => {
+        registry.activeTabId = 'tab-2'
+        registry.activeSession = destinationSession
+        return 'tab-2'
+      },
+      ctx: (tabId) => ({
+        session: {
+          tabId: tabId ?? registry.activeTabId,
+          workingDirectory: registry.activeSession.workingDirectory,
+          gitContext: registry.activeSession.gitContext,
+        },
+      }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    await controller.switchToWorktree('/repo/.solus-worktrees/feature')
+
+    expect(registry.activeTabId).toBe('tab-2')
+    expect(originalSession.agentSessionId).toBe('session-1')
+    expect(originalSession.gitContext?.branch).toBe('main')
+    expect(destinationSession.gitContext).toEqual({
+      repoRoot: '/repo',
+      branch: 'feature',
+      targetBranch: 'main',
+      worktreePath: '/repo/.solus-worktrees/feature',
+    })
+    expect(resetTabIds).toEqual(['tab-2'])
+  })
+
   test('toasts a rejected checkout and does not reset the tab first', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

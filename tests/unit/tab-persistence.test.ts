@@ -50,6 +50,7 @@ function sampleSnapshot(): PersistedTabs {
       title: 'Local work',
       agentSessionId: null,
       provider: null,
+      handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
       workingDirectory: '/repo',
       additionalDirs: [],
       gitContext: null,

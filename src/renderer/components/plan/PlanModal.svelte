@@ -538,7 +538,7 @@
   {/snippet}
 
   {#snippet footer()}
-    <div class="plan-action-bar-sleeve shrink-0 border-t border-(--solus-tool-border) px-5 py-2.5 max-md:px-3 max-md:py-1.5">
+    <div class="plan-action-bar-sleeve shrink-0 px-5 pt-2 pb-3 max-md:px-3 max-md:pb-2">
       <PlanActionBar
         planId={plan.id}
         inlineCommentCount={comments.length}
@@ -592,6 +592,7 @@
             bind:ref={commentInputEl}
             bind:value={commentInput}
             bare
+            mic
 placeholder="Add comment…"
             rows={1}
             submitOn="enter"

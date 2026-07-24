@@ -2,7 +2,7 @@ import { createContext } from 'svelte'
 import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext } from '../../../shared/types'
 import type { PullRequestSummary } from '../../../shared/providers'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
-import { adjacentTabAfterClose, branchKeyFor, buildTabSections } from '../../lib/sessionUtils'
+import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession } from '../../lib/sessionUtils'
 import { uuid } from '../../../shared/uuid'
 import { workPreview } from '../../../shared/work-preview'
 import notificationSrc from '../../../../resources/notification.mp3'
@@ -29,14 +29,14 @@ import { type SettingsContext, type TabGroupMode } from '../app/settings.context
 import { type WindowContext } from '../app/window.context.svelte'
 import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
-import { type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
+import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
 import { nextMsgId } from './session.utils'
 import { gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
-import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor } from './session-plan-operations'
+import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, type ApprovePlanOptions } from './session-plan-operations'
 import { analytics } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
@@ -75,6 +75,7 @@ interface CreateTabOptions {
   activate?: boolean
   gitContext?: GitCheckout | null
   gitInitialization?: 'blocking' | 'background'
+  worktreeRequested?: boolean
 }
 
 const notificationAudio = new Audio(notificationSrc)
@@ -185,6 +186,7 @@ export class WorkspaceContext {
   } { return this.config.globalDefaults }
   get tabGroupMode(): TabGroupMode { return this.config.tabGroupMode }
   set tabGroupMode(value: TabGroupMode) { this.config.tabGroupMode = value }
+  get handoffInProgress(): boolean { return this.config.handoffInProgress }
   get staticInfo(): StaticInfo | null { return this.lifecycle.staticInfo }
   set staticInfo(value: StaticInfo | null) { this.lifecycle.staticInfo = value }
   get pluginCommands(): Session['pluginCommands'] { return this.lifecycle.pluginCommands }
@@ -487,19 +489,13 @@ export class WorkspaceContext {
       : options.gitContext
     // A fresh tab follows the saved default. Per-session toggles belong only to
     // that session and must not silently override where the next session starts.
-    const worktreeRequested = !inheritedGitContext?.worktreePath && this.settings.worktreeEnabled
-    const resolvedStartTarget = cwd !== undefined && options.gitContext === undefined
-      ? await this.environment.resolveSessionStartTarget(cwd, { worktreeRequested })
-      : null
-    const initialGitContext = resolvedStartTarget?.gitContext ?? inheritedGitContext
-    const initialWorktreeBaseBranch = resolvedStartTarget
-      ? resolvedStartTarget.worktreeBaseBranch
-      : worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null
+    const worktreeRequested = options.worktreeRequested
+      ?? (!inheritedGitContext?.worktreePath && this.settings.worktreeEnabled)
     const { tabId } = await window.solus.createTab()
     const session = makeSession(this.settings, {
       workingDirectory: inheritedDir,
-      gitContext: initialGitContext ? { ...initialGitContext } : null,
-      worktreeBaseBranch: initialWorktreeBaseBranch,
+      gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
+      worktreeBaseBranch: worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null,
       modelConfig: inheritedModelConfig,
       permissionMode: inheritedPermissionMode,
       sessionSkills: activeSession?.sessionSkills ?? [],
@@ -516,11 +512,7 @@ export class WorkspaceContext {
     if (options.activate !== false && !activeSession?.gitContext && inheritedGitContext) {
       this.config.applyGlobalStartTarget({ gitContext: null, worktreeBaseBranch: null })
     }
-    const gitInitialization = this.environment.refreshTab(this, {
-      tabId,
-      worktreeRequested,
-      force: resolvedStartTarget ? false : undefined,
-    })
+    const gitInitialization = this.environment.refreshTab(this, { tabId, worktreeRequested })
     if (options.gitInitialization === 'background') void gitInitialization
     else await gitInitialization
     void this.refreshPluginCommands(inheritedDir)
@@ -904,6 +896,22 @@ export class WorkspaceContext {
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
     const provider = meta.provider ?? this.settings.activeAgent
+    if (!intoTabId) {
+      const openTabId = findOpenTabForSession(
+        meta.sessionId,
+        this.tabs,
+        this.sessions,
+        this.tabOrder,
+        provider,
+      )
+      if (openTabId) {
+        if (!background) {
+          if (openTabId === this.activeTabId) this.isExpanded = true
+          else this.selectTab(openTabId)
+        }
+        return openTabId
+      }
+    }
     const defaultDir = meta.cwd || this.staticInfo?.homePath || '~'
     const workingDirectory = worktreeProjectRoot(defaultDir)
     const title = meta.customTitle
@@ -924,23 +932,22 @@ export class WorkspaceContext {
     }
     const shouldCreateNewTab = !intoTabId && (background || !canTakeOver)
     if (shouldCreateNewTab) {
-      const newTab = await window.solus.createTab()
-      tabId = newTab.tabId
-      const session = makeSession(this.settings, {
-        provider,
-        agentSessionId: meta.sessionId,
-        title,
-        workingDirectory,
-        modelConfig: { ...this.globalDefaults.modelConfig },
-        readOnlyReason: null,
-        loadingHistory: true,
-      } as any)
-      const tab = makeTab(session.id, { id: tabId, title })
-      this.sessions[session.id] = session
-      this.tabs[tab.id] = tab
-      this.addTabToOrder(tab.id)
-      if (!background || !hadActiveTab) {
-        this.setActiveTab(tab.id)
+      const shouldActivate = !background || !hadActiveTab
+      tabId = await this.createTab(workingDirectory, {
+        activate: shouldActivate,
+        gitContext: null,
+        gitInitialization: 'background',
+        worktreeRequested: false,
+      })
+      const session = this.sessionFor(tabId)
+      const tab = this.tabs[tabId]
+      if (!session || !tab) throw new Error('The resumed session tab was not created')
+      session.provider = provider
+      session.agentSessionId = meta.sessionId
+      session.readOnlyReason = null
+      session.loadingHistory = true
+      tab.title = title
+      if (shouldActivate) {
         if (!background) this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
           this.settings.update({ activeAgent: provider })
@@ -969,8 +976,22 @@ export class WorkspaceContext {
       this.resetOverlays()
     }
 
+    // The session must appear correctly grouped in the sidebar the moment the
+    // spinner clears, so land git identity (repoRoot + branch + worktree flag)
+    // and the transcript on the critical path — everything heavier streams in
+    // afterward without gating `loadingHistory`.
+    const worktreePath = isSolusWorktreePath(defaultDir) ? defaultDir : undefined
+    const resumingSession = this.sessionFor(tabId)
+    // Re-read the tab's session before applying anything: a concurrent resume
+    // could have taken over this tab while our IPC was in flight.
+    const currentResumeTarget = (): Session | null => {
+      const s = this.sessionFor(tabId)
+      return s && s === resumingSession && s.agentSessionId === meta.sessionId ? s : null
+    }
+
     try {
-      const [transcript, restoredGitContext] = await Promise.all([
+      const [identity, transcript] = await Promise.all([
+        window.solus.gitIdentity(defaultDir).catch(() => null),
         loadSessionTranscript(this, {
           sessionId: meta.sessionId,
           loadPath: meta.projectPath || defaultDir,
@@ -978,40 +999,61 @@ export class WorkspaceContext {
           provider,
           ctx: this.ctxFor(tabId),
         }),
-        window.solus.worktreeRestore(this.ctxFor(tabId), defaultDir),
         this.attachRuntimeSession(tabId),
       ])
 
-      const session = this.sessionFor(tabId)
-      const messages = transcript.messages
-      if (session) session.messages.splice(0, session.messages.length, ...messages)
+      const session = currentResumeTarget()
       if (session) {
+        // `gitIdentity` returning null means non-git dir (or a worktree whose
+        // checkout is gone); `gitCheckoutFromState` yields null and the
+        // background worktree restore below applies the read-only fallback.
+        const gitContext = gitCheckoutFromState(identity, worktreePath)
+        session.gitContext = gitContext
+        if (gitContext) session.readOnlyReason = null
+        try {
+          await window.solus.gitRegisterEnvironment(
+            $state.snapshot(this.ctxFor(tabId)),
+            worktreePath ?? workingDirectory,
+            $state.snapshot(gitContext),
+          )
+        } catch {
+          // A failed environment registration only delays cwd/git wiring for an
+          // immediate prompt; the background refresh re-registers it.
+        }
+        session.messages.splice(0, session.messages.length, ...transcript.messages)
         session.progress = transcript.progress
+
+        // Everything below is off the critical path — a stale/failed step only
+        // means the git panel / changed files / plugins catch up a beat later.
+        void (async () => {
+          const restoredGitContext = await window.solus.worktreeRestore(this.ctxFor(tabId), defaultDir)
+          if (!currentResumeTarget()) return
+          const restoredSession = this.sessionFor(tabId)!
+          let environmentRefresh: Promise<GitRefreshResult> | null = null
+          if (restoredGitContext) {
+            restoredSession.gitContext = restoredGitContext
+            restoredSession.readOnlyReason = null
+            environmentRefresh = this.environment.refreshTab(this, { tabId, level: 'full' })
+          } else if (isSolusWorktreePath(defaultDir)) {
+            restoredSession.gitContext = null
+            restoredSession.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
+          } else {
+            environmentRefresh = this.environment.refreshTab(this, { tabId, level: 'full' })
+          }
+
+          this.recomputeChangedFiles(tabId)
+          this.onTurnSettled?.(tabId, this.sessionFor(tabId)?.workingDirectory ?? null)
+          void this.refreshPluginCommands(workingDirectory, tabId)
+          await Promise.all(transcript.planIds.map((planId) => this.planStore.hydrateAnnotations(planId)))
+
+          if (environmentRefresh) await environmentRefresh
+          if (restoredGitContext) {
+            await this.hydrateChangedFilesFromDiff(tabId)
+          }
+        })()
       }
-
-      this.recomputeChangedFiles(tabId)
-      this.onTurnSettled?.(tabId, this.sessionFor(tabId)?.workingDirectory ?? null)
-      void this.refreshPluginCommands(workingDirectory, tabId)
-      await Promise.all(transcript.planIds.map((planId) => this.planStore.hydrateAnnotations(planId)))
-
-      if (restoredGitContext) {
-        if (session) {
-          session.gitContext = restoredGitContext
-          session.readOnlyReason = null
-        }
-        await this.environment.refreshTab(this, { tabId })
-        await this.hydrateChangedFilesFromDiff(tabId)
-      } else if (isSolusWorktreePath(defaultDir)) {
-        if (session) {
-          session.gitContext = null
-          session.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
-        }
-      } else {
-        await this.environment.refreshTab(this, { tabId })
-      }
-
     } finally {
-      const session = this.sessionFor(tabId)
+      const session = currentResumeTarget()
       if (session) session.loadingHistory = false
     }
 
@@ -1026,8 +1068,8 @@ export class WorkspaceContext {
     this.config.updateModelConfig(patch, tabId)
   }
 
-  switchActiveAgent(agentId: AgentId): void {
-    this.config.switchActiveAgent(agentId)
+  switchActiveAgent(agentId: AgentId): Promise<void> {
+    return this.config.switchActiveAgent(agentId)
   }
 
   setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {
@@ -1153,6 +1195,7 @@ export class WorkspaceContext {
       input.planRefs = []
       input.workRefs = []
       this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
+      requestConversationScrollToBottom(targetTabId)
       return
     }
 
@@ -1184,6 +1227,7 @@ export class WorkspaceContext {
     }
 
     this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
+    requestConversationScrollToBottom(targetTabId)
   }
 
   retryLastMessage(tabId: string): void {
@@ -1268,8 +1312,8 @@ export class WorkspaceContext {
   }
   closePlanModal(): void { closePlanModal(this) }
 
-  async approvePlanWithModel(planId: string, mode: 'ask' | 'auto', provider?: AgentId, modelId?: string, generalComment?: string, useWorktree?: boolean): Promise<void> {
-    return approvePlanWithModel(this, planId, mode, provider, modelId, generalComment, useWorktree)
+  async approvePlanWithModel(planId: string, mode: 'ask' | 'auto', opts: ApprovePlanOptions = {}): Promise<void> {
+    return approvePlanWithModel(this, planId, mode, opts)
   }
 
   async rejectPlan(planId: string, comment?: string): Promise<void> {
@@ -1722,7 +1766,6 @@ export class WorkspaceContext {
     beginPrReviewProfile(pr.number, { restart: true })
     markPrReviewProfile('chat-open-start', { hasExistingChat })
     if (existingTabId && this.tabs[existingTabId]) {
-      this.tabs[existingTabId].title = pr.title
       this.setActiveTab(existingTabId)
       this.panes.primaryContent = { kind: 'conversation' }
       this.panes.maximized = false
@@ -1753,8 +1796,6 @@ export class WorkspaceContext {
       reviewSession.permissionMode = 'auto'
       reviewSession.prReview = pr
     }
-    const tab = this.tabs[tabId]
-    if (tab) tab.title = pr.title
     this.setActiveTab(tabId)
     this.panes.primaryContent = { kind: 'conversation' }
     this.panes.maximized = false

@@ -27,6 +27,7 @@ export const RPC_INVOKE_METHODS = [
   'retry',
   'closeTab',
   'resetTabSession',
+  'switchSessionAgent',
 
   // Permission / interaction
   'respondPermission',
@@ -96,6 +97,7 @@ export const RPC_INVOKE_METHODS = [
   'worktreeRestore',
   'continueInWorktree',
   'gitRefreshState',
+  'gitIdentity',
   'gitRegisterEnvironment',
   'runStatus',
   'runStart',
@@ -173,6 +175,7 @@ export const RPC_INVOKE_METHODS = [
 
   // PR review mode (read PRs, enter review, comment, threads)
   'prList',
+  'prNeedsReview',
   'prGetEfforts',
   'prGuideMetadata',
   'prOpenReview',
@@ -239,6 +242,16 @@ export const RPC_INVOKE_METHODS = [
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
 export type RpcMethod = RpcInvokeMethod
+
+export interface SearchSessionsRequest {
+  query: string
+  /** Omit to search every project; set to scope to one git-root. */
+  projectRoot?: string
+  providers?: string[]
+  role?: 'user' | 'assistant'
+  sinceTs?: number
+  limit?: number
+}
 
 export const RPC_TOPICS = [
   'normalized-event',

@@ -9,6 +9,7 @@
   } from "../../../shared/types";
   import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
   import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
+  import PrAutocompleteMenu from "../prs/PrAutocompleteMenu.svelte";
   import SlashCommandMenu from "../input/SlashCommandMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
@@ -48,6 +49,7 @@
     onBlur?: () => void;
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
+    onPrRefClick?: (number: number, title?: string) => void;
     onFileRefClick?: (path: string) => void;
     placeholder?: string;
     /** Blocks ref insertion / command execution (read-only session). */
@@ -83,6 +85,7 @@
     onBlur,
     onPlanRefClick,
     onWorkRefClick,
+    onPrRefClick,
     onFileRefClick,
     placeholder = "",
     readOnly = false,
@@ -222,6 +225,17 @@
   />
 {/if}
 
+{#if ac.showPrMenu}
+  <PrAutocompleteMenu
+    pullRequests={ac.prResults}
+    isLoading={ac.isPrMenuLoading}
+    selectedIndex={ac.prIndex}
+    onSelect={ac.handlePrSelect}
+    anchorRect={ac.cursorAnchorRect}
+    placement={menuPlacement}
+  />
+{/if}
+
 <MarkdownEditor
   bind:this={markdownEditorEl}
   {value}
@@ -238,6 +252,7 @@
   {onBlur}
   {onPlanRefClick}
   {onWorkRefClick}
+  {onPrRefClick}
   {onFileRefClick}
   {placeholder}
   {disabled}

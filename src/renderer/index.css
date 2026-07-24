@@ -188,6 +188,9 @@
   --solus-accent-border-medium: rgba(217, 119, 87, 0.25);
   /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
   --solus-accent-wash: rgba(217, 119, 87, 0.18);
+  /* Brand gold — the logo/favicon mark, not the accent. Deepened here so the
+     small workspace glyph stays legible against parchment. */
+  --solus-brand-gold: #b8924e;
   /* Paintbrush texture for unread items. Two masks multiplied together: an
      anisotropic "bristle" streak (long in x, thin in y, so it drags like brush
      hairs) and a low-frequency "load" blotch where the paint pools thick and
@@ -250,7 +253,7 @@
   /* Popover */
   --solus-popover-bg: rgba(252, 251, 248, 0.99);
   --solus-popover-border: #dddad2;
-  --solus-popover-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.06), 0 0.5rem 1.75rem rgba(0,0,0,0.14), 0 0.125rem 0.375rem rgba(0,0,0,0.07);
+  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.65), 0 0.0625rem 0.125rem rgba(0,0,0,0.05), 0 0.625rem 1.75rem rgba(60,45,30,0.14);
   /* Code */
   --solus-code-bg: #f4f2ec;
   --solus-code-shadow: 0 0.0625rem 0.125rem rgba(0,0,0,0.04);
@@ -441,6 +444,8 @@
   --solus-accent-border-medium: rgba(224, 138, 110, 0.28);
   /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
   --solus-accent-wash: rgba(224, 138, 110, 0.20);
+  /* Brand gold — the logo/favicon mark, at its true value on dark ground. */
+  --solus-brand-gold: #d4af6a;
   /* Status */
   --solus-status-idle: #8a8578;
   --solus-status-running: #e08a6e;
@@ -492,7 +497,7 @@
   /* Popover */
   --solus-popover-bg: rgba(30, 29, 26, 0.99);
   --solus-popover-border: rgba(255, 255, 255, 0.10);
-  --solus-popover-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.45), 0 0.125rem 0.5rem rgba(0,0,0,0.30), 0 1rem 3rem rgba(0,0,0,0.20);
+  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.09), 0 0.125rem 0.375rem rgba(0,0,0,0.35), 0 0.875rem 2.25rem rgba(0,0,0,0.45);
   /* Code */
   --solus-code-bg: #252420;
   --solus-code-shadow: 0 0.0625rem 0.1875rem rgba(0,0,0,0.25), 0 0 0 0.0625rem rgba(255,255,255,0.04);
@@ -962,6 +967,17 @@ input::placeholder {
   text-overflow: ellipsis;
 }
 
+/* Compact editor for the shared PromptComposer: tighter vertical padding so the
+ * pill stays short, with the placeholder re-anchored to match the trimmed
+ * ProseMirror padding (default assumes the taller input-bar padding). */
+.solus-md-editor-wrap.pc-editor .ProseMirror {
+  padding: 0.5rem 0 0.5rem 0.25rem;
+  min-height: 1.375rem;
+}
+.solus-md-editor-wrap.pc-editor .solus-md-placeholder {
+  top: 0.5rem;
+}
+
 /*
  * ─── Inline reference tokens ───
  * Shared shape for the plan / file / slash-command inline atoms inserted
@@ -1019,6 +1035,15 @@ button.solus-token {
 }
 .solus-token--plan-accepted .solus-token__icon { width: 0.75rem; height: 0.75rem; }
 .solus-token--plan-rejected { --solus-token-color: var(--solus-text-tertiary); }
+.solus-token--session {
+  --solus-token-color: var(--solus-accent);
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  gap: 0.1875rem;
+  padding: 0 0.3125rem 0 0.25rem;
+  border-radius: 0.25rem;
+}
+.solus-token--session .solus-token__icon { width: 0.75rem; height: 0.75rem; }
 .solus-token--work {
   --solus-token-color: var(--solus-work-token);
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
@@ -1028,6 +1053,15 @@ button.solus-token {
   border-radius: 0.25rem;
 }
 .solus-token--work .solus-token__icon { width: 0.75rem; height: 0.75rem; }
+.solus-token--pr {
+  --solus-token-color: var(--solus-pr-token, var(--solus-accent));
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  gap: 0.1875rem;
+  padding: 0 0.3125rem 0 0.25rem;
+  border-radius: 0.25rem;
+}
+.solus-token--pr .solus-token__icon { width: 0.75rem; height: 0.75rem; }
 .solus-token--file {
   --solus-token-color: var(--solus-file-token);
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
@@ -1936,6 +1970,34 @@ html.is-mac-editor {
 }
 .solus-tooltip--below {
   transform-origin: top center;
+}
+
+/* ─── Dropdown menu item stagger ─── */
+@keyframes solus-menu-item-in {
+  from { opacity: 0; transform: translateY(-0.1875rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
+    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]),
+  .solus-menu-stagger > [role="menuitem"] {
+    animation: solus-menu-item-in 0.18s ease-out backwards;
+  }
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
+    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(2),
+  .solus-menu-stagger > [role="menuitem"]:nth-child(2) { animation-delay: 50ms; }
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
+    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(3),
+  .solus-menu-stagger > [role="menuitem"]:nth-child(3) { animation-delay: 100ms; }
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
+    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(4),
+  .solus-menu-stagger > [role="menuitem"]:nth-child(4) { animation-delay: 150ms; }
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
+    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(5),
+  .solus-menu-stagger > [role="menuitem"]:nth-child(5) { animation-delay: 200ms; }
+  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
+    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(n+6),
+  .solus-menu-stagger > [role="menuitem"]:nth-child(n+6) { animation-delay: 250ms; }
 }
 
 @keyframes backdrop-fade {

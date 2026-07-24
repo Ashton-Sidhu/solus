@@ -1,4 +1,4 @@
-import type { AgentId, Plan, PlanDescriptor, PermissionOption, SessionMeta } from '../../../shared/types'
+import type { AgentId, Plan, PlanDescriptor, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '../../../shared/types'
 import { MODEL_PROFILES, planKey, encodePathAsFolder } from '../../../shared/types'
 import type { ModelProfile } from '../../../shared/types'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
@@ -74,14 +74,24 @@ export function requestConversationScrollToBottom(tabId: string): void {
 
 // ─── Plan approval / rejection ───
 
+export interface ApprovePlanOptions {
+  /** Pass provider + modelId together, and only when they differ from the
+   *  session's current choice — the pair triggers a provider/model switch. */
+  provider?: AgentId
+  modelId?: string
+  reasoningEffort?: ReasoningEffort
+  generalComment?: string
+  useWorktree?: boolean
+  /** Extra references from the approval note's editor. */
+  planRefs?: PlanReference[]
+  workRefs?: WorkReference[]
+}
+
 export async function approvePlanWithModel(
   ctx: WorkspaceContext,
   planId: string,
   mode: 'ask' | 'auto',
-  provider?: AgentId,
-  modelId?: string,
-  generalComment?: string,
-  useWorktree?: boolean,
+  opts: ApprovePlanOptions = {},
 ): Promise<void> {
   const wasPreview = !!ctx.planStore.previewDescriptor
   if (wasPreview) await resumeFromPreview(ctx)
@@ -107,21 +117,23 @@ export async function approvePlanWithModel(
   window.solus.resetTabSession(ctx.ctx)
   session.agentSessionId = null
 
-  if (provider && modelId) {
-    session.provider = provider
-    ctx.settings.update({ activeAgent: provider })
-    const profile = MODEL_PROFILES[provider as keyof typeof MODEL_PROFILES]?.[modelId]
-    session.modelConfig = { modelId, reasoningEffort: (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: null, fastMode: false }
+  if (opts.provider && opts.modelId) {
+    session.provider = opts.provider
+    ctx.settings.update({ activeAgent: opts.provider })
+    const profile = MODEL_PROFILES[opts.provider as keyof typeof MODEL_PROFILES]?.[opts.modelId]
+    session.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: null, fastMode: false }
     session.sessionModel = null
+  } else if (opts.reasoningEffort) {
+    session.modelConfig.reasoningEffort = opts.reasoningEffort
   }
   session.permissionMode = mode
 
-  if (wasPreview && useWorktree && !session.gitContext) {
+  if (wasPreview && opts.useWorktree && !session.gitContext) {
     await ctx.environment.refreshTab(ctx, { tabId, cwd: plan.cwd })
   }
 
-  if (useWorktree !== undefined) {
-    session.worktreeBaseBranch = useWorktree ? (session.gitContext?.targetBranch ?? null) : null
+  if (opts.useWorktree !== undefined) {
+    session.worktreeBaseBranch = opts.useWorktree ? (session.gitContext?.targetBranch ?? null) : null
   }
 
   const params = new URLSearchParams({
@@ -135,14 +147,18 @@ export async function approvePlanWithModel(
 
   let message = `Implement this plan: ${planLink}`
   const hasInline = plan.comments.length > 0
-  if (generalComment || hasInline) {
+  if (opts.generalComment || hasInline) {
     const parts: string[] = []
-    if (generalComment) parts.push(generalComment)
+    if (opts.generalComment) parts.push(opts.generalComment)
     if (hasInline) parts.push(`Inline comments:\n${formatInlineComments(plan.comments)}`)
     message += `\n\nNotes:\n${parts.join('\n\n')}`
   }
 
-  tab.input.planRefs = [{ planId, sessionId: plan.sessionId, planToolUseId: plan.planToolUseId, title: plan.title, status: 'accepted' }]
+  tab.input.planRefs = [
+    { planId, sessionId: plan.sessionId, planToolUseId: plan.planToolUseId, title: plan.title, status: 'accepted' },
+    ...(opts.planRefs ?? []).filter((r) => r.planId !== planId),
+  ]
+  tab.input.workRefs = opts.workRefs ? [...opts.workRefs] : []
   ctx.sendMessage(message)
   requestConversationScrollToBottom(tabId)
 }

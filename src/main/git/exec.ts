@@ -13,6 +13,9 @@ export interface GitExecOptions {
   timeout?: number
   /** Max stdout bytes. Defaults to Node's 1 MiB; raise for whole-repo diffs. */
   maxBuffer?: number
+  /** Return stdout verbatim. Defaults to trimming — which is wrong whenever the
+   *  output is file content, where trailing blank lines are meaningful. */
+  raw?: boolean
 }
 
 export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
@@ -32,5 +35,5 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
     maxBuffer: opts.maxBuffer,
     env: getCliEnv(opts.env),
   })
-  return stdout.trim()
+  return opts.raw ? stdout : stdout.trim()
 }

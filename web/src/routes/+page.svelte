@@ -241,7 +241,6 @@
 				</svg>
 				Download for macOS
 			</button>
-			<span class="v2-meta">Free during beta · macOS 13+</span>
 		</div>
 		<ul class="v2-trust" aria-label="What Solus is">
 			<li>Keyboard-first</li>

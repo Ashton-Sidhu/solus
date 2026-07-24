@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
 import { CodexTurnNormalizer } from '../../src/main/agents/codex/codex-event-normalizer'
+import { codexItemToMessage } from '../../src/main/agents/codex/codex-utils'
 import type { NormalizedEvent } from '../../src/shared/types'
 
 type RawCodexEvent = { method: string; params: any }
@@ -76,6 +77,37 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
+  test('normalizes the Claude dynamic tool as a subagent card with its input metadata', () => {
+    const input = {
+      prompt: 'Inspect the auth flow and report risks',
+      description: 'Review auth flow',
+      model: 'claude-sonnet-5',
+      reasoning_effort: 'high',
+      read_only: true,
+    }
+
+    expect(normalizeCodexNotification('item/started', {
+      item: {
+        id: 'claude-agent-1',
+        type: 'dynamicToolCall',
+        namespace: 'solus',
+        tool: 'claude_subagent',
+        arguments: input,
+      },
+    })).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'solus.claude_subagent',
+        toolId: 'claude-agent-1',
+        index: 0,
+        toolInput: JSON.stringify(input),
+        parentToolUseId: undefined,
+        isSubagent: true,
+        subagentType: 'claude',
+      },
+    ])
+  })
+
   test('drops streamed child agent text and delivers it whole on completion', () => {
     // Sub-agent prose no longer streams; parented deltas are dropped and the full
     // text lands on item/completed as a parented assistant_message.
@@ -106,6 +138,27 @@ describe('normalizeCodexNotification', () => {
       { type: 'tool_call_update', toolId: 'agent-1', toolInput: 'No auth regressions found.' },
       { type: 'tool_call_complete', index: 0, toolId: 'agent-1' },
       { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false },
+    ])
+  })
+
+  test('settles the Claude dynamic-tool card without overwriting its input', () => {
+    expect(normalizeCodexNotification('item/completed', {
+      item: {
+        id: 'claude-agent-1',
+        type: 'dynamicToolCall',
+        tool: 'claude_subagent',
+        status: 'completed',
+        success: true,
+        contentItems: [{ type: 'inputText', text: 'No auth regressions found.' }],
+      },
+    })).toEqual([
+      { type: 'tool_call_complete', index: 0, toolId: 'claude-agent-1' },
+      {
+        type: 'tool_result',
+        toolUseId: 'claude-agent-1',
+        content: 'No auth regressions found.',
+        isError: false,
+      },
     ])
   })
 
@@ -309,5 +362,25 @@ describe('CodexTurnNormalizer', () => {
     ])
     expect(normalizer.summary.sawRateLimit).toBe(true)
     expect(normalizer.summary.sawProtocolError).toBe(true)
+  })
+})
+
+describe('Codex subagent history', () => {
+  test('keeps the Claude dynamic tool input and final answer for card reloads', () => {
+    const input = { prompt: 'Inspect auth', description: 'Review auth' }
+    expect(codexItemToMessage({
+      id: 'claude-agent-1',
+      type: 'dynamicToolCall',
+      tool: 'claude_subagent',
+      arguments: input,
+      contentItems: [{ type: 'inputText', text: 'Auth is safe.' }],
+      success: true,
+    }, 123)).toEqual({
+      role: 'tool',
+      content: 'Auth is safe.',
+      toolName: 'claude_subagent',
+      toolInput: JSON.stringify(input),
+      timestamp: 123,
+    })
   })
 })

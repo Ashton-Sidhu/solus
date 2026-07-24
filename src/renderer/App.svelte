@@ -120,6 +120,9 @@
           title: tab.title ?? "New Tab",
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
+          handoffFrom: sess?.handoffFrom
+            ? { ...sess.handoffFrom }
+            : undefined,
           workingDirectory:
             sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
           additionalDirs: sess ? [...sess.additionalDirs] : [],

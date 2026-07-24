@@ -16,7 +16,7 @@ import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
 import { SvelteMap } from 'svelte/reactivity'
 
 const PR_CACHE_TTL_MS = 30_000
-const NEEDS_REVIEW_POLL_MS = 5 * 60_000
+const NEEDS_REVIEW_POLL_MS = 15 * 60_000
 
 interface CacheEntry<T> {
   value?: T
@@ -145,15 +145,6 @@ export class PrsStore {
       !!opts.force,
       () => window.solus.prList(safeCtx, safeFilter, page),
     )
-  }
-
-  private async loadEveryPage(ctx: IpcContext, filter: PrFilter, force = false): Promise<PullRequestSummary[]> {
-    const items: PullRequestSummary[] = []
-    for (let page = 1; ; page++) {
-      const result = await this.loadFor(ctx, filter, { force, page })
-      items.push(...result.items)
-      if (!result.hasMore) return items
-    }
   }
 
   async loadAll(ctx: IpcContext, opts: { force?: boolean } = {}): Promise<void> {
@@ -357,10 +348,10 @@ export class PrsStore {
       this.needsReviewContextKey = key
       this.needsReviewItems = []
     }
-    const promise: Promise<void> = this.loadEveryPage(ctx, { state: 'open' }, true)
+    const promise: Promise<void> = window.solus.prNeedsReview(snapshotCtx(ctx))
       .then((items) => {
         if (seq !== this.needsReviewLoadSeq || this.needsReviewContextKey !== key) return
-        this.needsReviewItems = items.filter((pr) => pr.needsMyReview)
+        this.needsReviewItems = items
       })
       .finally(() => {
         if (this.needsReviewInFlight?.promise === promise) this.needsReviewInFlight = null

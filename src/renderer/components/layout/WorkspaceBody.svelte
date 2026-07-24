@@ -6,6 +6,7 @@
     getRunStore,
     getRunDockStore,
     getSettingsContext,
+    environmentBranchKey,
   } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import RunDock from "../run/RunDock.svelte";
@@ -147,7 +148,12 @@
     panes.chatTabIn("secondary", session.activeTabId),
   );
   const visibleTabIds = $derived.by(() =>
-    visibleWorkspaceTabIds(session, sess, splitTabId),
+    visibleWorkspaceTabIds(
+      session,
+      session.activeTabId,
+      splitTabId,
+      (tabId) => environmentBranchKey(session.environment.environmentFor(tabId)),
+    ),
   );
 
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the

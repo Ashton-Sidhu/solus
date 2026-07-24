@@ -66,8 +66,6 @@ export interface AgentBackend extends EventEmitter {
   /** When `limit` is set, returns only the most recent `limit` messages (windowed load for fast hydration). */
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>
-  /** Rich metadata for one session, reading a single file instead of scanning the project. */
-  getSessionInfo?(sessionId: string, projectPath?: string): Promise<SessionMeta | null>
   listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   getThreadGoal?(threadId: string): Promise<ThreadGoal | null>

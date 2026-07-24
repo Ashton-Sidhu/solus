@@ -32,7 +32,7 @@
   } from "../../lib/sessionUtils";
   import SidePanel from "../layout/SidePanel.svelte";
   import * as Sidebar from "../ui/sidebar";
-  import * as ContextMenu from "../ui/context-menu";
+  import SessionContextMenu from "./SessionContextMenu.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
 
   interface Props {
@@ -75,11 +75,6 @@
     "focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]";
   const dividerAfter =
     "after:content-[''] after:absolute after:bottom-0 after:left-3.5 after:right-3.5 after:h-px after:bg-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)]";
-  // Accent rail marking the current row: a 2px pill on the row's left edge
-  // that grows in when the row gains `data-active`, so switching sessions
-  // reads as the rail travelling rather than a background swap alone.
-  const activeRail =
-    "relative before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-3.5 before:w-0.5 before:rounded-full before:bg-(--solus-accent) before:scale-y-0 before:opacity-0 before:transition-[transform,opacity] before:duration-200 before:ease-[cubic-bezier(0.16,1,0.3,1)] data-active:before:scale-y-100 data-active:before:opacity-100";
   // Active / hover accent washes shared by pinned, branch and child rows.
   const rowActiveWash =
     "bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)] border-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]";
@@ -89,8 +84,7 @@
     "hover:bg-(--solus-surface-hover) hover:border-[color-mix(in_srgb,var(--solus-container-border)_80%,transparent)]";
   // Top-nav card cluster (Plans / Folio / Automations / …).
   const navCardBase =
-    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) " +
-    activeRail;
+    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)";
   const navCardActive =
     "text-(--solus-text-primary) bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]";
   const navCardIcon =
@@ -218,14 +212,6 @@
     session.openTabInSplit(tabId);
     onSessionSelect?.();
   }
-
-  function openContextSessionInSplit() {
-    const target = sessionContextMenu;
-    closeSessionContextMenu();
-    if (!target) return;
-    if (target.kind === "pinned") void openPinnedSessionInSplit(target.pin);
-    else openTabInSplit(target.tabId);
-  }
 </script>
 
 {#snippet pinnedSection()}
@@ -241,7 +227,7 @@
             {@const isActive = !!openTabId && openTabId === session.activeTabId}
             <Sidebar.MenuItem>
               <Sidebar.MenuButton
-                class="gap-1.5 rounded-[0.4375rem] border border-transparent pl-8 pr-8 font-normal active:scale-[0.96] {activeRail} {focusRing} {isActive
+                class="gap-1.5 rounded-[0.4375rem] border border-transparent pl-8 pr-8 font-normal active:scale-[0.96] {focusRing} {isActive
                   ? rowActiveWash
                   : rowHoverWash}"
                 {isActive}
@@ -494,7 +480,7 @@
         {@const showProjectActive = isProjectActive && collapsed}
         <Sidebar.MenuItem>
           <div
-            class="group flex items-center gap-[0.3125rem] w-full h-8 px-2 cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {activeRail} {focusRing} {showProjectActive
+            class="group flex items-center gap-[0.3125rem] w-full h-8 px-2 cursor-pointer select-none rounded-[0.4375rem] outline-none transition-[background] duration-150 {focusRing} {showProjectActive
               ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
               : 'bg-transparent hover:bg-(--solus-surface-hover)'}"
             role="button"
@@ -532,7 +518,7 @@
                 )}
                 {@const showBranchActive = isActiveBranch && !isExpanded}
                 <div
-                  class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {activeRail} {focusRing} {showBranchActive
+                  class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
                     ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
                     : `border-transparent bg-transparent ${rowHoverWash}`}"
                   style="--branch-kind-color:{branchKindColor(branch.kind)}"
@@ -617,7 +603,7 @@
                       {@const child = sidebarStore.childForTab(tabId)}
                       {@const showChildActive = isActiveBranch && child.active}
                       <div
-                        class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {activeRail} {focusRing} {showChildActive
+                        class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                           ? `${rowActiveWash} text-(--solus-text-primary)`
                           : `border-transparent bg-transparent ${rowHoverWash}`}"
                         role="button"
@@ -668,7 +654,7 @@
     <Sidebar.Menu>
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
-          class="group flex items-center gap-2 w-full h-[1.875rem] px-2.5 rounded-lg bg-transparent cursor-pointer text-(--solus-text-tertiary) outline-none select-none transition-[background,transform] duration-150 hover:bg-(--solus-surface-hover) {activeRail} {focusRing} {session.settingsOpen
+          class="group flex items-center gap-2 w-full h-[1.875rem] px-2.5 rounded-lg bg-transparent cursor-pointer text-(--solus-text-tertiary) outline-none select-none transition-[background,transform] duration-150 hover:bg-(--solus-surface-hover) {focusRing} {session.settingsOpen
             ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]'
             : ''}"
           isActive={session.settingsOpen}
@@ -697,20 +683,24 @@
 </SidePanel>
 
 {#if sessionContextMenu}
-  <ContextMenu.Root
-    onOpenChange={(isOpen) => {
-      if (!isOpen) closeSessionContextMenu();
-    }}
-  >
-    <ContextMenu.PointTrigger
+  {#if sessionContextMenu.kind === "tab"}
+    <SessionContextMenu
       x={sessionContextMenu.x}
       y={sessionContextMenu.y}
+      tabId={sessionContextMenu.tabId}
+      showSplit
+      onClose={closeSessionContextMenu}
     />
-    <ContextMenu.Content class="min-w-40">
-      <ContextMenu.Item onSelect={openContextSessionInSplit}>
-        <ColumnsIcon />
-        Open in split
-      </ContextMenu.Item>
-    </ContextMenu.Content>
-  </ContextMenu.Root>
+  {:else}
+    {@const pin = sessionContextMenu.pin}
+    <SessionContextMenu
+      x={sessionContextMenu.x}
+      y={sessionContextMenu.y}
+      tabId={sidebarStore.openTabIdForPinned(pin) ?? null}
+      sessionId={pin.sessionId}
+      showSplit
+      onOpenInSplit={() => void openPinnedSessionInSplit(pin)}
+      onClose={closeSessionContextMenu}
+    />
+  {/if}
 {/if}

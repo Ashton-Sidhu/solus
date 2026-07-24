@@ -15,8 +15,6 @@
     CaretLeftIcon,
     CaretRightIcon,
     ColumnsIcon,
-    GitForkIcon,
-    TreeStructureIcon,
     FunnelSimpleIcon,
     SidebarSimpleIcon,
     HandPalmIcon,
@@ -32,7 +30,7 @@
   import { createTabScroll } from "../../lib/tabScroll.svelte";
   import SessionProgressRing from "./SessionProgressRing.svelte";
   import { shouldShowSessionProgressRing } from "./lib/session-progress-ring";
-  import * as ContextMenu from "../ui/context-menu";
+  import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import * as Tabs from "../ui/tabs";
   import {
     getAttentionState,
@@ -275,32 +273,6 @@
 
   function closeContextMenu() {
     contextMenu = null;
-  }
-
-  async function forkFromContextMenu(tabId: string) {
-    closeContextMenu();
-    await session.forkTab(tabId);
-  }
-
-  async function continueWorktreeFromContextMenu(tabId: string) {
-    closeContextMenu();
-    await session.continueInWorktree(tabId);
-  }
-
-  function openInSplitFromContextMenu(tabId: string) {
-    closeContextMenu();
-    session.openTabInSplit(tabId);
-  }
-
-  function closeSplitFromContextMenu() {
-    closeContextMenu();
-    session.closeSplitChat();
-    requestInputFocus();
-  }
-
-  function closeFromContextMenu(tabId: string) {
-    closeContextMenu();
-    session.closeTab(tabId);
   }
 
   // Edge fades appear only on the side that can actually scroll, so the masked
@@ -701,53 +673,11 @@
 </Tabs.Root>
 
 {#if contextMenu}
-  {@const ctxSess = session.sessionFor(contextMenu.tabId)}
-  <ContextMenu.Root onOpenChange={(open) => { if (!open) closeContextMenu() }}>
-    <ContextMenu.PointTrigger x={contextMenu.x} y={contextMenu.y} />
-    <ContextMenu.Content class="min-w-44">
-    {#if ctxSess?.agentSessionId}
-      <ContextMenu.Item onSelect={() => forkFromContextMenu(contextMenu!.tabId)}>
-        <GitForkIcon />
-        Fork Session
-        <ContextMenu.Shortcut>⌥F</ContextMenu.Shortcut>
-      </ContextMenu.Item>
-      {#if !ctxSess?.gitContext?.worktreePath}
-        <ContextMenu.Item
-          disabled={session.isContinuingInWorktree(contextMenu.tabId)}
-          onSelect={() => continueWorktreeFromContextMenu(contextMenu!.tabId)}
-        >
-          <TreeStructureIcon
-            class={session.isContinuingInWorktree(contextMenu.tabId)
-              ? "tab-status-spin"
-              : ""}
-          />
-          {session.isContinuingInWorktree(contextMenu.tabId)
-            ? "Creating Worktree…"
-            : "Continue in Worktree"}
-          {#if !session.isContinuingInWorktree(contextMenu.tabId)}
-            <ContextMenu.Shortcut>⌥W</ContextMenu.Shortcut>
-          {/if}
-        </ContextMenu.Item>
-      {/if}
-      <ContextMenu.Separator />
-    {/if}
-    {#if variant === "editor"}
-      {#if contextMenu.tabId === splitTabId}
-        <ContextMenu.Item onSelect={closeSplitFromContextMenu}>
-          <ColumnsIcon />
-          Close Split
-        </ContextMenu.Item>
-      {:else}
-        <ContextMenu.Item onSelect={() => openInSplitFromContextMenu(contextMenu!.tabId)}>
-          <ColumnsIcon />
-          Open in Split
-        </ContextMenu.Item>
-      {/if}
-    {/if}
-    <ContextMenu.Item variant="destructive" onSelect={() => closeFromContextMenu(contextMenu!.tabId)}>
-      <XIcon />
-      Close Tab
-    </ContextMenu.Item>
-    </ContextMenu.Content>
-  </ContextMenu.Root>
+  <SessionContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    tabId={contextMenu.tabId}
+    showSplit={variant === "editor"}
+    onClose={closeContextMenu}
+  />
 {/if}

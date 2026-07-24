@@ -105,6 +105,7 @@ export const KEYBINDINGS = {
   'plan-review.reject-revise':    { combo: { alt: true, code: 'KeyV' },                    scope: 'plan-action-bar',    label: 'Reject with feedback',     group: 'Review' },
   'plan-review.focus-comment':    { combo: { alt: true, code: 'KeyL' },                    scope: 'plan-action-bar',    label: 'Focus comment field',      group: 'Review' },
   'plan-review.toggle-worktree':  { combo: { alt: true, code: 'KeyW' },                    scope: 'plan-action-bar',    label: 'Toggle worktree',          group: 'Review' },
+  'plan-review.toggle-collapsed': { combo: { alt: true, code: 'KeyD' },                    scope: 'plan-action-bar',    label: 'Collapse / expand bar',    group: 'Review' },
 
   // ── Plan modal ─────────────────────────────────────────────────────────────
   'plan-modal.close':             { combo: { code: 'Escape' },                             scope: 'plan-modal',         label: 'Close',                    group: 'Modal' },

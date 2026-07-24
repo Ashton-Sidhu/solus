@@ -1,7 +1,7 @@
 // Reference-autocomplete state machine, decoupled from any editor host.
 //
-// It owns the four completion channels — slash commands, @-files, #plans and
-// %works — including their filter state, candidate fetching, keyboard handling
+// It owns the five completion channels — slash commands, @-files, #plans,
+// %works and !PRs — including their filter state, candidate fetching, keyboard handling
 // and reference insertion. It operates on a Tiptap `Editor` (via the host
 // accessors) rather than a specific component, so the same autocomplete can be
 // mounted around any editor surface (the prompt input today, the document
@@ -17,7 +17,9 @@ import type {
   Work,
   WorkReference,
 } from "../../../shared/types";
+import type { PullRequestSummary } from "../../../shared/providers";
 import type { PlanRefAttrs } from "./planRefExtension";
+import type { PrRefAttrs } from "./prRefExtension";
 import type { WorkRefAttrs } from "./workRefExtension";
 import {
   SLASH_COMMANDS,
@@ -35,6 +37,7 @@ export const FILE_TRIGGER_RE =
   /(?:(?<![^\s])@([^\s]*)|(~\/[^\s]*|\.\.?\/[^\s]*))$/;
 export const PLAN_TRIGGER_RE = /(?:^|\s)#([^\s]*)$/;
 export const WORK_TRIGGER_RE = /(?:^|\s)%([^\s]*)$/;
+export const PR_TRIGGER_RE = /(?:^|\s)!([^\s]*)$/;
 
 /** Imperative handle onto the file menu component (it owns its own selection).
  *  Signatures mirror FileAutocompleteMenu's exports so the instance is directly
@@ -96,6 +99,13 @@ export class AutocompleteController {
   workMenuLoading = $state(false);
   workMenuUsesInlineTrigger = $state(false);
   #workLoadRequestId = 0;
+
+  // ─── Pull request autocomplete ───
+  prFilter = $state<string | null>(null);
+  prIndex = $state(0);
+  prCandidates = $state<PullRequestSummary[]>([]);
+  prMenuLoading = $state(false);
+  #prLoadRequestId = 0;
 
   constructor(private deps: AutocompleteDeps) {}
 
@@ -178,6 +188,21 @@ export class AutocompleteController {
     ).slice(0, 20);
   });
 
+  prResults = $derived.by(() => {
+    if (this.prFilter === null) return [] as PullRequestSummary[];
+    const query = this.prFilter.trim().toLowerCase().replace(/^#/, "");
+    return (
+      query
+        ? this.prCandidates.filter(
+            (pullRequest) =>
+              String(pullRequest.number).includes(query) ||
+              pullRequest.title.toLowerCase().includes(query) ||
+              pullRequest.author.toLowerCase().includes(query),
+          )
+        : this.prCandidates
+    ).slice(0, 20);
+  });
+
   // ─── Menu visibility ───
   showSlashMenu = $derived.by(
     () => this.slashFilter !== null && !this.deps.readOnly(),
@@ -207,6 +232,17 @@ export class AutocompleteController {
       this.workFilter !== null &&
       (this.workResults.length > 0 || this.isWorkMenuLoading),
   );
+  isPrMenuLoading = $derived.by(
+    () =>
+      this.prFilter !== null &&
+      this.prMenuLoading &&
+      this.prResults.length === 0,
+  );
+  showPrMenu = $derived.by(
+    () =>
+      this.prFilter !== null &&
+      (this.prResults.length > 0 || this.isPrMenuLoading),
+  );
 
   // ─── Menu helpers ───
 
@@ -228,6 +264,7 @@ export class AutocompleteController {
     this.slashFilter = null;
     this.planFilter = null;
     this.workFilter = null;
+    this.prFilter = null;
     this.workMenuUsesInlineTrigger = false;
     this.#clearFileCompletion();
   }
@@ -362,6 +399,41 @@ export class AutocompleteController {
     }
   }
 
+  #updatePrFilter(textBeforeCursor: string) {
+    const match = textBeforeCursor.match(PR_TRIGGER_RE);
+    if (match) {
+      const isOpening = this.prFilter === null;
+      this.prFilter = match[1] ?? "";
+      this.prIndex = 0;
+      if (isOpening) void this.#loadPullRequestsForMenu();
+    } else {
+      this.prFilter = null;
+    }
+  }
+
+  async #loadPullRequestsForMenu() {
+    const requestId = ++this.#prLoadRequestId;
+    this.prMenuLoading = true;
+    try {
+      const workingDirectory = this.deps.workingDirectory();
+      const context = workingDirectory
+        ? this.deps.session.ctxForDirectory(workingDirectory)
+        : this.deps.session.ctx;
+      const result = await this.deps.session.prsStore.loadFor(
+        context,
+        { state: "open" },
+      );
+      if (requestId === this.#prLoadRequestId) {
+        this.prCandidates = [...result.items].sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
+      }
+    } finally {
+      if (requestId === this.#prLoadRequestId) this.prMenuLoading = false;
+    }
+  }
+
   #handleWorkMenuKey(e: KeyboardEvent): boolean {
     if (
       this.#handleMenuKey(
@@ -466,6 +538,17 @@ export class AutocompleteController {
     this.deps.focusEditor();
   };
 
+  handlePrSelect = (pullRequest: PullRequestSummary) => {
+    if (this.deps.readOnly()) return;
+    const attrs: PrRefAttrs = {
+      number: pullRequest.number,
+      title: pullRequest.title,
+    };
+    refs.insertPrReference(this.deps.getEditor(), attrs, PR_TRIGGER_RE);
+    this.clearCompletions();
+    this.deps.focusEditor();
+  };
+
   handleSlashSelect = (cmd: SlashCommand) => {
     if (this.deps.readOnly()) return;
     const isSolusBuiltIn = SLASH_COMMANDS.some(
@@ -494,9 +577,42 @@ export class AutocompleteController {
 
   // ─── Core handlers ───
 
+  /** Backspace against a file chip restores the `@path` text it was picked
+   *  from rather than deleting it, so a mis-picked deep path stays editable.
+   *  Restoring the text re-matches FILE_TRIGGER_RE on the next editor update,
+   *  which reopens the menu at that path. */
+  #handleFileRefBackspace(e: KeyboardEvent): boolean {
+    if (e.key !== "Backspace") return false;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    if (this.deps.readOnly()) return false;
+    const editor = this.deps.getEditor();
+    const selection = editor?.state.selection;
+    if (!selection?.empty) return false;
+    const nodeBefore = selection.$from.nodeBefore;
+    if (nodeBefore?.type.name !== "fileReference") return false;
+    e.preventDefault();
+    refs.unwrapFileReference(editor, selection.from - nodeBefore.nodeSize);
+    return true;
+  }
+
   /** Returns true when a menu consumed the key (caller should not handle it). */
   handleKeyDown(e: KeyboardEvent): boolean {
+    if (this.#handleFileRefBackspace(e)) return true;
     if (this.showWorkMenu && this.#handleWorkMenuKey(e)) return true;
+    if (
+      this.showPrMenu &&
+      this.#handleMenuKey(
+        e,
+        this.prIndex,
+        this.prResults.length,
+        (n) => (this.prIndex = n),
+        () => this.handlePrSelect(this.prResults[this.prIndex]),
+        () => {
+          this.prFilter = null;
+        },
+      )
+    )
+      return true;
     if (
       this.showPlanMenu &&
       this.#handleMenuKey(
@@ -563,12 +679,14 @@ export class AutocompleteController {
     this.#updateFileFilter(textBeforeCursor);
     this.#updatePlanFilter(textBeforeCursor);
     this.#updateWorkFilter(textBeforeCursor);
+    this.#updatePrFilter(textBeforeCursor);
     if (trackedRefsChanged) this.syncRefs();
     if (
       this.slashFilter !== null ||
       this.fileFilter !== null ||
       this.planFilter !== null ||
-      this.workFilter !== null
+      this.workFilter !== null ||
+      this.prFilter !== null
     ) {
       this.updateCursorAnchor();
     }

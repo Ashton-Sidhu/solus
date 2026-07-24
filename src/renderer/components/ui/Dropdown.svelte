@@ -115,7 +115,7 @@
       y: align === 'top' ? 4 : align === 'left' ? 0 : -4,
       duration: 120,
     }}
-    class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-(--solus-popover-shadow) backdrop-blur-xl {extraClass}"
+    class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-(--solus-popover-shadow) backdrop-blur-xl {extraClass}"
     style="
       position:fixed;
       {align === 'top' || align === 'left' ? `top:${pos.top}px` : `bottom:${pos.bottom}px`};

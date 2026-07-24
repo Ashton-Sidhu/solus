@@ -4,6 +4,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import type { GuideSection, LedgerRecord } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
+  import type { FileVersions } from "../../../lib/diff-expandable";
   import { fileTypeIcon } from "../../../lib/fileTypeIcon";
   import { detectMovedBlocksInPatches } from "../../../lib/diff-moves";
   import { ensureIconCollections } from "../../diagram/iconify";
@@ -25,6 +26,7 @@
     section,
     records,
     patchByPath,
+    fileVersions,
     onFileJump,
     comments = [],
     onCommentSave,
@@ -35,6 +37,8 @@
     section: GuideSection;
     records: LedgerRecord[];
     patchByPath: Map<string, string>;
+    /** Both versions of each changed file, so a card's hunk gaps can expand. */
+    fileVersions?: Map<string, FileVersions>;
     /** When set, the diff-card "open" action routes here (the PR-review surface
      *  switches to its Diff tab) instead of opening a separate file editor. */
     onFileJump?: (path: string) => void;
@@ -256,6 +260,7 @@
                 <GuideFileDiff
                   {patch}
                   filePath={file.path}
+                  versions={fileVersions?.get(file.path)}
                   {moveAnalysis}
                   comments={commentsByPath.get(file.path) ?? []}
                   onSaveComment={onCommentSave}

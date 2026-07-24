@@ -7,6 +7,7 @@ export const nextMsgId = () => `msg-${++msgCounter}`
 // which matches Codex directly and Claude after stripping the `mcp__solus__` prefix.
 const SOLUS_TOOL_LABELS: Record<string, string> = {
   list_works: 'List works',
+  search_works: 'Search works',
   read_work: 'Read work',
   create_work: 'Create work',
   update_work: 'Update work',

@@ -58,6 +58,16 @@ export interface SessionEnvironment {
   status: GitState | null | undefined
 }
 
+export function environmentProjectKey(environment: SessionEnvironment): string {
+  return environment.repoRoot ?? environment.cwd ?? '~'
+}
+
+export function environmentBranchKey(environment: SessionEnvironment): string {
+  const branch = environment.branch ?? 'no branch'
+  const worktreeSuffix = environment.isolated ? ' (worktree)' : ''
+  return `${environmentProjectKey(environment)}::${branch}${worktreeSuffix}`
+}
+
 const WORKSPACE_NAME = 'Workspace'
 const PENDING_WORKTREE_NAME = 'New worktree'
 
@@ -147,6 +157,36 @@ export class SessionEnvironmentStore {
     const worktreePath = session?.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
       ?? (session ? !!session.worktreeBaseBranch : workspace.settings.worktreeEnabled)
+    // On a genuinely cold load nothing can render a session's environment until
+    // Git answers: the sidebar can't group it, the home can't offer the worktree
+    // toggle. Land identity first — repo + branch, all O(1) — and let the
+    // working-tree scan below overwrite it. Both passes agree on every field, so
+    // nothing re-keys or flickers. A cold target has no checkout yet, so the
+    // provisional answer is always a plain branch.
+    const coldTarget = session
+      ? session.gitContext === null
+      : workspace.tabOrder.length === 0 && !workspace.globalDefaults.gitContext
+    if (coldTarget && this.statusFor(cwd) === undefined) {
+      const identity = await window.solus.gitIdentity(cwd).catch(() => null)
+      const current = workspace.sessionFor(tabId)
+      const currentCwd = current?.gitContext?.worktreePath ?? current?.workingDirectory
+      const stale = session
+        ? current !== session || currentCwd !== cwd
+        : workspace.globalDefaults.workingDirectory !== cwd
+      if (identity && !stale) {
+        const provisional = {
+          gitContext: gitCheckoutFromState(identity),
+          worktreeBaseBranch: worktreeRequested ? identity.targetBranch : null,
+        }
+        if (session) {
+          session.gitContext = provisional.gitContext
+          session.worktreeBaseBranch = provisional.worktreeBaseBranch
+        } else {
+          workspace.config.applyGlobalStartTarget(provisional)
+        }
+      }
+    }
+
     const sessionStartTarget = await this.resolveSessionStartTarget(cwd, {
       force: opts.force,
       worktreePath,

@@ -71,8 +71,11 @@
     <DropdownMenu.RadioGroup value={permissionMode}>
       {#each permissionOptions as opt (opt.id)}
         {@const Icon = opt.icon}
-        <DropdownMenu.RadioItem value={opt.id} onSelect={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}>
-          <Icon size={12} weight={opt.weight} class="shrink-0" />
+        {@const isChecked = permissionMode === opt.id}
+        <DropdownMenu.RadioItem value={opt.id} class="gap-2.5 pl-1.5" onSelect={() => selectPermissionMode(opt.id as 'ask' | 'auto' | 'plan')}>
+          <span class="flex size-6 shrink-0 items-center justify-center rounded-[7px] transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover)'}">
+            <Icon size={13} weight={opt.weight} class="size-3.5" />
+          </span>
           <span>{opt.label}</span>
         </DropdownMenu.RadioItem>
       {/each}

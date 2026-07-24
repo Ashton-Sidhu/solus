@@ -66,7 +66,7 @@
 
 <div class={isComfortable ? "px-2.5 pb-2" : "px-2 pb-1.5"}>
   <div
-    class="flex items-center gap-1.5 rounded-lg bg-(--solus-surface-hover) border border-(--solus-popover-border) {isComfortable
+    class="flex items-center gap-1.5 rounded-[9px] bg-(--solus-code-bg) shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] {isComfortable
       ? 'px-2.5 py-1.5'
       : 'px-2 py-1'}"
   >
@@ -102,16 +102,20 @@
       {@const isFocused = index === focusedIndex}
       <div {style}>
         <button
-          class="relative w-full flex items-center justify-between transition-colors {isComfortable
-            ? 'px-3.5 text-xs lg:text-[0.8125rem]'
-            : 'px-3 text-sm sm:text-[0.6875rem] lg:text-xs'}"
+          class="relative mx-1 w-[calc(100%-0.5rem)] flex items-center justify-between rounded-[9px] transition-colors {isComfortable
+            ? 'px-2.5 text-xs lg:text-[0.8125rem]'
+            : 'px-2 text-sm sm:text-[0.6875rem] lg:text-xs'}"
           style="height:{itemSize}px;color:{isSelected
             ? 'var(--solus-text-primary)'
             : 'var(--solus-text-secondary)'};font-weight:{isSelected
-            ? 600
-            : 400};background:{isFocused
-            ? 'var(--solus-accent-light)'
-            : 'transparent'}"
+            ? 500
+            : 400};background:{isSelected
+            ? isFocused
+              ? 'color-mix(in srgb, var(--solus-accent) 13%, transparent)'
+              : 'var(--solus-accent-light)'
+            : isFocused
+              ? 'var(--solus-surface-hover)'
+              : 'transparent'}"
           onclick={() => onselect(entry)}
           onmouseenter={() => {
             focusedIndex = index;

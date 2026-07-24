@@ -1,4 +1,4 @@
-import type { DiffComment, DiffCommentDraft } from '../../../shared/types'
+import type { AgentId, DiffComment, DiffCommentDraft, ReasoningEffort } from '../../../shared/types'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { formatDiffInlineComments } from './session.utils'
 
@@ -78,6 +78,11 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   filePath: string | null
   diffText: string
   branchContext?: string
+  /** Composer picks, applied to the fresh session before it dispatches. */
+  provider?: AgentId
+  modelConfig?: { modelId: string | null; reasoningEffort: ReasoningEffort }
+  /** Run the fresh session in an isolated worktree off the source branch. */
+  useWorktree?: boolean
 }): Promise<boolean> {
   const { generalComment, filePath, diffText, branchContext } = opts
   const tab = ctx.tabs[ctx.activeTabId]
@@ -87,9 +92,17 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   const sourceTabId = ctx.activeTabId
   const newTabId = await ctx.createTab()
   const sourceSession = ctx.sessionFor(sourceTabId)
-  if (sourceSession?.workingDirectory) {
-    const newSession = ctx.sessionFor(newTabId)
-    if (newSession) newSession.workingDirectory = sourceSession.workingDirectory
+  const newSession = ctx.sessionFor(newTabId)
+  if (sourceSession?.workingDirectory && newSession) {
+    newSession.workingDirectory = sourceSession.workingDirectory
+  }
+  if (newSession && opts.provider) newSession.provider = opts.provider
+  if (newSession && opts.modelConfig) {
+    newSession.modelConfig.modelId = opts.modelConfig.modelId
+    newSession.modelConfig.reasoningEffort = opts.modelConfig.reasoningEffort
+  }
+  if (newSession && opts.useWorktree) {
+    newSession.worktreeBaseBranch = sourceSession?.gitContext?.targetBranch ?? null
   }
 
   const parts: string[] = []

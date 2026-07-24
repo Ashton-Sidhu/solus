@@ -125,6 +125,67 @@ describe('Git state initialization', () => {
     expect(registered).toEqual(session.gitContext)
   })
 
+  test('groups a cold session by identity before the working-tree scan returns', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const session = {
+      workingDirectory: '/repo',
+      gitContext: null,
+      worktreeBaseBranch: null,
+    } as Session
+    let finishStatus!: () => void
+    const statusPending = new Promise<void>((resolve) => { finishStatus = resolve })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: {
+        gitIdentity: async () => ({
+          repoRoot: '/repo',
+          headSha: 'abc123',
+          branch: 'feature',
+          targetBranch: 'main',
+        }),
+        gitRefreshState: async () => {
+          await statusPending
+          return {
+            repoRoot: '/repo',
+            headSha: 'def456',
+            branch: 'feature',
+            targetBranch: 'main',
+            uncommittedChanges: { files: [{ path: 'a.ts', conflicted: false }], hasMoreFiles: false, insertions: 3, deletions: 1, mergeInProgress: false },
+          } satisfies GitState
+        },
+        gitRegisterEnvironment: async () => {},
+      } },
+    })
+    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const workspace = {
+      activeTabId: 'tab-1',
+      tabOrder: ['tab-1'],
+      globalDefaults: { workingDirectory: '/repo', gitContext: null },
+      settings: { worktreeEnabled: false },
+      sessionFor: () => session,
+      ctxFor: () => ({ session: {} }),
+    } as any
+
+    const refresh = store.refreshTab(workspace, { tabId: 'tab-1' })
+    // Let the identity round-trip settle while the status scan is still blocked.
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+
+    // The sidebar can already place this session under /repo › feature.
+    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature', targetBranch: 'main' })
+    // …but nothing claims to know whether the working tree is clean yet.
+    expect(store.statusFor('/repo')).toBeUndefined()
+
+    finishStatus()
+    expect((await refresh).ok).toBe(true)
+    expect(session.gitContext).toEqual({ repoRoot: '/repo', branch: 'feature', targetBranch: 'main' })
+    expect(store.statusFor('/repo')?.uncommittedChanges.files).toHaveLength(1)
+  })
+
   test('applies a tab-less resolved target through session config', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
@@ -140,7 +201,10 @@ describe('Git state initialization', () => {
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
-      value: { solus: { gitRefreshState: async () => state } },
+      value: { solus: {
+        gitIdentity: async () => ({ repoRoot: '/repo', headSha: 'abc123', branch: 'main', targetBranch: 'main' }),
+        gitRefreshState: async () => state,
+      } },
     })
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
@@ -163,10 +227,14 @@ describe('Git state initialization', () => {
     const result = await store.refreshTab(workspace)
 
     expect(result.ok).toBe(true)
-    expect(appliedTargets).toEqual([{
+    // Two applies, identical: identity lands the start target before the
+    // working-tree scan so the zero-tab home can offer its worktree toggle
+    // immediately, then the authoritative pass confirms the same values.
+    const startTarget = {
       gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
       worktreeBaseBranch: null,
-    }])
+    }
+    expect(appliedTargets).toEqual([startTarget, startTarget])
     expect(globalDefaults.gitContext).toBeNull()
   })
 
@@ -187,7 +255,11 @@ describe('Git state initialization', () => {
       gitContext: attachedCheckout,
       worktreeBaseBranch: null,
     } as Session
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const {
+      SessionEnvironmentStore,
+      environmentBranchKey,
+      environmentProjectKey,
+    } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.bindWorkspace({
       activeTabId: 'tab-1',
@@ -221,6 +293,8 @@ describe('Git state initialization', () => {
       targetBranch: 'main',
       worktreePath,
     })
+    expect(environmentProjectKey(environment)).toBe('/repo')
+    expect(environmentBranchKey(environment)).toBe('/repo::no branch (worktree)')
     expect(session.gitContext).toBe(attachedCheckout)
   })
 

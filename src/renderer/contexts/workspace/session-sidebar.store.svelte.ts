@@ -1,13 +1,12 @@
 import { createContext } from 'svelte'
 import type { AgentId, PinnedSession } from '../../../shared/types'
 import {
-  branchKeyFor,
   findOpenTabForSession,
   getAttentionState,
-  projectByline,
   sessionTitle,
   type AttentionState,
 } from '../../lib/sessionUtils'
+import { environmentBranchKey, environmentProjectKey } from '../git/session-environment.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -70,10 +69,10 @@ export class SessionSidebarStore {
       if (!tabSess || !tabEntry) continue
       if (tabSess.loadingHistory) continue
 
-      const projectKey = tabSess.gitContext?.repoRoot ?? tabSess.workingDirectory ?? '~'
-      const projectLabel = projectByline(tabSess)
-      const branchKey = branchKeyFor(tabSess)
       const env = this.session.environment.environmentFor(tabId)
+      const projectKey = environmentProjectKey(env)
+      const projectLabel = projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
+      const branchKey = environmentBranchKey(env)
       const branchLabel = tabSess.prReview?.title ?? env.name
       const attention = getAttentionState(tabSess, tabEntry, this.planStore.plans)
 
@@ -114,12 +113,9 @@ export class SessionSidebarStore {
     })
   })
 
-  activeBranchKey: string = $derived(branchKeyFor(this.session.sessionFor(this.session.activeTabId)))
+  activeBranchKey: string = $derived(environmentBranchKey(this.session.environment.environmentFor(this.session.activeTabId)))
 
-  activeProjectKey: string = $derived.by(() => {
-    const activeSession = this.session.sessionFor(this.session.activeTabId)
-    return activeSession?.gitContext?.repoRoot ?? activeSession?.workingDirectory ?? '~'
-  })
+  activeProjectKey: string = $derived(environmentProjectKey(this.session.environment.environmentFor(this.session.activeTabId)))
 
   constructor(
     private settings: SettingsContext,

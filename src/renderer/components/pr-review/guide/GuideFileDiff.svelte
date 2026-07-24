@@ -10,6 +10,10 @@
   import { getSettingsContext } from "../../../contexts";
   import { parsePatchMetadata } from "../../../lib/diff";
   import {
+    buildExpandableMetadata,
+    type FileVersions,
+  } from "../../../lib/diff-expandable";
+  import {
     detectMovedBlocks,
     type DiffMoveAnalysis,
   } from "../../../lib/diff-moves";
@@ -50,6 +54,7 @@
   let {
     patch,
     filePath,
+    versions,
     comments = [],
     onSaveComment,
     onDeleteComment,
@@ -57,6 +62,9 @@
   }: {
     patch: string;
     filePath: string;
+    /** Both versions of this file. When they line up with `patch`, the card's
+     *  hunk gaps become expandable; otherwise it renders exactly as before. */
+    versions?: FileVersions;
     comments?: DiffComment[];
     onSaveComment?: (comment: GuideDiffCommentSave) => void;
     onDeleteComment?: (id: string) => void;
@@ -82,10 +90,17 @@
 
   // parsePatchMetadata caches by patch string, so this returns a stable reference
   // across annotation-only re-renders (keeps FileDiff from treating it as a new diff).
+  // Re-parsing against the file's two versions (when the host has them) is what
+  // makes the gaps between this card's hunks expandable — including for the
+  // concern-scoped hunk subsets the guide author picked.
   const fileDiffMeta = $derived(
     profilePrReviewWork(
       "patch-parse",
-      () => parsePatchMetadata(patch),
+      () => {
+        const partial = parsePatchMetadata(patch);
+        if (!partial || !versions) return partial;
+        return buildExpandableMetadata(patch, partial, versions) ?? partial;
+      },
       { filePath, patchCharacters: patch.length },
     ),
   );
@@ -208,10 +223,14 @@
       diffIndicators: "bars" as const,
       lineDiffType: "word-alt" as const,
       overflow: "wrap" as const,
-      // "simple" over "metadata": the guide's concern-scoped cards often hold
-      // several disjoint hunks, and a @@-metadata rule at every boundary reads
-      // as line noise in a walkthrough meant for reading.
-      hunkSeparators: "simple" as const,
+      // "line-info-basic" over "metadata": the guide's concern-scoped cards often
+      // hold several disjoint hunks, and a @@ rule at every boundary reads as
+      // line noise in a walkthrough meant for reading. This one says how many
+      // lines it skipped and, once the file's contents are loaded, lets the
+      // reader pull them in without leaving the card.
+      hunkSeparators: "line-info-basic" as const,
+      expansionLineCount: 20,
+      collapsedContextThreshold: 10,
       disableFileHeader: true,
       disableErrorHandling: true,
       unsafeCSS: DIFFS_THEME_CSS,

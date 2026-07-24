@@ -26,6 +26,7 @@
     (parsedInput.description || parsedInput.prompt || "Sub-agent").trim(),
   );
   const isCodexSubagent = $derived(message.subagentType === "codex");
+  const isClaudeSubagent = $derived(message.subagentType === "claude");
   const sess = $derived(session.sessionFor(tabId));
   const modelLabel = $derived.by(() => {
     if (parsedInput.model) return parsedInput.model.trim();
@@ -33,12 +34,18 @@
       const profiles = MODEL_PROFILES["codex"] ?? {};
       return Object.entries(profiles).find(([, p]) => p.isDefault)?.[0] ?? "";
     }
+    if (isClaudeSubagent) {
+      const profiles = MODEL_PROFILES["claude-code"] ?? {};
+      return Object.entries(profiles).find(([, p]) => p.isDefault)?.[0] ?? "";
+    }
     return (sess?.sessionModel || sess?.modelConfig.modelId || "").trim();
   });
   const reasoningEffort = $derived(
     (
       parsedInput.reasoning_effort ||
-      (isCodexSubagent ? "high" : sess?.modelConfig.reasoningEffort) ||
+      (isCodexSubagent || isClaudeSubagent
+        ? "high"
+        : sess?.modelConfig.reasoningEffort) ||
       ""
     ).trim(),
   );

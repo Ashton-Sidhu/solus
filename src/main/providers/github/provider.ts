@@ -98,6 +98,90 @@ const PR_CONVERSATION_QUERY = `
   }
 `
 
+const NEEDS_REVIEW_QUERY = `
+  query(
+    $requestedQuery: String!
+    $assignedQuery: String!
+    $requestedCursor: String
+    $assignedCursor: String
+    $includeRequested: Boolean!
+    $includeAssigned: Boolean!
+  ) {
+    requested: search(
+      query: $requestedQuery
+      type: ISSUE
+      first: 100
+      after: $requestedCursor
+    ) @include(if: $includeRequested) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        ... on PullRequest {
+          number
+          title
+          headRefOid
+          author { login avatarUrl }
+          state
+          createdAt
+          updatedAt
+          isDraft
+          labels(first: 100) { nodes { name color } }
+          additions
+          deletions
+          reviewRequests(first: 100) {
+            nodes {
+              requestedReviewer {
+                ... on User { login }
+              }
+            }
+          }
+          assignees(first: 100) { nodes { login } }
+          body
+          baseRefName
+          headRefName
+          baseRepository { nameWithOwner }
+          headRepository { nameWithOwner }
+        }
+      }
+    }
+    assigned: search(
+      query: $assignedQuery
+      type: ISSUE
+      first: 100
+      after: $assignedCursor
+    ) @include(if: $includeAssigned) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        ... on PullRequest {
+          number
+          title
+          headRefOid
+          author { login avatarUrl }
+          state
+          createdAt
+          updatedAt
+          isDraft
+          labels(first: 100) { nodes { name color } }
+          additions
+          deletions
+          reviewRequests(first: 100) {
+            nodes {
+              requestedReviewer {
+                ... on User { login }
+              }
+            }
+          }
+          assignees(first: 100) { nodes { login } }
+          body
+          baseRefName
+          headRefName
+          baseRepository { nameWithOwner }
+          headRepository { nameWithOwner }
+        }
+      }
+    }
+  }
+`
+
 interface GqlComment {
   id: string
   author: { login: string } | null
@@ -151,6 +235,77 @@ interface PrConversationResponse {
       comments?: GqlConversationPage<GqlConversationNode>
       reviews?: GqlConversationPage<GqlReviewBody>
     }
+  }
+}
+
+interface GqlNeedsReviewPullRequest {
+  number: number
+  title: string
+  headRefOid: string
+  author: { login: string; avatarUrl: string } | null
+  state: 'OPEN' | 'CLOSED' | 'MERGED'
+  createdAt: string
+  updatedAt: string
+  isDraft: boolean
+  labels: { nodes: Array<{ name: string; color: string }> }
+  additions: number
+  deletions: number
+  reviewRequests: {
+    nodes: Array<{ requestedReviewer: { login?: string } | null }>
+  }
+  assignees: { nodes: Array<{ login: string }> }
+  body: string
+  baseRefName: string
+  headRefName: string
+  baseRepository: { nameWithOwner: string } | null
+  headRepository: { nameWithOwner: string } | null
+}
+
+interface GqlNeedsReviewPage {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+  nodes: Array<GqlNeedsReviewPullRequest | null>
+}
+
+interface NeedsReviewSearchResponse {
+  requested?: GqlNeedsReviewPage
+  assigned?: GqlNeedsReviewPage
+}
+
+export function needsReviewSearchTerms(repo: RepoRef, viewer: string): {
+  requestedQuery: string
+  assignedQuery: string
+} {
+  const scope = `repo:${repo.owner}/${repo.repo} is:pr is:open`
+  return {
+    requestedQuery: `${scope} review-requested:${viewer}`,
+    assignedQuery: `${scope} assignee:${viewer}`,
+  }
+}
+
+function toNeedsReviewSummary(pr: GqlNeedsReviewPullRequest, repo: RepoRef): PullRequestSummary {
+  return {
+    number: pr.number,
+    title: pr.title,
+    headSha: pr.headRefOid,
+    baseRepo: repo,
+    author: pr.author?.login ?? '',
+    authorAvatarUrl: pr.author?.avatarUrl ?? '',
+    state: pr.state.toLowerCase() as PullRequestSummary['state'],
+    createdAt: pr.createdAt,
+    updatedAt: pr.updatedAt,
+    draft: pr.isDraft,
+    labels: pr.labels.nodes,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    requestedReviewers: pr.reviewRequests.nodes.flatMap(({ requestedReviewer }) =>
+      requestedReviewer?.login ? [requestedReviewer.login] : []),
+    assignees: pr.assignees.nodes.map(({ login }) => login),
+    body: pr.body,
+    baseRef: pr.baseRefName,
+    headRef: pr.headRefName,
+    ...(pr.baseRepository && pr.headRepository
+      ? { isCrossRepository: pr.baseRepository.nameWithOwner !== pr.headRepository.nameWithOwner }
+      : {}),
   }
 }
 
@@ -332,6 +487,37 @@ class GitHubProvider implements ReviewProvider {
       items = items.filter((pr) => pr.author.toLowerCase() === author)
     }
     return { items, page, hasMore: data.length === perPage }
+  }
+
+  async listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequestSummary[]> {
+    const { graphql } = await this.client()
+    const queries = needsReviewSearchTerms(repo, viewer)
+    const pullRequests = new Map<number, PullRequestSummary>()
+    let requestedCursor: string | null = null
+    let assignedCursor: string | null = null
+    let hasMoreRequested = true
+    let hasMoreAssigned = true
+
+    while (hasMoreRequested || hasMoreAssigned) {
+      const response = await graphql<NeedsReviewSearchResponse>(NEEDS_REVIEW_QUERY, {
+        ...queries,
+        requestedCursor,
+        assignedCursor,
+        includeRequested: hasMoreRequested,
+        includeAssigned: hasMoreAssigned,
+      })
+      const requested = response.requested
+      const assigned = response.assigned
+      for (const pr of [...(requested?.nodes ?? []), ...(assigned?.nodes ?? [])]) {
+        if (pr) pullRequests.set(pr.number, toNeedsReviewSummary(pr, repo))
+      }
+      hasMoreRequested = requested?.pageInfo.hasNextPage ?? false
+      hasMoreAssigned = assigned?.pageInfo.hasNextPage ?? false
+      requestedCursor = requested?.pageInfo.endCursor ?? requestedCursor
+      assignedCursor = assigned?.pageInfo.endCursor ?? assignedCursor
+    }
+
+    return [...pullRequests.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
   async getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview> {

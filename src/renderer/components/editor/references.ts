@@ -3,8 +3,9 @@
 // any editor host (prompt input today, the document editor later).
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { PlanRefAttrs } from "./planRefExtension";
+import type { PrRefAttrs } from "./prRefExtension";
 import type { WorkRefAttrs } from "./workRefExtension";
 import type { FileRefAttrs } from "./fileRefExtension";
 import type { SlashRefAttrs } from "./slashRefExtension";
@@ -162,6 +163,23 @@ export function updateTriggerText(
   editor.view.dispatch(tr);
 }
 
+/** Turn the file chip at `pos` back into its `@path` trigger text, caret at the
+ *  end. The editor update that follows re-opens the file menu at that path.
+ *  A folder chip's trailing `/` is dropped so the menu searches at that level
+ *  and surfaces the siblings, instead of browsing back into the folder. */
+export function unwrapFileReference(editor: Editor | null, pos: number): boolean {
+  if (!editor) return false;
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node || node.type.name !== "fileReference") return false;
+
+  const text = `@${String(node.attrs.path ?? "").replace(/\/+$/, "")}`;
+  const { tr, schema } = editor.state;
+  tr.replaceWith(pos, pos + node.nodeSize, schema.text(text));
+  tr.setSelection(TextSelection.create(tr.doc, pos + text.length));
+  editor.view.dispatch(tr);
+  return true;
+}
+
 export function insertPlanReference(
   editor: Editor | null,
   attrs: PlanRefAttrs,
@@ -183,6 +201,19 @@ export function insertWorkReference(
   insertReferenceNode(
     editor,
     "workReference",
+    attrs as unknown as Record<string, unknown>,
+    triggerPattern,
+  );
+}
+
+export function insertPrReference(
+  editor: Editor | null,
+  attrs: PrRefAttrs,
+  triggerPattern: RegExp,
+) {
+  insertReferenceNode(
+    editor,
+    "prReference",
     attrs as unknown as Record<string, unknown>,
     triggerPattern,
   );

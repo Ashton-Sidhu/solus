@@ -183,10 +183,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setSessionCreator((req) => opts.controlPlane.createSession(req))
   setSessionController({
     listSessions: (providers, projectPath) => opts.controlPlane.listSessionsForProviders(providers, projectPath),
-    getSessionInfo: (provider, sessionId, projectPath) => opts.controlPlane.getSessionInfo(provider, sessionId, projectPath),
+    getSessionInfo: (sessionId) => opts.controlPlane.getSessionInfo(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
+    pendingInputEvents: (sessionId) => opts.controlPlane.pendingInputEventsForSession(sessionId),
     promptSession: (sessionId, prompt) => opts.controlPlane.promptSession(sessionId, prompt),
+    watchSessionSettled: (targetSessionId, callerSessionId) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId),
     stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the

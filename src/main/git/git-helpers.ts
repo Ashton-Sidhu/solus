@@ -1,11 +1,11 @@
 import { existsSync } from 'fs'
 import path from 'path'
-import type { GitState, GitStateOptions, UncommittedFile } from '../../shared/types'
+import type { GitIdentity, GitState, GitStateOptions, UncommittedFile } from '../../shared/types'
 import type { RepoRef } from '../providers/types'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
 import { getWorkingTreeStats } from './session-snapshots'
-import { getDefaultBranch, getExistingPR } from './worktree-manager'
+import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 
 const log = createLogger('main', 'git-helpers')
 
@@ -100,37 +100,77 @@ async function computeGitStateUncached(
     }
   }
 
-  const repoRoot = await resolveRepoRoot(cwd)
-  if (!repoRoot) return null
-
-  try {
-    const [statusRaw, inProgressPaths, targetBranch, headSha] = await Promise.all([
-      runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd),
-      runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
-      getDefaultBranch(cwd),
-      runAsync('git', ['rev-parse', 'HEAD'], cwd),
-    ])
-    const mergeInProgress = inProgressPaths
-      .split('\n')
-      .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
-    const status = parseStatus(statusRaw)
-    return {
-      repoRoot,
-      headSha,
-      targetBranch,
-      branch: status.branch,
-      uncommittedChanges: {
-        files: status.files,
-        hasMoreFiles: status.hasMoreFiles,
-        insertions: 0,
-        deletions: 0,
-        mergeInProgress,
-      },
-    }
-  } catch (err: any) {
-    log.warn(`computeGitState failed for ${cwd}: ${err?.message ?? err}`)
+  // Identity is the same work `computeGitIdentity` does, so run it alongside the
+  // working-tree scan rather than duplicating it — the sidebar's earlier
+  // identity call is usually still in flight and gets shared.
+  const [identity, statusRaw, inProgressPaths] = await Promise.all([
+    computeGitIdentity(cwd),
+    runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd).catch(() => null),
+    runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
+  ])
+  // A null identity is the ordinary "not a repository" answer, so stay quiet;
+  // a repo whose status scan failed is worth a warning.
+  if (!identity) return null
+  if (statusRaw === null) {
+    log.warn(`computeGitState: git status failed for ${cwd}`)
     return null
   }
+
+  const mergeInProgress = inProgressPaths
+    .split('\n')
+    .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
+  const status = parseStatus(statusRaw)
+  return {
+    ...identity,
+    // `--branch` reports the branch as of this scan; prefer it over identity's
+    // separate read so branch and files always describe the same instant.
+    branch: status.branch,
+    uncommittedChanges: {
+      files: status.files,
+      hasMoreFiles: status.hasMoreFiles,
+      insertions: 0,
+      deletions: 0,
+      mergeInProgress,
+    },
+  }
+}
+
+const identityInflight = new Map<string, Promise<GitIdentity | null>>()
+
+/**
+ * Repo/branch identity only — no working-tree scan. Surfaces that just need to
+ * place a session in its project and branch (the session sidebar) use this so
+ * they don't sit behind a cold `git status` over a large worktree.
+ */
+export function computeGitIdentity(cwd: string): Promise<GitIdentity | null> {
+  if (!cwd || cwd === '~') return Promise.resolve(null)
+
+  const existing = identityInflight.get(cwd)
+  if (existing) return existing
+
+  const pending = computeGitIdentityUncached(cwd)
+    .finally(() => {
+      if (identityInflight.get(cwd) === pending) identityInflight.delete(cwd)
+    })
+  identityInflight.set(cwd, pending)
+  return pending
+}
+
+async function computeGitIdentityUncached(cwd: string): Promise<GitIdentity | null> {
+  const [repoRoot, headRaw, targetBranch] = await Promise.all([
+    resolveRepoRoot(cwd),
+    runAsync('git', ['rev-parse', 'HEAD', '--abbrev-ref', 'HEAD'], cwd).catch(() => null),
+    getDefaultBranchLocal(cwd),
+  ])
+  // Both null cases are ordinary, not failures: no repo here, or a repo with no
+  // commits yet. `resolveRepoRoot` already logs the former.
+  if (!repoRoot || headRaw === null) return null
+
+  const [headSha, headRef] = headRaw.split('\n').map((line) => line.trim())
+  if (!headSha) return null
+  // `--abbrev-ref HEAD` prints the literal "HEAD" when detached, matching
+  // `parseStatus`'s `branch: null` convention for the same state.
+  return { repoRoot, headSha, branch: headRef === 'HEAD' ? null : headRef, targetBranch }
 }
 
 /** Resolve the parent repo root from a worktree path (handles linked + main worktrees). */

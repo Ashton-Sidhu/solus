@@ -112,7 +112,7 @@ export class PreviewLoader {
             entry.meta.provider,
           ),
           this.deps
-            .getSessionInfo(entry.meta.sessionId, entry.meta.cwd, ctx, entry.meta.provider)
+            .getSessionInfo(entry.meta.sessionId)
             .catch(() => null),
         ])
         this.#cache.set(cacheKey, result)

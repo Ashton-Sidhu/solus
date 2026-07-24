@@ -1,9 +1,8 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { ArrowUpIcon, ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
-  import Kbd from "../ui/Kbd.svelte";
-  import { MarkdownTextarea } from "../ui/markdown-field";
-  import { getWorkspaceContext } from "../../contexts";
+  import { ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
+  import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
+  import { getWorkspaceContext, getStatusBarContext } from "../../contexts";
   import { tooltip } from "../../lib/tooltip";
   import type { DiffComment } from "../../../shared/types";
 
@@ -39,13 +38,22 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const statusBar = getStatusBarContext();
   const tab = $derived(session.tabs[session.activeTabId]);
+  const sess = $derived(session.sessionFor(session.activeTabId));
   const diffComments = $derived<DiffComment[]>(tab?.diffComments ?? []);
   const generalComment = $derived(tab?.diffGeneralComment ?? "");
 
   let submitting = $state(false);
-  let textareaEl: HTMLTextAreaElement | null = $state(null);
-  let focused = $state(false);
+  let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
+  let useWorktree = $state(false);
+
+  // The "send to new session" path spins up a fresh session, so an isolated
+  // worktree is meaningful — offer it whenever the source is a real repo that
+  // isn't already inside a worktree.
+  const showWorktree = $derived(
+    !!sess?.gitContext && !sess.gitContext.worktreePath,
+  );
 
   const inlineCount = $derived(
     diffComments.length + (pendingInlineDraft ? 1 : 0),
@@ -67,66 +75,89 @@
     return workingTree ? "Send to a new session…" : "Reply to the agent…";
   });
 
-  function setGeneral(value: string) {
-    session.setDiffGeneralComment(value);
+  /** Composer picks that differ from the session's effective config. */
+  function changedConfig(payload: PromptComposerSubmit) {
+    const current = statusBar.ctxFor(session.activeTabId);
+    const providerChanged = payload.provider !== current.activeAgent;
+    const modelChanged = payload.modelId !== (current.model || null);
+    const effortChanged = payload.reasoningEffort !== current.reasoningEffort;
+    return { providerChanged, changed: modelChanged || effortChanged };
   }
 
-  function handleSend() {
-    if (!canSubmit || submitting) return;
+  function applyRefs(payload: PromptComposerSubmit) {
+    if (!tab) return;
+    tab.input.planRefs = [...payload.planRefs];
+    tab.input.workRefs = [...payload.workRefs];
+  }
+
+  function handleSend(payload: PromptComposerSubmit) {
+    if (submitting) return;
     beforeSend?.();
     submitting = true;
-    const sent = session.submitDiffFeedback(
-      tab?.diffGeneralComment?.trim() ?? "",
-    );
+    if (changedConfig(payload).changed) {
+      session.updateModelConfig({
+        modelId: payload.modelId,
+        reasoningEffort: payload.reasoningEffort,
+      });
+    }
+    applyRefs(payload);
+    const sent = session.submitDiffFeedback(payload.text);
     submitting = false;
-    if (sent) onSubmitted?.();
+    if (sent) {
+      composerRef?.clear();
+      onSubmitted?.();
+    }
   }
 
-  async function handleSendToNewSession() {
-    if (!canSubmit || submitting) return;
+  async function handleSendToNewSession(payload: PromptComposerSubmit) {
+    if (submitting) return;
     beforeSend?.();
     submitting = true;
+    const { providerChanged, changed } = changedConfig(payload);
+    applyRefs(payload);
     const sent = await session.submitDiffFeedbackToNewSession({
-      generalComment: tab?.diffGeneralComment?.trim() ?? "",
+      generalComment: payload.text,
       filePath,
       diffText,
       branchContext,
+      provider: providerChanged ? payload.provider : undefined,
+      modelConfig: changed || providerChanged
+        ? { modelId: payload.modelId, reasoningEffort: payload.reasoningEffort }
+        : undefined,
+      useWorktree: useWorktree || undefined,
     });
     submitting = false;
-    if (sent) onSubmitted?.();
+    if (sent) {
+      composerRef?.clear();
+      onSubmitted?.();
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
-      void handleSendToNewSession();
+      const payload = composerRef?.payload();
+      if (payload) void handleSendToNewSession(payload);
     }
   }
 </script>
 
-<div
-  class="flex flex-col gap-1.5 px-3 py-1.5 border-t border-(--solus-container-border)"
-  style="background:var(--solus-container-bg)"
->
-  <div
-    class="action-pill flex items-center gap-1.5 px-2 py-1.5"
-    class:is-focused={focused}
+<div class="px-3 pt-2 pb-3" style="background:var(--solus-container-bg)">
+  <PromptComposer
+    bind:this={composerRef}
+    bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v)}
+    tabId={session.activeTabId}
+    workingDirectory={sess?.workingDirectory}
+    canSubmitWhenEmpty={inlineCount > 0}
+    allowAgentSwitch={workingTree}
+    showWorktree={showWorktree}
+    bind:useWorktree
+    onKeyDown={handleKeyDown}
+    onSubmit={workingTree ? handleSendToNewSession : handleSend}
+    {submitting}
+    {placeholder}
   >
-    <MarkdownTextarea
-      bind:ref={textareaEl}
-      bare
-      value={generalComment}
-      oninput={(e) => setGeneral((e.target as HTMLTextAreaElement).value)}
-      onkeydown={handleKeyDown}
-      onSubmit={workingTree ? handleSendToNewSession : handleSend}
-      onfocus={() => (focused = true)}
-      onblur={() => (focused = false)}
-      {placeholder}
-      rows={1}
-      class="flex-1 min-w-0 placeholder:text-(--solus-text-muted) leading-[1.55] py-0.5 px-0.5 max-h-40"
-    />
-
-    <div class="flex items-center gap-1 shrink-0">
+    {#snippet trailing()}
       {#if inlineCount > 0}
         <button
           type="button"
@@ -139,58 +170,28 @@
           <span class="tabular-nums">{inlineCount}</span>
         </button>
       {/if}
-      {#if focused && !canSubmit}
-        <Kbd variant="inline" class="text-[0.5938rem] text-(--solus-text-tertiary) tracking-wide px-1">⌘↵</Kbd>
-      {/if}
-      <div class="send-group flex items-center gap-1">
-        {#if canSubmit && !workingTree}
-          <button
-            type="button"
-            onclick={() => void handleSendToNewSession()}
-            disabled={submitting}
-            aria-label="Send to new session"
-            class="split-btn relative flex items-center justify-center rounded-full cursor-pointer"
-            style="width:1.5rem;height:1.5rem;"
-            use:tooltip={"Send to new session · ⌘⇧↵"}
-            transition:fly={{ x: 4, duration: 120 }}
-          >
-            <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
-            <ArrowsSplitIcon size={12} weight="bold" />
-          </button>
-        {/if}
+      {#if canSubmit && !workingTree}
         <button
           type="button"
-          onclick={workingTree ? () => void handleSendToNewSession() : handleSend}
-          disabled={!canSubmit || submitting}
-          aria-label={workingTree ? "Send to new session" : "Send to session"}
-          class="send-btn relative flex items-center justify-center rounded-full text-(--solus-text-on-accent) cursor-pointer"
-          style="opacity:{canSubmit ? 1 : 0.4};width:1.5rem;height:1.5rem;"
-          use:tooltip={workingTree ? "Send to new session · ⌘↵" : "Send to session · ⌘↵"}
+          onclick={() => {
+            const payload = composerRef?.payload();
+            if (payload) void handleSendToNewSession(payload);
+          }}
+          disabled={submitting}
+          aria-label="Send to new session"
+          class="split-btn relative flex size-6 items-center justify-center rounded-full cursor-pointer"
+          use:tooltip={"Send to new session · ⌘⇧↵"}
+          transition:fly={{ x: 4, duration: 120 }}
         >
           <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
-          <ArrowUpIcon size={12} weight="bold" />
+          <ArrowsSplitIcon size={12} weight="bold" />
         </button>
-      </div>
-    </div>
-  </div>
+      {/if}
+    {/snippet}
+  </PromptComposer>
 </div>
 
 <style>
-  .action-pill {
-    border-radius: 0.875rem;
-    border: 0.0625rem solid var(--solus-container-border);
-    background: var(--solus-input-pill-bg);
-    box-shadow: 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
-    transition:
-      box-shadow 0.18s ease,
-      border-color 0.18s ease;
-  }
-  .action-pill.is-focused {
-    border-color: var(--solus-input-focus-border);
-    box-shadow:
-      0 0 0 0.1875rem var(--solus-input-focus-ring),
-      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.04);
-  }
   .split-btn {
     background: var(--solus-surface-hover);
     color: var(--solus-text-secondary);
@@ -206,21 +207,6 @@
     color: var(--solus-text-primary);
   }
   .split-btn:active:not(:disabled) {
-    transform: scale(0.96);
-  }
-  .send-btn {
-    background: linear-gradient(145deg, #e08868 0%, #d97757 40%, #c96442 100%);
-    box-shadow: 0 0.0625rem 0.1875rem var(--solus-send-glow);
-    transition:
-      box-shadow 0.15s ease,
-      transform 0.1s ease,
-      opacity 0.15s ease;
-    position: relative;
-  }
-  .send-btn:hover:not(:disabled) {
-    box-shadow: 0 0.125rem 0.375rem var(--solus-send-glow);
-  }
-  .send-btn:active:not(:disabled) {
     transform: scale(0.96);
   }
   .comments-chip {

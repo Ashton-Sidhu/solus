@@ -63,6 +63,8 @@ export interface ProviderAuth {
 export interface ReviewProvider {
   listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequestSummary[]>
   listPullRequestsPage(repo: RepoRef, filter?: PrFilter, page?: number, perPage?: number): Promise<PrListPage>
+  /** Open PRs that currently request or assign the given viewer's attention. */
+  listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequestSummary[]>
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequestDetail>
   getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>

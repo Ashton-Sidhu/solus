@@ -436,7 +436,9 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
 
   const toolName = codexToolNameForItem(item)
   if (!toolName) return []
-  const isSubagent = item.type === 'collabAgentToolCall'
+  const isClaudeSubagent = item.type === 'dynamicToolCall' &&
+    toolName.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
+  const isSubagent = item.type === 'collabAgentToolCall' || isClaudeSubagent
 
   return [{
     type: 'tool_call',
@@ -446,7 +448,7 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
     toolInput: codexStartedToolInput(item),
     parentToolUseId: codexParentToolUseId(params),
     isSubagent,
-    subagentType: isSubagent ? toolName : undefined,
+    subagentType: isClaudeSubagent ? 'claude' : isSubagent ? toolName : undefined,
   }]
 }
 
@@ -468,6 +470,9 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
   const item = params?.item
   if (!item?.id) return []
   const parentToolUseId = codexParentToolUseId(params)
+  const toolName = codexToolNameForItem(item)
+  const isClaudeSubagent = item.type === 'dynamicToolCall' &&
+    toolName?.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
 
   if (item.type === 'agentMessage') {
     // Not parented: main-thread paragraph separator between streamed messages.
@@ -486,7 +491,7 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       : []
   }
 
-  if (!codexToolNameForItem(item)) return []
+  if (!toolName) return []
 
   const updates: NormalizedEvent[] = []
   if (item.type === 'imageGeneration') {
@@ -517,7 +522,7 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       toolId: item.id,
       toolInput: JSON.stringify({ changes: item.changes }),
     })
-  } else {
+  } else if (!isClaudeSubagent) {
     const payload = item.aggregatedOutput || item.result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null) || item.status
     if (payload) {
       updates.push({
@@ -528,12 +533,12 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     }
   }
   updates.push({ type: 'tool_call_complete', index: 0, toolId: item.id })
-  if (item.type === 'collabAgentToolCall') {
+  if (item.type === 'collabAgentToolCall' || isClaudeSubagent) {
     updates.push({
       type: 'tool_result',
       toolUseId: item.id,
       content: codexItemResultText(item),
-      isError: item.status === 'failed' || !!item.error,
+      isError: item.status === 'failed' || item.success === false || !!item.error,
     })
   }
   if (parentToolUseId) {
@@ -546,6 +551,18 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
 
 function codexItemResultText(item: any): string {
   if (typeof item.aggregatedOutput === 'string' && item.aggregatedOutput) return item.aggregatedOutput
+  if (Array.isArray(item.contentItems)) {
+    const text = item.contentItems
+      .map((part: unknown) => {
+        if (typeof part === 'string') return part
+        if (!part || typeof part !== 'object') return ''
+        const record = part as Record<string, unknown>
+        return typeof record.text === 'string' ? record.text : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+    if (text) return text
+  }
   if (typeof item.result === 'string' && item.result) return item.result
   if (item.result && typeof item.result === 'object') {
     const content = item.result.contentItems ?? item.result.content
@@ -567,6 +584,9 @@ function codexItemResultText(item: any): string {
 
 function codexStartedToolInput(item: any): string | undefined {
   if (item.type === 'commandExecution' && typeof item.command === 'string') return item.command
+  if (item.type === 'dynamicToolCall' && item.arguments !== undefined) {
+    return typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
+  }
   if (item.type !== 'collabAgentToolCall') return undefined
 
   const args = item.arguments && typeof item.arguments === 'object'

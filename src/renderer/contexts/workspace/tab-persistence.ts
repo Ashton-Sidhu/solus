@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, ModelConfig, StartInfo } from '../../../shared/types'
+import type { AgentId, GitCheckout, ModelConfig, SessionHandoffLineage, StartInfo } from '../../../shared/types'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -69,6 +69,7 @@ export interface PersistedTab {
   title: string
   agentSessionId: string | null
   provider: AgentId | null
+  handoffFrom?: SessionHandoffLineage
   workingDirectory: string
   additionalDirs: string[]
   gitContext: GitCheckout | null

@@ -4,6 +4,7 @@
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import {
     ArrowCounterClockwiseIcon,
+    ArrowsLeftRightIcon,
     ClipboardTextIcon,
     GitForkIcon,
     TreeStructureIcon,
@@ -808,7 +809,19 @@
               {:else if item.kind === "subagent-group"}
                 <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "system"}
-                {#if item.message.forkSourceSessionId}
+                {#if item.message.handoffDivider}
+                  <div
+                    class="flex items-center gap-2.5 py-2.5 {skipMotion ? '' : 'animate-msg-in-side'}"
+                    data-testid="session-handoff-message"
+                  >
+                    <div class="h-px min-w-3 flex-1 bg-(--solus-tool-border)"></div>
+                    <div class="flex max-w-[80%] min-w-0 items-center gap-1.5 rounded-full bg-(--solus-container-bg) px-2.5 py-1 text-center text-[0.6875rem] leading-4 text-pretty text-(--solus-text-tertiary) shadow-[0_0_0_1px_var(--solus-tool-border)]">
+                      <ArrowsLeftRightIcon size={12} class="flex-shrink-0 text-(--solus-accent)" />
+                      <span>{item.message.content}</span>
+                    </div>
+                    <div class="h-px min-w-3 flex-1 bg-(--solus-tool-border)"></div>
+                  </div>
+                {:else if item.message.forkSourceSessionId}
                   <div class="fork-divider" data-testid="fork-session-message">
                     <div class="fork-divider-line"></div>
                     <button

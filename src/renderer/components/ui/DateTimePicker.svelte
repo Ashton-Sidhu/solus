@@ -64,7 +64,7 @@
       <Popover.Content
         side="top"
         align="start"
-        class="z-[10002] w-auto overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+        class="z-[10002] w-auto overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
       >
         <Calendar
           type="single"

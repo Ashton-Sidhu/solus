@@ -1,6 +1,5 @@
 import type { PaneContent, PaneSlot } from '../../../contexts/workspace/pane-view.store.svelte'
 import type { Session, Tab } from '../../../../shared/types'
-import { branchKeyFor } from '../../../lib/sessionUtils'
 import { paneBoundsPercent, pixelsToPercent } from '../../../lib/resizablePane'
 
 export const SECONDARY_CONTENT_DELAY_MS = 90
@@ -54,16 +53,27 @@ interface WorkspaceTabs {
   sessionFor(tabId: string): Session | undefined
 }
 
+/**
+ * Which tabs belong to the active tab's project + branch group. Grouping keys
+ * come from `branchKeyOf` — the SAME environment-derived key the session sidebar
+ * groups by — rather than the live `session.gitContext`. A resumed session
+ * (from a create-session card, the picker, or a pinned entry) hydrates its
+ * `gitContext` in the background, so keying off it would drop the tab into a
+ * lonely `::no branch` group and hide every real sibling until Git answers. The
+ * environment key resolves off the cwd's cached status, so it agrees with the
+ * sidebar immediately.
+ */
 export function visibleWorkspaceTabIds(
   workspace: WorkspaceTabs,
-  activeSession: Session | undefined,
+  activeTabId: string,
   splitTabId: string | null,
+  branchKeyOf: (tabId: string) => string,
 ): string[] {
   const openTabIds = workspace.tabOrder.filter((tabId) => workspace.tabs[tabId])
-  if (activeSession?.loadingHistory) return openTabIds
-  const activeBranchKey = branchKeyFor(activeSession)
+  if (workspace.sessionFor(activeTabId)?.loadingHistory) return openTabIds
+  const activeBranchKey = branchKeyOf(activeTabId)
   return openTabIds.filter(
-    (tabId) => tabId === splitTabId || branchKeyFor(workspace.sessionFor(tabId)) === activeBranchKey,
+    (tabId) => tabId === splitTabId || branchKeyOf(tabId) === activeBranchKey,
   )
 }
 

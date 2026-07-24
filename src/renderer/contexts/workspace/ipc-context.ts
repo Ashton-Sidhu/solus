@@ -88,6 +88,7 @@ export class IpcContextBuilder {
       tabId,
       provider: session ? session.provider ?? null : null,
       agentSessionId: session ? session.agentSessionId : null,
+      handoffFrom: session?.handoffFrom,
       status: session ? session.status : 'idle',
       workingDirectory,
       projectPath: worktreeProjectRoot(workingDirectory),

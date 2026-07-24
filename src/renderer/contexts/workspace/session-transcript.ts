@@ -1,11 +1,28 @@
-import type { AgentId, AutomationTrigger, IpcContext, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
+import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
 import { encodePathAsFolder } from '../../../shared/types'
 import type { SessionLoadMessage } from '../../../shared/session-history'
 import { uuid } from '../../../shared/uuid'
+import { agentLabel } from '../../lib/agentAvailability'
 import { nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 // ─── Transcript loader ───
+
+export function buildHandoffDividerMessage(args: {
+  fromProvider: AgentId
+  toProvider: AgentId
+  truncated?: boolean
+}): Message {
+  const truncated = args.truncated ?? false
+  const truncationNote = truncated ? ' (earlier context truncated)' : ''
+  return {
+    id: nextMsgId(),
+    role: 'system',
+    content: `Handed off from ${agentLabel(args.fromProvider)} to ${agentLabel(args.toProvider)} — context carried over${truncationNote}`,
+    handoffDivider: { fromProvider: args.fromProvider, toProvider: args.toProvider, truncated },
+    timestamp: Date.now(),
+  }
+}
 
 /** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
 function isCreateWorkTool(name: string | undefined): boolean {
@@ -111,6 +128,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
 
   const loadedHistory = history as SessionLoadMessage[]
   for (const m of loadedHistory) {
+    // Reasoning/thinking turns ride along in the transcript for provider handoffs;
+    // the conversation view doesn't render them, so drop them on replay.
+    if (m.role === 'reasoning') continue
     if (m.role === 'tool_result') {
       // Land the result on its tool message — the Agent tool's own result flips
       // its card to done; an inner tool's result lands in subMessages. Never a
@@ -169,12 +189,16 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
 
-    // A subagent tool call (Task/Agent, or codex_subagent) renders as a SubagentCard,
+    // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a SubagentCard,
     // not a plain tool row. The live reducer sets subMessages via isSubagent; reload
     // has no such flag, so re-seed it here. The tool_result pass above reattaches the answer.
     if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
       msg.subMessages = []
       msg.subagentType = 'codex'
+    } else if (m.role === 'tool' && m.toolName?.slice(m.toolName.lastIndexOf('.') + 1) === 'claude_subagent') {
+      msg.subMessages = []
+      msg.subagentType = 'claude'
+      msg.toolResult = m.content
     } else if (m.role === 'tool' && (m.toolName === 'Task' || m.toolName === 'Agent')) {
       msg.subMessages = []
       msg.subagentType = 'claude'

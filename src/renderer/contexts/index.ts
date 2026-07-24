@@ -17,7 +17,7 @@ export { runtime } from './app/runtime.svelte'
 export { toolsStore } from './app/tools.store.svelte'
 
 /** Git state for the active session environment. */
-export { getSessionEnvironmentStore } from './git/session-environment.store.svelte'
+export { getSessionEnvironmentStore, environmentBranchKey } from './git/session-environment.store.svelte'
 
 /** Plan state and operations exposed to renderer surfaces. */
 export { getPlanStore } from './plans/plan.store.svelte'

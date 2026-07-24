@@ -29,6 +29,7 @@
     onBlur?: () => void;
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
+    onPrRefClick?: (number: number, title?: string) => void;
     onFileRefClick?: (path: string) => void;
     placeholder?: string;
     /** Hide the placeholder as soon as the editor is focused, rather than
@@ -52,6 +53,7 @@
     onBlur,
     onPlanRefClick,
     onWorkRefClick,
+    onPrRefClick,
     onFileRefClick,
     placeholder = "",
     hidePlaceholderOnFocus = false,
@@ -256,6 +258,11 @@
           if (node.type.name === "workReference") {
             event.preventDefault();
             onWorkRefClick?.(node.attrs.workId, node.attrs.title);
+            return true;
+          }
+          if (node.type.name === "prReference") {
+            event.preventDefault();
+            onPrRefClick?.(node.attrs.number, node.attrs.title);
             return true;
           }
           if (node.type.name === "fileReference") {

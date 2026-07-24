@@ -1,12 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult, VoiceModelStatus } from '../shared/types'
-import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult, VoiceModelStatus } from '../shared/types'
+import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { AttentionEntry } from '../shared/attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
 import type { StackGraph } from '../shared/stack-types'
 import type { PrChecksSnapshot } from '../shared/checks-rpc-types'
+import type { SearchSessionsRequest } from '../shared/rpc'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -25,6 +26,7 @@ export interface SolusAPI {
   stopTab(ctx: IpcContext): Promise<boolean>
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
   closeTab(ctx: IpcContext): Promise<void>
+  switchSessionAgent(tabId: string, provider: AgentId): Promise<SessionProviderSwitchResult>
   selectDirectory(ctx?: IpcContext): Promise<string | null>
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
@@ -62,10 +64,10 @@ export interface SolusAPI {
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
   resetTabSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
-  searchSessions(request: { query: string; projectPath?: string; limit?: number }): Promise<SessionSearchResult[]>
+  searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
-  getSessionInfo(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionMeta | null>
+  getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>
@@ -120,6 +122,7 @@ export interface SolusAPI {
 
   // PR review mode
   prList(ctx: IpcContext, filter?: PrFilter, page?: number): Promise<PrListPage>
+  prNeedsReview(ctx: IpcContext): Promise<PullRequestSummary[]>
   prGetEfforts(ctx: IpcContext, requests: PrEffortRequest[]): Promise<PrEffortResult[]>
   prGuideMetadata(ctx: IpcContext, requests: PrGuideMetadataRequest[]): Promise<PrGuideMetadata[]>
   /** Fetch + check out the PR worktree and return the assembled review context. */
@@ -224,6 +227,7 @@ export interface SolusAPI {
   worktreeRestore(ctx: IpcContext, worktreePath: string, options?: { includePr?: boolean }): Promise<GitCheckout | null>
   continueInWorktree(ctx: IpcContext, namePrompt?: string): Promise<GitCheckoutBranchResult>
   gitRefreshState(cwd: string, options?: GitStateOptions): Promise<GitState | null>
+  gitIdentity(cwd: string): Promise<GitIdentity | null>
   gitRegisterEnvironment(ctx: IpcContext, cwd: string, gitContext: GitCheckout | null): Promise<void>
   runStatus(cwd: string): Promise<RunProjectStatus>
   runStart(cwd: string, commandId: string): Promise<RunProjectStatus>

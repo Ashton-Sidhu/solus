@@ -81,6 +81,27 @@ export function getDefaultBranch(cwd: string): Promise<string> {
   return pending
 }
 
+/** Local-only default-branch resolution for status refreshes. This deliberately
+ * avoids `ls-remote` so opening a project never waits on the network. Local
+ * fallbacks are not cached because a later remote-aware lookup may discover a
+ * different default branch. */
+export async function getDefaultBranchLocal(cwd: string): Promise<string> {
+  const cached = defaultBranchCache.get(cwd)
+  if (typeof cached === 'string') return cached
+  try {
+    const ref = await runAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], cwd)
+    const branch = ref.replace('origin/', '')
+    defaultBranchCache.set(cwd, branch)
+    return branch
+  } catch {}
+  try {
+    await runAsync('git', ['rev-parse', '--verify', 'main'], cwd)
+    return 'main'
+  } catch {
+    return 'master'
+  }
+}
+
 /** Synchronous, local-only default-branch resolution for `restoreWorktree`, which
  *  returns a plain value by contract. Reuses a warm cache entry when the async
  *  resolver already ran for this cwd; otherwise reads LOCAL refs only (never the
@@ -182,7 +203,7 @@ export async function createWorktree(
   await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, startPoint], projectPath)
   await copyIncludedWorktreeFiles(projectPath, worktreePath)
 
-  return { branch, targetBranch, worktreePath }
+  return { branch, targetBranch, worktreePath, repoRoot: projectPath }
 }
 
 async function copyIncludedWorktreeFiles(projectPath: string, worktreePath: string): Promise<void> {
@@ -411,7 +432,7 @@ export function restoreWorktree(worktreePath: string, _options?: { includePr?: b
     const projectPath = worktreeProjectRoot(worktreePath)
     const targetBranch = getDefaultBranchLocalSync(projectPath)
     log.info(`Restored worktree: ${branch} at ${worktreePath}`)
-    return { branch, targetBranch, worktreePath }
+    return { branch, targetBranch, worktreePath, repoRoot: projectPath }
   } catch (e) {
     log.error(`Failed to restore worktree: ${e}`)
     return null

@@ -185,6 +185,7 @@
             bind:ref={replyEl}
             bind:value={replyText}
             bare
+            mic
             placeholder="Reply… ⌘↵"
             rows={1}
             onkeydown={(e: KeyboardEvent) => {
@@ -194,7 +195,7 @@
               }
             }}
             onSubmit={submitReply}
-            class="min-h-8 max-h-30 overflow-y-auto rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) px-2"
+            class="min-h-8 max-h-30 overflow-y-auto rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) pl-2"
           />
           <div class="flex items-center justify-end gap-1.5">
             <Button variant="ghost" size="sm" onclick={cancelReply} class="text-(--solus-text-tertiary)">

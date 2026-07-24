@@ -476,19 +476,21 @@
   async function selectBranchTarget(item: string) {
     branchPickerOpen = false;
     const entry = worktrees.find((wt) => wt.branch === item);
+    // Environment selection is navigation, not an in-place retarget of this
+    // panel's tab. Omitting tabId lets the workspace preserve a started session
+    // and create/activate a destination tab in the selected environment group.
     if (entry) {
-      await session.switchToWorktree(entry.path, tabId || undefined);
+      await session.switchToWorktree(entry.path);
     } else {
-      const ok = await session.switchToBranch(item, tabId || undefined);
+      const ok = await session.switchToBranch(item);
       if (!ok) {
         requestInputFocus();
         return;
       }
     }
-    const nextSession = tabId ? session.sessionFor(tabId) : undefined;
     const nextCwd =
-      nextSession?.gitContext?.worktreePath ??
-      nextSession?.workingDirectory ??
+      session.activeSession?.gitContext?.worktreePath ??
+      session.activeSession?.workingDirectory ??
       session.globalDefaults.gitContext?.worktreePath ??
       session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
@@ -615,7 +617,7 @@
           </button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content side="left" align="start" sideOffset={6} collisionPadding={8} onOpenAutoFocus={(event) => event.preventDefault()} class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content side="left" align="start" sideOffset={6} collisionPadding={8} onOpenAutoFocus={(event) => event.preventDefault()} class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
         <SearchablePickerList
           bind:this={branchPickerRef}
           items={branchPickerItems}
@@ -633,7 +635,7 @@
       {/each}
     </div>
     <Popover.Root bind:open={groupMenuOpen}>
-      <Popover.Content customAnchor={openRowEl} side="left" align="start" sideOffset={6} collisionPadding={8} onInteractOutside={(event) => { if ((event.target as Element | null)?.closest?.(".split-caret")) event.preventDefault() }} class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content customAnchor={openRowEl} side="left" align="start" sideOffset={6} collisionPadding={8} onInteractOutside={(event) => { if ((event.target as Element | null)?.closest?.(".split-caret")) event.preventDefault() }} class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
         {#each openGroup?.secondary ?? [] as def (def.key)}
           {@const Icon = def.icon}
           <button

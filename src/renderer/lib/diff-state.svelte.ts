@@ -1,6 +1,7 @@
 import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffMetadata } from '@pierre/diffs'
-import type { DiffResult, DiffScope, IpcContext } from '../../shared/types'
+import { FULL_CONTEXT_LINES, type DiffResult, type DiffScope, type IpcContext } from '../../shared/types'
 import type { WorkspaceContext } from '../contexts'
+import { buildExpandableMetadata, fileVersionsFromFullContext, type FileVersions } from './diff-expandable'
 
 interface DiffStateOptions {
   session: WorkspaceContext
@@ -32,6 +33,11 @@ type ParsedDiffScope = {
 // module-level compiled regex (reset before each scan) so a live refresh never
 // recompiles it. Mirrors the per-path check isBinaryFile used to build inline.
 const BINARY_FILE_LINE = /^Binary files (?:a\/[^\n]+|\/dev\/null) and b\/(.+) differ$/gm
+
+// A full-context patch carries every line of every changed file, so past this
+// many files the second round trip costs more than expandable gaps are worth.
+// Above the cap the diff simply keeps its non-expandable separators.
+const MAX_EXPANDABLE_FILES = 300
 
 function collectBinaryFiles(patch: string): { paths: Set<string>; hasGitBinaryPatch: boolean } {
   const paths = new Set<string>()
@@ -78,6 +84,14 @@ export class DiffState {
   // only the files that actually changed. Rebuilt each parse → bounded to the
   // current file set.
   private fileChunkCache = new Map<string, FileDiffMetadata>()
+  // Per-file metadata rebuilt against full file contents, so @pierre/diffs will
+  // let the reader expand the unchanged gaps between hunks. Keyed
+  // `${scopeKey}\0${chunk}` like the reuse cache above, so a live mid-turn
+  // refresh re-applies the upgrade to untouched files and only the files whose
+  // chunk actually changed need a new full-context fetch. `null` records a file
+  // we tried and couldn't upgrade (binary, mode-only, contents out of sync), so
+  // we don't retry it every refresh.
+  private expandableByChunk = new Map<string, FileDiffMetadata | null>()
   // Lazily-cached lowercased line arrays per file diff, so repeated find-in-diff
   // searches don't re-lowercase the whole diff on every keystroke. Weak-keyed on
   // the parsed file so it's GC'd (and, with chunk reuse, reused) automatically.
@@ -109,7 +123,14 @@ export class DiffState {
 
     this.diff = response.result
     this.loadError = response.error
-    if (response.result) this.applyPatch(requestScope, response.result.patch)
+    if (response.result) {
+      this.applyPatch(requestScope, response.result.patch)
+      // Fire-and-forget: the panel renders on the normal patch, and the
+      // expandable-gap upgrade swaps in when its own round trip lands. Only
+      // RPC-backed scopes qualify — `setPatch` callers (the PR interdiff) have
+      // no scope we can re-query.
+      void this.loadExpandableContext(requestScope, response.result.patch, livePaths, generation)
+    }
 
     this.loading = false
 
@@ -202,14 +223,19 @@ export class DiffState {
     this.currentBinaryPaths = new Set()
     this.currentHasGitBinaryPatch = false
     this.fileChunkCache = new Map()
+    this.expandableByChunk = new Map()
     this.parsedByScope.clear()
   }
 
-  private async load(scope: DiffScope, livePaths: string[] | undefined): Promise<DiffLoadResult> {
+  private async load(
+    scope: DiffScope,
+    livePaths: string[] | undefined,
+    contextLines?: number,
+  ): Promise<DiffLoadResult> {
     try {
       const result = await window.solus.diff(
         this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
-        { scope: { ...scope }, livePaths },
+        { scope: { ...scope }, livePaths, contextLines },
       )
       return { result, error: null }
     } catch (err) {
@@ -217,12 +243,70 @@ export class DiffState {
     }
   }
 
+  /**
+   * Fetch the same patch with full context and re-parse each file against the
+   * file contents it reconstructs, so the gaps between hunks become expandable.
+   * See `diff-expandable.ts` for why this is a second `git diff` rather than a
+   * blob fetch. Files that can't be upgraded keep their patch-only parse and
+   * simply stay non-expandable — the feature degrades per file.
+   */
+  private async loadExpandableContext(
+    scope: DiffScope,
+    patch: string,
+    livePaths: string[] | undefined,
+    generation: number,
+  ): Promise<void> {
+    if (!patch.startsWith('diff --git')) return
+    const key = scopeKey(scope)
+    const chunks = patch.split(GIT_DIFF_FILE_BREAK_REGEX).filter((chunk) => chunk.startsWith('diff --git'))
+    if (chunks.length === 0 || chunks.length > MAX_EXPANDABLE_FILES) return
+    // Every file already resolved (upgraded or known-unupgradable) on a previous
+    // pass — a live refresh that changed nothing must not re-fetch the world.
+    if (chunks.every((chunk) => this.expandableByChunk.has(`${key}\0${chunk}`))) return
+
+    const response = await this.load(scope, livePaths, FULL_CONTEXT_LINES)
+    if (generation !== this.generation || !response.result) return
+    const parsed = this.parsedByScope.get(key)
+    if (!parsed || parsed.patch !== patch) return
+
+    const versionsByPath = new Map<string, FileVersions>()
+    for (const chunk of response.result.patch.split(GIT_DIFF_FILE_BREAK_REGEX)) {
+      if (!chunk.startsWith('diff --git')) continue
+      const file = processFile(chunk, { isGitDiff: true })
+      const versions = file && fileVersionsFromFullContext(file)
+      if (file && versions) versionsByPath.set(file.name, versions)
+    }
+
+    // Rebuilt fresh each pass, so the cache stays bounded to the current file set.
+    const nextExpandable = new Map<string, FileDiffMetadata | null>()
+    const upgradedByName = new Map<string, FileDiffMetadata>()
+    for (const chunk of chunks) {
+      const cacheKey = `${key}\0${chunk}`
+      let upgraded = this.expandableByChunk.get(cacheKey)
+      if (upgraded === undefined) {
+        const partial = this.fileChunkCache.get(chunk)
+        const versions = partial && versionsByPath.get(partial.name)
+        upgraded = partial && versions ? buildExpandableMetadata(chunk, partial, versions) : null
+      }
+      nextExpandable.set(cacheKey, upgraded)
+      if (upgraded) upgradedByName.set(upgraded.name, upgraded)
+    }
+    this.expandableByChunk = nextExpandable
+    if (upgradedByName.size === 0) return
+
+    const files = parsed.files.map((file) => upgradedByName.get(file.name) ?? file)
+    const byPath = new Map(files.map((file) => [file.name, file]))
+    this.parsedByScope.set(key, { ...parsed, files, byPath })
+    this.fileDiffs = files
+    this.currentByPath = byPath
+  }
+
   private applyPatch(scope: DiffScope, patch: string): void {
     const key = scopeKey(scope)
     this.patch = patch
     let parsed = this.parsedByScope.get(key)
     if (!parsed || parsed.patch !== patch) {
-      const files = this.parsePatchReusingFiles(patch)
+      const files = this.parsePatchReusingFiles(patch, key)
       const { paths, hasGitBinaryPatch } = collectBinaryFiles(patch)
       parsed = {
         patch,
@@ -247,9 +331,11 @@ export class DiffState {
    * `parsePatchFiles` over the whole string — but skips reparsing untouched files
    * on a live mid-turn refresh. Anything that isn't a plain leading-`diff --git`
    * patch (e.g. format-patch commit metadata) falls back to the whole-patch
-   * parse, preserving exact semantics.
+   * parse, preserving exact semantics. A file already upgraded to full-context
+   * (expandable) metadata is reused from that cache first, so a live refresh
+   * doesn't drop expansion on the files it didn't touch.
    */
-  private parsePatchReusingFiles(patch: string): FileDiffMetadata[] {
+  private parsePatchReusingFiles(patch: string, key: string): FileDiffMetadata[] {
     if (!patch.startsWith('diff --git')) {
       this.fileChunkCache = new Map()
       return parsePatchFiles(patch).flatMap((parsedPatch) => parsedPatch.files)
@@ -258,7 +344,7 @@ export class DiffState {
     const files: FileDiffMetadata[] = []
     for (const chunk of patch.split(GIT_DIFF_FILE_BREAK_REGEX)) {
       if (!chunk.startsWith('diff --git')) continue
-      let file = this.fileChunkCache.get(chunk)
+      let file = this.expandableByChunk.get(`${key}\0${chunk}`) ?? this.fileChunkCache.get(chunk)
       if (!file) {
         file = processFile(chunk, { isGitDiff: true })
         if (!file) continue

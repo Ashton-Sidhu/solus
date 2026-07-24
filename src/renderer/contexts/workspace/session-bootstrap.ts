@@ -1,7 +1,7 @@
 import type { AgentId } from '../../../shared/types'
 import { makeInputState, makeSession, makeTab } from './session.factories'
-import { loadSessionTranscript } from './session-transcript'
-import { hasConversation } from './session.utils'
+import { buildHandoffDividerMessage, loadSessionTranscript } from './session-transcript'
+import { hasConversation, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
@@ -11,6 +11,10 @@ import type { WorkspaceContext } from './workspace.context.svelte'
  * conversation's initial render cap so the windowed load fills the first screen.
  */
 const HISTORY_WINDOW = 100
+// A stitched restart loads at most one predecessor window plus the current
+// window. SessionMeta does not persist handoff lineage, so deeper chains cannot
+// be discovered without extending that authoritative metadata.
+const STITCHED_HISTORY_LIMIT = HISTORY_WINDOW * 2
 
 interface DeferredHydrationState {
   pending: Map<string, PersistedTab>
@@ -140,6 +144,10 @@ export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
       // Re-register with the server so event routing is alive again.
       await window.solus.createTab(tabId).catch(() => null)
 
+      // Same as hydrateTab: Git doesn't depend on the bind below, so don't queue
+      // it behind one. Registration needs the createTab above, hence not earlier.
+      const environmentRefresh = ctx.environment.refreshTab(ctx, { tabId, level: 'status' }).catch(() => null)
+
       if (session.agentSessionId) {
         const info = await window.solus.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
         if (info && session) {
@@ -157,7 +165,7 @@ export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
           session.rateLimitInfo = null
         }
       }
-      await ctx.environment.refreshTab(ctx, { tabId, level: 'status' }).catch(() => null)
+      await environmentRefresh
     }))
   } finally {
     ctx.runtimeSyncing = false
@@ -182,6 +190,7 @@ function _materializeTabs(
       session = makeSession(ctx.settings, {
         agentSessionId: snapTab.agentSessionId,
         provider: snapTab.provider,
+        handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
         status: 'idle',
         workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
         additionalDirs: [...snapTab.additionalDirs],
@@ -252,13 +261,20 @@ async function _attachRuntimeTabs(
  * runtime session. Loads the transcript before binding because bindRuntimeSession
  * may replay in-flight events immediately; if those land first, the conversation
  * guard would treat the tab as populated and skip the persisted transcript.
+ * The Git environment refresh is independent of both and runs alongside them.
  */
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<void> {
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions[tab.sessionId] : undefined
   if (!tab || !session) return
 
-  if (snapTab.agentSessionId) {
+  // Git is what the sidebar, home, and Git panel all read, and it depends on
+  // nothing below — so start it now rather than behind a transcript parse and a
+  // bind round-trip. Tabs are already registered with the server by this point
+  // (_attachRuntimeTabs), so environment registration is safe here.
+  const environmentRefresh = ctx.environment.refreshTab(ctx, { tabId: snapTab.tabId }).catch(() => null)
+
+  if (snapTab.agentSessionId || snapTab.handoffFrom) {
     if (!hasConversation(session)) {
       const sessionId = snapTab.agentSessionId
       const provider = (snapTab.provider ?? ctx.settings.activeAgent) as AgentId
@@ -271,23 +287,61 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       const tabId = snapTab.tabId
       session.loadingHistory = true
       try {
-        const transcript = await loadSessionTranscript(ctx, {
-          sessionId,
-          loadPath,
-          displayCwd,
-          provider,
-          ctx: ctx.ctxFor(tabId),
-          limit: HISTORY_WINDOW,
-          shouldApply: () => {
-            const t = ctx.tabs[tabId]
-            if (!t) return false
-            const s = ctx.sessions[t.sessionId]
-            return !!s && !hasConversation(s)
-          },
-        })
+        const shouldApply = () => {
+          const t = ctx.tabs[tabId]
+          if (!t) return false
+          const s = ctx.sessions[t.sessionId]
+          return !!s && !hasConversation(s)
+        }
+        const handoffFrom = snapTab.handoffFrom
+        const predecessorTranscript = handoffFrom
+          ? await loadSessionTranscript(ctx, {
+              sessionId: handoffFrom.sessionId,
+              loadPath,
+              displayCwd,
+              provider: handoffFrom.provider,
+              ctx: ctx.ctxFor(tabId),
+              limit: HISTORY_WINDOW,
+              shouldApply,
+            })
+          : null
+        const transcript = sessionId
+          ? await loadSessionTranscript(ctx, {
+              sessionId,
+              loadPath,
+              displayCwd,
+              provider,
+              ctx: ctx.ctxFor(tabId),
+              limit: HISTORY_WINDOW,
+              shouldApply,
+            })
+          : { messages: [], planIds: [], progress: null, truncated: false }
         const t = ctx.tabs[tabId]
         const s = t ? ctx.sessions[t.sessionId] : undefined
-        if (s && transcript.messages.length > 0) {
+        if (s && !hasConversation(s) && handoffFrom) {
+          const predecessorMessages = [...(predecessorTranscript?.messages ?? [])]
+          const currentMessages = [...transcript.messages]
+          const divider = buildHandoffDividerMessage({
+            fromProvider: handoffFrom.provider,
+            toProvider: provider,
+            truncated: predecessorTranscript?.truncated ?? false,
+          })
+          let overflow = predecessorMessages.length + 1 + currentMessages.length - STITCHED_HISTORY_LIMIT
+          const trimmedMessageCount = Math.max(overflow, 0)
+          if (overflow > 0) {
+            const predecessorTrimCount = Math.min(overflow, predecessorMessages.length)
+            predecessorMessages.splice(0, predecessorTrimCount)
+            overflow -= predecessorTrimCount
+          }
+          if (overflow > 0) currentMessages.splice(0, overflow)
+          const stitchedMessages = [...predecessorMessages, divider, ...currentMessages]
+          s.messages.splice(0, s.messages.length, ...stitchedMessages)
+          s.progress = progressFromMessages(stitchedMessages)
+          s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated || trimmedMessageCount > 0
+          ctx.recomputeChangedFiles(tabId)
+          const planIds = [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]
+          for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)
+        } else if (s && transcript.messages.length > 0) {
           s.messages.splice(0, s.messages.length, ...transcript.messages)
           s.progress = transcript.progress
           s.historyTruncated = transcript.truncated
@@ -300,7 +354,9 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         if (s) s.loadingHistory = false
       }
     }
+  }
 
+  if (snapTab.agentSessionId) {
     const info = await window.solus.bindRuntimeSession(ctx.ctxFor(snapTab.tabId)).catch(() => null)
     if (info && session) {
       session.modelConfig.modelId = info.modelConfig.modelId
@@ -310,10 +366,11 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.permissionMode = info.permissionMode
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
+      if (info.handoffFrom) session.handoffFrom = info.handoffFrom
       ctx.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
     }
   }
 
-  await ctx.environment.refreshTab(ctx, { tabId: snapTab.tabId })
+  await environmentRefresh
   void ctx.refreshPluginCommands(session.workingDirectory, snapTab.tabId)
 }
