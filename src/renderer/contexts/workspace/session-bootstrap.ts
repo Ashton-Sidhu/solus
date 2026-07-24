@@ -11,10 +11,6 @@ import type { WorkspaceContext } from './workspace.context.svelte'
  * conversation's initial render cap so the windowed load fills the first screen.
  */
 const HISTORY_WINDOW = 100
-// A stitched restart loads at most one predecessor window plus the current
-// window. SessionMeta does not persist handoff lineage, so deeper chains cannot
-// be discovered without extending that authoritative metadata.
-const STITCHED_HISTORY_LIMIT = HISTORY_WINDOW * 2
 
 interface DeferredHydrationState {
   pending: Map<string, PersistedTab>
@@ -326,18 +322,10 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
             toProvider: provider,
             truncated: predecessorTranscript?.truncated ?? false,
           })
-          let overflow = predecessorMessages.length + 1 + currentMessages.length - STITCHED_HISTORY_LIMIT
-          const trimmedMessageCount = Math.max(overflow, 0)
-          if (overflow > 0) {
-            const predecessorTrimCount = Math.min(overflow, predecessorMessages.length)
-            predecessorMessages.splice(0, predecessorTrimCount)
-            overflow -= predecessorTrimCount
-          }
-          if (overflow > 0) currentMessages.splice(0, overflow)
           const stitchedMessages = [...predecessorMessages, divider, ...currentMessages]
           s.messages.splice(0, s.messages.length, ...stitchedMessages)
           s.progress = progressFromMessages(stitchedMessages)
-          s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated || trimmedMessageCount > 0
+          s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
           ctx.recomputeChangedFiles(tabId)
           const planIds = [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]
           for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)

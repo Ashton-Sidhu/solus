@@ -58,9 +58,10 @@ const statusInflight = new Map<string, Promise<GitState | null>>()
  */
 export function computeGitState(
   cwd: string,
-  options: GitStateOptions = {},
+  options: GitStateOptions | null = {},
 ): Promise<GitState | null> {
   if (!cwd || cwd === '~') return Promise.resolve(null)
+  options ??= {}
 
   const key = `${cwd}\0${options.includeDetails ? 'details' : 'summary'}`
   const existing = statusInflight.get(key)
