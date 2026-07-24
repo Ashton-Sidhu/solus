@@ -75,7 +75,7 @@
       12}px;right:{window.innerWidth - anchorRect.right + 12}px"
   >
     <div
-      class="rounded-xl bg-(--solus-popover-bg) border border-(--solus-popover-border) overflow-hidden"
+      class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border) overflow-hidden"
       style="backdrop-filter:blur(1.25rem);box-shadow:var(--solus-popover-shadow)"
     >
       <div

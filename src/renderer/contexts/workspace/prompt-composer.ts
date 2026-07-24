@@ -31,6 +31,17 @@ export class PromptComposer {
       }).join('\n\n')
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${workCtx}` : workCtx
     }
+    if (input.sessionRefs.length > 0) {
+      // Reference each session by id — the agent reads the transcript on demand
+      // via read_session rather than us inlining it. Provider-agnostic: both
+      // Claude and Codex export read_session, so the text is identical.
+      const sessionCtx = input.sessionRefs.map((ref) =>
+        [
+          `[Referenced Session: "${ref.title}" (session_id: ${ref.sessionId}, provider: ${ref.provider})]`,
+          `Call read_session with session_id "${ref.sessionId}" to read its transcript before responding.`,
+        ].join('\n')).join('\n\n')
+      fullPrompt = fullPrompt ? `${fullPrompt}\n\n${sessionCtx}` : sessionCtx
+    }
     if (session.boundWorkId) {
       const boundWork = this.worksStore.get(session.boundWorkId)
       if (!boundWork) {

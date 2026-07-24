@@ -967,17 +967,6 @@ input::placeholder {
   text-overflow: ellipsis;
 }
 
-/* Compact editor for the shared PromptComposer: tighter vertical padding so the
- * pill stays short, with the placeholder re-anchored to match the trimmed
- * ProseMirror padding (default assumes the taller input-bar padding). */
-.solus-md-editor-wrap.pc-editor .ProseMirror {
-  padding: 0.5rem 0 0.5rem 0.25rem;
-  min-height: 1.375rem;
-}
-.solus-md-editor-wrap.pc-editor .solus-md-placeholder {
-  top: 0.5rem;
-}
-
 /*
  * ─── Inline reference tokens ───
  * Shared shape for the plan / file / slash-command inline atoms inserted
@@ -1147,16 +1136,29 @@ button.solus-token {
 .solus-doc-raw::placeholder {
   color: var(--solus-placeholder);
 }
+/* Reading measure shared by the document text column and any surface that must
+   line up under it (the plan action-bar composer). Defined on the shell root so
+   both inherit the same value; the % resolves per containing block. */
+.doc-shell-root {
+  --solus-doc-measure: clamp(100ch, 80%, 160ch);
+}
 .solus-doc-editor .ProseMirror {
   outline: none;
   border: none;
   background: transparent;
   width: 100%;
-  max-width: 62.5rem;
+  /* Reading measure: fills most of the pane (88%) with a 100ch floor on narrow
+     panes and a 170ch ceiling on the widest. Exposed as --solus-doc-measure so
+     the plan action-bar composer below can match the text column exactly. The %
+     resolves against the containing block, so it scales per-pane; ch tracks the
+     body font-size, so it scales with --solus-font-scale too. */
+  max-width: var(--solus-doc-measure, clamp(100ch, 80%, 160ch));
   margin-inline: auto;
   font-family: inherit;
-  font-weight: var(--solus-font-weight-body);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  /* Body at 400 (Regular) — at the 16px reading size, the app-wide 500 body
+     weight reads heavy, and 400 gives the 600 headings room to anchor. */
+  font-weight: 400;
+  font-size: calc(1rem * var(--solus-font-scale, 1));
   line-height: 1.75;
   color: var(--solus-text-primary);
   padding: 0.75rem 2rem 3rem;
@@ -1175,12 +1177,27 @@ button.solus-token {
   max-width: none;
   margin-inline: 0;
   padding: 0.5rem 0.75rem 0.75rem 1.25rem;
+  /* Input surface, not a reading surface — keep the compact pre-redesign scale
+     (app body size/weight, tight paragraphs, small unadorned headings). */
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: var(--solus-font-weight-body);
+}
+.doc-prompt-editor .solus-doc-editor .ProseMirror p { margin: 0.35em 0; }
+.doc-prompt-editor .solus-doc-editor .ProseMirror h1 {
+  font-size: calc(1.25rem * var(--solus-font-scale, 1)); margin: 1.2em 0 0.35em; line-height: 1.3;
+}
+.doc-prompt-editor .solus-doc-editor .ProseMirror h2 {
+  font-size: calc(1.0625rem * var(--solus-font-scale, 1)); margin: 1em 0 0.3em; line-height: 1.35;
+  border-bottom: none; padding-bottom: 0;
+}
+.doc-prompt-editor .solus-doc-editor .ProseMirror h3 {
+  font-size: calc(0.9375rem * var(--solus-font-scale, 1)); margin: 0.85em 0 0.25em; line-height: 1.4;
 }
 .solus-doc-editor .ProseMirror > * + * {
   margin-top: 0.5em;
 }
 .solus-doc-editor .ProseMirror p {
-  margin: 0.35em 0;
+  margin: 1.2em 0;
   text-wrap: pretty;
 }
 .solus-doc-editor .ProseMirror strong { font-weight: 600; }
@@ -1190,18 +1207,22 @@ button.solus-token {
 .solus-doc-editor .ProseMirror h3 {
   text-wrap: balance;
 }
+/* ×1.25 scale off the 16px body: h1 31px, h2 25px, h3 20px. Big gap above a
+   heading separates the prior section, tight gap below bonds it to its content. */
 .solus-doc-editor .ProseMirror h1 {
-  font-size: calc(1.25rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.02em;
-  margin: 1.2em 0 0.35em; line-height: 1.3;
+  font-size: calc(1.9375rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.02em;
+  margin: 1.2em 0 0.45em; line-height: 1.25;
 }
 .solus-doc-editor .ProseMirror h1:first-child { margin-top: 0; }
 .solus-doc-editor .ProseMirror h2 {
-  font-size: calc(1.0625rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.015em;
-  margin: 1em 0 0.3em; line-height: 1.35;
+  font-size: calc(1.5625rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.015em;
+  margin: 1.8em 0 0.4em; line-height: 1.3;
+  border-bottom: 0.0625rem solid var(--solus-art-border);
+  padding-bottom: 0.25em;
 }
 .solus-doc-editor .ProseMirror h3 {
-  font-size: calc(0.9375rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.01em;
-  margin: 0.85em 0 0.25em; line-height: 1.4;
+  font-size: calc(1.25rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.01em;
+  margin: 1.45em 0 0.3em; line-height: 1.35;
 }
 .solus-doc-editor .ProseMirror h2 + h3,
 .solus-doc-editor .ProseMirror h2 + p,
@@ -1224,10 +1245,22 @@ button.solus-token {
 }
 .solus-doc-editor .ProseMirror li { margin: 0.2em 0; }
 .solus-doc-editor .ProseMirror li p { margin: 0; }
+/* Inline code reads as code by shape (mono + chip), not by color — accent ink
+   on every span turned dense technical prose into confetti. Chat prose and the
+   input editor keep the shared accent treatment above. */
+.solus-doc-editor .ProseMirror code {
+  color: inherit;
+  background: var(--solus-art-raised);
+  border-radius: 0.3125rem;
+  padding: 0.08em 0.32em;
+  font-size: 0.85em;
+}
 .solus-doc-editor .ProseMirror pre {
-  padding: 0.7em 0.9em;
-  font-size: calc(0.7813rem * var(--solus-font-scale, 1));
-  margin: 0.6em 0;
+  background: var(--solus-art-surface);
+  border-color: var(--solus-art-border);
+  padding: 0.9em 1.1em;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  margin: 0.9em 0;
 }
 /* Task list */
 .solus-doc-editor .ProseMirror ul[data-type="taskList"] {
@@ -1265,19 +1298,26 @@ button.solus-token {
 .solus-doc-editor .ProseMirror table {
   border-collapse: collapse;
   width: 100%;
-  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
-  margin: 0.6em 0;
+  font-size: 0.9em;
+  margin: 0.9em 0;
 }
+/* Horizontal rules only — a full grid boxes every cell and fights the prose. */
 .solus-doc-editor .ProseMirror th,
 .solus-doc-editor .ProseMirror td {
-  border: 0.0625rem solid var(--solus-container-border);
-  padding: 0.4em 0.7em;
+  border: none;
+  border-bottom: 0.0625rem solid var(--solus-art-border);
+  padding: 0.45em 0.7em;
   overflow-wrap: anywhere;
   /* Contain the .selectedCell::after overlay to its own cell. Without this the
      absolutely-positioned overlay escapes to .solus-doc-editor-wrap and fills
      the whole editor — and a full-table CellSelection (e.g. while dragging)
      stacks one sheet per cell into a heavy accent wash. */
   position: relative;
+}
+.solus-doc-editor .ProseMirror th {
+  border-bottom: 0.0625rem solid var(--solus-art-border-strong);
+  background: transparent;
+  font-weight: 500;
 }
 .solus-doc-editor .ProseMirror .selectedCell::after {
   background: var(--solus-accent-light);
@@ -1306,42 +1346,43 @@ button.solus-token {
   height: 0;
 }
 
-/* ─── Lowlight syntax highlighting tokens (in document editor code blocks) ─── */
+/* ─── Lowlight syntax highlighting tokens (in document editor code blocks) ───
+   Tokens run at half intensity (mixed toward secondary text) so code blocks
+   inside prose read as quiet exhibits, not the loudest thing on the page. */
 .solus-doc-editor .hljs-comment,
 .solus-doc-editor .hljs-quote { color: var(--solus-syntax-comment); font-style: italic; }
 .solus-doc-editor .hljs-keyword,
 .solus-doc-editor .hljs-selector-tag,
-.solus-doc-editor .hljs-subst { color: var(--solus-syntax-keyword); }
+.solus-doc-editor .hljs-subst { color: color-mix(in srgb, var(--solus-syntax-keyword) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-number,
 .solus-doc-editor .hljs-literal,
 .solus-doc-editor .hljs-variable,
 .solus-doc-editor .hljs-template-variable,
-.solus-doc-editor .hljs-tag .hljs-attr { color: var(--solus-syntax-number); }
+.solus-doc-editor .hljs-tag .hljs-attr { color: color-mix(in srgb, var(--solus-syntax-number) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-string,
-.solus-doc-editor .hljs-doctag { color: var(--solus-syntax-string); }
+.solus-doc-editor .hljs-doctag { color: color-mix(in srgb, var(--solus-syntax-string) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-title,
 .solus-doc-editor .hljs-section,
-.solus-doc-editor .hljs-selector-id { color: var(--solus-syntax-function); font-weight: 600; }
+.solus-doc-editor .hljs-selector-id { color: color-mix(in srgb, var(--solus-syntax-function) 50%, var(--solus-text-secondary)); font-weight: 600; }
 .solus-doc-editor .hljs-type,
-.solus-doc-editor .hljs-class .hljs-title { color: var(--solus-syntax-type); }
+.solus-doc-editor .hljs-class .hljs-title { color: color-mix(in srgb, var(--solus-syntax-type) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-attribute,
-.solus-doc-editor .hljs-name { color: var(--solus-syntax-attr); }
+.solus-doc-editor .hljs-name { color: color-mix(in srgb, var(--solus-syntax-attr) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-regexp,
-.solus-doc-editor .hljs-link { color: var(--solus-syntax-string); }
+.solus-doc-editor .hljs-link { color: color-mix(in srgb, var(--solus-syntax-string) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-symbol,
-.solus-doc-editor .hljs-bullet { color: var(--solus-syntax-number); }
+.solus-doc-editor .hljs-bullet { color: color-mix(in srgb, var(--solus-syntax-number) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-built_in,
-.solus-doc-editor .hljs-builtin-name { color: var(--solus-syntax-type); }
+.solus-doc-editor .hljs-builtin-name { color: color-mix(in srgb, var(--solus-syntax-type) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-meta { color: var(--solus-syntax-comment); }
-.solus-doc-editor .hljs-deletion { color: var(--solus-syntax-deletion); }
-.solus-doc-editor .hljs-addition { color: var(--solus-syntax-addition); }
+.solus-doc-editor .hljs-deletion { color: color-mix(in srgb, var(--solus-syntax-deletion) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-addition { color: color-mix(in srgb, var(--solus-syntax-addition) 50%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-emphasis { font-style: italic; }
 .solus-doc-editor .hljs-strong { font-weight: bold; }
 
 /* ─── Document editor: compact / mobile ─── */
 @media (max-width: 1100px) {
   .solus-doc-editor .ProseMirror {
-    max-width: none;
     padding-inline: 1rem;
   }
   .solus-doc-raw {
@@ -1349,19 +1390,20 @@ button.solus-token {
   }
 }
 @media (max-width: 767px) {
+  /* Body stays at the 16px reading size (also the iOS no-zoom floor); headings
+     run a compressed scale so h1 doesn't dominate a phone screen. */
   .solus-doc-editor .ProseMirror {
     padding: 0.5rem 0.75rem 0.75rem;
-    font-size: 0.8125rem;
     line-height: 1.6;
   }
   .solus-doc-editor .ProseMirror h1 {
-    font-size: calc(1.0625rem * var(--solus-font-scale, 1));
+    font-size: calc(1.5rem * var(--solus-font-scale, 1));
   }
   .solus-doc-editor .ProseMirror h2 {
-    font-size: calc(0.9375rem * var(--solus-font-scale, 1));
+    font-size: calc(1.25rem * var(--solus-font-scale, 1));
   }
   .solus-doc-editor .ProseMirror h3 {
-    font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+    font-size: calc(1.0625rem * var(--solus-font-scale, 1));
   }
   /* Keep each column readable: give cells a min-width floor so text wraps
      within a sane column instead of being squished character-by-character.
@@ -1973,31 +2015,21 @@ html.is-mac-editor {
 }
 
 /* ─── Dropdown menu item stagger ─── */
-@keyframes solus-menu-item-in {
-  from { opacity: 0; transform: translateY(-0.1875rem); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@media (prefers-reduced-motion: no-preference) {
-  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
-    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]),
-  .solus-menu-stagger > [role="menuitem"] {
-    animation: solus-menu-item-in 0.18s ease-out backwards;
+@theme {
+  --animate-menu-item-in: menu-item-in 0.18s ease-out backwards;
+  @keyframes menu-item-in {
+    from { opacity: 0; transform: translateY(-0.1875rem); }
+    to   { opacity: 1; transform: translateY(0); }
   }
-  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
-    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(2),
-  .solus-menu-stagger > [role="menuitem"]:nth-child(2) { animation-delay: 50ms; }
-  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
-    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(3),
-  .solus-menu-stagger > [role="menuitem"]:nth-child(3) { animation-delay: 100ms; }
-  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
-    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(4),
-  .solus-menu-stagger > [role="menuitem"]:nth-child(4) { animation-delay: 150ms; }
-  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
-    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(5),
-  .solus-menu-stagger > [role="menuitem"]:nth-child(5) { animation-delay: 200ms; }
-  :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="select-content"])
-    :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="context-menu-item"], [data-slot="select-item"]):nth-child(n+6),
-  .solus-menu-stagger > [role="menuitem"]:nth-child(n+6) { animation-delay: 250ms; }
+}
+@utility menu-item-stagger {
+  animation: var(--animate-menu-item-in);
+  &:nth-child(2) { animation-delay: 50ms; }
+  &:nth-child(3) { animation-delay: 100ms; }
+  &:nth-child(4) { animation-delay: 150ms; }
+  &:nth-child(5) { animation-delay: 200ms; }
+  &:nth-child(n + 6) { animation-delay: 250ms; }
+  @media (prefers-reduced-motion: reduce) { animation: none; }
 }
 
 @keyframes backdrop-fade {

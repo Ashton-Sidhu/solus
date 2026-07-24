@@ -22,7 +22,12 @@
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
   import type { Command } from "./components/command-palette/lib/commands";
-  import { projectsStore, toasts, connectionsStore, serversStore } from "./contexts";
+  import {
+    projectsStore,
+    toasts,
+    connectionsStore,
+    serversStore,
+  } from "./contexts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
@@ -49,9 +54,7 @@
     flushDrafts,
     type PersistedTabs,
   } from "./contexts/workspace/tab-persistence";
-  import {
-    consumeSessionHandoff,
-  } from "./contexts/workspace/active-session-pointer";
+  import { consumeSessionHandoff } from "./contexts/workspace/active-session-pointer";
   import { createAppCore } from "./contexts/app/app-core";
   import {
     useKeybinding,
@@ -67,7 +70,8 @@
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
-  type EditorLayoutModule = typeof import("./components/layout/EditorLayout.svelte");
+  type EditorLayoutModule =
+    typeof import("./components/layout/EditorLayout.svelte");
   type EditorLayoutComponent = EditorLayoutModule["default"];
   interface Props {
     initialEditorLayout?: EditorLayoutComponent;
@@ -120,9 +124,7 @@
           title: tab.title ?? "New Tab",
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
-          handoffFrom: sess?.handoffFrom
-            ? { ...sess.handoffFrom }
-            : undefined,
+          handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory:
             sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
@@ -288,11 +290,17 @@
   const taskComposerConfig = $derived(
     taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
   );
-  const taskComposerProvider = $derived(taskComposerConfig?.taskProvider ?? "local");
-  const taskComposerTasks = $derived(
-    taskComposer && session.tasksStore.cwd === taskComposer.cwd ? session.tasksStore.tasks : [],
+  const taskComposerProvider = $derived(
+    taskComposerConfig?.taskProvider ?? "local",
   );
-  const taskComposerEpics = $derived(taskComposerTasks.filter((t) => t.kind === "epic"));
+  const taskComposerTasks = $derived(
+    taskComposer && session.tasksStore.cwd === taskComposer.cwd
+      ? session.tasksStore.tasks
+      : [],
+  );
+  const taskComposerEpics = $derived(
+    taskComposerTasks.filter((t) => t.kind === "epic"),
+  );
   const taskComposerLabels = $derived(
     Array.from(new Set(taskComposerTasks.flatMap((t) => t.labels))).sort(),
   );
@@ -308,7 +316,8 @@
   // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
-  type PillLayoutModule = typeof import("./components/layout/PillLayout.svelte");
+  type PillLayoutModule =
+    typeof import("./components/layout/PillLayout.svelte");
   const initialViewMode = untrack(() => windowCtx.viewMode);
   let editorLayoutComponent = $state.raw<Promise<EditorLayoutModule> | null>(
     initialViewMode === "editor" && !untrack(() => initialEditorLayout)
@@ -326,7 +335,8 @@
   // first use and then only hide/show; never destroy either initialized tree.
   $effect(() => {
     if (isEditorMode) {
-      editorLayoutComponent ??= import("./components/layout/EditorLayout.svelte");
+      editorLayoutComponent ??=
+        import("./components/layout/EditorLayout.svelte");
     } else {
       pillLayoutComponent ??= import("./components/layout/PillLayout.svelte");
     }
@@ -344,7 +354,9 @@
   });
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
-  const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
+  const desktopHandlersAvailable = $derived(
+    connectionsStore.desktopHandlersAvailable,
+  );
   // status/provider live on Session, not Tab — reading them off the tab always
   // yielded undefined, so isRunning was permanently false and the run-gated
   // global keybindings never blocked during a run.
@@ -357,7 +369,9 @@
       (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   );
   const directoryPickerTitle = $derived(
-    directoryPickerCreatesTab ? "Open project in a new tab" : "Change project folder",
+    directoryPickerCreatesTab
+      ? "Open project in a new tab"
+      : "Change project folder",
   );
   const directoryPickerAction = $derived(
     directoryPickerCreatesTab ? "Open in new tab" : "Choose",
@@ -397,7 +411,9 @@
     void connectionsStore.refreshCapabilities();
   });
 
-  const detectReconnect = createReconnectDetector(serversStore.connectionStatus);
+  const detectReconnect = createReconnectDetector(
+    serversStore.connectionStatus,
+  );
   $effect(() => {
     const connectionStatus = serversStore.connectionStatus;
     if (detectReconnect(connectionStatus)) {
@@ -418,7 +434,8 @@
     const setIgnore = (shouldIgnore: boolean) => {
       if (shouldIgnore === lastIgnored) return;
       lastIgnored = shouldIgnore;
-      if (shouldIgnore) window.solus.setIgnoreMouseEvents(true, { forward: true });
+      if (shouldIgnore)
+        window.solus.setIgnoreMouseEvents(true, { forward: true });
       else window.solus.setIgnoreMouseEvents(false, { focus: true });
     };
 
@@ -548,11 +565,12 @@
         active?.gitContext?.worktreePath ??
         active?.workingDirectory ??
         session.globalDefaults.workingDirectory;
-      if (cwd) void sessionEnvironmentStore.refreshTab(session, {
-        tabId: session.activeTabId,
-        cwd,
-        level: "status",
-      });
+      if (cwd)
+        void sessionEnvironmentStore.refreshTab(session, {
+          tabId: session.activeTabId,
+          cwd,
+          level: "status",
+        });
     });
     return () => {
       unsubRun();
@@ -570,7 +588,9 @@
   $effect(() => {
     void session.activeTabId;
     const reviewSurfaceOpen =
-      session.prsOpen || session.reviewModeOpen || !!session.activeSession?.prReview;
+      session.prsOpen ||
+      session.reviewModeOpen ||
+      !!session.activeSession?.prReview;
     untrack(() =>
       session.prsStore.setChecksReviewSurface(reviewSurfaceOpen, session.ctx),
     );
@@ -587,7 +607,12 @@
       let active = false;
       // Bail before the O(selection) toString() on the common continuous-drag
       // path where there's no real selection (collapsed caret / no range).
-      if (sel && !sel.isCollapsed && sel.rangeCount > 0 && sel.toString().trim()) {
+      if (
+        sel &&
+        !sel.isCollapsed &&
+        sel.rangeCount > 0 &&
+        sel.toString().trim()
+      ) {
         const node = sel.getRangeAt(0).commonAncestorContainer;
         const el =
           node.nodeType === Node.ELEMENT_NODE
@@ -747,17 +772,21 @@
     session.toggleTabGroupMode();
   });
   useKeybinding("global.attach-file", () => handleAttachFile(keyboardTabId));
-  useKeybinding("global.design-mode", () => {
-    const targetStatus = session.sessionFor(keyboardTabId)?.status;
-    if (
-      targetStatus !== "running" &&
-      targetStatus !== "connecting" &&
-      desktopHandlersAvailable
-    )
-      handleDesignMode(keyboardTabId);
-  }, {
-    enabled: () => desktopHandlersAvailable,
-  });
+  useKeybinding(
+    "global.design-mode",
+    () => {
+      const targetStatus = session.sessionFor(keyboardTabId)?.status;
+      if (
+        targetStatus !== "running" &&
+        targetStatus !== "connecting" &&
+        desktopHandlersAvailable
+      )
+        handleDesignMode(keyboardTabId);
+    },
+    {
+      enabled: () => desktopHandlersAvailable,
+    },
+  );
   useKeybinding("global.cycle-agent", async () => {
     if (isRunning) return;
     await cycleAgentProvider();
@@ -849,7 +878,9 @@
       session.activeSession?.workingDirectory;
     return dir && dir !== "~" ? worktreeProjectRoot(dir) : null;
   });
-  const paletteGitRefs = $derived(sessionEnvironmentStore.refsFor(paletteGitProjectRoot));
+  const paletteGitRefs = $derived(
+    sessionEnvironmentStore.refsFor(paletteGitProjectRoot),
+  );
   const worktrees = $derived(paletteGitRefs.worktrees);
   const paletteBranches = $derived(paletteGitRefs.branches);
   // Open PRs for the "Review PR…" sub-page, loaded lazily alongside the git refs.
@@ -975,7 +1006,11 @@
     const projectRoot = paletteGitProjectRoot;
     if (projectRoot) {
       const ctx = session.ctxForDirectory(projectRoot);
-      const refsReady = await sessionEnvironmentStore.refreshRefs(projectRoot, ctx, { force: true });
+      const refsReady = await sessionEnvironmentStore.refreshRefs(
+        projectRoot,
+        ctx,
+        { force: true },
+      );
       if (!refsReady) toasts.error("Couldn't refresh branches");
       const worktree = sessionEnvironmentStore
         .refsFor(projectRoot)
@@ -985,7 +1020,8 @@
         const nextCwd =
           session.activeSession?.gitContext?.worktreePath ??
           session.activeSession?.workingDirectory;
-        if (nextCwd) void sessionEnvironmentStore.refresh(nextCwd, { force: true });
+        if (nextCwd)
+          void sessionEnvironmentStore.refresh(nextCwd, { force: true });
         requestInputFocus();
         return true;
       }
@@ -995,7 +1031,8 @@
     const nextCwd =
       session.activeSession?.gitContext?.worktreePath ??
       session.activeSession?.workingDirectory;
-    if (ok && nextCwd) void sessionEnvironmentStore.refresh(nextCwd, { force: true });
+    if (ok && nextCwd)
+      void sessionEnvironmentStore.refresh(nextCwd, { force: true });
     requestInputFocus();
     return ok;
   }
@@ -1015,7 +1052,13 @@
         group: "Servers",
         icon: PlugsIcon,
         hint: server.id === serversStore.activeServerId ? "Active" : undefined,
-        keywords: ["server", "remote", "connect", server.url, server.installationId ?? ""],
+        keywords: [
+          "server",
+          "remote",
+          "connect",
+          server.url,
+          server.installationId ?? "",
+        ],
         run: () => serversStore.switchTo(server.id),
       });
     }
@@ -1087,7 +1130,8 @@
     // to pick any other known project. Both pop the standalone create-task modal.
     const taskCwd = session.tasksProjectCwd;
     if (taskCwd) {
-      const taskProjectName = taskCwd.split("/").filter(Boolean).pop() ?? taskCwd;
+      const taskProjectName =
+        taskCwd.split("/").filter(Boolean).pop() ?? taskCwd;
       commands.push({
         id: "create-task",
         label: `Create task in ${taskProjectName}`,
@@ -1099,7 +1143,8 @@
     }
     const createTaskInChildren: Command[] = paletteProjects.map((p) => ({
       id: `create-task-in:${p.path}`,
-      label: p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
+      label:
+        p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
       group: "Projects",
       icon: FolderIcon,
       keywords: [p.folderName, p.path],
@@ -1120,7 +1165,9 @@
     // project. Only the active project's tasks count (the store is scoped to one
     // cwd, so anything else is stale).
     const tasksLoadedForProject =
-      !!taskCwd && session.tasksStore.cwd === taskCwd && session.tasksStore.loaded;
+      !!taskCwd &&
+      session.tasksStore.cwd === taskCwd &&
+      session.tasksStore.loaded;
     const goToTaskChildren: Command[] = tasksLoadedForProject
       ? session.tasksStore.tasks.map((t) => ({
           id: `go-to-task:${t.id}`,
@@ -1152,7 +1199,8 @@
       run: () => session.openPrs(),
     });
 
-    const gitCtx = session.activeSession?.gitContext ?? session.globalDefaults.gitContext;
+    const gitCtx =
+      session.activeSession?.gitContext ?? session.globalDefaults.gitContext;
     if (gitCtx) {
       const worktreeBranchNames = worktrees.map((wt) => wt.branch);
       const branchCommands: Command[] = [
@@ -1222,7 +1270,14 @@
                 label: "Continue in worktree",
                 group: "General",
                 icon: TreeStructureIcon,
-                keywords: ["worktree", "continue", "move", "branch", "isolated", "fork"],
+                keywords: [
+                  "worktree",
+                  "continue",
+                  "move",
+                  "branch",
+                  "isolated",
+                  "fork",
+                ],
                 hint: comboHint("global.continue-worktree"),
                 run: () => void session.continueInWorktree(activeTabId),
               } as Command,
@@ -1241,7 +1296,17 @@
           label: "New session in…",
           group: "General",
           icon: GitForkIcon,
-          keywords: ["session", "branch", "worktree", "checkout", "switch", "remote", "existing", "open", "pick"],
+          keywords: [
+            "session",
+            "branch",
+            "worktree",
+            "checkout",
+            "switch",
+            "remote",
+            "existing",
+            "open",
+            "pick",
+          ],
           children: newSessionInChildren,
         },
         {
@@ -1266,7 +1331,13 @@
             group: "Pull requests",
             icon: GitPullRequestIcon,
             hint: `#${pr.number}`,
-            keywords: ["pr", "pull request", "review", String(pr.number), pr.author],
+            keywords: [
+              "pr",
+              "pull request",
+              "review",
+              String(pr.number),
+              pr.author,
+            ],
             run: () =>
               void session.enterPrReview(pr.number, pr.title, {
                 ctx: paletteGitTarget?.ctx,
@@ -1384,14 +1455,10 @@
 
   $effect(() => {
     const handler = (event: Event) => {
-      const targetTabId = (
-        event as CustomEvent<{ tabId?: string }>
-      ).detail?.tabId;
-      const targetStatus = targetTabId
-        ? session.sessionFor(targetTabId)?.status
-        : activeTabStatus;
-      const opensInNewTab =
-        targetStatus === "running" || targetStatus === "connecting";
+      const targetTabId = (event as CustomEvent<{ tabId?: string }>).detail
+        ?.tabId;
+      const tab = targetTabId ? session.tabs[targetTabId] : null;
+      const opensInNewTab = tab?.sessionId != null;
       directoryPickerNewTab = opensInNewTab;
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
       directoryPickerOpen = true;
@@ -1404,19 +1471,27 @@
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
     const reviewPrHandler = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        tabId?: string;
-        cwd?: string;
-        checkout?: GitCheckout | null;
-      }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          tabId?: string;
+          cwd?: string;
+          checkout?: GitCheckout | null;
+        }>
+      ).detail;
       const targetTabId = detail?.tabId ?? activeTabId;
       const targetSession = session.sessionFor(targetTabId);
       const dir =
-        detail?.cwd ?? targetSession?.gitContext?.repoRoot ?? targetSession?.workingDirectory;
+        detail?.cwd ??
+        targetSession?.gitContext?.repoRoot ??
+        targetSession?.workingDirectory;
       paletteGitTarget = {
         tabId: targetTabId,
         ctx: detail?.cwd
-          ? session.ctxForEnvironment(detail.cwd, detail.checkout ?? null, targetTabId)
+          ? session.ctxForEnvironment(
+              detail.cwd,
+              detail.checkout ?? null,
+              targetTabId,
+            )
           : session.ctxFor(targetTabId),
         projectRoot: dir && dir !== "~" ? worktreeProjectRoot(dir) : null,
       };
@@ -1517,7 +1592,6 @@
   visibleToasts={1}
   duration={6000}
   hotkey={TOAST_HOTKEY}
-  closeButton
 />
 
 <!-- Popover overlay layer: sits above everything, ignores events except where portals opt in. -->
@@ -1681,7 +1755,8 @@
         const cwd = taskComposer?.cwd;
         if (!cwd) return;
         try {
-          if (session.tasksStore.cwd === cwd) await session.tasksStore.create(cwd, input);
+          if (session.tasksStore.cwd === cwd)
+            await session.tasksStore.create(cwd, input);
           else await window.solus.tasksCreate(cwd, input);
           toasts.success("Task created");
         } catch (err) {

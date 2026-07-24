@@ -28,10 +28,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Popover from "../ui/popover";
   import SearchablePickerList from "../pickers/SearchablePickerList.svelte";
-  import {
-    worktreeProjectRoot,
-    type IpcContext,
-  } from "../../../shared/types";
+  import { worktreeProjectRoot, type IpcContext } from "../../../shared/types";
 
   interface Props {
     tabId: string;
@@ -52,15 +49,15 @@
   const conflictedFiles = $derived(
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
   );
-  const uncommittedFileCount = $derived(status?.uncommittedChanges.files.length ?? 0);
+  const uncommittedFileCount = $derived(
+    status?.uncommittedChanges.files.length ?? 0,
+  );
   const insertions = $derived(status?.uncommittedChanges.insertions ?? 0);
   const deletions = $derived(status?.uncommittedChanges.deletions ?? 0);
   const actions = $derived(gitActionsFor(tabId, session, environmentStore));
   const canGit = $derived(!!env.branch);
   const canViewDiff = $derived(!!status);
-  const canPr = $derived(
-    !!env.branch && env.branch !== env.targetBranch,
-  );
+  const canPr = $derived(!!env.branch && env.branch !== env.targetBranch);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
@@ -279,7 +276,10 @@
         requestInputFocus();
       },
     });
-    if (status && (status.uncommittedChanges.mergeInProgress || conflictedFiles.length > 0)) {
+    if (
+      status &&
+      (status.uncommittedChanges.mergeInProgress || conflictedFiles.length > 0)
+    ) {
       defs.push({
         key: "conflict",
         primary: recommendedActionKey === "conflict",
@@ -323,8 +323,7 @@
       "conflict",
     ]);
     if (sourceControl.length) {
-      const primary =
-        sourceControl.find((d) => d.primary) ?? sourceControl[0];
+      const primary = sourceControl.find((d) => d.primary) ?? sourceControl[0];
       groups.push({
         key: "source-control",
         primary,
@@ -334,7 +333,11 @@
 
     const review = pick(["review", "review-regenerate", "review-pr"]);
     if (review.length) {
-      groups.push({ key: "review", primary: review[0], secondary: review.slice(1) });
+      groups.push({
+        key: "review",
+        primary: review[0],
+        secondary: review.slice(1),
+      });
     }
 
     for (const def of pick(["working-tree-diff", "files", "terminal"])) {
@@ -399,9 +402,11 @@
   function handleBranchOpenChange(next: boolean) {
     branchPickerOpen = next;
     if (next && branchRepoCtx) {
-      void environmentStore.refreshRefs(branchRepoRoot, branchRepoCtx, { force: true }).then((ok) => {
-        if (!ok) toasts.error("Couldn't refresh branches");
-      });
+      void environmentStore
+        .refreshRefs(branchRepoRoot, branchRepoCtx, { force: true })
+        .then((ok) => {
+          if (!ok) toasts.error("Couldn't refresh branches");
+        });
     }
   }
 
@@ -498,10 +503,16 @@
   }
 
   async function resolveWithAgent() {
-    if (!status || (!status.uncommittedChanges.mergeInProgress && conflictedFiles.length === 0))
+    if (
+      !status ||
+      (!status.uncommittedChanges.mergeInProgress &&
+        conflictedFiles.length === 0)
+    )
       return;
     const filesToInspect =
-      conflictedFiles.length > 0 ? conflictedFiles : status.uncommittedChanges.files;
+      conflictedFiles.length > 0
+        ? conflictedFiles
+        : status.uncommittedChanges.files;
     const prompt = [
       `Resolve the merge conflicts on branch ${status.branch ?? "detached HEAD"}.`,
       filesToInspect.length > 0
@@ -510,11 +521,7 @@
       ...filesToInspect.map((file) => `- ${file.path}`),
       "Inspect the files, resolve the conflicts, and run the relevant checks.",
     ].join("\n");
-    await session.startNewSessionWithPrompt(
-      prompt,
-      env.cwd,
-      env.checkout,
-    );
+    await session.startNewSessionWithPrompt(prompt, env.cwd, env.checkout);
     requestInputFocus();
   }
 </script>
@@ -591,25 +598,50 @@
   <p class="empty">Loading git status…</p>
 {:else if !env.branch && status === null}
   <div class="flex flex-col items-start gap-1 px-2 py-2">
-    <span class="text-[0.8125rem] text-(--solus-text-secondary)">No Git repository</span>
+    <span class="text-[0.8125rem] text-(--solus-text-secondary)"
+      >No Git repository</span
+    >
     <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
       Initialize Git to manage branches and changes.
     </span>
   </div>
 {:else}
   <div class="env">
-    <Popover.Root bind:open={branchPickerOpen} onOpenChange={handleBranchOpenChange}>
+    <Popover.Root
+      bind:open={branchPickerOpen}
+      onOpenChange={handleBranchOpenChange}
+    >
       <Popover.Trigger disabled={!currentBranch || env.pending}>
         {#snippet child({ props })}
-          <button {...props} class="branch-row" type="button" title="Switch branch or worktree">
-            <span class="branch-row-icon">{#if isWorktree || env.pending}<GitForkIcon size={13} />{:else}<GitBranchIcon size={13} />{/if}</span>
-            <span class="branch-row-name" title={status?.branch ?? undefined}>{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span>
+          <button
+            {...props}
+            class="branch-row"
+            type="button"
+            title="Switch branch or worktree"
+          >
+            <span class="branch-row-icon"
+              >{#if isWorktree || env.pending}<GitForkIcon
+                  size={13}
+                />{:else}<GitBranchIcon size={13} />{/if}</span
+            >
+            <span class="branch-row-name" title={status?.branch ?? undefined}
+              >{env.pending
+                ? env.name
+                : (currentBranch ?? "detached HEAD")}</span
+            >
             <span class="branch-row-trail">
               {#if uncommittedFileCount > 0}
                 <span class="branch-row-stats">
-                  <span class="menu-trail">{uncommittedFileCount}{status?.uncommittedChanges.hasMoreFiles ? "+" : ""}</span>
-                  {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
-                  {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
+                  <span class="menu-trail"
+                    >{uncommittedFileCount}{status?.uncommittedChanges
+                      .hasMoreFiles
+                      ? "+"
+                      : ""}</span
+                  >
+                  {#if insertions > 0}<span class="stat-add">+{insertions}</span
+                    >{/if}
+                  {#if deletions > 0}<span class="stat-del">−{deletions}</span
+                    >{/if}
                 </span>
               {/if}
               <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
@@ -617,7 +649,14 @@
           </button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content side="left" align="start" sideOffset={6} collisionPadding={8} onOpenAutoFocus={(event) => event.preventDefault()} class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content
+        side="left"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+      >
         <SearchablePickerList
           bind:this={branchPickerRef}
           items={branchPickerItems}
@@ -635,14 +674,27 @@
       {/each}
     </div>
     <Popover.Root bind:open={groupMenuOpen}>
-      <Popover.Content customAnchor={openRowEl} side="left" align="start" sideOffset={6} collisionPadding={8} onInteractOutside={(event) => { if ((event.target as Element | null)?.closest?.(".split-caret")) event.preventDefault() }} class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content
+        customAnchor={openRowEl}
+        side="left"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
+        onInteractOutside={(event) => {
+          if ((event.target as Element | null)?.closest?.(".split-caret"))
+            event.preventDefault();
+        }}
+        class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+      >
         {#each openGroup?.secondary ?? [] as def (def.key)}
           {@const Icon = def.icon}
           <button
             type="button"
             disabled={def.disabled}
             onclick={() => runSecondary(def)}
-            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : ''}"
+            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger
+              ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
+              : ''}"
           >
             <Icon size={14} />
             <span>{def.label}</span>

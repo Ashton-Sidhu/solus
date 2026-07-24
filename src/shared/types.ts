@@ -258,6 +258,7 @@ export interface InputState {
   attachments: Attachment[]
   planRefs: PlanReference[]
   workRefs: WorkReference[]
+  sessionRefs: SessionReference[]
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -489,6 +490,8 @@ export interface Message {
   planRefs?: PlanReference[]
   /** Work references attached via the work reference picker */
   workRefs?: WorkReference[]
+  /** Session references attached via & autocomplete */
+  sessionRefs?: SessionReference[]
   /** Set on the system divider inserted between provider handoff transcripts. */
   handoffDivider?: {
     fromProvider: AgentId
@@ -548,6 +551,13 @@ export interface WorkReference {
   workId: string
   title: string
   type: 'doc' | 'slides' | 'diagram'
+}
+
+export interface SessionReference {
+  sessionId: string
+  provider: AgentId
+  title: string   // slug || first line of firstMessage
+  cwd: string      // needed so read_session can locate cross-project sessions
 }
 
 // ─── Plans ───

@@ -12,31 +12,36 @@
     useWorktree?: boolean
     showWorktreeToggle?: boolean
     onApprove: (mode: 'ask' | 'auto') => void
-    compact?: boolean
   }
 
-  let { useWorktree = $bindable(false), showWorktreeToggle = false, onApprove, compact = false }: Props = $props()
+  let { useWorktree = $bindable(false), showWorktreeToggle = false, onApprove }: Props = $props()
 
   let open = $state(false)
   const isMobile = $derived(runtime.isMobileViewport)
-  const sizeClass = $derived(compact ? 'plan-split--compact' : '')
 </script>
 
-<div class="plan-split-wrap {sizeClass}">
+<!-- Split button: one accent slab, seam drawn by the caret's ::before rule.
+     Height tracks the composer's 2.25rem control row. -->
+<div class="inline-flex h-9 overflow-hidden rounded-md max-md:flex-1">
   <button
     type="button"
     onclick={() => onApprove('auto')}
     data-testid="plan-action-yes-auto"
-    class="plan-split-main {sizeClass} flex items-center gap-1"
+    class="flex h-9 cursor-pointer items-center gap-1 rounded-l-md border border-r-0 border-transparent bg-(--solus-accent) px-2.5 text-[0.8rem] font-medium text-white shadow-[0_0.0625rem_0.125rem_rgba(217,119,87,0.25),inset_0_0_0_0.0625rem_rgba(255,255,255,0.10)] transition-[background-color,box-shadow,transform] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-send-hover) hover:shadow-[0_0.125rem_0.5rem_rgba(217,119,87,0.32),inset_0_0_0_0.0625rem_rgba(255,255,255,0.12)] active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) motion-reduce:transition-none motion-reduce:active:scale-100 max-md:flex-1 max-md:justify-center max-md:pr-1"
   >
-    <CheckIcon size={compact ? 12 : 14} />
+    <CheckIcon size={14} />
     Approve
-    {#if !isMobile}<span class="plan-split-kbd">⌥A</span>{/if}
+    {#if !isMobile}<span class="ml-0.5 font-mono text-[0.5625rem] tracking-[0.02em] tabular-nums opacity-45">⌥A</span>{/if}
   </button>
   <DropdownMenu.Root bind:open>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
-        <button {...props} type="button" class="plan-split-caret {sizeClass}" aria-label="More approve options">
+        <button
+          {...props}
+          type="button"
+          class="relative flex h-9 w-6 cursor-pointer items-center justify-center rounded-r-md border border-l-0 border-transparent bg-(--solus-accent) text-white shadow-[0_0.0625rem_0.125rem_rgba(217,119,87,0.25),inset_0_0_0_0.0625rem_rgba(255,255,255,0.10)] transition-[background-color,box-shadow] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-send-hover) hover:shadow-[0_0.125rem_0.5rem_rgba(217,119,87,0.32),inset_0_0_0_0.0625rem_rgba(255,255,255,0.12)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) motion-reduce:transition-none before:absolute before:top-1 before:bottom-1 before:left-0 before:w-px before:bg-white/30 before:opacity-25 before:content-[''] max-md:w-5.5"
+          aria-label="More approve options"
+        >
           <CaretDownIcon size={10} />
         </button>
       {/snippet}
@@ -59,132 +64,3 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 </div>
-
-<style>
-  /* Full size lines up with the lg composer's 2.25rem control row; compact is
-   * the dense mobile row. */
-  .plan-split-wrap {
-    display: inline-flex;
-    height: 2.25rem;
-    border-radius: 0.375rem;
-    overflow: hidden;
-    box-sizing: border-box;
-  }
-  .plan-split-wrap.plan-split--compact,
-  .plan-split-main.plan-split--compact,
-  .plan-split-caret.plan-split--compact {
-    height: 1.875rem;
-  }
-
-  .plan-split-kbd {
-    font-size: 0.5625rem;
-    opacity: 0.45;
-    font-family: ui-monospace, monospace;
-    letter-spacing: 0.02em;
-    margin-left: 0.125rem;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .plan-split-main {
-    height: 2.25rem;
-    font-size: 0.8rem;
-    font-weight: 500;
-    padding: 0 0.625rem;
-    border: 0.0625rem solid transparent;
-    border-right: none;
-    border-radius: 0.375rem 0 0 0.375rem;
-    cursor: pointer;
-    box-sizing: border-box;
-    background: var(--solus-accent);
-    color: #fff;
-    box-shadow:
-      0 0.0625rem 0.125rem rgba(217, 119, 87, 0.25),
-      inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.10);
-    transition: background var(--duration-quick) var(--ease-premium),
-                color var(--duration-quick) var(--ease-premium),
-                transform 80ms var(--ease-premium);
-  }
-  .plan-split-main:hover {
-    background: var(--solus-send-hover);
-    box-shadow:
-      0 0.125rem 0.5rem rgba(217, 119, 87, 0.32),
-      inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.12);
-  }
-  .plan-split-main:active {
-    transform: scale(0.97);
-  }
-
-  .plan-split-caret {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 2.25rem;
-    width: 1.5rem;
-    border: 0.0625rem solid transparent;
-    border-left: none;
-    border-radius: 0 0.375rem 0.375rem 0;
-    cursor: pointer;
-    box-sizing: border-box;
-    background: var(--solus-accent);
-    color: #fff;
-    box-shadow:
-      0 0.0625rem 0.125rem rgba(217, 119, 87, 0.25),
-      inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.10);
-    transition: background var(--duration-quick) var(--ease-premium),
-                filter var(--duration-quick) var(--ease-premium);
-    position: relative;
-  }
-  .plan-split-caret:hover {
-    background: var(--solus-send-hover);
-    box-shadow:
-      0 0.125rem 0.5rem rgba(217, 119, 87, 0.32),
-      inset 0 0 0 0.0625rem rgba(255, 255, 255, 0.12);
-  }
-  .plan-split-caret::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0.25rem;
-    bottom: 0.25rem;
-    width: 0.0625rem;
-    opacity: 0.25;
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .plan-split-main:focus-visible,
-  .plan-split-caret:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border-medium);
-    outline-offset: 0.125rem;
-  }
-
-  @media (max-width: 767px) {
-    .plan-split-wrap {
-      flex: 1;
-    }
-
-    .plan-split-main {
-      flex: 1;
-      justify-content: center;
-      font-size: 0.8rem;
-      padding: 0 0.25rem 0 0.625rem;
-    }
-
-    .plan-split-caret {
-      width: 1.375rem;
-    }
-
-    .plan-split-kbd {
-      display: none;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .plan-split-main,
-    .plan-split-caret {
-      transition: none !important;
-    }
-    .plan-split-main:active {
-      transform: none !important;
-    }
-  }
-</style>

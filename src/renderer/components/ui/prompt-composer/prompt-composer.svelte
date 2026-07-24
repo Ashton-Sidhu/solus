@@ -36,10 +36,7 @@
     disabled?: boolean;
     /** Whether autocomplete + picker menus grow upward or downward. */
     menuPlacement?: "up" | "down";
-    /** "lg" matches the main input bar's chrome — taller pill, 2.25rem controls,
-     *  and the same 260px growth ceiling. "sm" is the dense in-panel pill. */
-    size?: "sm" | "lg";
-    /** Offers the collapse toggle that shrinks the pill to its action row. */
+    /** Offers the collapse toggle that minimises the pill to a caret button. */
     collapsible?: boolean;
     /** Bindable so hosts can drive it from a keybinding and adapt the actions
      *  they put in `trailing` (nothing is unmounted — the editor is hidden, so
@@ -70,7 +67,6 @@
     submitting = false,
     disabled = false,
     menuPlacement = "up",
-    size = "sm",
     collapsible = true,
     collapsed = $bindable(false),
     showWorktree = false,
@@ -79,17 +75,6 @@
     leading,
     trailing,
   }: Props = $props();
-
-  // Size is real component state, so the chrome that scales with it reads from
-  // one flag rather than being repeated per element.
-  const lg = $derived(size === "lg");
-  const ctrlBox = $derived(lg ? "size-9" : "size-6");
-  const ctrlIcon = $derived(lg ? 16 : 12);
-  const shellBox = $derived(
-    lg
-      ? "min-h-[5.5rem] rounded-[1.375rem] px-3.5 pt-1 pb-2"
-      : "rounded-[1.25rem] px-2.5 py-2",
-  );
 
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
@@ -231,7 +216,7 @@
 <!-- Hidden rather than unmounted while collapsed: the Tiptap instance, the
      draft, and its plan/work refs all survive the round trip. -->
 <div
-  class="flex flex-col border bg-(--solus-input-pill-bg) transition-[border-color,box-shadow] duration-150 {shellBox} {focused
+  class="flex flex-col border bg-(--solus-input-pill-bg) transition-[border-color,box-shadow] duration-150 min-h-[5.5rem] rounded-[1.375rem] px-3.5 pt-1 pb-2 {focused
     ? 'border-(--solus-input-focus-border) shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)]'
     : 'border-(--solus-container-border)'}"
   style:display={collapsed ? "none" : null}
@@ -274,8 +259,7 @@
       {disabled}
       enterInsertsNewline
       {menuPlacement}
-      maxHeight={lg ? 260 : 110}
-      class={lg ? "" : "pc-editor"}
+      maxHeight={260}
     />
   </div>
   <div class="flex items-center gap-1">
@@ -285,22 +269,22 @@
         onclick={() => (collapsed = true)}
         aria-label="Collapse composer"
         aria-expanded="true"
-        class="flex {ctrlBox} shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
         use:tooltip={"Collapse"}
       >
-        <CaretDownIcon size={ctrlIcon} weight="bold" />
+        <CaretDownIcon size={16} weight="bold" />
       </button>
     {/if}
     {@render leading?.()}
     {#if pickerVisible}
-      <SessionChip bind:selection {allowAgentSwitch} dense={!lg} menuSide={menuPlacement === "down" ? "bottom" : "top"} />
+      <SessionChip bind:selection {allowAgentSwitch} menuSide={menuPlacement === "down" ? "bottom" : "top"} />
     {/if}
     {#if showWorktree}
       <label
-        class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 font-medium transition-colors {lg ? 'h-8 text-[0.8125rem]' : 'h-6 text-[0.75rem]'} {useWorktree ? 'text-(--solus-accent)' : 'text-(--solus-text-secondary)'}"
+        class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 font-medium transition-colors h-8 text-[0.8125rem] {useWorktree ? 'text-(--solus-accent)' : 'text-(--solus-text-secondary)'}"
         title={useWorktree ? "Worktree enabled — run in an isolated branch (⌥W)" : "Enable worktree — run in an isolated branch (⌥W)"}
       >
-        <GitForkIcon size={lg ? 15 : 13} />
+        <GitForkIcon size={15} />
         Worktree
         <Switch size="sm" bind:checked={useWorktree} data-testid="composer-worktree" aria-label="Run in an isolated worktree" />
       </label>
@@ -313,24 +297,24 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={() => dictation.cancel()}
         aria-label="Cancel recording"
-        class="flex {ctrlBox} shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-transform duration-150 active:scale-[0.96]"
+        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-transform duration-150 active:scale-[0.96]"
         use:tooltip={"Cancel recording"}
       >
-        <XIcon size={ctrlIcon} weight="bold" />
+        <XIcon size={16} weight="bold" />
       </button>
       <button
         type="button"
         onmousedown={(e) => e.preventDefault()}
         onclick={() => dictation.stop()}
         aria-label="Finish recording"
-        class="flex {ctrlBox} shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-text-on-accent) transition-transform duration-150 active:scale-[0.96]"
+        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-text-on-accent) transition-transform duration-150 active:scale-[0.96]"
         use:tooltip={"Confirm recording"}
       >
-        <CheckIcon size={ctrlIcon} weight="bold" />
+        <CheckIcon size={16} weight="bold" />
       </button>
     {:else if voiceState === "transcribing"}
-      <span class="flex {ctrlBox} shrink-0 items-center justify-center text-(--solus-mic-color)">
-        <SpinnerGapIcon size={lg ? 16 : 13} class="animate-spin" />
+      <span class="flex size-9 shrink-0 items-center justify-center text-(--solus-mic-color)">
+        <SpinnerGapIcon size={16} class="animate-spin" />
       </span>
     {:else}
       <button
@@ -339,10 +323,10 @@
         onclick={toggleVoice}
         disabled={!voiceReady || disabled}
         aria-label="Voice input"
-        class="flex {ctrlBox} shrink-0 items-center justify-center rounded-full text-(--solus-mic-color) transition-[background-color,opacity] duration-150 enabled:cursor-pointer enabled:hover:bg-(--solus-mic-bg) disabled:opacity-40"
+        class="flex size-9 shrink-0 items-center justify-center rounded-full text-(--solus-mic-color) transition-[background-color,opacity] duration-150 enabled:cursor-pointer enabled:hover:bg-(--solus-mic-bg) disabled:opacity-40"
         use:tooltip={voiceReady ? "Voice input" : "Voice model is preparing"}
       >
-        <MicrophoneIcon size={lg ? 16 : 13} />
+        <MicrophoneIcon size={16} />
       </button>
     {/if}
 
@@ -354,11 +338,11 @@
         onclick={handleSubmit}
         disabled={!canSend}
         aria-label="Send"
-        class="flex {ctrlBox} shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.0625rem_0.1875rem_var(--solus-send-glow)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.125rem_0.375rem_var(--solus-send-glow)] active:scale-[0.96] disabled:active:scale-100"
+        class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.0625rem_0.1875rem_var(--solus-send-glow)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.125rem_0.375rem_var(--solus-send-glow)] active:scale-[0.96] disabled:active:scale-100"
         style="opacity:{canSend ? 1 : 0.4};cursor:{canSend ? 'pointer' : 'default'}"
         use:tooltip={"Send · ⌘↵"}
       >
-        <ArrowUpIcon size={ctrlIcon} weight="bold" />
+        <ArrowUpIcon size={16} weight="bold" />
       </button>
     {/if}
   </div>

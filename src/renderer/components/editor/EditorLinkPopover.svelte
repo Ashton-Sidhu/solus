@@ -75,7 +75,7 @@
   >
     <div
       bind:this={rootEl}
-      class="editor-link-popover flex items-center gap-1.5 rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1.5"
+      class="editor-link-popover flex items-center gap-1.5 rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1.5"
       style="min-width:17rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow)"
     >
       <Input

@@ -103,7 +103,6 @@
     workingDirectory={sess?.workingDirectory}
     allowAgentSwitch
     menuPlacement="up"
-    size={compact ? 'sm' : 'lg'}
     showWorktree={showWorktreeToggle && !compact}
     bind:useWorktree
     placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
@@ -114,21 +113,22 @@
           bind:this={triggerEl}
           type="button"
           onclick={() => { menuOpen = !menuOpen }}
-          class="plan-action-more"
-          class:plan-action-more--open={menuOpen}
+          class="flex size-9 cursor-pointer items-center justify-center rounded-md border transition-[background-color,color,border-color,transform] duration-(--duration-quick) ease-(--ease-premium) active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {menuOpen
+            ? 'border-(--solus-accent-border) bg-(--solus-surface-hover) text-(--solus-text-primary)'
+            : 'border-(--solus-tool-border) bg-transparent text-(--solus-text-secondary) hover:border-[color-mix(in_srgb,var(--solus-tool-border)_50%,var(--solus-text-tertiary))] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
           title="More actions"
           aria-expanded={menuOpen}
         >
           <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>
         </button>
       {:else if hasRevise}
-        <Button data-testid="plan-action-revise" variant="outline" size="sm" class="plan-btn-desktop hover:text-(--solus-error)" onclick={handleRevise}>
+        <Button data-testid="plan-action-revise" variant="outline" size="lg" class="text-[0.8rem] hover:text-(--solus-error)" onclick={handleRevise}>
           <ArrowCounterClockwiseIcon size={14} />
           Revise
           {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥V</Kbd>{/if}
         </Button>
       {:else}
-        <Button data-testid="plan-action-reject" variant="outline" size="sm" class="plan-btn-desktop hover:text-(--solus-error)" onclick={handleReject}>
+        <Button data-testid="plan-action-reject" variant="outline" size="lg" class="text-[0.8rem] hover:text-(--solus-error)" onclick={handleReject}>
           <XIcon size={14} />
           Reject
           {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥R</Kbd>{/if}
@@ -139,7 +139,6 @@
         bind:useWorktree
         showWorktreeToggle={false}
         onApprove={handleApprove}
-        {compact}
       />
     {/snippet}
   </PromptComposer>
@@ -177,44 +176,3 @@
   </DropdownMenu.Root>
 {/if}
 
-<style>
-  /* Matches the lg composer's 2.25rem control row. */
-  :global(.plan-btn-desktop) {
-    height: 2.25rem !important;
-  }
-
-  .plan-action-more {
-    width: 1.875rem;
-    height: 1.875rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    border: 0.0625rem solid var(--solus-tool-border);
-    background: transparent;
-    color: var(--solus-text-secondary);
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      border-color var(--duration-quick) var(--ease-premium),
-      transform 80ms var(--ease-premium);
-  }
-  .plan-action-more:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-    border-color: color-mix(in srgb, var(--solus-tool-border) 50%, var(--solus-text-tertiary));
-  }
-  .plan-action-more:active {
-    transform: scale(0.95);
-  }
-  .plan-action-more--open {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-    border-color: var(--solus-accent-border);
-  }
-  .plan-action-more:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border-medium);
-    outline-offset: 0.125rem;
-  }
-</style>

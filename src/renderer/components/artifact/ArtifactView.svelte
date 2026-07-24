@@ -224,6 +224,7 @@
           class="artifact-iframe"
           data-testid="artifact-iframe"
           sandbox="allow-scripts"
+          allow="clipboard-write"
           style="color-scheme:{colorScheme};{expanded
             ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`
             : `height:${contentHeight}px`}"

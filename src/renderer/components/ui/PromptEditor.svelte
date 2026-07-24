@@ -5,11 +5,13 @@
     AgentId,
     PlanReference,
     PluginCommandsResult,
+    SessionReference,
     WorkReference,
   } from "../../../shared/types";
   import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
   import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
   import PrAutocompleteMenu from "../prs/PrAutocompleteMenu.svelte";
+  import SessionAutocompleteMenu from "../session/SessionAutocompleteMenu.svelte";
   import SlashCommandMenu from "../input/SlashCommandMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
@@ -27,8 +29,12 @@
     provider: AgentId;
     /** Directory used for @-file search, plan preload, and work loading. */
     workingDirectory: string | undefined;
-    /** Notified whenever the editor's plan/work references change. */
-    onRefsChange?: (planRefs: PlanReference[], workRefs: WorkReference[]) => void;
+    /** Notified whenever the editor's plan/work/session references change. */
+    onRefsChange?: (
+      planRefs: PlanReference[],
+      workRefs: WorkReference[],
+      sessionRefs: SessionReference[],
+    ) => void;
     /** Synchronous emptiness signal (see MarkdownEditor) — lets callers gate
      *  UI like a send button without waiting on the debounced markdown emit. */
     onEmptyChange?: (empty: boolean) => void;
@@ -231,6 +237,17 @@
     isLoading={ac.isPrMenuLoading}
     selectedIndex={ac.prIndex}
     onSelect={ac.handlePrSelect}
+    anchorRect={ac.cursorAnchorRect}
+    placement={menuPlacement}
+  />
+{/if}
+
+{#if ac.showSessionMenu}
+  <SessionAutocompleteMenu
+    sessions={ac.sessionResults}
+    isLoading={ac.isSessionMenuLoading}
+    selectedIndex={ac.sessionIndex}
+    onSelect={ac.handleSessionSelect}
     anchorRect={ac.cursorAnchorRect}
     placement={menuPlacement}
   />

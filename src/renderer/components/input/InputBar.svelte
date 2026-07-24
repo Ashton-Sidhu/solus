@@ -9,7 +9,11 @@
     getWindowContext,
     runtime,
   } from "../../contexts";
-  import type { PlanReference, WorkReference } from "../../../shared/types";
+  import type {
+    PlanReference,
+    WorkReference,
+    SessionReference,
+  } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import AttachmentChips from "./AttachmentChips.svelte";
   import { SLASH_COMMANDS, type SlashCommand } from "./slash-commands";
@@ -222,11 +226,13 @@
     editorHasText ||
       attachments.length > 0 ||
       planRefs.length > 0 ||
-      workRefs.length > 0,
+      workRefs.length > 0 ||
+      sessionRefs.length > 0,
   );
   const canSend = $derived(!isConnecting && !isReadOnly && hasContent);
   const planRefs = $derived(input.planRefs);
   const workRefs = $derived(input.workRefs);
+  const sessionRefs = $derived(input.sessionRefs);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived(
@@ -550,10 +556,11 @@
     requestFilePreview({ path, tabId: targetTabId });
   }
 
-  /** Keep the target tab's plan/work refs in sync with the editor's tokens. */
+  /** Keep the target tab's plan/work/session refs in sync with the editor's tokens. */
   function handleRefsChange(
     nextPlanRefs: PlanReference[],
     nextWorkRefs: WorkReference[],
+    nextSessionRefs: SessionReference[],
   ) {
     // Avoid needless reassignment (and the derived churn it triggers) when both
     // the editor and the stored refs are empty — the common typing case.
@@ -561,6 +568,8 @@
       input.planRefs = nextPlanRefs;
     if (nextWorkRefs.length || input.workRefs.length)
       input.workRefs = nextWorkRefs;
+    if (nextSessionRefs.length || input.sessionRefs.length)
+      input.sessionRefs = nextSessionRefs;
   }
 
   function solusCommandFromInput(
@@ -633,7 +642,8 @@
       !prompt &&
       attachments.length === 0 &&
       planRefs.length === 0 &&
-      workRefs.length === 0
+      workRefs.length === 0 &&
+      sessionRefs.length === 0
     )
       return;
     if (isConnecting) return;

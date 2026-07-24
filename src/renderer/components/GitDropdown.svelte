@@ -162,7 +162,7 @@
   }
 
   const menuItemClass =
-    "w-full flex items-center justify-between gap-2 rounded-[9px] px-2 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) transition-[background-color,color] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-[color-mix(in_srgb,var(--solus-accent)_6%,transparent)] focus-visible:text-(--solus-text-primary)";
+    "menu-item-stagger w-full flex items-center justify-between gap-2 rounded-[9px] px-2 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) transition-[background-color,color] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-[color-mix(in_srgb,var(--solus-accent)_6%,transparent)] focus-visible:text-(--solus-text-primary)";
 </script>
 
 {#if displayBranch}
@@ -177,7 +177,7 @@
       onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}
       class="z-[10002] w-[232px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
     >
-    <div class="p-1 solus-menu-stagger">
+    <div class="p-1">
       {#if view === "menu"}
         <!-- Copy -->
         <button

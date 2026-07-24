@@ -15,6 +15,24 @@ export interface GitRefreshResult {
   refs: boolean
   registration: boolean
   ok: boolean
+  /** First meaningful failure reason, surfaced to the user when `ok` is false. */
+  error?: string
+}
+
+interface GitFacetOutcome {
+  ok: boolean
+  error?: string
+}
+
+function gitErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Compose a self-describing failure: what we were doing, then the raw Git
+ *  reason when there is one. Callers surface this verbatim in a toast. */
+function gitFailure(doing: string, reason?: string): string {
+  const detail = reason?.trim()
+  return detail ? `${doing}: ${detail}` : doing
 }
 
 export interface SessionStartTarget {
@@ -76,8 +94,8 @@ export class SessionEnvironmentStore {
   byCwd = $state<Record<string, GitState | null>>({})
   refsByRoot = $state<Record<string, GitProjectRefs>>({})
   private workspace: SessionEnvironmentWorkspace | null = null
-  private inflight = new Map<string, Promise<boolean>>()
-  private refsInflight = new Map<string, Promise<boolean>>()
+  private inflight = new Map<string, Promise<GitFacetOutcome>>()
+  private refsInflight = new Map<string, Promise<GitFacetOutcome>>()
   private lastRefresh = new Map<string, number>()
   private detailsLastRefresh = new Map<string, number>()
   private refsLastRefresh = new Map<string, number>()
@@ -152,7 +170,7 @@ export class SessionEnvironmentStore {
       ?? workspace.globalDefaults.gitContext?.worktreePath
       ?? workspace.globalDefaults.workingDirectory
     const level = opts.level ?? 'status'
-    if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false }
+    if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
 
     const worktreePath = session?.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
@@ -187,52 +205,70 @@ export class SessionEnvironmentStore {
       }
     }
 
-    const sessionStartTarget = await this.resolveSessionStartTarget(cwd, {
+    const resolved = await this.resolveSessionStartTarget(cwd, {
       force: opts.force,
       worktreePath,
       worktreeRequested,
       fallbackGitContext: session?.gitContext ?? null,
     })
-    if (!sessionStartTarget) return { status: false, details: false, refs: false, registration: false, ok: false }
-    const { gitContext, worktreeBaseBranch } = sessionStartTarget
+    if (!resolved.target) {
+      return { status: false, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t read the working tree', resolved.error) }
+    }
+    const { gitContext, worktreeBaseBranch } = resolved.target
 
+    // The tab/session moved to a different checkout while this refresh was in
+    // flight — the result would land on the wrong environment. Not a failure;
+    // report it as superseded so callers don't flash a misleading error.
+    const supersededError = 'The environment changed during refresh — try again.'
     if (session) {
       const current = workspace.sessionFor(tabId)
       const currentCwd = current?.gitContext?.worktreePath ?? current?.workingDirectory
       if (current !== session || currentCwd !== cwd) {
-        return { status: true, details: false, refs: false, registration: false, ok: false }
+        return { status: true, details: false, refs: false, registration: false, ok: false, error: supersededError }
       }
       session.gitContext = gitContext
       session.worktreeBaseBranch = worktreeBaseBranch
-      let registration = true
+      let registrationError: string | undefined
       try {
         await window.solus.gitRegisterEnvironment(
           $state.snapshot(workspace.ctxFor(tabId)),
           cwd,
           $state.snapshot(gitContext),
         )
-      } catch {
-        registration = false
+      } catch (error) {
+        registrationError = gitErrorText(error)
       }
-      if (!registration) {
-        return { status: true, details: false, refs: false, registration: false, ok: false }
+      if (registrationError !== undefined) {
+        return { status: true, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t register the Git environment', registrationError) }
       }
     } else if (workspace.tabOrder.length === 0) {
       if (workspace.globalDefaults.workingDirectory !== cwd) {
-        return { status: true, details: false, refs: false, registration: true, ok: false }
+        return { status: true, details: false, refs: false, registration: true, ok: false, error: supersededError }
       }
       workspace.config.applyGlobalStartTarget({ gitContext, worktreeBaseBranch })
     }
 
-    const detailsOk = level === 'status'
-      ? true
-      : await this.refresh(cwd, { force: true, details: true, bypassCache: true })
+    const detailsOutcome: GitFacetOutcome = level === 'status'
+      ? { ok: true }
+      : await this.refreshStatus(cwd, { force: true, details: true, bypassCache: true })
     const currentStatus = this.statusFor(cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
-    const refsOk = level !== 'full' || !projectRoot
-      ? true
-      : await this.refreshRefs(projectRoot, workspace.ctxFor(tabId), { force: true })
-    return { status: true, details: detailsOk, refs: refsOk, registration: true, ok: detailsOk && refsOk }
+    const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot
+      ? { ok: true }
+      : await this.refreshRefsOutcome(projectRoot, workspace.ctxFor(tabId), { force: true })
+    const error = !detailsOutcome.ok
+      ? gitFailure('Couldn’t read working-tree changes', detailsOutcome.error)
+      : !refsOutcome.ok
+        ? gitFailure('Couldn’t list branches and worktrees', refsOutcome.error)
+        : undefined
+    return {
+      status: true,
+      details: detailsOutcome.ok,
+      refs: refsOutcome.ok,
+      registration: true,
+      ok: detailsOutcome.ok && refsOutcome.ok,
+      error,
+    }
   }
 
   /** Resolve where a session will start. Callers apply this snapshot as one unit
@@ -246,9 +282,9 @@ export class SessionEnvironmentStore {
       worktreeRequested: boolean
       fallbackGitContext?: GitCheckout | null
     },
-  ): Promise<SessionStartTarget | null> {
-    const statusOk = await this.refresh(workingDirectory, { force: options.force ?? true })
-    if (!statusOk) return null
+  ): Promise<{ target: SessionStartTarget | null; error?: string }> {
+    const statusOutcome = await this.refreshStatus(workingDirectory, { force: options.force ?? true })
+    if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
 
     const status = this.statusFor(workingDirectory) ?? null
     const detected = gitCheckoutFromState(status, options.worktreePath)
@@ -257,21 +293,29 @@ export class SessionEnvironmentStore {
     const gitContext = detected
       ?? (status && options.worktreePath ? options.fallbackGitContext ?? null : null)
     return {
-      workingDirectory,
-      gitContext,
-      worktreeBaseBranch: options.worktreeRequested && !gitContext?.worktreePath
-        ? gitContext?.targetBranch ?? null
-        : null,
+      target: {
+        workingDirectory,
+        gitContext,
+        worktreeBaseBranch: options.worktreeRequested && !gitContext?.worktreePath
+          ? gitContext?.targetBranch ?? null
+          : null,
+      },
     }
   }
 
   /** Resolves to true when the status fetch succeeded, false when it threw. */
   async refresh(cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<boolean> {
+    return (await this.refreshStatus(cwd, opts)).ok
+  }
+
+  /** Status/details scan that also carries the failure reason, for callers that
+   *  report it (e.g. the Environment panel's refresh button). */
+  private async refreshStatus(cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<GitFacetOutcome> {
     const includeDetails = opts.details === true
     const now = Date.now()
     const refreshTimes = includeDetails ? this.detailsLastRefresh : this.lastRefresh
     const last = refreshTimes.get(cwd) ?? 0
-    if (!opts.force && now - last < 2_000) return true
+    if (!opts.force && now - last < 2_000) return { ok: true }
     const inflightKey = `${cwd}\0${includeDetails ? 'details' : 'summary'}`
     const existing = this.inflight.get(inflightKey)
     // A forced lifecycle refresh must observe state after the existing scan,
@@ -279,21 +323,21 @@ export class SessionEnvironmentStore {
     if (existing) {
       if (!opts.force) return existing
       await existing
-      return this.refresh(cwd, opts)
+      return this.refreshStatus(cwd, opts)
     }
     const version = this.versions.get(cwd) ?? 0
     const promise = window.solus.gitRefreshState(cwd, includeDetails
       ? { includeDetails: true, bypassCache: opts.bypassCache === true }
       : undefined)
-      .then((status) => {
+      .then((status): GitFacetOutcome => {
         // A watcher push that landed while this request ran is newer.
         if ((this.versions.get(cwd) ?? 0) === version) this.applyStatus(cwd, status, includeDetails)
         this.lastRefresh.set(cwd, Date.now())
         if (includeDetails) this.detailsLastRefresh.set(cwd, Date.now())
         else this.scheduleDetailsRefresh(cwd)
-        return true
+        return { ok: true }
       })
-      .catch(() => false)
+      .catch((error): GitFacetOutcome => ({ ok: false, error: gitErrorText(error) }))
       .finally(() => this.inflight.delete(inflightKey))
     this.inflight.set(inflightKey, promise)
     return promise
@@ -389,27 +433,37 @@ export class SessionEnvironmentStore {
   }
 
   async refreshRefs(projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<boolean> {
+    return (await this.refreshRefsOutcome(projectRoot, ctx, opts)).ok
+  }
+
+  /** Refs scan that also carries the failure reason, for callers that report it. */
+  private async refreshRefsOutcome(projectRoot: string, ctx: IpcContext, opts: { force?: boolean } = {}): Promise<GitFacetOutcome> {
     const now = Date.now()
     const last = this.refsLastRefresh.get(projectRoot) ?? 0
-    if (!opts.force && now - last < 5_000) return true
+    if (!opts.force && now - last < 5_000) return { ok: true }
     const existing = this.refsInflight.get(projectRoot)
     if (existing) {
       if (!opts.force) return existing
       await existing
-      return this.refreshRefs(projectRoot, ctx, opts)
+      return this.refreshRefsOutcome(projectRoot, ctx, opts)
     }
     const promise = Promise.allSettled([
       window.solus.worktreeListProject($state.snapshot(ctx)),
       window.solus.worktreeBranches($state.snapshot(ctx)),
     ])
-      .then(([worktreesResult, branchesResult]) => {
+      .then(([worktreesResult, branchesResult]): GitFacetOutcome => {
         const previous = this.refsFor(projectRoot)
         const worktrees = worktreesResult.status === 'fulfilled' ? worktreesResult.value : previous.worktrees
         const branches = branchesResult.status === 'fulfilled' ? branchesResult.value : previous.branches
         this.refsByRoot[projectRoot] = { worktrees, branches }
         const ok = worktreesResult.status === 'fulfilled' && branchesResult.status === 'fulfilled'
         if (ok) this.refsLastRefresh.set(projectRoot, Date.now())
-        return ok
+        const rejected = worktreesResult.status === 'rejected'
+          ? worktreesResult.reason
+          : branchesResult.status === 'rejected'
+            ? branchesResult.reason
+            : undefined
+        return { ok, error: ok ? undefined : gitErrorText(rejected) }
       })
       .finally(() => this.refsInflight.delete(projectRoot))
     this.refsInflight.set(projectRoot, promise)

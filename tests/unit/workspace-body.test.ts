@@ -68,7 +68,11 @@ describe('workspace tab visibility', () => {
     ).toEqual(['main-tab', 'agent-tab'])
   })
 
-  test('shows every tab while the active session is still loading history', () => {
+  test('stays scoped to the active group while the active session loads history', () => {
+    // A resumed pinned session becomes active while its history loads. The strip
+    // must stay grouped by the resumed tab's environment key — which already
+    // resolves off the cwd's cached status — rather than flashing every project
+    // into the strip until the load finishes.
     const keys = {
       'main-tab': '/projects/solus::main',
       'other-tab': '/projects/other::main',
@@ -85,7 +89,7 @@ describe('workspace tab visibility', () => {
 
     expect(
       visibleWorkspaceTabIds(workspace as any, 'main-tab', null, branchKeyOf(keys)),
-    ).toEqual(['main-tab', 'other-tab'])
+    ).toEqual(['main-tab'])
   })
 
   test('omits stale tab-order entries that no longer have a tab', () => {

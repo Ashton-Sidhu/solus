@@ -2,7 +2,7 @@ import { SvelteSet } from 'svelte/reactivity'
 import type { PageKind, PaneViewStore, SplitOpenOptions } from './pane-view.store.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 
-export type SettingsTab = 'general' | 'review' | 'github' | 'api-access' | 'tools' | 'skills' | 'voice' | 'projects' | 'keybindings'
+export type SettingsTab = 'general' | 'instructions' | 'review' | 'github' | 'api-access' | 'tools' | 'skills' | 'voice' | 'projects' | 'keybindings'
 
 export class WorkspaceUiStore {
   isExpanded = $state(false)

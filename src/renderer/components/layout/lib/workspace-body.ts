@@ -61,7 +61,10 @@ interface WorkspaceTabs {
  * `gitContext` in the background, so keying off it would drop the tab into a
  * lonely `::no branch` group and hide every real sibling until Git answers. The
  * environment key resolves off the cwd's cached status, so it agrees with the
- * sidebar immediately.
+ * sidebar immediately — even while the resumed session is still loading its
+ * history. Filtering by that key the whole time keeps the strip scoped to the
+ * active group; bailing to every tab during the load flashed all projects into
+ * the strip until history finished.
  */
 export function visibleWorkspaceTabIds(
   workspace: WorkspaceTabs,
@@ -70,7 +73,6 @@ export function visibleWorkspaceTabIds(
   branchKeyOf: (tabId: string) => string,
 ): string[] {
   const openTabIds = workspace.tabOrder.filter((tabId) => workspace.tabs[tabId])
-  if (workspace.sessionFor(activeTabId)?.loadingHistory) return openTabIds
   const activeBranchKey = branchKeyOf(activeTabId)
   return openTabIds.filter(
     (tabId) => tabId === splitTabId || branchKeyOf(tabId) === activeBranchKey,

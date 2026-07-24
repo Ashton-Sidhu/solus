@@ -4,6 +4,7 @@
     getSettingsContext,
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
+    toasts,
   } from "../../contexts";
   import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/pane-view.store.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
@@ -151,6 +152,8 @@
       new Promise((resolve) => setTimeout(resolve, 600)),
     ]);
     refreshState = result.ok ? "success" : "error";
+    if (!result.ok)
+      toasts.error(result.error ?? "Couldn't refresh the Git environment.");
     refreshResetTimer = setTimeout(() => {
       refreshState = "idle";
       refreshResetTimer = null;

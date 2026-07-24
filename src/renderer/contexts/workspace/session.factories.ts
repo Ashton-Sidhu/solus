@@ -3,7 +3,7 @@ import { uuid } from '../../../shared/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
 
 export function makeInputState(overrides?: Partial<InputState>): InputState {
-  return { text: '', attachments: [], planRefs: [], workRefs: [], ...overrides }
+  return { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [], ...overrides }
 }
 
 export function makeSession(settings: SettingsContext, overrides?: Partial<Session>): Session {

@@ -90,7 +90,7 @@ export const DIFFS_THEME_CSS = `
       margin-left: calc(-2ch - 4px);
       background: transparent;
       color: var(--solus-diff-hunk-text);
-      font-size: 0.75em;
+      font-size: 0.85em;
       letter-spacing: 0.01em;
     }
     [data-separator='line-info-basic'] [data-expand-button],

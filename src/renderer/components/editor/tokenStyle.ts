@@ -41,7 +41,11 @@ const SVG_ATTRS = {
   'stroke-linejoin': 'round',
 } as const
 
-export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr', IconArray> = {
+export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session', IconArray> = {
+  // message-square
+  session: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],
+  ],
   // list-checks
   plan: [`${SVG_NS} svg`, { ...SVG_ATTRS },
     ['path', { d: 'm3 17 2 2 4-4' }],

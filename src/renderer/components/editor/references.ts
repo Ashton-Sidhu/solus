@@ -9,7 +9,12 @@ import type { PrRefAttrs } from "./prRefExtension";
 import type { WorkRefAttrs } from "./workRefExtension";
 import type { FileRefAttrs } from "./fileRefExtension";
 import type { SlashRefAttrs } from "./slashRefExtension";
-import type { PlanReference, WorkReference } from "../../../shared/types";
+import type { SessionRefAttrs } from "./sessionRefExtension";
+import type {
+  PlanReference,
+  WorkReference,
+  SessionReference,
+} from "../../../shared/types";
 
 export function textBeforeCursor(editor: Editor | null): string {
   if (!editor) return "";
@@ -22,7 +27,11 @@ export function isCaretAtStart(editor: Editor | null): boolean {
   return editor.state.selection.from === 1;
 }
 
-const TRACKED_REFERENCE_NODES = new Set(["planReference", "workReference"]);
+const TRACKED_REFERENCE_NODES = new Set([
+  "planReference",
+  "workReference",
+  "sessionReference",
+]);
 
 function rangeContainsTrackedReference(
   doc: ProseMirrorNode,
@@ -245,18 +254,34 @@ export function insertSlashReference(
   );
 }
 
+export function insertSessionReference(
+  editor: Editor | null,
+  attrs: SessionRefAttrs,
+  triggerPattern: RegExp,
+) {
+  insertReferenceNode(
+    editor,
+    "sessionReference",
+    attrs as unknown as Record<string, unknown>,
+    triggerPattern,
+  );
+}
+
 // Single combined walk for both reference kinds. syncRefs runs on every editor
 // update, so pull plan + work refs from one doc.descendants pass rather than
 // two independent full walks (each of which allocated its own Set + array).
 export function extractRefs(editor: Editor | null): {
   planRefs: PlanReference[];
   workRefs: WorkReference[];
+  sessionRefs: SessionReference[];
 } {
   const planRefs: PlanReference[] = [];
   const workRefs: WorkReference[] = [];
-  if (!editor) return { planRefs, workRefs };
+  const sessionRefs: SessionReference[] = [];
+  if (!editor) return { planRefs, workRefs, sessionRefs };
   const seenPlans = new Set<string>();
   const seenWorks = new Set<string>();
+  const seenSessions = new Set<string>();
   editor.state.doc.descendants((node) => {
     const name = node.type.name;
     if (
@@ -283,7 +308,19 @@ export function extractRefs(editor: Editor | null): {
         title: node.attrs.title,
         type: node.attrs.type,
       });
+    } else if (
+      name === "sessionReference" &&
+      node.attrs.sessionId &&
+      !seenSessions.has(node.attrs.sessionId)
+    ) {
+      seenSessions.add(node.attrs.sessionId);
+      sessionRefs.push({
+        sessionId: node.attrs.sessionId,
+        provider: node.attrs.provider,
+        title: node.attrs.title,
+        cwd: node.attrs.cwd,
+      });
     }
   });
-  return { planRefs, workRefs };
+  return { planRefs, workRefs, sessionRefs };
 }

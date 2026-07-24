@@ -1,7 +1,7 @@
 // Reference-autocomplete state machine, decoupled from any editor host.
 //
-// It owns the five completion channels — slash commands, @-files, #plans,
-// %works and !PRs — including their filter state, candidate fetching, keyboard handling
+// It owns the six completion channels — slash commands, @-files, #plans,
+// %works, !PRs and &sessions — including their filter state, candidate fetching, keyboard handling
 // and reference insertion. It operates on a Tiptap `Editor` (via the host
 // accessors) rather than a specific component, so the same autocomplete can be
 // mounted around any editor surface (the prompt input today, the document
@@ -14,6 +14,8 @@ import type {
   PlanDescriptor,
   PlanReference,
   PluginCommandsResult,
+  SessionMeta,
+  SessionReference,
   Work,
   WorkReference,
 } from "../../../shared/types";
@@ -21,6 +23,7 @@ import type { PullRequestSummary } from "../../../shared/providers";
 import type { PlanRefAttrs } from "./planRefExtension";
 import type { PrRefAttrs } from "./prRefExtension";
 import type { WorkRefAttrs } from "./workRefExtension";
+import type { SessionRefAttrs } from "./sessionRefExtension";
 import {
   SLASH_COMMANDS,
   getFilteredFromCategorized,
@@ -38,6 +41,17 @@ export const FILE_TRIGGER_RE =
 export const PLAN_TRIGGER_RE = /(?:^|\s)#([^\s]*)$/;
 export const WORK_TRIGGER_RE = /(?:^|\s)%([^\s]*)$/;
 export const PR_TRIGGER_RE = /(?:^|\s)!([^\s]*)$/;
+export const SESSION_TRIGGER_RE = /(?:^|\s)&([^\s]*)$/;
+
+/** A referenced session's chip label: its slug, else the first line of its
+ *  first message, else a short id. */
+function sessionRefTitle(session: SessionMeta): string {
+  const slug = session.slug?.trim();
+  if (slug) return slug;
+  const firstLine = session.firstMessage?.split("\n")[0]?.trim();
+  if (firstLine) return firstLine;
+  return session.sessionId.slice(0, 8);
+}
 
 /** Imperative handle onto the file menu component (it owns its own selection).
  *  Signatures mirror FileAutocompleteMenu's exports so the instance is directly
@@ -63,7 +77,11 @@ export interface AutocompleteDeps {
   enableSlash?: () => boolean;
   onSolusCommand: () => ((cmd: SlashCommand) => void) | undefined;
   onRefsChange: () =>
-    | ((planRefs: PlanReference[], workRefs: WorkReference[]) => void)
+    | ((
+        planRefs: PlanReference[],
+        workRefs: WorkReference[],
+        sessionRefs: SessionReference[],
+      ) => void)
     | undefined;
   session: WorkspaceContext;
   planStore: PlanStore;
@@ -106,6 +124,13 @@ export class AutocompleteController {
   prCandidates = $state<PullRequestSummary[]>([]);
   prMenuLoading = $state(false);
   #prLoadRequestId = 0;
+
+  // ─── Session autocomplete ───
+  sessionFilter = $state<string | null>(null);
+  sessionIndex = $state(0);
+  sessionCandidates = $state<SessionMeta[]>([]);
+  sessionMenuLoading = $state(false);
+  #sessionLoadRequestId = 0;
 
   constructor(private deps: AutocompleteDeps) {}
 
@@ -203,6 +228,26 @@ export class AutocompleteController {
     ).slice(0, 20);
   });
 
+  sessionResults = $derived.by(() => {
+    if (this.sessionFilter === null) return [] as SessionMeta[];
+    const query = this.sessionFilter.trim().toLowerCase();
+    // You can't reference your own conversation (matches prompt_session).
+    const currentSessionId = this.deps.session.activeSession?.agentSessionId;
+    const all = this.sessionCandidates.filter(
+      (session) => session.sessionId !== currentSessionId,
+    );
+    return (
+      query
+        ? all.filter(
+            (session) =>
+              (session.slug ?? "").toLowerCase().includes(query) ||
+              (session.firstMessage ?? "").toLowerCase().includes(query) ||
+              session.cwd.toLowerCase().includes(query),
+          )
+        : all
+    ).slice(0, 20);
+  });
+
   // ─── Menu visibility ───
   showSlashMenu = $derived.by(
     () => this.slashFilter !== null && !this.deps.readOnly(),
@@ -243,6 +288,17 @@ export class AutocompleteController {
       this.prFilter !== null &&
       (this.prResults.length > 0 || this.isPrMenuLoading),
   );
+  isSessionMenuLoading = $derived.by(
+    () =>
+      this.sessionFilter !== null &&
+      this.sessionMenuLoading &&
+      this.sessionResults.length === 0,
+  );
+  showSessionMenu = $derived.by(
+    () =>
+      this.sessionFilter !== null &&
+      (this.sessionResults.length > 0 || this.isSessionMenuLoading),
+  );
 
   // ─── Menu helpers ───
 
@@ -265,6 +321,7 @@ export class AutocompleteController {
     this.planFilter = null;
     this.workFilter = null;
     this.prFilter = null;
+    this.sessionFilter = null;
     this.workMenuUsesInlineTrigger = false;
     this.#clearFileCompletion();
   }
@@ -434,6 +491,43 @@ export class AutocompleteController {
     }
   }
 
+  #updateSessionFilter(textBeforeCursor: string) {
+    const match = textBeforeCursor.match(SESSION_TRIGGER_RE);
+    if (match) {
+      const isOpening = this.sessionFilter === null;
+      this.sessionFilter = match[1] ?? "";
+      this.sessionIndex = 0;
+      if (isOpening) void this.#loadSessionsForMenu();
+    } else {
+      this.sessionFilter = null;
+    }
+  }
+
+  async #loadSessionsForMenu() {
+    const requestId = ++this.#sessionLoadRequestId;
+    this.sessionMenuLoading = true;
+    try {
+      const workingDirectory = this.deps.workingDirectory();
+      // listSessions returns [] without a project path, so a session-less
+      // composer has nothing to offer — bail before the IPC round-trip.
+      if (!workingDirectory) return;
+      const sessions = await window.solus.listSessions(
+        workingDirectory,
+        this.deps.session.ctxForDirectory(workingDirectory),
+      );
+      if (requestId === this.#sessionLoadRequestId) {
+        this.sessionCandidates = [...sessions].sort(
+          (a, b) =>
+            new Date(b.lastTimestamp).getTime() -
+            new Date(a.lastTimestamp).getTime(),
+        );
+      }
+    } finally {
+      if (requestId === this.#sessionLoadRequestId)
+        this.sessionMenuLoading = false;
+    }
+  }
+
   #handleWorkMenuKey(e: KeyboardEvent): boolean {
     if (
       this.#handleMenuKey(
@@ -549,6 +643,24 @@ export class AutocompleteController {
     this.deps.focusEditor();
   };
 
+  handleSessionSelect = (session: SessionMeta) => {
+    if (this.deps.readOnly()) return;
+    const attrs: SessionRefAttrs = {
+      sessionId: session.sessionId,
+      provider: session.provider,
+      title: sessionRefTitle(session),
+      cwd: session.cwd,
+    };
+    refs.insertSessionReference(
+      this.deps.getEditor(),
+      attrs,
+      SESSION_TRIGGER_RE,
+    );
+    this.syncRefs();
+    this.clearCompletions();
+    this.deps.focusEditor();
+  };
+
   handleSlashSelect = (cmd: SlashCommand) => {
     if (this.deps.readOnly()) return;
     const isSolusBuiltIn = SLASH_COMMANDS.some(
@@ -571,8 +683,10 @@ export class AutocompleteController {
   syncRefs() {
     const onRefsChange = this.deps.onRefsChange();
     if (!onRefsChange) return;
-    const { planRefs, workRefs } = refs.extractRefs(this.deps.getEditor());
-    onRefsChange(planRefs, workRefs);
+    const { planRefs, workRefs, sessionRefs } = refs.extractRefs(
+      this.deps.getEditor(),
+    );
+    onRefsChange(planRefs, workRefs, sessionRefs);
   }
 
   // ─── Core handlers ───
@@ -599,6 +713,20 @@ export class AutocompleteController {
   handleKeyDown(e: KeyboardEvent): boolean {
     if (this.#handleFileRefBackspace(e)) return true;
     if (this.showWorkMenu && this.#handleWorkMenuKey(e)) return true;
+    if (
+      this.showSessionMenu &&
+      this.#handleMenuKey(
+        e,
+        this.sessionIndex,
+        this.sessionResults.length,
+        (n) => (this.sessionIndex = n),
+        () => this.handleSessionSelect(this.sessionResults[this.sessionIndex]),
+        () => {
+          this.sessionFilter = null;
+        },
+      )
+    )
+      return true;
     if (
       this.showPrMenu &&
       this.#handleMenuKey(
@@ -680,13 +808,15 @@ export class AutocompleteController {
     this.#updatePlanFilter(textBeforeCursor);
     this.#updateWorkFilter(textBeforeCursor);
     this.#updatePrFilter(textBeforeCursor);
+    this.#updateSessionFilter(textBeforeCursor);
     if (trackedRefsChanged) this.syncRefs();
     if (
       this.slashFilter !== null ||
       this.fileFilter !== null ||
       this.planFilter !== null ||
       this.workFilter !== null ||
-      this.prFilter !== null
+      this.prFilter !== null ||
+      this.sessionFilter !== null
     ) {
       this.updateCursorAnchor();
     }

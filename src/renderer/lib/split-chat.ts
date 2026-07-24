@@ -12,4 +12,5 @@ export function isPristineSplitTab(tab: Tab, session: Session): boolean {
     && tab.input.attachments.length === 0
     && tab.input.planRefs.length === 0
     && tab.input.workRefs.length === 0
+    && tab.input.sessionRefs.length === 0
 }

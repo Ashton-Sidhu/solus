@@ -1,4 +1,4 @@
-import { toast, type ExternalToast } from "svelte-sonner"
+import { toast } from "svelte-sonner"
 import MultiActionToast from "../../components/ui/sonner/MultiActionToast.svelte"
 
 /** Visual tone of a toast. */
@@ -66,61 +66,38 @@ class ToastStore {
   #active: ActiveToast | null = null
   #seq = 0
 
-  /** Show a toast, committing (dismissing) any toast it replaces. */
+  /** Show a toast, committing (dismissing) any toast it replaces. Every toast
+   *  renders through {@link MultiActionToast} so the design stays consistent;
+   *  a single {@link ToastSpec.action} becomes a one-button action row. */
   show(spec: ToastSpec): void {
     this.#commitActive()
 
+    const actions = spec.actions?.length ? spec.actions : spec.action ? [spec.action] : []
+
     const active: ActiveToast = {
       id: ++this.#seq,
+      // Only a lone action drives Cmd+Z undo; multi-action toasts don't.
       action: spec.actions?.length ? undefined : spec.action,
       onDismiss: spec.onDismiss,
       settled: false,
     }
     this.#active = active
 
-    if (spec.actions?.length) {
-      toast.custom(MultiActionToast, {
-        id: active.id,
-        duration: spec.duration ?? 6000,
-        onDismiss: () => this.#settle(active, true),
-        onAutoClose: () => this.#settle(active, true),
-        componentProps: {
-          message: spec.message,
-          variant: spec.variant ?? "info",
-          actions: spec.actions.map((action) => ({
-            label: action.label,
-            onClick: () => this.#runAction(active, action),
-          })),
-        },
-      })
-      return
-    }
-
-    const options: ExternalToast = {
+    toast.custom(MultiActionToast, {
       id: active.id,
       duration: spec.duration ?? 6000,
       onDismiss: () => this.#settle(active, true),
       onAutoClose: () => this.#settle(active, true),
-      action: spec.action
-        ? {
-            label: spec.action.label,
-            onClick: () => this.#runAction(active),
-          }
-        : undefined,
-    }
-
-    switch (spec.variant ?? "info") {
-      case "success":
-        toast.success(spec.message, options)
-        break
-      case "error":
-        toast.error(spec.message, options)
-        break
-      case "info":
-      case "undo":
-        toast.info(spec.message, options)
-        break
-    }
+      componentProps: {
+        message: spec.message,
+        variant: spec.variant ?? "info",
+        actions: actions.map((action) => ({
+          label: action.label,
+          onClick: () => this.#runAction(active, action),
+        })),
+        closeToast: () => toast.dismiss(active.id),
+      },
+    })
   }
 
   success(message: string, opts?: ToastOptions): void {

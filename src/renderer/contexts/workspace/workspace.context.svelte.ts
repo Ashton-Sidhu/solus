@@ -1194,6 +1194,7 @@ export class WorkspaceContext {
       input.attachments = []
       input.planRefs = []
       input.workRefs = []
+      input.sessionRefs = []
       this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
       requestConversationScrollToBottom(targetTabId)
       return
@@ -1204,6 +1205,7 @@ export class WorkspaceContext {
       input.attachments = []
       input.planRefs = []
       input.workRefs = []
+      input.sessionRefs = []
     } else {
       const userMsg: Message = {
         id: nextMsgId(),
@@ -1215,12 +1217,14 @@ export class WorkspaceContext {
           : undefined,
         planRefs: input.planRefs.length > 0 ? [...input.planRefs] : undefined,
         workRefs: input.workRefs.length > 0 ? [...input.workRefs] : undefined,
+        sessionRefs: input.sessionRefs.length > 0 ? [...input.sessionRefs] : undefined,
       }
       session.status = 'connecting'
       tab.title = title
       input.attachments = []
       input.planRefs = []
       input.workRefs = []
+      input.sessionRefs = []
       session.latestCheckpointId = null
       session.progress = null
       session.messages.push(userMsg)

@@ -119,7 +119,7 @@
     tabindex="-1"
     onkeydown={handleKey}
     transition:fly={{ y: -4, duration: 140, opacity: 0 }}
-    class="flex flex-col overflow-hidden rounded-xl border border-(--solus-popover-border)"
+    class="flex flex-col overflow-hidden rounded-[14px] border border-(--solus-popover-border)"
     style="position:fixed;top:{position.top}px;right:{position.right}px;width:20rem;max-height:min(27.5rem, 70vh);backdrop-filter:blur(1.5rem);-webkit-backdrop-filter:blur(1.5rem);background:var(--solus-popover-bg);box-shadow:var(--solus-popover-shadow);z-index:9000;"
   >
     <div
