@@ -2,6 +2,7 @@ import { onDestroy } from 'svelte'
 import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
 import type { NormalizedEvent, SkillStatus } from '../../shared/types'
 import { resyncRuntime } from '../contexts/session-bootstrap'
+import { serverConnections, type ManagedConnection } from '@client-core/server-connections'
 
 /**
  * Bridges ControlPlane IPC events into the session context. Call from App.svelte's top-level script,
@@ -11,13 +12,31 @@ import { resyncRuntime } from '../contexts/session-bootstrap'
  * ~300ms batches before broadcasting, so no renderer-side batching is needed here.
  */
 export function setupAgentEvents(session: WorkspaceContext): void {
-  const unsubEvent = window.solus.onEvent((tabId: string, event: NormalizedEvent) => {
-    session.handleNormalizedEvent(tabId, event)
-  })
+  const connectionUnsubscribes = new Map<string, () => void>()
 
-  const unsubError = window.solus.onError((tabId: string, error: any) => {
-    session.handleError(tabId, error)
-  })
+  const bindConnection = (connection: ManagedConnection) => {
+    connectionUnsubscribes.get(connection.serverId)?.()
+    const unsubEvent = connection.api.onEvent((tabId: string, event: NormalizedEvent) => {
+      if (session.sessionFor(tabId)?.serverId !== connection.serverId) return
+      session.handleNormalizedEvent(tabId, event)
+    })
+    const unsubError = connection.api.onError((tabId: string, error: any) => {
+      if (session.sessionFor(tabId)?.serverId !== connection.serverId) return
+      session.handleError(tabId, error)
+    })
+    const unsubReset = connection.api.onResetRuntime?.(() => {
+      void resyncRuntime(session, connection.serverId)
+    })
+    connectionUnsubscribes.set(connection.serverId, () => {
+      unsubEvent()
+      unsubError()
+      unsubReset?.()
+    })
+  }
+
+  const primary = serverConnections.connectionFor()
+  if (primary) bindConnection(primary)
+  const unsubConnectionCreated = serverConnections.onConnectionCreated(bindConnection)
 
   const unsubSkill = window.solus.onSkillStatus((status: SkillStatus) => {
     if (status.state === 'failed') {
@@ -25,17 +44,10 @@ export function setupAgentEvents(session: WorkspaceContext): void {
     }
   })
 
-  // When the WS transport receives an explicit seq-reset, re-register tabs and re-bind sessions.
-  // Re-register tabs and re-bind sessions without wiping client state.
-  const solusApi = window.solus as any
-  const unsubReset = solusApi.onResetRuntime?.(() => {
-    void resyncRuntime(session)
-  })
-
   onDestroy(() => {
-    unsubEvent()
-    unsubError()
+    unsubConnectionCreated()
+    for (const unsubscribe of connectionUnsubscribes.values()) unsubscribe()
+    connectionUnsubscribes.clear()
     unsubSkill()
-    unsubReset?.()
   })
 }

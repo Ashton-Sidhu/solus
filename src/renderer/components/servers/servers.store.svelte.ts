@@ -1,5 +1,6 @@
 import type { ConnectionStatus } from '@client-core/ws-transport'
 import { connectionState, subscribe } from '@client-core/connection-state'
+import { serverConnections } from '@client-core/server-connections'
 import type { LocalConnectionInfoLike, SolusServerTarget } from '@client-core/server-connection'
 import { SvelteSet } from 'svelte/reactivity'
 import {
@@ -12,7 +13,7 @@ import {
   upsertServer,
   type SavedServer,
 } from '@client-core/server-registry'
-import type { DiscoveredServer } from '../../../shared/types'
+import type { DiscoveredServer, ProjectIdentity } from '../../../shared/types'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../contexts/toast.store.svelte'
 import { discoveredServerUrl, filterNewDiscoveredServers } from './discovery'
@@ -42,6 +43,9 @@ class ServersStore {
   claimTarget = $state<DiscoveredServer | null>(null)
   discoveryBusy = $state(false)
   discovered = $state<DiscoveredServer[]>([])
+  statusesByServer = $state<Record<string, ServerItemStatus>>({})
+  projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
+  probingServers = $state(false)
   readonly dismissedDiscovered = new SvelteSet<string>()
 
   private initialized = false
@@ -101,6 +105,10 @@ class ServersStore {
       this.reconnectAttempt = attempt
       if (status === 'connected') this.hasConnected = true
       this.updateAutoDiscovery()
+    })
+
+    serverConnections.onStatusChange((serverId, status) => {
+      this.statusesByServer[serverId] = this.itemStatus(status)
     })
   }
 
@@ -185,10 +193,47 @@ class ServersStore {
     location.reload()
   }
 
-  private statusFor(serverId: string): ServerItemStatus {
+  async probeRunOnServers(): Promise<void> {
+    if (this.probingServers) return
+    this.probingServers = true
+    try {
+      await Promise.all(this.servers.map(async (server) => {
+        let health = null
+        try {
+          health = await serverConnections.probeHealth(server.id)
+        } catch {}
+        this.statusesByServer[server.id] = health ? 'online' : 'offline'
+        if (!health) return
+        const hadConnection = serverConnections.connectionFor(server.id) !== undefined
+        try {
+          this.projectIdentitiesByServer[server.id] = await serverConnections.projectIdentities(server.id)
+        } catch {
+          this.projectIdentitiesByServer[server.id] = []
+        } finally {
+          if (!hadConnection) serverConnections.release(server.id)
+        }
+      }))
+    } finally {
+      this.probingServers = false
+    }
+  }
+
+  projectIdentitiesFor(serverId: string): ProjectIdentity[] {
+    return this.projectIdentitiesByServer[serverId] ?? []
+  }
+
+  statusFor(serverId: string): ServerItemStatus {
+    const managedStatus = serverConnections.statusFor(serverId)
+    if (managedStatus !== 'disconnected') return this.itemStatus(managedStatus)
+    const probedStatus = this.statusesByServer[serverId]
+    if (probedStatus) return probedStatus
     if (serverId !== this.activeServerId) return 'saved'
-    if (this.connectionStatus === 'connected') return 'online'
-    if (this.connectionStatus === 'connecting' || this.connectionStatus === 'reconnecting') return 'connecting'
+    return this.itemStatus(this.connectionStatus)
+  }
+
+  private itemStatus(status: ConnectionStatus): ServerItemStatus {
+    if (status === 'connected') return 'online'
+    if (status === 'connecting' || status === 'reconnecting') return 'connecting'
     return 'offline'
   }
 

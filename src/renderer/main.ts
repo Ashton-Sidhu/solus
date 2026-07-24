@@ -1,7 +1,8 @@
 import './index.css'
 import { TransportDisconnectedError, type ConnectionStatus } from '@client-core/ws-transport'
 import { setConnectionState } from '@client-core/connection-state'
-import { installWsBackedSolusApi, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
+import { installWsBackedSolusApi, localServerTarget, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
+import { serverConnections } from '@client-core/server-connections'
 import { setTabPersistenceServerInstallationId } from './contexts/tab-persistence'
 import type { LocalConnectionInfo, NativeSolusAPI } from '../preload'
 
@@ -154,6 +155,7 @@ async function boot(): Promise<void> {
   const rendererMode = currentRendererMode()
   const local = await getLocalConnection(nativeApi)
   const target = resolveActiveServerTarget(local)
+  serverConnections.registerTarget(localServerTarget(local), () => nativeApi.refreshLocalSessionToken())
 
   // The local server accepts the socket instantly, and RPC calls made before it
   // opens queue and flush automatically (see WsTransport.invoke/send) — so there
@@ -168,8 +170,9 @@ async function boot(): Promise<void> {
   setTabPersistenceServerInstallationId(target.installationId ?? target.id, { migrateLegacy: target.local })
 
   let appMounted = false
-  const { transport } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
+  const { transport, api } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
     onStatusChange: (status, attempt) => {
+      serverConnections.updateStatus(target.id, status, attempt)
       setConnectionState({ status, attempt, target })
       if (!appMounted && !target.local) renderBootState('Connecting to Solus', connectionDetail(status, attempt, target))
     },
@@ -177,6 +180,7 @@ async function boot(): Promise<void> {
       if (!appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
     },
   })
+  serverConnections.registerPrimary(target.id, api, transport, target)
 
   transport.start()
 

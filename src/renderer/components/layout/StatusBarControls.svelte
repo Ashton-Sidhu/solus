@@ -15,6 +15,7 @@
   import SettingsPopover from "../SettingsPopover.svelte";
   import GitDropdown from "../GitDropdown.svelte";
   import ServerSwitcher from "../servers/ServerSwitcher.svelte";
+  import RunOnPicker from "../servers/RunOnPicker.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import { tooltip } from "../../lib/tooltip";
@@ -142,6 +143,7 @@
       <ContextMeter tabId={targetTabId} />
     {/if}
     <PermissionModePicker compact={!showDirLabel} {tabId} />
+    <RunOnPicker tabId={targetTabId} />
     <SessionChip {tabId} />
     {#if !isPinned}
       {#if session.runtimeSyncing}

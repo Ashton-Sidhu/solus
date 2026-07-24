@@ -1,5 +1,6 @@
 import type { Session, Tab, InputState, ModelConfig } from '../../shared/types'
 import { uuid } from '../../shared/uuid'
+import { LOCAL_SERVER_ID } from '../../client-core/server-registry'
 import type { SettingsContext } from './settings.context.svelte'
 
 export function makeInputState(overrides?: Partial<InputState>): InputState {
@@ -9,6 +10,7 @@ export function makeInputState(overrides?: Partial<InputState>): InputState {
 export function makeSession(settings: SettingsContext, overrides?: Partial<Session>): Session {
   return {
     id: uuid(),
+    serverId: LOCAL_SERVER_ID,
     agentSessionId: null,
     provider: null,
     status: 'idle',

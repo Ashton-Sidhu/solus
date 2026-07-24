@@ -67,6 +67,10 @@ function readStorageWithMigration(base: string): string | null {
 export interface PersistedTab {
   tabId: string
   title: string
+  /** Saved-server registry id used for routing. Missing in legacy snapshots means local. */
+  serverId?: string
+  /** Stable server identity used to recover from a changed registry id after re-pairing. */
+  serverInstallationId?: string
   agentSessionId: string | null
   provider: AgentId | null
   workingDirectory: string

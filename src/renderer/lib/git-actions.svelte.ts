@@ -2,6 +2,7 @@ import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
 import type { GitStatusStore } from '../contexts/git-status.store.svelte'
 import { connectionsStore } from '../contexts/connections.store.svelte'
 import { requestInputFocus } from './inputFocus'
+import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 
 export class GitActions {
   commitPushing = $state(false)
@@ -29,7 +30,7 @@ export class GitActions {
     this.commitPushing = true
     this.commitPushed = false
     this.commitPushError = null
-    const result = await window.solus.gitCommitPush(this.session.ctxFor(this.tabId))
+    const result = await this.session.apiFor(this.tabId).gitCommitPush(this.session.ctxFor(this.tabId))
     this.commitPushing = false
     if (result.success) {
       this.commitPushed = true
@@ -55,7 +56,7 @@ export class GitActions {
     this.syncing = true
     this.synced = false
     this.syncError = null
-    const result = await window.solus.gitSync(this.session.ctxFor(this.tabId))
+    const result = await this.session.apiFor(this.tabId).gitSync(this.session.ctxFor(this.tabId))
     this.syncing = false
     if (result.success) {
       this.synced = true
@@ -75,7 +76,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable) return
+    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.serverId !== LOCAL_SERVER_ID) return
     void window.solus.openWorktreeTerminal(this.session.ctxFor(this.tabId))
     requestInputFocus()
   }
@@ -86,7 +87,7 @@ export class GitActions {
     this.creatingPR = true
     this.prError = null
     try {
-      const result = await window.solus.worktreePR(this.session.ctxFor(this.tabId))
+      const result = await this.session.apiFor(this.tabId).worktreePR(this.session.ctxFor(this.tabId))
       if (result.success) this.prUrl = result.url || null
       else this.prError = result.error || 'Failed'
     } catch (err) {

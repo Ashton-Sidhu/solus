@@ -693,7 +693,7 @@
 
   function handleInterrupt() {
     session.interruptTab(targetTabId);
-    window.solus.stopTab(session.ctxFor(targetTabId));
+    session.apiFor(targetTabId).stopTab(session.ctxFor(targetTabId));
     refocusComposer();
   }
 </script>

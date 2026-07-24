@@ -24,6 +24,7 @@
     | "conflict";
 
   interface Props {
+    api?: typeof window.solus;
     ctx: IpcContext;
     cwd: string;
     filePath: string;
@@ -35,6 +36,7 @@
   }
 
   let {
+    api = window.solus,
     ctx,
     cwd,
     filePath,
@@ -121,7 +123,7 @@
 
     const generation = ++saveGeneration;
     setSaveState("saving");
-    const result = await window.solus.writeFile(ctx, {
+    const result = await api.writeFile(ctx, {
       path: filePath,
       cwd,
       contents: contentsToSave,

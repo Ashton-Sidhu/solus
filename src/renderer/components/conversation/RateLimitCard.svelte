@@ -60,17 +60,17 @@
 
   async function handleQueueIt() {
     userChoseQueue = true
-    await queueRateLimitedWait(session.ctxFor(tabId), sess?.status === 'rate_limited', (err) => session.handleError(tabId, err))
+    await queueRateLimitedWait(session.apiFor(tabId), session.ctxFor(tabId), sess?.status === 'rate_limited', (err) => session.handleError(tabId, err))
     requestInputFocus()
   }
 
   async function handleSendNow() {
-    await sendRateLimitedNow(session.ctxFor(tabId), sess?.status === 'rate_limited', (err) => session.handleError(tabId, err))
+    await sendRateLimitedNow(session.apiFor(tabId), session.ctxFor(tabId), sess?.status === 'rate_limited', (err) => session.handleError(tabId, err))
     requestInputFocus()
   }
 
   function handleStop() {
-    cancelRateLimitedMessages(session.ctxFor(tabId), (err) => session.handleError(tabId, err))
+    cancelRateLimitedMessages(session.apiFor(tabId), session.ctxFor(tabId), (err) => session.handleError(tabId, err))
     requestInputFocus()
   }
 </script>

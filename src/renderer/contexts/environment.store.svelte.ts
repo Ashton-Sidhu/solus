@@ -26,6 +26,7 @@ export interface EnvironmentStoreDeps {
   agent?: AgentContext
   setGitStatus(cwd: string, status: GitProjectStatus | null): void
   ctxFor(tabId: string): IpcContext
+  apiFor(tabId: string): typeof window.solus
   loadTranscript(args: {
     sessionId: string
     loadPath: string
@@ -117,7 +118,7 @@ export class EnvironmentStore {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const ctx = this.deps.ctxFor(targetTabId)
     ctx.session.provider = this.deps.settings.activeAgent as AgentId
-    const result = await window.solus.getPluginCommands(workingDirectory, $state.snapshot(ctx))
+    const result = await this.deps.apiFor(targetTabId).getPluginCommands(workingDirectory, $state.snapshot(ctx))
     this.pluginCommands = result
     const session = this.deps.registry.sessionFor(targetTabId)
     if (session) session.pluginCommands = result
@@ -137,7 +138,7 @@ export class EnvironmentStore {
       ?? this.deps.config.globalDefaults.workingDirectory
     if (!cwd || cwd === '~') return null
 
-    const status = await window.solus.gitProjectStatus(cwd).catch((error) => {
+    const status = await this.deps.apiFor(tabId).gitProjectStatus(cwd).catch((error) => {
       console.error('gitProjectStatus failed while refreshing environment', {
         tabId,
         cwd,
@@ -213,7 +214,7 @@ export class EnvironmentStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || session.changedFiles.length > 0) return
     try {
-      const stats = await window.solus.diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
+      const stats = await this.deps.apiFor(tabId).diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
       const files = stats.map((file) => file.path)
       if (files.length === 0) return
       session.changedFiles.splice(0, session.changedFiles.length, ...files)
@@ -226,7 +227,7 @@ export class EnvironmentStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId) return
     try {
-      const snaps = await window.solus.listTurnSnapshots(this.deps.ctxFor(tabId))
+      const snaps = await this.deps.apiFor(tabId).listTurnSnapshots(this.deps.ctxFor(tabId))
       this.turnSnapshots[tabId] = snaps
     } catch {
       /* best-effort */

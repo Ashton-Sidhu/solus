@@ -14,6 +14,8 @@
     StarIcon,
     BinocularsIcon,
   } from "phosphor-svelte";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serversStore } from "../servers/servers.store.svelte";
   import { REVIEW_PROGRESS_STEPS, type ReviewProgressStep } from "../../../shared/review";
   import { getSettingsContext } from "../../contexts/settings.context.svelte";
   import { getAgentContext } from "../../contexts/agent.context.svelte";
@@ -101,6 +103,16 @@
   const isCreatingWorktree = $derived(session.isContinuingInWorktree(tabId));
   const showOpenFiles = $derived(showNativeDesktopActions && hasChangedFiles);
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
+  const remoteHost = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { label: "remote host" })
+      : null,
+  );
+  const terminalTooltip = $derived(
+    remoteHost
+      ? `Runs on ${remoteHost.label} — not available for remote sessions`
+      : "Open session in terminal",
+  );
   const showFork = $derived(!!sess?.agentSessionId && !isRunning);
   const showContinueWorktree = $derived(
     !!sess?.agentSessionId && !isRunning && !sess?.gitContext?.worktreePath,
@@ -384,7 +396,7 @@
     const livePaths = [...changedFiles];
     const ctx = session.ctxFor(tabId);
     let cancelled = false;
-    window.solus.diffStats(ctx, { scope: { kind: "session" }, livePaths }).then((files) => {
+    session.apiFor(tabId).diffStats(ctx, { scope: { kind: "session" }, livePaths }).then((files) => {
       if (cancelled || fingerprint !== changesFingerprint) return;
       const nextStats: Record<string, FileStat> = {};
       for (const file of files) {
@@ -472,7 +484,7 @@
   }
 
   function handleOpenTerminal() {
-    if (!tab) return;
+    if (!tab || remoteHost) return;
     window.solus.openInTerminal(session.ctxFor(tabId));
     requestInputFocus();
   }
@@ -744,7 +756,7 @@
           style="--item-index:{itemIndices.stop}"
           onclick={() => {
             session.interruptTab(tab.id);
-            window.solus.stopTab(session.ctxFor(tab.id));
+            session.apiFor(tab.id).stopTab(session.ctxFor(tab.id));
             requestInputFocus();
           }}
           title="Stop current task"
@@ -867,9 +879,10 @@
           tabindex={tabIndexFor("terminal")}
           style="--item-index:{itemIndices.terminal}"
           onclick={handleOpenTerminal}
-          title="Open session in terminal"
+          disabled={!!remoteHost}
+          title={terminalTooltip}
           aria-label="Open session in terminal"
-          use:tooltip={"Open session in terminal"}
+          use:tooltip={terminalTooltip}
         >
           <TerminalWindowIcon size={13} weight="regular" />
           <span>Terminal</span>

@@ -27,6 +27,9 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Popover from "../ui/popover";
   import { Button } from "../ui/button";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serversStore } from "../servers/servers.store.svelte";
+  import { tooltip } from "../../lib/tooltip";
   import SearchablePickerList from "../pickers/SearchablePickerList.svelte";
   import {
     worktreeProjectRoot,
@@ -56,6 +59,11 @@
   const deletions = $derived(status?.deletions ?? 0);
   const actions = $derived(gitActionsFor(tabId, session, gitStatus));
   const canGit = $derived(!!sess?.gitContext);
+  const remoteHost = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { label: "remote host" })
+      : null,
+  );
   const canViewDiff = $derived(!!status);
   const canPr = $derived(
     !!sess?.gitContext &&
@@ -112,6 +120,7 @@
     disabled?: boolean;
     error?: string | null;
     badge?: string;
+    tooltip?: string;
     run: () => void;
   }
 
@@ -270,6 +279,10 @@
       label: "Open terminal",
       icon: TerminalWindowIcon,
       phase: "idle",
+      disabled: !!remoteHost,
+      tooltip: remoteHost
+        ? `Runs on ${remoteHost.label} — not available for remote sessions`
+        : undefined,
       run: () => {
         actions.openTerminal();
         requestInputFocus();
@@ -553,6 +566,7 @@
     class:is-loading={def.phase === "loading"}
     disabled={def.disabled}
     onclick={def.run}
+    use:tooltip={def.tooltip}
   >
     <span class="menu-left">
       <span class="menu-icon">{@render actionGlyph(def)}</span>

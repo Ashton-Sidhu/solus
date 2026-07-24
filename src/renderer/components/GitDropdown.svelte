@@ -18,6 +18,9 @@
   import { worktreeProjectRoot, type IpcContext } from "../../shared/types";
   import { getWindowContext } from "../contexts/window.context.svelte";
   import { connectionsStore } from "../contexts/connections.store.svelte";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serversStore } from "./servers/servers.store.svelte";
+  import { tooltip } from "../lib/tooltip";
 
   type View = "menu" | "worktrees" | "branches";
 
@@ -48,6 +51,15 @@
   const gitStatus = getGitStatusStore();
   const windowCtx = getWindowContext();
   const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
+  const sess = $derived(session.sessionFor(tabId));
+  const remoteHost = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { label: "remote host" })
+      : null,
+  );
+  const terminalTooltip = $derived(
+    remoteHost ? `Runs on ${remoteHost.label} — not available for remote sessions` : null,
+  );
 
   let copied = $state(false);
   let view = $state<View>("menu");
@@ -102,7 +114,7 @@
 
   async function openTerminal() {
     const ctx = worktreePath ? (tabCtx ?? repoCtx) : repoCtx;
-    if (!ctx || !desktopHandlersAvailable) return;
+    if (!ctx || !desktopHandlersAvailable || remoteHost) return;
     open = false;
     await window.solus.openWorktreeTerminal(ctx);
   }
@@ -199,7 +211,9 @@
             type="button"
             role="menuitem"
             onclick={openTerminal}
+            disabled={!!remoteHost}
             class={menuItemClass}
+            use:tooltip={terminalTooltip}
           >
             <span class="flex items-center gap-2">
               <TerminalWindowIcon size={12} class="shrink-0" />

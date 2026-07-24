@@ -14,6 +14,7 @@ export interface SessionConfigControllerDeps {
   createTab(): Promise<string>
   ctx(): IpcContext
   ctxForDirectory(dir: string): IpcContext
+  apiFor(tabId?: string): typeof window.solus
   refreshPluginCommands(dir: string, tabId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   refreshGitEnvironment(opts: { tabId?: string; cwd?: string }): void
@@ -138,10 +139,11 @@ export class SessionConfigController {
     const isSolusWorktree = isSolusWorktreePath(worktreePath)
     const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
     const repoCtx = this.deps.ctxForDirectory(projectRoot)
-    if (session) window.solus.resetTabSession(repoCtx)
+    const api = this.deps.apiFor(this.deps.registry.activeTabId)
+    if (session) api.resetTabSession(repoCtx)
     const restored: TabGitContext | null = isSolusWorktree
-      ? await window.solus.worktreeRestore(repoCtx, worktreePath, { includePr: false })
-      : tabGitContextFromStatus(await window.solus.gitProjectStatus(worktreePath).catch(() => null))
+      ? await api.worktreeRestore(repoCtx, worktreePath, { includePr: false })
+      : tabGitContextFromStatus(await api.gitProjectStatus(worktreePath).catch(() => null))
     if (session) {
       session.workingDirectory = projectRoot
       session.gitContext = restored
@@ -168,8 +170,9 @@ export class SessionConfigController {
     }
     const session = this.deps.registry.activeSession
     const ctx = this.deps.ctxForDirectory(projectRoot)
-    if (session) window.solus.resetTabSession(ctx)
-    const result = await window.solus.gitCheckoutBranch(ctx, branch)
+    const api = this.deps.apiFor(this.deps.registry.activeTabId)
+    if (session) api.resetTabSession(ctx)
+    const result = await api.gitCheckoutBranch(ctx, branch)
     if (!result.success || !result.gitContext) {
       toasts.error(result.error ? `Couldn't switch branch: ${result.error}` : "Couldn't switch branch")
       return false
@@ -200,7 +203,7 @@ export class SessionConfigController {
     if (this.deps.registry.tabOrder.length === 0) {
       this.globalDefaults.workingDirectory = dir
       this.globalDefaults.gitContext = null
-      void window.solus.trackRecentProject(dir)
+      void this.deps.apiFor().trackRecentProject(dir)
       return
     }
     const session = this.deps.registry.activeSession
@@ -212,10 +215,11 @@ export class SessionConfigController {
     session.gitContext = null
     session.readOnlyReason = null
     session.pluginCommands = { global: [], project: [] }
-    window.solus.resetTabSession(this.deps.ctx())
+    const api = this.deps.apiFor(this.deps.registry.activeTabId)
+    api.resetTabSession(this.deps.ctx())
     this.deps.refreshPluginCommands(dir)
     this.deps.refreshGitEnvironment({ tabId: this.deps.registry.activeTabId, cwd: dir })
-    void window.solus.trackRecentProject(dir)
+    void api.trackRecentProject(dir)
   }
 
   addDirectory(dir: string): void {

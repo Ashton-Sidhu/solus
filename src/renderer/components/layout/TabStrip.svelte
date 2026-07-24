@@ -25,7 +25,10 @@
     XCircleIcon,
     CircleDashedIcon,
     CircleIcon,
+    GlobeSimpleIcon,
   } from "phosphor-svelte";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serversStore } from "../servers/servers.store.svelte";
   import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import { getPlanStore } from "../../contexts/plan.store.svelte";
   import type { TabGroupMode } from "../../contexts/settings.context.svelte";
@@ -388,12 +391,27 @@
   {@const sess = session.sessionFor(tabId)}
   {@const statusIcon =
     showStatus && tab && sess ? getStatusIcon(sess.status) : null}
+  {@const remoteServer = sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+    ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { id: sess.serverId, label: "Remote host" })
+    : null}
   {@const hasProgress =
     isSessionRunning(sess) && !!sess?.progress && sess.progress.totalSteps > 0}
   {@const pPercent = progressPercent(sess)}
   {@const pComplete = isTabComplete(sess)}
   {#if tab}
     <div class="flex min-w-0 items-center gap-[0.3125rem]">
+      {#if remoteServer}
+        {@const remoteStatus = serversStore.statusFor(remoteServer.id)}
+        <span
+          class="relative flex size-3 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
+          use:tooltip={`Runs on ${remoteServer.label} · ${remoteStatus === "online" ? "Online" : remoteStatus === "connecting" ? "Reconnecting" : "Offline"}`}
+        >
+          <GlobeSimpleIcon size={10} />
+          <span
+            class={`absolute -bottom-px -right-px size-1.5 rounded-full ring-1 ring-(--solus-bg-primary) ${remoteStatus === "online" ? "bg-(--solus-status-complete)" : remoteStatus === "connecting" ? "animate-pulse bg-(--solus-accent)" : "bg-(--solus-status-error)"}`}
+          ></span>
+        </span>
+      {/if}
       {#if statusIcon}
         {@const Icon = statusIcon.component}
         <Icon

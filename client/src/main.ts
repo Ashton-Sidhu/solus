@@ -2,9 +2,11 @@ import { mount, unmount } from 'svelte'
 import App from './App.svelte'
 import '../../src/renderer/index.css'
 import ConnectFlow from './routes/ConnectFlow.svelte'
-import { TransportDisconnectedError, WsTransport, type ConnectionStatus } from '@client-core/ws-transport'
+import { TransportDisconnectedError, type ConnectionStatus } from '@client-core/ws-transport'
+import { createSolusConnection, savedServerTarget } from '@client-core/server-connection'
+import { serverConnections } from '@client-core/server-connections'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
-import { getActiveServerId, loadServers, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
+import { getActiveServerId, loadServers, touchLastConnected, type SavedServer } from '@client-core/server-registry'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/tab-persistence'
 import { webState } from './lib/web-state.svelte'
 import { router } from './lib/router.svelte'
@@ -57,24 +59,20 @@ function connectToServer(server: SavedServer): void {
     migrateLegacy: loadServers().length <= 1,
   })
 
-  const transport = new WsTransport({
-    serverUrl: server.url,
-    sessionToken: server.sessionToken,
+  const target = savedServerTarget(server)
+  const { transport, api } = createSolusConnection(target, {
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
+      serverConnections.updateStatus(server.id, status, attempt)
       setConnectionState({ status, attempt })
       if (status === 'connected') void webPushState.ensureSubscribedSilently()
-    },
-    onSessionTokenRefreshed: (sessionToken: string) => {
-      server.sessionToken = sessionToken
-      upsertServer(server)
-      webState.setConnectedServer(server)
     },
     onAuthFailed: () => {
       if (!solusApp) showConnectFlow()
     },
   })
 
-  ;(window as any).solus = transport.buildSolusApi()
+  ;(window as any).solus = api
+  serverConnections.registerPrimary(server.id, api, transport, target)
   activeTransport = transport
   webPushState.init()
   installServiceWorkerMessageBridge()

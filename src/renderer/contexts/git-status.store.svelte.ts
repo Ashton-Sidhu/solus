@@ -1,5 +1,7 @@
 import { createContext } from 'svelte'
 import type { GitProjectStatus, IpcContext, WorktreeEntry } from '../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
+import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 
 export interface GitProjectRefs {
   branches: string[]
@@ -16,6 +18,15 @@ export class GitStatusStore {
   private refsLastRefresh = new Map<string, number>()
   private detailWatchers = new Map<string, number>()
   private detailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private serverByCwd = new Map<string, string>()
+
+  bindCwd(cwd: string | null | undefined, serverId: string): void {
+    if (cwd && cwd !== '~') this.serverByCwd.set(cwd, serverId)
+  }
+
+  private apiForCwd(cwd: string): typeof window.solus {
+    return serverConnections.apiFor(this.serverByCwd.get(cwd) ?? LOCAL_SERVER_ID) as typeof window.solus
+  }
 
   /** Resolves to true when the status fetch succeeded, false when it threw. */
   async refresh(cwd: string, opts: { force?: boolean; details?: boolean } = {}): Promise<boolean> {
@@ -27,7 +38,7 @@ export class GitStatusStore {
     const inflightKey = `${cwd}\0${includeDetails ? 'details' : 'summary'}`
     const existing = this.inflight.get(inflightKey)
     if (existing) return existing
-    const promise = window.solus.gitProjectStatus(cwd, includeDetails ? { includeDetails: true } : undefined)
+    const promise = this.apiForCwd(cwd).gitProjectStatus(cwd, includeDetails ? { includeDetails: true } : undefined)
       .then((status) => {
         this.applyStatus(cwd, status, includeDetails)
         this.lastRefresh.set(cwd, Date.now())
@@ -140,9 +151,10 @@ export class GitStatusStore {
     if (!opts.force && now - last < 5_000) return true
     const existing = this.refsInflight.get(projectRoot)
     if (existing) return existing
+    const api = this.apiForCwd(projectRoot)
     const promise = Promise.all([
-      window.solus.worktreeListProject($state.snapshot(ctx)).catch(() => []),
-      window.solus.worktreeBranches($state.snapshot(ctx)).catch(() => []),
+      api.worktreeListProject($state.snapshot(ctx)).catch(() => []),
+      api.worktreeBranches($state.snapshot(ctx)).catch(() => []),
     ])
       .then(([worktrees, branches]) => {
         this.refsByRoot[projectRoot] = { worktrees, branches }

@@ -292,7 +292,7 @@ export class AutocompleteController {
       // without a debounce delay; debounce only while the user keeps typing.
       this.#fileSearchTimer = setTimeout(
         async () => {
-          const result = await window.solus.searchFiles(
+          const result = await this.deps.session.apiFor(this.deps.session.activeTabId).searchFiles(
             query,
             // searchFiles' main-process handler tolerates an absent cwd; the
             // type says string, so pass through the possibly-undefined value.

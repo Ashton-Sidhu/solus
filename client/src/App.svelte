@@ -10,6 +10,7 @@
   } from "@renderer/contexts/tab-persistence";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
   import { materializeTabs } from "@renderer/contexts/session-bootstrap";
+  import { loadServers, LOCAL_SERVER_ID } from "@client-core/server-registry";
   import {
     createReconnectDetector,
     initializeRuntime,
@@ -42,6 +43,7 @@
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
     if (session.hydrating) return;
+    const savedServers = loadServers();
     const tabs = session.tabOrder
       .filter((id) => session.tabs[id])
       .map((tabId) => {
@@ -50,6 +52,10 @@
         return {
           tabId,
           title: tab.title ?? "New Tab",
+          serverId: sess?.serverId ?? LOCAL_SERVER_ID,
+          serverInstallationId: savedServers.find(
+            (server) => server.id === sess?.serverId,
+          )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
           workingDirectory: sess?.workingDirectory ?? session.globalDefaults.workingDirectory,

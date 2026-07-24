@@ -9,6 +9,7 @@ import {
   type SavedServer,
 } from './server-registry'
 import { WsTransport, type ConnectionStatus } from './ws-transport'
+import type { SolusAPI } from '../preload'
 
 export interface LocalConnectionInfoLike {
   port: number
@@ -27,13 +28,16 @@ export interface SolusServerTarget {
 
 export interface InstalledSolusConnection {
   transport: WsTransport
-  api: Record<string, unknown>
+  api: SolusAPI
 }
 
-export interface InstallSolusConnectionOptions {
+export interface CreateSolusConnectionOptions {
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
   onAuthFailed?: () => void
+  refreshLocalSessionToken?: () => Promise<string>
 }
+
+export type InstallSolusConnectionOptions = Omit<CreateSolusConnectionOptions, 'refreshLocalSessionToken'>
 
 export function localServerTarget(local: LocalConnectionInfoLike): SolusServerTarget {
   return {
@@ -79,6 +83,22 @@ export function installWsBackedSolusApi(
 ): InstalledSolusConnection {
   const refreshLocalSessionToken = nativeApi.refreshLocalSessionToken as (() => Promise<string>) | undefined
 
+  const connection = createSolusConnection(target, {
+    ...options,
+    refreshLocalSessionToken,
+  })
+  const api = mergeNativeOnlySolusApi(
+    connection.api as unknown as Record<string, unknown>,
+    nativeApi,
+  ) as unknown as SolusAPI
+  installWindowSolusApi(api as unknown as Record<string, unknown>)
+  return { transport: connection.transport, api }
+}
+
+export function createSolusConnection(
+  target: SolusServerTarget,
+  options: CreateSolusConnectionOptions = {},
+): InstalledSolusConnection {
   const transport = new WsTransport({
     serverUrl: target.url,
     sessionToken: target.sessionToken,
@@ -88,9 +108,9 @@ export function installWsBackedSolusApi(
     // cross-origin from the loopback server, so the HTTP refresh fallback
     // would depend on CORS. Refresh over IPC instead, matching how the
     // token was obtained at boot.
-    refreshToken: target.local && refreshLocalSessionToken
+    refreshToken: target.local && options.refreshLocalSessionToken
       ? async () => {
-          const sessionToken = await refreshLocalSessionToken()
+          const sessionToken = await options.refreshLocalSessionToken!()
           return sessionToken ? { result: 'refreshed', sessionToken } : { result: 'unavailable' }
         }
       : undefined,
@@ -106,8 +126,6 @@ export function installWsBackedSolusApi(
       })
     },
   })
-  const wsApi = transport.buildSolusApi()
-  const api = mergeNativeOnlySolusApi(wsApi, nativeApi)
-  installWindowSolusApi(api)
+  const api = transport.buildSolusApi() as unknown as SolusAPI
   return { transport, api }
 }

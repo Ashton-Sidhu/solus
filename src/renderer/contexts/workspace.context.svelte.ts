@@ -40,6 +40,8 @@ import { analytics } from '../lib/analytics'
 import { requestInputFocus } from '../lib/inputFocus'
 import { disposeGitActions } from '../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
+import { serverConnections } from '@client-core/server-connections'
+import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -124,6 +126,7 @@ export class WorkspaceContext {
       createTab: () => this.createTab(),
       ctx: () => this.ctx,
       ctxForDirectory: (dir) => this.ctxForDirectory(dir),
+      apiFor: (tabId) => tabId ? this.apiFor(tabId) : window.solus,
       refreshPluginCommands: (dir, tabId) => { void this.refreshPluginCommands(dir, tabId) },
       refreshGitRefs: (projectRoot, ctx) => { void this.gitStatus.refreshRefs(projectRoot, ctx, { force: true }) },
       refreshGitEnvironment: (opts) => { void this.env.refreshGitEnvironment(opts) },
@@ -136,6 +139,7 @@ export class WorkspaceContext {
       agent: this.agent,
       setGitStatus: (cwd, status) => this.gitStatus.set(cwd, status),
       ctxFor: (tabId) => this.ctxFor(tabId),
+      apiFor: (tabId) => this.apiFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
     })
     this.ui = new WorkspaceUiStore(this.artifactViewer, this.planStore)
@@ -292,6 +296,18 @@ export class WorkspaceContext {
   /** Returns the Session for a given tab, or undefined. */
   sessionFor(tabId: string): Session | undefined {
     return this.registry.sessionFor(tabId)
+  }
+
+  /** Resolve the RPC surface that owns this tab's session. */
+  apiFor(tabId: string): typeof window.solus {
+    const session = this.sessionFor(tabId)
+    if (session) {
+      serverConnections.retain(session.serverId)
+      this.gitStatus.bindCwd(session.workingDirectory, session.serverId)
+      this.gitStatus.bindCwd(session.gitContext?.repoRoot, session.serverId)
+      this.gitStatus.bindCwd(session.gitContext?.worktreePath, session.serverId)
+    }
+    return serverConnections.apiFor(session?.serverId) as typeof window.solus
   }
 
   get activeTab(): Tab | undefined {
@@ -451,7 +467,7 @@ export class WorkspaceContext {
   private async attachRuntimeSession(tabId: string): Promise<void> {
     const session = this.sessionFor(tabId)
     if (!session?.agentSessionId) return
-    const info = await window.solus.bindRuntimeSession(this.ctxFor(tabId))
+    const info = await this.apiFor(tabId).bindRuntimeSession(this.ctxFor(tabId))
     if (info && session) {
       session.modelConfig.modelId = info.modelConfig.modelId
       session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
@@ -478,7 +494,7 @@ export class WorkspaceContext {
     }
     const inheritedPermissionMode = this.globalDefaults.permissionMode
     const inheritedGitContext = activeSession?.gitContext ?? this.globalDefaults.gitContext
-    const { tabId } = await window.solus.createTab()
+    const tabId = uuid()
     const session = makeSession(this.settings, {
       workingDirectory: inheritedDir,
       gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
@@ -491,6 +507,7 @@ export class WorkspaceContext {
     const tab = makeTab(session.id, { id: tabId })
     this.sessions[session.id] = session
     this.tabs[tab.id] = tab
+    void this.apiFor(tabId).createTab(tabId).catch(() => null)
     this.addTabToOrder(tab.id)
     this.setActiveTab(tab.id)
     this.resetOverlays({ closeArtifactViewer: true })
@@ -528,7 +545,8 @@ export class WorkspaceContext {
     const sourceSession = this.sessionFor(sourceTabId)
     if (!sourceSession?.agentSessionId) return null
 
-    const { tabId } = await window.solus.createTab()
+    const tabId = uuid()
+    await this.apiFor(sourceTabId).createTab(tabId)
 
     const originalTitle = sourceTab?.title || 'session'
     const copiedMessages: Message[] = sourceSession.messages.map((m) => ({ ...m, id: uuid() }))
@@ -543,6 +561,7 @@ export class WorkspaceContext {
 
     const forkedSession = makeSession(this.settings, {
       agentSessionId: sourceSession.agentSessionId,
+      serverId: sourceSession.serverId,
       forked: true,
       forkedFromSessionId: sourceSession.agentSessionId,
       messages: [...copiedMessages, forkInfoMsg],
@@ -595,7 +614,7 @@ export class WorkspaceContext {
       ],
     }
     try {
-      const result = await window.solus.continueInWorktree(this.ctxFor(tabId), namePrompt)
+      const result = await this.apiFor(tabId).continueInWorktree(this.ctxFor(tabId), namePrompt)
       if (!result.success || !result.gitContext) {
         toasts.error(result.error ? `Couldn't create worktree: ${result.error}` : "Couldn't create worktree")
         return
@@ -737,7 +756,8 @@ export class WorkspaceContext {
   }
 
   closeTab(tabId: string): void {
-    window.solus.closeTab(this.ctxFor(tabId))
+    const serverId = this.sessionFor(tabId)?.serverId
+    this.apiFor(tabId).closeTab(this.ctxFor(tabId))
     const splitContent = this.artifactViewer.secondary
     if (splitContent.kind === 'conversation' && splitContent.tabId === tabId) {
       this.artifactViewer.closeSecondary()
@@ -756,6 +776,10 @@ export class WorkspaceContext {
     // Clean up session if no other tabs point to it
     if (sessionId && !Object.values(this.tabs).some((t) => t.sessionId === sessionId)) {
       delete this.sessions[sessionId]
+    }
+    if (serverId && !this.tabOrder.some((id) => id !== tabId && this.sessionFor(id)?.serverId === serverId)) {
+      serverConnections.unretain(serverId)
+      serverConnections.release(serverId)
     }
 
     if (this.activeTabId === tabId) {
@@ -781,7 +805,7 @@ export class WorkspaceContext {
 
   clearTab(tabId?: string): void {
     const targetTabId = tabId ?? this.activeTabId
-    window.solus.resetTabSession(this.ctxFor(targetTabId))
+    this.apiFor(targetTabId).resetTabSession(this.ctxFor(targetTabId))
     const session = this.sessionFor(targetTabId)
     if (!session) return
     session.agentSessionId = null
@@ -883,7 +907,7 @@ export class WorkspaceContext {
           provider,
           ctx: this.ctxFor(tabId),
         }),
-        window.solus.worktreeRestore(this.ctxFor(tabId), defaultDir),
+        this.apiFor(tabId).worktreeRestore(this.ctxFor(tabId), defaultDir),
         this.attachRuntimeSession(tabId),
       ])
 
@@ -992,7 +1016,8 @@ export class WorkspaceContext {
   }
 
   private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string }): void {
-    window.solus.createTab(tabId)
+    const api = this.apiFor(tabId)
+    api.createTab(tabId)
       .then(() => {
         // Guard: user may have interrupted between createTab resolving and this tick.
         // If so, stopTab already fired before prompt — skip submission to avoid a
@@ -1000,9 +1025,9 @@ export class WorkspaceContext {
         const session = this.sessionFor(tabId)
         if (!session) return
         if (session.agentSessionId) {
-          return window.solus.dispatchToAgentSession(this.ctxFor(tabId), session.agentSessionId, options)
+          return api.dispatchToAgentSession(this.ctxFor(tabId), session.agentSessionId, options)
         }
-        return window.solus.startAgentSession(this.ctxFor(tabId), options).then(({ agentSessionId }) => {
+        return api.startAgentSession(this.ctxFor(tabId), options).then(({ agentSessionId }) => {
           const current = this.sessionFor(tabId)
           if (current && !current.agentSessionId) current.agentSessionId = agentSessionId
         })
@@ -1030,6 +1055,10 @@ export class WorkspaceContext {
     if (session.readOnlyReason) return
 
     const resolvedPath = projectPath || session.workingDirectory
+    if (session.serverId !== LOCAL_SERVER_ID && (!resolvedPath || resolvedPath === '~')) {
+      toasts.error('Choose a project on the remote host before sending')
+      return
+    }
     const isBusy = session.status === 'running'
     const input = tab.input
 
@@ -1045,7 +1074,7 @@ export class WorkspaceContext {
       session.workingDirectory = resolvedPath
     }
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
-      void window.solus.trackRecentProject(resolvedPath)
+      void this.apiFor(targetTabId).trackRecentProject(resolvedPath)
     }
 
     session.provider = session.provider ?? this.settings.activeAgent
@@ -1103,7 +1132,7 @@ export class WorkspaceContext {
     if (session.readOnlyReason) return
 
     if (session.status === 'rate_limited' && session.serverQueuedPrompts.some((prompt) => prompt.reason === 'rate_limit')) {
-      sendRateLimitedNow(this.ctxFor(tabId), true, (err) => this.handleError(tabId, err))
+      sendRateLimitedNow(this.apiFor(tabId), this.ctxFor(tabId), true, (err) => this.handleError(tabId, err))
       return
     }
 
@@ -1121,8 +1150,8 @@ export class WorkspaceContext {
     session.progress = null
 
     const retry = session.agentSessionId
-      ? window.solus.dispatchToAgentSession(this.ctxFor(tabId), session.agentSessionId, { prompt: lastUserMsg.content })
-      : window.solus.startAgentSession(this.ctxFor(tabId), { prompt: lastUserMsg.content }).then(({ agentSessionId }) => {
+      ? this.apiFor(tabId).dispatchToAgentSession(this.ctxFor(tabId), session.agentSessionId, { prompt: lastUserMsg.content })
+      : this.apiFor(tabId).startAgentSession(this.ctxFor(tabId), { prompt: lastUserMsg.content }).then(({ agentSessionId }) => {
         const current = this.sessionFor(tabId)
         if (current && !current.agentSessionId) current.agentSessionId = agentSessionId
       })
@@ -1135,7 +1164,7 @@ export class WorkspaceContext {
   // ─── Permissions & questions ───
 
   respondPermission(tabId: string, questionId: string, optionId: string): void {
-    window.solus.respondPermission(this.ctxFor(tabId), questionId, optionId)
+    this.apiFor(tabId).respondPermission(this.ctxFor(tabId), questionId, optionId)
     const session = this.sessionFor(tabId)
     if (!session) return
     const idx = session.permissionQueue.findIndex((p) => p.questionId === questionId)
@@ -1143,7 +1172,7 @@ export class WorkspaceContext {
   }
 
   respondQuestion(tabId: string, questionId: string, answers: Record<string, string>): void {
-    window.solus.respondQuestion(this.ctxFor(tabId), questionId, answers)
+    this.apiFor(tabId).respondQuestion(this.ctxFor(tabId), questionId, answers)
     const session = this.sessionFor(tabId)
     if (!session) return
     const idx = session.questionQueue.findIndex((q) => q.questionId === questionId)
@@ -1170,7 +1199,7 @@ export class WorkspaceContext {
     const session = this.sessionFor(tabId)
     if (!session?.latestCheckpointId) return
     const checkpointId = session.latestCheckpointId
-    await window.solus.rewindFiles(this.ctxFor(tabId), checkpointId)
+    await this.apiFor(tabId).rewindFiles(this.ctxFor(tabId), checkpointId)
     const sessionAfter = this.sessionFor(tabId)
     if (sessionAfter) sessionAfter.latestCheckpointId = null
   }

@@ -1,4 +1,5 @@
 import type { AgentId } from '../../shared/types'
+import { loadServers, LOCAL_SERVER_ID } from '../../client-core/server-registry'
 import { makeInputState, makeSession, makeTab } from './session.factories'
 import { loadSessionTranscript } from './session-transcript'
 import { hasConversation } from './session.utils'
@@ -124,24 +125,27 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
  * Re-register tabs with the server and re-bind any alive sessions without
  * clearing client state. Used by the network-gap recovery path.
  */
-export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
+export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): Promise<void> {
   ctx.runtimeSyncing = true
-  // Clear in-flight streaming state so replayed text doesn't double-append.
   try {
-    ctx.streaming.text = {}
-    ctx.turnSnapshots = {}
-
-    const tabIds = [...ctx.tabOrder]
+    const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.serverId === serverId)
+    // Clear only the affected host's in-flight state so replayed text doesn't
+    // double-append without churning healthy tabs on other connections.
+    for (const tabId of tabIds) {
+      delete ctx.streaming.text[tabId]
+      delete ctx.turnSnapshots[tabId]
+    }
     await Promise.all(tabIds.map(async (tabId) => {
       const tab = ctx.tabs[tabId]
       const session = tab ? ctx.sessions[tab.sessionId] : undefined
       if (!tab || !session) return
 
       // Re-register with the server so event routing is alive again.
-      await window.solus.createTab(tabId).catch(() => null)
+      const api = ctx.apiFor(tabId)
+      await api.createTab(tabId).catch(() => null)
 
       if (session.agentSessionId) {
-        const info = await window.solus.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
+        const info = await api.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
         if (info && session) {
           session.modelConfig.modelId = info.modelConfig.modelId
           session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
@@ -172,13 +176,20 @@ function _materializeTabs(
   activeTabId: string,
   drafts: TabDrafts | null,
 ): void {
+  const savedServers = loadServers()
   for (const snapTab of persistedTabs) {
     let tab = ctx.tabs[snapTab.tabId]
     let session = tab ? ctx.sessions[tab.sessionId] : undefined
     const draftText = drafts?.tabs[snapTab.tabId] ?? ''
 
     if (!tab || !session) {
+      const serverId = snapTab.serverInstallationId
+        ? savedServers.find((server) => server.installationId === snapTab.serverInstallationId)?.id
+          ?? snapTab.serverId
+          ?? LOCAL_SERVER_ID
+        : snapTab.serverId ?? LOCAL_SERVER_ID
       session = makeSession(ctx.settings, {
+        serverId,
         agentSessionId: snapTab.agentSessionId,
         provider: snapTab.provider,
         status: 'idle',
@@ -220,10 +231,11 @@ async function _attachRuntimeTabs(
   ctx: WorkspaceContext,
   persistedTabs: PersistedTab[],
 ): Promise<void> {
-  // Re-register all tabs with the server in parallel.
-  await Promise.all(Object.keys(ctx.tabs).map((tabId) =>
-    window.solus.createTab(tabId).catch(() => null),
-  ))
+  // Start registrations independently. A request queued on an offline host must
+  // not prevent healthy hosts from hydrating their tabs.
+  for (const tabId of Object.keys(ctx.tabs)) {
+    void ctx.apiFor(tabId).createTab(tabId).catch(() => null)
+  }
 
   if (!ctx.tabs[ctx.activeTabId]) {
     ctx.activeTabId = ctx.tabOrder.find((id) => ctx.tabs[id]) ?? ''
@@ -234,7 +246,7 @@ async function _attachRuntimeTabs(
   // flag drives the conversation skeleton). Remaining tabs are intentionally
   // serialized through idle time; selecting one promotes it immediately.
   const activeSnap = persistedTabs.find((t) => t.tabId === ctx.activeTabId)
-  if (activeSnap) await hydrateTab(ctx, activeSnap).catch(() => {})
+  if (activeSnap) void hydrateTab(ctx, activeSnap).catch(() => {})
 
   const rest = persistedTabs.filter((t) => t.tabId !== ctx.activeTabId)
   const deferredState: DeferredHydrationState = {
@@ -300,7 +312,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       }
     }
 
-    const info = await window.solus.bindRuntimeSession(ctx.ctxFor(snapTab.tabId)).catch(() => null)
+    const info = await ctx.apiFor(snapTab.tabId).bindRuntimeSession(ctx.ctxFor(snapTab.tabId)).catch(() => null)
     if (info && session) {
       session.modelConfig.modelId = info.modelConfig.modelId
       session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort

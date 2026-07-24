@@ -275,6 +275,8 @@ export interface Tab {
 /** Backend-driven session state. Shared across tabs watching the same session. */
 export interface Session {
   id: string
+  /** Client-only host routing key. Defaults to LOCAL_SERVER_ID for new sessions. */
+  serverId: string
   agentSessionId: string | null
   provider: AgentId | null
   status: SessionStatus
@@ -983,6 +985,14 @@ export interface ProjectEntry {
   path: string          // decoded real path
   folderName: string    // last path segment
   addedAt: string       // ISO timestamp first recorded
+}
+
+/** A known checkout keyed by its normalized origin identity across hosts. */
+export interface ProjectIdentity {
+  path: string
+  folderName: string
+  /** Lowercase `host/owner/repo`, derived from the checkout's origin remote. */
+  repoKey: string
 }
 
 // ─── Agent Types ───

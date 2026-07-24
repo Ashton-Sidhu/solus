@@ -41,6 +41,8 @@
   import NewTabHome from "../layout/NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatMessageTime } from "../../lib/sessionUtils";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serversStore } from "../servers/servers.store.svelte";
 
   const markdownRenderers = {
     code: CodeBlock,
@@ -144,6 +146,16 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
+  const remoteServer = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? serversStore.servers.find((server) => server.id === sess.serverId)
+      : null,
+  );
+  const remoteStatus = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? serversStore.statusFor(sess.serverId)
+      : "online",
+  );
   const streamingText = $derived(session.streaming.text[tabId] ?? "");
 
   // ── Smooth typewriter reveal ──────────────────────────────────────────────
@@ -585,7 +597,7 @@
     "conversation.interrupt",
     () => {
       session.interruptTab(tabId);
-      window.solus.stopTab(session.ctxFor(tabId));
+      session.apiFor(tabId).stopTab(session.ctxFor(tabId));
       requestInputFocus();
     },
     {
@@ -674,6 +686,18 @@
     </div>
   </div>
 {/snippet}
+
+{#if sess?.serverId !== LOCAL_SERVER_ID && remoteStatus !== "online"}
+  <div
+    class="mx-4 mt-2 flex min-h-8 shrink-0 items-center justify-center gap-2 rounded-lg bg-(--solus-surface-hover) px-3 text-[0.6875rem] text-(--solus-text-tertiary)"
+    role="status"
+  >
+    <span
+      class={`size-1.5 rounded-full ${remoteStatus === "connecting" ? "animate-pulse bg-(--solus-accent)" : "bg-(--solus-status-error)"}`}
+    ></span>
+    <span>{remoteStatus === "connecting" ? "Reconnecting to" : "Can’t reach"} {remoteServer?.label ?? "remote host"}…</span>
+  </div>
+{/if}
 
 {#if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />

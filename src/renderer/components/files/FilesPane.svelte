@@ -25,6 +25,7 @@
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
   import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import * as Resizable from "../ui/resizable";
   import {
     paneBoundsPercent,
@@ -40,6 +41,7 @@
   }
 
   let { ctx, cwd, isDark, onClose }: Props = $props();
+  const workspace = getWorkspaceContext();
 
   // Register the (lazy, ~12MB) `logos` icon set so the header's file-type badge
   // can resolve its vibrant brand icon. Idempotent and shared across the app.
@@ -170,7 +172,7 @@
   async function loadFiles() {
     loading = true;
     error = null;
-    const result = await window.solus.listProjectFiles(ctx, { cwd });
+    const result = await workspace.apiFor(ctx.session.tabId).listProjectFiles(ctx, { cwd });
     if (result.ok) {
       root = result.root;
       files = result.files;
@@ -196,7 +198,7 @@
     fileLoading = true;
     saveState = "idle";
     saveMessage = undefined;
-    const result = await window.solus.readProjectFile(ctx, { path, cwd: root || cwd });
+    const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd: root || cwd });
     if (selectedPath !== path) return;
     if (result.ok) {
       selectedContents = result.contents;
@@ -456,6 +458,7 @@
           </div>
         {:else if selectedPath && selectedContents !== null}
           <FilePreviewStream
+            api={workspace.apiFor(ctx.session.tabId)}
             {ctx}
             cwd={root || cwd}
             filePath={selectedPath}

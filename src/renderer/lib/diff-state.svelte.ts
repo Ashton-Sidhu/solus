@@ -196,7 +196,7 @@ export class DiffState {
 
   private async load(scope: DiffScope, livePaths: string[] | undefined): Promise<DiffLoadResult> {
     try {
-      const result = await window.solus.diff(
+      const result = await this.opts.session.apiFor(this.opts.getTabId()).diff(
         this.opts.session.ctxFor(this.opts.getTabId()),
         { scope: { ...scope }, livePaths },
       )

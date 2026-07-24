@@ -106,6 +106,7 @@ export const RPC_INVOKE_METHODS = [
   'projectConfigLoad',
   'projectConfigSave',
   'listProjects',
+  'listProjectIdentities',
   'deleteProject',
 
   // Skills (skills.sh registry — opt-in install across active providers)

@@ -100,11 +100,11 @@ export async function approvePlanWithModel(
   const isActive = session.status === 'running' || session.status === 'connecting'
     || session.status === 'awaiting_plan' || session.status === 'awaiting_input'
   if (isActive) {
-    await window.solus.stopTab(ctx.ctx)
+    await ctx.apiFor(tabId).stopTab(ctx.ctxFor(tabId))
     ctx.interruptTab(tabId)
   }
 
-  window.solus.resetTabSession(ctx.ctx)
+  ctx.apiFor(tabId).resetTabSession(ctx.ctxFor(tabId))
   session.agentSessionId = null
 
   if (provider && modelId) {
@@ -157,10 +157,10 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
 
   if (sessionIsLive) {
     const denyOption = plan.options!.find((o: PermissionOption) => o.kind === 'deny') ?? plan.options![plan.options!.length - 1]
-    window.solus.respondPermission(ctx.ctx, plan.questionId!, denyOption.id)
+    ctx.apiFor(tabId).respondPermission(ctx.ctxFor(tabId), plan.questionId!, denyOption.id)
     ctx.interruptTab(tabId)
   } else {
-    window.solus.stopTab(ctx.ctx)
+    ctx.apiFor(tabId).stopTab(ctx.ctxFor(tabId))
     ctx.interruptTab(tabId)
   }
 

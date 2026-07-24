@@ -7,6 +7,7 @@
   } from "phosphor-svelte";
   import type { IpcContext } from "../../../shared/types";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import {
     useKeybinding,
     useScope,
@@ -24,6 +25,7 @@
   }
 
   let { ctx, cwd, isDark, file, onClose }: Props = $props();
+  const workspace = getWorkspaceContext();
 
   let loading = $state(false);
   let fileError = $state<string | null>(null);
@@ -69,7 +71,7 @@
     saveState = "idle";
     saveMessage = undefined;
 
-    const result = await window.solus.readProjectFile(ctx, { path, cwd });
+    const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd });
     if (generation !== loadGeneration) return;
     if (result.ok) {
       filePath = result.path;
@@ -138,6 +140,7 @@
     </div>
   {:else if contents !== null}
     <FilePreviewStream
+      api={workspace.apiFor(ctx.session.tabId)}
       {ctx}
       {cwd}
       {filePath}
