@@ -54,7 +54,7 @@ export interface CodexOneShotOptions {
   onThreadStart?: (threadId: string) => void
   /** Extra tools to register for this run, on top of any enabled by `solusTools`. */
   dynamicTools?: CodexDynamicTool[]
-  /** Register the full solus tool suite (works, tasks, review ledger, artifacts,
+  /** Register the full solus tool suite (works, tasks, artifacts,
    *  create_session) and handle their calls in-process for this run's thread.
    *  The automation CRUD/run tools are intentionally excluded (fork-bomb guard).
    *  Off by default so callers that want no tools (or their own) are unaffected. */

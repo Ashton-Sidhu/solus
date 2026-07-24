@@ -86,6 +86,10 @@ export interface UserEvent {
   parent_tool_use_id: string | null
   session_id: string
   uuid: string
+  /** Present on a tool_result the SDK synthesizes. An async sub-agent launch
+   *  reports `status:'async_launched'` here the instant it starts — the block's
+   *  text is launch metadata, not the agent's answer. */
+  tool_use_result?: { isAsync?: boolean; status?: string; agentId?: string }
 }
 
 export type UserContentBlock =

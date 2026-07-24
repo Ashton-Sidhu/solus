@@ -20,6 +20,7 @@ export type Scope =
   | 'automations'
   | 'tasks'
   | 'prs'
+  | 'pr-review'
   | 'design-annotation'
   | 'plan-action-bar'
   | 'attachment-preview'

@@ -4,16 +4,19 @@
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import {
     ArrowCounterClockwiseIcon,
+    ArrowsLeftRightIcon,
     ClipboardTextIcon,
     GitForkIcon,
     TreeStructureIcon,
   } from "phosphor-svelte";
-  import { computeCurrentActivity } from "../../contexts/session.utils";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    createSessionHistoryStore,
+    getWindowContext,
+    runtime,
+  } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
@@ -42,7 +45,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatMessageTime } from "../../lib/sessionUtils";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serversStore } from "../servers/servers.store.svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
 
   const markdownRenderers = {
     code: CodeBlock,
@@ -140,7 +143,7 @@
 
   // The pool instance is on screen only while its tab is active; the split-pane
   // instance (forceVisible) is always on screen. Visibility gates autoscroll and
-  // streaming work; keybindings stay gated on the ACTIVE tab so the two visible
+  // streaming work; keybindings stay gated on the focused chat so the two visible
   // instances never both respond to one shortcut.
   const isVisible = $derived(forceVisible || tabId === session.activeTabId);
 
@@ -558,7 +561,7 @@
     session.retryLastMessage(tabId);
   }
 
-  const changedFiles = $derived(sess?.changedFiles ?? []);
+  const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
 
   useKeybinding(
     "conversation.scroll-top",
@@ -568,7 +571,7 @@
       await revealAll();
       if (scrollEl) animateScrollTo(scrollEl, 0);
     },
-    { enabled: () => tabId === session.activeTabId },
+    { enabled: () => tabId === session.focusedChatTabId },
   );
 
   useKeybinding(
@@ -578,7 +581,7 @@
       animateScrollTo(scrollEl, scrollEl.scrollHeight - scrollEl.clientHeight);
       isNearBottom = true;
     },
-    { enabled: () => tabId === session.activeTabId },
+    { enabled: () => tabId === session.focusedChatTabId },
   );
 
   useKeybinding(
@@ -590,7 +593,7 @@
         }),
       );
     },
-    { enabled: () => tabId === session.activeTabId },
+    { enabled: () => tabId === session.focusedChatTabId },
   );
 
   useKeybinding(
@@ -602,7 +605,7 @@
     },
     {
       enabled: () =>
-        tabId === session.activeTabId &&
+        tabId === session.focusedChatTabId &&
         (sess?.status === "running" || sess?.status === "connecting"),
     },
   );
@@ -830,7 +833,19 @@
               {:else if item.kind === "subagent-group"}
                 <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "system"}
-                {#if item.message.forkSourceSessionId}
+                {#if item.message.handoffDivider}
+                  <div
+                    class="flex items-center gap-2.5 py-2.5 {skipMotion ? '' : 'animate-msg-in-side'}"
+                    data-testid="session-handoff-message"
+                  >
+                    <div class="h-px min-w-3 flex-1 bg-(--solus-tool-border)"></div>
+                    <div class="flex max-w-[80%] min-w-0 items-center gap-1.5 rounded-full bg-(--solus-container-bg) px-2.5 py-1 text-center text-[0.6875rem] leading-4 text-pretty text-(--solus-text-tertiary) shadow-[0_0_0_1px_var(--solus-tool-border)]">
+                      <ArrowsLeftRightIcon size={12} class="flex-shrink-0 text-(--solus-accent)" />
+                      <span>{item.message.content}</span>
+                    </div>
+                    <div class="h-px min-w-3 flex-1 bg-(--solus-tool-border)"></div>
+                  </div>
+                {:else if item.message.forkSourceSessionId}
                   <div class="fork-divider" data-testid="fork-session-message">
                     <div class="fork-divider-line"></div>
                     <button
@@ -996,18 +1011,19 @@
         <ActionOrb
           {tabId}
           {onDiffToggle}
+          observeLayout={isVisible}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}
         />
       {/if}
 
       {#if showActivityStrip}
         <div
-          class="flex items-end gap-1.5 absolute pointer-events-none"
+          class="activity-strip flex items-end gap-1.5 absolute pointer-events-none"
+          class:activity-strip-editor={isEditorMode}
+          class:activity-strip-pill={!isEditorMode}
           style="bottom:{isEditorMode
             ? 3
-            : 16}px;height:2rem;left:0;right:0;{isEditorMode
-            ? `max-width:var(--solus-reading-max);margin-inline:auto;`
-            : `padding-inline:calc(1rem + var(--cv-pill-gutter));`}z-index:7"
+            : 16}px;height:2rem;z-index:7"
         >
           <div
             bind:clientWidth={activityReservedWidth}
@@ -1098,6 +1114,21 @@
      editor mode uses, just with locally-provided gutter room. */
   .cv-root {
     --cv-pill-gutter: 2.75rem;
+  }
+
+  /* Match the scroll area's 1rem side gutters before applying the reading
+     width cap. This keeps the activity label and orb on the same horizontal
+     bounds as the message column in narrow split panes. */
+  .activity-strip-editor {
+    left: 50%;
+    width: min(calc(100% - 2rem), var(--solus-reading-max));
+    transform: translateX(-50%);
+  }
+
+  .activity-strip-pill {
+    left: 0;
+    right: 0;
+    padding-inline: calc(1rem + var(--cv-pill-gutter));
   }
 
   /* Assistant rows whose timestamp sits in the column margin must opt out of

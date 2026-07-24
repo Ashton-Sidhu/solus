@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition'
   import { ClockIcon } from 'phosphor-svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
+  import { getWorkspaceContext } from '../../contexts'
   import { requestInputFocus } from '../../lib/inputFocus'
   import { sendRateLimitedNow, cancelRateLimitedMessages, queueRateLimitedWait } from '../../lib/rate-limit-actions'
   import * as Card from '../ui/card'
@@ -76,7 +76,7 @@
 </script>
 
 {#if isVisible}
-  <div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2" data-testid="rate-limit-card">
+  <div transition:fly={{ y: 8, duration: 200 }} class="mx-auto mt-2 mb-2 w-[88%]" data-testid="rate-limit-card">
     <Card.Root
       class="gap-0 overflow-hidden border border-(--solus-permission-border) bg-(--solus-container-bg) py-0"
       style="border-radius:0.75rem;box-shadow:var(--solus-permission-shadow)"

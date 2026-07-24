@@ -169,7 +169,7 @@
   }
 
   .card .action-btn-circle:hover {
-    background: var(--solus-surface-active);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
 

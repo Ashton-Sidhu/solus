@@ -5,7 +5,7 @@
     CheckIcon,
     CopyIcon,
   } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import { wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
@@ -224,6 +224,7 @@
           class="artifact-iframe"
           data-testid="artifact-iframe"
           sandbox="allow-scripts"
+          allow="clipboard-write"
           style="color-scheme:{colorScheme};{expanded
             ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`
             : `height:${contentHeight}px`}"
@@ -442,7 +443,15 @@
     transform: translateY(0) scale(1);
   }
 
-  .artifact-action:hover,
+  .artifact-action:hover {
+    background: var(--solus-surface-hover);
+    border-color: var(--solus-accent-border-medium);
+    color: var(--solus-accent);
+    box-shadow:
+      0 0.125rem 0.25rem rgba(0, 0, 0, 0.1),
+      0 0.375rem 1rem rgba(0, 0, 0, 0.08);
+  }
+
   .artifact-action.is-copied {
     background: color-mix(
       in srgb,

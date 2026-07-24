@@ -1,6 +1,7 @@
 <script lang="ts">
   import { XIcon, PaperPlaneTiltIcon, CaretUpIcon } from "phosphor-svelte";
   import type { ReviewDraftComment } from "../../../shared/review";
+  import { Button } from "../ui/button";
 
   // The pending-review tray (decision #16: pending drafts live here, not in
   // Activity). A footer over the review surface listing queued comments with
@@ -15,7 +16,8 @@
   }: {
     drafts: ReviewDraftComment[];
     submitLabel?: string;
-    onSubmit: () => void;
+    /** Omit where the host owns the send action (the review guide's composer). */
+    onSubmit?: () => void;
     onRemove: (id: string) => void;
     onJump?: (path: string, line: number, side: "old" | "new") => void;
   } = $props();
@@ -28,43 +30,50 @@
     <ul class="flex max-h-48 flex-col gap-1 overflow-y-auto px-3 pt-2">
       {#each drafts as d (d.id)}
         <li class="flex items-start gap-2 rounded-lg bg-(--solus-art-surface) px-2.5 py-1.5">
+          <!-- A list row, not a button primitive: two stacked lines, left-aligned. -->
           <button
             type="button"
-            class="min-w-0 flex-1 text-left"
+            class="min-w-0 flex-1 cursor-pointer text-left"
             onclick={() => onJump?.(d.path, d.line, d.side)}
           >
             <span class="block truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)">{d.path}:{d.line}</span>
             <span class="block truncate text-[0.8125rem] text-(--solus-text-secondary)">{d.body}</span>
           </button>
-          <button
+          <Button
             type="button"
-            class="flex size-6 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) hover:bg-(--solus-accent-light) hover:text-(--solus-status-error)"
+            variant="ghost"
+            size="icon-xs"
+            class="cursor-pointer text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-status-error)"
             aria-label="Remove comment"
             onclick={() => onRemove(d.id)}
           >
             <XIcon size={13} />
-          </button>
+          </Button>
         </li>
       {/each}
     </ul>
   {/if}
 
   <div class="flex items-center gap-2 px-3 py-2">
-    <button
+    <Button
       type="button"
-      class="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-(--solus-text-secondary) hover:text-(--solus-text-primary)"
+      variant="ghost"
+      size="xs"
+      class="-ml-2 cursor-pointer gap-1.5 text-[0.8125rem] font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
       onclick={() => (expanded = !expanded)}
     >
       <CaretUpIcon size={13} class={expanded ? "rotate-180 transition-transform" : "transition-transform"} />
       {drafts.length} pending {drafts.length === 1 ? "comment" : "comments"}
-    </button>
-    <button
-      type="button"
-      class="ml-auto inline-flex items-center gap-1.5 rounded-md bg-(--solus-accent) px-3 py-1.5 text-[0.8125rem] font-semibold text-(--solus-on-accent,#fff) transition-opacity hover:opacity-90"
-      onclick={onSubmit}
-    >
-      <PaperPlaneTiltIcon size={14} weight="bold" />
-      {submitLabel}
-    </button>
+    </Button>
+    {#if onSubmit}
+      <Button
+        type="button"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-md bg-(--solus-accent) px-3 py-1.5 text-[0.8125rem] font-semibold text-(--solus-on-accent,#fff) transition-opacity hover:opacity-90"
+        onclick={onSubmit}
+      >
+        <PaperPlaneTiltIcon size={14} weight="bold" />
+        {submitLabel}
+      </Button>
+    {/if}
   </div>
 </div>

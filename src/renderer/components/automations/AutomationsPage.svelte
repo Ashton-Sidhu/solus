@@ -11,18 +11,20 @@
     LightningIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext, getWindowContext, runtime, toasts } from "../../contexts";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
-  import { PAGE_PRIMARY_BTN, PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import {
+    PAGE_PRIMARY_BTN,
+    PAGE_ICON_BTN,
+    PAGE_SECONDARY_BTN,
+  } from "../../lib/page-chrome";
+  import PageEmpty from "../ui/PageEmpty.svelte";
   import { triggerSummary, relativeTime } from "./lib/automation-format";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
@@ -351,68 +353,34 @@
             {/each}
           </div>
         {:else if counts.all === 0}
-          <div
-            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-14 text-center"
-          >
-            <div
-              class="relative mb-3.5 grid size-[7.25rem] place-items-center"
-              aria-hidden="true"
-            >
-              <span
-                class="absolute inset-0 rounded-full border border-(--solus-accent) opacity-0 [animation:empty-pulse_3.6s_ease-out_infinite] motion-reduce:animate-none motion-reduce:opacity-25"
-              ></span>
-              <span
-                class="absolute inset-0 rounded-full border border-(--solus-accent) opacity-0 [animation:empty-pulse_3.6s_ease-out_infinite] [animation-delay:1.8s] motion-reduce:animate-none motion-reduce:opacity-25"
-              ></span>
-              <span
-                class="relative z-[1] grid size-[5.5rem] place-items-center rounded-full bg-(--solus-accent-light) text-(--solus-accent) [animation:empty-float_3.6s_ease-in-out_infinite] motion-reduce:animate-none"
+          <PageEmpty icon={LightningIcon} title="No automations yet.">
+            Create a saved prompt that runs on a schedule — or have an agent
+            set one up for you.
+            {#snippet actions()}
+              <button
+                type="button"
+                class={PAGE_PRIMARY_BTN}
+                onclick={startCreate}
+                data-testid="automation-new"
               >
-                <LightningIcon size={44} weight="fill" />
-              </span>
-            </div>
-            <p
-              class="text-base font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
-            >
-              No automations yet.
-            </p>
-            <p
-              class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)"
-            >
-              Create a saved prompt that runs on a schedule — or have an agent
-              set one up for you.
-            </p>
-            <button
-              type="button"
-              class="{PAGE_PRIMARY_BTN} mt-4"
-              onclick={startCreate}
-              data-testid="automation-new"
-            >
-              <PlusIcon size={13} weight="bold" />
-              <span>New automation</span>
-            </button>
-          </div>
+                <PlusIcon size={13} weight="bold" />
+                <span>New automation</span>
+              </button>
+            {/snippet}
+          </PageEmpty>
         {:else if automations.length === 0}
-          <div
-            class="flex flex-col items-center justify-center gap-[0.4375rem] px-4 py-14 text-center"
-          >
-            <p
-              class="text-base font-semibold tracking-[-0.01em] text-(--solus-text-primary)"
-            >
-              No automations match.
-            </p>
-            <p
-              class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)"
-            >
-              Try a different search or filter.
-            </p>
-            <button
-              type="button"
-              class="mt-1.5 inline-flex cursor-pointer items-center rounded-lg border-0 bg-transparent px-2.5 py-1 text-xs font-medium text-(--solus-accent) transition-[background-color] duration-100 ease-in-out hover:bg-(--solus-accent-light) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-              onclick={clearFilters}
-            >
-              Clear filters
-            </button>
-          </div>
+          <PageEmpty title="No automations match.">
+            Try a different search or filter.
+            {#snippet actions()}
+              <button
+                type="button"
+                class={PAGE_SECONDARY_BTN}
+                onclick={clearFilters}
+              >
+                Clear filters
+              </button>
+            {/snippet}
+          </PageEmpty>
         {:else}
           <div class="flex flex-col">
             {#each automationSections as section (section.id)}
@@ -442,7 +410,7 @@
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <div
-                      class="group relative flex items-center gap-3 rounded-[0.625rem] px-3 py-3 cursor-pointer transition-colors duration-150 ease-in-out hover:bg-(--solus-accent-light) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none {a.enabled
+                      class="group relative flex items-center gap-3 rounded-[0.625rem] px-3 py-3 cursor-pointer transition-colors duration-150 ease-in-out hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-accent-light) focus-visible:outline-none {a.enabled
                         ? ''
                         : 'opacity-60'}"
                       role="button"
@@ -624,28 +592,3 @@
     {/if}
   </div>
 {/if}
-
-<style>
-  @keyframes empty-pulse {
-    0% {
-      transform: scale(0.7);
-      opacity: 0.45;
-    }
-    70% {
-      opacity: 0;
-    }
-    100% {
-      transform: scale(1.15);
-      opacity: 0;
-    }
-  }
-  @keyframes empty-float {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-0.1875rem);
-    }
-  }
-</style>

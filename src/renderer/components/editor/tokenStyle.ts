@@ -8,7 +8,9 @@ export type TokenVariant =
   | 'plan-pending'
   | 'plan-accepted'
   | 'plan-rejected'
+  | 'session'
   | 'work'
+  | 'pr'
   | 'file'
   | 'slash'
 
@@ -39,7 +41,11 @@ const SVG_ATTRS = {
   'stroke-linejoin': 'round',
 } as const
 
-export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work', IconArray> = {
+export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session', IconArray> = {
+  // message-square
+  session: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],
+  ],
   // list-checks
   plan: [`${SVG_NS} svg`, { ...SVG_ATTRS },
     ['path', { d: 'm3 17 2 2 4-4' }],
@@ -64,5 +70,13 @@ export const TOKEN_ICONS: Record<'plan' | 'planAccepted' | 'planRejected' | 'wor
     ['path', { d: 'M16 13H8' }],
     ['path', { d: 'M16 17H8' }],
     ['path', { d: 'M10 9H8' }],
+  ],
+  // git-pull-request
+  pr: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['circle', { cx: '6', cy: '6', r: '3' }],
+    ['path', { d: 'M6 9v12' }],
+    ['circle', { cx: '18', cy: '18', r: '3' }],
+    ['path', { d: 'M18 15V8a2 2 0 0 0-2-2h-4' }],
+    ['path', { d: 'm15 3-3 3 3 3' }],
   ],
 }

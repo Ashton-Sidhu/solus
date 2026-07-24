@@ -2,8 +2,7 @@
   import { FolderIcon, TrashIcon, CheckIcon, XIcon } from "phosphor-svelte";
   import { untrack } from "svelte";
   import type { ProjectEntry } from "../../../shared/types";
-  import { projectsStore } from "../../contexts/projects.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { projectsStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
 
   const session = getWorkspaceContext();

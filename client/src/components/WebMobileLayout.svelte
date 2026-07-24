@@ -8,15 +8,13 @@
   } from "phosphor-svelte";
   import InputBar from "@renderer/components/input/InputBar.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
-  import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
-  import { getPlanStore } from "@renderer/contexts/plan.store.svelte";
+  import { getWorkspaceContext, getPlanStore, runtime } from "@renderer/contexts";
   import { sessionTitle, getStatusIcon } from "@renderer/lib/sessionUtils";
   import WebSidebarDrawer from "./WebSidebarDrawer.svelte";
   import MobilePlusMenu from "./MobilePlusMenu.svelte";
   import MobileModelPicker from "./MobileModelPicker.svelte";
   import { virtualKeyboard } from "../lib/virtual-keyboard.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
-  import { runtime } from "@renderer/contexts/runtime.svelte";
 
   interface Props {
     chatContent: Snippet;

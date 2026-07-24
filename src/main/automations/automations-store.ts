@@ -389,6 +389,41 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
   return run
 }
 
+/** Link a still-running automation record to its provider session as soon as
+ *  session_init arrives, so clients can open the live transcript before the
+ *  run reaches a terminal state. */
+export async function attachRunSession(
+  automationId: string,
+  runId: string,
+  agentSessionId: string,
+  branch?: string,
+  worktreePath?: string,
+): Promise<void> {
+  const db = database()
+  const result = withTx(() => {
+    const runRow = db.prepare(`
+      SELECT *
+      FROM automation_runs
+      WHERE automation_id = ? AND id = ?
+    `).get(automationId, runId) as unknown as AutomationRunRow | undefined
+    const run = runRow ? runFromRow(runRow) : null
+    if (!run || run.status !== 'running') return { automation: null, run: null }
+    run.agentSessionId = agentSessionId
+    if (branch) run.branch = branch
+    if (worktreePath) run.worktreePath = worktreePath
+    writeRun(db, run)
+
+    const automationRow = db.prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as unknown as AutomationRow | undefined
+    return {
+      automation: automationRow ? automationFromRow(automationRow) : null,
+      run,
+    }
+  })
+  if (result.automation && result.run) {
+    emitChanged({ kind: 'run-updated', automation: result.automation, run: result.run })
+  }
+}
+
 /** Finalize a run with its outcome and mirror the status onto the automation. */
 export async function finishRun(
   automationId: string,

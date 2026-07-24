@@ -1,5 +1,6 @@
 import type { ControlPlane } from '../../control-plane'
 import type { AgentId, IpcContext, PlanAnnotations, SessionMeta, SessionScanEvent } from '../../../shared/types'
+import type { SearchSessionsRequest } from '../../../shared/rpc'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger } from '../../logger'
@@ -76,9 +77,14 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('searchSessions', async (args) => {
-    const [request] = args as [{ query: string; projectPath?: string; limit?: number }]
+    const [request] = args as [SearchSessionsRequest]
     try {
-      return searchIndexedSessions(request.query, request.projectPath, request.limit)
+      return searchIndexedSessions(request.query, {
+        projectRoot: request.projectRoot,
+        providers: request.providers,
+        role: request.role,
+        sinceTs: request.sinceTs,
+      }, request.limit)
     } catch (err) {
       log.error(`searchSessions error: ${err}`)
       return []
@@ -131,10 +137,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('getSessionInfo', async (args) => {
-    const [sessionId, projectPath, ctx, provider] = args as [string, string | undefined, IpcContext | undefined, AgentId | undefined]
-    const agentId = provider ?? agentIdFromContext(ctx)
+    const [sessionId] = args as [string]
     try {
-      return await controlPlane.getSessionInfo(agentId, sessionId, projectPath)
+      return await controlPlane.getSessionInfo(sessionId)
     } catch (err) {
       log.error(`getSessionInfo error: ${err}`)
       return null

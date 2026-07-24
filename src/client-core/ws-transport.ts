@@ -166,10 +166,12 @@ export class WsTransport {
     api.onSetupLog = (cb: Listener) => this.subscribe('setup-log', cb)
     api.onAutomationsChanged = (cb: Listener) => this.subscribe('automations-changed', cb)
     api.onProviderDeviceCode = (cb: Listener) => this.subscribe('provider-device-code', cb)
-    api.onMergeQueueUpdate = (cb: Listener) => this.subscribe('merge-queue-update', cb)
     api.onTasksChanged = (cb: Listener) => this.subscribe('tasks-changed', cb)
     api.onPrsChanged = (cb: Listener) => this.subscribe('prs-changed', cb)
     api.onAttentionChanged = (cb: Listener) => this.subscribe('attention-changed', cb)
+    api.onStackGraphUpdate = (cb: Listener) => this.subscribe('stack-graph-update', cb)
+    api.onPrChecksUpdate = (cb: Listener) => this.subscribe('pr-checks-update', cb)
+    api.onPrGuideStatus = (cb: Listener) => this.subscribe('pr-guide-status', cb)
     api.onResetRuntime = (cb: () => void) => {
       this.onResetCallback = cb
       return () => { if (this.onResetCallback === cb) this.onResetCallback = null }

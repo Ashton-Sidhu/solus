@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import { uuid } from "../../../shared/uuid";
-  import { FileTree, prepareFileTreeInput } from "@pierre/trees";
-  import type { FileDiffMetadata } from "@pierre/diffs";
+  import { FileTree } from "@pierre/trees";
   import DiffActionBar from "./DiffActionBar.svelte";
   import DiffToolbar, { type HeaderStats } from "./DiffToolbar.svelte";
   import DiffEmptyState from "./DiffEmptyState.svelte";
@@ -14,6 +13,7 @@
   import DiffFindBar from "./DiffFindBar.svelte";
   import DiffResizableContent from "./DiffResizableContent.svelte";
   import { DiffState, type DiffFindMatch } from "../../lib/diff-state.svelte";
+  import { orderDiffFiles } from "../../lib/diff-order";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     toGitStatusEntries,
@@ -21,21 +21,19 @@
     diffFilePath,
     diffHeaderStats,
   } from "../../lib/diffTreeAdapter";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext, toasts, getSettingsContext, runtime } from "../../contexts";
   import {
     InlineCommentDraft,
     setInlineCommentDraft,
-  } from "../../contexts/diff-comment-draft.store.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  } from "./diff-comment-draft.store.svelte";
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
-  import { runtime } from "../../contexts/runtime.svelte";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
-  import type { DiffComment, DiffScope } from "../../../shared/types";
-  import type { ReviewThread, ReviewComment } from "../../../shared/providers";
+  import type { DiffComment, DiffScope, IpcContext } from "../../../shared/types";
+  import type { ReviewComment } from "../../../shared/providers";
+  import type { DiffReviewThread } from "./lib/interdiff-annotations";
   import { mountDiffFileTree } from "./lib/diff-file-tree";
 
   type ExternalDiffCommentSave = {
@@ -51,6 +49,7 @@
 
   let {
     tabId,
+    getCtx,
     projectPath,
     worktreePath,
     worktreeBranch,
@@ -60,14 +59,20 @@
     maximized = false,
     onToggleMaximize,
     initialScope = { kind: "session" },
+    initialFilePath,
+    navigationRequestId,
+    embedded = false,
     externalComments = null,
     onExternalCommentSave,
     onExternalCommentDelete,
     reviewThreads = [],
+    patchOverride = null,
+    emptyState,
     onThreadReply,
     onThreadResolve,
   }: {
     tabId: string;
+    getCtx?: () => IpcContext;
     projectPath: string;
     worktreePath?: string;
     worktreeBranch: string;
@@ -77,6 +82,13 @@
     maximized?: boolean;
     onToggleMaximize?: () => void;
     initialScope?: DiffScope;
+    initialFilePath?: string;
+    navigationRequestId?: number;
+    /** Hosted as a content tab inside another surface (PR review). Hides the
+     *  panel's own close/maximize chrome (the host's tabs and exit button own
+     *  navigation) and the session turn stepper (turn scopes would silently
+     *  replace the host's PR scope with no way back). */
+    embedded?: boolean;
     /** Optional externally-owned comment list for surfaces that persist comments
      *  outside the active tab while still reusing the diff UI. */
     externalComments?: DiffComment[] | null;
@@ -84,7 +96,10 @@
     onExternalCommentDelete?: (id: string) => void;
     /** GitHub PR review threads to surface inline in the diff. Interactive when
      *  the reply / resolve callbacks below are supplied. */
-    reviewThreads?: ReviewThread[];
+    reviewThreads?: DiffReviewThread[];
+    /** Precomputed unified patch; null keeps the normal scope-backed RPC path. */
+    patchOverride?: string | null;
+    emptyState?: { title: string; description: string };
     onThreadReply?: (threadId: string, body: string) => Promise<ReviewComment>;
     onThreadResolve?: (threadId: string, resolved: boolean) => Promise<void>;
   } = $props();
@@ -105,6 +120,7 @@
   const diffState = new DiffState({
     session,
     getTabId: () => tabId,
+    getCtx: () => getCtx?.() ?? session.ctxFor(tabId),
   });
   const diff = $derived(diffState.diff);
   const loadError = $derived(diffState.loadError);
@@ -146,7 +162,11 @@
   );
   const isWorkingTreeScope = $derived(selectedScope.kind === "working-tree");
   const initialScopeKey = $derived(
-    initialScope.kind === "turn" ? `turn:${initialScope.index}` : initialScope.kind,
+    initialScope.kind === "turn"
+      ? `turn:${initialScope.index}`
+      : initialScope.kind === "pr"
+        ? `pr:${initialScope.baseSha}:${initialScope.ownDeltaBaseSha ?? "target"}`
+        : initialScope.kind,
   );
 
   let panelWidth = $state(0);
@@ -200,6 +220,10 @@
   }
 
   async function startLoad() {
+    if (patchOverride !== null) {
+      diffState.setPatch(selectedScope, patchOverride);
+      return;
+    }
     await diffState.refresh(selectedScope);
   }
 
@@ -210,6 +234,16 @@
     if (!mounted) return;
     if (key === prevInitialScopeKey) return;
     prevInitialScopeKey = key;
+    selectedScope = initialScope;
+    draft.clear();
+    void startLoad();
+  });
+
+  let prevPatchOverride = untrack(() => patchOverride);
+  $effect(() => {
+    const patch = patchOverride;
+    if (!mounted || patch === prevPatchOverride) return;
+    prevPatchOverride = patch;
     selectedScope = initialScope;
     draft.clear();
     void startLoad();
@@ -240,13 +274,13 @@
   // tool completes, so the panel can follow the agent instead of going stale
   // until the turn snapshot lands. Debounced and silent (no skeleton flash).
   const LIVE_REFRESH_DEBOUNCE_MS = 600;
-  const changedFilesSignal = $derived((sess?.changedFiles ?? []).join("\n"));
+  const changedFilesSignal = $derived((sess?.sessionChangedFiles ?? []).join("\n"));
   let prevChangedFilesSignal = untrack(() => changedFilesSignal);
   $effect(() => {
     const signal = changedFilesSignal;
     if (signal === prevChangedFilesSignal) return;
     prevChangedFilesSignal = signal;
-    if (selectedScope.kind !== "session" && selectedScope.kind !== "working-tree") return;
+    if (patchOverride !== null || (selectedScope.kind !== "session" && selectedScope.kind !== "working-tree")) return;
     const timer = setTimeout(() => {
       void diffState.refresh(selectedScope, { silent: true });
     }, LIVE_REFRESH_DEBOUNCE_MS);
@@ -258,7 +292,8 @@
     if (manualRefreshing) return;
     manualRefreshing = true;
     const startedAt = performance.now();
-    await diffState.refresh(selectedScope, { silent: true });
+    if (patchOverride !== null) diffState.setPatch(selectedScope, patchOverride);
+    else await diffState.refresh(selectedScope, { silent: true });
     // Let the spinner complete at least one revolution so fast refreshes
     // still read as "something happened".
     const remaining = 400 - (performance.now() - startedAt);
@@ -365,6 +400,16 @@
     pendingNavigate = { path, line, side };
   }
 
+  let handledNavigationRequestId = 0;
+  $effect(() => {
+    const requestId = navigationRequestId;
+    const path = initialFilePath;
+    if (!path || requestId == null || requestId === handledNavigationRequestId)
+      return;
+    handledNavigationRequestId = requestId;
+    navigateTo(path);
+  });
+
   $effect(() => {
     const nav = pendingNavigate;
     const stream = streamRef;
@@ -379,7 +424,7 @@
 
   function openFileInEditor(path: string) {
     const fileRoot = worktreePath ?? projectPath;
-    openInConfiguredEditor(session.ctxFor(tabId), {
+    openInConfiguredEditor(getCtx?.() ?? session.ctxFor(tabId), {
       filePaths: [path],
       editorId: theme.defaultEditor,
       terminalId: theme.defaultTerminal,
@@ -539,14 +584,14 @@
   }
 
   // ── Find in diff ───────────────────────────────────────────────────────────
-  // Matches are computed over diffState.fileDiffs order — exactly what DiffStream
+  // Matches are computed over narrative order — exactly what DiffStream
   // paints — so next/prev cycle in visual top-to-bottom order. Recomputes
   // automatically on live mid-turn refresh (derived over reactive fileDiffs).
   const findMatches = $derived.by<DiffFindMatch[]>(() => {
     if (findQuery.trim().length === 0) return [];
     return diffState.findMatches(
       findQuery,
-      diffState.fileDiffs.map((f) => f.name),
+      orderedFiles.map((f) => f.name),
     );
   });
   const activeMatch = $derived<DiffFindMatch | null>(
@@ -673,7 +718,7 @@
   }
 
   function cycleTurn(dir: 1 | -1) {
-    if (isWorkingTreeScope) return;
+    if (embedded || isWorkingTreeScope || patchOverride !== null) return;
     if (turns.length === 0) return;
     if (selectedTurnIndex === null) {
       void handleTurnSelect(
@@ -744,21 +789,9 @@
   });
   const treeGitStatus = $derived(toGitStatusEntries(treeFiles));
 
-  // Render the diffs in the same top-to-bottom order the tree lays them out,
-  // rather than git's raw order. prepareFileTreeInput is a pure sort that
-  // matches mountFileTree's config, so the stream and tree always agree.
-  const orderedFiles = $derived.by(() => {
-    const { paths } = prepareFileTreeInput(displayedTreePaths, {
-      flattenEmptyDirectories: true,
-    });
-    const byDisplay = new Map<string, FileDiffMetadata>();
-    for (let i = 0; i < treeFiles.length; i++) {
-      byDisplay.set(displayedTreePaths[i], treeFiles[i]);
-    }
-    return paths
-      .map((p) => byDisplay.get(p))
-      .filter((f): f is FileDiffMetadata => f !== undefined);
-  });
+  // A review guide keeps its authored section/file order. The unguided Diff
+  // panel instead uses a stable entry → core → tests → config narrative.
+  const orderedFiles = $derived(orderDiffFiles(treeFiles));
 
   function toFullPath(p: string): string {
     return fullPathByDisplay.get(p) ?? p;
@@ -857,8 +890,9 @@
     {maximized}
     onToggleMaximize={onToggleMaximize ?? null}
     {onClose}
+    {embedded}
     commentsAnchorRef={(el) => (commentsAnchorEl = el)}
-    {turns}
+    turns={patchOverride === null && !embedded ? turns : []}
     {selectedTurnIndex}
     onTurnSelect={handleTurnSelect}
     onStepTurn={cycleTurn}
@@ -884,7 +918,9 @@
       {isWorkingTreeScope}
       {isWorktree}
       {targetBranch}
-      {onClose}
+      onClose={embedded ? undefined : onClose}
+      title={emptyState?.title}
+      description={emptyState?.description}
     />
   {:else}
     <DiffResizableContent
@@ -912,7 +948,7 @@
         {/if}
         <DiffStream
           bind:this={streamRef}
-          fileDiffs={diffState.fileDiffs}
+          fileDiffs={orderedFiles}
           isBinaryFile={(path) => diffState.isBinaryFile(path)}
           isDark={theme.isDark}
           diffStyle={effectiveDiffStyle}

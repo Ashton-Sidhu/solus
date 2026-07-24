@@ -1,6 +1,7 @@
 <script lang="ts">
   import { loadServers, upsertServer, removeServer, type SavedServer } from "@client-core/server-registry";
   import { uuid } from "../../../src/shared/uuid";
+  import { toasts } from "../lib/toast.store.svelte";
 
   interface Props {
     onConnect: (server: SavedServer) => void;
@@ -19,7 +20,6 @@
   let pasteInput = $state("");
   let labelInput = $state("");
   let busy = $state(false);
-  let error = $state<string | null>(null);
   let connectingServer = $state<string | null>(null);
 
   function parsePairLink(link: string): { url: string; token: string } | null {
@@ -38,7 +38,6 @@
 
   async function pair(url: string, tokenOrCode: string, label: string) {
     busy = true;
-    error = null;
     try {
       const resp = await fetch(`${url}/pair`, {
         method: "POST",
@@ -65,7 +64,7 @@
       view = 'servers';
       onConnect(server);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toasts.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
       connectingServer = null;
@@ -75,12 +74,12 @@
   async function handleLinkSubmit(e: Event) {
     e.preventDefault();
     if (!pasteInput.trim()) {
-      error = "Paste a pairing link to continue";
+      toasts.error("Paste a pairing link to continue");
       return;
     }
     const parsed = parsePairLink(pasteInput.trim());
     if (!parsed) {
-      error = "Couldn't parse that pairing link — check the format";
+      toasts.error("Couldn't parse that pairing link — check the format");
       return;
     }
     connectingServer = labelInput.trim() || urlHost(parsed.url);
@@ -90,7 +89,7 @@
   async function handleManualSubmit(e: Event) {
     e.preventDefault();
     if (!urlInput || !codeInput) {
-      error = "Both server URL and pair code are required";
+      toasts.error("Both server URL and pair code are required");
       return;
     }
     let url = urlInput.trim();
@@ -104,7 +103,6 @@
     urlInput = "";
     codeInput = "";
     labelInput = "";
-    error = null;
     connectingServer = null;
   }
 
@@ -263,7 +261,7 @@
               class="cf-tab"
               class:cf-tab--active={addTab === 'link'}
               aria-selected={addTab === 'link'}
-              onclick={() => { addTab = 'link'; error = null; }}
+              onclick={() => { addTab = 'link'; }}
             >
               Pairing link
             </button>
@@ -272,7 +270,7 @@
               class="cf-tab"
               class:cf-tab--active={addTab === 'manual'}
               aria-selected={addTab === 'manual'}
-              onclick={() => { addTab = 'manual'; error = null; }}
+              onclick={() => { addTab = 'manual'; }}
             >
               Manual setup
             </button>
@@ -307,10 +305,6 @@
                   class="cf-input"
                 />
               </label>
-
-              {#if error}
-                <div class="cf-error">{error}</div>
-              {/if}
 
               <div class="cf-actions">
                 {#if servers.length > 0}
@@ -370,10 +364,6 @@
                   class="cf-input"
                 />
               </label>
-
-              {#if error}
-                <div class="cf-error">{error}</div>
-              {/if}
 
               <div class="cf-actions">
                 {#if servers.length > 0}
@@ -699,16 +689,6 @@
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     letter-spacing: 0.2em;
     font-size: 1rem;
-  }
-
-  /* ── Error ── */
-  .cf-error {
-    font-size: 0.8125rem;
-    padding: 0.5625rem 0.75rem;
-    border-radius: 0.5rem;
-    color: var(--solus-status-error);
-    background: var(--solus-status-error-bg);
-    border: 0.0625rem solid rgba(196, 112, 96, 0.2);
   }
 
   /* ── Actions ── */

@@ -3,7 +3,7 @@
   import { CheckCircleIcon, LinkSimpleIcon, XIcon } from "phosphor-svelte";
   import { desktopDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
   import type { SavedServer } from "@client-core/server-registry";
-  import { serversStore } from "./servers.store.svelte";
+  import { serversStore, toasts } from "../../contexts";
   import * as Tabs from "../ui/tabs";
   import { Input } from "../ui/input";
 
@@ -14,7 +14,6 @@
   let serverUrl = $state("");
   let pairCode = $state("");
   let label = $state("");
-  let error = $state<string | null>(null);
   let busy = $state(false);
   let paired = $state<SavedServer | null>(null);
   let linkInput: HTMLInputElement | null = $state(null);
@@ -38,7 +37,6 @@
     serverUrl = "";
     pairCode = "";
     label = "";
-    error = null;
     paired = null;
     busy = false;
     mode = "link";
@@ -52,7 +50,7 @@
   async function submitLink() {
     const parsed = parsePairLink(pairLink);
     if (!parsed) {
-      error = "Paste a pairing link like http://host:port/pair#token=...";
+      toasts.error("Paste a pairing link like http://host:port/pair#token=...");
       return;
     }
     await pair(parsed.url, parsed.pairToken);
@@ -61,7 +59,7 @@
   async function submitManual() {
     const normalizedUrl = normalizeServerUrl(serverUrl);
     if (!normalizedUrl || !/^\d{6}$/.test(pairCode.trim())) {
-      error = "Enter a server address and 6-digit pairing code.";
+      toasts.error("Enter a server address and 6-digit pairing code.");
       return;
     }
     await pair(normalizedUrl, pairCode.trim());
@@ -69,7 +67,6 @@
 
   async function pair(url: string, pairToken: string) {
     busy = true;
-    error = null;
     try {
       const result = await pairServer({
         url,
@@ -80,7 +77,7 @@
       serversStore.savePairedServer(result.server);
       paired = result.server;
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      toasts.error(`Couldn't pair server: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       busy = false;
     }
@@ -147,7 +144,6 @@
             class="gap-0"
             onValueChange={(value) => {
               mode = value as Mode;
-              error = null;
             }}
           >
             <Tabs.List class="mb-4 grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-(--solus-surface-hover) p-1">
@@ -177,10 +173,6 @@
               <span class="text-[0.75rem] font-medium text-(--solus-text-secondary)">Server name</span>
               <Input bind:value={label} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-[0.8125rem] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="Studio Mac" autocomplete="off" />
             </label>
-
-            {#if error}
-              <div class="rounded-lg bg-(--solus-status-error-bg) px-3 py-2 text-[0.75rem] text-(--solus-status-error)">{error}</div>
-            {/if}
 
             <div class="flex justify-end gap-2 pt-1">
               <button type="button" class="rounded-lg px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Cancel</button>

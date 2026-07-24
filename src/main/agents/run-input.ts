@@ -14,7 +14,6 @@ import type { IpcContext, SessionRunInput } from '../../shared/types'
 export function runInputFromContext(ctx: IpcContext): SessionRunInput {
   const { session, settings, statusBar } = ctx
   return {
-    tabId: session.tabId || undefined,
     provider: session.provider ?? settings.activeAgent,
     agentSessionId: session.agentSessionId,
     forked: session.forked ?? false,
@@ -23,7 +22,7 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     additionalDirs: session.additionalDirs,
     gitContext: session.gitContext,
     worktreeBaseBranch: session.worktreeBaseBranch,
-    changedFiles: session.changedFiles,
+    sessionChangedFiles: session.sessionChangedFiles,
     contextWindow: session.contextWindow,
     model: statusBar.model,
     preferredModel: session.preferredModel,

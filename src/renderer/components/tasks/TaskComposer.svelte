@@ -16,7 +16,7 @@
   import Dropdown from "../ui/Dropdown.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import { Input } from "../ui/input";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import type { AgentId } from "../../../shared/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
   import {
@@ -50,7 +50,7 @@
     canPlan?: boolean;
     /** Known project labels, offered as suggestions in the labels picker. */
     knownLabels?: string[];
-    /** Project directory for @-file / #-plan / %-work autocomplete in the body. */
+    /** Project directory for @-file / #-plan / %-work / !-PR autocomplete. */
     workingDirectory?: string;
     /** Agent provider whose built-in slash commands populate the body's / menu. */
     provider: AgentId;
@@ -344,7 +344,7 @@
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.75rem] text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.75rem] text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
   // prompt area — the MarkdownEditor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.
@@ -475,12 +475,18 @@
           onPlanRefClick={(planId) => session.openPlanModal(planId)}
           onWorkRefClick={(workId, title) =>
             session.openWorkModal(workId, title)}
+          onPrRefClick={(number, title) =>
+            void session.enterPrReview(number, title, {
+              ctx: workingDirectory
+                ? session.ctxForDirectory(workingDirectory)
+                : session.ctx,
+            })}
           menuPlacement="down"
           useRelativeFilePaths
           readOnly={saving}
           maxHeight={expanded ? undefined : 170}
           enterInsertsNewline
-          placeholder="Add a description… Use @ for files, # for plans, % for docs, / to format."
+          placeholder="Add a description… Use @ for files, # for plans, % for docs, ! for PRs, / to format."
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();

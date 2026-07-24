@@ -5,6 +5,7 @@ export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
   'global.select-project':    { combo: { mod: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Select project',           group: 'General' },
   'global.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New tab',                  group: 'Tabs' },
+  'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'New chat in split',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
   'global.prev-tab':          { combo: { ctrl: true, shift: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowLeft' }, scope: 'global', label: 'Previous branch / tab', group: 'Tabs' },
@@ -104,6 +105,7 @@ export const KEYBINDINGS = {
   'plan-review.reject-revise':    { combo: { alt: true, code: 'KeyV' },                    scope: 'plan-action-bar',    label: 'Reject with feedback',     group: 'Review' },
   'plan-review.focus-comment':    { combo: { alt: true, code: 'KeyL' },                    scope: 'plan-action-bar',    label: 'Focus comment field',      group: 'Review' },
   'plan-review.toggle-worktree':  { combo: { alt: true, code: 'KeyW' },                    scope: 'plan-action-bar',    label: 'Toggle worktree',          group: 'Review' },
+  'plan-review.toggle-collapsed': { combo: { alt: true, code: 'KeyD' },                    scope: 'plan-action-bar',    label: 'Collapse / expand bar',    group: 'Review' },
 
   // ── Plan modal ─────────────────────────────────────────────────────────────
   'plan-modal.close':             { combo: { code: 'Escape' },                             scope: 'plan-modal',         label: 'Close',                    group: 'Modal' },
@@ -141,8 +143,9 @@ export const KEYBINDINGS = {
 
   // ── Pull Requests ──────────────────────────────────────────────────────────
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
-  'prs.queue':                    { combo: { alt: true, code: 'KeyQ' },                    scope: 'prs',                label: 'Queue for merge',          group: 'Pull Requests' },
-  'prs.queueView':                { combo: { alt: true, code: 'KeyM' },                    scope: 'prs',                label: 'Open merge queue',         group: 'Pull Requests' },
+
+  // ── PR review ──────────────────────────────────────────────────────────────
+  'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },
 
   // ── Design annotation ──────────────────────────────────────────────────────
   'annotation.cancel':            { combo: { code: 'Escape' },                             scope: 'design-annotation',  label: 'Cancel / dismiss',         group: 'Annotation' },

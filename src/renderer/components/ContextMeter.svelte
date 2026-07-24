@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../contexts";
   import { tooltip } from "../lib/tooltip";
   import { requestInputFocus } from "../lib/inputFocus";
   import * as Popover from "./ui/popover";
@@ -52,7 +52,7 @@
             use:tooltip={`${pct}% of context window used`}
           >
       <svg
-        class="h-3.5 w-3.5 -rotate-90"
+        class="h-4 w-4 -rotate-90"
         viewBox="0 0 16 16"
         aria-hidden="true"
       >
@@ -80,7 +80,7 @@
           </button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content side="bottom" align="start" sideOffset={6} class="z-[10002] w-[224px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content side="bottom" align="start" sideOffset={6} class="z-[10002] w-[224px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
       <div
         role="dialog"
         aria-label="Context usage details"

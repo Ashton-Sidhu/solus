@@ -9,9 +9,12 @@
     XIcon,
   } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import {
+    getWorkspaceContext,
+    getStatusBarContext,
+    runtime,
+    createSessionHistoryStore,
+  } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getPopoverLayer, useClickOutside } from "../popoverLayer.svelte";
   import { portal } from "../portal";
@@ -30,7 +33,6 @@
   } from "../../lib/pickerEntries";
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
-  import { createSessionHistoryStore } from "../../contexts/session-history.store.svelte";
   import SessionPickerItem from "./SessionPickerItem.svelte";
   import SessionPickerSkeleton from "./SessionPickerSkeleton.svelte";
   import SessionPreview from "./SessionPreview.svelte";
@@ -409,7 +411,7 @@
       }}
     />
     <button
-      class="relative inline-flex cursor-pointer items-center gap-1 rounded-[0.4375rem] border border-transparent bg-transparent px-[0.5625rem] py-[0.1875rem] text-xs text-[var(--solus-text-tertiary)] transition-[background-color,color,border-color] duration-150 hover:border-[var(--solus-accent-border)] hover:bg-[var(--solus-accent-light)] hover:text-[var(--solus-accent)] focus-visible:border-[var(--solus-accent-border)] focus-visible:bg-[var(--solus-accent-light)] focus-visible:text-[var(--solus-accent)] focus-visible:outline-none pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:h-[max(100%,3rem)] pointer-coarse:before:w-[max(100%,3rem)] pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-[''] max-md:hidden"
+      class="relative inline-flex cursor-pointer items-center gap-1 rounded-[0.4375rem] border border-transparent bg-transparent px-[0.5625rem] py-[0.1875rem] text-xs text-[var(--solus-text-tertiary)] transition-[background-color,color,border-color] duration-150 hover:border-[var(--solus-accent-border)] hover:bg-[var(--solus-surface-hover)] hover:text-[var(--solus-accent)] focus-visible:border-[var(--solus-accent-border)] focus-visible:bg-[var(--solus-accent-light)] focus-visible:text-[var(--solus-accent)] focus-visible:outline-none pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:h-[max(100%,3rem)] pointer-coarse:before:w-[max(100%,3rem)] pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-[''] max-md:hidden"
       onclick={handleNewSession}
     >
       <PlusIcon size={11} />

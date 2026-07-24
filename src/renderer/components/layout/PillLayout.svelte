@@ -2,13 +2,11 @@
   import { onMount } from "svelte";
   import TabStrip from "./TabStrip.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
-  import InputBarRow from "../input/InputBarRow.svelte";
-  import StatusBarControls from "./StatusBarControls.svelte";
+  import InputBar from "../input/InputBar.svelte";
+  import InputToolbar from "../input/InputToolbar.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
   import NewTabHome from "./NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
 
@@ -42,13 +40,13 @@
   const isEditorMode = $derived(windowCtx.viewMode === "editor");
   const noTabs = $derived(session.tabOrder.length === 0 && !session.plansGalleryOpen && !session.folioGalleryOpen && !session.settingsOpen);
   const pillPlanModal = $derived.by(() => {
-    const planId = session.artifactViewer.activePlanId;
+    const planId = session.panes.activePlanId;
     const plan = planId ? planStore.get(planId) : planStore.previewPlan;
     if (!plan?.content.trim()) return null;
     return plan;
   });
   const pillWorkModal = $derived.by(() => {
-    const workId = session.artifactViewer.activeWorkId;
+    const workId = session.panes.activeWorkId;
     return workId ? session.worksStore.get(workId) : null;
   });
   const showPillDiagram = $derived(
@@ -97,7 +95,7 @@
 
   async function duplicatePillWork(workId: string) {
     const duplicated = await session.worksStore.duplicate(workId);
-    session.artifactViewer.openWork(duplicated.id);
+    session.panes.openWork(duplicated.id);
     requestInputFocus();
   }
 </script>
@@ -295,15 +293,17 @@
       >
         <TabStrip />
 
-        <InputBarRow
-          mode="pill"
-          {onAttachFile}
-          {onScreenshot}
-          {onDesignMode}
-        />
-
-        <div class="border-t border-(--solus-container-border)">
-          <StatusBarControls />
+        <div class="px-1.5 pb-1.5 pt-1">
+          <InputBar mode="pill">
+            {#snippet leadingActions()}
+              <InputToolbar
+                mode="pill"
+                {onAttachFile}
+                {onScreenshot}
+                {onDesignMode}
+              />
+            {/snippet}
+          </InputBar>
         </div>
       </div>
 

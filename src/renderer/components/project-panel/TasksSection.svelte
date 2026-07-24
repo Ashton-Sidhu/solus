@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { ArrowRightIcon, PlugIcon, WarningCircleIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { ArrowRightIcon, PlugIcon } from "phosphor-svelte";
+  import { getWorkspaceContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { STATUS_META, statusLabel, sortTasks } from "../tasks/lib/tasks-api";
   import { Button } from "../ui/button";
   import {
@@ -20,15 +21,61 @@
   const session = getWorkspaceContext();
   const store = session.tasksStore;
   const providerStatus = $derived(store.providerStatus(cwd));
+  let loadedCwd = $state<string>();
+  const shouldLoad = $derived(
+    active && !isUnconfiguredCwd(cwd) && cwd !== loadedCwd,
+  );
+  let observedErrorCwd: string | undefined;
+  let hadSettledError = false;
 
   // Load once per project when the panel is visible. The store is shared with
   // the full Tasks page and guards stale loads, so re-entering a loaded project
   // is a no-op rather than a refetch.
   $effect(() => {
-    if (!active || !cwd) return;
+    if (!shouldLoad || !cwd) return;
     const currentCwd = cwd;
+    loadedCwd = currentCwd;
     void store.loadProviderStatus(currentCwd);
     void store.ensureLoaded(currentCwd);
+  });
+
+  // Report only settled transitions into an error. A retry clears store.error
+  // while loading; keeping the latch set until a successful load avoids a toast
+  // on every repeated refresh failure.
+  $effect(() => {
+    const currentCwd = cwd;
+    if (!active || !currentCwd || store.cwd !== currentCwd || store.loading)
+      return;
+    if (observedErrorCwd !== currentCwd) {
+      observedErrorCwd = currentCwd;
+      hadSettledError = false;
+    }
+    const error = store.error;
+    if (!error) {
+      hadSettledError = false;
+      return;
+    }
+    if (hadSettledError) return;
+    hadSettledError = true;
+
+    const isAuthFailure =
+      error.includes(TASKS_AUTH_ERROR_PREFIX) ||
+      store.providerStatus(currentCwd)?.reason === "github_not_connected";
+    toasts.error(
+      `Couldn't load tasks: ${error.replace(TASKS_AUTH_ERROR_PREFIX, "")}`,
+      {
+        action: isAuthFailure
+          ? { label: "Connect", onAction: openConnections }
+          : {
+              label: "Retry",
+              onAction: () => {
+                if (cwd === currentCwd && !store.loading)
+                  void store.load(currentCwd);
+                requestInputFocus();
+              },
+            },
+      },
+    );
   });
 
   // Surface what's actionable, ranked for a glance: active work (in-progress)
@@ -60,62 +107,35 @@
     requestInputFocus();
   }
 
-  function retry() {
-    if (cwd && !store.loading) void store.load(cwd);
-    requestInputFocus();
-  }
-
   function openConnections() {
     session.showSettings("api-access");
     requestInputFocus();
   }
 
-  const displayError = $derived(
-    store.error ? store.error.replace(TASKS_AUTH_ERROR_PREFIX, "") : null,
-  );
   const isAuthError = $derived(
     !!store.error && store.error.includes(TASKS_AUTH_ERROR_PREFIX),
   );
 </script>
 
+{#if !isUnconfiguredCwd(cwd)}
 {#if (store.loading && !store.loaded) || isStale}
   <p class="m-0 py-0.5 text-[0.6875rem] text-(--solus-text-tertiary)">Loading tasks…</p>
-{:else if store.error}
+{:else if isAuthError || providerStatus?.reason === "github_not_connected"}
   <div class="flex flex-col gap-1 rounded-[0.4375rem] px-2 py-2">
-    <div class="flex items-start gap-1.5 text-[0.6875rem] text-(--solus-status-error)">
-      <WarningCircleIcon size={12} class="mt-px shrink-0" />
-      <span class="leading-snug">{providerStatus?.ok === false ? providerStatus.message : displayError}</span>
-    </div>
+    <span class="text-[0.8125rem] text-(--solus-text-secondary)">No open tasks</span>
+    <span class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary)">
+      Connect GitHub to view issues for this project.
+    </span>
     <div class="flex items-center gap-1">
-      {#if isAuthError || providerStatus?.reason === "github_not_connected"}
-        <Button
-          variant="secondary"
-          size="xs"
-          type="button"
-          onclick={openConnections}
-        >
-          <PlugIcon size={11} />
-          Connect
-        </Button>
-      {:else if providerStatus?.reason === "missing_github_repo"}
-        <Button
-          variant="secondary"
-          size="xs"
-          type="button"
-          onclick={retry}
-        >
-          Retry
-        </Button>
-      {:else}
-        <Button
-          variant="secondary"
-          size="xs"
-          type="button"
-          onclick={retry}
-        >
-          Retry
-        </Button>
-      {/if}
+      <Button
+        variant="secondary"
+        size="xs"
+        type="button"
+        onclick={openConnections}
+      >
+        <PlugIcon size={11} />
+        Connect GitHub
+      </Button>
       <Button
         variant="ghost"
         size="xs"
@@ -130,7 +150,7 @@
 {:else if openTasks.length === 0}
   <button
     type="button"
-    class="flex w-full cursor-pointer flex-col items-start gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-2 text-left transition-colors duration-150 hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+    class="flex w-full cursor-pointer flex-col items-start gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-2 text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
     onclick={openAll}
   >
     <span class="text-[0.8125rem] text-(--solus-text-secondary)">No open tasks</span>
@@ -142,7 +162,7 @@
       <li>
         <button
           type="button"
-          class="group flex min-h-[2rem] w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+          class="group flex min-h-[2rem] w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
           onclick={() => openTask(task)}
           title={statusLabel(task.status)}
         >
@@ -161,7 +181,7 @@
   </ul>
   <button
     type="button"
-    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+    class="group mt-px flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-1.5 text-left text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
     onclick={openAll}
   >
     View all {ranked.length}
@@ -170,4 +190,5 @@
       class="motion-safe:transition-transform motion-safe:duration-150 group-hover:translate-x-0.5"
     />
   </button>
+{/if}
 {/if}

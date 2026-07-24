@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CheckIcon, MinusIcon } from "phosphor-svelte";
   import type { SessionProgress } from "../../../shared/types";
   import * as Popover from "../ui/popover";
 
@@ -24,33 +25,15 @@
     orbScreenScale,
   }: Props = $props();
 
-  function marquee(node: HTMLElement) {
-    const measure = () => {
-      const inner = node.firstElementChild as HTMLElement | null;
-      if (!inner) return;
-      const overflow = Math.ceil(inner.offsetWidth - node.clientWidth);
-      if (overflow > 1) {
-        node.classList.add("is-truncated");
-        node.style.setProperty("--scroll", `${overflow}px`);
-        node.style.setProperty(
-          "--marquee-dur",
-          `${Math.max(0.8, overflow / 90).toFixed(2)}s`,
-        );
-      } else {
-        node.classList.remove("is-truncated");
-        node.style.removeProperty("--scroll");
-        node.style.removeProperty("--marquee-dur");
-      }
-    };
-    requestAnimationFrame(measure);
-  }
-
   function scrollToActiveStep(node: HTMLElement) {
     node
-      .querySelector(".step-dot-in_progress")
-      ?.closest("li")
+      .querySelector("[data-active-step]")
       ?.scrollIntoView({ block: "nearest" });
   }
+
+  let stepsLeft = $derived(
+    progress.todos.filter((t) => t.status !== "completed").length,
+  );
 
   let stepsContentEl: HTMLDivElement | null = $state(null);
   $effect(() => {
@@ -61,38 +44,107 @@
   });
 </script>
 
+{#snippet progressRing(fraction: number)}
+  <span class="size-[calc(1.15rem*var(--orb-scale))] shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" class="size-full -rotate-90">
+      <circle cx="12" cy="12" r="9" stroke-width="2.5" class="stroke-primary/20" />
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        pathLength="100"
+        stroke-dasharray="100"
+        class="stroke-primary [transition:stroke-dashoffset_0.5s_cubic-bezier(0.16,1,0.3,1)]"
+        style="stroke-dashoffset:{100 - Math.max(0, Math.min(1, fraction)) * 100}"
+      />
+    </svg>
+  </span>
+{/snippet}
+
+{#snippet checkDot()}
+  <span
+    class="flex size-[calc(1.15rem*var(--orb-scale))] shrink-0 items-center justify-center rounded-full bg-primary/15"
+    aria-hidden="true"
+  >
+    <CheckIcon
+      class="size-[calc(0.72rem*var(--orb-scale))] text-primary"
+      weight="bold"
+    />
+  </span>
+{/snippet}
+
+{#snippet dashedDot()}
+  <span
+    class="size-[calc(1.15rem*var(--orb-scale))] shrink-0 rounded-full border border-dashed border-muted-foreground/45"
+    aria-hidden="true"
+  ></span>
+{/snippet}
+
 <Popover.Root bind:open={stepsOpen}>
   <Popover.Content
     bind:ref={stepsContentEl}
-    class="steps-pop progress-popover gap-0"
+    class="progress-popover w-[min(calc(30rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[min(calc(22rem*var(--orb-scale)),60vh)] gap-0 overflow-y-auto px-[calc(1rem*var(--orb-scale))] pt-[calc(0.875rem*var(--orb-scale))] pb-[calc(0.375rem*var(--orb-scale))] [scrollbar-width:thin]"
     side="top"
     sideOffset={8}
     style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
     role="group"
     aria-label="Task steps"
   >
-    <div class="steps-head">
-      <span class="steps-head-label">Steps</span>
-      <span class="steps-head-count tabular-nums"
-        >{progress.currentStep}/{progress.totalSteps}</span
+    <div
+      class="mb-[calc(0.4375rem*var(--orb-scale))] flex items-center gap-[calc(0.5rem*var(--orb-scale))]"
+    >
+      {#if stepsLeft === 0}
+        {@render checkDot()}
+      {:else}
+        {@render progressRing(progressFraction)}
+      {/if}
+      <span
+        class="min-w-0 flex-1 truncate text-[length:var(--pop-title-size)] font-semibold text-foreground"
       >
+        {#if stepsLeft > 0}
+          {stepsLeft} step{stepsLeft === 1 ? "" : "s"} left
+        {:else}
+          All steps done
+        {/if}
+      </span>
+      <button
+        class="flex size-[calc(1.5rem*var(--orb-scale))] shrink-0 items-center justify-center rounded-[calc(0.5rem*var(--orb-scale))] border border-border/40 bg-muted-foreground/[0.08] text-muted-foreground transition-colors hover:bg-muted-foreground/15 hover:text-foreground"
+        onclick={() => (stepsOpen = false)}
+        aria-label="Collapse steps"
+      >
+        <MinusIcon
+          class="size-[calc(0.875rem*var(--orb-scale))]"
+          weight="bold"
+        />
+      </button>
     </div>
-    <ul class="steps-list" role="list">
+    <ul class="m-0 flex list-none flex-col gap-[calc(0.125rem*var(--orb-scale))] p-0" role="list">
       {#each progress.todos as todo, i (i)}
-        <li class="step-row">
-          <span class="step-marker" aria-hidden="true">
-            <span
-              class="step-dot step-dot-{todo.status} {todo.status === 'in_progress' && isRunning
-                ? 'step-dot-live'
-                : ''}"
-            ></span>
-            {#if i < progress.todos.length - 1}
-              <span class="step-line step-line-{todo.status}"></span>
-            {/if}
-          </span>
-          <span class="step-label step-label-{todo.status}" use:marquee>
-            <span class="sl-inner">{todo.content}</span>
-          </span>
+        <li
+          class="flex items-center gap-[calc(0.625rem*var(--orb-scale))] rounded-[calc(0.75rem*var(--orb-scale))] border px-[calc(0.5rem*var(--orb-scale))] py-[calc(0.4375rem*var(--orb-scale))] {todo.status ===
+          'in_progress'
+            ? 'border-primary/30 bg-primary/[0.07] dark:border-primary/40 dark:bg-primary/10'
+            : 'border-transparent'}"
+          data-active-step={todo.status === "in_progress" ? "" : undefined}
+        >
+          {#if todo.status === "completed"}
+            {@render checkDot()}
+          {:else if todo.status === "in_progress"}
+            {@render progressRing(progressFraction)}
+          {:else}
+            {@render dashedDot()}
+          {/if}
+          <span
+            class="min-w-0 flex-1 truncate text-[length:var(--pop-body-size)] {todo.status ===
+            'completed'
+              ? 'text-muted-foreground line-through opacity-70'
+              : todo.status === 'in_progress'
+                ? 'font-medium text-foreground'
+                : 'font-normal text-[var(--solus-text-secondary)]'}"
+            title={todo.content}>{todo.content}</span
+          >
         </li>
       {/each}
     </ul>
@@ -352,161 +404,5 @@
   @keyframes pbi-flow {
     0% { background-position: -50% 0; }
     100% { background-position: 150% 0; }
-  }
-  /* Shell (position, bg, border, shadow, radius, enter animation) and the shared
-     type tokens come from the global `.progress-popover` class in ActionOrb.css,
-     which the files popover also uses. Only the step-list-specific layout lives
-     here: a scrollable body that scales with the orb but stays within the
-     viewport, from the narrow pill window to wide editor mode. */
-  .steps-pop {
-    width: min(calc(30rem * var(--orb-scale)), calc(100vw - 1.5rem));
-    max-height: min(calc(22rem * var(--orb-scale)), 60vh);
-    overflow-y: auto;
-    padding: calc(0.875rem * var(--orb-scale)) calc(1rem * var(--orb-scale))
-      calc(0.375rem * var(--orb-scale));
-    scrollbar-width: thin;
-  }
-  .steps-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: calc(0.5rem * var(--orb-scale));
-    padding-bottom: calc(0.5rem * var(--orb-scale));
-    border-bottom: 0.0313rem solid
-      color-mix(in srgb, var(--solus-container-border) 32%, transparent);
-  }
-  .steps-head-label {
-    font-size: var(--pop-title-size);
-    font-weight: 600;
-    letter-spacing: 0;
-    text-transform: none;
-    color: var(--solus-text-primary);
-  }
-  .steps-head-count {
-    font-size: var(--pop-meta-size);
-    font-weight: 500;
-    color: var(--solus-text-tertiary);
-    font-variant-numeric: tabular-nums;
-  }
-  .steps-list {
-    display: flex;
-    flex-direction: column;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .step-row {
-    display: flex;
-    gap: calc(0.75rem * var(--orb-scale));
-    align-items: stretch;
-    min-height: calc(2.125rem * var(--orb-scale));
-  }
-  .step-marker {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex-shrink: 0;
-    width: calc(0.6875rem * var(--orb-scale));
-  }
-  .step-dot {
-    width: calc(0.5625rem * var(--orb-scale));
-    height: calc(0.5625rem * var(--orb-scale));
-    margin-top: calc(0.25rem * var(--orb-scale));
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .step-dot-completed {
-    background: color-mix(in srgb, var(--solus-accent) 80%, transparent);
-  }
-  .step-dot-in_progress {
-    background: var(--solus-accent);
-  }
-  .step-dot-pending {
-    background: transparent;
-    border: 0.0938rem solid
-      color-mix(in srgb, var(--solus-text-tertiary) 45%, transparent);
-  }
-  .step-dot-live {
-    animation: step-pulse 2.6s ease-in-out infinite;
-  }
-  @keyframes step-pulse {
-    0%, 100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--solus-accent) 40%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 0 0.1875rem
-        color-mix(in srgb, var(--solus-accent) 0%, transparent);
-    }
-  }
-  .step-line {
-    flex: 1;
-    width: 0.0938rem;
-    min-height: 0.5rem;
-    margin: 0.125rem 0;
-    border-radius: 624.9375rem;
-    background: color-mix(in srgb, var(--solus-text-tertiary) 18%, transparent);
-  }
-  .step-line-completed {
-    background: color-mix(in srgb, var(--solus-accent) 32%, transparent);
-  }
-  .step-label {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    font-size: var(--pop-body-size);
-    font-weight: 500;
-    line-height: 1.35;
-    padding-bottom: calc(0.5rem * var(--orb-scale));
-    overflow: hidden;
-    white-space: nowrap;
-  }
-  .step-row:last-child .step-label {
-    padding-bottom: 0;
-  }
-  .step-row:last-child {
-    min-height: auto;
-  }
-  .sl-inner {
-    display: inline-block;
-    white-space: nowrap;
-    transition: transform var(--marquee-dur, 0.3s) linear;
-  }
-  .step-label.is-truncated:hover .sl-inner {
-    transform: translateX(calc(-1 * var(--scroll, 0px)));
-  }
-  .step-label.is-truncated::after {
-    content: "…";
-    position: absolute;
-    top: 0;
-    right: 0;
-    padding: 0 0.125rem 0 0.875rem;
-    line-height: 1.35;
-    color: inherit;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      var(--solus-popover-bg) 55%
-    );
-    pointer-events: none;
-    opacity: 1;
-    transition: opacity 0.15s ease;
-  }
-  .step-label.is-truncated:hover::after {
-    opacity: 0;
-  }
-  .step-label-completed {
-    color: var(--solus-text-tertiary);
-    opacity: 0.6;
-    font-weight: 400;
-  }
-  .step-label-in_progress {
-    color: var(--solus-accent);
-    font-weight: 550;
-    letter-spacing: 0;
-  }
-  .step-label-pending {
-    color: var(--solus-text-secondary);
-    opacity: 0.8;
-    font-weight: 400;
   }
 </style>

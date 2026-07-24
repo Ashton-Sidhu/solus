@@ -1,5 +1,5 @@
 import type { Message } from '../../../../shared/types'
-import { prettyToolName, solusToolKey } from '../../../contexts/session.utils'
+import { prettyToolName, solusToolKey } from '../../../contexts/workspace/session.utils'
 
 /** A sub-agent transcript item: consecutive tool calls collapse into one group;
  *  assistant text renders on its own. Mirrors the main-thread grouping. */

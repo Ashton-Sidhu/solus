@@ -14,7 +14,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { tooltip } from "../../lib/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { serversStore, type ServerItem, type ServerItemStatus } from "./servers.store.svelte";
+  import { serversStore, toasts, type ServerItem, type ServerItemStatus } from "../../contexts";
 
   let open = $state(false);
   const active = $derived(serversStore.activeServer);
@@ -63,9 +63,14 @@
     serversStore.openAddServer();
   }
 
-  function scanServers() {
+  async function scanServers() {
     open = false;
-    void serversStore.scanForServers({ manual: true });
+    const result = await serversStore.scanForServers();
+    if (result && "error" in result) {
+      toasts.error(`Server scan failed: ${result.error}`);
+    } else if (result?.newServers === 0) {
+      toasts.info("No new Solus servers found");
+    }
     requestInputFocus();
   }
 
@@ -74,7 +79,7 @@
 <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
-      <button {...props} type="button" class="group relative inline-flex h-7 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)" use:tooltip={active ? `${active.label} · ${activeStatusLabel}` : "Servers"}>
+      <button {...props} type="button" class="group relative inline-flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.8125rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)" use:tooltip={active ? `${active.label} · ${activeStatusLabel}` : "Servers"}>
   <span class="relative flex h-3 w-3 shrink-0 items-center justify-center">
     <span
       class={`h-2 w-2 rounded-full ${active ? dotClass(active.status) : "bg-(--solus-text-quaternary)"} ${activePresentedStatus === "connecting" || activePresentedStatus === "reconnecting" ? "animate-pulse" : ""}`}

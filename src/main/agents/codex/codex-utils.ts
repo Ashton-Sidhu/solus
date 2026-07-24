@@ -53,7 +53,10 @@ export type CodexHistoryItem = {
   tool?: string
   namespace?: string
   arguments?: unknown
+  contentItems?: unknown[] | null
+  success?: boolean | null
   changes?: unknown[]
+  summary?: unknown
 }
 
 export interface ScannedCodexPlan {
@@ -350,6 +353,13 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     return item.text ? { role: 'assistant', content: item.text, timestamp } : null
   }
 
+  if (item.type === 'reasoning') {
+    // Reasoning/thinking span, carried for provider handoffs; display surfaces
+    // skip this role. Prefer the concise summary over the raw content.
+    const content = codexReasoningText(item)
+    return content ? { role: 'reasoning', content, timestamp } : null
+  }
+
   const toolName = codexToolNameForItem(item)
   if (!toolName) return null
 
@@ -395,11 +405,35 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
 
   return {
     role: 'tool',
-    content: codexToolResultText(item.result),
+    content: codexToolResultText(
+      item.result ?? (item.contentItems ? { contentItems: item.contentItems } : undefined),
+    ),
     toolName,
     toolInput: codexToolInputFromArguments(item.arguments),
     timestamp,
   }
+}
+
+function joinReasoningStrings(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string') {
+        return (part as { text: string }).text
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+}
+
+/** A reasoning item's text, preferring the concise `summary` over raw `content`.
+ *  Empty for non-reasoning items, so callers filter with a truthiness check. */
+function codexReasoningText(item: CodexHistoryItem): string {
+  if (item.type !== 'reasoning') return ''
+  return joinReasoningStrings(item.summary) || joinReasoningStrings(item.content)
 }
 
 function codexToolResultText(result: unknown): string {

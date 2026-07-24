@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ChatCircleDotsIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { agentLabel } from "../../lib/agentAvailability";
   import ConversationRefCard from "./ConversationRefCard.svelte";
   import type { AgentId } from "../../../shared/types";

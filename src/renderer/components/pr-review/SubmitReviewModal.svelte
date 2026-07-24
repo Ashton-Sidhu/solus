@@ -8,12 +8,13 @@
     PaperPlaneTiltIcon,
   } from "phosphor-svelte";
   import MarkdownEditor from "../MarkdownEditor.svelte";
-  import type { PrReviewContext } from "../../../shared/types";
+  import type { IpcContext, PrReviewContext } from "../../../shared/types";
   import type { DraftReview, DraftReviewComment } from "../../../shared/providers";
   import type { ReviewDraftComment } from "../../../shared/review";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { getWorkspaceContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
+  import { Button } from "../ui/button";
 
   // The submit modal (decision #14): pick an event, write a summary body, review
   // the read-only queued comments, and fire one prSubmitReview anchored to the
@@ -27,6 +28,7 @@
     body = $bindable(""),
     onClose,
     onSubmitted,
+    getCtx,
   }: {
     pr: PrReviewContext;
     drafts: ReviewDraftComment[];
@@ -34,6 +36,9 @@
     body?: string;
     onClose: () => void;
     onSubmitted: () => void;
+    /** Context override so embedded hosts can submit against the PR's own
+     *  project rather than the active tab's. Defaults to the active tab. */
+    getCtx?: () => IpcContext;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -77,7 +82,6 @@
   ];
 
   let submitting = $state(false);
-  let submitError = $state<string | null>(null);
 
   // Move focus into the modal on open (keyboard-first: Tab must not land on
   // the surface behind, and the summary is what you came here to write).
@@ -93,9 +97,12 @@
   const mdFieldClass =
     "rounded-lg border border-(--solus-art-border) bg-transparent px-2.5 transition-colors focus-within:border-(--solus-accent) [&_.solus-md-editor_.ProseMirror]:![min-height:3rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![left:0.875rem]";
 
-  async function submit() {
+  async function submit(sendToFixAgent = false) {
     submitting = true;
-    submitError = null;
+    const feedback = {
+      body: body.trim(),
+      comments: drafts.map((draft) => ({ ...draft })),
+    };
     const comments: DraftReviewComment[] = drafts.map((d) => ({
       path: d.path,
       line: d.line,
@@ -103,19 +110,27 @@
       side: d.side === "old" ? "LEFT" : "RIGHT",
       body: d.body,
     }));
-    const review: DraftReview = { body: body.trim(), event, commitId: pr.headSha, comments };
+    const review: DraftReview = { body: body.trim(), event, commitId: pr.headSha, baseSha: pr.baseSha, comments };
     try {
-      await window.solus.prSubmitReview(session.ctx, pr.number, review);
-      toasts.success("Review submitted");
+      await window.solus.prSubmitReview(getCtx?.() ?? session.ctx, pr.number, review);
       body = "";
       onSubmitted();
       closeModal();
+      toasts.success("Review submitted");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      submitError = message;
       toasts.error(`Submit failed: ${message}`);
+      return;
     } finally {
       submitting = false;
+    }
+    if (sendToFixAgent) {
+      try {
+        await session.startPrCommentsFixSession(pr, feedback);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toasts.error(`Review submitted, but the fix agent couldn't open: ${message}`);
+      }
     }
   }
 
@@ -141,6 +156,17 @@
   const canSubmit = $derived(
     !submitting && (!needsContent || body.trim().length > 0 || drafts.length > 0),
   );
+
+  // The modal owns the second press: ⌥A first selects Approve, then confirms it.
+  // Its exclusive scope keeps the underlying diff panel from seeing the modal keystroke.
+  useScope("pr-review", { exclusive: true });
+  useKeybinding("pr-review.approve", () => {
+    if (event !== "APPROVE") {
+      event = "APPROVE";
+      return;
+    }
+    if (canSubmit) void submit();
+  });
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -162,14 +188,20 @@
         </h2>
         <span class="font-mono text-[0.6875rem] text-(--solus-text-tertiary)">#{pr.number}</span>
       </div>
-      <button
+      <Button
         type="button"
-        class="ml-auto flex size-7 items-center justify-center rounded-lg text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+        variant="ghost"
+        size="icon-sm"
+        class="ml-auto text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
         aria-label="Close"
-        onclick={closeModal}
+        onclick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeModal();
+        }}
       >
         <XIcon size={15} />
-      </button>
+      </Button>
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
@@ -250,33 +282,29 @@
         {/if}
       </div>
 
-      {#if submitError}
-        <div
-          class="rounded-xl border border-(--solus-status-error)/30 bg-(--solus-status-error-bg) px-3 py-2.5 text-[0.8125rem] leading-relaxed text-(--solus-status-error)"
-          role="alert"
-        >
-          {submitError}
-        </div>
-      {/if}
     </div>
 
     <footer class="flex shrink-0 items-center justify-end gap-2 border-t border-(--solus-container-border) px-5 py-3.5">
-      <button
-        type="button"
-        class="rounded-lg px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-        onclick={closeModal}
-      >
+      <Button variant="ghost" onclick={closeModal}>
         Cancel
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         disabled={!canSubmit}
-        class="inline-flex items-center gap-1.5 rounded-lg bg-(--solus-accent) py-2 pr-3.5 pl-3 text-[0.8125rem] font-semibold text-(--solus-text-on-accent) shadow-sm transition-opacity hover:opacity-90 disabled:opacity-40"
-        onclick={submit}
+        onclick={() => void submit()}
       >
-        <PaperPlaneTiltIcon size={14} weight="bold" />
+        <PaperPlaneTiltIcon data-icon="inline-start" weight="bold" />
         {submitting ? "Submitting…" : "Submit review"}
-      </button>
+      </Button>
+      {#if event === "REQUEST_CHANGES" && !pr.headRepo.isFork}
+        <Button
+          disabled={!canSubmit}
+          class="bg-(--solus-status-error) text-white hover:opacity-90"
+          onclick={() => void submit(true)}
+        >
+          <WarningCircleIcon data-icon="inline-start" weight="fill" />
+          {submitting ? "Submitting…" : "Submit & send to fix agent"}
+        </Button>
+      {/if}
     </footer>
   </div>
 </div>

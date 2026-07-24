@@ -9,7 +9,7 @@
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
   } from "../../lib/diff-worker-pool";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { toasts } from "../../contexts";
   import {
     useKeybinding,
     useScope,
@@ -23,6 +23,17 @@
     | "error"
     | "conflict";
 
+  const LINKED_LINE_CSS = `
+    [data-solus-linked-line] {
+      --diffs-line-bg: var(--solus-diff-selection-bg) !important;
+      background-color: var(--solus-diff-selection-bg) !important;
+    }
+    [data-column-number][data-solus-linked-line] {
+      color: var(--solus-accent) !important;
+      box-shadow: inset 2px 0 var(--solus-accent);
+    }
+  `;
+
   interface Props {
     api?: typeof window.solus;
     ctx: IpcContext;
@@ -32,7 +43,7 @@
     contents: string;
     isDark: boolean;
     line?: number;
-    onSaveStateChange?: (state: FileSaveState, message?: string) => void;
+    onSaveStateChange?: (state: FileSaveState) => void;
   }
 
   let {
@@ -55,14 +66,16 @@
   let lastSavedContents = "";
   let latestContents = "";
   let saveGeneration = 0;
+  let linkedLineRequestKey = "";
+  let linkedLineDismissed = false;
 
   useScope("file-editor");
   useKeybinding("file-editor.save", () => {
     void flushSave();
   });
 
-  function setSaveState(state: FileSaveState, message?: string) {
-    onSaveStateChange?.(state, message);
+  function setSaveState(state: FileSaveState) {
+    onSaveStateChange?.(state);
   }
 
   function syncContainerBackground() {
@@ -83,7 +96,10 @@
       disableErrorHandling: true,
       enableGutterUtility: false,
       enableLineSelection: false,
-      unsafeCSS: DIFFS_THEME_CSS,
+      unsafeCSS: `${DIFFS_THEME_CSS}\n${LINKED_LINE_CSS}`,
+      onPostRender: (_container, _instance, phase) => {
+        if (phase !== "unmount") requestAnimationFrame(markLinkedLine);
+      },
     };
   }
 
@@ -104,12 +120,49 @@
     };
   }
 
-  function scrollToLine() {
-    if (!line || !rootEl) return;
+  function syncLinkedLineRequest() {
+    const nextKey = line ? `${filePath}:${line}` : "";
+    if (nextKey === linkedLineRequestKey) return;
+    linkedLineRequestKey = nextKey;
+    linkedLineDismissed = false;
+  }
+
+  function clearLinkedLineMarker(shadowRoot: ShadowRoot) {
+    for (const element of shadowRoot.querySelectorAll("[data-solus-linked-line]")) {
+      element.removeAttribute("data-solus-linked-line");
+    }
+  }
+
+  function markLinkedLine(): Element | null {
+    syncLinkedLineRequest();
+    const shadowRoot = rootEl?.firstElementChild?.shadowRoot;
+    if (!shadowRoot) return null;
+
+    clearLinkedLineMarker(shadowRoot);
+    if (!line || linkedLineDismissed) return null;
+
+    const lineElement = shadowRoot.querySelector(`[data-line="${line}"]`);
+    const gutterElement = shadowRoot.querySelector(`[data-column-number="${line}"]`);
+    lineElement?.setAttribute("data-solus-linked-line", "");
+    gutterElement?.setAttribute("data-solus-linked-line", "");
+    return lineElement;
+  }
+
+  function dismissLinkedLine() {
+    syncLinkedLineRequest();
+    linkedLineDismissed = true;
+    const shadowRoot = rootEl?.firstElementChild?.shadowRoot;
+    if (shadowRoot) clearLinkedLineMarker(shadowRoot);
+  }
+
+  function revealLinkedLine() {
+    if (!line || !rootEl) {
+      markLinkedLine();
+      return;
+    }
     requestAnimationFrame(() => {
-      rootEl
-        ?.querySelector(`[data-line="${line}"]`)
-        ?.scrollIntoView({ block: "center" });
+      const lineElement = markLinkedLine();
+      lineElement?.scrollIntoView({ block: "center" });
     });
   }
 
@@ -134,11 +187,11 @@
       lastSavedContents = contentsToSave;
       setSaveState("saved");
     } else if (result.conflict) {
-      setSaveState("conflict", result.error);
+      setSaveState("conflict");
       toasts.error(`${displayPath || filePath} changed on disk. Reload before saving.`);
     } else {
-      setSaveState("error", result.error);
-      toasts.error(`Couldn't save ${displayPath || filePath}: ${result.error}`);
+      setSaveState("error");
+      toasts.error(`Save failed: ${displayPath || filePath} — ${result.error}`);
     }
   }
 
@@ -154,6 +207,7 @@
   onMount(() => {
     if (!rootEl) return;
     let disposed = false;
+    rootEl.addEventListener("pointerdown", dismissLinkedLine);
 
     const unsubscribe = onDiffWorkerPoolReady(() => {
       if (disposed || !rootEl || fileInstance) return;
@@ -174,12 +228,13 @@
         });
         detachEditor = editor.edit(fileInstance);
         syncContainerBackground();
-        scrollToLine();
+        revealLinkedLine();
       });
     });
 
     return () => {
       disposed = true;
+      rootEl?.removeEventListener("pointerdown", dismissLinkedLine);
       unsubscribe();
       void flushSave();
       detachEditor?.();
@@ -211,12 +266,12 @@
     fileInstance.setOptions(buildOptions());
     fileInstance.render({ file: buildFile(contents), forceRender: true });
     untrack(() => syncContainerBackground());
-    untrack(() => scrollToLine());
+    untrack(() => revealLinkedLine());
   });
 
   $effect(() => {
-    if (!fileInstance || !line) return;
-    scrollToLine();
+    if (!fileInstance) return;
+    revealLinkedLine();
   });
 </script>
 

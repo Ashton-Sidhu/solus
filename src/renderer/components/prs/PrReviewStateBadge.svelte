@@ -12,8 +12,11 @@
   // reaches the renderer (the provider skips unsubmitted drafts).
   let { state }: { state: PrReviewer["state"] } = $props();
 
+  // shrink-0 + nowrap: in the rail's reviewer row the badge sits next to a
+  // flexible login, and a shrinkable badge collapses its own label instead of
+  // letting the login truncate.
   const base =
-    "inline-flex items-center gap-1 rounded-full py-0.5 pr-1.5 pl-1 text-[0.625rem] font-medium leading-none";
+    "inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pr-1.5 pl-1 text-[0.625rem] font-medium leading-none whitespace-nowrap";
 </script>
 
 {#if state === "APPROVED"}

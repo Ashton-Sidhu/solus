@@ -61,7 +61,7 @@
 </script>
 
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
 
   let { text = "" }: { text?: string } = $props();
@@ -71,7 +71,10 @@
   const segments = $derived(tokenize(text));
 
   function handleFileClick(path: string) {
-    requestFilePreview({ path, tabId: session.activeTabId });
+    requestFilePreview({
+      path,
+      tabId: session.focusedChatTabId ?? session.activeTabId,
+    });
   }
 </script>
 

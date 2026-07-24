@@ -45,7 +45,7 @@
   >
     <div
       bind:this={listEl}
-      class="overflow-y-auto rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) py-0.5 [&::-webkit-scrollbar]:w-[0.1875rem] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-(--scroll-thumb) [&::-webkit-scrollbar-track]:bg-transparent"
+      class="overflow-y-auto rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) py-0.5 [&::-webkit-scrollbar]:w-[0.1875rem] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-(--scroll-thumb) [&::-webkit-scrollbar-track]:bg-transparent"
       style="max-height:12.25rem;backdrop-filter:blur(1.25rem);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
     >
       {#if isLoading && works.length === 0}
@@ -58,7 +58,7 @@
           {@const isSelected = i === selectedIndex}
           <button
             onclick={() => onSelect(work)}
-            class="w-full flex items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-accent-light)"
+            class="w-full flex items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-surface-hover)"
             style="background:{isSelected ? 'var(--solus-accent-light)' : 'transparent'};box-shadow:{isSelected ? 'inset 0.125rem 0 0 var(--solus-accent)' : 'none'}"
           >
             <svg

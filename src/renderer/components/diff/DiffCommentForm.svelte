@@ -67,6 +67,7 @@
     bind:ref={inputEl}
     bind:value
     bare
+    mic
     placeholder="Add a comment… ⌘↵"
     rows={1}
     oninput={handleInput}

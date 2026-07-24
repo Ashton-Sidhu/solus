@@ -184,7 +184,17 @@ export async function writeLedger(repoRoot: string, ledger: ReviewLedger): Promi
  *  (overwritten in place on regeneration), so there is never a stale pile to
  *  disambiguate. */
 export async function readGuideByKey(repoRoot: string, key: string): Promise<ReviewGuide | null> {
-  return readJson<ReviewGuide>(guidePath(repoRoot, key))
+  return readGuideFile(guidePath(repoRoot, key))
+}
+
+async function readGuideFile(path: string): Promise<ReviewGuide | null> {
+  const guide = await readJson<ReviewGuide>(path)
+  if (!guide || guide.generatedAt) return guide
+  try {
+    return { ...guide, generatedAt: (await stat(path)).mtime.toISOString() }
+  } catch {
+    return guide
+  }
 }
 
 /** Read the newest guide from the retired SHA-derived naming scheme. This is
@@ -203,7 +213,7 @@ export async function readLegacyGuide(
     )
     const dated = await Promise.all(candidates.map(async (name) => ({ name, mtime: (await stat(join(dir, name))).mtimeMs })))
     dated.sort((a, b) => b.mtime - a.mtime)
-    return dated[0] ? readJson<ReviewGuide>(join(dir, dated[0].name)) : null
+    return dated[0] ? readGuideFile(join(dir, dated[0].name)) : null
   } catch {
     return null
   }

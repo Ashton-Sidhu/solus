@@ -12,6 +12,50 @@ interface WatchEntry {
   refCount: number
   watchers: FSWatcher[]
   debounce: ReturnType<typeof setTimeout> | null
+  retry: ReturnType<typeof setTimeout> | null
+  attachVersion: number
+}
+
+export interface GitWatchPaths {
+  commonDir: string
+  headPath: string
+  indexPath: string
+}
+
+export interface GitWatchTarget {
+  directory: string
+  recursive: boolean
+  names: Set<string> | null
+}
+
+/** Watch stable parent directories rather than HEAD/index themselves. Git replaces
+ * both files atomically, which can strand a file-level fs.watch handle on the old
+ * inode. Linked worktrees keep these files outside the common git directory. */
+export function buildGitWatchTargets(paths: GitWatchPaths): GitWatchTarget[] {
+  const targets = new Map<string, GitWatchTarget>()
+  const add = (directory: string, recursive: boolean, name?: string) => {
+    const existing = targets.get(directory)
+    if (!existing) {
+      targets.set(directory, {
+        directory,
+        recursive,
+        names: name ? new Set([name]) : null,
+      })
+      return
+    }
+    existing.recursive ||= recursive
+    if (!name || existing.names === null) {
+      existing.names = null
+    } else {
+      existing.names.add(name)
+    }
+  }
+
+  add(path.dirname(paths.headPath), false, path.basename(paths.headPath))
+  add(path.dirname(paths.indexPath), false, path.basename(paths.indexPath))
+  add(paths.commonDir, false, 'packed-refs')
+  add(path.join(paths.commonDir, 'refs', 'heads'), true)
+  return [...targets.values()]
 }
 
 /**
@@ -19,36 +63,37 @@ interface WatchEntry {
  * switch, commit, stage done in a terminal — and fires a debounced callback so
  * the Environment panel and pill can mirror reality instead of drifting.
  *
- * Keyed and ref-counted by `repoRoot` so multiple tabs sharing a repo share one
- * set of `fs.watch` handles. The real git dir is resolved via
- * `git rev-parse --git-common-dir` (worktrees use a `.git` *file*, so we resolve
- * rather than assume `<repoRoot>/.git`).
+ * Keyed and ref-counted by checkout cwd so tabs on the same checkout share one
+ * set of handles, while linked worktrees retain distinct HEAD/index watches.
+ * Shared refs resolve through `--git-common-dir`; checkout identity resolves
+ * through `--git-path`.
  */
 export class GitWatcher {
   private entries = new Map<string, WatchEntry>()
 
-  constructor(private onChange: (repoRoot: string) => void) {}
+  constructor(private onChange: (checkoutCwd: string) => void) {}
 
-  register(repoRoot: string): void {
-    const existing = this.entries.get(repoRoot)
+  register(checkoutCwd: string): void {
+    const existing = this.entries.get(checkoutCwd)
     if (existing) {
       existing.refCount++
       return
     }
     // Insert the entry synchronously so concurrent register/deregister calls
     // ref-count against the same slot while we await the git dir resolution.
-    const entry: WatchEntry = { refCount: 1, watchers: [], debounce: null }
-    this.entries.set(repoRoot, entry)
-    void this._attach(repoRoot, entry)
+    const entry: WatchEntry = { refCount: 1, watchers: [], debounce: null, retry: null, attachVersion: 0 }
+    this.entries.set(checkoutCwd, entry)
+    void this._attach(checkoutCwd, entry)
   }
 
-  deregister(repoRoot: string): void {
-    const entry = this.entries.get(repoRoot)
+  deregister(checkoutCwd: string): void {
+    const entry = this.entries.get(checkoutCwd)
     if (!entry) return
     entry.refCount--
     if (entry.refCount > 0) return
-    this.entries.delete(repoRoot)
+    this.entries.delete(checkoutCwd)
     if (entry.debounce) clearTimeout(entry.debounce)
+    if (entry.retry) clearTimeout(entry.retry)
     for (const w of entry.watchers) {
       try {
         w.close()
@@ -61,6 +106,7 @@ export class GitWatcher {
   dispose(): void {
     for (const entry of this.entries.values()) {
       if (entry.debounce) clearTimeout(entry.debounce)
+      if (entry.retry) clearTimeout(entry.retry)
       for (const w of entry.watchers) {
         try {
           w.close()
@@ -72,46 +118,73 @@ export class GitWatcher {
     this.entries.clear()
   }
 
-  private async _attach(repoRoot: string, entry: WatchEntry): Promise<void> {
-    const gitDir = await this._resolveGitDir(repoRoot)
+  private async _attach(checkoutCwd: string, entry: WatchEntry): Promise<void> {
+    const attachVersion = ++entry.attachVersion
+    const paths = await this._resolveGitPaths(checkoutCwd)
     // Bail if the entry was released (all tabs closed) while we awaited.
-    if (!gitDir || this.entries.get(repoRoot) !== entry) return
+    if (this.entries.get(checkoutCwd) !== entry || entry.attachVersion !== attachVersion) return
+    if (!paths) {
+      this._retryAttach(checkoutCwd, entry)
+      return
+    }
 
-    const targets: Array<{ p: string; recursive: boolean }> = [
-      { p: path.join(gitDir, 'HEAD'), recursive: false },
-      { p: path.join(gitDir, 'refs', 'heads'), recursive: true },
-      { p: path.join(gitDir, 'index'), recursive: false },
-    ]
-    for (const { p, recursive } of targets) {
+    for (const watcher of entry.watchers) watcher.close()
+    entry.watchers = []
+    for (const target of buildGitWatchTargets(paths)) {
       try {
-        const w = watch(p, { recursive }, () => this._schedule(repoRoot))
+        const w = watch(target.directory, { recursive: target.recursive }, (_eventType, filename) => {
+          if (target.names && filename && !target.names.has(filename.toString())) return
+          this._schedule(checkoutCwd)
+        })
         w.on('error', () => {
-          /* file vanished (e.g. index rewritten); fs.watch self-heals or the next register re-attaches */
+          this._retryAttach(checkoutCwd, entry)
         })
         entry.watchers.push(w)
       } catch {
-        // The path may not exist yet (fresh repo with no index, no local refs).
-        // The other targets still cover the common cases.
+        // A fresh repository may not have local refs yet. Stable parent targets
+        // still cover HEAD/index, and the retry repairs transient directory loss.
       }
     }
-    log.info(`Watching git dir for ${repoRoot} (${entry.watchers.length} targets)`)
+    log.info(`Watching git checkout ${checkoutCwd} (${entry.watchers.length} targets)`)
   }
 
-  private _schedule(repoRoot: string): void {
-    const entry = this.entries.get(repoRoot)
+  private _retryAttach(checkoutCwd: string, entry: WatchEntry): void {
+    if (this.entries.get(checkoutCwd) !== entry || entry.retry) return
+    for (const watcher of entry.watchers) {
+      try { watcher.close() } catch { /* already closed */ }
+    }
+    entry.watchers = []
+    entry.retry = setTimeout(() => {
+      entry.retry = null
+      if (this.entries.get(checkoutCwd) === entry) void this._attach(checkoutCwd, entry)
+    }, 500)
+    ;(entry.retry as unknown as { unref?: () => void }).unref?.()
+  }
+
+  private _schedule(checkoutCwd: string): void {
+    const entry = this.entries.get(checkoutCwd)
     if (!entry) return
     if (entry.debounce) clearTimeout(entry.debounce)
     entry.debounce = setTimeout(() => {
       entry.debounce = null
-      this.onChange(repoRoot)
+      this.onChange(checkoutCwd)
     }, DEBOUNCE_MS)
     ;(entry.debounce as unknown as { unref?: () => void }).unref?.()
   }
 
-  private async _resolveGitDir(repoRoot: string): Promise<string | null> {
+  private async _resolveGitPaths(checkoutCwd: string): Promise<GitWatchPaths | null> {
     try {
-      const commonDir = await runAsync('git', ['rev-parse', '--git-common-dir'], repoRoot)
-      return path.isAbsolute(commonDir) ? commonDir : path.resolve(repoRoot, commonDir)
+      const [commonDirRaw, headPathRaw, indexPathRaw] = await Promise.all([
+        runAsync('git', ['rev-parse', '--git-common-dir'], checkoutCwd),
+        runAsync('git', ['rev-parse', '--git-path', 'HEAD'], checkoutCwd),
+        runAsync('git', ['rev-parse', '--git-path', 'index'], checkoutCwd),
+      ])
+      const absolute = (value: string) => path.isAbsolute(value) ? value : path.resolve(checkoutCwd, value)
+      return {
+        commonDir: absolute(commonDirRaw),
+        headPath: absolute(headPathRaw),
+        indexPath: absolute(indexPathRaw),
+      }
     } catch {
       return null
     }

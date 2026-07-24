@@ -9,13 +9,15 @@
     type SelectionSide,
   } from "@pierre/diffs";
   import type { DiffComment } from "../../../shared/types";
-  import type { ReviewThread, ReviewComment } from "../../../shared/providers";
+  import type { ReviewComment } from "../../../shared/providers";
   import {
     DIFFS_THEME_CSS,
     DIFF_FIND_HIGHLIGHT_CSS,
   } from "../../lib/diffTheme";
   import { DiffFindHighlighter } from "../../lib/diff-find-highlight";
   import type { DiffFindMatch } from "../../lib/diff-state.svelte";
+  import { detectMovedBlocks } from "../../lib/diff-moves";
+  import { decorateMovedLines } from "../../lib/diff-move-highlight";
   import {
     getDiffThemeName,
     onDiffWorkerPoolReady,
@@ -23,22 +25,23 @@
     setDiffWorkerPoolLineDiffType,
   } from "../../lib/diff-worker-pool";
   import { getIcon, buildIcon, replaceIDs } from "@iconify/svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { runtime } from "../../contexts";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
   import DiffCommentForm from "./DiffCommentForm.svelte";
   import DiffInlineComment from "./DiffInlineComment.svelte";
   import DiffThreadComment from "./DiffThreadComment.svelte";
-  import { getInlineCommentDraft } from "../../contexts/diff-comment-draft.store.svelte";
+  import { getInlineCommentDraft } from "./diff-comment-draft.store.svelte";
+  import { DiffCollapseState, appendDiffErgonomicsLabel } from "./lib/diff-ergonomics";
+  import type { DiffReviewThread } from "./lib/interdiff-annotations";
 
   type AnnotationMeta =
     | { kind: "comment"; comment: DiffComment }
-    | { kind: "thread"; thread: ReviewThread }
+    | { kind: "thread"; thread: DiffReviewThread }
     | { kind: "draft" };
 
   const DRAFT_META: AnnotationMeta = { kind: "draft" };
   const ACTION_BAR_SCROLL_GUTTER = 88;
-
   // File-header height. Mirrors the CSS in diffTheme.ts (DIFFS_THEME_CSS) — keep
   // the three tiers in sync so virtualization/sticky math matches the painted
   // header: desktop (>1100px), compact laptops / iPad + keyboard (≤1100px), and
@@ -67,7 +70,7 @@
     comments: DiffComment[];
     /** GitHub PR review threads, anchored at their line. Interactive (reply /
      *  resolve) when the thread callbacks below are supplied. */
-    reviewThreads: ReviewThread[];
+    reviewThreads: DiffReviewThread[];
     onThreadReply?: (threadId: string, body: string) => Promise<ReviewComment>;
     onThreadResolve?: (threadId: string, resolved: boolean) => Promise<void>;
     onDraftSave: (text: string) => void;
@@ -135,9 +138,10 @@
   // vibrant logo. See the rebuild effect below.
   let iconsReady = $state(false);
 
-  const collapsedFiles = new Set<string>();
+  const collapseState = new DiffCollapseState();
   let mountedComments: ReturnType<typeof mount>[] = [];
 
+  const moveAnalysis = $derived(detectMovedBlocks(fileDiffs));
   // Review threads collapse to a "Marked as resolved" bar once resolved. A
   // resolved thread is collapsed by default; this set tracks the ones the user
   // explicitly expanded again ("Show thread"). Bumping the nonce drives Effect B
@@ -186,7 +190,7 @@
   // Only line-anchored threads can render in the diff; outdated threads (line ===
   // null) have no anchor in the current diff and stay in the Activity timeline.
   const threadsByPath = $derived.by(() => {
-    const m = new Map<string, ReviewThread[]>();
+    const m = new Map<string, DiffReviewThread[]>();
     for (const t of reviewThreads) {
       if (t.line == null) continue;
       const arr = m.get(t.filePath) ?? [];
@@ -242,10 +246,11 @@
   let placeholderByPath = new Map<string, PlaceholderKind>();
 
   // Build structural items (no annotations — those are applied separately).
-  // Uses untrack for collapse state so collapse toggles don't trigger this effect.
   function buildStructuralItems(): CodeViewDiffItem<AnnotationMeta>[] {
     placeholderByPath = new Map();
     return fileDiffs.map((fileDiff) => {
+      const moved = moveAnalysis.byFile.get(fileDiff.name);
+      const collapsed = collapseState.prepare(fileDiff, moved);
       if (!hasTextHunks(fileDiff)) {
         placeholderByPath.set(
           fileDiff.name,
@@ -255,9 +260,9 @@
       return {
         id: fileDiff.name,
         type: "diff" as const,
-        fileDiff,
+        fileDiff: collapseState.displayFile(fileDiff),
         annotations: [],
-        collapsed: untrack(() => collapsedFiles.has(fileDiff.name)),
+        collapsed: untrack(() => collapsed),
       };
     });
   }
@@ -284,6 +289,9 @@
     const itemTop = codeView.getTopForItem(filePath);
     const wasCollapsed = item.collapsed === true;
 
+    const file = fileDiffs.find((candidate) => candidate.name === filePath);
+    if (wasCollapsed && file && collapseState.expandFormat(file)) item.fileDiff = file;
+    collapseState.setCollapsed(filePath, !wasCollapsed);
     item.collapsed = !wasCollapsed;
     item.version = nextVersion(item);
     if (!codeView.updateItem(item)) return;
@@ -293,10 +301,16 @@
       codeView.scrollTo({ type: "item", id: filePath, align: "start" });
     }
 
-    if (wasCollapsed) collapsedFiles.delete(filePath);
-    else collapsedFiles.add(filePath);
   }
-
+  function expandFormatHunks(filePath: string) {
+    if (!codeView) return;
+    const file = fileDiffs.find((candidate) => candidate.name === filePath);
+    const item = codeView.getItem(filePath);
+    if (!file || !item || item.type !== "diff" || !collapseState.expandFormat(file)) return;
+    item.fileDiff = file;
+    item.version = nextVersion(item);
+    codeView.updateItem(item);
+  }
   function baseName(path: string): string {
     return path.split("/").pop() ?? path;
   }
@@ -446,6 +460,11 @@
   function buildHeaderMetadata(filePath: string): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "header-actions";
+    const file = fileDiffs.find((candidate) => candidate.name === filePath);
+    const moved = moveAnalysis.byFile.get(filePath);
+    const unreviewed = collapseState.isUnreviewed(filePath);
+    if (file) appendDiffErgonomicsLabel(wrap, file, moved, unreviewed,
+      collapseState.hasCollapsedFormat(file) ? () => expandFormatHunks(filePath) : null);
     const kind = placeholderByPath.get(filePath);
     if (kind) {
       const label = document.createElement("span");
@@ -466,6 +485,8 @@
   function paintItemBackgrounds() {
     for (const item of codeView?.getRenderedItems() ?? []) {
       item.element.style.backgroundColor = "var(--solus-container-bg)";
+      if (collapseState.isUnreviewed(item.id)) item.element.dataset.solusUnreviewed = "";
+      else delete item.element.dataset.solusUnreviewed;
     }
   }
 
@@ -492,7 +513,16 @@
       lineDiffType: "none" as const,
       lineHoverHighlight: "number" as const,
       overflow: "wrap" as const,
-      hunkSeparators: "metadata" as const,
+      // "line-info-basic" trades the @@-metadata rule for "N unchanged lines"
+      // with up/down/expand-all controls. The buttons only appear on files whose
+      // metadata carries full file contents (see diff-expandable.ts); everything
+      // else keeps a plain, inert separator.
+      hunkSeparators: "line-info-basic" as const,
+      // Lines revealed per click (library default 100 — too big a jump to keep
+      // your place) and the gap size below which we just render the lines
+      // inline instead of asking for a click (default 1).
+      expansionLineCount: 20,
+      collapsedContextThreshold: 10,
       disableFileHeader: false,
       disableErrorHandling: true,
       enableLineSelection: true,
@@ -507,6 +537,7 @@
       unsafeCSS: `${DIFFS_THEME_CSS}\n${DIFF_FIND_HIGHLIGHT_CSS}`,
       onPostRender: () => {
         paintItemBackgrounds();
+        if (codeView) decorateMovedLines(codeView.getRenderedItems(), moveAnalysis, diffStyle);
         scheduleFindRepaint();
       },
       renderHeaderPrefix: (
@@ -640,9 +671,9 @@
 
   // Effect A — runs when the parsed diff file list changes.
   // Rebuilds the item list, then syncs annotations via updateItem.
-  // collapsedFiles is accessed via untrack so collapse toggles don't retrigger this.
   $effect(() => {
     if (!codeView) return;
+    void moveAnalysis;
     codeView.setItems(buildStructuralItems());
     untrack(() => syncAllAnnotations());
     untrack(() => syncStickyContainerBackground());
@@ -707,12 +738,13 @@
     for (const fileDiff of fileDiffs) {
       const item = codeView.getItem(fileDiff.name);
       if (!item || item.type !== "diff") continue;
-      if ((item.collapsed === true) === collapsed) continue;
+      const formatExpanded = !collapsed && collapseState.expandFormat(fileDiff);
+      if ((item.collapsed === true) === collapsed && !formatExpanded) continue;
+      collapseState.setCollapsed(fileDiff.name, collapsed);
+      if (formatExpanded) item.fileDiff = fileDiff;
       item.collapsed = collapsed;
       item.version = nextVersion(item);
       codeView.updateItem(item);
-      if (collapsed) collapsedFiles.add(fileDiff.name);
-      else collapsedFiles.delete(fileDiff.name);
     }
   }
 
@@ -750,16 +782,18 @@
   }
 
   // Expand a collapsed file so a match in it can be scrolled to and painted.
-  // Reuses the same collapsedFiles bookkeeping as toggleCollapse.
   export function ensureExpanded(path: string) {
     if (!codeView) return;
     const item = codeView.getItem(path);
     if (!item || item.type !== "diff") return;
-    if (item.collapsed !== true) return;
+    const file = fileDiffs.find((candidate) => candidate.name === path);
+    const formatExpanded = !!file && collapseState.expandFormat(file);
+    if (item.collapsed !== true && !formatExpanded) return;
+    collapseState.setCollapsed(path, false);
+    if (formatExpanded && file) item.fileDiff = file;
     item.collapsed = false;
     item.version = nextVersion(item);
     codeView.updateItem(item);
-    collapsedFiles.delete(path);
   }
 </script>
 
@@ -917,6 +951,21 @@
     flex-shrink: 0;
   }
 
+  :global(.diff-ergonomics-label) {
+    border: 0; background: transparent; padding: 0; margin-right: 0.375rem;
+    color: var(--solus-text-tertiary);
+    font-size: 0.625rem; font-style: italic; white-space: nowrap;
+  }
+
+  :global(button.diff-ergonomics-label) { cursor: pointer; }
+  :global(.diff-ergonomics-label.is-unreviewed) {
+    color: var(--solus-accent); font-style: normal; font-weight: 600;
+  }
+
+  :global([data-solus-unreviewed]) {
+    box-shadow: inset 0.125rem 0 0 color-mix(in srgb, var(--solus-accent) 70%, transparent);
+  }
+
   :global(.header-action-btn) {
     border: 0;
     background: transparent;
@@ -940,7 +989,7 @@
   :global(.header-action-btn:hover) {
     opacity: 1 !important;
     color: var(--solus-accent);
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
 
   :global(.header-action-btn:focus-visible) {

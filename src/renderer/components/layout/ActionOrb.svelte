@@ -7,7 +7,6 @@
     ArrowsOutSimpleIcon,
     ArrowsClockwiseIcon,
     ArrowSquareOutIcon,
-    FileTextIcon,
     GitForkIcon,
     TreeStructureIcon,
     SquareIcon,
@@ -15,20 +14,25 @@
     BinocularsIcon,
   } from "phosphor-svelte";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serversStore } from "../servers/servers.store.svelte";
-  import { REVIEW_PROGRESS_STEPS, type ReviewProgressStep } from "../../../shared/review";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSessionSidebarStore } from "../../contexts/session-sidebar.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import {
+    REVIEW_PROGRESS_STEPS,
+    type ReviewProgressStep,
+  } from "../../../shared/review";
+  import {
+    getSettingsContext,
+    getAgentContext,
+    getWorkspaceContext,
+    getSessionSidebarStore,
+    getWindowContext,
+    getSessionEnvironmentStore,
+    runtime,
+  } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
   import { formatCombo } from "../../lib/keybindings/match";
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
-  import { requestFilePreview } from "../../lib/filePreview";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import Kbd from "../ui/Kbd.svelte";
@@ -40,10 +44,12 @@
   let {
     tabId,
     onDiffToggle,
+    observeLayout = false,
     leftReservedWidth = 0,
   }: {
     tabId: string;
     onDiffToggle?: () => void;
+    observeLayout?: boolean;
     leftReservedWidth?: number;
   } = $props();
 
@@ -65,6 +71,7 @@
   type FileStat = { additions: number; deletions: number };
 
   const session = getWorkspaceContext();
+  const environmentStore = getSessionEnvironmentStore();
   const sidebarStore = getSessionSidebarStore();
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
@@ -76,10 +83,23 @@
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
 
-  const changedFiles = $derived(sess?.changedFiles ?? []);
+  const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
+  const gitCwd = $derived(
+    sess?.gitContext?.worktreePath ?? sess?.workingDirectory,
+  );
+  const uncommittedFiles = $derived(
+    environmentStore
+      .statusFor(gitCwd)
+      ?.uncommittedChanges.files.map((file) => file.path) ?? [],
+  );
   const projectRoot = $derived.by(() => {
     const ctxProjectPath = session.ctxFor(tabId).session.projectPath;
-    return ctxProjectPath || sess?.gitContext?.repoRoot || sess?.workingDirectory || "";
+    return (
+      ctxProjectPath ||
+      sess?.gitContext?.repoRoot ||
+      sess?.workingDirectory ||
+      ""
+    );
   });
   const displayRoot = $derived(
     sess?.gitContext?.worktreePath || sess?.gitContext?.repoRoot || projectRoot,
@@ -88,20 +108,24 @@
   const showNativeDesktopActions = $derived(
     showDesktopActions && !windowCtx.isWeb,
   );
-  const canPreviewFiles = $derived(windowCtx.viewMode === "editor");
 
   const isBranchDiff = $derived(
     !!sess?.gitContext &&
       sess.gitContext.branch !== sess.gitContext.targetBranch,
   );
-  const showViewDiff = $derived(!!onDiffToggle && changedFiles.length > 0);
-  const hasChangedFiles = $derived(changedFiles.length > 0);
-  const showReview = $derived(hasChangedFiles);
+  const showViewDiff = $derived(
+    !!onDiffToggle && sessionChangedFiles.length > 0,
+  );
+  const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
+  const hasUncommittedChanges = $derived(uncommittedFiles.length > 0);
+  const showReview = $derived(hasSessionChanges);
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isCreatingWorktree = $derived(session.isContinuingInWorktree(tabId));
-  const showOpenFiles = $derived(showNativeDesktopActions && hasChangedFiles);
+  const showOpenFiles = $derived(
+    showNativeDesktopActions && hasUncommittedChanges,
+  );
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
   const remoteHost = $derived(
     sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
@@ -122,8 +146,8 @@
   const showInterrupt = $derived(
     isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
   );
-  const changedFilesLabel = $derived(
-    changedFiles.length > 99 ? "99+" : String(changedFiles.length),
+  const uncommittedFilesLabel = $derived(
+    uncommittedFiles.length > 99 ? "99+" : String(uncommittedFiles.length),
   );
 
   // ── Review changes (background generation) ──
@@ -136,9 +160,7 @@
   // session keeps editing past it, drop back to "Review" instead of latching
   // "View Review" on a walkthrough of an older change.
   let reviewSnapshot = $state<string | null>(null);
-  const changesFingerprint = $derived(
-    changedFiles.join("|"),
-  );
+  const changesFingerprint = $derived(sessionChangedFiles.join("|"));
 
   // Latch keyed by tabId → the change-set fingerprint we last probed for a cached
   // guide. Without it, every re-activation of a dirty tab whose probe found no
@@ -149,7 +171,7 @@
   // every mid-turn file change.
   const reviewCheckedFingerprint = new Map<string, string>();
   $effect(() => {
-    if (!hasChangedFiles || tabId !== session.activeTabId) return;
+    if (!hasSessionChanges || tabId !== session.activeTabId) return;
     if (reviewStatus !== "idle") return;
     const fp = untrack(() => changesFingerprint);
     if (reviewCheckedFingerprint.get(tabId) === fp) return;
@@ -268,7 +290,7 @@
   const totalFileStats = $derived.by(() => {
     let additions = 0;
     let deletions = 0;
-    for (const path of changedFiles) {
+    for (const path of sessionChangedFiles) {
       const stats = statsFor(path);
       additions += stats?.additions ?? 0;
       deletions += stats?.deletions ?? 0;
@@ -278,11 +300,11 @@
   const orbBadge = $derived.by((): OrbBadge | null => {
     if (hasActionInFlight)
       return { kind: "running", label: "", title: "Action running" };
-    if (hasChangedFiles) {
+    if (hasUncommittedChanges) {
       return {
         kind: "count",
-        label: changedFilesLabel,
-        title: `${changedFiles.length} file${changedFiles.length !== 1 ? "s" : ""} changed`,
+        label: uncommittedFilesLabel,
+        title: `${uncommittedFiles.length} uncommitted file${uncommittedFiles.length !== 1 ? "s" : ""}`,
       };
     }
     if (isBranchDiff)
@@ -295,19 +317,21 @@
   });
   const orbTooltip = $derived.by(() => {
     if (orbBadge) return `Quick actions · ${orbBadge.title}`;
-    if (hasChangedFiles) {
-      return `Quick actions · ${changedFiles.length} file${changedFiles.length !== 1 ? "s" : ""} changed`;
+    if (hasUncommittedChanges) {
+      return `Quick actions · ${uncommittedFiles.length} uncommitted file${uncommittedFiles.length !== 1 ? "s" : ""}`;
     }
     return "Quick actions";
   });
 
-  const av = session.artifactViewer;
+  const panes = session.panes;
 
   let rootEl: HTMLDivElement | null = $state(null);
   let panelEl: HTMLDivElement | null = $state(null);
   let orbScreenScale = $state("1");
   let compactByWidth = $state(false);
-  const compact = $derived(compactByWidth || av.secondaryOpen);
+  const compact = $derived(
+    compactByWidth || panes.secondaryVisible.kind !== "empty",
+  );
   let expandedPanelWidth: number | null = null;
 
   function shortcutLabel(bindingId: BindingId): string {
@@ -333,10 +357,10 @@
   }
 
   $effect(() => {
-    // Only observe the active tab's orb — hidden tabs don't need width-tier
-    // tracking and an observer on display:none subtrees still fires callbacks
-    // on layout passes, creating unnecessary churn across all mounted tabs.
-    if (!rootEl || tabId !== session.activeTabId) return;
+    // Hidden pooled tabs do not need width-tier tracking. A split conversation
+    // is not the active tab, but is visibly mounted beside it, so its caller
+    // explicitly opts into measurement through observeLayout.
+    if (!rootEl || !observeLayout) return;
     const updateDensity = () => {
       // The root tracks the conversation reading column (capped at
       // --solus-reading-max, ≤~1152px), so width is our proxy for "how big is
@@ -379,28 +403,36 @@
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
-      if (tabId !== session.activeTabId || !showOpenFiles) return;
+      if (tabId !== session.focusedChatTabId || !showOpenFiles) return;
       openExpanded();
       reviewFilesOpen = true;
     };
     window.addEventListener("solus:review-changed-files", handler);
-    return () => window.removeEventListener("solus:review-changed-files", handler);
+    return () =>
+      window.removeEventListener("solus:review-changed-files", handler);
   });
 
   $effect(() => {
-    if (!reviewFilesOpen || !hasChangedFiles || tabId !== session.activeTabId) {
+    if (
+      !reviewFilesOpen ||
+      !hasSessionChanges ||
+      tabId !== session.focusedChatTabId
+    ) {
       fileStats = {};
       return;
     }
     const fingerprint = changesFingerprint;
-    const livePaths = [...changedFiles];
+    const livePaths = [...sessionChangedFiles];
     const ctx = session.ctxFor(tabId);
     let cancelled = false;
     session.apiFor(tabId).diffStats(ctx, { scope: { kind: "session" }, livePaths }).then((files) => {
       if (cancelled || fingerprint !== changesFingerprint) return;
       const nextStats: Record<string, FileStat> = {};
       for (const file of files) {
-        nextStats[file.path] = { additions: file.additions, deletions: file.deletions };
+        nextStats[file.path] = {
+          additions: file.additions,
+          deletions: file.deletions,
+        };
       }
       fileStats = nextStats;
     }).catch(() => {
@@ -413,7 +445,7 @@
 
   function handleOpenFiles() {
     const opened = openInConfiguredEditor(session.ctxFor(tabId), {
-      filePaths: changedFiles,
+      filePaths: uncommittedFiles,
       editorId: theme.defaultEditor,
       terminalId: theme.defaultTerminal,
       cwd: sess?.workingDirectory,
@@ -421,20 +453,9 @@
     if (opened) closeExpanded();
   }
 
-  function handleOpenFile(path: string) {
-    if (!canPreviewFiles) return;
-    requestFilePreview({ path, tabId });
-    closeExpanded(false);
-  }
-
-  function handleOpenFileInEditor(path: string) {
-    const opened = openInConfiguredEditor(session.ctxFor(tabId), {
-      filePaths: [path],
-      editorId: theme.defaultEditor,
-      terminalId: theme.defaultTerminal,
-      cwd: sess?.workingDirectory,
-    });
-    if (opened) closeExpanded();
+  function handleOpenFileDiff(path: string) {
+    panes.enterDiff(tabId, { kind: "session" }, displayPath(path));
+    closeExpanded();
   }
 
   function stripPathBase(path: string, base?: string | null): string {
@@ -442,7 +463,9 @@
     const normalizedBase = base.replace(/\/$/, "");
     if (!normalizedBase) return path;
     if (path === normalizedBase) return "";
-    return path.startsWith(`${normalizedBase}/`) ? path.slice(normalizedBase.length + 1) : path;
+    return path.startsWith(`${normalizedBase}/`)
+      ? path.slice(normalizedBase.length + 1)
+      : path;
   }
 
   function displayPath(path: string): string {
@@ -452,12 +475,16 @@
       const root = displayRoot.replace(/\/$/, "");
       if (cwd && root && cwd !== root && cwd.startsWith(`${root}/`)) {
         const cwdRelative = cwd.slice(root.length + 1);
-        if (trimmed === cwdRelative || trimmed.startsWith(`${cwdRelative}/`)) return trimmed;
+        if (trimmed === cwdRelative || trimmed.startsWith(`${cwdRelative}/`))
+          return trimmed;
         return `${cwdRelative}/${trimmed}`.replace(/^\.\//, "");
       }
       return trimmed;
     }
-    const withoutWorktree = stripPathBase(trimmed, sess?.gitContext?.worktreePath);
+    const withoutWorktree = stripPathBase(
+      trimmed,
+      sess?.gitContext?.worktreePath,
+    );
     if (withoutWorktree !== trimmed) return withoutWorktree;
     const withoutProject = stripPathBase(trimmed, projectRoot);
     if (withoutProject !== trimmed) return withoutProject;
@@ -480,7 +507,10 @@
 
   function statsFor(path: string): FileStat {
     const relativePath = displayPath(path);
-    return fileStats[path] ?? fileStats[relativePath] ?? { additions: 0, deletions: 0 };
+    return (
+      fileStats[path] ??
+      fileStats[relativePath] ?? { additions: 0, deletions: 0 }
+    );
   }
 
   function handleOpenTerminal() {
@@ -497,7 +527,7 @@
 
   async function handleReview() {
     if (reviewStatus === "done" && reviewGuideKey) {
-      av.enterReview(reviewGuideKey, "session");
+      panes.enterReview(reviewGuideKey, "session");
       closeExpanded();
       return;
     }
@@ -516,10 +546,10 @@
     });
 
     try {
-      const gen = await window.solus.generateGuide(
-        session.ctxFor(tabId),
-        { ...resolveReviewAgent(theme, agentContext), scope: "session" },
-      );
+      const gen = await window.solus.generateGuide(session.ctxFor(tabId), {
+        ...resolveReviewAgent(theme, agentContext),
+        scope: "session",
+      });
       if (runId !== reviewRunId) return;
       reviewGuideKey = gen?.persisted ? gen.key : null;
       reviewSnapshot = changesFingerprint;
@@ -538,7 +568,9 @@
     reviewRunId += 1;
     reviewStatus = "idle";
     reviewPopoverOpen = false;
-    void window.solus.cancelGenerateGuide(session.ctxFor(tabId), { scope: "session" });
+    void window.solus.cancelGenerateGuide(session.ctxFor(tabId), {
+      scope: "session",
+    });
     requestInputFocus();
   }
 
@@ -641,7 +673,7 @@
       }
     },
     {
-      enabled: () => tabId === session.activeTabId && isVisibleOrb(),
+      enabled: () => tabId === session.focusedChatTabId && isVisibleOrb(),
     },
   );
   useKeybinding(
@@ -653,33 +685,34 @@
       }
     },
     {
-      enabled: () => tabId === session.activeTabId && isVisibleOrb(),
+      enabled: () => tabId === session.focusedChatTabId && isVisibleOrb(),
     },
   );
   useKeybinding("orb.toggle", () => toggleExpanded(), {
-    enabled: () => tabId === session.activeTabId && isVisibleOrb(),
+    enabled: () => tabId === session.focusedChatTabId && isVisibleOrb(),
   });
   useKeybinding("orb.open-terminal", () => handleOpenTerminal(), {
     enabled: () =>
-      tabId === session.activeTabId && !windowCtx.isWeb && isVisibleOrb(),
+      tabId === session.focusedChatTabId && !windowCtx.isWeb && isVisibleOrb(),
   });
   useKeybinding("orb.pin", () => handleTogglePin(), {
-    enabled: () => tabId === session.activeTabId && showPin && isVisibleOrb(),
+    enabled: () =>
+      tabId === session.focusedChatTabId && showPin && isVisibleOrb(),
   });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={rootEl}
-  class="action-orb-root"
+  class="action-orb-root pointer-events-none absolute inset-x-0 inset-y-0 z-[6] mx-auto [contain:layout]"
   class:pill-mode={isPillMode}
   class:compact
   class:orb-streaming={isRunning}
 >
   <!-- Trigger: always bottom-right, compact status button -->
   <button
-    class="orb-trigger"
-    class:orb-trigger-active={hasChangedFiles && !expanded}
+    class="orb-trigger pointer-events-auto absolute flex cursor-pointer items-center justify-center rounded-full [isolation:isolate]"
+    class:orb-trigger-active={hasUncommittedChanges && !expanded}
     class:orb-trigger-open={expanded}
     onclick={toggleExpanded}
     onkeydown={(e) => {
@@ -697,7 +730,10 @@
   >
     <SparkleIcon size={13} weight="regular" />
     {#if orbBadge}
-      <span class="orb-badge orb-badge-{orbBadge.kind}" aria-hidden="true">
+      <span
+        class="orb-badge orb-badge-{orbBadge.kind} absolute inline-flex items-center justify-center rounded-full font-bold leading-none tabular-nums"
+        aria-hidden="true"
+      >
         {orbBadge.label}
       </span>
     {/if}
@@ -707,7 +743,7 @@
   <div
     id="action-orb-panel-{tabId}"
     bind:this={panelEl}
-    class="orb-panel"
+    class="orb-panel pointer-events-none absolute left-1/2 inline-flex max-w-[calc(100%_-_2rem)] items-center whitespace-nowrap rounded-full border-0 bg-transparent p-0 opacity-0 shadow-none"
     class:orb-panel-visible={expanded}
     class:overflow-visible={allowOverflow}
     onkeydown={handlePanelKeydown}
@@ -715,7 +751,9 @@
     role="toolbar"
     aria-label="Quick actions"
   >
-    <div class="dock-actions inline-flex items-center justify-center gap-(--orb-gap)">
+    <div
+      class="dock-actions inline-flex items-center justify-center gap-(--orb-gap)"
+    >
       {#if showPin}
         <button
           class="dock-btn dock-btn-icon stagger-item"
@@ -731,20 +769,6 @@
         >
           <StarIcon size={13} weight={isPinned ? "fill" : "regular"} />
         </button>
-      {/if}
-
-      {#if hasProgress}
-        <ActionOrbProgress
-          progress={progress!}
-          {isRunning}
-          {progressAllDone}
-          {progressFraction}
-          {progressHeader}
-          bind:stepsOpen
-          {expanded}
-          {orbScreenScale}
-        />
-        <span class="dock-divider" aria-hidden="true"></span>
       {/if}
 
       {#if showInterrupt}
@@ -772,6 +796,20 @@
         <span class="dock-divider" aria-hidden="true"></span>
       {/if}
 
+      {#if hasProgress}
+        <ActionOrbProgress
+          progress={progress!}
+          {isRunning}
+          {progressAllDone}
+          {progressFraction}
+          {progressHeader}
+          bind:stepsOpen
+          {expanded}
+          {orbScreenScale}
+        />
+        <span class="dock-divider" aria-hidden="true"></span>
+      {/if}
+
       {#if showOpenFiles}
         <Popover.Root
           bind:open={reviewFilesOpen}
@@ -780,74 +818,90 @@
           }}
         >
           <Popover.Content
-              class="files-pop progress-popover gap-0 p-0"
-              side="top"
-              sideOffset={11}
-              style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
-              role="dialog"
-              aria-label="Review changed files"
+            class="files-pop progress-popover gap-0 p-0"
+            side="top"
+            sideOffset={11}
+            style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
+            role="dialog"
+            aria-label="Review changed files"
+          >
+            <div
+              class="files-pop-head grid grid-cols-[auto_minmax(0,1fr)_auto] items-center"
             >
-              <div class="files-pop-head">
-                <span class="files-pop-icon" aria-hidden="true">
-                  <FilesIcon size={18} weight="regular" />
-                </span>
-                <div class="files-pop-title-block">
-                  <span class="files-pop-title"
-                    >Edited {changedFiles.length} file{changedFiles.length !== 1 ? "s" : ""}</span
-                  >
-                  <span class="files-pop-subtitle">
-                    <span class="files-pop-add">+{totalFileStats.additions}</span>
-                    <span class="files-pop-del">-{totalFileStats.deletions}</span>
-                  </span>
-                </div>
-                <button
-                  class="files-pop-primary"
-                  onclick={handleOpenFiles}
-                  disabled={!theme.defaultEditor}
-                  title={theme.defaultEditor ? "Open files in editor" : "Choose a default editor in settings"}
-                  aria-label="Open files in editor"
-                  use:tooltip={theme.defaultEditor ? "Open files in editor" : "Choose a default editor in settings"}
+              <span
+                class="files-pop-icon inline-flex items-center justify-center"
+                aria-hidden="true"
+              >
+                <FilesIcon size={18} weight="regular" />
+              </span>
+              <div
+                class="files-pop-title-block flex min-w-0 items-baseline gap-[calc(0.5rem_*_var(--orb-scale))]"
+              >
+                <span
+                  class="files-pop-title truncate text-(--solus-text-primary) [font-size:var(--pop-title-size)] leading-[1.25] font-semibold tracking-normal"
+                  >{sessionChangedFiles.length} file{sessionChangedFiles.length !==
+                  1
+                    ? "s"
+                    : ""}</span
                 >
-                  <ArrowSquareOutIcon size={15} weight="regular" />
-                  <span>Open files in editor</span>
+                <span
+                  class="files-pop-subtitle inline-flex shrink-0 items-center gap-[calc(0.25rem_*_var(--orb-scale))] text-(--solus-text-tertiary) [font-size:var(--pop-meta-size)] leading-[1.25] font-medium tabular-nums"
+                >
+                  <span class="files-pop-add text-(--solus-art-positive)"
+                    >+{totalFileStats.additions}</span
+                  >
+                  <span class="files-pop-del text-(--solus-art-negative)"
+                    >-{totalFileStats.deletions}</span
+                  >
+                </span>
+              </div>
+              <button
+                class="files-pop-primary inline-flex cursor-pointer items-center justify-center whitespace-nowrap bg-[color-mix(in_srgb,var(--solus-container-bg)_54%,transparent)] text-(--solus-text-secondary)"
+                onclick={handleOpenFiles}
+                disabled={!theme.defaultEditor}
+                title={theme.defaultEditor
+                  ? "Open files in editor"
+                  : "Choose a default editor in settings"}
+                aria-label="Open files in editor"
+                use:tooltip={theme.defaultEditor
+                  ? "Open files in editor"
+                  : "Choose a default editor in settings"}
+              >
+                <ArrowSquareOutIcon size={15} weight="regular" />
+                <span>Open files in editor</span>
+              </button>
+            </div>
+            <div class="files-pop-list overflow-auto">
+              {#each sessionChangedFiles as path (path)}
+                {@const stats = statsFor(path)}
+                <button
+                  class="files-pop-row grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_calc(4.25rem_*_var(--orb-scale))] items-center border-0 bg-transparent text-left"
+                  type="button"
+                  onclick={() => handleOpenFileDiff(path)}
+                  aria-label={`Open diff for ${displayPath(path)}`}
+                >
+                  <span
+                    class="files-pop-path min-w-0 truncate text-(--solus-text-primary) [font-size:var(--pop-body-size)] leading-[1.35] font-medium"
+                  >
+                    <span
+                      class="files-pop-dir font-normal text-(--solus-text-tertiary)"
+                      >{fileDir(path)}</span
+                    >{fileName(path)}
+                  </span>
+                  <span
+                    class="files-pop-stats inline-flex justify-end gap-[calc(0.25rem_*_var(--orb-scale))] [font-size:var(--pop-meta-size)] [font-weight:550] tabular-nums"
+                    aria-label={`${stats.additions} additions, ${stats.deletions} deletions`}
+                  >
+                    <span class="files-pop-add text-(--solus-art-positive)"
+                      >+{stats.additions}</span
+                    >
+                    <span class="files-pop-del text-(--solus-art-negative)"
+                      >-{stats.deletions}</span
+                    >
+                  </span>
                 </button>
-              </div>
-              <div class="files-pop-list">
-                {#each changedFiles as path (path)}
-                  {@const stats = statsFor(path)}
-                  <div class="files-pop-row">
-                    <span class="files-pop-path">
-                      <span class="files-pop-dir">{fileDir(path)}</span>{fileName(path)}
-                    </span>
-                    <span class="files-pop-stats" aria-label={`${stats.additions} additions, ${stats.deletions} deletions`}>
-                      <span class="files-pop-add">+{stats.additions}</span>
-                      <span class="files-pop-del">-{stats.deletions}</span>
-                    </span>
-                    <span class="files-pop-actions">
-                      <button
-                        class="files-pop-icon-btn"
-                        onclick={() => handleOpenFile(path)}
-                        disabled={!canPreviewFiles}
-                        title={canPreviewFiles ? "Open file" : "Open files in editor from pill mode"}
-                        aria-label={`Open ${path}`}
-                        use:tooltip={canPreviewFiles ? "Open file" : "Open files in editor from pill mode"}
-                      >
-                        <FileTextIcon size={15} weight="regular" />
-                      </button>
-                      <button
-                        class="files-pop-icon-btn"
-                        onclick={() => handleOpenFileInEditor(path)}
-                        disabled={!theme.defaultEditor}
-                        title={theme.defaultEditor ? "Open file in editor" : "Choose a default editor in settings"}
-                        aria-label={`Open ${path} in editor`}
-                        use:tooltip={theme.defaultEditor ? "Open file in editor" : "Choose a default editor in settings"}
-                      >
-                        <ArrowSquareOutIcon size={15} weight="regular" />
-                      </button>
-                    </span>
-                  </div>
-                {/each}
-              </div>
+              {/each}
+            </div>
           </Popover.Content>
           <Popover.Trigger>
             {#snippet child({ props })}
@@ -857,12 +911,12 @@
                 data-orb-action="files"
                 tabindex={tabIndexFor("files")}
                 style="--item-index:{itemIndices.files}"
-                title={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
-                aria-label={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
-                use:tooltip={`Review ${changedFiles.length} changed file${changedFiles.length !== 1 ? "s" : ""}`}
+                title={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
+                aria-label={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
+                use:tooltip={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
               >
                 <FilesIcon size={13} weight="regular" />
-                <span>Review Files ({changedFiles.length})</span>
+                <span>Changed Files ({sessionChangedFiles.length})</span>
                 <Kbd variant="inline" class="opacity-35 ml-[0.1875rem]"
                   >{shortcutLabel("conversation.open-files")}</Kbd
                 >
@@ -928,10 +982,16 @@
             requestInputFocus();
           }}
           disabled={isCreatingWorktree}
-          title={isCreatingWorktree ? "Creating worktree…" : "Continue this session in a new worktree"}
-          aria-label={isCreatingWorktree ? "Creating worktree" : "Continue this session in a new worktree"}
+          title={isCreatingWorktree
+            ? "Creating worktree…"
+            : "Continue this session in a new worktree"}
+          aria-label={isCreatingWorktree
+            ? "Creating worktree"
+            : "Continue this session in a new worktree"}
           aria-busy={isCreatingWorktree}
-          use:tooltip={isCreatingWorktree ? "Creating worktree…" : "Continue this session in a new worktree"}
+          use:tooltip={isCreatingWorktree
+            ? "Creating worktree…"
+            : "Continue this session in a new worktree"}
         >
           {#if isCreatingWorktree}
             <TreeStructureIcon size={13} weight="regular" />
@@ -960,34 +1020,35 @@
           >
             {#if reviewStatus === "generating"}
               <Popover.Content
-              class="review-pop"
-              side="top"
-              sideOffset={8}
-              role="status"
-              aria-label="Review progress"
-            >
-              <div class="review-pop-head">
-                <span class="review-pop-title">Reviewing changes</span>
-              </div>
-              <div class="review-pop-steps">
-                {#each REVIEW_PROGRESS_STEPS as step, i (step.id)}
-                  {@const isDone = i < currentReviewStepIdx}
-                  {@const isActive = step.id === reviewProgressStep}
-                  <div class="review-pop-step">
-                    <span
-                      class="review-pop-dot"
-                      class:review-pop-dot-done={isDone}
-                      class:review-pop-dot-active={isActive}
-                      class:review-pop-dot-pending={!isDone && !isActive}
-                    ></span>
-                    <span
-                      class="review-pop-label"
-                      class:review-pop-label-done={isDone}
-                      class:review-pop-label-active={isActive}
-                    >{step.label}</span>
-                  </div>
-                {/each}
-              </div>
+                class="review-pop"
+                side="top"
+                sideOffset={8}
+                role="status"
+                aria-label="Review progress"
+              >
+                <div class="review-pop-head">
+                  <span class="review-pop-title">Reviewing changes</span>
+                </div>
+                <div class="review-pop-steps">
+                  {#each REVIEW_PROGRESS_STEPS as step, i (step.id)}
+                    {@const isDone = i < currentReviewStepIdx}
+                    {@const isActive = step.id === reviewProgressStep}
+                    <div class="review-pop-step">
+                      <span
+                        class="review-pop-dot"
+                        class:review-pop-dot-done={isDone}
+                        class:review-pop-dot-active={isActive}
+                        class:review-pop-dot-pending={!isDone && !isActive}
+                      ></span>
+                      <span
+                        class="review-pop-label"
+                        class:review-pop-label-done={isDone}
+                        class:review-pop-label-active={isActive}
+                        >{step.label}</span
+                      >
+                    </div>
+                  {/each}
+                </div>
               </Popover.Content>
             {/if}
             <Popover.Trigger
@@ -1064,7 +1125,6 @@
           >
         </button>
       {/if}
-
     </div>
   </div>
 </div>

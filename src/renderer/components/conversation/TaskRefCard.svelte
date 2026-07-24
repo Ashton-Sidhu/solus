@@ -1,6 +1,6 @@
 <script lang="ts">
   import { CheckSquareOffsetIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import ConversationRefCard from "./ConversationRefCard.svelte";
 
   interface Props {

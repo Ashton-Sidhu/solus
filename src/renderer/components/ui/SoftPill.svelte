@@ -59,7 +59,7 @@
     background: color-mix(in srgb, var(--solus-surface-hover) 80%, transparent);
   }
   .soft-pill:hover {
-    background: color-mix(in srgb, var(--solus-surface-hover) 100%, var(--solus-text-tertiary) 8%);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .soft-pill:active {

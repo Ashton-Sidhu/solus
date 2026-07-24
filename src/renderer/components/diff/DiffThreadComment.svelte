@@ -5,11 +5,17 @@
     ArrowBendUpLeftIcon,
     CaretDownIcon,
   } from "phosphor-svelte";
-  import type { ReviewThread, ReviewComment } from "../../../shared/providers";
+  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import type { ReviewComment } from "../../../shared/providers";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
+  import { toasts } from "../../contexts";
+  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
+  import SinceReviewMarker from "../pr-review/SinceReviewMarker.svelte";
+  import type { DiffReviewThread } from "./lib/interdiff-annotations";
 
   // A GitHub PR review thread rendered inline in the diff, anchored at its line.
   // Distinct from DiffInlineComment (an editable local draft): this is an existing
@@ -24,7 +30,7 @@
     onToggleResolve,
     onSetCollapsed,
   }: {
-    thread: ReviewThread;
+    thread: DiffReviewThread;
     /** Whether the resolved thread is collapsed to its summary bar. Owned by the
      *  host (DiffStream) so toggling re-measures the diff layout, and so the
      *  state survives the annotation remount that re-measure triggers. */
@@ -35,6 +41,11 @@
   } = $props();
 
   const interactive = $derived(!!onReply || !!onToggleResolve);
+
+  // Comment bodies are GitHub markdown — same pipeline as the Activity tab's
+  // thread cards, scaled to the inline card's 12px type.
+  const bodyProseClass =
+    "github-markdown prose-cloud mt-0.5 text-[0.75rem] leading-relaxed text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
 
   let replying = $state(false);
   let replyText = $state("");
@@ -93,6 +104,9 @@
   }
 </script>
 
+{#if thread.reviewContext === "interdiff-match"}
+  <SinceReviewMarker {thread} />
+{:else}
 <div
   class="mx-3 my-1.5 overflow-hidden rounded-lg border-l-[0.1875rem] border-(--solus-accent) bg-(--solus-popover-bg) shadow-[0_0_0_0.0625rem_var(--solus-container-border)]"
 >
@@ -121,7 +135,7 @@
   {#if thread.isResolved && collapsed}
     <button
       type="button"
-      class="flex w-full items-center gap-1.5 px-2.5 py-2 text-left transition-colors hover:bg-(--solus-accent-light)"
+      class="flex w-full items-center gap-1.5 px-2.5 py-2 text-left transition-colors hover:bg-(--solus-surface-hover)"
       onclick={() => onSetCollapsed?.(thread.id, false)}
       aria-expanded="false"
     >
@@ -150,9 +164,14 @@
               {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
             </span>
           </div>
-          <p class="mt-0.5 text-[0.75rem] leading-relaxed whitespace-pre-wrap text-(--solus-text-secondary)">
-            {comment.body}
-          </p>
+          <div class={bodyProseClass}>
+            <SvelteMarkdown
+              source={comment.body}
+              extensions={githubMarkdownExtensions}
+              renderers={githubMarkdownRenderers}
+              sanitizeUrl={remoteMarkdownSanitizeUrl}
+            />
+          </div>
         </div>
       </div>
     {/each}
@@ -166,6 +185,7 @@
             bind:ref={replyEl}
             bind:value={replyText}
             bare
+            mic
             placeholder="Reply… ⌘↵"
             rows={1}
             onkeydown={(e: KeyboardEvent) => {
@@ -175,7 +195,7 @@
               }
             }}
             onSubmit={submitReply}
-            class="min-h-8 max-h-30 overflow-y-auto rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) px-2"
+            class="min-h-8 max-h-30 overflow-y-auto rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) pl-2"
           />
           <div class="flex items-center justify-end gap-1.5">
             <Button variant="ghost" size="sm" onclick={cancelReply} class="text-(--solus-text-tertiary)">
@@ -191,7 +211,7 @@
           {#if onReply}
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
               onclick={startReply}
             >
               <ArrowBendUpLeftIcon size={12} /> Reply
@@ -201,7 +221,7 @@
             <button
               type="button"
               disabled={busy}
-              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) disabled:opacity-50"
+              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
               onclick={toggleResolve}
             >
               {#if thread.isResolved}
@@ -214,7 +234,7 @@
           {#if thread.isResolved}
             <button
               type="button"
-              class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary)"
+              class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
               onclick={() => onSetCollapsed?.(thread.id, true)}
             >
               Hide
@@ -226,3 +246,4 @@
   {/if}
   {/if}
 </div>
+{/if}

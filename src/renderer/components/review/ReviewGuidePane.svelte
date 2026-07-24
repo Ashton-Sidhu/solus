@@ -5,15 +5,14 @@
     ArrowSquareOutIcon,
     ArrowsOutSimpleIcon,
   } from "phosphor-svelte";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { formatDiffInlineComments } from "../../contexts/session.utils";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import { getWorkspaceContext, getSettingsContext, getAgentContext, getStatusBarContext } from "../../contexts";
+  import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import PendingReviewTray from "../pr-review/PendingReviewTray.svelte";
+  import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import GuideSurface from "./GuideSurface.svelte";
   import { GuideLoader } from "./lib/guide-loader.svelte";
   import { ReviewDrafts } from "./lib/review-drafts.svelte";
@@ -39,6 +38,8 @@
   const session = getWorkspaceContext();
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
+  const statusBar = getStatusBarContext();
+  const isDemo = document.documentElement.classList.contains("solus-demo");
 
   const loader = new GuideLoader({
     getCtx: () => session.ctx,
@@ -65,12 +66,37 @@
     void reviewDrafts.load();
   });
 
-  function sendToAgent() {
-    if (reviewDrafts.drafts.length === 0) return;
-    session.sendMessage(
-      `Please address this review feedback on the current changes:\n\n` +
-        `Inline comments:\n${formatDiffInlineComments(reviewDrafts.diffComments)}`,
-    );
+  let composerNote = $state("");
+  let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
+  const sess = $derived(session.sessionFor(session.activeTabId));
+  const tab = $derived(session.tabs[session.activeTabId]);
+
+  function sendToAgent(payload: PromptComposerSubmit) {
+    const hasDrafts = reviewDrafts.drafts.length > 0;
+    if (!hasDrafts && !payload.text) return;
+
+    const current = statusBar.ctxFor(session.activeTabId);
+    if (
+      payload.modelId !== (current.model || null) ||
+      payload.reasoningEffort !== current.reasoningEffort
+    ) {
+      session.updateModelConfig({
+        modelId: payload.modelId,
+        reasoningEffort: payload.reasoningEffort,
+      });
+    }
+
+    const parts = [`Please address this review feedback on the current changes:`];
+    if (payload.text) parts.push(payload.text);
+    if (hasDrafts) {
+      parts.push(`Inline comments:\n${formatDiffInlineComments(reviewDrafts.diffComments)}`);
+    }
+    if (tab) {
+      tab.input.planRefs = [...payload.planRefs];
+      tab.input.workRefs = [...payload.workRefs];
+    }
+    session.sendMessage(parts.join("\n\n"));
+    composerRef?.clear();
     reviewDrafts.clear();
     onClose();
     requestInputFocus();
@@ -87,7 +113,7 @@
     <div class="inline-flex gap-1">
       {#if onOpenInSplit}
         <button
-          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
           onclick={onOpenInSplit}
           use:tooltip={slot === "secondary" ? "Move to main pane" : "Open in split"}
           aria-label={slot === "secondary" ? "Move review guide to main pane" : "Open review guide in split"}
@@ -99,16 +125,18 @@
           {/if}
         </button>
       {/if}
+      {#if !isDemo}
+        <button
+          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+          onclick={() => loader.refresh()}
+          use:tooltip={"Regenerate review"}
+          aria-label="Regenerate review guide"
+        >
+          <ArrowsClockwiseIcon size={15} weight="bold" />
+        </button>
+      {/if}
       <button
-        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
-        onclick={() => loader.refresh()}
-        use:tooltip={"Regenerate review"}
-        aria-label="Regenerate review guide"
-      >
-        <ArrowsClockwiseIcon size={15} weight="bold" />
-      </button>
-      <button
-        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
         onclick={onClose}
         use:tooltip={"Close"}
         aria-label="Close review guide"
@@ -128,9 +156,21 @@
   {#if reviewDrafts.drafts.length > 0}
     <PendingReviewTray
       drafts={reviewDrafts.drafts}
-      submitLabel="Send to agent"
-      onSubmit={sendToAgent}
       onRemove={(id) => reviewDrafts.remove(id)}
     />
+  {/if}
+
+  {#if !loader.loading && loader.guide}
+    <div class="shrink-0 bg-(--solus-container-bg) px-3 pt-2 pb-3">
+      <PromptComposer
+        bind:this={composerRef}
+        bind:value={composerNote}
+        tabId={session.activeTabId}
+        workingDirectory={sess?.workingDirectory}
+        canSubmitWhenEmpty={reviewDrafts.drafts.length > 0}
+        onSubmit={sendToAgent}
+        placeholder="Add feedback for the agent…"
+      />
+    </div>
   {/if}
 </section>

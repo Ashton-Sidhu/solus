@@ -37,6 +37,15 @@
 - Flag any file > 600 lines in review. Hard-split > 1000 lines.
 - `SvelteMap` / `SvelteSet` for reactive maps/sets. Use `$effect` only when `$derived` genuinely can't — no exceptions.
 
+### Variable naming
+
+- **Name the meaning, not the mechanism or the history.** When a thing's purpose outgrows its name, rename it in the same change — the compiler catches every call site. (`artifactViewer` drifted into managing all panes and confused everyone until it became `panes`.)
+- **Plain roles over jargon.** Prefer `BaseContent`/`OverlayContent` to `DurableContent`/`TransientContent`. If a reader needs a glossary to parse the name, pick a different word.
+- **No abbreviations for domain objects.** `panes`, not `av`; `session`, not `sess` in new code. Conventional short names are fine where scope is a few lines (`i`, `e`, `el`).
+- **One name per concept, everywhere.** Don't coin synonyms across files ("split chat" vs "pinned conversation" vs "secondary chat"). The canonical term lives where the concept is defined; feature plans in `docs/plans/` lock vocabulary before implementation.
+- **Qualify ids and booleans.** An id says whose id it is (`sourceTabId` — the chat a viewer was opened for; `focusedChatTabId`), never a bare `id`/`tabId` where several are in play. Booleans read as assertions: `hasResized`, `isBusy`, `secondaryOpen`.
+- **Methods read as commands, getters as answers.** `openSplitChat(tabId)`, `closeOverlay()`, `chatTabIn(slot)`.
+
 ### Svelte 5 performance (all tabs stay mounted; hidden via `display:none`)
 
 **Never spread `TabState` for a small update.** `$state` proxies are deeply reactive per-property; a new object reference invalidates every `$derived` reading the tab (`visibleMessages`, `grouped`, `changedFiles`, all status flags) across hundreds of messages.
@@ -106,9 +115,10 @@ Add an RPC method/topic in `src/shared/rpc.ts`, then register a handler on `Solu
 
 ### `src/renderer/` — Svelte 5 UI
 - **Entry:** `App.svelte`, `main.ts`
-- **`contexts/`** — state stores (`*.store.svelte.ts`, `*.context.svelte.ts`):
-  - `workspace.context.svelte.ts` — **tabs/session core** (large) · `session-*` — session lifecycle/transcript/events
-  - `run.store` · `tasks.store` · `works.store` · `automations.store` · `prs.store` · `git-status.store` · `plan.store` · `settings.context` · `toast.store`
+- **`contexts/`** — state stores, foldered by domain. **Public surface = `contexts/index.ts`** (curated barrel); import authoritative stores from it. `workspace/` contents (reducer, transcript, bootstrap, registry, pane-view, …) are private organs — deep-import them only from boot files or for organ-local types.
+  - `app/` — boot wiring (`app-core`, `runtime-boot`), `runtime`, `settings.context`, `window.context`, `agent.context`, `status-bar.context`, `toast.store`, `voice-model.store`, `tools.store`
+  - `workspace/` — **tabs/session core** (`workspace.context.svelte.ts`, large) + its internal organs (`session-*`, `tab-*`, `pane-view.store`, `prompt-composer`, `ipc-context`, `work-stream-tracker`, …)
+  - `git/` `plans/` `tasks/` `prs/` `works/` `automations/` `run/` `projects/` `connections/` — one folder per domain store (`session-environment.store`, `plan.store`, `tasks.store`, `prs.store`+`stacks.store`, `works.store`, `automations.store`, `run.store`+`run-dock.store`, `projects.store`+`project-config.store`, `connections.store`+`servers.store`)
 - **`lib/`** — cross-feature utils: `diff*`, `git-actions`, `keybindings/`, `highlight`, `changedFiles`, `contextUsage`, `inputFocus`…
 - **`hooks/`** — `agentEvents.svelte.ts`
 

@@ -10,13 +10,12 @@
   } from "phosphor-svelte";
   import type { PlanDescriptor } from "../../../shared/types";
   import { planKey } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { getWorkspaceContext, getPlanStore, getWindowContext, runtime } from "../../contexts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getDateGroup, matchesOpenProjects, type DateGroup } from "../../lib/sessionUtils";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
+  import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
+  import PageEmpty from "../ui/PageEmpty.svelte";
   import PlanCard from "./PlanCard.svelte";
   import PlanListRow from "./PlanListRow.svelte";
   import Kbd from "../ui/Kbd.svelte";
@@ -133,6 +132,12 @@
 
   function toggleAll() {
     statusSet = isAllSelected ? new Set(defaultStatuses) : new Set(allStatuses);
+  }
+
+  function clearFilters() {
+    query = "";
+    statusSet = new Set(defaultStatuses);
+    showBookmarked = false;
   }
 
   const filtered: PlanDescriptor[] = $derived.by(() => {
@@ -410,21 +415,29 @@
   {@render filterControls()}
 {/snippet}
 
-{#snippet emptyState()}
-  <div class="empty">
-    <p class="empty-title">No plans yet.</p>
-    <p class="empty-sub">
+{#snippet emptyState(compact: boolean)}
+  {#if scopedDescriptors.length === 0}
+    <PageEmpty {compact} icon={MapTrifoldIcon} title="No plans yet.">
       Plans appear here after the agent runs ExitPlanMode.
-    </p>
-  </div>
+    </PageEmpty>
+  {:else}
+    <PageEmpty {compact} title="No plans match.">
+      Try a different search or filter.
+      {#snippet actions()}
+        <button type="button" class={PAGE_SECONDARY_BTN} onclick={clearFilters}>
+          Clear filters
+        </button>
+      {/snippet}
+    </PageEmpty>
+  {/if}
 {/snippet}
 
 {#snippet editorGrid()}
   <div bind:this={scrollEl} class="outline-none" role="listbox" tabindex="-1" onmousemove={() => { mouseHasMoved = true; }}>
     {#if loading && descriptors.length === 0}
-      <div class="empty"><p class="empty-sub">Loading plans…</p></div>
+      <PageEmpty compact>Loading plans…</PageEmpty>
     {:else if filtered.length === 0}
-      {@render emptyState()}
+      {@render emptyState(false)}
     {:else}
       {#if bookmarked.length > 0}
         <SectionLabel label="Bookmarked" count={bookmarked.length}>
@@ -488,9 +501,9 @@
     onmousemove={() => { mouseHasMoved = true; }}
   >
     {#if loading && descriptors.length === 0}
-      <div class="empty"><p class="empty-sub">Loading plans…</p></div>
+      <PageEmpty compact>Loading plans…</PageEmpty>
     {:else if filtered.length === 0}
-      {@render emptyState()}
+      {@render emptyState(true)}
     {:else}
       {#if bookmarked.length > 0}
         <div class="pill-section-header">
@@ -739,7 +752,7 @@
       border-color 0.1s ease;
   }
   .collection-chip:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .collection-chip.active {
@@ -813,24 +826,6 @@
     .card-grid {
       grid-template-columns: 1fr;
     }
-  }
-
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 3rem 1rem;
-    gap: 0.25rem;
-  }
-  .empty-title {
-    font-size: 0.8125rem;
-    color: var(--solus-text-secondary);
-    font-weight: 500;
-  }
-  .empty-sub {
-    font-size: 0.75rem;
-    color: var(--solus-text-tertiary);
   }
 
   /* Touch devices zoom the viewport when focusing an input under 16px — pin the

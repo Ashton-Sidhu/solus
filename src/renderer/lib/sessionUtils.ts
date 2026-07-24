@@ -8,7 +8,7 @@ import {
   ClockIcon,
 } from 'phosphor-svelte'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '../../shared/types'
-import type { TabGroupMode } from '../contexts/settings.context.svelte'
+import type { TabGroupMode } from '../contexts'
 
 export type PickerEntry =
   | { kind: 'open'; tabId: string; tab: Tab; session: Session }
@@ -169,6 +169,19 @@ export function formatTimeAgoFromTimestamp(ts: number): string | null {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+/** Full absolute date + time ("Jul 18, 2026, 3:42 PM") — tooltip companion to
+ *  `formatTimeAgoFromTimestamp`'s relative labels. Returns null for 0/unset. */
+export function formatAbsoluteTimestamp(ts: number): string | null {
+  if (!ts) return null
+  return new Date(ts).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 export function branchKeyFor(sess: Session | undefined): string {
   const root = sess?.gitContext?.repoRoot ?? sess?.workingDirectory ?? '~'
   const branch = sess?.gitContext?.branch ?? 'no branch'
@@ -277,6 +290,14 @@ export function buildTabSections(
     if (arr && arr.length > 0) result.push({ key, tabIds: arr })
   }
   return result
+}
+
+/** Pick the tab immediately left of a closing tab in the supplied display order,
+ *  falling back to the right only when the closing tab is first. */
+export function adjacentTabAfterClose(tabIds: string[], closingTabId: string): string | null {
+  const closingIndex = tabIds.indexOf(closingTabId)
+  if (closingIndex === -1) return null
+  return tabIds[closingIndex - 1] ?? tabIds[closingIndex + 1] ?? null
 }
 
 export function formatMessageTime(timestamp: number): string {

@@ -2,14 +2,17 @@ import { watch, type FSWatcher } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
-import type { AgentId, SessionMeta, SessionSearchResult } from '../../shared/types'
+import type { SessionLoadMessage } from '../../shared/session-history'
+import type { AgentId, ReasoningEffort, SessionMeta, SessionSearchResult } from '../../shared/types'
 import {
   encodePathAsFolder,
   isSolusWorktreePath,
   SOLUS_WORKTREE_ENCODED_MARKER,
+  worktreeProjectRoot,
 } from '../../shared/types'
 import { readSessionHeadMeta } from '../agents/claude/claude-session-helpers'
 import { createLogger } from '../logger'
+import { sanitizeFtsQuery } from './fts'
 import { getDb, withTx } from './index'
 
 const log = createLogger('main', 'session-indexer')
@@ -28,6 +31,17 @@ interface SessionRow {
   first_message: string | null
   last_timestamp: number | null
   size: number | null
+  model: string | null
+  reasoning_effort: string | null
+  project_root: string | null
+}
+
+/** The git-root that groups a repo with all its worktrees. Pure path op:
+ *  Solus worktrees collapse to their originating project; everything else is
+ *  its own root. (Sub-directory cwds aren't lifted to the repo root here — the
+ *  simple rule the whole index shares so a repo and its worktrees agree.) */
+function projectRootFor(cwd: string | null): string | null {
+  return cwd ? worktreeProjectRoot(cwd) : null
 }
 
 interface IndexedMessage {
@@ -37,6 +51,8 @@ interface IndexedMessage {
   ts: number | null
   text: string
 }
+
+type StoredMessage = Omit<IndexedMessage, 'endOffset'>
 
 let watcher: FSWatcher | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -72,7 +88,10 @@ function deleteSessionFile(filePath: string): void {
     const db = getDb()
     db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
-    db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId)
+    db.prepare(`
+      DELETE FROM sessions
+      WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
+    `).run(sessionId)
     db.prepare('DELETE FROM session_files WHERE path = ?').run(filePath)
   })
 }
@@ -125,6 +144,62 @@ function extractMessage(line: string, endOffset: number): IndexedMessage | null 
   }
 }
 
+function insertSessionMessageRows(
+  sessionId: string,
+  messages: Iterable<StoredMessage | null>,
+): number {
+  const db = getDb()
+  const insertMessage = db.prepare(`
+    INSERT INTO session_messages(session_id, uuid, role, ts, text)
+    VALUES (?, ?, ?, ?, ?)
+  `)
+  const insertFts = db.prepare('INSERT INTO session_fts(rowid, text) VALUES (?, ?)')
+  let inserted = 0
+  for (const message of messages) {
+    if (!message) continue
+    const result = insertMessage.run(
+      sessionId,
+      message.uuid,
+      message.role,
+      message.ts,
+      message.text,
+    )
+    insertFts.run(result.lastInsertRowid, message.text)
+    inserted += 1
+  }
+  return inserted
+}
+
+export function indexSessionMessages(
+  sessionId: string,
+  provider: string,
+  messages: SessionLoadMessage[],
+): void {
+  const storedMessages = messages
+    .filter((message) =>
+      (message.role === 'user' || message.role === 'assistant') &&
+      message.content.trim(),
+    )
+    .map((message): StoredMessage => ({
+      uuid: null,
+      role: message.role,
+      ts: Number.isFinite(message.timestamp) ? message.timestamp : null,
+      text: message.content,
+    }))
+
+  withTx(() => {
+    const db = getDb()
+    db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
+    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
+    const messageCount = insertSessionMessageRows(sessionId, storedMessages)
+    db.prepare(`
+      UPDATE sessions
+      SET message_count = ?
+      WHERE session_id = ? AND provider = ?
+    `).run(messageCount, sessionId, provider)
+  })
+}
+
 function upsertSession(
   sessionId: string,
   cwd: string | null,
@@ -140,15 +215,16 @@ function upsertSession(
     .get(sessionId) as { count: number }
   db.prepare(`
     INSERT INTO sessions(
-      session_id, provider, cwd, project_path, project_key, is_worktree,
+      session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
       slug, first_message, last_timestamp, message_count, size
     )
-    VALUES (?, 'claude', ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+    VALUES (?, 'claude', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       provider = excluded.provider,
       cwd = excluded.cwd,
       project_path = excluded.project_path,
       project_key = excluded.project_key,
+      project_root = excluded.project_root,
       is_worktree = excluded.is_worktree,
       slug = excluded.slug,
       first_message = excluded.first_message,
@@ -159,6 +235,7 @@ function upsertSession(
     sessionId,
     cwd,
     projectPath,
+    projectRootFor(cwd),
     isWorktree ? 1 : 0,
     slug,
     firstMessage,
@@ -260,22 +337,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
     const isFinalChunk = index + LINES_PER_TRANSACTION >= records.length
     withTx(() => {
       const openedDb = getDb()
-      const insertMessage = openedDb.prepare(`
-        INSERT INTO session_messages(session_id, uuid, role, ts, text)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-      const insertFts = openedDb.prepare('INSERT INTO session_fts(rowid, text) VALUES (?, ?)')
-      for (const record of chunk) {
-        if (!record.message) continue
-        const result = insertMessage.run(
-          sessionId,
-          record.message.uuid,
-          record.message.role,
-          record.message.ts,
-          record.message.text,
-        )
-        insertFts.run(result.lastInsertRowid, record.message.text)
-      }
+      insertSessionMessageRows(sessionId, chunk.map((record) => record.message))
       if (isFinalChunk) {
         upsertSession(
           sessionId,
@@ -424,14 +486,67 @@ function rowToSession(row: SessionRow): SessionMeta {
     cwd: row.cwd ?? '',
     projectPath: row.project_path ?? '',
     isWorktree: row.is_worktree === 1,
+    model: row.model ?? undefined,
+    reasoningEffort: (row.reasoning_effort as SessionMeta['reasoningEffort']) ?? undefined,
+    projectRoot: row.project_root ?? undefined,
   }
+}
+
+const SESSION_SELECT = `
+  session_id, provider, cwd, project_path, is_worktree, slug, first_message,
+  last_timestamp, size, model, reasoning_effort, project_root
+`
+
+export function getIndexedSession(sessionId: string): SessionMeta | null {
+  const row = getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE session_id = ?`).get(sessionId) as SessionRow | undefined
+  return row ? rowToSession(row) : null
+}
+
+export function getSessionMessages(sessionId: string): Array<{ role: string; ts: number | null; text: string }> {
+  return getDb().prepare(`
+    SELECT role, ts, text
+    FROM session_messages
+    WHERE session_id = ?
+    ORDER BY ts ASC, id ASC
+  `).all(sessionId) as Array<{ role: string; ts: number | null; text: string }>
+}
+
+export function persistIndexedSessionStart(
+  sessionId: string,
+  provider: AgentId,
+  cwd: string,
+  projectPath: string,
+  model: string,
+  reasoningEffort: ReasoningEffort,
+): void {
+  getDb().prepare(`
+    INSERT INTO sessions(
+      session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
+      slug, first_message, last_timestamp, message_count, size, model, reasoning_effort
+    )
+    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 0, 0, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      project_root = COALESCE(sessions.project_root, excluded.project_root),
+      model = COALESCE(sessions.model, excluded.model),
+      reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort)
+  `).run(
+    sessionId,
+    provider === 'claude-code' ? 'claude' : provider,
+    cwd,
+    projectPath,
+    projectRootFor(cwd),
+    projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER) ? 1 : 0,
+    Date.now(),
+    model,
+    reasoningEffort,
+  )
 }
 
 export function listIndexedSessions(projectPaths: string[], limit?: number): SessionMeta[] {
   if (projectPaths.length === 0) return []
   const placeholders = projectPaths.map(() => '?').join(', ')
   const rows = getDb().prepare(`
-    SELECT session_id, provider, cwd, project_path, is_worktree, slug, first_message, last_timestamp, size
+    SELECT ${SESSION_SELECT}
     FROM sessions
     WHERE provider = 'claude' AND project_path IN (${placeholders})
     ORDER BY last_timestamp DESC
@@ -445,7 +560,7 @@ export function listIndexedCodexSessions(projectPath: string, limit?: number): S
   const encodedPath = encodePathAsFolder(normalizedPath)
   const includeWorktrees = !isSolusWorktreePath(normalizedPath)
   const rows = getDb().prepare(`
-    SELECT session_id, provider, cwd, project_path, is_worktree, slug, first_message, last_timestamp, size
+    SELECT ${SESSION_SELECT}
     FROM sessions
     WHERE provider = 'codex'
       AND (project_path = ?${includeWorktrees ? ' OR project_path LIKE ?' : ''})
@@ -464,14 +579,15 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
   withTx(() => {
     const upsert = getDb().prepare(`
       INSERT INTO sessions(
-        session_id, provider, cwd, project_path, project_key, is_worktree,
+        session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
         slug, first_message, last_timestamp, message_count, size
       )
-      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 0, ?)
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         provider = excluded.provider,
         cwd = excluded.cwd,
         project_path = excluded.project_path,
+        project_root = excluded.project_root,
         is_worktree = excluded.is_worktree,
         slug = excluded.slug,
         first_message = excluded.first_message,
@@ -484,6 +600,7 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
         session.provider === 'claude-code' ? 'claude' : session.provider,
         session.cwd,
         session.projectPath,
+        projectRootFor(session.cwd),
         session.isWorktree ? 1 : 0,
         session.slug,
         session.firstMessage,
@@ -524,27 +641,56 @@ export function getIndexedCodexSessionTimestamps(sessionIds: string[]): Map<stri
   return timestamps
 }
 
-function sanitizeFtsQuery(query: string): string {
-  return query
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((token) => `"${token.replaceAll('"', '""')}"`)
-    .join(' ')
+/** Of the given session ids, the subset that already have at least one indexed
+ *  message body. Lets the Codex refresh re-read threads whose row exists but
+ *  whose body was never indexed (e.g. a session written at session_init), rather
+ *  than trusting the last_timestamp comparison alone. */
+export function getCodexSessionsWithMessages(sessionIds: string[]): Set<string> {
+  const withMessages = new Set<string>()
+  for (let offset = 0; offset < sessionIds.length; offset += 500) {
+    const batch = sessionIds.slice(offset, offset + 500)
+    const placeholders = batch.map(() => '?').join(', ')
+    const rows = getDb().prepare(`
+      SELECT DISTINCT session_id
+      FROM session_messages
+      WHERE session_id IN (${placeholders})
+    `).all(...batch) as unknown as Array<{ session_id: string }>
+    for (const row of rows) withMessages.add(row.session_id)
+  }
+  return withMessages
 }
 
 export function searchIndexedSessions(
   query: string,
-  projectPath?: string,
+  filters: {
+    providers?: string[]
+    role?: 'user' | 'assistant'
+    /** Inclusive lower/upper bounds on message timestamp (ms). Omit for open-ended. */
+    sinceTs?: number
+    untilTs?: number
+    /** Omit to search every project; set to scope to one git-root and all its worktrees. */
+    projectRoot?: string
+  } = {},
   requestedLimit?: number,
 ): SessionSearchResult[] {
   const ftsQuery = sanitizeFtsQuery(query)
   if (!ftsQuery) return []
   const rawLimit = requestedLimit ?? 50
   const limit = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.trunc(rawLimit))) : 50
-  const projectFilter = projectPath ? 'AND s.project_path = ?' : ''
+  const providers = filters.providers?.map((provider) => provider === 'claude-code' ? 'claude' : provider)
+  const providerFilter = providers?.length
+    ? `AND s.provider IN (${providers.map(() => '?').join(', ')})`
+    : ''
+  const projectFilter = filters.projectRoot ? 'AND s.project_root = ?' : ''
+  const roleFilter = filters.role ? 'AND session_messages.role = ?' : ''
+  const sinceFilter = filters.sinceTs !== undefined ? 'AND session_messages.ts >= ?' : ''
+  const untilFilter = filters.untilTs !== undefined ? 'AND session_messages.ts <= ?' : ''
   const params: Array<string | number> = [ftsQuery]
-  if (projectPath) params.push(projectPath)
+  if (filters.projectRoot) params.push(filters.projectRoot)
+  if (providers?.length) params.push(...providers)
+  if (filters.role) params.push(filters.role)
+  if (filters.sinceTs !== undefined) params.push(filters.sinceTs)
+  if (filters.untilTs !== undefined) params.push(filters.untilTs)
   params.push(limit)
 
   const rows = getDb().prepare(`
@@ -559,15 +705,22 @@ export function searchIndexedSessions(
         s.first_message,
         s.last_timestamp,
         s.size,
-        snippet(session_fts, 0, '', '', '…', 24) AS snippet,
+        s.model,
+        s.reasoning_effort,
+        s.project_root,
+        snippet(session_fts, 0, '', '', '…', 64) AS snippet,
         session_messages.id AS message_id,
         session_messages.ts AS hit_ts,
         bm25(session_fts) AS rank
       FROM session_fts
       JOIN session_messages ON session_messages.id = session_fts.rowid
       JOIN sessions s ON s.session_id = session_messages.session_id
-      WHERE session_fts MATCH ? AND s.provider = 'claude'
+      WHERE session_fts MATCH ?
       ${projectFilter}
+      ${providerFilter}
+      ${roleFilter}
+      ${sinceFilter}
+      ${untilFilter}
     )
     SELECT *
     FROM hits
@@ -586,5 +739,22 @@ export function searchIndexedSessions(
     session: rowToSession(row),
     snippet: row.snippet,
     ts: row.hit_ts ?? 0,
+  }))
+}
+
+/** Every distinct project (git-root) that has indexed sessions, most-recent
+ *  first. `name` is the root's folder name — the label an agent matches against. */
+export function listProjectRoots(): Array<{ projectRoot: string; name: string; count: number }> {
+  const rows = getDb().prepare(`
+    SELECT project_root, COUNT(*) AS count
+    FROM sessions
+    WHERE project_root IS NOT NULL AND project_root <> ''
+    GROUP BY project_root
+    ORDER BY MAX(last_timestamp) DESC
+  `).all() as Array<{ project_root: string; count: number }>
+  return rows.map((row) => ({
+    projectRoot: row.project_root,
+    name: basename(row.project_root),
+    count: row.count,
   }))
 }

@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
   import {
+    getWorkspaceContext,
     getSettingsContext,
     type ProjectPanelSectionId,
-  } from "../../contexts/settings.context.svelte";
-  import { getGitStatusStore } from "../../contexts/git-status.store.svelte";
-  import { DEFAULT_PANEL_WIDTH } from "../../contexts/pane-view.store.svelte";
+    getSessionEnvironmentStore,
+    toasts,
+  } from "../../contexts";
+  import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/pane-view.store.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -23,10 +24,11 @@
   import TasksSection from "./TasksSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import { buildAutomationBoard } from "./lib/automation-board";
+  import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { sessionWorks } from "./lib/session-works";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { tabGitContextFromStatus } from "../../../shared/types";
+  import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   interface Props {
     open?: boolean;
@@ -37,18 +39,29 @@
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
-  const gitStatus = getGitStatusStore();
+  const environmentStore = getSessionEnvironmentStore();
+  const outerScrollbar = getOuterScrollbarContext();
+  let sectionsElement = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (!outerScrollbar || !sectionsElement) return;
+    return outerScrollbar.register(sectionsElement);
+  });
   const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
 
-  const activeSession = $derived(session.sessionFor(session.activeTabId));
+  const panelTabId = $derived(
+    session.focusedChatTabId ?? session.activeTabId,
+  );
+  const panelSession = $derived(session.sessionFor(panelTabId));
+  const panelEnvironment = $derived(environmentStore.environmentFor(panelTabId));
   const cwd = $derived(
-    activeSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
+    panelSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
   const gitCtx = $derived(
-    activeSession?.gitContext ?? session.globalDefaults.gitContext,
+    panelEnvironment.checkout,
   );
-  const gitCwd = $derived(gitCtx?.worktreePath ?? cwd);
-  const activeTabId = $derived(session.activeTabId);
+  const gitCwd = $derived(panelEnvironment.cwd);
+  const isSplitScope = $derived(panelTabId !== session.activeTabId);
   const projectName = $derived(() => {
     const dir = cwd?.replace(/\/$/, "");
     if (!dir || dir === "~") return "~";
@@ -56,25 +69,26 @@
     return parts[parts.length - 1] || "~";
   });
 
-  // Works the active session created or updated — derived from the same messages
+  // Works the focused session created or updated — derived from the same messages
   // that drive the conversation, so it's correct live and after a history reload.
   const sessionWorkItems = $derived(
-    activeSession
+    panelSession
       ? sessionWorks(
-          activeSession.messages,
+          panelSession.messages,
           session.worksStore.works,
-          activeSession.agentSessionId,
+          panelSession.agentSessionId,
         )
       : [],
   );
 
-  // Automations scoped to the active project (its repo root, worktree, and cwd),
-  // so the panel shows what runs for this project. Reloaded whenever the panel
-  // opens so agent-created automations appear without a manual refresh.
+  // Automations scoped to the focused project (its repo root, worktree, and cwd),
+  // so the panel shows what runs for this project.
   const automationsStore = session.automationsStore;
-  const automationScopeRoots = $derived([
-    ...new Set([gitCwd, cwd].filter(Boolean)),
-  ] as string[]);
+  const automationScopeRoots = $derived(
+    isUnconfiguredCwd(gitCwd)
+      ? []
+      : ([...new Set([gitCwd, cwd].filter(Boolean))] as string[]),
+  );
   // A glanceable status board, not the full catalog: only automations that need
   // attention right now (running, failed, pinned, soonest-scheduled) surface here.
   const automationBoard = $derived(
@@ -84,26 +98,31 @@
       ),
     ),
   );
-  $effect(() => {
-    if (open) void automationsStore.loadAll();
-  });
-
   // The works store is "active project" scoped and otherwise only populated
   // lazily (when Folio or the work picker opens). Hydrating a session from disk
   // does not load it, so without this the Works section is empty on a cold
-  // reload until something else loads the store. Load it for the active cwd.
+  // reload until something else loads the store. Load only when the focused
+  // project's resolved Git cwd changes so focus events within a pane do not
+  // churn the project-scoped stores.
+  let loadedProjectCwd = $state<string>();
+  const shouldLoadProject = $derived(
+    open && !isUnconfiguredCwd(gitCwd) && gitCwd !== loadedProjectCwd,
+  );
   $effect(() => {
+    if (!shouldLoadProject || !gitCwd) return;
+    loadedProjectCwd = gitCwd;
+    void automationsStore.loadAll();
     if (cwd) void session.worksStore.loadAll(cwd);
   });
 
   // Registered here (not in GitSection) so the shortcuts keep working while
   // the Git section is collapsed and unmounted.
   useKeybinding("orb.sync", () => {
-    if (gitCtx) void gitActionsFor(activeTabId, session, gitStatus).sync();
+    if (gitCtx) void gitActionsFor(panelTabId, session, environmentStore).sync();
   });
   useKeybinding("orb.commit-push", () => {
     if (gitCtx)
-      void gitActionsFor(activeTabId, session, gitStatus).commitPush();
+      void gitActionsFor(panelTabId, session, environmentStore).commitPush();
   });
 
   function toggleSection(id: ProjectPanelSectionId) {
@@ -124,23 +143,17 @@
     }
     refreshState = "spinning";
     // Floor the spin at one full rotation so a fast refresh still reads.
-    const [ok] = await Promise.all([
-      gitStatus.refresh(gitCwd, { force: true, details: true }),
+    const [result] = await Promise.all([
+      environmentStore.refreshTab(session, {
+        tabId: panelTabId,
+        cwd: gitCwd,
+        level: "full",
+      }),
       new Promise((resolve) => setTimeout(resolve, 600)),
     ]);
-    if (ok) {
-      const refreshedStatus = gitStatus.statusFor(gitCwd);
-      const refreshedGitCtx = tabGitContextFromStatus(refreshedStatus);
-      if (activeSession && !activeSession.gitContext?.worktreePath) {
-        activeSession.gitContext = refreshedGitCtx;
-      } else if (
-        !activeSession &&
-        !session.globalDefaults.gitContext?.worktreePath
-      ) {
-        session.globalDefaults.gitContext = refreshedGitCtx;
-      }
-    }
-    refreshState = ok ? "success" : "error";
+    refreshState = result.ok ? "success" : "error";
+    if (!result.ok)
+      toasts.error(result.error ?? "Couldn't refresh the Git environment.");
     refreshResetTimer = setTimeout(() => {
       refreshState = "idle";
       refreshResetTimer = null;
@@ -148,16 +161,17 @@
   }
 
   function openFiles() {
-    if (!cwd) return;
-    session.artifactViewer.openFiles();
+    if (!gitCwd) return;
+    session.panes.openFiles(panelTabId, panelEnvironment.cwd, panelEnvironment.checkout);
     requestInputFocus();
   }
 
   function newTask() {
-    if (!gitCwd) return;
+    if (isUnconfiguredCwd(gitCwd)) return;
     session.ui.openTaskComposer(gitCwd);
     requestInputFocus();
   }
+
 </script>
 
 {#snippet gitHeaderExtra()}
@@ -199,6 +213,7 @@
       class="text-(--solus-text-tertiary)"
       type="button"
       aria-label="New task"
+      disabled={isUnconfiguredCwd(gitCwd)}
       onclick={(e) => {
         e.stopPropagation();
         newTask();
@@ -207,6 +222,17 @@
       <PlusIcon size={14} />
     </Button>
   </span>
+{/snippet}
+
+{#snippet panelHeaderActions()}
+  {#if isSplitScope}
+    <span
+      class="inline-flex h-4 items-center rounded-full bg-(--solus-surface-hover) px-1.5 text-[0.5625rem] font-semibold tracking-[0.04em] text-(--solus-text-tertiary) uppercase"
+      aria-label="Project panel scoped to split pane"
+    >
+      Split
+    </span>
+  {/if}
 {/snippet}
 
 <SidePanel
@@ -219,17 +245,22 @@
   onAction={onClose}
   actionTooltip={`Close project panel (${comboHint("global.toggle-project-panel")})`}
   actionAriaLabel="Close project panel"
+  headerActions={panelHeaderActions}
   background="color-mix(in srgb, var(--solus-container-bg) 90%, color-mix(in srgb, var(--solus-input-pill-bg) 70%, var(--solus-surface-primary)) 10%)"
   headerTopPadding="compact"
 >
-  <div class="project-sections">
+  <div
+    bind:this={sectionsElement}
+    class="project-sections"
+    class:outer-scroll-source={!!outerScrollbar}
+  >
     <PanelSection
       title="Environment"
       collapsed={settings.projectPanelCollapsed.git}
       onToggle={() => toggleSection("git")}
       headerExtra={gitHeaderExtra}
     >
-      <GitSection cwd={gitCwd} tabId={activeTabId} active={open} onOpenFiles={openFiles} />
+      <GitSection tabId={panelTabId} active={open} onOpenFiles={openFiles} />
     </PanelSection>
     {#if sessionWorkItems.length > 0}
       <PanelSection
@@ -269,6 +300,9 @@
     flex: 1;
     min-height: 0;
     flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
   }
 
   .tiny-icon {
@@ -290,7 +324,7 @@
 
   .tiny-icon:hover {
     color: var(--solus-text-primary);
-    background: color-mix(in srgb, var(--solus-accent) 7%, transparent);
+    background: var(--solus-surface-hover);
   }
   .tiny-icon:active {
     background: color-mix(in srgb, var(--solus-accent) 12%, transparent);

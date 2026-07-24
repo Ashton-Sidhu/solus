@@ -117,6 +117,7 @@
         <Textarea
           bind:ref={textareaEl}
           bind:value={draft}
+          mic
           class="diagram-comments__input"
           rows="2"
           placeholder="Add a comment…"
@@ -218,7 +219,7 @@
 
   :global(.diagram-comments__input) {
     width: 100%;
-    padding: 0.4375rem 0.5rem;
+    padding: 0.4375rem 2rem 0.4375rem 0.5rem;
     border-radius: 0.5rem;
     border: 0.0625rem solid var(--solus-tool-border);
     background: var(--solus-surface-primary);

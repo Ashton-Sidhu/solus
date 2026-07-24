@@ -12,8 +12,7 @@
   } from "../../lib/keybindings/match";
   import type { BindingDef, KeyCombo, Scope } from "../../lib/keybindings/types";
   import type { AppGlobalShortcuts, AppShortcutCombo } from "../../../shared/types";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { getSettingsContext, getWindowContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
 
   interface Props {
@@ -179,8 +178,22 @@
       const result = await window.solus.setAppGlobalShortcuts($state.snapshot(next));
       // The slot failed if its accelerator is in the returned failure list.
       const accel = comboToAccelerator(combo);
-      appFailed = { ...appFailed, [key]: !!accel && result.failed.includes(accel) };
-    } catch {}
+      const failed = !!accel && result.failed.includes(accel);
+      appFailed = { ...appFailed, [key]: failed };
+      if (failed) {
+        toasts.show({
+          message: "Couldn't apply the shortcut without a restart",
+          variant: "error",
+          action: { label: "Restart", onAction: restart },
+        });
+      }
+    } catch (error) {
+      appFailed = { ...appFailed, [key]: true };
+      toasts.error(
+        `Couldn't apply the shortcut: ${error instanceof Error ? error.message : String(error)}`,
+        { action: { label: "Restart", onAction: restart } },
+      );
+    }
   }
 
   function handleAppCapture(key: "primary" | "secondary", e: KeyboardEvent): void {
@@ -384,10 +397,6 @@
         </button>
       {:else}
         {#if failed}
-          <span class="inline-flex items-center gap-1 text-[0.6875rem] text-(--solus-text-secondary)">
-            <WarningCircleIcon size={13} class="text-(--solus-art-negative)" />
-            Couldn't apply live
-          </span>
           <Button
             variant="outline"
             size="xs"
@@ -441,7 +450,7 @@
               ? 'bg-(--solus-accent)/8 text-(--solus-text-primary) before:content-[\'\'] before:absolute before:-left-0.5 before:top-1/2 before:-translate-y-1/2 before:w-[0.1875rem] before:h-[1.0625rem] before:rounded-r-sm before:bg-(--solus-accent)'
               : searchQuery && item.matchCount === 0
                 ? 'text-(--solus-text-secondary) opacity-40'
-                : 'text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-accent)/7'}"
+                : 'text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-surface-hover)'}"
           aria-current={selectedScope === item.key && !searchQuery ? "true" : undefined}
           onclick={() => selectScope(item.key)}
         >

@@ -14,7 +14,7 @@
     DIAGRAM_GRAY,
     diagramAccent,
   } from './diagram-colors'
-  import { getSettingsContext } from '../../contexts/settings.context.svelte'
+  import { getSettingsContext } from '../../contexts'
   import {
     DIAGRAM_NODE_SHAPE_OPTIONS,
     isDecorativeNodeShape,

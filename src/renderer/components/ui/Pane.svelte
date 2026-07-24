@@ -6,9 +6,8 @@
     type PageKind,
     type PaneContent,
     type PaneSlot,
-  } from '../../contexts/pane-view.store.svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
-  import { getPlanStore } from '../../contexts/plan.store.svelte'
+  } from '../../contexts/workspace/pane-view.store.svelte'
+  import { getWorkspaceContext, getPlanStore } from '../../contexts'
   import { requestInputFocus } from '../../lib/inputFocus'
 
   // Keep every non-conversation surface behind an actual async boundary. Pane
@@ -17,6 +16,7 @@
   const PAGE_LOADERS: Record<PageKind, () => Promise<{ default: Component }>> = {
     tasks: () => import('../tasks/TasksPage.svelte'),
     prs: () => import('../prs/PrsPage.svelte'),
+    'review-mode': () => import('../review-mode/ReviewModeHost.svelte'),
     settings: () => import('../settings/SettingsPage.svelte'),
     'plans-gallery': () => import('../plan/PlanGallery.svelte'),
     'folio-gallery': () => import('../artifact/FolioGallery.svelte'),
@@ -27,13 +27,23 @@
     content: PaneContent
     slot: PaneSlot
     onToggleSecondaryMaximize?: () => void
+    onAttachFile?: (tabId?: string) => void | Promise<void>
+    onScreenshot?: ((tabId?: string) => void | Promise<void>) | null
+    onDesignMode?: ((tabId?: string) => void | Promise<void>) | null
   }
 
-  let { content, slot, onToggleSecondaryMaximize }: Props = $props()
+  let {
+    content,
+    slot,
+    onToggleSecondaryMaximize,
+    onAttachFile,
+    onScreenshot,
+    onDesignMode,
+  }: Props = $props()
 
   const session = getWorkspaceContext()
   const planStore = getPlanStore()
-  const av = session.artifactViewer
+  const panes = session.panes
 
   const activePlan = $derived.by(() => {
     if (content.kind !== 'plan') return null
@@ -136,9 +146,15 @@
     renderKey++
   }
 
-  const tab = $derived(session.tabs[session.activeTabId])
   const sess = $derived(session.sessionFor(session.activeTabId))
-  const isWorktree = $derived(!!sess?.gitContext?.worktreePath)
+  const overlaySourceTabId = $derived(
+    content.kind === 'diff' || content.kind === 'files' || content.kind === 'file-editor'
+      ? content.sourceTabId
+      : null,
+  )
+  const overlayTab = $derived(overlaySourceTabId ? session.tabs[overlaySourceTabId] : undefined)
+  const overlaySession = $derived(overlaySourceTabId ? session.sessionFor(overlaySourceTabId) : undefined)
+  const overlayIsWorktree = $derived(!!overlaySession?.gitContext?.worktreePath)
 
   const promoteTargetRoot = $derived(
     sess?.gitContext?.worktreePath ?? sess?.gitContext?.repoRoot ?? sess?.workingDirectory ?? '',
@@ -146,7 +162,7 @@
 
   function handleOpenInSplit() {
     if (!isMovableContent(content)) return
-    av.moveToOppositeSlot(content, slot)
+    panes.moveToOppositeSlot(content, slot)
     if (slot === 'primary') requestInputFocus()
   }
 
@@ -180,14 +196,14 @@
     if (content.kind !== 'work') return
     const work = session.worksStore.get(content.workId)
     if (!work) return
-    av.closeSlot(slot)
+    panes.closeSlot(slot)
     session.requestWorkDelete(work)
   }
 
   async function handleDuplicate() {
     if (content.kind !== 'work') return
     const duplicated = await session.worksStore.duplicate(content.workId)
-    av.openWork(duplicated.id)
+    panes.openWork(duplicated.id)
     requestInputFocus()
   }
 
@@ -238,7 +254,7 @@
     {@render loadingSurface('Loading plan…')}
   {:then planModule}
     {@const PlanModal = planModule.default}
-    <PlanModal plan={activePlan} inline {slot} onOpenInSplit={handleOpenInSplit} onClose={() => av.closeSlot(slot)} />
+    <PlanModal plan={activePlan} inline {slot} onOpenInSplit={handleOpenInSplit} onClose={() => panes.closeSlot(slot)} />
   {/await}
 {:else if content.kind === 'work' && activeWork && activeWork.type === 'diagram'}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
@@ -260,7 +276,7 @@
             workId={activeWork.id}
             onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
             onDirtyChange={(d) => { shellDirty = d }}
-            onClose={() => av.closeSlot(slot)}
+            onClose={() => panes.closeSlot(slot)}
             inline
             {slot}
             onOpenInSplit={handleOpenInSplit}
@@ -298,7 +314,7 @@
             docType={activeWork.type}
             onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
             onDirtyChange={(d) => { shellDirty = d }}
-            onClose={() => av.closeSlot(slot)}
+            onClose={() => panes.closeSlot(slot)}
             inline
             {slot}
             onOpenInSplit={handleOpenInSplit}
@@ -328,8 +344,8 @@
           inline
           {slot}
           onOpenInSplit={handleOpenInSplit}
-          onClose={() => av.closeSlot(slot)}
-          onDone={() => av.closeSlot(slot)}
+          onClose={() => panes.closeSlot(slot)}
+          onDone={() => panes.closeSlot(slot)}
         />
       {/await}
     {/key}
@@ -339,7 +355,7 @@
     {@render loadingSurface('Loading review…')}
   {:then reviewModule}
     {@const ReviewGuidePane = reviewModule.default}
-    <ReviewGuidePane guideKey={content.key} scope={content.scope} {slot} onOpenInSplit={handleOpenInSplit} onClose={() => av.closeSlot(slot)} />
+    <ReviewGuidePane guideKey={content.key} scope={content.scope} {slot} onOpenInSplit={handleOpenInSplit} onClose={() => panes.closeSlot(slot)} />
   {/await}
 {:else if content.kind === 'pr-review'}
   {#await import('../pr-review/PrReviewPane.svelte')}
@@ -360,47 +376,62 @@
     {@const PrReviewSkeleton = prReviewSkeletonModule.default}
     <PrReviewSkeleton number={content.number} title={content.title} />
   {/await}
-{:else if content.kind === 'diff' && tab}
+{:else if content.kind === 'diff' && (overlayTab || content.cwd)}
   {#await import('../diff/DiffPanel.svelte')}
     {@render loadingSurface('Loading changes…')}
   {:then diffModule}
     {@const DiffPanel = diffModule.default}
     <DiffPanel
-      tabId={tab.id}
-      projectPath={sess?.workingDirectory ?? ''}
-      worktreePath={sess?.gitContext?.worktreePath}
-      worktreeBranch={sess?.gitContext?.branch ?? ''}
-      targetBranch={sess?.gitContext?.targetBranch ?? 'HEAD'}
-      {isWorktree}
-      onClose={() => av.closeSecondary()}
-      maximized={av.maximized}
+      tabId={overlayTab?.id ?? ''}
+      getCtx={content.cwd
+        ? () => session.ctxForEnvironment(
+            content.cwd!,
+            content.checkout ?? null,
+            overlayTab?.id ?? '',
+          )
+        : undefined}
+      projectPath={overlaySession?.workingDirectory ?? content.cwd ?? ''}
+      worktreePath={overlaySession?.gitContext?.worktreePath ?? content.cwd}
+      worktreeBranch={overlaySession?.gitContext?.branch ?? session.globalDefaults.gitContext?.branch ?? ''}
+      targetBranch={overlaySession?.gitContext?.targetBranch ?? session.globalDefaults.gitContext?.targetBranch ?? 'HEAD'}
+      isWorktree={overlayIsWorktree || !!session.globalDefaults.gitContext?.worktreePath}
+      onClose={() => panes.closeOverlay()}
+      maximized={panes.maximized}
       onToggleMaximize={onToggleSecondaryMaximize}
       initialScope={content.scope}
+      initialFilePath={content.filePath}
+      navigationRequestId={content.navigationRequestId}
     />
   {/await}
-{:else if content.kind === 'files' && tab}
+{:else if content.kind === 'files' && (overlayTab || content.cwd)}
   {#await import('../files/FilesPane.svelte')}
     {@render loadingSurface('Loading files…')}
   {:then filesModule}
     {@const FilesPane = filesModule.default}
     <FilesPane
-      ctx={session.ctxFor(tab.id)}
-      cwd={sess?.gitContext?.worktreePath ?? sess?.workingDirectory ?? ''}
+      ctx={content.cwd
+        ? session.ctxForEnvironment(
+            content.cwd,
+            content.checkout ?? null,
+            overlayTab?.id ?? '',
+          )
+        : session.ctxFor(overlayTab!.id)}
+      cwd={content.cwd ?? overlaySession?.gitContext?.worktreePath ?? overlaySession?.workingDirectory ?? ''}
       isDark={session.settings.isDark}
-      onClose={() => av.closeSlot(slot)}
+      onClose={() => panes.closeOverlay()}
     />
   {/await}
-{:else if content.kind === 'file-editor' && tab}
+{:else if content.kind === 'file-editor' && overlayTab}
   {#await import('../files/FileEditorPane.svelte')}
     {@render loadingSurface('Loading file…')}
   {:then fileEditorModule}
     {@const FileEditorPane = fileEditorModule.default}
     <FileEditorPane
-      ctx={session.ctxFor(tab.id)}
-      cwd={sess?.gitContext?.worktreePath ?? sess?.workingDirectory ?? ''}
+      ctx={session.ctxFor(overlayTab.id)}
+      cwd={overlaySession?.gitContext?.worktreePath ?? overlaySession?.workingDirectory ?? ''}
       isDark={session.settings.isDark}
       file={content.file}
-      onClose={() => av.closeSlot(slot)}
+      onClose={() => panes.closeOverlay()}
     />
   {/await}
 {:else if content.kind === 'subagent'}
@@ -411,7 +442,7 @@
     <SubagentPane
       tabId={content.tabId}
       messageId={content.messageId}
-      onClose={() => av.closeSlot(slot)}
+      onClose={() => panes.closeOverlay()}
       onToggleMaximize={onToggleSecondaryMaximize}
     />
   {/await}
@@ -422,7 +453,14 @@
     {@render loadingSurface('Loading conversation…')}
   {:then conversationModule}
     {@const ConversationPane = conversationModule.default}
-    <ConversationPane tabId={content.tabId} onClose={() => av.closeSlot(slot)} />
+    <ConversationPane
+      tabId={content.tabId}
+      {onAttachFile}
+      {onScreenshot}
+      {onDesignMode}
+      onToggleMaximize={onToggleSecondaryMaximize}
+      onClose={() => panes.closeSlot(slot)}
+    />
   {/await}
 {:else if isPageContent(content)}
   <!-- Pages size themselves with `flex-1` (they used to be children of the

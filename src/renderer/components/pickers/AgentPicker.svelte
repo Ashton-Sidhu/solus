@@ -1,8 +1,6 @@
 <script lang="ts">
   import { CaretDownIcon, CheckIcon, RobotIcon } from 'phosphor-svelte'
-  import { getAgentContext } from '../../contexts/agent.context.svelte'
-  import { getWorkspaceContext } from '../../contexts/workspace.context.svelte'
-  import { getStatusBarContext } from '../../contexts/status-bar.context.svelte'
+  import { getAgentContext, getWorkspaceContext, getStatusBarContext } from '../../contexts'
   import { agentLabel, buildAgentAvailabilityRows } from '../../lib/agentAvailability'
   import { tooltip } from '../../lib/tooltip'
   import { requestInputFocus } from '../../lib/inputFocus'
@@ -44,7 +42,7 @@
       <button
         {...props}
         aria-keyshortcuts="Alt+Shift+G"
-        class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-2 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+        class="flex items-center gap-0.5 text-[0.75rem] rounded-full px-2 py-0.5 transition-[background-color,color,scale] text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
         use:tooltip={open ? null : (compact ? activeLabel : "Select agent (Opt+Shift+G)")}
       >
         {#if compact}<RobotIcon size={12} />{:else}{activeLabel}{/if}

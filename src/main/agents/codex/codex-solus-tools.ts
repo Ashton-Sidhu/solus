@@ -14,11 +14,6 @@ import {
   type OnArtifact,
 } from '../../folio/artifact-tools'
 import {
-  RECORD_CHANGE_TOOL_JSON_SCHEMA,
-  RECORD_CHANGE_TOOL_NAME,
-  recordChange,
-} from '../../review/ledger-tool'
-import {
   AUTOMATION_TOOL_JSON_SCHEMAS,
   AUTOMATION_TOOL_NAMES,
   AUTOMATION_MUTATING_TOOLS,
@@ -46,7 +41,7 @@ import { PR_TOOL_JSON_SCHEMAS, PR_TOOL_NAMES, PR_MUTATING_TOOLS, executePrTool }
  * the headless run auto-runs everything with no UI callbacks).
  */
 
-export type CodexSolusToolKind = 'work' | 'automation' | 'task' | 'session' | 'pr' | 'artifact' | 'record_change'
+export type CodexSolusToolKind = 'work' | 'automation' | 'task' | 'session' | 'pr' | 'artifact'
 
 export interface CodexSolusToolClass {
   kind: CodexSolusToolKind
@@ -64,7 +59,6 @@ export function bareToolName(name: string): string {
 export function classifyCodexSolusTool(name: string): CodexSolusToolClass | null {
   const n = bareToolName(name)
   if (n === ARTIFACT_TOOL_NAME) return { kind: 'artifact', mutating: false }
-  if (n === RECORD_CHANGE_TOOL_NAME) return { kind: 'record_change', mutating: false }
   if (WORK_TOOL_NAMES.has(n)) return { kind: 'work', mutating: WORK_MUTATING_TOOLS.has(n) }
   if (AUTOMATION_TOOL_NAMES.has(n)) return { kind: 'automation', mutating: AUTOMATION_MUTATING_TOOLS.has(n) }
   if (TASK_TOOL_NAMES.has(n)) return { kind: 'task', mutating: TASK_MUTATING_TOOLS.has(n) }
@@ -87,7 +81,6 @@ export interface CodexSolusToolCtx {
   onSessionPrompted?: OnSessionPrompted
   onSessionStopped?: OnSessionStopped
   onTaskCreated?: OnTaskCreated
-  now?: () => string
 }
 
 export interface CodexSolusToolResult {
@@ -112,12 +105,6 @@ export async function executeCodexSolusTool(
   switch (cls.kind) {
     case 'artifact':
       return executeArtifactTool(args, { onArtifact: ctx.onArtifact })
-    case 'record_change':
-      return recordChange(args, {
-        cwd: ctx.cwd,
-        sessionId: () => ctx.sessionId,
-        now: ctx.now ?? (() => new Date().toISOString()),
-      })
     case 'work':
       return executeWorkTool(n, args, {
         ctx: { sessionId: ctx.sessionId, agentProvider: ctx.agentProvider, cwd: ctx.cwd },
@@ -157,6 +144,5 @@ export function codexSolusToolSchemas(opts: { includeAutomationTools: boolean })
     ...TASK_TOOL_JSON_SCHEMAS,
     ...PR_TOOL_JSON_SCHEMAS,
     ARTIFACT_TOOL_JSON_SCHEMA,
-    RECORD_CHANGE_TOOL_JSON_SCHEMA,
   ]
 }

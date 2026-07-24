@@ -4,9 +4,11 @@
   import { SvelteSet } from "svelte/reactivity";
   import type { GuideSection, LedgerRecord } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
-  import { tooltip } from "../../../lib/tooltip";
+  import type { FileVersions } from "../../../lib/diff-expandable";
   import { fileTypeIcon } from "../../../lib/fileTypeIcon";
+  import { detectMovedBlocksInPatches } from "../../../lib/diff-moves";
   import { ensureIconCollections } from "../../diagram/iconify";
+  import { Button } from "../../ui/button";
   import GuideFileDiff from "./GuideFileDiff.svelte";
   import { resolveLedgerRefs, type GuideDiffCommentSave } from "./lib/guide-data";
   import GuideExplanation from "./GuideExplanation.svelte";
@@ -24,6 +26,7 @@
     section,
     records,
     patchByPath,
+    fileVersions,
     onFileJump,
     comments = [],
     onCommentSave,
@@ -34,6 +37,8 @@
     section: GuideSection;
     records: LedgerRecord[];
     patchByPath: Map<string, string>;
+    /** Both versions of each changed file, so a card's hunk gaps can expand. */
+    fileVersions?: Map<string, FileVersions>;
     /** When set, the diff-card "open" action routes here (the PR-review surface
      *  switches to its Diff tab) instead of opening a separate file editor. */
     onFileJump?: (path: string) => void;
@@ -49,6 +54,7 @@
   const sectionRecords = $derived(
     resolveLedgerRefs(section.ledgerRefs, records),
   );
+  const moveAnalysis = $derived(detectMovedBlocksInPatches(patchByPath));
 
   // Comments for a given card. Derived map so each card reads its slice without
   // re-filtering the whole list per render.
@@ -153,12 +159,12 @@
     <GuideExplanation {section} records={sectionRecords} />
 
     {#if section.files.length > 0}
-      <ul class="mt-1 flex flex-col gap-1.5" role="list">
+      <ul class="mt-1 flex flex-col gap-0.5" role="list">
         {#each section.files as file (file.path)}
           <li>
             <button
               type="button"
-              class="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-(--solus-art-border) bg-(--solus-art-surface) px-3 py-2 text-left transition-[border-color,background-color,scale] duration-150 ease-out hover:border-(--solus-accent) hover:bg-(--solus-accent-soft) active:scale-[0.98]"
+              class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-[background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) active:scale-[0.98]"
               onclick={() => jumpToCard(file.path)}
             >
               {@render typeBadge(file.path)}
@@ -202,12 +208,13 @@
       <div
         bind:this={cards[file.path]}
         use:lazyDiffCard={file.path}
-        class="scroll-mt-6 overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface)"
+        class="scroll-mt-6 overflow-hidden rounded-xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
       >
         <div
           class="flex items-center gap-2 border-(--solus-art-border) px-3 py-2.5"
           class:border-b={open}
         >
+          <!-- The card's own header row, not a button primitive. -->
           <button
             type="button"
             class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
@@ -233,15 +240,17 @@
             </span>
           </button>
           {#if onFileJump}
-            <button
+            <Button
               type="button"
-              class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[color,background-color,scale] duration-150 ease-out hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) active:scale-[0.92]"
+              variant="ghost"
+              size="icon-xs"
+              class="cursor-pointer text-(--solus-text-tertiary) transition-[color,background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.92]"
               aria-label="Open in Diff tab"
-              use:tooltip={"Open in Diff tab"}
+              title="Open in Diff tab"
               onclick={() => onFileJump?.(file.path)}
             >
               <ArrowSquareOutIcon size={14} weight="bold" />
-            </button>
+            </Button>
           {/if}
         </div>
         {#if open}
@@ -251,6 +260,8 @@
                 <GuideFileDiff
                   {patch}
                   filePath={file.path}
+                  versions={fileVersions?.get(file.path)}
+                  {moveAnalysis}
                   comments={commentsByPath.get(file.path) ?? []}
                   onSaveComment={onCommentSave}
                   onDeleteComment={onCommentDelete}

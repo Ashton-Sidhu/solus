@@ -17,9 +17,7 @@
     ArrowUpRightIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
+  import { runtime, getWorkspaceContext, getPlanStore, toasts } from "../../contexts";
   import PlanActionBar from "./PlanActionBar.svelte";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import { CommentMark } from "../editor/commentMark";
@@ -42,9 +40,8 @@
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import { ArrowSquareOutIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
 
   const commentExtensions = [CommentMark];
 
@@ -435,7 +432,7 @@
     {/if}
   {/snippet}
 
-  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded, uploadError })}
+  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded })}
     <button
       type="button"
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
@@ -490,7 +487,7 @@
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
         {/if}
         {#if googleUpload}
-          <!-- Keep the menu open so the upload state + any error stay visible. -->
+          <!-- Keep the menu open so the upload state stays visible. -->
           <DropdownMenu.Item data-testid="google-upload" disabled={uploading} closeOnSelect={false} onSelect={() => googleUpload?.()}>
             {#if uploaded}
               <CheckIcon size={14} /><span class="flex-1 text-left">Opened!</span>
@@ -499,9 +496,6 @@
             {/if}
             {#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>{/if}
           </DropdownMenu.Item>
-          {#if uploadError}
-            <div class="px-3 pb-[0.375rem] pt-1 text-[0.6875rem] text-[var(--solus-error,#e55)]">{uploadError}</div>
-          {/if}
         {/if}
         {#if googleUpload}
           <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
@@ -544,7 +538,7 @@
   {/snippet}
 
   {#snippet footer()}
-    <div class="plan-action-bar-sleeve shrink-0 border-t border-(--solus-tool-border) px-5 py-2.5 max-md:px-3 max-md:py-1.5">
+    <div class="plan-action-bar-sleeve shrink-0 px-5 pt-2 pb-3 max-md:px-3 max-md:pb-2">
       <PlanActionBar
         planId={plan.id}
         inlineCommentCount={comments.length}
@@ -598,6 +592,7 @@
             bind:ref={commentInputEl}
             bind:value={commentInput}
             bare
+            mic
 placeholder="Add comment…"
             rows={1}
             submitOn="enter"

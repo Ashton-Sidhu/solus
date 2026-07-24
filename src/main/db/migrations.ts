@@ -184,6 +184,46 @@ CREATE VIRTUAL TABLE session_fts USING fts5(
 CREATE INDEX sessions_by_provider_project
 ON sessions(provider, project_path, last_timestamp DESC);
 `,
+  `
+ALTER TABLE sessions ADD COLUMN model TEXT;
+ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT;
+`,
+  `
+ALTER TABLE sessions ADD COLUMN project_root TEXT;
+CREATE INDEX sessions_by_project_root ON sessions(project_root, last_timestamp DESC);
+`,
+  // Full-text index over locally-stored works, for search_works. Standalone
+  // (not content='works') on purpose: works.id is a TEXT primary key, so the
+  // works rowid is implicit and not guaranteed stable — keying on work_id avoids
+  // that coupling. Works are few and small, so the duplicated text costs little.
+  // Project-storage works live in files, not this table, and are searched by
+  // reading them (see folio/work-search.ts).
+  `
+CREATE VIRTUAL TABLE works_fts USING fts5(
+  work_id UNINDEXED,
+  title,
+  content,
+  tokenize='porter unicode61'
+);
+
+INSERT INTO works_fts(work_id, title, content)
+  SELECT id, COALESCE(title, ''), COALESCE(content, '') FROM works WHERE storage = 'local';
+
+CREATE TRIGGER works_fts_ai AFTER INSERT ON works WHEN new.storage = 'local' BEGIN
+  INSERT INTO works_fts(work_id, title, content)
+    VALUES (new.id, COALESCE(new.title, ''), COALESCE(new.content, ''));
+END;
+
+CREATE TRIGGER works_fts_ad AFTER DELETE ON works BEGIN
+  DELETE FROM works_fts WHERE work_id = old.id;
+END;
+
+CREATE TRIGGER works_fts_au AFTER UPDATE ON works BEGIN
+  DELETE FROM works_fts WHERE work_id = old.id;
+  INSERT INTO works_fts(work_id, title, content)
+    SELECT new.id, COALESCE(new.title, ''), COALESCE(new.content, '') WHERE new.storage = 'local';
+END;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

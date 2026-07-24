@@ -4,8 +4,8 @@
     WaveformIcon,
     DownloadSimpleIcon,
   } from "phosphor-svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { formatVoiceModelBytes, getVoiceModelStore } from "../../contexts/voice-model.store.svelte";
+  import { getSettingsContext, getVoiceModelStore } from "../../contexts";
+  import { formatVoiceModelBytes } from "../../contexts/app/voice-model.store.svelte";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
 

@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
-import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCommitPushResult, type GitSyncResult, type TabGitContext, type WorktreeEntry, type WorktreePRResult } from '../../shared/types'
+import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitCommitPushResult, type GitSyncResult, type WorktreeEntry, type WorktreePRResult } from '../../shared/types'
 import { createLogger } from '../logger'
 import { git, runAsync } from './exec'
 import { generatePullRequestDraft } from './pr-draft'
@@ -81,6 +81,27 @@ export function getDefaultBranch(cwd: string): Promise<string> {
   return pending
 }
 
+/** Local-only default-branch resolution for status refreshes. This deliberately
+ * avoids `ls-remote` so opening a project never waits on the network. Local
+ * fallbacks are not cached because a later remote-aware lookup may discover a
+ * different default branch. */
+export async function getDefaultBranchLocal(cwd: string): Promise<string> {
+  const cached = defaultBranchCache.get(cwd)
+  if (typeof cached === 'string') return cached
+  try {
+    const ref = await runAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], cwd)
+    const branch = ref.replace('origin/', '')
+    defaultBranchCache.set(cwd, branch)
+    return branch
+  } catch {}
+  try {
+    await runAsync('git', ['rev-parse', '--verify', 'main'], cwd)
+    return 'main'
+  } catch {
+    return 'master'
+  }
+}
+
 /** Synchronous, local-only default-branch resolution for `restoreWorktree`, which
  *  returns a plain value by contract. Reuses a warm cache entry when the async
  *  resolver already ran for this cwd; otherwise reads LOCAL refs only (never the
@@ -102,7 +123,8 @@ function getDefaultBranchLocalSync(cwd: string): string {
 
 export function getWorkingBranch(cwd: string): string | null {
   try {
-    return git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
+    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
+    return branch === 'HEAD' ? null : branch
   } catch {
     return null
   }
@@ -154,21 +176,34 @@ async function resolveBranchName(prompt: string, options: CreateWorktreeOptions)
   return branchFromSlug(slugifyBranch(prompt))
 }
 
+async function resolveWorktreeStartPoint(projectPath: string, targetBranch: string): Promise<string> {
+  const remoteRef = `origin/${targetBranch}`
+  try {
+    await runAsync('git', ['fetch', 'origin', targetBranch], projectPath)
+    await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath)
+    return remoteRef
+  } catch (e) {
+    log.warn(`Falling back to local ${targetBranch} for worktree start point: ${e}`)
+    return targetBranch
+  }
+}
+
 export async function createWorktree(
   projectPath: string,
   prompt: string,
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
-): Promise<TabGitContext> {
+): Promise<GitCheckout> {
   const targetBranch = baseBranch || await getDefaultBranch(projectPath)
+  const startPoint = await resolveWorktreeStartPoint(projectPath, targetBranch)
   const branch = await resolveBranchName(prompt, options)
   const worktreePath = path.join(projectPath, SOLUS_WORKTREE_DIR, branch.replace(/\//g, '-'))
 
-  log.info(`Creating worktree: ${branch} at ${worktreePath}`)
-  await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, targetBranch], projectPath)
+  log.info(`Creating worktree: ${branch} at ${worktreePath} from ${startPoint}`)
+  await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, startPoint], projectPath)
   await copyIncludedWorktreeFiles(projectPath, worktreePath)
 
-  return { branch, targetBranch, worktreePath }
+  return { branch, targetBranch, worktreePath, repoRoot: projectPath }
 }
 
 async function copyIncludedWorktreeFiles(projectPath: string, worktreePath: string): Promise<void> {
@@ -234,14 +269,15 @@ export interface CommitMessageOptions {
   generatePRText?: (prompt: string) => Promise<string>
 }
 
-async function commitPendingChanges(cwd: string, fallbackMessage: string, options: CommitMessageOptions = {}): Promise<void> {
+async function commitPendingChanges(cwd: string, fallbackMessage: string, options: CommitMessageOptions = {}): Promise<boolean> {
   const status = await runAsync('git', ['status', '--porcelain'], cwd)
-  if (!status) return
+  if (!status) return false
   const message = options.generateCommitMessage
     ? sanitizeCommitMessage(await options.generateCommitMessage(cwd)) ?? fallbackMessage
     : fallbackMessage
   await runAsync('git', ['add', '-A'], cwd)
   await runAsync('git', ['commit', '-m', message], cwd)
+  return true
 }
 
 /** Reasoning/preamble the model sometimes leaks into its text output instead of a bare subject. */
@@ -275,25 +311,27 @@ function sanitizeCommitMessage(raw: string): string | null {
 }
 
 export async function createPR(
-  gitContext: TabGitContext,
+  gitContext: GitCheckout,
   workingDirectory: string,
   options: CommitMessageOptions = {},
 ): Promise<WorktreePRResult> {
   const cwd = gitContext.worktreePath || workingDirectory
 
   try {
-    const existingUrl = await getExistingPR(gitContext.branch, cwd)
+    const branch = gitContext.branch
+    if (!branch) return { success: false, error: 'Cannot create a pull request from detached HEAD' }
+    const existingUrl = await getExistingPR(branch, cwd)
     if (existingUrl) return { success: true, url: existingUrl }
 
     await commitPendingChanges(cwd, 'chore: apply agent changes', options)
 
-    await runAsync('git', ['push', '-u', 'origin', gitContext.branch], cwd)
+    await runAsync('git', ['push', '-u', 'origin', branch], cwd)
 
     const draft = options?.generatePRText
       ? await generatePullRequestDraft({
           cwd,
           baseBranch: gitContext.targetBranch,
-          headBranch: gitContext.branch,
+          headBranch: branch,
           generateText: options.generatePRText,
         })
       : null
@@ -302,14 +340,14 @@ export async function createPR(
       ? await runAsync('gh', [
           'pr', 'create',
           '--base', gitContext.targetBranch,
-          '--head', gitContext.branch,
+          '--head', branch,
           '--title', draft.title,
           '--body', draft.body,
         ], cwd)
       : await runAsync('gh', [
           'pr', 'create',
           '--base', gitContext.targetBranch,
-          '--head', gitContext.branch,
+          '--head', branch,
           '--fill',
         ], cwd)
 
@@ -321,41 +359,43 @@ export async function createPR(
 }
 
 export async function commitAndPushChanges(
-  gitContext: TabGitContext,
+  gitContext: GitCheckout,
   workingDirectory: string,
   options: CommitMessageOptions = {},
 ): Promise<GitCommitPushResult> {
   const cwd = gitContext.worktreePath || workingDirectory
 
+  let committed = false
   try {
-    await commitPendingChanges(cwd, 'chore: apply agent changes', options)
-    const branch = gitContext.branch || getWorkingBranch(cwd)
-    if (!branch) return { success: false, error: 'No active git branch for this tab' }
+    committed = await commitPendingChanges(cwd, 'chore: apply agent changes', options)
+    const branch = gitContext.branch
+    if (!branch) return { success: false, outcome: committed ? 'committed-only' : 'failed', committed, pushed: false, error: 'No active git branch for this tab' }
     await runAsync('git', ['push', '-u', 'origin', branch], cwd)
-    return { success: true }
+    return { success: true, outcome: committed ? 'pushed' : 'unchanged', committed, pushed: true }
   } catch (e: any) {
-    return { success: false, error: String(e.message || e) }
+    return { success: false, outcome: committed ? 'committed-only' : 'failed', committed, pushed: false, error: String(e.message || e) }
   }
 }
 
 export async function syncWithOrigin(
-  gitContext: TabGitContext,
+  gitContext: GitCheckout,
   workingDirectory: string,
 ): Promise<GitSyncResult> {
   const cwd = gitContext.worktreePath || workingDirectory
 
   try {
     if (gitContext.worktreePath) {
-      await runAsync('git', ['pull', 'origin', gitContext.targetBranch], cwd)
+      await runAsync('git', ['pull', '--no-edit', 'origin', gitContext.targetBranch], cwd)
       log.info(`Synced worktree with origin/${gitContext.targetBranch}`)
     } else {
-      await runAsync('git', ['pull'], cwd)
+      await runAsync('git', ['pull', '--no-edit'], cwd)
       log.info(`Synced with origin/${gitContext.branch}`)
     }
 
-    return { success: true }
+    return { success: true, outcome: 'synced' }
   } catch (e: any) {
-    return { success: false, error: String(e.message || e) }
+    const conflicted = await runAsync('git', ['diff', '--name-only', '--diff-filter=U'], cwd).catch(() => '')
+    return { success: false, outcome: conflicted ? 'conflicted' : 'failed', error: String(e.message || e) }
   }
 }
 
@@ -365,8 +405,9 @@ const existingPrCache = new Map<string, { at: number; url: Promise<string | null
 /** `gh pr view` is a network call used by detailed status consumers. TTL-cache
  *  the result per (cwd, branch) for both hits and misses, and share the in-flight
  *  promise so multiple visible clients collapse to a single spawn. */
-export function getExistingPR(branch: string, cwd: string): Promise<string | null> {
+export function getExistingPR(branch: string, cwd: string, bypassCache = false): Promise<string | null> {
   const key = `${cwd}\0${branch}`
+  if (bypassCache) existingPrCache.delete(key)
   const cached = existingPrCache.get(key)
   if (cached && Date.now() - cached.at < EXISTING_PR_TTL_MS) return cached.url
   const url = (async () => {
@@ -381,7 +422,7 @@ export function getExistingPR(branch: string, cwd: string): Promise<string | nul
   return url
 }
 
-export function restoreWorktree(worktreePath: string, _options?: { includePr?: boolean }): TabGitContext | null {
+export function restoreWorktree(worktreePath: string, _options?: { includePr?: boolean }): GitCheckout | null {
   if (!isSolusWorktreePath(worktreePath)) return null
 
   try {
@@ -391,7 +432,7 @@ export function restoreWorktree(worktreePath: string, _options?: { includePr?: b
     const projectPath = worktreeProjectRoot(worktreePath)
     const targetBranch = getDefaultBranchLocalSync(projectPath)
     log.info(`Restored worktree: ${branch} at ${worktreePath}`)
-    return { branch, targetBranch, worktreePath }
+    return { branch, targetBranch, worktreePath, repoRoot: projectPath }
   } catch (e) {
     log.error(`Failed to restore worktree: ${e}`)
     return null

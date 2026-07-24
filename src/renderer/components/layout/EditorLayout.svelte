@@ -1,32 +1,28 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import InputBarRow from "../input/InputBarRow.svelte";
-  import StatusBarControls from "./StatusBarControls.svelte";
+  import { getWorkspaceContext, getWindowContext } from "../../contexts";
+  import EditorInputCard from "../input/EditorInputCard.svelte";
   import WorkspaceBody from "./WorkspaceBody.svelte";
   import {
     FILE_PREVIEW_EVENT,
     type FilePreviewRequest,
   } from "../../lib/filePreview";
-  import type { DiffScope } from "../../../shared/types";
+  import type { DiffScope, GitCheckout } from "../../../shared/types";
   interface Props {
-    onAttachFile: () => void;
-    onScreenshot?: (() => void) | null;
-    onDesignMode?: (() => void) | null;
+    onAttachFile: (tabId?: string) => void | Promise<void>;
+    onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
+    onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
   let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
-  const av = session.artifactViewer;
-  const sess = $derived(session.sessionFor(session.activeTabId));
-  const canShowDiffPanel = $derived(!!sess?.workingDirectory);
+  const panes = session.panes;
 
   let prevActiveTabId: string | undefined;
   $effect(() => {
     const current = session.activeTabId;
     if (prevActiveTabId !== undefined && prevActiveTabId !== current) {
-      if (av.secondary.kind === "diff") av.closeSecondary();
+      if (panes.secondaryOverlay?.kind === "diff") panes.closeOverlay();
     }
     prevActiveTabId = current;
   });
@@ -43,10 +39,25 @@
   $effect(() => {
     const handler = (e: Event) => {
       const detail = (
-        e as CustomEvent<{ scope?: DiffScope; switchScope?: boolean }>
+        e as CustomEvent<{
+          tabId?: string;
+          cwd?: string;
+          checkout?: GitCheckout | null;
+          scope?: DiffScope;
+          switchScope?: boolean;
+        }>
       ).detail;
+      const targetTabId =
+        detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       const scope = detail?.scope ?? { kind: "session" };
-      av.toggleDiff(canShowDiffPanel, scope, detail?.switchScope ?? false);
+      panes.toggleDiff(
+        !!(detail?.cwd ?? session.sessionFor(targetTabId)?.workingDirectory),
+        targetTabId,
+        scope,
+        detail?.switchScope ?? false,
+        detail?.cwd,
+        detail?.checkout,
+      );
     };
     window.addEventListener("solus:toggle-diff-panel", handler);
     return () => window.removeEventListener("solus:toggle-diff-panel", handler);
@@ -56,8 +67,9 @@
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<FilePreviewRequest>).detail;
       if (!detail?.path) return;
-      if (detail.tabId && detail.tabId !== session.activeTabId) return;
-      av.openFilePreview(detail);
+      const sourceTabId =
+        detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
+      panes.openFilePreview(detail, sourceTabId);
       session.settingsOpen = false;
       session.plansGalleryOpen = false;
     };
@@ -74,17 +86,20 @@
     <div class="titlebar-drag-zone drag-region" aria-hidden="true"></div>
   {/if}
   <div class="flex flex-1 min-h-0">
-    <WorkspaceBody active enableProjectPanel>
+    <WorkspaceBody
+      active
+      enableProjectPanel
+      {onAttachFile}
+      {onScreenshot}
+      {onDesignMode}
+    >
       {#snippet inputRow()}
-        <InputBarRow
-          mode="editor"
-          {onAttachFile}
-          {onScreenshot}
-          {onDesignMode}
+        <EditorInputCard
+          class="mx-auto max-w-(--solus-reading-max)"
+          onAttachFile={() => onAttachFile()}
+          onScreenshot={onScreenshot ? () => onScreenshot() : null}
+          onDesignMode={onDesignMode ? () => onDesignMode() : null}
         />
-      {/snippet}
-      {#snippet statusBar()}
-        <StatusBarControls dirMaxWidth={240} mode="editor" />
       {/snippet}
     </WorkspaceBody>
   </div>

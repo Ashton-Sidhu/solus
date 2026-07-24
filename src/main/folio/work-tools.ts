@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
+import { searchWorks } from './work-search'
 import { loadWorkAnnotations } from './work-annotations'
 import { workPreview } from '../../shared/work-preview'
 import { parseDiagram, serializeDiagram } from '../../shared/diagram-types'
@@ -9,7 +10,6 @@ import { reapplyLayout } from '../../shared/diagram-layout'
 import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
 import { artifactTool, type ArtifactToolDeps } from './artifact-tools'
-import { reviewLedgerTool } from '../review/ledger-tool'
 import { automationSdkTools, type OnAutomationSaved } from '../automations/automation-tools'
 import { sessionSdkTools, type OnSessionCreated, type OnSessionPrompted, type OnSessionStopped } from '../sessions/session-tools'
 import { taskSdkTools, type OnTaskCreated } from '../tasks/task-tools'
@@ -18,7 +18,7 @@ import { prSdkTools } from '../providers/pr-tools'
 const log = createLogger('folio', 'work-tools.ts')
 
 /**
- * Single source of truth for the agent-facing work tools (list/read/create/update).
+ * Single source of truth for the agent-facing work tools (list/search/read/create/update).
  * Exports three shapes from the same zod schemas:
  *   1. `createSolusMcpServer` — an in-process SDK MCP server for Claude. It hosts
  *      the work tools plus the `render_artifact` tool (see artifact-tools.ts), so
@@ -71,6 +71,12 @@ const readWorkShape = {
   work_id: z.string().describe('The id of the work to read (from list_works).'),
 }
 
+const searchWorksShape = {
+  query: z.string().describe('Full-text query to match against work titles and content.'),
+  type: z.enum(['doc', 'slides', 'diagram', 'any']).default('any').describe("Restrict to one kind of work. Defaults to 'any'."),
+  limit: z.number().int().min(1).max(20).default(10).describe('Maximum results to return. Defaults to 10.'),
+}
+
 const updateWorkShape = {
   work_id: z.string().describe('The id of the work to update (from list_works).'),
   content: z.string().describe('The full new content of the work. Replaces the existing content entirely.'),
@@ -94,6 +100,8 @@ const DIAGRAM_GUIDANCE = [
 
 const LIST_DESC =
   'List the works (documents and architecture diagrams) the user has open in Solus, with their id, title, type and last-updated time. Call this first to discover a work_id before reading or updating.'
+const SEARCH_DESC =
+  "Full-text search over the user's works (documents, slide decks, diagrams) by title AND content. Reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — instead of guessing from list_works titles, which carry no content. Put the topic in `query`. Each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
 const READ_DESC =
   'Read the full current content of a work by id, including any edits the user made manually. Always call this before update_work so you revise the latest version.'
 const CREATE_DESC = [
@@ -128,6 +136,23 @@ export async function executeWorkTool(
         (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}`,
       )
       return { ok: true, text: `Open works:\n${lines.join('\n')}` }
+    }
+
+    if (name === 'search_works') {
+      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      if (!query) return { ok: false, text: 'search_works requires a non-empty query.' }
+      const rawType = String(args.type ?? 'any')
+      const type = rawType === 'doc' || rawType === 'slides' || rawType === 'diagram' ? rawType : undefined
+      const limit = typeof args.limit === 'number' ? Math.min(20, Math.max(1, Math.floor(args.limit))) : 10
+
+      const hits = await searchWorks(query, { type, cwd: deps.ctx?.cwd, limit })
+      if (!hits.length) return { ok: true, text: `No works match "${query}".` }
+      const lines = hits.map(
+        (hit) =>
+          `- ${hit.id} — "${hit.title}" (${hit.type}, ${hit.storage}), cwd ${hit.cwd}, updated ${hit.updatedAt}\n  ${hit.snippet}`,
+      )
+      const nextStep = '→ To read any result in full, call read_work with its id.'
+      return { ok: true, text: `Works matching "${query}":\n${lines.join('\n')}\n\n${nextStep}` }
     }
 
     if (name === 'read_work') {
@@ -296,6 +321,9 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
       tool('list_works', LIST_DESC, listWorksShape, async () =>
         toToolResult(await executeWorkTool('list_works', {}, createDeps())),
       ),
+      tool('search_works', SEARCH_DESC, searchWorksShape, async (args) =>
+        toToolResult(await executeWorkTool('search_works', (args ?? {}) as Record<string, unknown>, createDeps())),
+      ),
       tool('read_work', READ_DESC, readWorkShape, async (args) =>
         toToolResult(await executeWorkTool('read_work', args as Record<string, unknown>, createDeps())),
       ),
@@ -306,11 +334,6 @@ export function createSolusMcpServer(deps: SolusMcpDeps) {
         toToolResult(await executeWorkTool('update_work', args as Record<string, unknown>, createDeps())),
       ),
       artifactTool({ onArtifact: deps.onArtifact }),
-      reviewLedgerTool({
-        cwd: deps.createCtx.cwd,
-        sessionId: deps.createCtx.sessionId,
-        now: () => new Date().toISOString(),
-      }),
       // Automation tools are omitted for headless runs (fork-bomb guard) — an
       // automation must not be able to create or trigger more automations.
       ...(deps.includeAutomationTools === false
@@ -350,6 +373,7 @@ export interface WorkToolDescriptor {
 
 export const WORK_TOOL_JSON_SCHEMAS: WorkToolDescriptor[] = [
   { name: 'list_works', description: LIST_DESC, inputSchema: z.toJSONSchema(z.object(listWorksShape)) as Record<string, unknown> },
+  { name: 'search_works', description: SEARCH_DESC, inputSchema: z.toJSONSchema(z.object(searchWorksShape)) as Record<string, unknown> },
   { name: 'read_work', description: READ_DESC, inputSchema: z.toJSONSchema(z.object(readWorkShape)) as Record<string, unknown> },
   { name: 'create_work', description: CREATE_DESC, inputSchema: z.toJSONSchema(z.object(createWorkShape)) as Record<string, unknown> },
   { name: 'update_work', description: UPDATE_DESC, inputSchema: z.toJSONSchema(z.object(updateWorkShape)) as Record<string, unknown> },
@@ -358,4 +382,4 @@ export const WORK_TOOL_JSON_SCHEMAS: WorkToolDescriptor[] = [
 /** Tool names that mutate an existing work — these route through permissions on
  *  Codex. `create_work` is intentionally excluded (creation never prompts). */
 export const WORK_MUTATING_TOOLS = new Set(['update_work'])
-export const WORK_TOOL_NAMES = new Set(['list_works', 'read_work', 'create_work', 'update_work'])
+export const WORK_TOOL_NAMES = new Set(['list_works', 'search_works', 'read_work', 'create_work', 'update_work'])

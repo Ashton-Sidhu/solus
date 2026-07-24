@@ -15,6 +15,16 @@ import type {
   ReviewProvider,
   ReviewThread,
 } from '../types'
+import type { PrConversationItem } from '../../../shared/providers'
+import { createLogger } from '../../logger'
+import {
+  buildChecksQuery,
+  normalizeChecksResponse,
+  type GqlChecksResponse,
+} from './checks'
+import type { NumberedPrChecksSummary } from '../../../shared/checks-rpc-types'
+
+const log = createLogger('main', 'github-provider')
 
 // ─── GraphQL documents ────────────────────────────────────────────────────────
 // REST can't report a thread's resolution state, and there is no REST mutation to
@@ -63,6 +73,115 @@ const UNRESOLVE_MUTATION = `
   }
 `
 
+const PR_CONVERSATION_QUERY = `
+  query(
+    $owner: String!
+    $repo: String!
+    $number: Int!
+    $commentsCursor: String
+    $reviewsCursor: String
+    $includeComments: Boolean!
+    $includeReviews: Boolean!
+  ) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        comments(first: 100, after: $commentsCursor) @include(if: $includeComments) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id author { login } body createdAt url }
+        }
+        reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id author { login } body createdAt submittedAt state url }
+        }
+      }
+    }
+  }
+`
+
+const NEEDS_REVIEW_QUERY = `
+  query(
+    $requestedQuery: String!
+    $assignedQuery: String!
+    $requestedCursor: String
+    $assignedCursor: String
+    $includeRequested: Boolean!
+    $includeAssigned: Boolean!
+  ) {
+    requested: search(
+      query: $requestedQuery
+      type: ISSUE
+      first: 100
+      after: $requestedCursor
+    ) @include(if: $includeRequested) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        ... on PullRequest {
+          number
+          title
+          headRefOid
+          author { login avatarUrl }
+          state
+          createdAt
+          updatedAt
+          isDraft
+          labels(first: 100) { nodes { name color } }
+          additions
+          deletions
+          reviewRequests(first: 100) {
+            nodes {
+              requestedReviewer {
+                ... on User { login }
+              }
+            }
+          }
+          assignees(first: 100) { nodes { login } }
+          body
+          baseRefName
+          headRefName
+          baseRepository { nameWithOwner }
+          headRepository { nameWithOwner }
+        }
+      }
+    }
+    assigned: search(
+      query: $assignedQuery
+      type: ISSUE
+      first: 100
+      after: $assignedCursor
+    ) @include(if: $includeAssigned) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        ... on PullRequest {
+          number
+          title
+          headRefOid
+          author { login avatarUrl }
+          state
+          createdAt
+          updatedAt
+          isDraft
+          labels(first: 100) { nodes { name color } }
+          additions
+          deletions
+          reviewRequests(first: 100) {
+            nodes {
+              requestedReviewer {
+                ... on User { login }
+              }
+            }
+          }
+          assignees(first: 100) { nodes { login } }
+          body
+          baseRefName
+          headRefName
+          baseRepository { nameWithOwner }
+          headRepository { nameWithOwner }
+        }
+      }
+    }
+  }
+`
+
 interface GqlComment {
   id: string
   author: { login: string } | null
@@ -89,6 +208,104 @@ interface ReviewThreadsResponse {
         nodes: GqlThread[]
       }
     }
+  }
+}
+
+interface GqlConversationNode {
+  id: string
+  author: { login: string } | null
+  body: string
+  createdAt: string
+  url?: string
+}
+
+interface GqlReviewBody extends GqlConversationNode {
+  submittedAt: string | null
+  state: NonNullable<PrConversationItem['reviewState']>
+}
+
+interface GqlConversationPage<T> {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+  nodes: T[]
+}
+
+interface PrConversationResponse {
+  repository: {
+    pullRequest: {
+      comments?: GqlConversationPage<GqlConversationNode>
+      reviews?: GqlConversationPage<GqlReviewBody>
+    }
+  }
+}
+
+interface GqlNeedsReviewPullRequest {
+  number: number
+  title: string
+  headRefOid: string
+  author: { login: string; avatarUrl: string } | null
+  state: 'OPEN' | 'CLOSED' | 'MERGED'
+  createdAt: string
+  updatedAt: string
+  isDraft: boolean
+  labels: { nodes: Array<{ name: string; color: string }> }
+  additions: number
+  deletions: number
+  reviewRequests: {
+    nodes: Array<{ requestedReviewer: { login?: string } | null }>
+  }
+  assignees: { nodes: Array<{ login: string }> }
+  body: string
+  baseRefName: string
+  headRefName: string
+  baseRepository: { nameWithOwner: string } | null
+  headRepository: { nameWithOwner: string } | null
+}
+
+interface GqlNeedsReviewPage {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+  nodes: Array<GqlNeedsReviewPullRequest | null>
+}
+
+interface NeedsReviewSearchResponse {
+  requested?: GqlNeedsReviewPage
+  assigned?: GqlNeedsReviewPage
+}
+
+export function needsReviewSearchTerms(repo: RepoRef, viewer: string): {
+  requestedQuery: string
+  assignedQuery: string
+} {
+  const scope = `repo:${repo.owner}/${repo.repo} is:pr is:open`
+  return {
+    requestedQuery: `${scope} review-requested:${viewer}`,
+    assignedQuery: `${scope} assignee:${viewer}`,
+  }
+}
+
+function toNeedsReviewSummary(pr: GqlNeedsReviewPullRequest, repo: RepoRef): PullRequestSummary {
+  return {
+    number: pr.number,
+    title: pr.title,
+    headSha: pr.headRefOid,
+    baseRepo: repo,
+    author: pr.author?.login ?? '',
+    authorAvatarUrl: pr.author?.avatarUrl ?? '',
+    state: pr.state.toLowerCase() as PullRequestSummary['state'],
+    createdAt: pr.createdAt,
+    updatedAt: pr.updatedAt,
+    draft: pr.isDraft,
+    labels: pr.labels.nodes,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    requestedReviewers: pr.reviewRequests.nodes.flatMap(({ requestedReviewer }) =>
+      requestedReviewer?.login ? [requestedReviewer.login] : []),
+    assignees: pr.assignees.nodes.map(({ login }) => login),
+    body: pr.body,
+    baseRef: pr.baseRefName,
+    headRef: pr.headRefName,
+    ...(pr.baseRepository && pr.headRepository
+      ? { isCrossRepository: pr.baseRepository.nameWithOwner !== pr.headRepository.nameWithOwner }
+      : {}),
   }
 }
 
@@ -133,10 +350,6 @@ function githubApiErrorMessage(err: unknown, fallback: string): string {
   return message ? `${fallback}: ${message}` : fallback
 }
 
-/** Pagination sanity cap for the PR list — enough for any real review queue
- *  without letting a monorepo's backlog turn one load into dozens of pages. */
-const MAX_LISTED_PRS = 500
-
 // ─── Mappers (Octokit/GraphQL → host-neutral DTOs) ────────────────────────────
 
 /** Shared shape of a PR across the REST list and get responses we read. */
@@ -152,12 +365,18 @@ interface RestPull {
   labels?: Array<{ name: string; color: string }>
   additions?: number
   deletions?: number
+  requested_reviewers?: Array<{ login: string } | null>
+  assignees?: Array<{ login: string } | null>
+  body?: string | null
+  base: { ref: string; sha: string; repo?: { full_name?: string } | null }
+  head: { ref: string; sha: string; repo?: { full_name?: string; name?: string; owner?: { login?: string } } | null }
 }
 
 function toSummary(pr: RestPull): PullRequestSummary {
   return {
     number: pr.number,
     title: pr.title,
+    headSha: pr.head.sha,
     author: pr.user?.login ?? '',
     authorAvatarUrl: pr.user?.avatar_url ?? '',
     state: pr.merged_at ? 'merged' : (pr.state as 'open' | 'closed'),
@@ -167,6 +386,16 @@ function toSummary(pr: RestPull): PullRequestSummary {
     labels: (pr.labels ?? []).map((l) => ({ name: l.name, color: l.color })),
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
+    requestedReviewers: (pr.requested_reviewers ?? [])
+      .flatMap((reviewer) => reviewer?.login ? [reviewer.login] : []),
+    assignees: (pr.assignees ?? [])
+      .flatMap((assignee) => assignee?.login ? [assignee.login] : []),
+    body: pr.body ?? '',
+    baseRef: pr.base.ref,
+    headRef: pr.head.ref,
+    ...(pr.base.repo?.full_name && pr.head.repo?.full_name
+      ? { isCrossRepository: pr.base.repo.full_name !== pr.head.repo.full_name }
+      : {}),
   }
 }
 
@@ -202,6 +431,8 @@ function toThread(t: GqlThread): ReviewThread {
  * and leaving review comments work identically for fork and same-repo PRs.
  */
 class GitHubProvider implements ReviewProvider {
+  private viewerCache: { token: string; login: Promise<string> } | null = null
+
   constructor(private readonly auth: GitHubAuth) {}
 
   /** Lazily build an authenticated client (REST + GraphQL). */
@@ -209,31 +440,84 @@ class GitHubProvider implements ReviewProvider {
     return buildClient(this.auth)
   }
 
+  async getViewer(): Promise<string> {
+    const token = await this.auth.getAccessToken()
+    if (this.viewerCache?.token === token) return this.viewerCache.login
+
+    const login: Promise<string> = this.client()
+      .then(({ rest }) => rest.users.getAuthenticated())
+      .then(({ data }) => data.login)
+      .catch((err) => {
+        if (this.viewerCache?.login === login) this.viewerCache = null
+        throw err
+      })
+    this.viewerCache = { token, login }
+    return login
+  }
+
   async listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequestSummary[]> {
+    const data: PullRequestSummary[] = []
+    for (let page = 1; ; page++) {
+      const result = await this.listPullRequestsPage(repo, filter, page, 100)
+      data.push(...result.items)
+      if (!result.hasMore) break
+    }
+    return data
+  }
+
+  async listPullRequestsPage(
+    repo: RepoRef,
+    filter?: PrFilter,
+    page = 1,
+    perPage = 100,
+  ): Promise<import('../../../shared/providers').PrListPage> {
     const { rest } = await this.client()
-    const data: unknown[] = []
-    // Paginate (sorted by most recently updated) up to a sanity cap — one page
-    // silently truncated busy repos at 100 PRs.
-    for await (const page of rest.paginate.iterator(rest.pulls.list, {
+    const { data } = await rest.pulls.list({
       owner: repo.owner,
       repo: repo.repo,
       state: filter?.state ?? 'open',
       sort: 'updated',
       direction: 'desc',
-      per_page: 100,
-    })) {
-      data.push(...page.data)
-      if (data.length >= MAX_LISTED_PRS) break
-    }
-    let summaries = data
-      .slice(0, MAX_LISTED_PRS)
-      .map((pr) => withBaseRepo(toSummary(pr as unknown as RestPull), repo))
-    // GitHub's list endpoint has no author filter (that's the search API); filter ourselves.
+      per_page: perPage,
+      page,
+    })
+    let items = data.map((pr) => withBaseRepo(toSummary(pr as unknown as RestPull), repo))
     if (filter?.author) {
       const author = filter.author.toLowerCase()
-      summaries = summaries.filter((p) => p.author.toLowerCase() === author)
+      items = items.filter((pr) => pr.author.toLowerCase() === author)
     }
-    return summaries
+    return { items, page, hasMore: data.length === perPage }
+  }
+
+  async listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequestSummary[]> {
+    const { graphql } = await this.client()
+    const queries = needsReviewSearchTerms(repo, viewer)
+    const pullRequests = new Map<number, PullRequestSummary>()
+    let requestedCursor: string | null = null
+    let assignedCursor: string | null = null
+    let hasMoreRequested = true
+    let hasMoreAssigned = true
+
+    while (hasMoreRequested || hasMoreAssigned) {
+      const response = await graphql<NeedsReviewSearchResponse>(NEEDS_REVIEW_QUERY, {
+        ...queries,
+        requestedCursor,
+        assignedCursor,
+        includeRequested: hasMoreRequested,
+        includeAssigned: hasMoreAssigned,
+      })
+      const requested = response.requested
+      const assigned = response.assigned
+      for (const pr of [...(requested?.nodes ?? []), ...(assigned?.nodes ?? [])]) {
+        if (pr) pullRequests.set(pr.number, toNeedsReviewSummary(pr, repo))
+      }
+      hasMoreRequested = requested?.pageInfo.hasNextPage ?? false
+      hasMoreAssigned = assigned?.pageInfo.hasNextPage ?? false
+      requestedCursor = requested?.pageInfo.endCursor ?? requestedCursor
+      assignedCursor = assigned?.pageInfo.endCursor ?? assignedCursor
+    }
+
+    return [...pullRequests.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
   async getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview> {
@@ -350,16 +634,22 @@ class GitHubProvider implements ReviewProvider {
         repo: repo.repo,
         pull_number: number,
         commit_id: review.commitId,
-        body: review.body,
         event: review.event,
-        comments: review.comments.map((c) => ({
-          path: c.path,
-          body: c.body,
-          line: c.line,
-          side: c.side,
-          // start_side is required by the REST API whenever start_line is set.
-          ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.side } : {}),
-        })),
+        // GitHub treats an omitted optional body differently from an empty one
+        // for approvals. Only send fields that contain review content.
+        ...(review.body ? { body: review.body } : {}),
+        ...(review.comments.length > 0
+          ? {
+              comments: review.comments.map((c) => ({
+                path: c.path,
+                body: c.body,
+                line: c.line,
+                side: c.side,
+                // start_side is required by the REST API whenever start_line is set.
+                ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.side } : {}),
+              })),
+            }
+          : {}),
       })
     } catch (err) {
       throw new Error(githubApiErrorMessage(err, 'Could not submit the review'))
@@ -377,8 +667,8 @@ class GitHubProvider implements ReviewProvider {
       })
       return { merged: data.merged, message: data.message }
     } catch (err) {
-      // 405/409 = not mergeable (conflicts, protection, stale head) — the merge
-      // queue treats this as "resolve locally", not as a failure.
+      // 405/409 = not mergeable (conflicts, protection, stale head). Return the
+      // host message so the individual PR action can explain the refusal.
       return { merged: false, message: githubApiErrorMessage(err, 'GitHub could not merge the pull request') }
     }
   }
@@ -396,19 +686,6 @@ class GitHubProvider implements ReviewProvider {
       additions: f.additions,
       deletions: f.deletions,
     }))
-  }
-
-  async listPullRequestFiles(repo: RepoRef, number: number): Promise<string[]> {
-    const { rest } = await this.client()
-    // One page of 100 is plenty for the ordering heuristic — overlap on the
-    // first 100 files is representative even for giant PRs.
-    const { data } = await rest.pulls.listFiles({
-      owner: repo.owner,
-      repo: repo.repo,
-      pull_number: number,
-      per_page: 100,
-    })
-    return data.map((f) => f.filename)
   }
 
   async replyToThread(_repo: RepoRef, threadId: string, body: string): Promise<ReviewComment> {
@@ -430,6 +707,87 @@ class GitHubProvider implements ReviewProvider {
   async unresolveThread(_repo: RepoRef, threadId: string): Promise<void> {
     const { graphql } = await this.client()
     await graphql(UNRESOLVE_MUTATION, { threadId })
+  }
+
+  async listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]> {
+    const { graphql } = await this.client()
+    const items: PrConversationItem[] = []
+    let commentsCursor: string | null = null
+    let reviewsCursor: string | null = null
+    let includeComments = true
+    let includeReviews = true
+
+    // The two GraphQL connections paginate independently. Once one is complete,
+    // @include keeps later pages of the other from refetching duplicate nodes.
+    while (includeComments || includeReviews) {
+      const res: PrConversationResponse = await graphql<PrConversationResponse>(PR_CONVERSATION_QUERY, {
+        owner: repo.owner,
+        repo: repo.repo,
+        number,
+        commentsCursor,
+        reviewsCursor,
+        includeComments,
+        includeReviews,
+      })
+      const conversation: PrConversationResponse['repository']['pullRequest'] = res.repository.pullRequest
+      if (conversation.comments) {
+        for (const comment of conversation.comments.nodes) {
+          items.push({
+            id: comment.id,
+            kind: 'comment',
+            author: comment.author?.login ?? '',
+            body: comment.body,
+            createdAt: comment.createdAt,
+            ...(comment.url ? { url: comment.url } : {}),
+          })
+        }
+        includeComments = conversation.comments.pageInfo.hasNextPage
+        commentsCursor = conversation.comments.pageInfo.endCursor
+      }
+      if (conversation.reviews) {
+        for (const review of conversation.reviews.nodes) {
+          if (!review.body.trim() || review.state === 'PENDING') continue
+          items.push({
+            id: review.id,
+            kind: 'review',
+            author: review.author?.login ?? '',
+            body: review.body,
+            createdAt: review.submittedAt ?? review.createdAt,
+            reviewState: review.state,
+            ...(review.url ? { url: review.url } : {}),
+          })
+        }
+        includeReviews = conversation.reviews.pageInfo.hasNextPage
+        reviewsCursor = conversation.reviews.pageInfo.endCursor
+      }
+    }
+
+    return items.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  }
+
+  async addIssueComment(repo: RepoRef, number: number, body: string): Promise<void> {
+    const { rest } = await this.client()
+    await rest.issues.createComment({
+      owner: repo.owner,
+      repo: repo.repo,
+      issue_number: number,
+      body,
+    })
+  }
+
+  async listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]> {
+    if (numbers.length === 0) return []
+    const { graphql } = await this.client()
+    const results: NumberedPrChecksSummary[] = []
+    for (let offset = 0; offset < numbers.length; offset += 25) {
+      const batch = numbers.slice(offset, offset + 25)
+      const response = await graphql<GqlChecksResponse>(buildChecksQuery(batch), {
+        owner: repo.owner,
+        repo: repo.repo,
+      })
+      results.push(...normalizeChecksResponse(response, batch, (message) => log.warn(message)))
+    }
+    return results
   }
 }
 

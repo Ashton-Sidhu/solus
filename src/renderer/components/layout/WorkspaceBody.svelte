@@ -1,37 +1,54 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getRunDockStore } from "../../contexts/run-dock.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import {
+    getWorkspaceContext,
+    getWindowContext,
+    getRunStore,
+    getRunDockStore,
+    getSettingsContext,
+    environmentBranchKey,
+  } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import RunDock from "../run/RunDock.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SessionSidebar from "../session/SessionSidebar.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
+  import OuterScrollbar from "./OuterScrollbar.svelte";
   import TabStrip from "./TabStrip.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import NewTabHome from "./NewTabHome.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { frameChrome } from "../../contexts/frame-chrome.store.svelte";
+  import { frameChrome } from "./frame-chrome.store.svelte";
   import {
     DEFAULT_PANEL_WIDTH,
     isArtifactContent,
     isMovableContent,
     isPageContent,
     type PaneContent,
-  } from "../../contexts/pane-view.store.svelte";
+  } from "../../contexts/workspace/pane-view.store.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
-  import { branchKeyFor } from "../../lib/sessionUtils";
+  import {
+    clampSecondaryPaneWidth,
+    defaultWorkspaceRailWidth,
+    focusedSplitChatTabId,
+    isSecondaryContentVisible,
+    primaryPaneMinSize,
+    secondaryPaneBounds,
+    secondaryPaneDefaultSize,
+    SECONDARY_CONTENT_DELAY_MS,
+    SECONDARY_SHELL_EXIT_MS,
+    shouldCollapseProjectPanelForSecondary,
+    visibleWorkspaceTabIds,
+  } from "./lib/workspace-body";
   import * as Resizable from "../ui/resizable";
   import {
     paneBoundsPercent,
     percentToPixels,
     pixelsToPercent,
   } from "../../lib/resizablePane";
+  import { provideOuterScrollbarContext } from "./lib/outer-scrollbar.context";
 
   interface Props {
     /** Whether this body is the active layout (drives keybindings + chrome reporting). */
@@ -42,15 +59,19 @@
     enableRunDock: boolean;
     /** Action buttons + InputBar row (varies between editor and web). */
     inputRow: Snippet;
-    /** Status bar contents (StatusBarControls, plus web extras). */
-    statusBar: Snippet;
+    /** Tab-aware composer actions forwarded to a split conversation pane. */
+    onAttachFile?: (tabId?: string) => void | Promise<void>;
+    onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
+    onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
   let {
     active,
     enableProjectPanel,
     enableRunDock,
     inputRow,
-    statusBar,
+    onAttachFile,
+    onScreenshot,
+    onDesignMode,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -58,19 +79,49 @@
   const settings = getSettingsContext();
   const runStore = getRunStore();
   const runDock = getRunDockStore();
-  const av = session.artifactViewer;
+  const panes = session.panes;
+  let outerScrollTargets = $state<HTMLElement[]>([]);
+  let outerScrollTarget = $state<HTMLElement | null>(null);
+
+  provideOuterScrollbarContext({
+    register(element) {
+      if (!outerScrollTargets.includes(element)) outerScrollTargets.push(element);
+      outerScrollTarget = element;
+
+      const activate = () => (outerScrollTarget = element);
+      element.addEventListener("pointerenter", activate);
+      element.addEventListener("focusin", activate);
+      element.addEventListener("scroll", activate, { passive: true });
+
+      return () => {
+        element.removeEventListener("pointerenter", activate);
+        element.removeEventListener("focusin", activate);
+        element.removeEventListener("scroll", activate);
+        const index = outerScrollTargets.indexOf(element);
+        if (index !== -1) outerScrollTargets.splice(index, 1);
+        if (outerScrollTarget === element) {
+          outerScrollTarget = outerScrollTargets.at(-1) ?? null;
+        }
+      };
+    },
+  });
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
-  const canShowDiffPanel = $derived(!!sess?.workingDirectory);
-  const canShowSidePanel = $derived(canShowDiffPanel);
-
-  const secondaryVisible = $derived(
-    av.secondaryOpen &&
-      (av.secondary.kind !== "diff" || (!!tab && canShowSidePanel)),
+  const focusedChatTabId = $derived(
+    session.focusedChatTabId ?? session.activeTabId,
+  );
+  const focusedSess = $derived(session.sessionFor(focusedChatTabId));
+  const canShowFocusedDiffPanel = $derived(!!focusedSess?.workingDirectory);
+  const secondaryVisible = $derived.by(() =>
+    isSecondaryContentVisible(panes.secondaryVisible, session),
+  );
+  const secondaryCollapsesProjectPanel = $derived(
+    shouldCollapseProjectPanelForSecondary(panes.secondaryVisible, secondaryVisible),
   );
   const secondaryCollapsesSidebar = $derived(
-    secondaryVisible && av.secondary.kind !== "automation",
+    secondaryVisible && panes.secondaryVisible.kind !== "automation",
   );
+  const primaryReviewOpen = $derived(panes.primaryContent.kind === "review");
   const sidebarOpenForChrome = $derived(
     sidebarOpen || secondaryCollapsesSidebar,
   );
@@ -80,7 +131,7 @@
   // composer. A maximized secondary (e.g. the full-screen PR-review surface)
   // covers the whole column too, so the composer has nothing to dock to.
   const inputDockHidden = $derived(
-    av.primary.kind !== "conversation" || av.maximized,
+    panes.primaryContent.kind !== "conversation" || panes.maximized,
   );
   // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
   const runCwd = $derived(
@@ -93,14 +144,17 @@
     enableRunDock && runDock.open && !inputDockHidden && dockRuns.length > 0,
   );
 
-  const activeBranchKey = $derived(branchKeyFor(sess));
-  const visibleTabIds = $derived.by(() => {
-    const openTabIds = session.tabOrder.filter((id) => session.tabs[id]);
-    if (sess?.loadingHistory) return openTabIds;
-    return openTabIds.filter(
-      (id) => branchKeyFor(session.sessionFor(id)) === activeBranchKey,
-    );
-  });
+  const splitTabId = $derived(
+    panes.chatTabIn("secondary", session.activeTabId),
+  );
+  const visibleTabIds = $derived.by(() =>
+    visibleWorkspaceTabIds(
+      session,
+      session.activeTabId,
+      splitTabId,
+      (tabId) => environmentBranchKey(session.environment.environmentFor(tabId)),
+    ),
+  );
 
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the
   // first time it becomes the active tab (or is visible on load). This prevents
@@ -116,7 +170,6 @@
     }
   });
 
-  let inputFocused = $state(false);
   let secondaryPaneEl: HTMLDivElement | null = $state(null);
   let secondaryPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
   let sidebarPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
@@ -135,14 +188,11 @@
   // share one width; ~19% of the viewport, bounded to a usable band.
   const initialViewportWidth =
     typeof window !== "undefined" ? window.innerWidth : 1440;
-  const defaultSidebarWidth = Math.round(
-    Math.min(400, Math.max(280, initialViewportWidth * 0.19)),
-  );
+  const defaultSidebarWidth = defaultWorkspaceRailWidth(initialViewportWidth);
 
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
 
-  let projectPanelOpen = $state(settings.projectPanelOpen);
   const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
   let projectPanelClosedForSecondary = $state(false);
 
@@ -195,20 +245,18 @@
   }
 
   function closeProjectPanel() {
-    projectPanelOpen = false;
     projectPanelPane?.collapse();
     settings.update({ projectPanelOpen: false });
     requestInputFocus();
   }
 
   function openProjectPanel() {
-    projectPanelOpen = true;
     projectPanelPane?.expand();
     settings.update({ projectPanelOpen: true });
   }
 
   function toggleProjectPanel() {
-    if (!projectPanelOpen) {
+    if (!settings.projectPanelOpen) {
       openProjectPanel();
     } else {
       closeProjectPanel();
@@ -217,15 +265,15 @@
 
   // Publish the frame-level expand controls so full-page sub-views (Folio,
   // Plans, Settings) can host them inline in their own headers instead of in a
-  // separate chrome strip. This body stays the source of truth; this mirrors
-  // its state and registers the toggles for those headers to call. When this
-  // body is inactive (pill / mobile), report the panels as open so those
+  // separate chrome strip. Settings owns the persisted project-panel flag;
+  // this body owns the transient sidebar state and mirrors both here. When
+  // this body is inactive (pill / mobile), report the panels as open so those
   // headers don't offer to expand chrome that isn't on screen.
   frameChrome.expandSidebar = toggleSidebar;
   frameChrome.expandProjectPanel = toggleProjectPanel;
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
-    frameChrome.projectPanelOpen = active ? projectPanelOpen : true;
+    frameChrome.projectPanelOpen = active ? settings.projectPanelOpen : true;
   });
 
   useKeybinding("global.toggle-sidebar", () => toggleSidebar(), {
@@ -235,25 +283,37 @@
     enabled: () => active && enableProjectPanel,
   });
   useKeybinding(
+    "global.new-split-chat",
+    async () => {
+      const tabId = await session.createTab(undefined, { activate: false });
+      session.openTabInSplit(tabId);
+      requestInputFocus({ tabId });
+    },
+    { enabled: () => active },
+  );
+  useKeybinding(
     "global.toggle-files",
     () => {
-      if (av.secondary.kind === "files") av.closeSecondary();
-      else av.openFiles();
+      if (panes.secondaryOverlay?.kind === "files") panes.closeOverlay();
+      else panes.openFiles(focusedChatTabId);
       requestInputFocus();
     },
-    { enabled: () => active && canShowDiffPanel },
+    { enabled: () => active && canShowFocusedDiffPanel },
   );
   useKeybinding(
     "global.open-in-split",
     () => {
-      if (isMovableContent(av.primary)) {
-        av.moveToOppositeSlot(av.primary, "primary");
-      } else if (isMovableContent(av.secondary)) {
-        av.moveToOppositeSlot(av.secondary, "secondary");
-      } else if (av.secondary.kind === "conversation" && av.secondary.tabId) {
-        // Toggle off: promote the split chat back to the main view.
-        session.selectTab(av.secondary.tabId);
-      } else if (av.primary.kind === "conversation" && tab) {
+      if (isMovableContent(panes.primaryContent)) {
+        panes.moveToOppositeSlot(panes.primaryContent, "primary");
+      } else if (isMovableContent(panes.secondaryContent)) {
+        panes.moveToOppositeSlot(panes.secondaryContent, "secondary");
+      } else if (
+        panes.secondaryContent.kind === "conversation" &&
+        panes.secondaryContent.tabId
+      ) {
+        // Promote the split chat back into the primary tab pool.
+        session.promoteSplitToMainTab();
+      } else if (panes.primaryContent.kind === "conversation" && tab) {
         // Plain conversation: split the active chat off to the side.
         session.openTabInSplit(tab.id);
       } else {
@@ -287,87 +347,39 @@
     }
   }
 
-  // Split-pane floors. The divider drag is zero-sum, so both panes get a
-  // minimum: the secondary can't shrink below a usable column, and it can't
-  // grow so far that the primary chat pane is squeezed to nothing.
-  const minPrimaryWidth = 400;
-  const minSecondaryWidth = 360;
-
-  function clamp(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
-  }
-
-  // Clamp a desired secondary width to keep both panes usable. On a work area
-  // too narrow to honor both floors, fall back to a 50/50 split so the clamp
-  // doesn't silently pin the pane to one edge.
-  function clampSecondaryWidth(desired: number) {
-    const containerW =
-      conversationAreaWidth ||
-      conversationAreaEl?.clientWidth ||
-      windowCtx.workAreaWidth;
-    if (containerW < minPrimaryWidth + minSecondaryWidth) {
-      return Math.round(containerW / 2);
-    }
-    return clamp(desired, minSecondaryWidth, containerW - minPrimaryWidth);
-  }
-
+  const secondaryContainerWidth = $derived(
+    conversationAreaWidth || conversationAreaEl?.clientWidth || windowCtx.workAreaWidth,
+  );
   const autoSecondaryWidth = $derived(
-    clampSecondaryWidth(
-      Math.round(
-        (conversationAreaWidth ||
-          conversationAreaEl?.clientWidth ||
-          windowCtx.workAreaWidth) * av.secondaryRatio,
-      ),
+    clampSecondaryPaneWidth(
+      Math.round(secondaryContainerWidth * panes.secondaryRatio),
+      secondaryContainerWidth,
     ),
   );
-  const secondaryBounds = $derived.by(() => {
-    const containerWidth =
-      conversationAreaWidth ||
-      conversationAreaEl?.clientWidth ||
-      windowCtx.workAreaWidth;
-    if (containerWidth < minPrimaryWidth + minSecondaryWidth) {
-      return { min: 50, max: 50 };
-    }
-    return paneBoundsPercent(
-      containerWidth,
-      minSecondaryWidth,
-      containerWidth - minPrimaryWidth,
-    );
-  });
-  const primaryMinSize = $derived.by(() => {
-    const containerWidth =
-      conversationAreaWidth ||
-      conversationAreaEl?.clientWidth ||
-      windowCtx.workAreaWidth;
-    return containerWidth < minPrimaryWidth + minSecondaryWidth
-      ? 50
-      : pixelsToPercent(minPrimaryWidth, containerWidth);
-  });
+  const secondaryBounds = $derived(secondaryPaneBounds(secondaryContainerWidth));
+  const primaryMinSize = $derived(primaryPaneMinSize(secondaryContainerWidth));
   const secondaryDefaultSize = $derived.by(() => {
-    const containerWidth =
-      conversationAreaWidth ||
-      conversationAreaEl?.clientWidth ||
-      windowCtx.workAreaWidth;
-    const width = av.hasResized ? av.secondaryWidth : autoSecondaryWidth;
-    return clamp(
-      pixelsToPercent(width, containerWidth),
-      secondaryBounds.min,
-      secondaryBounds.max,
+    const width = panes.hasResized ? panes.secondaryWidth : autoSecondaryWidth;
+    return secondaryPaneDefaultSize(
+      width,
+      secondaryContainerWidth,
+      secondaryBounds,
     );
   });
 
   function handleSecondaryLayout(layout: number[]) {
     if (layout.length !== 2 || conversationAreaWidth <= 0) return;
-    av.secondaryWidth = clampSecondaryWidth(
+    panes.secondaryWidth = clampSecondaryPaneWidth(
       percentToPixels(layout[1], conversationAreaWidth),
+      conversationAreaWidth,
     );
   }
 
   function handleSecondaryDragging(dragging: boolean) {
     isResizingSecondary = dragging;
     if (!dragging) return;
-    av.hasResized = true;
-    if (av.maximized) av.maximized = false;
+    panes.hasResized = true;
+    if (panes.maximized) panes.maximized = false;
   }
 
   let panelResizeRaf = 0;
@@ -414,8 +426,16 @@
   let displayedSecondaryContent = $state<PaneContent>({ kind: "empty" });
   let secondaryContentTimer: ReturnType<typeof setTimeout> | null = null;
   let secondaryShellTimer: ReturnType<typeof setTimeout> | null = null;
-  const SECONDARY_CONTENT_DELAY_MS = 90;
-  const SECONDARY_SHELL_EXIT_MS = 140;
+  function requestSplitFocusAfterRender(content: PaneContent) {
+    const tabId = focusedSplitChatTabId(content, panes.focusedPane, splitTabId);
+    if (!tabId) return;
+    requestAnimationFrame(() => {
+      const currentSplitTabId = panes.chatTabIn("secondary", session.activeTabId);
+      if (focusedSplitChatTabId(content, panes.focusedPane, currentSplitTabId)) {
+        requestInputFocus({ tabId });
+      }
+    });
+  }
 
   $effect(() => {
     if (!secondaryVisible) {
@@ -446,17 +466,21 @@
       clearTimeout(secondaryShellTimer);
       secondaryShellTimer = null;
     }
-    displayedSecondaryContent = av.secondary;
+    displayedSecondaryContent = panes.secondaryVisible;
     renderSecondaryShell = true;
     secondaryPaneClosing = false;
 
-    if (renderSecondaryContent) return;
+    if (renderSecondaryContent) {
+      requestSplitFocusAfterRender(displayedSecondaryContent);
+      return;
+    }
     const reduce = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")
       .matches;
     secondaryContentTimer = setTimeout(
       () => {
         secondaryContentTimer = null;
         renderSecondaryContent = true;
+        requestSplitFocusAfterRender(displayedSecondaryContent);
       },
       reduce ? 0 : SECONDARY_CONTENT_DELAY_MS,
     );
@@ -474,19 +498,25 @@
   });
 
   function toggleSecondaryMaximize() {
-    av.maximized = !av.maximized;
+    panes.maximized = !panes.maximized;
   }
 
   // A work/plan document shell in the primary pane should claim the full width
   // like the diff panel does — collapse the project panel while it's open and
   // restore it on close. The session sidebar deliberately stays put.
-  const documentShellOpen = $derived(isArtifactContent(av.primary));
+  const documentShellOpen = $derived(
+    isArtifactContent(panes.primaryContent),
+  );
 
   // Collapse the session sidebar while a full-width overlay is up — a secondary
-  // pane or the settings page — and restore it on close, the
-  // same way the diff panel reclaims the width.
+  // pane, review guide, or the settings page — and restore it on close, the same
+  // way the diff panel reclaims the width.
   $effect(() => {
-    if (secondaryCollapsesSidebar || session.settingsOpen) {
+    if (
+      secondaryCollapsesSidebar ||
+      primaryReviewOpen ||
+      session.settingsOpen
+    ) {
       if (sidebarOpen) {
         sidebarClosedForOverlay = true;
         closeSidebar();
@@ -503,11 +533,14 @@
   let prevPanelCollapseTrigger = false;
   $effect(() => {
     const trigger =
-      secondaryVisible || documentShellOpen || session.settingsOpen;
+      secondaryCollapsesProjectPanel ||
+      documentShellOpen ||
+      primaryReviewOpen ||
+      session.settingsOpen;
     if (trigger === prevPanelCollapseTrigger) return;
     prevPanelCollapseTrigger = trigger;
     if (trigger) {
-      if (projectPanelOpen) {
+      if (settings.projectPanelOpen) {
         projectPanelClosedForSecondary = true;
         closeProjectPanel();
       }
@@ -530,8 +563,8 @@
   $effect(() => {
     const pane = projectPanelPane;
     if (!pane) return;
-    if (projectPanelOpen && pane.isCollapsed()) pane.expand();
-    else if (!projectPanelOpen && !pane.isCollapsed()) pane.collapse();
+    if (settings.projectPanelOpen && pane.isCollapsed()) pane.expand();
+    else if (!settings.projectPanelOpen && !pane.isCollapsed()) pane.collapse();
   });
 
   // Opening a new secondary surface deliberately resets to its content-specific
@@ -540,7 +573,7 @@
   $effect(() => {
     const pane = secondaryPane;
     const defaultSize = secondaryDefaultSize;
-    if (!pane || !secondaryVisible || av.hasResized || av.maximized) return;
+    if (!pane || !secondaryVisible || panes.hasResized || panes.maximized) return;
     pane.resize(defaultSize);
   });
 </script>
@@ -555,7 +588,9 @@
         tabIds={visibleTabIds}
         sidebarOpen={sidebarOpenForChrome}
         onToggleSidebar={toggleSidebar}
-        projectPanelOpen={enableProjectPanel ? projectPanelOpen : undefined}
+        projectPanelOpen={enableProjectPanel
+          ? settings.projectPanelOpen
+          : undefined}
         onToggleProjectPanel={enableProjectPanel
           ? toggleProjectPanel
           : undefined}
@@ -573,10 +608,11 @@
   class:is-resizing={isResizingSecondary}
   class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
-  class:project-panel-open={enableProjectPanel && projectPanelOpen}
-  class:project-panel-collapsed={enableProjectPanel && !projectPanelOpen}
+  class:project-panel-open={enableProjectPanel && settings.projectPanelOpen}
+  class:project-panel-collapsed={enableProjectPanel && !settings.projectPanelOpen}
   bind:clientWidth={workspaceBodyWidth}
 >
+  <OuterScrollbar target={active ? outerScrollTarget : null} />
   <Resizable.PaneGroup
     direction="horizontal"
     keyboardResizeBy={2}
@@ -644,8 +680,8 @@
                  clears the mac traffic lights. Scoped to a non-conversation
                  primary so it never overlaps the conversation's TabStrip,
                  which carries its own sidebar toggle. -->
-            {#if av.primary.kind !== "conversation" &&
-              av.primary.kind !== "settings"}
+            {#if panes.primaryContent.kind !== "conversation" &&
+              panes.primaryContent.kind !== "settings"}
               <div
                 class="no-drag absolute left-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] top-2.5 z-20"
               >
@@ -659,7 +695,8 @@
                  re-mounted. -->
             <div
               class="conversation-pool flex-1 flex flex-col min-h-0 no-drag"
-              class:mode-hidden={av.primary.kind !== "conversation"}
+              class:mode-hidden={panes.primaryContent.kind !== "conversation"}
+              onfocusin={() => panes.focusPane("primary")}
             >
               {#if session.tabOrder.length === 0}
                 <NewTabHome />
@@ -672,14 +709,24 @@
                   >
                     <ConversationView
                       tabId={tId}
-                      onDiffToggle={() => av.toggleDiff(canShowDiffPanel)}
+                      onDiffToggle={() =>
+                        panes.toggleDiff(
+                          !!session.sessionFor(tId)?.workingDirectory,
+                          tId,
+                        )}
                     />
                   </div>
                 {/if}
               {/each}
             </div>
-            {#if av.primary.kind !== "conversation"}
-              <Pane content={av.primary} slot="primary" />
+            {#if panes.primaryContent.kind !== "conversation"}
+              <Pane
+                content={panes.primaryContent}
+                slot="primary"
+                {onAttachFile}
+                {onScreenshot}
+                {onDesignMode}
+              />
             {/if}
 
             {#if showRunDock}
@@ -704,19 +751,9 @@
               class:mode-hidden={inputDockHidden}
               style="padding:10px 16px 12px;background:var(--solus-container-bg)"
               bind:clientHeight={inputDockHeight}
+              onfocusin={() => panes.focusPane("primary")}
             >
-              <div
-                class="editor-input-card overflow-hidden"
-                style="max-width:var(--solus-reading-max);margin-inline:auto"
-                class:is-focused={inputFocused}
-                onfocusin={() => (inputFocused = true)}
-                onfocusout={() => (inputFocused = false)}
-              >
-                {@render inputRow()}
-                <div class="editor-input-statusbar no-drag">
-                  {@render statusBar()}
-                </div>
-              </div>
+              {@render inputRow()}
             </div>
           </div>
           </Resizable.Pane>
@@ -725,8 +762,8 @@
             {#if secondaryVisible}
               <Resizable.Handle
                 aria-label="Resize panel"
-                disabled={av.maximized}
-                class={av.maximized ? "pointer-events-none opacity-0" : ""}
+                disabled={panes.maximized}
+                class={panes.maximized ? "pointer-events-none opacity-0" : ""}
                 onDraggingChange={handleSecondaryDragging}
               />
             {/if}
@@ -737,12 +774,14 @@
               defaultSize={secondaryDefaultSize}
               minSize={secondaryBounds.min}
               maxSize={secondaryBounds.max}
-              class={`secondary-pane-wrap relative ${av.maximized
+              class={`secondary-pane-wrap relative ${panes.maximized
                 ? "secondary-pane-wrap--maximized"
                 : ""} ${secondaryPaneClosing
                 ? "secondary-pane-wrap--closing"
                 : ""} ${isArtifactContent(displayedSecondaryContent) ||
               displayedSecondaryContent.kind === "review" ||
+              displayedSecondaryContent.kind === "pr-review" ||
+              displayedSecondaryContent.kind === "pr-review-loading" ||
               isPageContent(displayedSecondaryContent)
                 ? "secondary-pane-wrap--framed"
                 : ""} ${isResizingSecondary ? "is-resizing" : ""}`}
@@ -755,6 +794,9 @@
                   <Pane
                     content={displayedSecondaryContent}
                     slot="secondary"
+                    {onAttachFile}
+                    {onScreenshot}
+                    {onDesignMode}
                     onToggleSecondaryMaximize={toggleSecondaryMaximize}
                   />
                 </div>
@@ -770,24 +812,26 @@
     {#if enableProjectPanel}
       <Resizable.Handle
         aria-label="Resize project panel"
-        disabled={!projectPanelOpen}
-        class={!projectPanelOpen ? "pointer-events-none opacity-0" : ""}
+        disabled={!settings.projectPanelOpen}
+        class={!settings.projectPanelOpen
+          ? "pointer-events-none opacity-0"
+          : ""}
       />
       <Resizable.Pane
         bind:this={projectPanelPane}
         order={3}
-        defaultSize={projectPanelOpen ? projectPanelDefaultSize : 0}
+        defaultSize={settings.projectPanelOpen ? projectPanelDefaultSize : 0}
         minSize={projectPanelBounds.min}
         maxSize={projectPanelBounds.max}
         collapsedSize={0}
         collapsible
         onCollapse={closeProjectPanel}
         onExpand={openProjectPanel}
-        aria-hidden={!projectPanelOpen}
+        aria-hidden={!settings.projectPanelOpen}
         class="workspace-rail-pane"
       >
         <ProjectPanel
-          open={projectPanelOpen}
+          open={settings.projectPanelOpen}
           managedWidth
           onClose={closeProjectPanel}
         />
@@ -892,21 +936,6 @@
   }
   .input-dock {
     contain: layout paint;
-  }
-  .editor-input-card {
-    border-radius: 16px;
-    padding: 0;
-    border: 1px solid var(--solus-container-border);
-    background: var(--solus-input-pill-bg);
-    transition: border-color 0.18s ease;
-  }
-  .editor-input-card.is-focused {
-    border-color: var(--solus-input-focus-border);
-    box-shadow: 0 0 0 3px var(--solus-input-focus-ring);
-  }
-  .editor-input-statusbar {
-    border-top: 1px solid
-      color-mix(in srgb, var(--solus-container-border) 55%, transparent);
   }
   .workspace-body.is-resizing,
   .is-resizing {

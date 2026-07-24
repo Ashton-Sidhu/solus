@@ -15,72 +15,63 @@
     WarningCircleIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getGitStatusStore } from "../../contexts/git-status.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
+  import {
+    getSessionEnvironmentStore,
+    getWorkspaceContext,
+    getSettingsContext,
+    getAgentContext,
+    toasts,
+  } from "../../contexts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
-  import { sessionEnvironment } from "../../lib/git-context";
   import { getRecommendedGitActionKey } from "../../lib/git-recommendation";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Popover from "../ui/popover";
-  import { Button } from "../ui/button";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serversStore } from "../servers/servers.store.svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import SearchablePickerList from "../pickers/SearchablePickerList.svelte";
-  import {
-    worktreeProjectRoot,
-    type IpcContext,
-  } from "../../../shared/types";
+  import { worktreeProjectRoot, type IpcContext } from "../../../shared/types";
 
   interface Props {
-    cwd: string;
     tabId: string;
     active?: boolean;
     onOpenFiles?: () => void;
   }
-  let { cwd, tabId, active = true, onOpenFiles }: Props = $props();
+  let { tabId, active = true, onOpenFiles }: Props = $props();
 
-  const gitStatus = getGitStatusStore();
+  const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
-  const av = session.artifactViewer;
+  const panes = session.panes;
   const sess = $derived(session.sessionFor(tabId));
-  const status = $derived(gitStatus.statusFor(cwd));
+  const env = $derived(environmentStore.environmentFor(tabId));
+  const cwd = $derived(env.cwd);
+  const status = $derived(env.status);
   const conflictedFiles = $derived(
-    status?.files.filter((file) => file.conflicted) ?? [],
+    status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
   );
-  const uncommittedFileCount = $derived(status?.files.length ?? 0);
-  const insertions = $derived(status?.insertions ?? 0);
-  const deletions = $derived(status?.deletions ?? 0);
-  const actions = $derived(gitActionsFor(tabId, session, gitStatus));
-  const canGit = $derived(!!sess?.gitContext);
+  const uncommittedFileCount = $derived(
+    status?.uncommittedChanges.files.length ?? 0,
+  );
+  const insertions = $derived(status?.uncommittedChanges.insertions ?? 0);
+  const deletions = $derived(status?.uncommittedChanges.deletions ?? 0);
+  const actions = $derived(gitActionsFor(tabId, session, environmentStore));
+  const canGit = $derived(!!env.branch);
   const remoteHost = $derived(
     sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
       ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { label: "remote host" })
       : null,
   );
   const canViewDiff = $derived(!!status);
-  const canPr = $derived(
-    !!sess?.gitContext &&
-      sess.gitContext.branch !== sess.gitContext.targetBranch,
-  );
+  const canPr = $derived(!!env.branch && env.branch !== env.targetBranch);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
-  const env = $derived(
-    sessionEnvironment(
-      sess?.gitContext ?? null,
-      sess?.worktreeBaseBranch ?? null,
-      status ?? null,
-    ),
+  const currentBranch = $derived(
+    status === undefined ? env.branch : (status?.branch ?? null),
   );
-  const currentBranch = $derived(env.branch ?? status?.branch ?? null);
   const isWorktree = $derived(env.isolated);
   const branchRepoRoot = $derived(
-    sess?.gitContext?.repoRoot ??
+    env.checkout?.repoRoot ??
       sess?.workingDirectory ??
       status?.repoRoot ??
       worktreeProjectRoot(cwd),
@@ -103,7 +94,7 @@
 
   $effect(() => {
     if (!active || !cwd) return;
-    return gitStatus.watchDetails(cwd);
+    return environmentStore.watchDetails(cwd);
   });
 
   // --- Shared action model: every row renders from one definition,
@@ -118,7 +109,6 @@
     primary?: boolean;
     danger?: boolean;
     disabled?: boolean;
-    error?: string | null;
     badge?: string;
     tooltip?: string;
     run: () => void;
@@ -159,7 +149,6 @@
         icon: PaperPlaneTiltIcon,
         phase: commitPhase,
         disabled: !canGit || actions.commitPushing,
-        error: actions.commitPushError,
         run: () => {
           void actions.commitPush();
           requestInputFocus();
@@ -174,7 +163,12 @@
         run: () => {
           window.dispatchEvent(
             new CustomEvent("solus:toggle-diff-panel", {
-              detail: { scope: { kind: "working-tree" }, switchScope: true },
+              detail: {
+                scope: { kind: "working-tree" },
+                switchScope: true,
+                cwd: env.cwd,
+                checkout: env.checkout,
+              },
             }),
           );
           requestInputFocus();
@@ -191,7 +185,6 @@
         icon: ArrowsClockwiseIcon,
         phase: syncPhase,
         disabled: !canGit || actions.syncing,
-        error: actions.syncError,
         run: () => {
           void actions.sync();
           requestInputFocus();
@@ -219,7 +212,15 @@
         disabled: !canViewDiff,
         // Reuse the command palette's PR list (the "Review PR…" sub-page).
         run: () => {
-          window.dispatchEvent(new CustomEvent("solus:review-pr"));
+          window.dispatchEvent(
+            new CustomEvent("solus:review-pr", {
+              detail: {
+                tabId: tabId || undefined,
+                cwd: env.cwd,
+                checkout: env.checkout,
+              },
+            }),
+          );
         },
       },
     ];
@@ -257,7 +258,6 @@
         icon: GitPullRequestIcon,
         phase: prPhase,
         disabled: !canPr || actions.creatingPR,
-        error: actions.prError,
         run: () => {
           void actions.createPR();
           requestInputFocus();
@@ -288,7 +288,10 @@
         requestInputFocus();
       },
     });
-    if (status && (status.mergeInProgress || conflictedFiles.length > 0)) {
+    if (
+      status &&
+      (status.uncommittedChanges.mergeInProgress || conflictedFiles.length > 0)
+    ) {
       defs.push({
         key: "conflict",
         primary: recommendedActionKey === "conflict",
@@ -332,8 +335,7 @@
       "conflict",
     ]);
     if (sourceControl.length) {
-      const primary =
-        sourceControl.find((d) => d.primary) ?? sourceControl[0];
+      const primary = sourceControl.find((d) => d.primary) ?? sourceControl[0];
       groups.push({
         key: "source-control",
         primary,
@@ -343,7 +345,11 @@
 
     const review = pick(["review", "review-regenerate", "review-pr"]);
     if (review.length) {
-      groups.push({ key: "review", primary: review[0], secondary: review.slice(1) });
+      groups.push({
+        key: "review",
+        primary: review[0],
+        secondary: review.slice(1),
+      });
     }
 
     for (const def of pick(["working-tree-diff", "files", "terminal"])) {
@@ -394,7 +400,7 @@
   let branchPickerOpen = $state(false);
   let branchPickerRef: SearchablePickerList | null = $state(null);
 
-  const branchRefs = $derived(gitStatus.refsFor(branchRepoRoot));
+  const branchRefs = $derived(environmentStore.refsFor(branchRepoRoot));
   const branches = $derived(branchRefs.branches);
   const worktrees = $derived(branchRefs.worktrees);
   const worktreeBranches = $derived(worktrees.map((wt) => wt.branch));
@@ -408,7 +414,11 @@
   function handleBranchOpenChange(next: boolean) {
     branchPickerOpen = next;
     if (next && branchRepoCtx) {
-      void gitStatus.refreshRefs(branchRepoRoot, branchRepoCtx, { force: true });
+      void environmentStore
+        .refreshRefs(branchRepoRoot, branchRepoCtx, { force: true })
+        .then((ok) => {
+          if (!ok) toasts.error("Couldn't refresh branches");
+        });
     }
   }
 
@@ -425,13 +435,13 @@
 
   async function handleReview(regenerate = false) {
     if (reviewKey && !regenerate) {
-      av.enterReview(reviewKey);
+      panes.enterReview(reviewKey);
       requestInputFocus();
       return;
     }
     if (reviewing) return;
     const runId = ++reviewRunId;
-    const ctx = session.ctxFor(tabId);
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
     reviewing = true;
     try {
       const gen = await window.solus.generateGuide(
@@ -448,7 +458,7 @@
           action: {
             label: "View",
             onAction: () => {
-              av.enterReview(generatedKey);
+              panes.enterReview(generatedKey);
               requestInputFocus();
             },
           },
@@ -474,13 +484,18 @@
     if (!reviewing) return;
     reviewRunId += 1;
     reviewing = false;
-    void window.solus.cancelGenerateGuide(session.ctxFor(tabId));
+    void window.solus.cancelGenerateGuide(
+      session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+    );
     requestInputFocus();
   }
 
   async function selectBranchTarget(item: string) {
     branchPickerOpen = false;
     const entry = worktrees.find((wt) => wt.branch === item);
+    // Environment selection is navigation, not an in-place retarget of this
+    // panel's tab. Omitting tabId lets the workspace preserve a started session
+    // and create/activate a destination tab in the selected environment group.
     if (entry) {
       await session.switchToWorktree(entry.path);
     } else {
@@ -493,21 +508,23 @@
     const nextCwd =
       session.activeSession?.gitContext?.worktreePath ??
       session.activeSession?.workingDirectory ??
-      cwd;
-    if (nextCwd) void gitStatus.refresh(nextCwd, { force: true });
-    requestInputFocus();
-  }
-
-  function dismiss() {
-    actions.dismissError();
+      session.globalDefaults.gitContext?.worktreePath ??
+      session.globalDefaults.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
     requestInputFocus();
   }
 
   async function resolveWithAgent() {
-    if (!status || (!status.mergeInProgress && conflictedFiles.length === 0))
+    if (
+      !status ||
+      (!status.uncommittedChanges.mergeInProgress &&
+        conflictedFiles.length === 0)
+    )
       return;
     const filesToInspect =
-      conflictedFiles.length > 0 ? conflictedFiles : status.files;
+      conflictedFiles.length > 0
+        ? conflictedFiles
+        : status.uncommittedChanges.files;
     const prompt = [
       `Resolve the merge conflicts on branch ${status.branch ?? "detached HEAD"}.`,
       filesToInspect.length > 0
@@ -516,11 +533,7 @@
       ...filesToInspect.map((file) => `- ${file.path}`),
       "Inspect the files, resolve the conflicts, and run the relevant checks.",
     ].join("\n");
-    await session.startNewSessionWithPrompt(
-      prompt,
-      sess?.workingDirectory ?? status.repoRoot,
-      sess?.gitContext ?? null,
-    );
+    await session.startNewSessionWithPrompt(prompt, env.cwd, env.checkout);
     requestInputFocus();
   }
 </script>
@@ -535,23 +548,6 @@
     {@const Icon = def.icon}
     <Icon size={13} />
   {/if}
-{/snippet}
-
-{#snippet inlineError(def: ActionDef)}
-  <div class="inline-err" role="alert">
-    <WarningCircleIcon size={11} />
-    <span>{def.error}</span>
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      class="text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_14%,transparent)] hover:text-(--solus-status-error)"
-      type="button"
-      aria-label="Dismiss error"
-      onclick={dismiss}
-    >
-      <XIcon size={10} />
-    </Button>
-  </div>
 {/snippet}
 
 {#snippet menuButton(def: ActionDef, split: boolean)}
@@ -608,35 +604,57 @@
         </button>
       </div>
     {/if}
-    {#each [group.primary, ...group.secondary] as m (m.key)}
-      {#if m.error}{@render inlineError(m)}{/if}
-    {/each}
   </div>
 {/snippet}
 
-{#if !sess?.gitContext && status === undefined}
+{#if !env.branch && status === undefined}
   <p class="empty">Loading git status…</p>
-{:else if !sess?.gitContext && status === null}
+{:else if !env.branch && status === null}
   <div class="flex flex-col items-start gap-1 px-2 py-2">
-    <span class="text-[0.8125rem] text-(--solus-text-secondary)">No Git repository</span>
+    <span class="text-[0.8125rem] text-(--solus-text-secondary)"
+      >No Git repository</span
+    >
     <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
       Initialize Git to manage branches and changes.
     </span>
   </div>
 {:else}
   <div class="env">
-    <Popover.Root bind:open={branchPickerOpen} onOpenChange={handleBranchOpenChange}>
+    <Popover.Root
+      bind:open={branchPickerOpen}
+      onOpenChange={handleBranchOpenChange}
+    >
       <Popover.Trigger disabled={!currentBranch || env.pending}>
         {#snippet child({ props })}
-          <button {...props} class="branch-row" type="button" title="Switch branch or worktree">
-            <span class="branch-row-icon">{#if isWorktree || env.pending}<GitForkIcon size={13} />{:else}<GitBranchIcon size={13} />{/if}</span>
-            <span class="branch-row-name" title={status?.branch ?? undefined}>{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span>
+          <button
+            {...props}
+            class="branch-row"
+            type="button"
+            title="Switch branch or worktree"
+          >
+            <span class="branch-row-icon"
+              >{#if isWorktree || env.pending}<GitForkIcon
+                  size={13}
+                />{:else}<GitBranchIcon size={13} />{/if}</span
+            >
+            <span class="branch-row-name" title={status?.branch ?? undefined}
+              >{env.pending
+                ? env.name
+                : (currentBranch ?? "detached HEAD")}</span
+            >
             <span class="branch-row-trail">
               {#if uncommittedFileCount > 0}
                 <span class="branch-row-stats">
-                  <span class="menu-trail">{uncommittedFileCount}</span>
-                  {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
-                  {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
+                  <span class="menu-trail"
+                    >{uncommittedFileCount}{status?.uncommittedChanges
+                      .hasMoreFiles
+                      ? "+"
+                      : ""}</span
+                  >
+                  {#if insertions > 0}<span class="stat-add">+{insertions}</span
+                    >{/if}
+                  {#if deletions > 0}<span class="stat-del">−{deletions}</span
+                    >{/if}
                 </span>
               {/if}
               <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
@@ -644,7 +662,14 @@
           </button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content side="left" align="start" sideOffset={6} collisionPadding={8} onOpenAutoFocus={(event) => event.preventDefault()} class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content
+        side="left"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+      >
         <SearchablePickerList
           bind:this={branchPickerRef}
           items={branchPickerItems}
@@ -662,14 +687,27 @@
       {/each}
     </div>
     <Popover.Root bind:open={groupMenuOpen}>
-      <Popover.Content customAnchor={openRowEl} side="left" align="start" sideOffset={6} collisionPadding={8} onInteractOutside={(event) => { if ((event.target as Element | null)?.closest?.(".split-caret")) event.preventDefault() }} class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+      <Popover.Content
+        customAnchor={openRowEl}
+        side="left"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
+        onInteractOutside={(event) => {
+          if ((event.target as Element | null)?.closest?.(".split-caret"))
+            event.preventDefault();
+        }}
+        class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+      >
         {#each openGroup?.secondary ?? [] as def (def.key)}
           {@const Icon = def.icon}
           <button
             type="button"
             disabled={def.disabled}
             onclick={() => runSecondary(def)}
-            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : ''}"
+            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger
+              ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
+              : ''}"
           >
             <Icon size={14} />
             <span>{def.label}</span>
@@ -720,7 +758,7 @@
       color 0.15s ease;
   }
   .branch-row:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .branch-row:focus-visible {
@@ -831,7 +869,7 @@
   }
   .split-caret:hover,
   .split-caret[aria-expanded="true"] {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .split-caret.is-danger {
@@ -868,7 +906,7 @@
       color 0.15s ease;
   }
   .menu-row:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .menu-row:focus-visible {
@@ -993,39 +1031,6 @@
     40%,
     60% {
       transform: translateX(0.125rem);
-    }
-  }
-
-  /* Inline error */
-  .inline-err {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    margin: 0.125rem 0 0.0625rem;
-    padding: 0.25rem 0.3125rem 0.25rem 0.5rem;
-    border-radius: 0.375rem;
-    background: var(--solus-status-error-bg);
-    color: var(--solus-status-error);
-    font-size: 0.6875rem;
-    line-height: 1.35;
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .inline-err {
-      animation: err-slide 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-  }
-  .inline-err span {
-    min-width: 0;
-    flex: 1;
-  }
-  @keyframes err-slide {
-    from {
-      opacity: 0;
-      transform: translateY(-0.125rem);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
     }
   }
 </style>

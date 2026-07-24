@@ -27,7 +27,9 @@ import { MemoryCache } from '../../../shared/cache'
 import {
   cacheIndexedSessions,
   getCodexSessionIndexWatermark,
+  getCodexSessionsWithMessages,
   getIndexedCodexSessionTimestamps,
+  indexSessionMessages,
   listIndexedCodexSessions,
   setCodexSessionIndexWatermark,
 } from '../../db/session-indexer'
@@ -89,8 +91,29 @@ import {
   type CodexSolusToolKind,
 } from './codex-solus-tools'
 import { executeCodexReviewGuideTool, SUBMIT_REVIEW_GUIDE_TOOL_NAME } from '../../review/review-guide-tool'
+import {
+  CLAUDE_SUBAGENT_TOOL_NAME,
+  CLAUDE_SUBAGENT_TOOL_SCHEMA,
+  executeClaudeSubagent,
+} from '../claude/claude-subagent-tool'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
+
+/** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
+ *  new user's first full sweep from spiking the RPC channel. */
+const CODEX_INDEX_READ_CONCURRENCY = 6
+
+/** Run `task` over `items` with at most `limit` in flight at once. */
+async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      await task(items[index])
+    }
+  })
+  await Promise.all(workers)
+}
 
 // Per-kind copy for the permission UI when a mutating solus tool gates. Only the
 // mutating kinds (work/automation/task) reach these paths; the rest are covered
@@ -102,7 +125,6 @@ const SOLUS_TOOL_DECLINE_TEXT: Record<CodexSolusToolKind, string> = {
   session: 'The user declined this action.',
   pr: 'The user declined this PR review action.',
   artifact: 'The user declined this action.',
-  record_change: 'The user declined this action.',
 }
 const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
   work: 'Cannot modify works in plan mode. Exit plan mode to apply changes.',
@@ -111,7 +133,6 @@ const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
   session: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
   pr: 'Cannot modify PR review state in plan mode. Exit plan mode to apply changes.',
   artifact: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
-  record_change: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
 }
 const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
   work: 'Update a work the user has open',
@@ -120,7 +141,6 @@ const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
   session: 'Create a session',
   pr: 'Modify PR review state',
   artifact: 'Render an artifact',
-  record_change: 'Record a change',
 }
 
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
@@ -238,8 +258,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const handle: CodexRunHandle = {
       sessionId: runInput.agentSessionId,
-      tabId: runInput.tabId,
-      sourceTabId: runInput.tabId,
       threadId: runInput.agentSessionId,
       turnId: null,
       startedAt: Date.now(),
@@ -257,9 +275,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       repoRoot: null as string | null,
       cwd: runInput.workingDirectory,
       userMessagePreview: (options.prompt ?? '').slice(0, 80),
-      baseChangedFiles: new Set(runInput.changedFiles),
+      baseChangedFiles: new Set(runInput.sessionChangedFiles),
       turnDiffFiles: new Set(),
-      trackedFiles: new Set(runInput.changedFiles),
+      trackedFiles: new Set(runInput.sessionChangedFiles),
     }
 
     this.pendingRuns.push(handle)
@@ -276,13 +294,16 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       let threadId = handle.threadId
       const model = this.resolveModel(runInput.model)
       const general = isWorkspacePath(runInput.workingDirectory)
-      const developerInstructions = buildSystemPrompt({
+      const baseDeveloperInstructions = buildSystemPrompt({
         agent: 'codex',
         general,
         extraInstructions: runInput.extraInstructions,
         modelInstructions: runInput.modelInstructions,
         prReview: runInput.prReview,
       })
+      const developerInstructions = !runInput.agentSessionId && runInput.handoff
+        ? `${baseDeveloperInstructions}\n\n${runInput.handoff.seedSystemAppend}`
+        : baseDeveloperInstructions
       const threadConfig: CodexThreadStartParams = {
         model,
         cwd: runInput.workingDirectory,
@@ -296,7 +317,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // capability — include them unless a prior start rejected them.
       const toolsConfig = this.dynamicToolsUnavailable
         ? threadConfig
-        : { ...threadConfig, dynamicTools: codexSolusToolSchemas({ includeAutomationTools: true }) }
+        : {
+            ...threadConfig,
+            dynamicTools: [
+              ...codexSolusToolSchemas({ includeAutomationTools: runInput.toolProfile !== 'automation' }),
+              CLAUDE_SUBAGENT_TOOL_SCHEMA,
+            ],
+          }
 
       const reasoningEffort = runInput.reasoningEffort ?? 'high'
 
@@ -463,21 +490,50 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     } while (cursor)
 
     const candidates = changedThreads.filter((thread) => thread.id && thread.cwd)
-    const indexedTimestamps = getIndexedCodexSessionTimestamps(
-      candidates.map((thread) => thread.id!),
-    )
+    const candidateIds = candidates.map((thread) => thread.id!)
+    const indexedTimestamps = getIndexedCodexSessionTimestamps(candidateIds)
+    // Threads whose body is already indexed. A thread is (re)read when its row is
+    // new, its activity advanced, OR it has no indexed body yet — the last clause
+    // covers a session written at session_init whose init timestamp could sit at
+    // or past the thread's reported updatedAt, without trusting clock ordering.
+    const withMessages = getCodexSessionsWithMessages(candidateIds)
     const sessions = await Promise.all(
       candidates
         .filter((thread) => {
           const indexedTimestamp = indexedTimestamps.get(thread.id!)
           return indexedTimestamp === undefined ||
-            toEpochMs(thread.updatedAt ?? thread.createdAt) > indexedTimestamp
+            toEpochMs(thread.updatedAt ?? thread.createdAt) > indexedTimestamp ||
+            !withMessages.has(thread.id!)
         })
         .map((thread) => this.threadToSessionMeta(thread, thread.cwd!, { scanActivity: false })),
     )
     if (sessions.length > 0) {
       cacheIndexedSessions(sessions)
       this.mergeSessionListCache(sessions)
+      // Throttle the thread/read fan-out: a new user's first sweep can span
+      // thousands of threads, and reading them all at once spikes the RPC channel.
+      await runWithConcurrency(sessions, CODEX_INDEX_READ_CONCURRENCY, async (session) => {
+        try {
+          const response: CodexThreadReadResponse = await this.client.request('thread/read', {
+            threadId: session.sessionId,
+            includeTurns: true,
+          })
+          const messages: SessionLoadMessage[] = []
+          this.appendCodexTurnMessages(messages, response.thread?.turns ?? [])
+          indexSessionMessages(
+            session.sessionId,
+            'codex',
+            messages.filter((message) =>
+              (message.role === 'user' || message.role === 'assistant') &&
+              message.content.trim(),
+            ),
+          )
+        } catch (err) {
+          log.warn(
+            `Failed to index Codex messages for ${session.sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+      })
     }
     if (newestTimestamp > 0) setCodexSessionIndexWatermark(newestTimestamp)
     if (sessions.length === 0) return
@@ -673,7 +729,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.cacheFileChanges(params)
     if (msg.method === 'turn/diff/updated' && handle) {
       this.emit('normalized', sessionId, {
-        type: 'changed_files_updated',
+        type: 'session_changed_files_updated',
         paths: this.updateTrackedFilesFromTurnDiff(handle, params?.diff),
       })
     }
@@ -818,8 +874,24 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return (rawArgs && typeof rawArgs === 'object') ? rawArgs as Record<string, unknown> : {}
       }
 
-      // All solus dynamic tools (works, tasks, automations, sessions, artifacts,
-      // review ledger) dispatch through the shared executor. This backend keeps
+      if (bareToolName(toolName) === CLAUDE_SUBAGENT_TOOL_NAME) {
+        const parentToolUseId = typeof params?.callId === 'string' && params.callId
+          ? params.callId
+          : String(msg.id)
+        void executeClaudeSubagent(parseToolArgs(), {
+          cwd: handle?.workTree ?? handle?.cwd ?? '~',
+          abortController: handle?.abortController ?? new AbortController(),
+          parentToolUseId,
+          forceReadOnly: handle?.permissionMode === 'plan',
+          onEvent: (_parentToolUseId, event) => this.emit('normalized', sessionId, event),
+        })
+          .then((result) => respondWithWorkToolText(result.text, result.ok))
+          .catch((err) => respondWithWorkToolText(`Claude subagent failed: ${String(err)}`, false))
+        return
+      }
+
+      // All solus dynamic tools (works, tasks, automations, sessions, and artifacts)
+      // dispatch through the shared executor. This backend keeps
       // the interactive concerns: gating mutating tools per permission mode and
       // emitting cards; the shared module owns the routing + execution.
       const cls = classifyCodexSolusTool(toolName)
@@ -984,9 +1056,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const result = await snapshotTurn(workTree, repoRoot, sessionId, {
         partial,
         userMessagePreview: handle.userMessagePreview,
-        changedFiles: [...handle.trackedFiles],
+        sessionChangedFiles: [...handle.trackedFiles],
       })
-      return result?.changedFiles ?? null
+      return result?.sessionChangedFiles ?? null
     } catch (e) {
       log.warn(`snapshotOnTurnComplete failed: ${e}`)
       return null
@@ -1004,7 +1076,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const sessionId = handle.sessionId
     const changedFiles = await this.snapshotOnTurnComplete(handle, partial)
     if (changedFiles) {
-      this.emit('normalized', sessionId, { type: 'changed_files_updated', paths: changedFiles })
+      this.emit('normalized', sessionId, { type: 'session_changed_files_updated', paths: changedFiles })
     }
     for (const event of normalized) this.emit('normalized', sessionId, event)
     this.forgetRoutingForSession(sessionId)

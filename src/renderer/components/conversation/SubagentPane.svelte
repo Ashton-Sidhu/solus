@@ -5,7 +5,7 @@
     RobotIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { tooltip } from "../../lib/tooltip";
   import { parseSubagentInput } from "./lib/subagent";
   import SubagentTranscript from "./SubagentTranscript.svelte";
@@ -19,7 +19,7 @@
   let { tabId, messageId, onClose, onToggleMaximize }: Props = $props();
 
   const session = getWorkspaceContext();
-  const av = session.artifactViewer;
+  const panes = session.panes;
 
   const message = $derived(
     session.sessionFor(tabId)?.messages.find((m) => m.id === messageId),
@@ -32,8 +32,12 @@
   const task = $derived(
     (parsedInput.description || parsedInput.prompt || "Sub-agent").trim(),
   );
-  const isRunning = $derived(!!message && message.toolResult === undefined);
-  const isError = $derived(!!message?.toolResultIsError);
+  // toolStatus tracks the agent (see SubagentCard); toolResult only says whether
+  // the tool call answered, which a backgrounded agent does before it starts work.
+  const isRunning = $derived(message?.toolStatus === "running");
+  const isError = $derived(
+    !!message?.toolResultIsError || message?.toolStatus === "error",
+  );
 
   const headerButton =
     "flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)";
@@ -72,11 +76,11 @@
       <button
         type="button"
         class={headerButton}
-        aria-label={av.maximized ? "Restore panel" : "Maximize panel"}
+        aria-label={panes.maximized ? "Restore panel" : "Maximize panel"}
         onclick={onToggleMaximize}
-        use:tooltip={av.maximized ? "Restore" : "Maximize"}
+        use:tooltip={panes.maximized ? "Restore" : "Maximize"}
       >
-        {#if av.maximized}
+        {#if panes.maximized}
           <ArrowsInSimpleIcon size={13} weight="bold" />
         {:else}
           <ArrowsOutSimpleIcon size={13} weight="bold" />

@@ -42,6 +42,7 @@
   <MarkdownTextarea
     bind:ref={inputEl}
     bind:value
+    mic
     rows={3}
     {placeholder}
     onkeydown={handleKeydown}

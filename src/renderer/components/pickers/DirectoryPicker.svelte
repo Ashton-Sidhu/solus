@@ -12,30 +12,32 @@
     XIcon,
   } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
-  import { projectsStore } from "../../contexts/projects.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getStatusBarContext } from "../../contexts/status-bar.context.svelte";
+  import { projectsStore, getWorkspaceContext, getStatusBarContext, runtime } from "../../contexts";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { abbreviateHome } from "../../lib/paths";
-  import { runtime } from "../../contexts/runtime.svelte";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import Kbd from "../ui/Kbd.svelte";
-
-  interface DirEntry {
-    name: string;
-    isDir: boolean;
-    path: string;
-  }
+  import type { DirectoryEntry } from "../../../shared/types";
+  import { resolveDirectorySelection } from "./lib/directory-selection";
 
   interface Props {
     open: boolean;
     onClose: () => void;
     onSelect: (path: string) => void;
     initialPath?: string;
+    title?: string;
+    actionLabel?: string;
   }
 
-  let { open = $bindable(), onClose, onSelect, initialPath }: Props = $props();
+  let {
+    open = $bindable(),
+    onClose,
+    onSelect,
+    initialPath,
+    title = "Choose folder",
+    actionLabel = "Select",
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
@@ -43,9 +45,12 @@
   const projectMetadata = projectsStore;
 
   let currentPath = $state("");
-  let entries = $state<DirEntry[]>([]);
+  let parentPath = $state<string | null>(null);
+  let entries = $state<DirectoryEntry[]>([]);
   let loading = $state(false);
-  let selectedIndex = $state(0);
+  let loadError = $state<string | null>(null);
+  let reloadVersion = $state(0);
+  let selectedIndex = $state(-1);
   let filterQuery = $state("");
   let showHidden = $state(false);
   let popoverEl: HTMLDivElement | null = $state(null);
@@ -83,13 +88,19 @@
     currentPath.split("/").filter(Boolean).pop() || "/",
   );
 
-  // The name of whatever the primary action (Enter / Select button) will pick.
-  // On desktop the highlighted child is the subject (arrow-driven); on mobile
-  // there's no highlight (taps drill in), so the button picks the current folder.
-  const primaryTargetName = $derived(
-    runtime.isMobileViewport
-      ? currentFolderName
-      : (dirEntries[selectedIndex]?.name ?? currentFolderName),
+  const selection = $derived(
+    resolveDirectorySelection(
+      currentPath,
+      currentFolderName,
+      dirEntries,
+      selectedIndex,
+    ),
+  );
+  const selectedEntry = $derived(selection.entry);
+  const selectionPath = $derived(selection.path);
+  const primaryTargetName = $derived(selection.name);
+  const activeDescendant = $derived(
+    selectedEntry ? `directory-option-${selectedIndex}` : undefined,
   );
 
   const sidebarLocations = $derived([
@@ -122,16 +133,20 @@
 
   $effect(() => {
     if (!open || !currentPath) return;
+    void reloadVersion;
     let cancelled = false;
     loading = true;
+    loadError = null;
     window.solus
       .listDirectory(currentPath, showHidden)
       .then((result) => {
         if (cancelled) return;
         entries = result.entries;
         currentPath = result.currentPath;
+        parentPath = result.parentPath;
+        loadError = result.error;
         loading = false;
-        selectedIndex = 0;
+        selectedIndex = -1;
         filterQuery = "";
         if (shouldAutofocus) requestAnimationFrame(() => searchEl?.focus());
       })
@@ -139,6 +154,7 @@
         if (cancelled) return;
         loading = false;
         entries = [];
+        loadError = "Couldn’t load this folder. Check the connection and try again.";
       });
     return () => {
       cancelled = true;
@@ -146,35 +162,18 @@
   });
 
   function navigateTo(path: string) {
+    selectedIndex = -1;
+    filterQuery = "";
+    if (path === currentPath) return;
     currentPath = path;
   }
 
   function navigateUp() {
-    const parent =
-      currentPath === "/"
-        ? null
-        : currentPath.replace(/\/[^/]+\/?$/, "") || "/";
-    if (parent) navigateTo(parent);
+    if (parentPath) navigateTo(parentPath);
   }
 
-  // Select the folder currently being browsed (the breadcrumb folder).
-  function handleSelect() {
-    onSelect(currentPath);
-  }
-
-  // The primary action: pick the highlighted child, or fall back to the current
-  // folder when the list is empty. Mirrors what the Select button shows.
   function primarySelect() {
-    if (runtime.isMobileViewport) {
-      onSelect(currentPath);
-      return;
-    }
-    const entry = dirEntries[selectedIndex];
-    onSelect(entry ? entry.path : currentPath);
-  }
-
-  function handleRecentSelect(project: RecentProject) {
-    onSelect(project.path);
+    if (!loading && !loadError) onSelect(selectionPath);
   }
 
   // Keep Tab focus cycling inside the dialog so keyboard users can't fall
@@ -224,7 +223,7 @@
     if (
       target &&
       target.closest(
-        ".fn-sidebar-item, .fn-crumb, .toggle-hidden-btn, .select-btn",
+        ".fn-sidebar-item, .fn-crumb, .toggle-hidden-btn, .error-action-btn, .picker-mobile-close, .cancel-btn, .select-btn",
       )
     ) {
       return;
@@ -232,7 +231,9 @@
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, dirEntries.length - 1);
+      if (dirEntries.length > 0) {
+        selectedIndex = Math.min(selectedIndex + 1, dirEntries.length - 1);
+      }
       return;
     }
 
@@ -244,7 +245,7 @@
 
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      selectedIndex = Math.max(selectedIndex - 1, 0);
+      if (dirEntries.length > 0) selectedIndex = Math.max(selectedIndex - 1, 0);
       return;
     }
 
@@ -258,19 +259,10 @@
 
     if (e.key === "ArrowRight" && filterQuery === "") {
       e.preventDefault();
-      const entry = dirEntries[selectedIndex];
-      if (entry) navigateTo(entry.path);
+      if (selectedEntry) navigateTo(selectedEntry.path);
       return;
     }
 
-    // ⌘↵ explicitly selects the folder being browsed (the breadcrumb folder).
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSelect();
-      return;
-    }
-
-    // Enter selects the highlighted folder — the one with the selection ring.
     if (e.key === "Enter") {
       e.preventDefault();
       primarySelect();
@@ -293,13 +285,14 @@
       bind:this={popoverEl}
       class="picker-container"
       role="dialog"
-      aria-label="Directory picker"
+      aria-modal="true"
+      aria-labelledby="directory-picker-title"
       tabindex="-1"
       onkeydown={handleKeyDown}
       transition:fly={{ y: 8, duration: 180 }}
     >
       <div class="picker-mobile-header">
-        <span class="picker-mobile-title">Choose folder</span>
+        <span id="directory-picker-title" class="picker-mobile-title">{title}</span>
         <button
           type="button"
           class="picker-mobile-close"
@@ -317,6 +310,7 @@
               class="fn-sidebar-item"
               class:fn-sidebar-item-active={currentPath === loc.path}
               onclick={() => navigateTo(loc.path)}
+              title={loc.path}
             >
               {#if loc.label === "Home"}
                 <HouseIcon size={14} weight="fill" class="flex-shrink-0" />
@@ -334,7 +328,8 @@
               <button
                 class="fn-sidebar-item"
                 class:fn-sidebar-item-active={currentPath === project.path}
-                onclick={() => handleRecentSelect(project)}
+                onclick={() => navigateTo(project.path)}
+                title={project.path}
               >
                 <ClockCounterClockwiseIcon size={14} class="flex-shrink-0" />
                 <span class="truncate">{project.folderName}</span>
@@ -364,7 +359,13 @@
                 type="text"
                 class="h-auto rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
                 placeholder="Filter..."
-                oninput={() => { selectedIndex = 0 }}
+                role="combobox"
+                aria-label="Filter folders"
+                aria-autocomplete="list"
+                aria-controls="directory-picker-list"
+                aria-expanded={!loading && !loadError}
+                aria-activedescendant={activeDescendant}
+                oninput={() => { selectedIndex = -1 }}
                 onkeydown={(e) => {
                   if (e.key === 'Enter' && runtime.isMobileViewport) {
                     e.stopPropagation();
@@ -376,7 +377,9 @@
               <button
                 class="toggle-hidden-btn"
                 onclick={() => (showHidden = !showHidden)}
-                title={showHidden ? "Hide hidden files" : "Show hidden files"}
+                title={showHidden ? "Hide hidden folders" : "Show hidden folders"}
+                aria-label={showHidden ? "Hide hidden folders" : "Show hidden folders"}
+                aria-pressed={showHidden}
               >
                 {#if showHidden}<EyeSlashIcon size={12} />{:else}<EyeIcon size={12} />{/if}
               </button>
@@ -386,11 +389,23 @@
           <div
             class="fn-content-list"
             bind:clientHeight={listHeight}
+            id="directory-picker-list"
             role="listbox"
             aria-label="Folders"
           >
             {#if loading}
-              <div class="picker-empty"><span class="empty-text">Loading...</span></div>
+              <div class="picker-empty" role="status" aria-live="polite"><span class="empty-text">Loading folders…</span></div>
+            {:else if loadError}
+              <div class="picker-empty picker-error" role="alert">
+                <FolderIcon size={18} class="text-(--solus-status-error)" />
+                <span class="empty-text">{loadError}</span>
+                <div class="error-actions">
+                  {#if parentPath}
+                    <button class="error-action-btn" onclick={navigateUp}>Go up</button>
+                  {/if}
+                  <button class="error-action-btn" onclick={() => reloadVersion++}>Retry</button>
+                </div>
+              </div>
             {:else if dirEntries.length === 0}
               <div class="picker-empty">
                 <FolderIcon size={18} class="text-(--solus-text-muted)" />
@@ -420,7 +435,7 @@
                 height={listHeight}
                 itemCount={dirEntries.length}
                 itemSize={dirItemHeight}
-                scrollToIndex={selectedIndex}
+                scrollToIndex={Math.max(selectedIndex, 0)}
                 scrollToAlignment="auto"
                 scrollToBehaviour="instant"
                 overscanCount={5}
@@ -431,11 +446,11 @@
                   <div {style}>
                     <button
                       class="fn-dir-item"
+                      id={`directory-option-${index}`}
                       class:fn-dir-item-sel={sel}
                       role="option"
                       aria-selected={sel}
                       tabindex={-1}
-                      onmouseenter={() => (selectedIndex = index)}
                       onclick={() => (selectedIndex = index)}
                       ondblclick={() => navigateTo(entry.path)}
                     >
@@ -452,20 +467,17 @@
       </div>
 
       <div class="picker-footer">
-        <span class="footer-path">{abbreviateHome(currentPath)}</span>
+        <span class="footer-path" title={selectionPath}>{abbreviateHome(selectionPath)}</span>
         <div class="picker-footer-actions flex items-center gap-3">
           <div class="footer-hints">
             <span class="hint"><Kbd variant="hint">↑↓</Kbd> navigate</span>
-            <span class="hint"><Kbd variant="hint">↵</Kbd> select</span>
             <span class="hint"><Kbd variant="hint">→</Kbd> open</span>
-            <span class="hint"><Kbd variant="hint">←</Kbd> back</span>
-            <span class="hint"><Kbd variant="hint">⌘↵</Kbd> select current</span>
-            <span class="hint"><Kbd variant="hint">esc</Kbd> close</span>
           </div>
           {#if !runtime.isMobileViewport}
             <span class="text-[0.6563rem] text-(--solus-text-muted) tabular-nums flex-shrink-0">{dirEntries.length} folders</span>
+            <button class="cancel-btn" onclick={onClose}>Cancel</button>
           {/if}
-          <button class="select-btn" onclick={primarySelect}>Select <span class="select-btn-name">“{primaryTargetName}”</span>{#if !runtime.isMobileViewport} <Kbd variant="inline" class="opacity-70 ml-1">↵</Kbd>{/if}</button>
+          <button class="select-btn" onclick={primarySelect} disabled={loading || !!loadError}>{actionLabel} <span class="select-btn-name">“{primaryTargetName}”</span>{#if !runtime.isMobileViewport} <Kbd variant="inline" class="opacity-70 ml-1">↵</Kbd>{/if}</button>
         </div>
       </div>
     </div>
@@ -483,6 +495,7 @@
     pointer-events: auto;
     overflow: hidden;
     overscroll-behavior: contain;
+    background: color-mix(in srgb, black 12%, transparent);
   }
 
   .picker-container {
@@ -512,8 +525,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
     border-radius: 0.375rem;
     border: none;
     background: transparent;
@@ -531,6 +544,24 @@
     gap: 0.5rem;
   }
   .empty-text { font-size: 0.75rem; color: var(--solus-text-tertiary); }
+  .picker-error { padding: 1.5rem; text-align: center; }
+  .error-actions { display: flex; align-items: center; gap: 0.5rem; }
+  .error-action-btn,
+  .cancel-btn {
+    min-height: 2.5rem;
+    padding: 0 0.75rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--solus-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .error-action-btn:hover,
+  .cancel-btn:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
+  .error-action-btn:active,
+  .cancel-btn:active { scale: 0.96; }
 
   .picker-footer {
     display: flex;
@@ -542,7 +573,8 @@
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 40%, transparent);
   }
   .footer-path {
-    max-width: 11.25rem;
+    flex: 1;
+    min-width: 0;
     font-family: var(--font-mono, "Geist Mono", monospace);
     font-size: 0.6875rem;
     color: var(--solus-text-tertiary);
@@ -554,6 +586,7 @@
   .hint { font-size: 0.625rem; color: var(--solus-text-muted); white-space: nowrap; }
 
   .select-btn {
+    min-height: 2.5rem;
     padding: 0.3125rem 1rem;
     border-radius: 0.5rem;
     border: none;
@@ -563,9 +596,12 @@
     font-weight: 500;
     cursor: pointer;
     flex-shrink: 0;
+    transition-property: scale, opacity;
+    transition-duration: 100ms;
   }
   .select-btn:hover { opacity: 0.9; }
-  .select-btn:active { scale: 0.97; }
+  .select-btn:active { scale: 0.96; }
+  .select-btn:disabled { cursor: not-allowed; opacity: 0.5; scale: 1; }
   .select-btn-name {
     display: inline-block;
     max-width: 12rem;
@@ -579,15 +615,23 @@
   .fn-sidebar-item:focus-visible,
   .fn-crumb:focus-visible,
   .toggle-hidden-btn:focus-visible,
+  .error-action-btn:focus-visible,
+  .picker-mobile-close:focus-visible,
+  .cancel-btn:focus-visible,
   .select-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: -0.125rem;
     border-radius: 0.5rem;
   }
 
-  /* ─── Mobile header ─── */
   .picker-mobile-header {
-    display: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 3rem;
+    padding: 0.375rem 0.75rem 0.375rem 1rem;
+    flex-shrink: 0;
+    border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 25%, transparent);
   }
 
   .picker-mobile-title {
@@ -597,8 +641,8 @@
   }
 
   .picker-mobile-close {
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2.5rem;
+    height: 2.5rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -643,6 +687,7 @@
     font-size: 0.7813rem;
     cursor: pointer;
     text-align: left;
+    min-height: 2.5rem;
   }
   .fn-sidebar-item:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
   .fn-sidebar-item-active { background: var(--solus-accent-light); color: var(--solus-accent); }
@@ -681,6 +726,7 @@
     border-radius: 0.3125rem;
     cursor: pointer;
     white-space: nowrap;
+    min-height: 2.5rem;
   }
   .fn-crumb:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
   .fn-crumb-active { color: var(--solus-text-primary); font-weight: 500; }
@@ -690,7 +736,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0 1rem;
-    height: 2.25rem;
+    height: 2.75rem;
   }
 
   .fn-content-list { flex: 1; min-height: 0; overflow: hidden; overscroll-behavior-y: contain; }
@@ -750,11 +796,7 @@
     }
 
     .picker-mobile-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
       padding: 0.75rem 1rem 0.5rem;
-      flex-shrink: 0;
     }
 
     .fn-main {
@@ -802,7 +844,7 @@
       padding: 0.5rem 0.875rem;
       border-radius: 1.25rem;
       font-size: 0.75rem;
-      min-height: 2.25rem;
+      min-height: 2.5rem;
     }
 
     .fn-sidebar-sep {
@@ -869,5 +911,9 @@
       justify-content: center;
       gap: 0.25rem;
     }
+  }
+
+  @media (max-width: 1100px) and (min-width: 768px) {
+    .footer-hints { display: none; }
   }
 </style>

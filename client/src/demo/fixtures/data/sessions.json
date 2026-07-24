@@ -1,0 +1,280 @@
+[
+  {
+    "meta": {
+      "provider": "claude-code",
+      "sessionId": "demo-session-webhooks",
+      "slug": "fix-flaky-webhook-retries",
+      "firstMessage": "Fix the flaky retry logic in webhook delivery. Preserve idempotency and make the timing tests deterministic.",
+      "lastTimestamp": "2026-07-14T16:18:00.000Z",
+      "size": 26,
+      "cwd": "/home/demo/acme",
+      "projectPath": "/home/demo/acme",
+      "status": "completed"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Fix the flaky retry logic in webhook delivery. Preserve idempotency and make the timing tests deterministic.",
+        "timestamp": 1784044800000
+      },
+      {
+        "role": "assistant",
+        "content": "I’ll trace the delivery state machine and its tests first. The likely failure modes are shared retry state, wall-clock assertions, or an acknowledgement racing the backoff timer.",
+        "timestamp": 1784044806000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Read",
+        "toolId": "webhook-read-worker",
+        "toolInput": "{\"file_path\":\"/home/demo/acme/src/webhooks/deliveryWorker.ts\"}",
+        "timestamp": 1784044810000
+      },
+      {
+        "role": "tool_result",
+        "content": "export async function deliver(job: DeliveryJob) {\n  const attempt = (attempts.get(job.endpointId) ?? 0) + 1\n  attempts.set(job.endpointId, attempt)\n  const response = await fetch(job.url, requestFor(job))\n  if (!response.ok) await queue.retry(job, backoff(attempt))\n}",
+        "toolResultForId": "webhook-read-worker",
+        "timestamp": 1784044812000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Grep",
+        "toolId": "webhook-grep-attempts",
+        "toolInput": "{\"pattern\":\"attempts|backoff|retryAfter\",\"path\":\"/home/demo/acme/src\",\"output_mode\":\"content\"}",
+        "timestamp": 1784044816000
+      },
+      {
+        "role": "tool_result",
+        "content": "src/webhooks/deliveryWorker.ts:9:const attempts = new Map<string, number>()\nsrc/webhooks/deliveryWorker.ts:28:await queue.retry(job, backoff(attempt))\nsrc/webhooks/retryPolicy.ts:4:export function backoff(attempt: number): number {\nsrc/webhooks/deliveryWorker.test.ts:87:expect(queue.retry).toHaveBeenCalledWith(job, 2000)",
+        "toolResultForId": "webhook-grep-attempts",
+        "timestamp": 1784044818000
+      },
+      {
+        "role": "assistant",
+        "content": "The retry counter is keyed by endpoint, so concurrent deliveries contaminate each other. I’m checking whether the queue already persists an attempt on each job before changing the ownership model.",
+        "timestamp": 1784044823000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "mcp__solus__codex_subagent",
+        "toolId": "webhook-subagent-queue",
+        "toolInput": "{\"description\":\"Inspect queue retry semantics\",\"prompt\":\"Read the webhook queue and report how attempt counts and acknowledgement are persisted. Do not edit files.\",\"model\":\"gpt-5.5\",\"reasoning_effort\":\"high\",\"read_only\":true}",
+        "timestamp": 1784044827000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Read",
+        "toolId": "webhook-sub-read-queue",
+        "toolInput": "{\"file_path\":\"/home/demo/acme/src/queue/webhookQueue.ts\"}",
+        "parentToolUseId": "webhook-subagent-queue",
+        "timestamp": 1784044831000
+      },
+      {
+        "role": "tool_result",
+        "content": "export interface DeliveryJob { id: string; endpointId: string; attempt: number; payload: string }\nexport async function retry(job: DeliveryJob, delayMs: number) { await redis.zadd(RETRY_KEY, Date.now() + delayMs, JSON.stringify({ ...job, attempt: job.attempt + 1 })) }",
+        "toolResultForId": "webhook-sub-read-queue",
+        "parentToolUseId": "webhook-subagent-queue",
+        "timestamp": 1784044833000
+      },
+      {
+        "role": "assistant",
+        "content": "The queue persists `attempt + 1` in the serialized job; acknowledgements remove only the current job id. The worker-level map is redundant and is the source of cross-delivery interference.",
+        "parentToolUseId": "webhook-subagent-queue",
+        "timestamp": 1784044836000
+      },
+      {
+        "role": "tool_result",
+        "content": "Queue semantics confirmed: `DeliveryJob.attempt` is authoritative and survives Redis retries. Acknowledgement is job-scoped, so the worker can safely remove its process-global attempt map.",
+        "toolResultForId": "webhook-subagent-queue",
+        "timestamp": 1784044839000
+      },
+      {
+        "role": "assistant",
+        "content": "I have the cause and a narrow fix. I’ll make the job attempt authoritative, inject the clock used to schedule retries, and test two interleaved deliveries so the original bug cannot return.",
+        "timestamp": 1784044844000
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "planContent": "# Stabilize webhook retries\n\n## Implementation\n\n1. Remove the process-global attempt map from `src/webhooks/deliveryWorker.ts`; calculate backoff from `DeliveryJob.attempt`.\n2. Accept a narrow `now()` dependency in `src/queue/webhookQueue.ts` so retry scores are deterministic without mocking global time.\n3. Preserve acknowledgement and idempotency behavior: successful deliveries acknowledge once; failed deliveries enqueue exactly one incremented job.\n4. Add an interleaving regression test plus exact backoff boundary coverage in `src/webhooks/deliveryWorker.test.ts` and `src/webhooks/retryPolicy.test.ts`.\n\n## Verification\n\n- `bun test src/webhooks`\n- `bun run typecheck`",
+        "planFilePath": "/home/demo/.claude/plans/stabilize-webhook-retries.md",
+        "planToolUseId": "plan-webhook-retries",
+        "timestamp": 1784044850000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Edit",
+        "toolId": "webhook-edit-worker",
+        "toolInput": "{\"file_path\":\"/home/demo/acme/src/webhooks/deliveryWorker.ts\",\"old_string\":\"const attempt = (attempts.get(job.endpointId) ?? 0) + 1\\nattempts.set(job.endpointId, attempt)\",\"new_string\":\"const nextAttempt = job.attempt + 1\"}",
+        "timestamp": 1784044860000
+      },
+      {
+        "role": "tool_result",
+        "content": "Updated /home/demo/acme/src/webhooks/deliveryWorker.ts",
+        "toolResultForId": "webhook-edit-worker",
+        "timestamp": 1784044862000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Edit",
+        "toolId": "webhook-edit-queue",
+        "toolInput": "{\"file_path\":\"/home/demo/acme/src/queue/webhookQueue.ts\",\"old_string\":\"export async function retry(job: DeliveryJob, delayMs: number)\",\"new_string\":\"export async function retry(job: DeliveryJob, delayMs: number, now = Date.now)\"}",
+        "timestamp": 1784044868000
+      },
+      {
+        "role": "tool_result",
+        "content": "Updated /home/demo/acme/src/queue/webhookQueue.ts",
+        "toolResultForId": "webhook-edit-queue",
+        "timestamp": 1784044870000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Edit",
+        "toolId": "webhook-edit-tests",
+        "toolInput": "{\"file_path\":\"/home/demo/acme/src/webhooks/deliveryWorker.test.ts\",\"old_string\":\"it('retries failed deliveries', async () => {\",\"new_string\":\"it('keeps attempts isolated across interleaved deliveries', async () => {\"}",
+        "timestamp": 1784044876000
+      },
+      {
+        "role": "tool_result",
+        "content": "Updated /home/demo/acme/src/webhooks/deliveryWorker.test.ts",
+        "toolResultForId": "webhook-edit-tests",
+        "timestamp": 1784044878000
+      },
+      {
+        "role": "assistant",
+        "content": "The state is now job-scoped. I’m running the webhook suite repeatedly because the original failure was intermittent, then the project typecheck.",
+        "timestamp": 1784044882000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Bash",
+        "toolId": "webhook-run-tests",
+        "toolInput": "{\"command\":\"for i in 1 2 3 4 5; do bun test src/webhooks >/dev/null || exit 1; done && bun run typecheck\",\"description\":\"Stress webhook tests and typecheck\"}",
+        "timestamp": 1784044890000
+      },
+      {
+        "role": "tool_result",
+        "content": "5 repeated webhook runs passed\n  18 pass\n  0 fail\nChecked 47 TypeScript files with no errors.",
+        "toolResultForId": "webhook-run-tests",
+        "timestamp": 1784044920000
+      },
+      {
+        "role": "assistant",
+        "content": "Fixed the flaky webhook retries by making `DeliveryJob.attempt` the single source of truth and removing process-global attempt state. Retry scheduling now accepts an injected clock, and the regression test interleaves two endpoints to prove their attempts stay isolated. Five consecutive webhook-suite runs passed (18 tests each), and `bun run typecheck` is clean.",
+        "timestamp": 1784045880000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "claude-code",
+      "sessionId": "demo-session-ratelimit",
+      "slug": "add-api-rate-limiting",
+      "firstMessage": "Add per-key rate limiting to the public API. Use Redis, return standard headers, and keep local development usable.",
+      "lastTimestamp": "2026-07-14T15:04:00.000Z",
+      "size": 4,
+      "cwd": "/home/demo/acme",
+      "projectPath": "/home/demo/acme",
+      "status": "idle"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Add per-key rate limiting to the public API. Use Redis, return standard headers, and keep local development usable.",
+        "timestamp": 1784041200000
+      },
+      {
+        "role": "assistant",
+        "content": "I’ll map the request pipeline, API-key lookup, and Redis wrapper before choosing where the limiter should sit.",
+        "timestamp": 1784041205000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Grep",
+        "toolId": "ratelimit-grep-entry",
+        "toolInput": "{\"pattern\":\"authenticateApiKey|middleware|redis\",\"path\":\"/home/demo/acme/src\",\"output_mode\":\"files_with_matches\"}",
+        "timestamp": 1784041210000
+      },
+      {
+        "role": "tool_result",
+        "content": "src/api/router.ts\nsrc/auth/apiKey.ts\nsrc/infra/redis.ts\nsrc/config.ts",
+        "toolResultForId": "ratelimit-grep-entry",
+        "timestamp": 1784041240000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "claude-code",
+      "sessionId": "demo-session-billing",
+      "slug": "migrate-usage-billing",
+      "firstMessage": "Plan the migration from flat subscriptions to usage-based pricing. Do not edit code yet.",
+      "lastTimestamp": "2026-07-09T15:12:00.000Z",
+      "size": 8,
+      "cwd": "/home/demo/acme",
+      "projectPath": "/home/demo/acme",
+      "status": "awaiting_plan"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Plan the migration from flat subscriptions to usage-based pricing. Cover Stripe metering, backfill, rollout safety, and customer communication. Do not edit code yet.",
+        "timestamp": 1783609200000
+      },
+      {
+        "role": "assistant",
+        "content": "I’ll inspect the current subscription model, request accounting, and billing jobs, then design a migration that can run in shadow mode before any invoice changes.",
+        "timestamp": 1783609206000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Read",
+        "toolId": "billing-read-schema",
+        "toolInput": "{\"file_path\":\"/home/demo/acme/src/db/schema/billing.ts\"}",
+        "timestamp": 1783609210000
+      },
+      {
+        "role": "tool_result",
+        "content": "export const subscriptions = pgTable('subscriptions', { id: uuid('id').primaryKey(), accountId: uuid('account_id').notNull(), stripeSubscriptionId: text('stripe_subscription_id').notNull(), plan: text('plan').notNull(), status: text('status').notNull() })",
+        "toolResultForId": "billing-read-schema",
+        "timestamp": 1783609212000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Grep",
+        "toolId": "billing-grep-usage",
+        "toolInput": "{\"pattern\":\"requestCount|usage|invoice|Stripe\",\"path\":\"/home/demo/acme/src\",\"output_mode\":\"content\",\"head_limit\":40}",
+        "timestamp": 1783609217000
+      },
+      {
+        "role": "tool_result",
+        "content": "src/api/analytics.ts:42:requestCount.increment({ accountId })\nsrc/billing/syncSubscription.ts:18:const subscription = await stripe.subscriptions.retrieve(id)\nsrc/billing/invoiceWebhook.ts:31:case 'invoice.paid':\nsrc/dashboard/usage.ts:12:export async function getUsage(accountId: string, range: DateRange)",
+        "toolResultForId": "billing-grep-usage",
+        "timestamp": 1783609220000
+      },
+      {
+        "role": "assistant",
+        "content": "The app already counts requests for analytics, but those aggregates are neither idempotent nor invoice-grade. The migration needs a separate usage ledger with event ids, then a shadow reconciliation period before Stripe meters become authoritative.",
+        "timestamp": 1783609230000
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "planContent": "# Migrate billing to usage-based pricing\n\n## 1. Establish an invoice-grade usage ledger\n\nAdd `usage_events` and `usage_rollups` in `src/db/schema/billing.ts`. Every billable API request writes an immutable event with a unique request id, account id, API key id, quantity, and occurred-at timestamp. Keep analytics counters unchanged during the migration.\n\n## 2. Meter without changing invoices\n\nCreate `src/billing/usageRecorder.ts` behind `BILLING_USAGE_METERING`. Batch accepted events into hourly rollups, publish them to Stripe with idempotency keys, and retain the Stripe event id. Failed publishes retry from the ledger; they never recount requests.\n\n## 3. Backfill and reconcile\n\nBackfill the current billing period from request logs into a quarantined source marker. Run `src/billing/reconcileUsage.ts` daily to compare local totals, analytics totals, and Stripe meter summaries. Block rollout if account-level variance exceeds 0.5%.\n\n## 4. Migrate products and subscriptions\n\nCreate versioned Stripe prices rather than mutating existing flat prices. Opt internal accounts into the metered item first, then a 5% cohort, then 25%, then all new subscriptions. Existing customers move only after notice and explicit effective dates.\n\n## 5. Dashboard and communication\n\nExpose current-period billable requests, included quota, projected overage, and last-updated time. Email customers 30 days before migration and add invoice examples to the billing page.\n\n## Rollback\n\nDisable `BILLING_USAGE_METERING`, stop Stripe event publication, and leave flat subscription items active. The append-only ledger remains safe to replay after remediation.\n\n## Verification\n\n- Unit tests for deduplication, late events, and retry idempotency\n- Reconciliation fixture spanning UTC month boundaries\n- Stripe test-clock run through trial, invoice preview, payment, and rollback\n- Two complete billing cycles in shadow mode with <0.5% variance",
+        "planFilePath": "/home/demo/.claude/plans/migrate-usage-billing.md",
+        "planToolUseId": "plan-billing-migration",
+        "timestamp": 1783609920000
+      }
+    ]
+  }
+]

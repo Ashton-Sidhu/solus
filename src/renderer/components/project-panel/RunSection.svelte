@@ -9,10 +9,12 @@
     SpinnerGapIcon,
     StopIcon,
   } from "phosphor-svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getRunDockStore } from "../../contexts/run-dock.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import {
+    getRunStore,
+    getRunDockStore,
+    getWorkspaceContext,
+    getSettingsContext,
+  } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import { fence, runLabel } from "../../lib/run-utils";
@@ -301,7 +303,7 @@
     transition: background-color 0.15s ease;
   }
   .svc-row:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
 
   /* ── Leading toggle (start / stop / cancel) ── */
@@ -453,7 +455,7 @@
     transition: background-color 0.15s ease;
   }
   .empty-cta:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
   .empty-cta:focus-visible {
     outline: none;

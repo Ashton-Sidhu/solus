@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { SidebarSimpleIcon } from "phosphor-svelte";
   import { tooltip } from "../../lib/tooltip";
-  import { getWindowContext } from "../../contexts/window.context.svelte";
+  import { getWindowContext } from "../../contexts";
   import * as Sidebar from "../ui/sidebar";
 
   interface Props {
@@ -88,7 +88,7 @@
             {/if}
             {#if onAction}
               <button
-                class="flex size-[1.625rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
+                class="flex size-[1.625rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
                 use:tooltip={actionTooltip}
                 onclick={onAction}
                 aria-label={actionAriaLabel}

@@ -2,16 +2,7 @@
 // inline thread previews, and the initials shown in author/comment avatars.
 // (Per-file +/- counts come from the provider-backed `prChangedFiles` handler.)
 
-import type { PrCommit, ReviewThread } from '../../../../shared/providers'
-
-/** A comment posted from this session's composer (see ActivityFeed's `posted`). */
-export interface PostedComment {
-  id: string
-  author: string
-  body: string
-  /** Epoch ms — already the client clock, so it sorts directly. */
-  ts: number
-}
+import type { PrCommit, PrConversationItem, ReviewThread } from '../../../../shared/providers'
 
 /**
  * One entry in the activity timeline. The opened event is rendered separately as
@@ -23,13 +14,63 @@ export interface PostedComment {
 export type ActivityEvent =
   | { kind: 'commits'; ts: number; commits: PrCommit[] }
   | { kind: 'thread'; ts: number; thread: ReviewThread }
-  | { kind: 'comment'; ts: number; comment: PostedComment }
+  | { kind: 'comment'; ts: number; comment: PrConversationItem }
 
 /** Stable key for `{#each}` — first commit sha of a run, or thread/comment id. */
 export function activityEventKey(event: ActivityEvent): string {
   if (event.kind === 'commits') return `commits:${event.commits[0].sha}`
   if (event.kind === 'thread') return event.thread.id
   return event.comment.id
+}
+
+/** Header-chip focus for the timeline: everything, conversation only, or commits only. */
+export type ActivityFilter = 'all' | 'conversation' | 'commits'
+
+/**
+ * Narrow the timeline to the active filter. `unresolvedOnly` overrides `filter`
+ * entirely and keeps only unresolved review threads; `'conversation'` keeps
+ * threads plus top-level comments/reviews (everything but commit runs).
+ */
+export function filterActivityTimeline(
+  events: ActivityEvent[],
+  filter: ActivityFilter,
+  unresolvedOnly: boolean,
+): ActivityEvent[] {
+  if (unresolvedOnly) return events.filter((e) => e.kind === 'thread' && !e.thread.isResolved)
+  if (filter === 'conversation') return events.filter((e) => e.kind !== 'commits')
+  if (filter === 'commits') return events.filter((e) => e.kind === 'commits')
+  return events
+}
+
+/**
+ * A review verdict worth promoting to a timeline milestone. Non-null only for
+ * approvals and change requests — COMMENTED/DISMISSED reviews stay ordinary
+ * avatar rows since their state carries no verdict.
+ */
+export function reviewMilestone(
+  item: PrConversationItem,
+): { headline: string; tone: 'positive' | 'negative' } | null {
+  if (item.kind !== 'review') return null
+  if (item.reviewState === 'APPROVED') return { headline: 'approved these changes', tone: 'positive' }
+  if (item.reviewState === 'CHANGES_REQUESTED') return { headline: 'requested changes', tone: 'negative' }
+  return null
+}
+
+export const COMMIT_PREVIEW_COUNT = 3
+
+/**
+ * Collapse a long commit run to its first few entries. Never hides a single
+ * commit behind an expander — a run of 4 shows all 4 rather than "Show 1 more".
+ */
+export function commitRunPreview(
+  commits: PrCommit[],
+  expanded: boolean,
+): { visible: PrCommit[]; hidden: number } {
+  if (expanded || commits.length <= COMMIT_PREVIEW_COUNT + 1) return { visible: commits, hidden: 0 }
+  return {
+    visible: commits.slice(0, COMMIT_PREVIEW_COUNT),
+    hidden: commits.length - COMMIT_PREVIEW_COUNT,
+  }
 }
 
 /** Who authored a run of commits, deduped ("ashton", "ashton and 2 others"). */
@@ -41,7 +82,7 @@ export function commitRunAuthorLabel(commits: PrCommit[], fallback: string): str
 }
 
 /**
- * Merge pushed commits, review threads, and session comments into one
+ * Merge pushed commits, review threads, and top-level conversation into one
  * chronologically-sorted timeline so they interleave by when they happened
  * rather than always showing commits-then-threads-then-comments. Adjacent
  * commits (with no thread/comment between them) collapse into a single
@@ -51,12 +92,12 @@ export function commitRunAuthorLabel(commits: PrCommit[], fallback: string): str
 export function buildActivityTimeline(
   commits: PrCommit[],
   threads: ReviewThread[],
-  posted: PostedComment[],
+  comments: PrConversationItem[],
 ): ActivityEvent[] {
   type Raw =
     | { kind: 'commit'; ts: number; commit: PrCommit }
     | { kind: 'thread'; ts: number; thread: ReviewThread }
-    | { kind: 'comment'; ts: number; comment: PostedComment }
+    | { kind: 'comment'; ts: number; comment: PrConversationItem }
   const raw: Raw[] = []
   for (const commit of commits) {
     raw.push({ kind: 'commit', ts: new Date(commit.committedAt).getTime(), commit })
@@ -65,8 +106,8 @@ export function buildActivityTimeline(
     const ts = new Date(thread.comments[0]?.createdAt ?? 0).getTime()
     raw.push({ kind: 'thread', ts, thread })
   }
-  for (const comment of posted) {
-    raw.push({ kind: 'comment', ts: comment.ts, comment })
+  for (const comment of comments) {
+    raw.push({ kind: 'comment', ts: new Date(comment.createdAt).getTime(), comment })
   }
   raw.sort((a, b) => a.ts - b.ts)
 
@@ -111,7 +152,7 @@ export interface PrActivityTarget {
   /** Base branch for the meta line; falls back to `detail.baseRef`. */
   baseRef?: string
   /** Head branch for the meta line; falls back to `detail.headRef`. */
-  branch?: string
+  headRef?: string
   /** Diff base for the review worktree; the files rail is loaded by PR number. */
   baseSha?: string
   /** New-comment anchor; falls back to `detail.headSha`. */

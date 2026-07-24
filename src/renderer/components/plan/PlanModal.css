@@ -26,6 +26,26 @@
     padding-right: var(--plan-rail-w);
   }
 
+  /* Action-bar composer lines up under the text column: same reading measure,
+     centered between the same gutters the editor reserves — the left TOC rail
+     (w-60 = 15rem, shown above 1100px) and the right comments-rail gutter
+     (--plan-rail-w, reserved at all non-mobile widths). Without the gutters it
+     would center on the whole modal and sit left of the text. */
+  .plan-shell .plan-action-bar {
+    max-width: var(--solus-doc-measure);
+    margin-inline: auto;
+  }
+  @media (min-width: 768px) {
+    .plan-shell .plan-action-bar-sleeve {
+      padding-right: var(--plan-rail-w);
+    }
+  }
+  @media (min-width: 1101px) {
+    .plan-shell .plan-action-bar-sleeve {
+      padding-left: 15rem;
+    }
+  }
+
   /* Soft pills */
   .plan-soft-pill {
     display: inline-flex;
@@ -48,7 +68,7 @@
     background: color-mix(in srgb, var(--solus-surface-hover) 80%, transparent);
   }
   .plan-soft-pill:hover {
-    background: color-mix(in srgb, var(--solus-surface-hover) 100%, var(--solus-text-tertiary) 8%);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .plan-soft-pill:active {
@@ -71,65 +91,11 @@
     padding: 0.3125rem;
   }
 
-  /* Editor content width/typography — narrower "reading" column for review. */
-  .plan-document-editor .solus-doc-editor .ProseMirror {
-    max-width: 65rem;
-    font-size: calc(0.9375rem * var(--solus-font-scale, 1));
-    line-height: 1.66;
-    /* Body at 400 (Regular) — the same reading-prose change. The base doc editor
-       runs --solus-font-weight-body (500); dropping to 400 here gives a full
-       200-unit jump to the 600/700 headings so emphasis separates from the prose. */
-    font-weight: 400;
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror code {
-    color: color-mix(in srgb, var(--solus-accent) 72%, var(--solus-text-primary));
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror pre code {
-    color: inherit;
-  }
-  /* Wider size jump from body so headings anchor sections (h1 ~1.6× body, was ~1.4×). */
-  .plan-document-editor .solus-doc-editor .ProseMirror h1 {
-    font-size: calc(1.5rem * var(--solus-font-scale, 1));
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror h2 {
-    font-size: calc(1.2rem * var(--solus-font-scale, 1));
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror h3 {
-    font-size: calc(1.0313rem * var(--solus-font-scale, 1));
-  }
-  /* Asymmetric spacing — big gap above a heading separates the prior section, tight
-     gap below bonds it to the content it leads. (Mirrors the assistant reading prose.) */
-  .plan-document-editor .solus-doc-editor .ProseMirror h1,
-  .plan-document-editor .solus-doc-editor .ProseMirror h2,
-  .plan-document-editor .solus-doc-editor .ProseMirror h3 {
-    margin-top: 2em;
-    margin-bottom: 0.45em;
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror h1:first-child,
-  .plan-document-editor .solus-doc-editor .ProseMirror h2:first-child,
-  .plan-document-editor .solus-doc-editor .ProseMirror h3:first-child {
-    margin-top: 0;
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror pre,
-  .plan-document-editor .solus-doc-editor .ProseMirror table,
+  /* Reading typography comes from the base document editor (index.css) — the
+     plan surface no longer overrides it. Raw (markdown) mode keeps a slightly
+     larger mono than the base editor's. */
   .plan-document-editor .solus-doc-raw {
     font-size: calc(0.875rem * var(--solus-font-scale, 1));
-  }
-  /* Code blocks match chat (CodeBlock.svelte): outlined block with a faint warm
-     tint (not grey). The doc editor already supplies the hljs palette + border. */
-  .plan-document-editor .solus-doc-editor .ProseMirror pre {
-    background: var(--solus-code-tint);
-    border-radius: 0.625rem;
-    line-height: 1.55;
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror table {
-    margin: 0;
-  }
-  .plan-document-editor .solus-doc-editor .ProseMirror th,
-  .plan-document-editor .solus-doc-editor .ProseMirror td {
-    border: 0.0625rem solid var(--solus-container-border);
-    padding: 0.4em 0.6em;
-    text-align: inherit;
   }
 
   /* ── Tablet / compact ── */
@@ -167,7 +133,6 @@
       padding-right: 0;
     }
     .plan-shell .doc-shell-toolbar-row,
-    .plan-document-editor .solus-doc-editor .ProseMirror,
     .plan-document-editor .solus-doc-raw {
       max-width: none;
     }
@@ -202,7 +167,6 @@
       padding-right: 0;
     }
     .plan-shell .doc-shell-toolbar-row,
-    .plan-document-editor .solus-doc-editor .ProseMirror,
     .plan-document-editor .solus-doc-raw {
       max-width: none;
     }
@@ -258,24 +222,7 @@
     .plan-soft-pill--active:hover {
       background: var(--solus-accent-light);
     }
-    .plan-document-editor .solus-doc-editor .ProseMirror {
-      padding: 0.625rem 0.875rem 1.5rem;
-      font-size: calc(1rem * var(--solus-font-scale, 1));
-      line-height: 1.64;
-    }
-    .plan-document-editor .solus-doc-editor .ProseMirror h1 {
-      font-size: calc(1.375rem * var(--solus-font-scale, 1));
-    }
-    .plan-document-editor .solus-doc-editor .ProseMirror h2 {
-      font-size: calc(1.1875rem * var(--solus-font-scale, 1));
-    }
-    .plan-document-editor .solus-doc-editor .ProseMirror h3 {
-      font-size: calc(1.0625rem * var(--solus-font-scale, 1));
-    }
-    .plan-document-editor .solus-doc-editor .ProseMirror pre,
-    .plan-document-editor .solus-doc-editor .ProseMirror table {
-      font-size: calc(0.9375rem * var(--solus-font-scale, 1));
-    }
+    /* Mobile reading typography also comes from the base document editor. */
     .plan-document-editor .solus-doc-raw {
       padding: 0.625rem 0.875rem 1.5rem;
       font-size: calc(1rem * var(--solus-font-scale, 1));

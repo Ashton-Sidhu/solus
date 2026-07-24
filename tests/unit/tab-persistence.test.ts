@@ -7,7 +7,7 @@ import {
   patchActiveDraft,
   setTabPersistenceServerInstallationId,
   type PersistedTabs,
-} from '../../src/renderer/contexts/tab-persistence'
+} from '../../src/renderer/contexts/workspace/tab-persistence'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -50,6 +50,7 @@ function sampleSnapshot(): PersistedTabs {
       title: 'Local work',
       agentSessionId: null,
       provider: null,
+      handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
       workingDirectory: '/repo',
       additionalDirs: [],
       gitContext: null,

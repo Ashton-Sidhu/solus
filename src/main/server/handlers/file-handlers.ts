@@ -5,7 +5,7 @@ import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
 import { appendFile, mkdir, open, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
-import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
+import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { transcribeAudio } from '../../transcription'
 import { readWav } from '../../transcription/wav'
@@ -566,7 +566,13 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
     try {
       const dirents = await readdir(resolved, { withFileTypes: true })
-      const raw = dirents.map(e => ({ name: e.name, isDir: e.isDirectory() }))
+      const raw = await Promise.all(dirents.map(async (entry) => ({
+        name: entry.name,
+        isDir: entry.isDirectory() || (
+          entry.isSymbolicLink()
+          && await stat(join(resolved, entry.name)).then(target => target.isDirectory()).catch(() => false)
+        ),
+      })))
       const filtered = showHidden ? raw : raw.filter(e => !e.name.startsWith('.'))
       const sorted = sortDirEntries(filtered)
       const parent = dirname(resolved)
@@ -574,9 +580,24 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
         entries: sorted.map(e => ({ name: e.name, isDir: e.isDir, path: join(resolved, e.name) })),
         parentPath: parent === resolved ? null : parent,
         currentPath: resolved,
-      }
-    } catch {
-      return { entries: [], parentPath: dirname(resolved), currentPath: resolved }
+        error: null,
+      } satisfies DirectoryListResult
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      const message = code === 'EACCES' || code === 'EPERM'
+        ? 'You don\u2019t have permission to open this folder.'
+        : code === 'ENOENT'
+          ? 'This folder no longer exists.'
+          : code === 'ENOTDIR'
+            ? 'This location is not a folder.'
+            : 'Couldn\u2019t open this folder.'
+      const parent = dirname(resolved)
+      return {
+        entries: [],
+        parentPath: parent === resolved ? null : parent,
+        currentPath: resolved,
+        error: message,
+      } satisfies DirectoryListResult
     }
   })
 

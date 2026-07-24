@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tokenClassName } from "../editor/tokenStyle";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
 
   interface Props {
@@ -37,7 +37,11 @@
   }
 
   function handleFileClick() {
-    requestFilePreview({ path: filePath, line: fileLine, tabId: session.activeTabId });
+    requestFilePreview({
+      path: filePath,
+      line: fileLine,
+      tabId: session.focusedChatTabId ?? session.activeTabId,
+    });
   }
 
 </script>

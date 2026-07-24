@@ -1,6 +1,11 @@
-import type { WorkspaceContext } from '../contexts/workspace.context.svelte'
-import type { GitStatusStore } from '../contexts/git-status.store.svelte'
-import { connectionsStore } from '../contexts/connections.store.svelte'
+import {
+  type WorkspaceContext,
+  type SessionEnvironmentStore,
+} from '../contexts'
+// Value imports stay deep (not the barrel): workspace.context imports this
+// module, so a runtime barrel import here would create a cycle.
+import { connectionsStore } from '../contexts/connections/connections.store.svelte'
+import { toasts } from '../contexts/app/toast.store.svelte'
 import { requestInputFocus } from './inputFocus'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 
@@ -20,102 +25,126 @@ export class GitActions {
   constructor(
     private session: WorkspaceContext,
     private tabId: string,
-    private gitStatus: GitStatusStore,
+    private environmentStore: SessionEnvironmentStore,
   ) {}
 
+  private target() {
+    const environment = this.environmentStore.environmentFor(this.tabId)
+    return {
+      cwd: environment.cwd,
+      gitContext: environment.checkout,
+      ctx: this.session.ctxForEnvironment(environment.cwd, environment.checkout, this.tabId),
+    }
+  }
+
+  private api(): typeof window.solus {
+    return this.session.apiFor?.(this.tabId) ?? window.solus
+  }
+
   async commitPush(): Promise<void> {
-    const sess = this.session.sessionFor(this.tabId)
-    if (this.commitPushing || !sess?.gitContext) return
-    const gitCwd = sess.gitContext.worktreePath ?? sess.workingDirectory
+    const target = this.target()
+    if (this.commitPushing || !target.gitContext) return
+    const gitCwd = target.cwd
     this.commitPushing = true
     this.commitPushed = false
     this.commitPushError = null
-    const result = await this.session.apiFor(this.tabId).gitCommitPush(this.session.ctxFor(this.tabId))
-    this.commitPushing = false
-    if (result.success) {
-      this.commitPushed = true
-      if (this.commitTimer) clearTimeout(this.commitTimer)
-      this.commitTimer = setTimeout(() => {
-        this.commitPushed = false
-        this.commitTimer = null
-      }, 1800)
-      if (gitCwd) {
-        await this.gitStatus.refresh(gitCwd, { force: true, details: true })
-        this.prUrl = this.gitStatus.statusFor(gitCwd)?.prUrl || null
-      }
-    } else {
-      this.commitPushError = result.error || 'Commit & push failed'
-    }
-    requestInputFocus()
-  }
-
-  async sync(): Promise<void> {
-    const sess = this.session.sessionFor(this.tabId)
-    if (this.syncing || !sess?.gitContext) return
-    const gitCwd = sess.gitContext.worktreePath ?? sess.workingDirectory
-    this.syncing = true
-    this.synced = false
-    this.syncError = null
-    const result = await this.session.apiFor(this.tabId).gitSync(this.session.ctxFor(this.tabId))
-    this.syncing = false
-    if (result.success) {
-      this.synced = true
-      if (this.syncTimer) clearTimeout(this.syncTimer)
-      this.syncTimer = setTimeout(() => {
-        this.synced = false
-        this.syncTimer = null
-      }, 1800)
-      if (sess.workingDirectory) {
-        await this.session.env.refreshGitEnvironment({ tabId: this.tabId })
-        void this.gitStatus.refresh(gitCwd, { force: true, details: true })
-      }
-    } else {
-      this.syncError = result.error || 'Sync failed'
-    }
-    requestInputFocus()
-  }
-
-  openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.serverId !== LOCAL_SERVER_ID) return
-    void window.solus.openWorktreeTerminal(this.session.ctxFor(this.tabId))
-    requestInputFocus()
-  }
-
-  async createPR(): Promise<void> {
-    const sess = this.session.sessionFor(this.tabId)
-    if (!sess?.workingDirectory || this.creatingPR) return
-    this.creatingPR = true
-    this.prError = null
     try {
-      const result = await this.session.apiFor(this.tabId).worktreePR(this.session.ctxFor(this.tabId))
-      if (result.success) this.prUrl = result.url || null
-      else this.prError = result.error || 'Failed'
-    } catch (err) {
-      this.prError = err instanceof Error ? err.message : 'Failed'
-    } finally {
-      this.creatingPR = false
-      if (sess.workingDirectory) {
-        const gitCwd = sess.gitContext?.worktreePath ?? sess.workingDirectory
-        void this.gitStatus.refresh(gitCwd, { force: true, details: true })
+      const result = await this.api().gitCommitPush(target.ctx)
+      if (result.success) {
+        this.commitPushed = true
+        if (this.commitTimer) clearTimeout(this.commitTimer)
+        this.commitTimer = setTimeout(() => {
+          this.commitPushed = false
+          this.commitTimer = null
+        }, 1800)
+      } else {
+        this.commitPushError = result.error || 'Commit & push failed'
+        toasts.error(result.outcome === 'committed-only'
+          ? `Committed locally, but couldn't push: ${this.commitPushError}`
+          : `Couldn't commit and push: ${this.commitPushError}`)
       }
+    } catch (error) {
+      this.commitPushError = error instanceof Error ? error.message : String(error)
+      toasts.error(`Couldn't commit and push: ${this.commitPushError}`)
+    } finally {
+      if (gitCwd) {
+        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+          .catch(() => null)
+        this.prUrl = this.environmentStore.statusFor(gitCwd)?.prUrl || null
+      }
+      this.commitPushing = false
       requestInputFocus()
     }
   }
 
-  dismissError(): void {
-    this.commitPushError = null
+  async sync(): Promise<void> {
+    const target = this.target()
+    if (this.syncing || !target.gitContext) return
+    const gitCwd = target.cwd
+    this.syncing = true
+    this.synced = false
     this.syncError = null
-    this.prError = null
+    try {
+      const result = await this.api().gitSync(target.ctx)
+      if (result.success) {
+        this.synced = true
+        if (this.syncTimer) clearTimeout(this.syncTimer)
+        this.syncTimer = setTimeout(() => {
+          this.synced = false
+          this.syncTimer = null
+        }, 1800)
+      } else {
+        this.syncError = result.error || 'Sync failed'
+        toasts.error(`Couldn't sync with remote: ${this.syncError}`)
+      }
+    } catch (error) {
+      this.syncError = error instanceof Error ? error.message : String(error)
+      toasts.error(`Couldn't sync with remote: ${this.syncError}`)
+    } finally {
+      if (gitCwd) {
+        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+          .catch(() => null)
+      }
+      this.syncing = false
+      requestInputFocus()
+    }
+  }
+
+  openTerminal(): void {
+    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.serverId !== LOCAL_SERVER_ID) return
+    void window.solus.openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
+  }
+
+  async createPR(): Promise<void> {
+    const target = this.target()
+    if (!target.cwd || target.cwd === '~' || !target.gitContext || this.creatingPR) return
+    this.creatingPR = true
+    this.prError = null
+    try {
+      const result = await this.api().worktreePR(target.ctx)
+      if (result.success) this.prUrl = result.url || null
+      else {
+        this.prError = result.error || 'Create pull request failed'
+        toasts.error(`Couldn't create pull request: ${this.prError}`)
+      }
+    } catch (err) {
+      this.prError = err instanceof Error ? err.message : String(err)
+      toasts.error(`Couldn't create pull request: ${this.prError}`)
+    } finally {
+      this.creatingPR = false
+      void this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: target.cwd, level: 'details' })
+      requestInputFocus()
+    }
   }
 }
 
 const actions = new Map<string, GitActions>()
 
-export function gitActionsFor(tabId: string, session: WorkspaceContext, gitStatus: GitStatusStore): GitActions {
+export function gitActionsFor(tabId: string, session: WorkspaceContext, environmentStore: SessionEnvironmentStore): GitActions {
   let existing = actions.get(tabId)
   if (!existing) {
-    existing = new GitActions(session, tabId, gitStatus)
+    existing = new GitActions(session, tabId, environmentStore)
     actions.set(tabId, existing)
   }
   return existing

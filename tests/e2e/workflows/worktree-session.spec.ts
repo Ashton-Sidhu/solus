@@ -40,6 +40,40 @@ test.describe('Worktree sessions', () => {
     expect(git(gitContext.worktreePath!, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(gitContext.branch)
   })
 
+  test('starts new worktrees from origin when the remote branch has newer commits', async () => {
+    const remote = mkdtempSync(join(tmpdir(), 'solus-worktree-remote-'))
+    repo = mkdtempSync(join(tmpdir(), 'solus-worktree-session-'))
+    git(remote, ['init', '--bare'])
+    git(repo, ['clone', remote, '.'])
+    git(repo, ['checkout', '-b', 'main'])
+    git(repo, ['config', 'user.email', 'e2e@example.test'])
+    git(repo, ['config', 'user.name', 'Solus E2E'])
+    writeFileSync(join(repo, 'README.md'), '# Local base\n')
+    git(repo, ['add', 'README.md'])
+    git(repo, ['commit', '-m', 'local base'])
+    git(repo, ['push', '-u', 'origin', 'main'])
+
+    const updater = mkdtempSync(join(tmpdir(), 'solus-worktree-updater-'))
+    git(updater, ['clone', remote, '.'])
+    git(updater, ['checkout', 'main'])
+    git(updater, ['config', 'user.email', 'e2e@example.test'])
+    git(updater, ['config', 'user.name', 'Solus E2E'])
+    writeFileSync(join(updater, 'README.md'), '# Remote base\n')
+    git(updater, ['commit', '-am', 'remote base'])
+    git(updater, ['push', 'origin', 'main'])
+
+    const remoteMain = git(updater, ['rev-parse', 'HEAD'])
+    const localMain = git(repo, ['rev-parse', 'main'])
+    expect(localMain).not.toBe(remoteMain)
+
+    const gitContext = await createWorktree(repo, 'use remote main', 'main')
+
+    expect(git(gitContext.worktreePath!, ['rev-parse', 'HEAD'])).toBe(remoteMain)
+    expect(readFileSync(join(gitContext.worktreePath!, 'README.md'), 'utf-8')).toBe('# Remote base\n')
+    rmSync(updater, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  })
+
   test('copies only gitignored files matched by .worktreeinclude into new worktrees', async () => {
     repo = makeRepo()
     writeFileSync(join(repo, '.gitignore'), '.env\n.env.local\nconfig/secrets.json\nignored-but-not-included.txt\n')
@@ -77,6 +111,7 @@ test.describe('Worktree sessions', () => {
 
     expect(gitContext.branch).toMatch(/^solus\/dark-mode-toggle-/)
     expect(gitContext.branch).not.toContain('implement-this-plan')
+    expect(gitContext.repoRoot).toBe(repo)
     expect(git(gitContext.worktreePath!, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(gitContext.branch)
   })
 
@@ -122,6 +157,7 @@ test.describe('Worktree sessions', () => {
       branch: 'solus/resume-test',
       targetBranch: 'main',
       worktreePath,
+      repoRoot: repo,
     })
   })
 })

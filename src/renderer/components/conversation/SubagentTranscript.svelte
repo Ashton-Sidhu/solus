@@ -32,6 +32,20 @@
   const stats = $derived(subStats(subs));
   const grouped = $derived(groupSubMessages(subs));
 
+  // A backgrounded sub-agent's answer arrives only as the tool result (never as a
+  // parented assistant_message), so it never lands in `subMessages`. Surface it as
+  // a trailing block — unless the last assistant sub already IS that text (a
+  // blocking sub-agent delivers it both ways), which would double it up.
+  const lastAssistantSub = $derived(
+    subs.findLast((m) => m.role === "assistant" && m.content.trim()),
+  );
+  const finalOutput = $derived.by(() => {
+    const text = message.toolResult?.trim();
+    if (!text) return "";
+    if (lastAssistantSub?.content.trim() === text) return "";
+    return text;
+  });
+
   const countLabel = $derived(
     [
       stats.toolCount > 0
@@ -70,17 +84,15 @@
       </div>
     {/if}
   {/each}
-  {#if grouped.length === 0}
-    {#if message.toolResult}
-      <div class="prose-cloud prose-reading min-w-0 text-sm">
-        <SvelteMarkdown
-          source={message.toolResult.trim()}
-          renderers={markdownRenderers}
-          sanitizeUrl={markdownSanitizeUrl}
-        />
-      </div>
-    {:else}
-      <span class="text-xs text-(--solus-text-tertiary)">Starting up…</span>
-    {/if}
+  {#if finalOutput}
+    <div class="prose-cloud prose-reading min-w-0 text-sm">
+      <SvelteMarkdown
+        source={finalOutput}
+        renderers={markdownRenderers}
+        sanitizeUrl={markdownSanitizeUrl}
+      />
+    </div>
+  {:else if grouped.length === 0}
+    <span class="text-xs text-(--solus-text-tertiary)">Starting up…</span>
   {/if}
 </div>

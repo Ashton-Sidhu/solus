@@ -360,7 +360,7 @@
       color var(--duration-quick) var(--ease-premium);
   }
   .doc-find-bar__text-btn:hover:not(:disabled) {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-accent);
   }
   .doc-find-bar__text-btn:disabled {

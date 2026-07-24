@@ -7,16 +7,19 @@ import { createSolusConnection, savedServerTarget } from '@client-core/server-co
 import { serverConnections } from '@client-core/server-connections'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
 import { getActiveServerId, loadServers, touchLastConnected, type SavedServer } from '@client-core/server-registry'
-import { setTabPersistenceServerInstallationId } from '@renderer/contexts/tab-persistence'
+import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
 import { webState } from './lib/web-state.svelte'
 import { router } from './lib/router.svelte'
 import { webPushState } from './lib/web-push.svelte'
+import { toasts } from './lib/toast.store.svelte'
+import WebToast from './components/WebToast.svelte'
 
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
 })
 
 const root = document.getElementById('root')!
+mount(WebToast, { target: root })
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 
@@ -39,6 +42,7 @@ function installServiceWorkerMessageBridge(): void {
 }
 
 function showConnectFlow(): void {
+  toasts.dismiss()
   if (solusApp) { unmount(solusApp); solusApp = null }
   if (activeTransport) { activeTransport.destroy(); activeTransport = null }
   delete (window as any).solus
@@ -54,6 +58,7 @@ function showConnectFlow(): void {
 }
 
 function connectToServer(server: SavedServer): void {
+  toasts.dismiss()
   if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
   setTabPersistenceServerInstallationId(server.installationId ?? server.id, {
     migrateLegacy: loadServers().length <= 1,

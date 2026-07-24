@@ -13,10 +13,12 @@
     XIcon,
     CaretRightIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext } from "@renderer/contexts/workspace.context.svelte";
-  import { getAgentContext } from "@renderer/contexts/agent.context.svelte";
-  import { getSettingsContext } from "@renderer/contexts/settings.context.svelte";
-  import { getStatusBarContext } from "@renderer/contexts/status-bar.context.svelte";
+  import {
+    getWorkspaceContext,
+    getAgentContext,
+    getSettingsContext,
+    getStatusBarContext,
+  } from "@renderer/contexts";
   import { buildAgentAvailabilityRows } from "@renderer/lib/agentAvailability";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";

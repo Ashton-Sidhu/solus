@@ -7,17 +7,17 @@
     saveDraftsDebounced,
     flushDrafts,
     type PersistedTabs,
-  } from "@renderer/contexts/tab-persistence";
+  } from "@renderer/contexts/workspace/tab-persistence";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
-  import { materializeTabs } from "@renderer/contexts/session-bootstrap";
+  import { materializeTabs } from "@renderer/contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "@client-core/server-registry";
   import {
     createReconnectDetector,
     initializeRuntime,
     refreshTheme,
-  } from "@renderer/contexts/runtime-boot";
-  import { createAppCore } from "@renderer/contexts/app-core";
-  import { connectionsStore } from "@renderer/contexts/connections.store.svelte";
+  } from "@renderer/contexts/app/runtime-boot";
+  import { createAppCore } from "@renderer/contexts/app/app-core";
+  import { connectionsStore } from "@renderer/contexts";
   import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,
@@ -305,10 +305,10 @@
     requestInputFocus();
   }
 
-  async function handleAttachFile() {
+  async function handleAttachFile(tabId?: string) {
     const files = await window.solus.attachFiles();
     if (!files || files.length === 0) return;
-    session.addAttachments(files);
+    session.addAttachments(files, tabId);
   }
 
   async function cycleAgentProvider() {

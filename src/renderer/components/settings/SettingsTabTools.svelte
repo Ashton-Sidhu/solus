@@ -5,8 +5,7 @@
     CaretDownIcon,
   } from "phosphor-svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { toolsStore } from "../../contexts/tools.store.svelte";
+  import { getSettingsContext, toolsStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { onMount } from "svelte";
 

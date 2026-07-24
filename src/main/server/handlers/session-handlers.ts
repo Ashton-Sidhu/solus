@@ -150,22 +150,16 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.agentSessionId
     if (!sessionId) return null
     log.info(`RPC bindRuntimeSession: tab=${ctx.session.tabId} session=${sessionId}`)
-    return controlPlane.bindRuntimeSession(ctx.session.tabId, sessionId, tabOwner(handlerCtx))
+    return controlPlane.bindRuntimeSession(
+      ctx.session.tabId,
+      sessionId,
+      tabOwner(handlerCtx),
+      ctx.session.handoffFrom,
+      ctx.session.provider,
+    )
   }
 
   server.register('bindRuntimeSession', bindRuntimeSession)
-
-  server.register('startAgentSession', async (args, handlerCtx) => {
-    const [ctx, options] = args as [IpcContext, PromptOptions]
-    log.info(`RPC startAgentSession: tab=${ctx.session.tabId || 'headless'}`)
-    return controlPlane.startAgentSession(ctx, options, handlerCtx.deviceId)
-  })
-
-  server.register('dispatchToAgentSession', async (args, handlerCtx) => {
-    const [ctx, agentSessionId, options] = args as [IpcContext, string, PromptOptions]
-    log.info(`RPC dispatchToAgentSession: session=${agentSessionId} tab=${ctx.session.tabId || 'headless'}`)
-    return controlPlane.dispatchToAgentSession(ctx, agentSessionId, options, handlerCtx.deviceId)
-  })
 
   server.register('resetTabSession', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
@@ -177,6 +171,12 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       controlPlane.getGitContext(ctx.session.tabId)?.worktreePath ?? ctx.session.workingDirectory
     if (warmPath && warmPath !== '~') warmFinder(warmPath)
     controlPlane.resetTabSession(ctx, tabOwner(handlerCtx))
+  })
+
+  server.register('switchSessionAgent', (args) => {
+    const [tabId, provider] = args as [string, AgentId]
+    log.info(`RPC switchSessionAgent: tab=${tabId} provider=${provider}`)
+    return controlPlane.switchSessionProvider(tabId, provider)
   })
 
   server.register('prompt', async (args, handlerCtx) => {

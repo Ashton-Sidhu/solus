@@ -22,13 +22,12 @@ export const RPC_INVOKE_METHODS = [
 
   // Tabs / agent
   'createTab',
-  'startAgentSession',
-  'dispatchToAgentSession',
   'prompt',
   'stopTab',
   'retry',
   'closeTab',
   'resetTabSession',
+  'switchSessionAgent',
 
   // Permission / interaction
   'respondPermission',
@@ -97,7 +96,9 @@ export const RPC_INVOKE_METHODS = [
   'worktreeBranches',
   'worktreeRestore',
   'continueInWorktree',
-  'gitProjectStatus',
+  'gitRefreshState',
+  'gitIdentity',
+  'gitRegisterEnvironment',
   'runStatus',
   'runStart',
   'runStop',
@@ -171,26 +172,30 @@ export const RPC_INVOKE_METHODS = [
   'providerConnect',
   'providerCancelConnect',
   'providerDisconnect',
+  'providerViewer',
 
   // PR review mode (read PRs, enter review, comment, threads)
   'prList',
+  'prNeedsReview',
+  'prGetEfforts',
+  'prGuideMetadata',
   'prOpenReview',
   'prGetDetail',
   'prGetOverview',
   'prChangedFiles',
   'prListThreads',
+  'prListComments',
   'prListCommits',
   'prListReviewers',
   'prSubmitReview',
+  'prAddIssueComment',
+  'prInterdiff',
   'prReplyThread',
   'prResolveThread',
   'prUnresolveThread',
-
-  // Merge queue (sequentially merge queued PRs, pausing on conflicts)
-  'mergeQueueStart',
-  'mergeQueueState',
-  'mergeQueueSkip',
-  'mergeQueueCancel',
+  'prGenerateGuides',
+  'prMerge',
+  'prPrepareConflictResolution',
 
   // Review guide (agent code-review ledger + guided walkthrough)
   'readLedger',
@@ -224,10 +229,30 @@ export const RPC_INVOKE_METHODS = [
   'automationCancel',
   'automationListRuns',
   'automationReadRun',
+
+  // PR stack detection + manual pins
+  'stackGet',
+  'stackDetect',
+  'stackAddManualEdge',
+  'stackRemoveManualEdge',
+
+  // PR checks cache + renderer activity hint
+  'prChecks',
+  'prChecksActivity',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
 export type RpcMethod = RpcInvokeMethod
+
+export interface SearchSessionsRequest {
+  query: string
+  /** Omit to search every project; set to scope to one git-root. */
+  projectRoot?: string
+  providers?: string[]
+  role?: 'user' | 'assistant'
+  sinceTs?: number
+  limit?: number
+}
 
 export const RPC_TOPICS = [
   'normalized-event',
@@ -248,10 +273,12 @@ export const RPC_TOPICS = [
   'automations-changed',
   'provider-device-code',
   'review-progress',
-  'merge-queue-update',
   'tasks-changed',
   'prs-changed',
   'attention-changed',
+  'stack-graph-update',
+  'pr-checks-update',
+  'pr-guide-status',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]

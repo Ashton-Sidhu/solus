@@ -1,15 +1,17 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
+  import { getWorkspaceContext, getPlanStore } from "../../contexts";
   import type {
     AgentId,
     PlanReference,
     PluginCommandsResult,
+    SessionReference,
     WorkReference,
   } from "../../../shared/types";
   import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
   import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
+  import PrAutocompleteMenu from "../prs/PrAutocompleteMenu.svelte";
+  import SessionAutocompleteMenu from "../session/SessionAutocompleteMenu.svelte";
   import SlashCommandMenu from "../input/SlashCommandMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
@@ -27,8 +29,12 @@
     provider: AgentId;
     /** Directory used for @-file search, plan preload, and work loading. */
     workingDirectory: string | undefined;
-    /** Notified whenever the editor's plan/work references change. */
-    onRefsChange?: (planRefs: PlanReference[], workRefs: WorkReference[]) => void;
+    /** Notified whenever the editor's plan/work/session references change. */
+    onRefsChange?: (
+      planRefs: PlanReference[],
+      workRefs: WorkReference[],
+      sessionRefs: SessionReference[],
+    ) => void;
     /** Synchronous emptiness signal (see MarkdownEditor) — lets callers gate
      *  UI like a send button without waiting on the debounced markdown emit. */
     onEmptyChange?: (empty: boolean) => void;
@@ -49,6 +55,7 @@
     onBlur?: () => void;
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
+    onPrRefClick?: (number: number, title?: string) => void;
     onFileRefClick?: (path: string) => void;
     placeholder?: string;
     /** Blocks ref insertion / command execution (read-only session). */
@@ -84,6 +91,7 @@
     onBlur,
     onPlanRefClick,
     onWorkRefClick,
+    onPrRefClick,
     onFileRefClick,
     placeholder = "",
     readOnly = false,
@@ -223,6 +231,28 @@
   />
 {/if}
 
+{#if ac.showPrMenu}
+  <PrAutocompleteMenu
+    pullRequests={ac.prResults}
+    isLoading={ac.isPrMenuLoading}
+    selectedIndex={ac.prIndex}
+    onSelect={ac.handlePrSelect}
+    anchorRect={ac.cursorAnchorRect}
+    placement={menuPlacement}
+  />
+{/if}
+
+{#if ac.showSessionMenu}
+  <SessionAutocompleteMenu
+    sessions={ac.sessionResults}
+    isLoading={ac.isSessionMenuLoading}
+    selectedIndex={ac.sessionIndex}
+    onSelect={ac.handleSessionSelect}
+    anchorRect={ac.cursorAnchorRect}
+    placement={menuPlacement}
+  />
+{/if}
+
 <MarkdownEditor
   bind:this={markdownEditorEl}
   {value}
@@ -239,6 +269,7 @@
   {onBlur}
   {onPlanRefClick}
   {onWorkRefClick}
+  {onPrRefClick}
   {onFileRefClick}
   {placeholder}
   {disabled}

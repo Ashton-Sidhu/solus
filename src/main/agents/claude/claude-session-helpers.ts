@@ -191,6 +191,10 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
               parentToolUseId,
               timestamp: new Date(obj.timestamp).getTime(),
             }
+          } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+            // Extended-thinking spans (Claude writes them on their own assistant
+            // line). Carried for provider handoffs; display surfaces skip this role.
+            return { role: 'reasoning', content: block.thinking, parentToolUseId, timestamp: new Date(obj.timestamp).getTime() }
           }
         }
       }

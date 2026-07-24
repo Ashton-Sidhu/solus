@@ -43,7 +43,7 @@
   <!-- Mirrors ActivityFeed's loading skeleton (title · meta · description ·
        timeline · right rail) so content fills in without a jump. -->
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto flex w-full max-w-[70rem] gap-10 px-8 py-9">
+    <div class="mx-auto flex w-full max-w-[90rem] gap-8 px-6 py-7 xl:gap-10 xl:px-8 xl:py-9">
       <main class="flex min-w-0 flex-1 flex-col">
         <Skeleton class="h-7 w-2/3 bg-(--solus-art-border)" />
         <div class="mt-4 flex items-center gap-2">
@@ -63,7 +63,7 @@
         </div>
       </main>
 
-      <aside class="hidden w-[16.5rem] shrink-0 flex-col gap-3.5 lg:flex">
+      <aside class="hidden w-[19rem] shrink-0 flex-col gap-3.5 lg:flex">
         <Skeleton class="h-28 rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface)" />
         <Skeleton class="h-48 rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface)" />
       </aside>

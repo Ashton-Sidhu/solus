@@ -11,11 +11,15 @@
   import { serverConnections } from "@client-core/server-connections";
   import { preferredRunOnHost, rememberRunOnHost } from "@client-core/run-on-preferences";
   import type { RecentProject } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { tooltip } from "../../lib/tooltip";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { serversStore, type ServerItem, type ServerItemStatus } from "./servers.store.svelte";
+  import {
+    serversStore,
+    type ServerItem,
+    type ServerItemStatus,
+  } from "../../contexts/connections/servers.store.svelte";
   import { checkoutForRepo, isRunOnHostLocked, repoKeyForPath } from "./run-on";
 
   interface Props {

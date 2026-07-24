@@ -20,9 +20,8 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { connectionsStore } from "../../contexts/connections.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
 
   interface Props {
@@ -56,7 +55,6 @@
     onGoogleUpload?: () => void;
     uploading?: boolean;
     uploaded?: boolean;
-    uploadError?: string | null;
   }
 
   let {
@@ -81,7 +79,6 @@
     onGoogleUpload,
     uploading = false,
     uploaded = false,
-    uploadError = null,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -211,7 +208,7 @@
         </DropdownMenu.Item>
       {/if}
       {#if onGoogleUpload}
-        <!-- Keep the menu open so the upload state + any error stay visible. -->
+        <!-- Keep the menu open so the upload state stays visible. -->
         <DropdownMenu.Item data-testid="google-upload" disabled={uploading} closeOnSelect={false} onSelect={() => onGoogleUpload?.()}>
           {#if uploaded}
             <CheckIcon size={14} /><span class="flex-1 text-left">Opened!</span>
@@ -220,9 +217,6 @@
           {/if}
           <span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>
         </DropdownMenu.Item>
-        {#if uploadError}
-          <div class="wha-upload-error">{uploadError}</div>
-        {/if}
       {/if}
       {#if canPromote}
         <DropdownMenu.Item data-testid="promote-work" disabled={promoting} onSelect={() => onPromoteToProject?.()}>
@@ -317,7 +311,7 @@
   }
   .wha-chat-split:hover,
   .wha-chat-split:has(.wha-chat-caret--open) {
-    background: color-mix(in srgb, var(--solus-surface-hover) 100%, var(--solus-text-tertiary) 8%);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .wha-chat-trigger {
@@ -375,7 +369,7 @@
   }
   .wha-overflow:hover,
   .wha-overflow--open {
-    background: color-mix(in srgb, var(--solus-surface-hover) 100%, var(--solus-text-tertiary) 8%);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .wha-overflow:active {
@@ -385,12 +379,6 @@
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.0625rem;
   }
-  .wha-upload-error {
-    padding: 0.25rem 0.75rem 0.375rem;
-    font-size: 0.6875rem;
-    color: var(--solus-error, #e55);
-  }
-
   .wha-actions {
     display: contents;
   }

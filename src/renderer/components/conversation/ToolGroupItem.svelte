@@ -14,8 +14,8 @@
     CaretDownIcon,
   } from "phosphor-svelte";
   import type { Component } from "svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
-  import { prettyToolName, solusToolKey } from "../../contexts/session.utils";
+  import { runtime } from "../../contexts";
+  import { prettyToolName, solusToolKey } from "../../contexts/workspace/session.utils";
   import type { Message } from "../../../shared/types";
 
   interface Props {

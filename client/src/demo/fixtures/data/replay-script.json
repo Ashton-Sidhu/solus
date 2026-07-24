@@ -1,0 +1,337 @@
+[
+  {
+    "delayMs": 500,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "status_change",
+      "status": "running",
+      "oldStatus": "idle"
+    }
+  },
+  {
+    "delayMs": 120,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "The public router authenticates the key before dispatch, so the "
+    }
+  },
+  {
+    "delayMs": 95,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "limiter can use the stable API-key id instead of storing secrets "
+    }
+  },
+  {
+    "delayMs": 110,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "or coupling quotas to source IPs. I\u2019m reading the middleware "
+    }
+  },
+  {
+    "delayMs": 80,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "boundary now, including how it attaches response headers.\n\n"
+    }
+  },
+  {
+    "delayMs": 8000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_call",
+      "toolName": "Read",
+      "toolId": "replay-read-middleware",
+      "index": 0,
+      "toolInput": "{\"file_path\":\"/home/demo/acme/src/middleware/rateLimit.ts\"}"
+    }
+  },
+  {
+    "delayMs": 850,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_call_complete",
+      "index": 0,
+      "toolId": "replay-read-middleware",
+      "toolInput": "{\"file_path\":\"/home/demo/acme/src/middleware/rateLimit.ts\"}"
+    }
+  },
+  {
+    "delayMs": 500,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_result",
+      "toolUseId": "replay-read-middleware",
+      "content": "import type { Middleware } from '../api/types'\n\nexport function rateLimit(): Middleware {\n  return async (_request, next) => next()\n}"
+    }
+  },
+  {
+    "delayMs": 125,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "This is only a placeholder, which keeps the change nicely scoped. "
+    }
+  },
+  {
+    "delayMs": 100,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "I\u2019ll make it consume the Redis bucket, add standard headers on "
+    }
+  },
+  {
+    "delayMs": 90,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "both allowed and denied responses, and preserve the existing JSON "
+    }
+  },
+  {
+    "delayMs": 115,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "error envelope. Redis errors will fail open during rollout, with "
+    }
+  },
+  {
+    "delayMs": 70,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "a metric and structured warning so the degradation is visible.\n\n"
+    }
+  },
+  {
+    "delayMs": 8000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_call",
+      "toolName": "Edit",
+      "toolId": "replay-edit-middleware",
+      "index": 1,
+      "toolInput": "{\"file_path\":\"/home/demo/acme/src/middleware/rateLimit.ts\",\"old_string\":\"export function rateLimit(): Middleware {\\n  return async (_request, next) => next()\\n}\",\"new_string\":\"export function rateLimit(deps: RateLimitDeps): Middleware {\\n  return async (request, next) => {\\n    const decision = await consumeTokenBucket(deps.redis, `ratelimit:${request.context.apiKey.id}`, deps.policy, deps.now())\\n    setRateLimitHeaders(request.response, decision)\\n    if (!decision.allowed) return rateLimitExceeded(request, decision)\\n    return next()\\n  }\\n}\"}"
+    }
+  },
+  {
+    "delayMs": 900,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_call_complete",
+      "index": 1,
+      "toolId": "replay-edit-middleware",
+      "toolInput": "{\"file_path\":\"/home/demo/acme/src/middleware/rateLimit.ts\"}"
+    }
+  },
+  {
+    "delayMs": 650,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_result",
+      "toolUseId": "replay-edit-middleware",
+      "content": "Updated /home/demo/acme/src/middleware/rateLimit.ts"
+    }
+  },
+  {
+    "delayMs": 125,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "The request path is wired. Before running tests, I\u2019m checking the "
+    }
+  },
+  {
+    "delayMs": 100,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "business invariants: two concurrent consumers must not both take "
+    }
+  },
+  {
+    "delayMs": 85,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "the final token, refill must never exceed capacity, and every 429 "
+    }
+  },
+  {
+    "delayMs": 115,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "must tell a client exactly when it can retry. The focused test run "
+    }
+  },
+  {
+    "delayMs": 75,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "needs permission because it starts the local Redis test service.\n\n"
+    }
+  },
+  {
+    "delayMs": 8000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "permission_request",
+      "questionId": "replay-permission-tests",
+      "toolName": "Bash",
+      "toolDescription": "Run the focused rate-limit tests with the local Redis test service",
+      "toolInput": {
+        "command": "bun test src/ratelimit src/middleware",
+        "description": "Run rate-limit tests"
+      },
+      "options": [
+        {
+          "id": "allow-once",
+          "label": "Allow once",
+          "kind": "allow_once"
+        },
+        {
+          "id": "allow-always",
+          "label": "Always allow test commands",
+          "kind": "allow_always"
+        },
+        {
+          "id": "deny",
+          "label": "Deny",
+          "kind": "deny"
+        }
+      ]
+    }
+  },
+  {
+    "delayMs": 1200,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_call",
+      "toolName": "Bash",
+      "toolId": "replay-run-tests",
+      "index": 2,
+      "toolInput": "{\"command\":\"bun test src/ratelimit src/middleware\",\"description\":\"Run rate-limit tests\"}"
+    }
+  },
+  {
+    "delayMs": 850,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_call_complete",
+      "index": 2,
+      "toolId": "replay-run-tests",
+      "toolInput": "{\"command\":\"bun test src/ratelimit src/middleware\",\"description\":\"Run rate-limit tests\"}"
+    }
+  },
+  {
+    "delayMs": 8000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "tool_result",
+      "toolUseId": "replay-run-tests",
+      "content": "bun test v1.3.5\n\n  14 pass\n  0 fail\n  38 expect() calls\nRan 14 tests across 2 files in 412ms."
+    }
+  },
+  {
+    "delayMs": 120,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "All fourteen focused tests pass, including concurrent consumption "
+    }
+  },
+  {
+    "delayMs": 95,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "and fractional refill boundaries. I\u2019ve also updated the rollout "
+    }
+  },
+  {
+    "delayMs": 110,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "notes with the header contract and opened a follow-up for the SDK "
+    }
+  },
+  {
+    "delayMs": 80,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "text_chunk",
+      "text": "examples so client teams can adopt the response consistently.\n\n"
+    }
+  },
+  {
+    "delayMs": 6000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "changed_files_updated",
+      "paths": [
+        "src/ratelimit/tokenBucket.ts",
+        "src/middleware/rateLimit.ts",
+        "src/api/router.ts"
+      ]
+    }
+  },
+  {
+    "delayMs": 5000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "work_updated",
+      "workId": "demo-work-rollout-notes",
+      "title": "Rate limiting rollout notes",
+      "docType": "doc",
+      "content": "# Rate limiting rollout notes\n\n**Owner:** API Platform \u00b7 **Target launch:** July 21, 2026 \u00b7 **Status:** Staged rollout\n\nThis runbook covers the first production release of per-key token-bucket limits for acme's public short-link API. The goal is predictable protection without surprising healthy integrations.\n\n## Decision summary\n\n- Limit by API key ID, never by raw credential or source IP.\n- Use a Redis Lua token bucket so refill and consume are atomic.\n- Fail open for Redis transport errors during the first rollout, but emit an alert.\n\nThe limiter runs after API-key authentication and before route dispatch. This prevents anonymous traffic from consuming customer quotas and keeps rejected requests out of product analytics.\n\n## Default limits\n\n| Plan | Sustained | Burst |\n| --- | ---: | ---: |\n| Free | 5 req/s | 20 |\n| Pro | 50 req/s | 200 |\n| Business | 200 req/s | 800 |\n\nEnterprise overrides remain explicit configuration keyed by account ID. Support cannot create an unlimited key; the maximum override is 2,000 requests per second.\n\n## Response contract\n\nEvery authenticated response carries `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. A rejected request returns `429` with `Retry-After` rounded up to a whole second.\n\n```http\nHTTP/1.1 429 Too Many Requests\nRateLimit-Limit: 50\nRateLimit-Remaining: 0\nRateLimit-Reset: 2\nRetry-After: 2\n```\n\nThe JSON error code is `rate_limit_exceeded`. Existing error envelopes and request IDs remain unchanged, so SDK parsing does not need a special path.\n\n## Rollout stages\n\n### Stage 0 \u2014 shadow metrics\n\nRun the limiter for all traffic without rejecting. Compare would-block counts with request volume and inspect the top twenty keys for seven days.\n\n### Stage 1 \u2014 internal and free plan\n\nEnable enforcement for acme-owned keys and 10% of free-plan keys. Hold for 24 hours with an engineer on call.\n\n### Stage 2 \u2014 paid cohorts\n\nExpand to all free keys, then 10%, 50%, and 100% of paid keys. Each cohort requires healthy Redis latency and no unexplained increase in support contacts.\n\n## Launch checklist\n\n- [x] Token-bucket unit and concurrency tests pass.\n- [x] Dashboards split allowed, blocked, and fail-open decisions by plan.\n- [ ] Publish limits and header examples in the API docs.\n- [ ] Notify support and attach the customer override runbook.\n- [ ] Confirm a rollback owner for each rollout window.\n\n## Observability\n\n- `rate_limit_decisions_total` by outcome, route, and plan.\n- `rate_limit_redis_duration_seconds` at p50, p95, and p99.\n- `rate_limit_fail_open_total` with the Redis error class.\n\nPage the API on-call if Redis p99 exceeds 40 ms for ten minutes or fail-open decisions exceed 0.1% of authenticated traffic.\n\n## Rollback\n\nSet `RATE_LIMIT_MODE=shadow` and redeploy the API. This stops rejection immediately while preserving decision metrics. Do not flush Redis; bucket state is harmless and useful during investigation.\n\nRollback triggers are a sustained API error-rate increase above 0.5 percentage points, Redis saturation above 80%, or a confirmed customer blocked below their documented plan limit.\n\n## Open questions\n\n- Should batch link creation consume one token per request or one per created link?\n- When should fail-open switch to fail-closed for abuse-sensitive routes?\n\n**Next review:** July 16, after the first 48 hours of shadow data. Record decisions here so the launch history stays attached to the implementation.\n\n## 429 response contract (added during implementation)\n\nEvery throttled response now carries the standard header set so SDKs and retry middleware can back off correctly:\n\n| Header | Meaning |\n| --- | --- |\n| `RateLimit-Limit` | Requests allowed in the current window |\n| `RateLimit-Remaining` | Requests left before throttling |\n| `RateLimit-Reset` | Seconds until the window refills |\n| `Retry-After` | Suggested wait before the next attempt |\n\nThe middleware sets these on both throttled (429) and successful responses, so clients can pace proactively instead of reacting to failures.",
+      "updatedAt": "2026-07-14T15:41:00.000Z"
+    }
+  },
+  {
+    "delayMs": 5000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "task_created",
+      "taskId": "demo-task-10",
+      "title": "Add rate-limit examples to TypeScript SDK",
+      "url": null
+    }
+  },
+  {
+    "delayMs": 4000,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "task_complete",
+      "result": "Added atomic per-key rate limiting, wired standard response headers, and verified 14 focused tests. Updated the rollout notes and created the SDK follow-up task.",
+      "costUsd": 0.084,
+      "durationMs": 74200,
+      "numTurns": 1,
+      "usage": {
+        "inputTokens": 8420,
+        "outputTokens": 2130,
+        "cacheReadTokens": 12400,
+        "contextWindowTokens": 200000
+      },
+      "sessionId": "demo-session-ratelimit"
+    }
+  },
+  {
+    "delayMs": 500,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "status_change",
+      "status": "idle",
+      "oldStatus": "running"
+    }
+  }
+]

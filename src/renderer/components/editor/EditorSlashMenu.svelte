@@ -43,7 +43,7 @@
   >
     <div
       bind:this={listEl}
-      class="slash-block-menu overflow-y-auto rounded-xl py-1.5 px-1 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+      class="slash-block-menu overflow-y-auto rounded-[14px] py-1.5 px-1 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
       style="max-height:17.5rem;min-width:13.75rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
     >
       {#each commands as cmd, i (cmd.id)}

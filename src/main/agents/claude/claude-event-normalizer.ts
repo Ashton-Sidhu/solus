@@ -130,25 +130,29 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
   // from task_started through to whichever terminal signal it gets. Foreground
   // (blocking) tasks settle before the turn's own result fires, so this is a no-op
   // for them; it only changes behavior for tasks still in flight at turn end.
+  // `tool_use_id` links a task back to the tool call that spawned it — the
+  // sub-agent card's anchor. task_started and task_notification carry it;
+  // task_updated doesn't, so the renderer keys settles off `taskId` instead.
   const sys = event as unknown as {
     subtype: string
     task_id?: string
+    tool_use_id?: string
     status?: string
     patch?: { status?: string }
   }
   if (sys.subtype === 'task_started' && sys.task_id) {
-    return [{ type: 'background_task_started', taskId: sys.task_id }]
+    return [{ type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }]
   }
   if (sys.subtype === 'task_updated' && sys.task_id) {
     const patchStatus = sys.patch?.status
     if (patchStatus === 'completed' || patchStatus === 'failed' || patchStatus === 'killed') {
-      return [{ type: 'background_task_settled', taskId: sys.task_id, status: patchStatus }]
+      return [{ type: 'background_task_settled', taskId: sys.task_id, status: patchStatus, toolUseId: sys.tool_use_id }]
     }
     return []
   }
   if (sys.subtype === 'task_notification' && sys.task_id) {
     const status = sys.status === 'failed' || sys.status === 'stopped' ? sys.status : 'completed'
-    return [{ type: 'background_task_settled', taskId: sys.task_id, status }]
+    return [{ type: 'background_task_settled', taskId: sys.task_id, status, toolUseId: sys.tool_use_id }]
   }
 
   if (event.subtype === 'init') {
@@ -311,11 +315,19 @@ function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {
  * result — as `type:'user'` messages carrying `tool_result` blocks. Emit a
  * canonical `tool_result` event for each so the reducer lands it on the matching
  * tool message instead of leaking a stray user bubble into the thread.
+ *
+ * A backgrounded sub-agent (the Task tool's default) is the exception: the SDK
+ * answers the tool call within milliseconds with launch metadata ("Async agent
+ * launched successfully…") and only reports the real outcome later, via a
+ * task_notification. Flag that placeholder so the reducer doesn't read it as the
+ * agent's answer and call the card done while the agent is still working.
  */
 function normalizeUser(event: UserEvent): NormalizedEvent[] {
   const parentToolUseId = event.parent_tool_use_id || undefined
   const content = event.message?.content
   if (!Array.isArray(content)) return []
+
+  const isAsyncLaunch = event.tool_use_result?.status === 'async_launched' || event.tool_use_result?.isAsync === true
 
   const events: NormalizedEvent[] = []
   for (const block of content) {
@@ -331,6 +343,7 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
       content: text,
       isError: block.is_error,
       parentToolUseId,
+      ...(isAsyncLaunch ? { isAsyncLaunch: true } : {}),
     })
   }
   return events

@@ -9,17 +9,20 @@
     TreeStructureIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getGitStatusStore } from "../contexts/git-status.store.svelte";
-  import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
+  import {
+    getSessionEnvironmentStore,
+    getWorkspaceContext,
+    getWindowContext,
+    connectionsStore,
+    toasts,
+  } from "../contexts";
   import * as Popover from "./ui/popover";
   import * as Command from "./ui/command";
   import Kbd from "./ui/Kbd.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import { worktreeProjectRoot, type IpcContext } from "../../shared/types";
-  import { getWindowContext } from "../contexts/window.context.svelte";
-  import { connectionsStore } from "../contexts/connections.store.svelte";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serversStore } from "./servers/servers.store.svelte";
+  import { serversStore } from "../contexts/connections/servers.store.svelte";
   import { tooltip } from "../lib/tooltip";
 
   type View = "menu" | "worktrees" | "branches";
@@ -48,7 +51,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const gitStatus = getGitStatusStore();
+  const environmentStore = getSessionEnvironmentStore();
   const windowCtx = getWindowContext();
   const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
   const sess = $derived(session.sessionFor(tabId));
@@ -77,7 +80,7 @@
   const repoCtx = $derived<IpcContext | null>(
     projectRoot ? session.ctxForDirectory(projectRoot) : null,
   );
-  const gitRefs = $derived(gitStatus.refsFor(projectRoot));
+  const gitRefs = $derived(environmentStore.refsFor(projectRoot));
   const worktrees = $derived(gitRefs.worktrees);
   const worktreeBranches = $derived(worktrees.map((w) => w.branch));
   const branches = $derived([
@@ -89,7 +92,7 @@
   );
 
   $effect(() => {
-    if (open && projectRoot && repoCtx) void gitStatus.refreshRefs(projectRoot, repoCtx, { force: true });
+    if (open && projectRoot && repoCtx) void environmentStore.refreshRefs(projectRoot, repoCtx, { force: true });
   });
 
   $effect(() => {
@@ -122,7 +125,11 @@
   function enableWorktreeMode() {
     if (!tabId || !sess || !tabCtx) return;
     session.setWorktreeBaseBranch(sess.gitContext?.targetBranch ?? null);
-    if (projectRoot) void gitStatus.refreshRefs(projectRoot, tabCtx, { force: true });
+    if (projectRoot) {
+      void environmentStore.refreshRefs(projectRoot, tabCtx, { force: true }).then((ok) => {
+        if (!ok) toasts.error("Couldn't refresh branches");
+      });
+    }
     view = "branches";
   }
 
@@ -152,7 +159,11 @@
 
   function openBranchView() {
     if (!repoCtx) return;
-    if (projectRoot) void gitStatus.refreshRefs(projectRoot, repoCtx, { force: true });
+    if (projectRoot) {
+      void environmentStore.refreshRefs(projectRoot, repoCtx, { force: true }).then((ok) => {
+        if (!ok) toasts.error("Couldn't refresh branches");
+      });
+    }
     view = "branches";
     query = "";
   }
@@ -163,7 +174,7 @@
   }
 
   const menuItemClass =
-    "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)";
+    "menu-item-stagger w-full flex items-center justify-between gap-2 rounded-[9px] px-2 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) transition-[background-color,color] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-[color-mix(in_srgb,var(--solus-accent)_6%,transparent)] focus-visible:text-(--solus-text-primary)";
 </script>
 
 {#if displayBranch}
@@ -176,9 +187,9 @@
       sideOffset={6}
       collisionPadding={8}
       onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}
-      class="z-[10002] w-[232px] gap-0 overflow-hidden rounded-xl border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+      class="z-[10002] w-[232px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
     >
-    <div class="py-1">
+    <div class="p-1">
       {#if view === "menu"}
         <!-- Copy -->
         <button
@@ -307,13 +318,13 @@
         <div class="h-px bg-(--solus-popover-border) my-1"></div>
 
         <Command.Root>
-          <div class="mx-2 mb-1.5 flex items-center rounded-lg border border-(--solus-popover-border) bg-(--solus-surface-hover) px-2">
+          <div class="mx-1 mb-1.5 flex items-center rounded-[9px] bg-(--solus-code-bg) px-2 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
             <Command.Input bind:value={query} placeholder="Filter worktrees..." class="h-7 text-[0.6875rem]" />
           </div>
           <Command.List class="max-h-[196px]">
             <Command.Empty class="px-3 py-2 text-center text-[0.6875rem] text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
             {#each worktrees as worktree (worktree.branch)}
-              <Command.Item value={worktree.branch} onSelect={() => selectWorktree(worktree.branch)} class="rounded-none px-3 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) data-[selected]:bg-(--solus-accent-light) data-[selected]:text-(--solus-text-primary)">
+              <Command.Item value={worktree.branch} onSelect={() => selectWorktree(worktree.branch)} class="rounded-[9px] px-2 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) data-[selected]:bg-(--solus-surface-hover) data-[selected]:text-(--solus-text-primary)">
                 <span class="truncate">{worktree.branch}</span>
               </Command.Item>
             {/each}
@@ -335,13 +346,13 @@
         <div class="h-px bg-(--solus-popover-border) my-1"></div>
 
         <Command.Root>
-          <div class="mx-2 mb-1.5 flex items-center rounded-lg border border-(--solus-popover-border) bg-(--solus-surface-hover) px-2">
+          <div class="mx-1 mb-1.5 flex items-center rounded-[9px] bg-(--solus-code-bg) px-2 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
             <Command.Input bind:value={query} placeholder="Filter branches..." class="h-7 text-[0.6875rem]" />
           </div>
           <Command.List class="max-h-[196px]">
             <Command.Empty class="px-3 py-2 text-center text-[0.6875rem] text-(--solus-text-tertiary)">No branches found</Command.Empty>
             {#each branches as branch (branch)}
-              <Command.Item value={branch} onSelect={() => selectBranch(branch)} class="rounded-none px-3 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) data-[selected]:bg-(--solus-accent-light) data-[selected]:text-(--solus-text-primary)">
+              <Command.Item value={branch} onSelect={() => selectBranch(branch)} class="rounded-[9px] px-2 py-1.5 text-[0.6875rem] text-(--solus-text-secondary) data-[selected]:bg-(--solus-surface-hover) data-[selected]:text-(--solus-text-primary) {branch === worktreeBaseBranch ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary)' : ''}">
                 <span class="truncate">{branch}</span>
                 {#if branch === worktreeBaseBranch}<CheckIcon size={12} class="ml-auto text-(--solus-accent)" />{/if}
               </Command.Item>

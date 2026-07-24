@@ -1,9 +1,14 @@
 <script lang="ts">
-  import { FileTextIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import {
+    ChatCircleDotsIcon,
+    FileTextIcon,
+    GitPullRequestIcon,
+  } from "phosphor-svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
+  import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -25,6 +30,8 @@
 
   const isPlanRef = $derived(href.startsWith("plan://"));
   const isWorkRef = $derived(href.startsWith("work://"));
+  const isPrRef = $derived(href.startsWith("pr://"));
+  const sessionParams = $derived(parseSessionHref(href));
   const fileRef = $derived(parseFileHref(href));
   const planParams = $derived(
     isPlanRef
@@ -58,6 +65,18 @@
       })()
     : null,
   );
+  const prNumber = $derived(
+    isPrRef
+      ? (() => {
+          try {
+            const number = Number(new URL(href).searchParams.get("number"));
+            return Number.isInteger(number) && number > 0 ? number : null;
+          } catch {
+            return null;
+          }
+        })()
+      : null,
+  );
 
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
@@ -80,9 +99,20 @@
     } else if (isWorkRef && workParams) {
       e.preventDefault();
       session.openWorkModal(workParams.workId, workParams.title);
+    } else if (isPrRef && prNumber) {
+      e.preventDefault();
+      void session.enterPrReview(prNumber);
+    } else if (sessionParams) {
+      e.preventDefault();
+      void resolveSessionLinkMeta(sessionParams).then((meta) =>
+        session.resumeSession(meta),
+      );
     } else if (fileRef) {
       e.preventDefault();
-      requestFilePreview({ ...fileRef, tabId: session.activeTabId });
+      requestFilePreview({
+        ...fileRef,
+        tabId: session.focusedChatTabId ?? session.activeTabId,
+      });
     } else if (href) {
       e.preventDefault();
       window.solus.openExternal(href);
@@ -117,6 +147,30 @@
   >
     <span class="solus-token__icon">
       <FileTextIcon size={12} />
+    </span>
+    <span>{@render children?.()}</span>
+  </button>
+{:else if isPrRef && prNumber}
+  <button
+    type="button"
+    onclick={handleClick}
+    class="{tokenClassName('pr')} solus-token--output-link cursor-pointer"
+    style="border:none"
+  >
+    <span class="solus-token__icon">
+      <GitPullRequestIcon size={12} weight="bold" />
+    </span>
+    <span>{@render children?.()}</span>
+  </button>
+{:else if sessionParams}
+  <button
+    type="button"
+    onclick={handleClick}
+    class="{tokenClassName('session')} solus-token--output-link cursor-pointer"
+    style="border:none"
+  >
+    <span class="solus-token__icon">
+      <ChatCircleDotsIcon size={12} />
     </span>
     <span>{@render children?.()}</span>
   </button>

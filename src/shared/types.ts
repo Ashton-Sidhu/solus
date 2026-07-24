@@ -1,5 +1,5 @@
 import rawModelProfiles from './model-profiles.json'
-import type { GitProjectStatus } from './git-types'
+import type { GitIdentity, GitState } from './git-types'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
@@ -258,6 +258,7 @@ export interface InputState {
   attachments: Attachment[]
   planRefs: PlanReference[]
   workRefs: WorkReference[]
+  sessionRefs: SessionReference[]
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -272,6 +273,11 @@ export interface Tab {
   diffCommentDraft: DiffCommentDraft | null
 }
 
+export interface SessionHandoffLineage {
+  provider: AgentId
+  sessionId: string
+}
+
 /** Backend-driven session state. Shared across tabs watching the same session. */
 export interface Session {
   id: string
@@ -279,6 +285,7 @@ export interface Session {
   serverId: string
   agentSessionId: string | null
   provider: AgentId | null
+  handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
   currentActivity: string
@@ -301,8 +308,10 @@ export interface Session {
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
-  changedFiles: string[]
-  gitContext: TabGitContext | null
+  /** Files changed since this Solus session began. Committing does not clear
+   * these paths; uncommitted files come from live Git state instead. */
+  sessionChangedFiles: string[]
+  gitContext: GitCheckout | null
   workingDirectory: string
   additionalDirs: string[]
   modelConfig: ModelConfig
@@ -404,6 +413,8 @@ export interface PrReviewContext {
   title: string
   /** PR base branch (e.g. `main`) — the worktree's target branch + companion target. */
   baseRef: string
+  /** PR head branch as named on the host; used for review UI labels. */
+  headRef: string
   /** PR head commit at load/refresh — the anchor for new review comments. */
   headSha: string
   /** `merge-base(base, head)` — diff base + companion episode base. */
@@ -416,6 +427,21 @@ export interface PrReviewContext {
   branch: string
 }
 
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
+
+export interface PrMergeResult {
+  merged: boolean
+  message?: string
+}
+
+export interface PrConflictResolutionResult {
+  success: boolean
+  review?: PrReviewContext
+  conflictFiles?: string[]
+  headRef?: string
+  error?: string
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system' | 'plan'
@@ -424,11 +450,16 @@ export interface Message {
   toolId?: string
   toolIndex?: number
   toolInput?: string
+  /** For a sub-agent card this tracks the *agent*, not the tool call: it stays
+   *  'running' until the agent's own result or background-settle event lands. */
   toolStatus?: 'running' | 'completed' | 'error'
   /** The tool's `tool_result` content (e.g. a sub-agent's final answer to the
-   *  main agent). Drives the sub-agent card's done/error state and summary. */
+   *  main agent). Drives the sub-agent card's summary. */
   toolResult?: string
   toolResultIsError?: boolean
+  /** Set when this tool launched an async sub-agent. Its settle event carries
+   *  only the task id, so this is the sole link back from settle to the card. */
+  backgroundTaskId?: string
   /** Nested transcript for a sub-agent (Agent/Task) tool call: every child event
    *  (tool calls + assistant text) diverted out of the main thread by
    *  `parentToolUseId`. Presence === "render this tool as a sub-agent card." */
@@ -461,6 +492,14 @@ export interface Message {
   planRefs?: PlanReference[]
   /** Work references attached via the work reference picker */
   workRefs?: WorkReference[]
+  /** Session references attached via & autocomplete */
+  sessionRefs?: SessionReference[]
+  /** Set on the system divider inserted between provider handoff transcripts. */
+  handoffDivider?: {
+    fromProvider: AgentId
+    toProvider: AgentId
+    truncated: boolean
+  }
   /** Set on the fork-divider system message to identify it. */
   forkSourceSessionId?: string
   /** Snapshot of the source session title at fork time. */
@@ -514,6 +553,13 @@ export interface WorkReference {
   workId: string
   title: string
   type: 'doc' | 'slides' | 'diagram'
+}
+
+export interface SessionReference {
+  sessionId: string
+  provider: AgentId
+  title: string   // slug || first line of firstMessage
+  cwd: string      // needed so read_session can locate cross-project sessions
 }
 
 // ─── Plans ───
@@ -665,21 +711,21 @@ export interface StatusCardState {
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
-  | { type: 'session_init'; sessionId: string; model: string; skills: string[] }
+  | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
-  | { type: 'background_task_started'; taskId: string }
-  | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed' }
+  | { type: 'background_task_started'; taskId: string; toolUseId?: string }
+  | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   | { type: 'error'; message: string; isError: boolean; sessionId?: string }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
   | { type: 'usage'; usage: UsageData; sessionUsage?: UsageData }
-  | { type: 'changed_files_updated'; paths: string[] }
+  | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[] }
   | { type: 'permission_resolved'; questionId: string }
   | { type: 'question_request'; questionId: string; questions: QuestionItem[] }
@@ -687,8 +733,8 @@ export type NormalizedEvent =
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
   | { type: 'progress'; todos: TodoItem[] }
   | { type: 'checkpoint'; checkpointId: string }
-  | { type: 'git_context'; gitContext: TabGitContext }
-  | { type: 'git_status'; cwd: string; status: GitProjectStatus | null }
+  | { type: 'git_context'; gitContext: GitCheckout }
+  | { type: 'git_status'; cwd: string; state: GitState | null }
   | { type: 'user_message'; text: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: 'automation'; automationId?: string; automationName?: string }
   | { type: 'prompt_queued'; text: string; queueId: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }> }
   | { type: 'prompt_dequeued'; queueId: string }
@@ -740,6 +786,7 @@ export interface SessionCtx {
   tabId: string
   provider: AgentId | null
   agentSessionId: string | null
+  handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   workingDirectory: string
   projectPath: string
@@ -749,9 +796,9 @@ export interface SessionCtx {
   contextWindow: number | null
   fastMode: boolean
   permissionMode: 'ask' | 'auto' | 'plan'
-  gitContext: TabGitContext | null
+  gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
-  changedFiles: string[]
+  sessionChangedFiles: string[]
   readOnlyReason: string | null
   latestCheckpointId: string | null
   title?: string | null
@@ -776,6 +823,12 @@ export interface SettingsCtx {
   defaultEditor: EditorId | null
   defaultTerminal: TerminalAppId | null
   activeAgent: AgentId
+  /** Effective review-companion choices used by foreground and background guide generation. */
+  reviewAgent: AgentId | null
+  reviewModel: string | null
+  reviewReasoning: ReasoningEffort | null
+  /** Per-project opt-in resolved by the renderer before crossing IPC. */
+  reviewWarmingEnabled: boolean
   worktreeEnabled: boolean
   rateLimitBehavior: 'ask' | 'queue' | 'continue' | 'stop'
   fontFamily: AppFontFamily
@@ -815,14 +868,11 @@ export interface IpcContext {
  * future HTTP/MCP caller) can build this plain object directly to start, resume,
  * or send a message, instead of fabricating a full IpcContext snapshot.
  *
- * `agentSessionId` is the primary key: null starts a new session, a value
- * resumes that session (the backend loads it from disk if it isn't resident, so
- * a caller can cold-start a session it never opened in the UI). `tabId` is an
- * optional UI subscription hint — absent for headless/automation runs.
+ * `agentSessionId` tells the backend whether to start or resume after the control
+ * plane has resolved an explicit dispatch target. UI subscription state is not
+ * part of this backend execution contract.
  */
 export interface SessionRunInput {
-  /** Present for UI-driven runs; absent for headless/automation runs. */
-  tabId?: string
   /** Resolved backend provider (no null — the caller picks before dispatch). */
   provider: AgentId
   /** null = start a new session; set = resume this session. */
@@ -831,9 +881,9 @@ export interface SessionRunInput {
   workingDirectory: string
   projectPath: string
   additionalDirs: string[]
-  gitContext: TabGitContext | null
+  gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
-  changedFiles: string[]
+  sessionChangedFiles: string[]
   contextWindow: number | null
   /** Resolved model the run uses (the value the backend actually runs with). */
   model: string
@@ -844,12 +894,22 @@ export interface SessionRunInput {
   fastMode: boolean
   permissionMode: 'ask' | 'auto' | 'plan'
   rateLimitBehavior: SettingsCtx['rateLimitBehavior']
+  /** Restricts provider tools for unattended automation runs. Interactive is
+   *  the default; automation omits automation CRUD/run tools to prevent recursive
+   *  automation spawning. */
+  toolProfile?: 'interactive' | 'automation'
   /** App-wide instructions appended to every agent system prompt. */
   extraInstructions: string
   /** Extra instructions scoped to the model in use, resolved from settings.modelInstructions at dispatch time. */
   modelInstructions?: string
   /** PR review context — when set, the backend appends a PR-context system hint. */
   prReview?: PrReviewContext | null
+  /** System-level context used only when starting a new provider session. */
+  handoff?: {
+    fromProvider: AgentId
+    fromSessionId: string
+    seedSystemAppend: string
+  }
 }
 
 // ─── Control Plane Types ───
@@ -865,7 +925,7 @@ export interface BackendSession {
    *  reattaching client, and by background triggers (e.g. an in-thread automation)
    *  to re-dispatch into the session with no UI snapshot to reconstruct. */
   runInput?: SessionRunInput
-  gitContext?: TabGitContext
+  gitContext?: GitCheckout
   lastActivityAt: number
   promptCount: number
   /** Task IDs of run_in_background sub-agents/tools still in flight. While this is
@@ -880,6 +940,12 @@ export interface RuntimeSessionInfo {
   status: SessionStatus
   queuedPrompts: QueuedPromptSnapshot[]
   rateLimitInfo: RateLimitInfo | null
+  handoffFrom?: SessionHandoffLineage
+}
+
+export interface SessionProviderSwitchResult {
+  fromProvider: AgentId
+  fromSessionId: string
 }
 
 export type QueuedPromptReason = 'busy' | 'rate_limit'
@@ -893,6 +959,8 @@ export interface TabRegistryEntry {
   deviceId?: string
   /** Points into the activeSessions map (= agent session ID). Null until session_init fires. */
   sessionId: string | null
+  provider: AgentId | null
+  handoffFrom?: SessionHandoffLineage
   createdAt: number
   /** Per-tab display status. Mirrors session status after session_init; tracks 'connecting' before. */
   status: SessionStatus
@@ -965,6 +1033,11 @@ export interface SessionMeta {
   projectPath: string // raw encoded folder name, e.g. "-Users-sidhu-clui-cc"
   isWorktree?: boolean
   status?: SessionStatus
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  /** Git-root that groups a repo with all its worktrees. The canonical
+   *  "project" key for cross-project search and grouping. */
+  projectRoot?: string
 }
 
 export interface SessionSearchResult {
@@ -1132,6 +1205,19 @@ export interface FileMatch {
   isDir: boolean
 }
 
+export interface DirectoryEntry {
+  name: string
+  isDir: boolean
+  path: string
+}
+
+export interface DirectoryListResult {
+  entries: DirectoryEntry[]
+  parentPath: string | null
+  currentPath: string
+  error: string | null
+}
+
 export type FilePreviewResult =
   | {
       ok: true
@@ -1239,9 +1325,11 @@ export function worktreeProjectRoot(path: string): string {
 /** `SOLUS_WORKTREE_PATH_MARKER` as it appears inside an encoded Claude folder name. */
 export const SOLUS_WORKTREE_ENCODED_MARKER = encodePathAsFolder(SOLUS_WORKTREE_PATH_MARKER)
 
-export interface TabGitContext {
+export interface GitCheckout {
   /** The branch or worktree branch the session is running in */
-  branch: string
+  branch: string | null
+  /** Present when the checkout is detached instead of being on a named branch. */
+  detachedHeadSha?: string
   /** Remote default branch — always present so DiffPanel always has a diff target */
   targetBranch: string
   /** Only present when running in worktree isolation */
@@ -1250,13 +1338,14 @@ export interface TabGitContext {
   repoRoot?: string
 }
 
-export function tabGitContextFromStatus(
-  status: GitProjectStatus | null | undefined,
+export function gitCheckoutFromState(
+  status: GitIdentity | null | undefined,
   worktreePath?: string,
-): TabGitContext | null {
-  if (!status?.branch) return null
+): GitCheckout | null {
+  if (!status) return null
   return {
     branch: status.branch,
+    ...(status.branch === null ? { detachedHeadSha: status.headSha } : {}),
     targetBranch: status.targetBranch,
     repoRoot: status.repoRoot,
     ...(worktreePath ? { worktreePath } : {}),
@@ -1265,7 +1354,7 @@ export function tabGitContextFromStatus(
 
 export interface GitCheckoutBranchResult {
   success: boolean
-  gitContext?: TabGitContext
+  gitContext?: GitCheckout
   error?: string
 }
 
@@ -1400,6 +1489,9 @@ export interface AutomationRun {
   /** Branch the run's isolated worktree was created on (useWorktree runs only),
    *  so the user can find the work the run produced. */
   branch?: string
+  /** Exact directory the isolated run executed in. Required to find provider
+   *  transcripts whose on-disk project key includes the worktree path. */
+  worktreePath?: string
   /** Populated when status is 'failed'. */
   error?: string
 }
@@ -1419,6 +1511,7 @@ export type AutomationsChangedEvent =
   | { kind: 'saved'; automation: Automation }
   | { kind: 'deleted'; automationId: string }
   | { kind: 'run-started'; automation: Automation; run: AutomationRun }
+  | { kind: 'run-updated'; automation: Automation; run: AutomationRun }
   | { kind: 'run-finished'; automation: Automation; run: AutomationRun }
 
 // ─── Git provider integration ───
@@ -1446,7 +1539,6 @@ export interface DeviceCodePrompt {
 
 export * from './git-types'
 export * from './run-types'
-export * from './merge-queue-types'
 
 // RPC method and topic registries live in `shared/rpc.ts` (RPC_INVOKE_METHODS,
 // RPC_TOPICS). The WebSocket transport dispatches every request through a

@@ -47,9 +47,10 @@
   import PromptEditor from "../ui/PromptEditor.svelte";
   import TaskCommentCodeSpan from "./TaskCommentCodeSpan.svelte";
   import type { AgentId } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
+  import { getWorkspaceContext, getAgentContext } from "../../contexts";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
+  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
 
   interface Props {
     task: Task;
@@ -104,7 +105,7 @@
   }: Props = $props();
 
   // The description reuses the input bar / automation prompt editor so a task can
-  // embed @files, /skills, #plans, and %docs. Refs round-trip through the saved
+  // embed @files, /skills, #plans, %docs, and !PRs. Refs round-trip through the saved
   // body markdown (serialized as `[title](plan://…)` links), so no separate ref
   // store is needed. The working directory + provider scope @-file search and the
   // slash menu to the task's project and the user's active agent.
@@ -131,7 +132,7 @@
   const FIELD =
     "w-full text-xs text-(--solus-text-primary) bg-(--solus-surface-hover) rounded-md px-2 py-[0.375rem] border-0 " +
     "[outline:0.0625rem_solid_transparent] transition-[background-color,outline-color] duration-120 " +
-    "hover:bg-(--solus-accent-light) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
+    "hover:bg-(--solus-surface-hover) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
     "focus-visible:[outline:0.125rem_solid_color-mix(in_srgb,var(--solus-accent)_55%,transparent)] placeholder:text-(--solus-text-tertiary)";
   // Borderless right-aligned value input for dense property rows.
   const GHOST_INPUT =
@@ -146,7 +147,7 @@
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]";
   const ICON_BTN =
     "grid size-7 place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) cursor-pointer " +
-    "transition-colors duration-150 hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) " +
+    "transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)";
   const CRUMB_LINK =
     "border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer px-1 py-0.5 rounded-md " +
@@ -180,6 +181,7 @@
   // up flush with the title above it.
   const DESC_ALIGN = "[&_.ProseMirror]:!pl-0";
   const markdownRenderers = {
+    ...githubMarkdownRenderers,
     code: CodeBlock,
     codespan: TaskCommentCodeSpan,
     link: MarkdownLink,
@@ -543,9 +545,15 @@
                 onPlanRefClick={(planId) => session.openPlanModal(planId)}
                 onWorkRefClick={(workId, title) =>
                   session.openWorkModal(workId, title)}
+                onPrRefClick={(number, title) =>
+                  void session.enterPrReview(number, title, {
+                    ctx: editorCwd
+                      ? session.ctxForDirectory(editorCwd)
+                      : session.ctx,
+                  })}
                 menuPlacement="down"
                 dragHandle={false}
-                placeholder="Add a description… Use @ for files, # for plans, % for docs, / to format."
+                placeholder="Add a description… Use @ for files, # for plans, % for docs, ! for PRs, / to format."
                 class="{DESC_TEXT} {DESC_FILL} {DESC_ALIGN}"
               />
             </div>
@@ -561,6 +569,12 @@
               onPlanRefClick={(planId) => session.openPlanModal(planId)}
               onWorkRefClick={(workId, title) =>
                 session.openWorkModal(workId, title)}
+              onPrRefClick={(number, title) =>
+                void session.enterPrReview(number, title, {
+                  ctx: editorCwd
+                    ? session.ctxForDirectory(editorCwd)
+                    : session.ctx,
+                })}
               maxHeight={4000}
               class="{DESC_TEXT} {DESC_ALIGN}"
             />
@@ -700,10 +714,11 @@
                       >
                     </div>
                     <div
-                      class="prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+                      class="github-markdown prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
                     >
                       <SvelteMarkdown
                         source={c.body}
+                        extensions={githubMarkdownExtensions}
                         renderers={markdownRenderers}
                         sanitizeUrl={markdownSanitizeUrl}
                       />
@@ -729,6 +744,12 @@
                     onPlanRefClick={(planId) => session.openPlanModal(planId)}
                     onWorkRefClick={(workId, title) =>
                       session.openWorkModal(workId, title)}
+                    onPrRefClick={(number, title) =>
+                      void session.enterPrReview(number, title, {
+                        ctx: editorCwd
+                          ? session.ctxForDirectory(editorCwd)
+                          : session.ctx,
+                      })}
                     menuPlacement="down"
                     maxHeight={200}
                     placeholder="Add a comment…"

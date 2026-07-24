@@ -14,7 +14,7 @@
   import MarkdownLink from "./MarkdownLink.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { Textarea } from "../ui/textarea";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import type { AgentId, QuestionRequest, QuestionItem } from "../../../shared/types";
 
   interface Props {
@@ -221,7 +221,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div transition:fly={{ y: 8, duration: 200 }} class="mx-4 mt-2 mb-2">
+<div transition:fly={{ y: 8, duration: 200 }} class="mx-auto mt-2 mb-2 w-[88%]">
   <Card.Root
     class="gap-0 border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3.5"
     style="border-radius:0.875rem;box-shadow:var(--solus-card-shadow)"

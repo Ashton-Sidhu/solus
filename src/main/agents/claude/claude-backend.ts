@@ -157,8 +157,6 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
 
     const handle: RunHandle = {
       sessionId,
-      tabId: input.tabId,
-      sourceTabId: input.tabId,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -252,6 +250,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         cwd: input.workingDirectory,
         sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
       },
+      includeAutomationTools: input.toolProfile !== 'automation',
       // Built here (outside the work-tools import cycle) with the run's worktree cwd
       // and abort signal, so stopping the session interrupts the Codex turn.
       codexSubagentTool: codexSubagentSdkTool({
@@ -265,13 +264,16 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     this.pendingRuns.push(handle)
     void (async () => {
       const general = isWorkspacePath(input.workingDirectory)
-      const systemPromptAppend = buildSystemPrompt({
+      const baseSystemPromptAppend = buildSystemPrompt({
         agent: 'claude',
         general,
         extraInstructions: input.extraInstructions,
         modelInstructions: input.modelInstructions,
         prReview: input.prReview,
       })
+      const systemPromptAppend = !input.agentSessionId && input.handoff
+        ? `${baseSystemPromptAppend}\n\n${input.handoff.seedSystemAppend}`
+        : baseSystemPromptAppend
 
       const { events, result } = this.agent.run({
         prompt: buildPromptInput(options.prompt, options.imageAttachments),
@@ -284,12 +286,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         permissionMode: uiMode,
         additionalDirectories: input.additionalDirs,
         mcpServers: { 'solus': solusServer },
-        // Reads + create + render + the review ledger are pre-approved; update_work falls through to the prompt.
+        // Reads + create + render are pre-approved; update_work falls through to the prompt.
         // Automation reads are pre-approved; mutating/triggering ones (create/update/delete/set_enabled/run) fall through to the permission prompt.
         // create_session is pre-approved — spawning a session is a first-class agent action.
         // codex_subagent is pre-approved like create_session — delegating to a Codex subagent is a first-class agent action.
         // Session/task reads are pre-approved; writes fall through to the prompt.
-        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__record_change', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__codex_subagent', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
+        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__search_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__codex_subagent', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__wait_for_session', 'mcp__solus__search_sessions', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
         systemPromptAppend,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
@@ -308,9 +310,9 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
           if (!repoRoot) return null
           const result = await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
-            changedFiles: [...new Set([...input.changedFiles, ...snapOpts.editedFiles])],
+            sessionChangedFiles: [...new Set([...input.sessionChangedFiles, ...snapOpts.editedFiles])],
           })
-          return result?.changedFiles ?? null
+          return result?.sessionChangedFiles ?? null
         },
       })
 

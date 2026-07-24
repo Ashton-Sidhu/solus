@@ -1,0 +1,241 @@
+import type { ReviewGuide } from '../../../../src/shared/review'
+import { demoProjectFiles } from './project-files'
+import { DEMO_PROJECT, type DemoFixtures } from './types'
+
+const SESSION_ID = 'demo-session-complete'
+const COMPLETED_TAB_ID = 'demo-tab-complete'
+const NEW_TAB_ID = 'demo-tab-new'
+const timestamp = Date.parse('2026-01-15T15:00:00.000Z')
+
+const emptyGuide: ReviewGuide = {
+  version: 1,
+  key: 'demo-review',
+  headSha: '2222222222222222222222222222222222222222',
+  baseSha: '1111111111111111111111111111111111111111',
+  title: 'Demo review',
+  summary: 'No review is loaded in the WP1 fixture.',
+  sections: [],
+}
+
+export const devFixtures: DemoFixtures = {
+  startInfo: {
+    version: 'demo',
+    projectPath: DEMO_PROJECT,
+    homePath: DEMO_PROJECT,
+    workspacePath: DEMO_PROJECT,
+    agents: [{
+      id: 'claude-code',
+      label: 'Claude Code',
+      models: [
+        { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+        { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+      ],
+      defaultModel: 'claude-sonnet-5',
+      available: true,
+      capabilities: {
+        planMode: true,
+        permissions: true,
+        fileRewind: true,
+        terminalResume: true,
+        transport: 'sdk',
+      },
+    }],
+  },
+  persistedTabs: {
+    version: 1,
+    activeTabId: COMPLETED_TAB_ID,
+    tabOrder: [COMPLETED_TAB_ID, NEW_TAB_ID],
+    tabs: [
+      {
+        tabId: COMPLETED_TAB_ID,
+        title: 'Improve request validation',
+        agentSessionId: SESSION_ID,
+        provider: 'claude-code',
+        workingDirectory: DEMO_PROJECT,
+        additionalDirs: [],
+        gitContext: {
+          branch: 'feature/request-validation',
+          targetBranch: 'main',
+          repoRoot: DEMO_PROJECT,
+        },
+        worktreeBaseBranch: 'main',
+        modelConfig: {
+          modelId: 'claude-sonnet-5',
+          reasoningEffort: 'high',
+          contextWindow: 1_000_000,
+          fastMode: false,
+        },
+        permissionMode: 'auto',
+        hasUnread: false,
+      },
+      {
+        tabId: NEW_TAB_ID,
+        title: 'New session',
+        agentSessionId: null,
+        provider: 'claude-code',
+        workingDirectory: DEMO_PROJECT,
+        additionalDirs: [],
+        gitContext: {
+          branch: 'feature/request-validation',
+          targetBranch: 'main',
+          repoRoot: DEMO_PROJECT,
+        },
+        worktreeBaseBranch: 'main',
+        modelConfig: {
+          modelId: 'claude-sonnet-5',
+          reasoningEffort: 'high',
+          contextWindow: 1_000_000,
+          fastMode: false,
+        },
+        permissionMode: 'auto',
+        hasUnread: false,
+      },
+    ],
+  },
+  sessions: [{
+    meta: {
+      provider: 'claude-code',
+      sessionId: SESSION_ID,
+      slug: 'improve-request-validation',
+      firstMessage: 'Add validation to the account endpoint and cover it with tests.',
+      lastTimestamp: new Date(timestamp + 7_000).toISOString(),
+      size: 8,
+      cwd: DEMO_PROJECT,
+      projectPath: DEMO_PROJECT,
+      status: 'idle',
+    },
+    messages: [
+      {
+        role: 'user',
+        content: 'Add validation to the account endpoint and cover it with tests.',
+        timestamp,
+      },
+      {
+        role: 'assistant',
+        content: 'I’ll inspect the route and its existing test coverage first.',
+        timestamp: timestamp + 1_000,
+      },
+      {
+        role: 'tool',
+        content: '',
+        toolName: 'Read',
+        toolId: 'tool-read-route',
+        toolInput: JSON.stringify({ file_path: `${DEMO_PROJECT}/src/api/account.ts` }),
+        timestamp: timestamp + 2_000,
+      },
+      {
+        role: 'tool_result',
+        content: 'export async function updateAccount(request: Request) { /* ... */ }',
+        toolResultForId: 'tool-read-route',
+        timestamp: timestamp + 3_000,
+      },
+      {
+        role: 'assistant',
+        content: 'The handler trusts the parsed body, so I’m adding a narrow schema at the boundary.',
+        timestamp: timestamp + 4_000,
+      },
+      {
+        role: 'tool',
+        content: '',
+        toolName: 'Edit',
+        toolId: 'tool-edit-route',
+        toolInput: JSON.stringify({
+          file_path: `${DEMO_PROJECT}/src/api/account.ts`,
+          old_string: 'const body = await request.json()',
+          new_string: 'const body = accountUpdateSchema.parse(await request.json())',
+        }),
+        timestamp: timestamp + 5_000,
+      },
+      {
+        role: 'tool_result',
+        content: 'Updated src/api/account.ts',
+        toolResultForId: 'tool-edit-route',
+        timestamp: timestamp + 6_000,
+      },
+      {
+        role: 'assistant',
+        content: 'Added boundary validation and tests for malformed account updates. The focused test suite passes.',
+        timestamp: timestamp + 7_000,
+      },
+    ],
+  }],
+  plans: [],
+  works: [],
+  pr: {
+    list: [],
+    overview: {
+      detail: {
+        number: 1,
+        title: 'Demo pull request',
+        author: 'demo',
+        authorAvatarUrl: '',
+        state: 'open',
+        createdAt: new Date(timestamp).toISOString(),
+        updatedAt: new Date(timestamp).toISOString(),
+        draft: false,
+        labels: [],
+        additions: 0,
+        deletions: 0,
+        body: '',
+        baseRef: 'main',
+        headRef: 'feature/request-validation',
+        baseSha: '1111111111111111111111111111111111111111',
+        headSha: '2222222222222222222222222222222222222222',
+        changedFiles: 0,
+        mergeable: true,
+        mergeStateStatus: 'clean',
+        headRepo: { owner: 'acme', repo: 'acme', isFork: false },
+      },
+      commits: [],
+      reviewers: [],
+    },
+    changedFiles: [],
+    threads: [],
+    guide: emptyGuide,
+    filePatches: {},
+  },
+  tasks: {
+    list: { tasks: [], fromCache: false, fetchedAt: timestamp },
+    details: {},
+    comments: {},
+    sessions: {},
+  },
+  automations: { list: [], runs: {} },
+  diffs: {
+    [COMPLETED_TAB_ID]: {
+      patch: [
+        'diff --git a/src/api/account.ts b/src/api/account.ts',
+        'index 1111111..2222222 100644',
+        '--- a/src/api/account.ts',
+        '+++ b/src/api/account.ts',
+        '@@ -8,1 +8,1 @@',
+        '-const body = await request.json()',
+        '+const body = accountUpdateSchema.parse(await request.json())',
+        '',
+      ].join('\n'),
+      stats: [{ path: 'src/api/account.ts', additions: 1, deletions: 1 }],
+      turnSnapshots: [{
+        index: 0,
+        sha: '2222222222222222222222222222222222222222',
+        timestamp: timestamp + 7_000,
+        partial: false,
+        userMessagePreview: 'Add validation to the account endpoint',
+        filesChanged: 1,
+        additions: 1,
+        deletions: 1,
+      }],
+      changedFiles: ['src/api/account.ts'],
+    },
+  },
+  gitStatus: {
+    repoRoot: DEMO_PROJECT,
+    branch: 'feature/request-validation',
+    targetBranch: 'main',
+    files: [{ path: 'src/api/account.ts', conflicted: false }],
+    insertions: 1,
+    deletions: 1,
+    mergeInProgress: false,
+  },
+  replayScript: [],
+  files: demoProjectFiles,
+}

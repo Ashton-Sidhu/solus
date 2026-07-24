@@ -46,7 +46,14 @@ class Dictation {
    * records at a time — both InputBar and plain fields drive this one recorder.
    */
   mode = $state<'insert' | 'message'>('insert')
+  /** InputBar currently routing conversational transcripts. */
+  messageOwner = $state<string | null>(null)
   #onMessage: ((transcript: string) => void) | null = null
+  #pendingMessageConsumer: {
+    owner: string
+    onMessage: (transcript: string) => void
+    autoRearm: () => boolean
+  } | null = null
   // A recording queued behind one we just cancelled; started when the recorder
   // settles to idle (via the recorder's onIdle hook). Serializes mic handoff.
   #pendingStart: DictationTarget | 'message' | null = null
@@ -72,6 +79,9 @@ class Dictation {
       else this.#insert(t)
     }
     this.#voice.onIdle = (allowAutoRearm) => {
+      const nextConsumer = this.#pendingMessageConsumer
+      this.#pendingMessageConsumer = null
+      if (nextConsumer) this.#applyMessageConsumer(nextConsumer)
       const pending = this.#pendingStart
       this.#pendingStart = null
       if (pending) {
@@ -155,6 +165,79 @@ class Dictation {
   }
 
   /**
+   * Point conversational transcripts and auto-rearm at one composer. Focus may
+   * move between the primary and split bars while both stay mounted, so a new
+   * owner only takes over once the previous recording is idle.
+   */
+  claimMessageConsumer(
+    owner: string,
+    onMessage: (transcript: string) => void,
+    autoRearm: () => boolean,
+  ): boolean {
+    const consumer = { owner, onMessage, autoRearm }
+    const messageInFlight =
+      this.mode === 'message' &&
+      (this.#voice.state !== 'idle' || this.#voice.starting)
+    if (messageInFlight && this.messageOwner !== null && this.messageOwner !== owner) {
+      this.#pendingMessageConsumer = consumer
+      return false
+    }
+    this.#pendingMessageConsumer = null
+    this.#applyMessageConsumer(consumer)
+    return true
+  }
+
+  releaseMessageConsumer(owner: string): void {
+    if (this.#pendingMessageConsumer?.owner === owner) this.#pendingMessageConsumer = null
+    if (this.messageOwner !== owner) return
+    if (this.mode === 'message' && (this.#voice.state === 'recording' || this.#voice.starting)) {
+      this.#voice.cancel()
+    }
+    this.messageOwner = null
+    this.#onMessage = null
+    this.#autoRearmFn = null
+  }
+
+  /** Start/confirm voice input for a specific composer, transferring the mic
+   *  from another composer by cancelling its in-progress capture first. */
+  toggleConversationalFor(
+    owner: string,
+    onMessage: (transcript: string) => void,
+    autoRearm: () => boolean,
+  ): void {
+    const sameOwner = this.messageOwner === owner
+    const consumer = { owner, onMessage, autoRearm }
+    const recordingMessage =
+      this.mode === 'message' &&
+      (this.#voice.state === 'recording' || this.#voice.starting)
+    if (sameOwner && recordingMessage) {
+      this.#voice.stop()
+      return
+    }
+    // Let the previous owner's transcription finish instead of rerouting its
+    // result to the newly focused composer.
+    if (!sameOwner && this.mode === 'message' && this.#voice.state === 'transcribing') {
+      this.#pendingMessageConsumer = consumer
+      this.#pendingStart = 'message'
+      return
+    }
+    if (!sameOwner && recordingMessage) this.#voice.cancel()
+    this.#pendingMessageConsumer = null
+    this.#applyMessageConsumer(consumer)
+    this.#requestStart('message')
+  }
+
+  #applyMessageConsumer(consumer: {
+    owner: string
+    onMessage: (transcript: string) => void
+    autoRearm: () => boolean
+  }): void {
+    this.messageOwner = consumer.owner
+    this.#onMessage = consumer.onMessage
+    this.#autoRearmFn = consumer.autoRearm
+  }
+
+  /**
    * Start conversational recording: the transcript is handed to the message
    * handler (sent as a message) rather than inserted at a caret. Yields any
    * in-progress dictation first.
@@ -233,6 +316,16 @@ class Dictation {
 
   clearError(): void {
     this.#voice.clearError()
+  }
+
+  /** Release the app-wide recorder before this renderer is discarded. */
+  dispose(): void {
+    this.#pendingStart = null
+    this.#pendingMessageConsumer = null
+    this.messageOwner = null
+    this.#autoRearmFn = null
+    this.#onMessage = null
+    this.#voice.dispose()
   }
 
   /** Cancel recording + drop focus tracking if `el` is ours (call on unmount). */

@@ -76,6 +76,39 @@ describe('ClaudeTurnNormalizer', () => {
     expect(normalizer.summary.toolCallCount).toBe(1)
   })
 
+  // A backgrounded sub-agent answers its own tool call at launch, so the launch
+  // metadata must be marked as such and the task's real outcome must stay
+  // traceable to the spawning tool call — otherwise its card reads "Complete"
+  // the instant it starts.
+  test('marks a backgrounded sub-agent launch and ties its lifecycle to the tool call', async () => {
+    const { events } = await normalizeClaudeFixture('claude-async-subagent.jsonl')
+
+    expect(events).toEqual([
+      { type: 'tool_call', toolName: 'Task', toolId: 'agent-async-1', index: 2, isSubagent: true, subagentType: 'claude' },
+      { type: 'background_task_started', taskId: 'task-async-1', toolUseId: 'agent-async-1' },
+      { type: 'tool_call_complete', index: 2, toolInput: '{"description":"Design plan"}' },
+      {
+        type: 'tool_result',
+        toolUseId: 'agent-async-1',
+        content: 'Async agent launched successfully. agentId: task-async-1. The agent is working in the background.',
+        isError: undefined,
+        parentToolUseId: undefined,
+        isAsyncLaunch: true,
+      },
+      { type: 'background_task_settled', taskId: 'task-async-1', status: 'completed', toolUseId: 'agent-async-1' },
+    ])
+  })
+
+  // A blocking sub-agent's tool_result IS its answer; flagging it as a launch
+  // would strip the card of the result it should show.
+  test('does not flag a blocking sub-agent result as an async launch', async () => {
+    const { events } = await normalizeClaudeFixture('claude-sub-agent.jsonl')
+    const result = events.find((event) => event.type === 'tool_result')
+
+    expect(result).toBeDefined()
+    expect((result as { isAsyncLaunch?: boolean }).isAsyncLaunch).toBeUndefined()
+  })
+
   test('synthesizes checkpoints and exposes permission denials in the summary', async () => {
     const { events, normalizer } = await normalizeClaudeFixture('claude-checkpoint-denials.jsonl')
 

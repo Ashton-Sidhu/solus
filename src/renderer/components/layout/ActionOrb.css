@@ -24,18 +24,13 @@
     --orb-btn-min: calc(2.25rem * var(--orb-scale));
     --orb-gap: calc(0.2813rem * var(--orb-scale));
 
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    margin-inline: auto;
+    width: min(calc(100% - 2rem), var(--solus-reading-max));
+  }
+
+  /* Pill messages provide their own timestamp gutter and do not use the
+     editor scroll area's 1rem inset. */
+  .action-orb-root.pill-mode {
     width: min(100%, var(--solus-reading-max));
-    z-index: 6;
-    pointer-events: none;
-    /* Absolutely-positioned overlay — isolate its layout so the
-       ResizeObserver-driven scale changes never invalidate ancestor layout. */
-    contain: layout;
   }
 
   /* Drop the live backdrop blur on the orb while the window is resizing OR while
@@ -55,21 +50,12 @@
   /* ── Trigger orb: compact status button, bottom-right ── */
 
   .orb-trigger {
-    position: absolute;
     bottom: 0.1875rem;
     right: 1rem;
     width: var(--orb-size);
     height: var(--orb-size);
-    border-radius: 624.9375rem;
-    pointer-events: auto;
-    cursor: pointer;
-    isolation: isolate;
     border: 0.0313rem solid
       color-mix(in srgb, var(--solus-container-border) 50%, transparent);
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
 
     background: linear-gradient(
       160deg,
@@ -162,25 +148,17 @@
   /* ── Status badge ── */
 
   .orb-badge {
-    position: absolute;
     top: -0.1875rem;
     right: -0.25rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     min-width: var(--orb-badge-size);
     height: var(--orb-badge-size);
     padding: 0 0.25rem;
-    border-radius: 624.9375rem;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     box-shadow:
       0 0 0 0.0625rem color-mix(in srgb, var(--solus-container-bg) 86%, transparent),
       0 0.125rem 0.3125rem rgba(0, 0, 0, 0.14);
     font-size: var(--orb-badge-font);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
   }
 
   .orb-badge-error {
@@ -223,28 +201,11 @@
   /* ── Expanded panel: floating pill buttons ── */
 
   .orb-panel {
-    position: absolute;
     bottom: 0.1875rem;
-    left: 50%;
     transform: translateX(-50%) translateY(0.5rem) scale(0.95);
     transform-origin: center bottom;
-
-    pointer-events: none;
-    opacity: 0;
-
-    display: inline-flex;
-    align-items: center;
     gap: var(--orb-gap);
     overflow: visible;
-    max-width: calc(100% - 2rem);
-    white-space: nowrap;
-
-    padding: 0;
-    border-radius: 624.9375rem;
-
-    background: transparent;
-    border: none;
-    box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
 
@@ -664,9 +625,6 @@
   }
 
   .files-pop-head {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
     gap: calc(0.875rem * var(--orb-scale));
     padding: calc(0.875rem * var(--orb-scale)) calc(1rem * var(--orb-scale));
     border-bottom: 0.0313rem solid
@@ -674,9 +632,6 @@
   }
 
   .files-pop-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     width: calc(2rem * var(--orb-scale));
     height: calc(2rem * var(--orb-scale));
     border-radius: calc(0.75rem * var(--orb-scale));
@@ -689,41 +644,15 @@
     height: calc(1rem * var(--orb-scale));
   }
 
-  .files-pop-title-block {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: calc(0.125rem * var(--orb-scale));
-  }
-
-  .files-pop-title {
-    overflow: hidden;
-    color: var(--solus-text-primary);
-    font-size: var(--pop-title-size);
-    font-weight: 600;
-    letter-spacing: 0;
-    line-height: 1.25;
-    text-overflow: ellipsis;
-  }
-
-  .files-pop-subtitle {
-    display: inline-flex;
-    align-items: center;
-    gap: calc(0.25rem * var(--orb-scale));
-    color: var(--solus-text-tertiary);
-    font-size: var(--pop-meta-size);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.25;
-  }
-
-  .files-pop-primary,
-  .files-pop-icon-btn {
+  .files-pop-primary {
     border: 0.0313rem solid
       color-mix(in srgb, var(--solus-container-border) 55%, transparent);
-    background: color-mix(in srgb, var(--solus-container-bg) 54%, transparent);
-    color: var(--solus-text-secondary);
-    cursor: pointer;
+    gap: calc(0.375rem * var(--orb-scale));
+    min-height: calc(2.25rem * var(--orb-scale));
+    padding: 0 calc(0.6875rem * var(--orb-scale));
+    border-radius: calc(0.6875rem * var(--orb-scale));
+    font-size: var(--pop-meta-size);
+    font-weight: 550;
     transition:
       background 0.15s ease,
       color 0.15s ease,
@@ -731,21 +660,7 @@
       transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  .files-pop-primary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: calc(0.375rem * var(--orb-scale));
-    min-height: calc(2.25rem * var(--orb-scale));
-    padding: 0 calc(0.6875rem * var(--orb-scale));
-    border-radius: calc(0.6875rem * var(--orb-scale));
-    font-size: var(--pop-meta-size);
-    font-weight: 550;
-    white-space: nowrap;
-  }
-
-  .files-pop-primary:hover,
-  .files-pop-icon-btn:hover {
+  .files-pop-primary:hover {
     color: var(--solus-text-primary);
     background: color-mix(in srgb, var(--solus-container-bg) 72%, transparent);
     box-shadow:
@@ -753,13 +668,11 @@
       0 0.125rem 0.5rem rgba(0, 0, 0, 0.1);
   }
 
-  .files-pop-primary:active,
-  .files-pop-icon-btn:active {
+  .files-pop-primary:active {
     transform: scale(0.96);
   }
 
-  .files-pop-primary:focus-visible,
-  .files-pop-icon-btn:focus-visible {
+  .files-pop-primary:focus-visible {
     outline: none;
     color: var(--solus-text-primary);
     box-shadow:
@@ -768,82 +681,44 @@
       0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 18%, transparent);
   }
 
-  .files-pop-primary:disabled,
-  .files-pop-icon-btn:disabled {
+  .files-pop-primary:disabled {
     opacity: 0.38;
     cursor: not-allowed;
   }
 
-  .files-pop-primary:disabled:active,
-  .files-pop-icon-btn:disabled:active {
+  .files-pop-primary:disabled:active {
     transform: none;
   }
 
   .files-pop-list {
     max-height: min(calc(22rem * var(--orb-scale)), calc(100vh - 14rem));
-    overflow: auto;
     padding: calc(0.5rem * var(--orb-scale)) 0;
   }
 
   .files-pop-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) calc(4.25rem * var(--orb-scale)) auto;
-    align-items: center;
     gap: calc(0.875rem * var(--orb-scale));
-    min-height: calc(2.375rem * var(--orb-scale));
-    padding: calc(0.125rem * var(--orb-scale)) calc(0.875rem * var(--orb-scale))
-      calc(0.125rem * var(--orb-scale)) calc(1rem * var(--orb-scale));
+    min-height: calc(2.5rem * var(--orb-scale));
+    padding: calc(0.25rem * var(--orb-scale)) calc(1rem * var(--orb-scale));
+    transition:
+      background 0.15s ease,
+      box-shadow 0.15s ease;
   }
 
-  .files-pop-path {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--solus-text-primary);
-    font-size: var(--pop-body-size);
-    font-weight: 500;
-    line-height: 1.35;
-    text-overflow: ellipsis;
+  .files-pop-row:hover {
+    background: var(--solus-surface-hover);
   }
 
-  .files-pop-dir {
-    color: var(--solus-text-tertiary);
-    font-weight: 400;
-  }
-
-  .files-pop-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: calc(0.25rem * var(--orb-scale));
+  .files-pop-row:focus-visible {
+    outline: none;
+    background: var(--solus-surface-hover);
+    box-shadow: inset 0 0 0 0.125rem
+      color-mix(in srgb, var(--solus-accent) 24%, transparent);
   }
 
   .files-pop-stats {
-    display: inline-flex;
-    justify-content: flex-end;
-    gap: calc(0.25rem * var(--orb-scale));
     min-width: calc(4.25rem * var(--orb-scale));
-    font-size: var(--pop-meta-size);
-    font-variant-numeric: tabular-nums;
-    font-weight: 550;
   }
 
-  .files-pop-add {
-    color: var(--solus-art-positive);
-  }
-
-  .files-pop-del {
-    color: var(--solus-art-negative);
-  }
-
-  .files-pop-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: calc(2.25rem * var(--orb-scale));
-    height: calc(2.25rem * var(--orb-scale));
-    border-radius: calc(0.6875rem * var(--orb-scale));
-  }
-
-  .files-pop-icon-btn > svg,
   .files-pop-primary > svg {
     width: calc(0.9375rem * var(--orb-scale));
     height: calc(0.9375rem * var(--orb-scale));
@@ -874,10 +749,6 @@
       justify-content: flex-start;
     }
 
-    .files-pop-actions {
-      grid-column: 2;
-      grid-row: 1 / span 2;
-    }
   }
 
   /* ── Review progress popover ── */

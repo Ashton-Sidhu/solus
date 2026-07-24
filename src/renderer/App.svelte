@@ -22,39 +22,41 @@
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
   import type { Command } from "./components/command-palette/lib/commands";
-  import { projectsStore } from "./contexts/projects.store.svelte";
-  import { toasts } from "./contexts/toast.store.svelte";
-  import { connectionsStore } from "./contexts/connections.store.svelte";
-  import { serversStore } from "./components/servers/servers.store.svelte";
+  import {
+    projectsStore,
+    toasts,
+    connectionsStore,
+    serversStore,
+  } from "./contexts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
   import { worktreeProjectRoot } from "../shared/types";
   import type {
     AgentId,
     DesignAnnotation as DesignAnnotationType,
+    GitCheckout,
+    IpcContext,
     PlanDescriptor,
     ProjectEntry,
   } from "../shared/types";
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
-  import { materializeTabs } from "./contexts/session-bootstrap";
+  import { materializeTabs } from "./contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "../client-core/server-registry";
   import {
     createReconnectDetector,
     initializeRuntime,
     refreshTheme,
-  } from "./contexts/runtime-boot";
+  } from "./contexts/app/runtime-boot";
   import {
     savePersistedTabsDebounced,
     flushPersistedTabs,
     patchActiveDraft,
     flushDrafts,
     type PersistedTabs,
-  } from "./contexts/tab-persistence";
-  import {
-    consumeSessionHandoff,
-  } from "./contexts/active-session-pointer";
-  import { createAppCore } from "./contexts/app-core";
+  } from "./contexts/workspace/tab-persistence";
+  import { consumeSessionHandoff } from "./contexts/workspace/active-session-pointer";
+  import { createAppCore } from "./contexts/app/app-core";
   import {
     useKeybinding,
     installGlobalDispatcher,
@@ -65,10 +67,12 @@
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
   import { initAnalytics, analytics } from "./lib/analytics";
+  import { setupSplitLayoutPersistence } from "./lib/splitLayoutPersistence.svelte";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
-  type EditorLayoutModule = typeof import("./components/layout/EditorLayout.svelte");
+  type EditorLayoutModule =
+    typeof import("./components/layout/EditorLayout.svelte");
   type EditorLayoutComponent = EditorLayoutModule["default"];
   interface Props {
     initialEditorLayout?: EditorLayoutComponent;
@@ -80,7 +84,7 @@
     windowCtx,
     statusBar,
     planStore,
-    gitStatusStore,
+    sessionEnvironmentStore,
     runStore,
     projectConfigStore,
     voiceModelStore,
@@ -98,6 +102,8 @@
   // and fresh start() reconciliation run later from the effect below.
   session.hydrateStaticInfoFromCache();
   materializeTabs(session);
+
+  setupSplitLayoutPersistence(settings, session, windowCtx);
 
   // Electron-only: analytics is desktop-side. The editor is the sole boot
   // window; the pill is created lazily, so count the open from the editor only.
@@ -124,6 +130,7 @@
           )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
+          handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory:
             sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
@@ -157,17 +164,26 @@
     patchActiveDraft(activeId, tabText, activeInputText);
   });
 
-  // Flush pending drafts + tab snapshot before the window unloads so the latest
-  // keystrokes and structural changes survive.
+  // Flush pending drafts + tab snapshot and release renderer-owned audio before
+  // unload. A renderer reload keeps Electron's shared audio service alive, so
+  // leaving contexts/tracks for Chromium to collect makes mic startup degrade
+  // across repeated reloads.
   $effect(() => {
     const flush = () => {
       flushDrafts();
       flushPersistedTabs();
     };
-    window.addEventListener("pagehide", flush);
+    const handlePageHide = (event: PageTransitionEvent) => {
+      flush();
+      // A persisted page may return from the browser back-forward cache with
+      // the same module singletons; only permanently discarded renderers should
+      // make the recorder unusable.
+      if (!event.persisted) dictation.dispose();
+    };
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
       flush();
-      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("pagehide", handlePageHide);
     };
   });
 
@@ -231,7 +247,12 @@
     // pipelines. When the turn actually completes (status reset off running),
     // force one authoritative refresh.
     const midTurn = sess?.status === "running" || sess?.status === "connecting";
-    void gitStatusStore.refresh(gitCwd, { force: !midTurn });
+    void sessionEnvironmentStore.refreshTab(session, {
+      tabId,
+      cwd: gitCwd,
+      level: "status",
+      force: !midTurn,
+    });
   };
 
   initRootScaling();
@@ -246,13 +267,20 @@
   serversStore.init();
 
   let designModeScreenshot = $state<string | null>(null);
+  let designModeTargetTabId = $state<string | undefined>(undefined);
   let directoryPickerOpen = $state(false);
   let directoryPickerNewTab = $state(false);
+  let directoryPickerTargetTabId = $state<string | undefined>(undefined);
   let shortcutsModalOpen = $state(false);
   let shortcutsActiveScopes = $state<import("./lib/keybindings/types").Scope[]>(
     [],
   );
   let commandPaletteOpen = $state(false);
+  let paletteGitTarget = $state<{
+    tabId: string;
+    ctx: IpcContext;
+    projectRoot: string | null;
+  } | null>(null);
   let hasMountedDirectoryPicker = $state(false);
   let hasMountedShortcuts = $state(false);
   let hasMountedCommandPalette = $state(false);
@@ -268,11 +296,17 @@
   const taskComposerConfig = $derived(
     taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
   );
-  const taskComposerProvider = $derived(taskComposerConfig?.taskProvider ?? "local");
-  const taskComposerTasks = $derived(
-    taskComposer && session.tasksStore.cwd === taskComposer.cwd ? session.tasksStore.tasks : [],
+  const taskComposerProvider = $derived(
+    taskComposerConfig?.taskProvider ?? "local",
   );
-  const taskComposerEpics = $derived(taskComposerTasks.filter((t) => t.kind === "epic"));
+  const taskComposerTasks = $derived(
+    taskComposer && session.tasksStore.cwd === taskComposer.cwd
+      ? session.tasksStore.tasks
+      : [],
+  );
+  const taskComposerEpics = $derived(
+    taskComposerTasks.filter((t) => t.kind === "epic"),
+  );
   const taskComposerLabels = $derived(
     Array.from(new Set(taskComposerTasks.flatMap((t) => t.labels))).sort(),
   );
@@ -288,7 +322,8 @@
   // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
-  type PillLayoutModule = typeof import("./components/layout/PillLayout.svelte");
+  type PillLayoutModule =
+    typeof import("./components/layout/PillLayout.svelte");
   const initialViewMode = untrack(() => windowCtx.viewMode);
   let editorLayoutComponent = $state.raw<Promise<EditorLayoutModule> | null>(
     initialViewMode === "editor" && !untrack(() => initialEditorLayout)
@@ -306,7 +341,8 @@
   // first use and then only hide/show; never destroy either initialized tree.
   $effect(() => {
     if (isEditorMode) {
-      editorLayoutComponent ??= import("./components/layout/EditorLayout.svelte");
+      editorLayoutComponent ??=
+        import("./components/layout/EditorLayout.svelte");
     } else {
       pillLayoutComponent ??= import("./components/layout/PillLayout.svelte");
     }
@@ -323,13 +359,28 @@
     if (serversStore.claimServerOpen) hasMountedClaimServer = true;
   });
   const activeTabId = $derived(session.activeTabId);
-  const desktopHandlersAvailable = $derived(connectionsStore.desktopHandlersAvailable);
+  const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
+  const desktopHandlersAvailable = $derived(
+    connectionsStore.desktopHandlersAvailable,
+  );
   // status/provider live on Session, not Tab — reading them off the tab always
   // yielded undefined, so isRunning was permanently false and the run-gated
   // global keybindings never blocked during a run.
   const activeTabStatus = $derived(session.sessionFor(activeTabId)?.status);
   const isRunning = $derived(
     activeTabStatus === "running" || activeTabStatus === "connecting",
+  );
+  const directoryPickerCreatesTab = $derived(
+    directoryPickerNewTab ||
+      (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
+  );
+  const directoryPickerTitle = $derived(
+    directoryPickerCreatesTab
+      ? "Open project in a new tab"
+      : "Change project folder",
+  );
+  const directoryPickerAction = $derived(
+    directoryPickerCreatesTab ? "Open in new tab" : "Choose",
   );
 
   const visibleTabOrder = $derived(
@@ -346,8 +397,8 @@
       (id) => branchKeyFor(session.sessionFor(id)) === activeKey,
     );
   }
-  const permissionMode = $derived(
-    session.sessionFor(activeTabId)?.permissionMode ?? "auto",
+  const keyboardPermissionMode = $derived(
+    session.sessionFor(keyboardTabId)?.permissionMode ?? "auto",
   );
 
   $effect(() => {
@@ -366,7 +417,9 @@
     void connectionsStore.refreshCapabilities();
   });
 
-  const detectReconnect = createReconnectDetector(serversStore.connectionStatus);
+  const detectReconnect = createReconnectDetector(
+    serversStore.connectionStatus,
+  );
   $effect(() => {
     const connectionStatus = serversStore.connectionStatus;
     if (detectReconnect(connectionStatus)) {
@@ -387,7 +440,8 @@
     const setIgnore = (shouldIgnore: boolean) => {
       if (shouldIgnore === lastIgnored) return;
       lastIgnored = shouldIgnore;
-      if (shouldIgnore) window.solus.setIgnoreMouseEvents(true, { forward: true });
+      if (shouldIgnore)
+        window.solus.setIgnoreMouseEvents(true, { forward: true });
       else window.solus.setIgnoreMouseEvents(false, { focus: true });
     };
 
@@ -505,8 +559,11 @@
         });
       }
     });
-    const unsubMergeQueue = window.solus.onMergeQueueUpdate((state) =>
-      session.mergeQueueStore.apply(state),
+    const unsubStackGraph = session.stacksStore.subscribe();
+    const unsubChecks = session.prsStore.subscribeChecks(() => session.ctx);
+    const unsubGuideStatus = session.prsStore.subscribeGuideStatus();
+    const unsubNeedsReview = session.prsStore.subscribeNeedsReview(
+      () => session.ctx,
     );
     const unsubShown = window.solus.onWindowShown(() => {
       const active = session.sessionFor(session.activeTabId);
@@ -514,21 +571,35 @@
         active?.gitContext?.worktreePath ??
         active?.workingDirectory ??
         session.globalDefaults.workingDirectory;
-      if (cwd) void gitStatusStore.refresh(cwd, { force: true });
-      // Cheap catch-all for branch changes the watcher missed (e.g. external
-      // checkout while a non-worktree session sat in the background).
-      if (active && !active.gitContext?.worktreePath && active.workingDirectory) {
-        void session.env.refreshGitEnvironment({ tabId: session.activeTabId });
-      }
+      if (cwd)
+        void sessionEnvironmentStore.refreshTab(session, {
+          tabId: session.activeTabId,
+          cwd,
+          level: "status",
+        });
     });
     return () => {
       unsubRun();
       unsubRunLog();
       unsubVoiceModel();
       unsubAutomations();
-      unsubMergeQueue();
+      unsubStackGraph();
+      unsubChecks();
+      unsubGuideStatus();
+      unsubNeedsReview();
       unsubShown();
     };
+  });
+
+  $effect(() => {
+    void session.activeTabId;
+    const reviewSurfaceOpen =
+      session.prsOpen ||
+      session.reviewModeOpen ||
+      !!session.activeSession?.prReview;
+    untrack(() =>
+      session.prsStore.setChecksReviewSurface(reviewSurfaceOpen, session.ctx),
+    );
   });
 
   // Keep main informed of whether the live text selection sits inside the
@@ -542,7 +613,12 @@
       let active = false;
       // Bail before the O(selection) toString() on the common continuous-drag
       // path where there's no real selection (collapsed caret / no range).
-      if (sel && !sel.isCollapsed && sel.rangeCount > 0 && sel.toString().trim()) {
+      if (
+        sel &&
+        !sel.isCollapsed &&
+        sel.rangeCount > 0 &&
+        sel.toString().trim()
+      ) {
         const node = sel.getRangeAt(0).commonAncestorContainer;
         const el =
           node.nodeType === Node.ELEMENT_NODE
@@ -585,8 +661,11 @@
 
   // ── Global keybinding handlers ────────────────────────────────────────────
   useKeybinding("global.select-project", () => {
-    if (isRunning) return;
-    directoryPickerOpen = true;
+    window.dispatchEvent(
+      new CustomEvent("solus:open-directory-picker", {
+        detail: { tabId: session.focusedChatTabId ?? undefined },
+      }),
+    );
   });
   useKeybinding("global.new-tab", () => session.createTab());
 
@@ -670,7 +749,7 @@
       requestInputFocus();
     }
   });
-  useKeybinding("global.screenshot", handleScreenshot, {
+  useKeybinding("global.screenshot", () => handleScreenshot(keyboardTabId), {
     enabled: () => desktopHandlersAvailable,
   });
   useKeybinding("global.continue-in-mode", () => session.continueInOtherMode());
@@ -687,10 +766,10 @@
     const modes = ["ask", "auto", "plan"] as const;
     const next =
       modes[
-        (modes.indexOf(permissionMode as (typeof modes)[number]) + 1) %
+        (modes.indexOf(keyboardPermissionMode as (typeof modes)[number]) + 1) %
           modes.length
       ];
-    session.setPermissionMode(next);
+    session.setPermissionMode(next, keyboardTabId);
   });
   useKeybinding("global.close-tab", () => {
     if (activeTabId) session.closeTab(activeTabId);
@@ -698,38 +777,68 @@
   useKeybinding("global.group-tabs", () => {
     session.toggleTabGroupMode();
   });
-  useKeybinding("global.attach-file", handleAttachFile);
-  useKeybinding("global.design-mode", () => {
-    if (!isRunning && desktopHandlersAvailable) handleDesignMode();
-  }, {
-    enabled: () => desktopHandlersAvailable,
-  });
+  useKeybinding("global.attach-file", () => handleAttachFile(keyboardTabId));
+  useKeybinding(
+    "global.design-mode",
+    () => {
+      const targetStatus = session.sessionFor(keyboardTabId)?.status;
+      if (
+        targetStatus !== "running" &&
+        targetStatus !== "connecting" &&
+        desktopHandlersAvailable
+      )
+        handleDesignMode(keyboardTabId);
+    },
+    {
+      enabled: () => desktopHandlersAvailable,
+    },
+  );
   useKeybinding("global.cycle-agent", async () => {
     if (isRunning) return;
     await cycleAgentProvider();
     requestInputFocus();
   });
   useKeybinding("global.cycle-model", () => {
-    if (isRunning) return;
-    const models = agent.activeMetadata?.models;
+    const targetSession = session.sessionFor(keyboardTabId);
+    if (
+      targetSession?.status === "running" ||
+      targetSession?.status === "connecting"
+    )
+      return;
+    const modelMetadata = targetSession?.provider
+      ? agent.metadata[targetSession.provider]
+      : agent.activeMetadata;
+    const models = modelMetadata?.models;
     if (!models || models.length === 0) return;
-    const defaultModel = agent.activeMetadata?.defaultModel;
-    const currentModel = statusBar.ctx.model || (defaultModel ?? models[0].id);
+    const defaultModel = modelMetadata?.defaultModel;
+    const currentModel =
+      targetSession?.modelConfig.modelId || (defaultModel ?? models[0].id);
     const idx = models.findIndex((m) => m.id === currentModel);
-    session.updateModelConfig({
-      modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
-    });
+    session.updateModelConfig(
+      {
+        modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
+      },
+      keyboardTabId,
+    );
     requestInputFocus();
   });
   useKeybinding("global.toggle-reasoning", () => {
-    if (isRunning) return;
+    const targetStatus = session.sessionFor(keyboardTabId)?.status;
+    if (targetStatus === "running" || targetStatus === "connecting") return;
     window.dispatchEvent(
-      new CustomEvent("solus:toggle-session-settings-picker"),
+      new CustomEvent("solus:toggle-session-settings-picker", {
+        detail: { tabId: keyboardTabId },
+      }),
     );
   });
   useKeybinding(
     "global.toggle-diff-panel",
-    () => window.dispatchEvent(new CustomEvent("solus:toggle-diff-panel")),
+    () =>
+      window.dispatchEvent(
+        new CustomEvent("solus:toggle-diff-panel", {
+          detail: { tabId: keyboardTabId },
+        }),
+      ),
     {
       enabled: () => viewMode === "editor",
     },
@@ -740,7 +849,9 @@
   useKeybinding("global.toggle-tasks", () => session.toggleTasks());
   useKeybinding("global.settings", () => session.showSettings());
   useKeybinding("global.focus-input", () => requestInputFocus());
-  useKeybinding("global.toggle-worktree", () => session.toggleWorktreeMode());
+  useKeybinding("global.toggle-worktree", () =>
+    session.toggleWorktreeMode(session.focusedChatTabId ?? undefined),
+  );
   useKeybinding("global.switch-worktree", () => {
     const hasAgent = !!session.sessionFor(activeTabId)?.agentSessionId;
     if (hasAgent) return;
@@ -758,6 +869,7 @@
   useKeybinding(
     "global.command-palette",
     () => {
+      paletteGitTarget = null;
       commandPaletteOpen = true;
     },
     {
@@ -766,12 +878,15 @@
   );
 
   const paletteGitProjectRoot = $derived.by(() => {
+    if (paletteGitTarget) return paletteGitTarget.projectRoot;
     const dir =
       session.activeSession?.gitContext?.repoRoot ??
       session.activeSession?.workingDirectory;
     return dir && dir !== "~" ? worktreeProjectRoot(dir) : null;
   });
-  const paletteGitRefs = $derived(gitStatusStore.refsFor(paletteGitProjectRoot));
+  const paletteGitRefs = $derived(
+    sessionEnvironmentStore.refsFor(paletteGitProjectRoot),
+  );
   const worktrees = $derived(paletteGitRefs.worktrees);
   const paletteBranches = $derived(paletteGitRefs.branches);
   // Open PRs for the "Review PR…" sub-page, loaded lazily alongside the git refs.
@@ -783,15 +898,18 @@
       palettePrs = [];
       return;
     }
-    void gitStatusStore.refreshRefs(
+    void sessionEnvironmentStore.refreshRefs(
       projectRoot,
       untrack(() => session.ctxForDirectory(projectRoot)),
       { force: true },
     );
     session.prsStore
-      .loadFor(untrack(() => session.ctx), { state: "open" })
-      .then((prs) => {
-        palettePrs = prs;
+      .loadFor(
+        untrack(() => paletteGitTarget?.ctx ?? session.ctx),
+        { state: "open" },
+      )
+      .then((result) => {
+        palettePrs = result.items;
       })
       .catch(() => {
         palettePrs = [];
@@ -894,8 +1012,13 @@
     const projectRoot = paletteGitProjectRoot;
     if (projectRoot) {
       const ctx = session.ctxForDirectory(projectRoot);
-      await gitStatusStore.refreshRefs(projectRoot, ctx, { force: true });
-      const worktree = gitStatusStore
+      const refsReady = await sessionEnvironmentStore.refreshRefs(
+        projectRoot,
+        ctx,
+        { force: true },
+      );
+      if (!refsReady) toasts.error("Couldn't refresh branches");
+      const worktree = sessionEnvironmentStore
         .refsFor(projectRoot)
         .worktrees.find((wt) => wt.branch === branch);
       if (worktree) {
@@ -903,7 +1026,8 @@
         const nextCwd =
           session.activeSession?.gitContext?.worktreePath ??
           session.activeSession?.workingDirectory;
-        if (nextCwd) void gitStatusStore.refresh(nextCwd, { force: true });
+        if (nextCwd)
+          void sessionEnvironmentStore.refresh(nextCwd, { force: true });
         requestInputFocus();
         return true;
       }
@@ -913,7 +1037,8 @@
     const nextCwd =
       session.activeSession?.gitContext?.worktreePath ??
       session.activeSession?.workingDirectory;
-    if (ok && nextCwd) void gitStatusStore.refresh(nextCwd, { force: true });
+    if (ok && nextCwd)
+      void sessionEnvironmentStore.refresh(nextCwd, { force: true });
     requestInputFocus();
     return ok;
   }
@@ -933,7 +1058,13 @@
         group: "Servers",
         icon: PlugsIcon,
         hint: server.id === serversStore.activeServerId ? "Active" : undefined,
-        keywords: ["server", "remote", "connect", server.url, server.installationId ?? ""],
+        keywords: [
+          "server",
+          "remote",
+          "connect",
+          server.url,
+          server.installationId ?? "",
+        ],
         run: () => serversStore.switchTo(server.id),
       });
     }
@@ -963,7 +1094,7 @@
         (w) =>
           w.title &&
           !session.worksStore.streaming[w.id] &&
-          session.pendingWorkDelete?.id !== w.id,
+          session.worksStore.pendingWorkDelete?.id !== w.id,
       )
       .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
       .map((w) => ({
@@ -1005,7 +1136,8 @@
     // to pick any other known project. Both pop the standalone create-task modal.
     const taskCwd = session.tasksProjectCwd;
     if (taskCwd) {
-      const taskProjectName = taskCwd.split("/").filter(Boolean).pop() ?? taskCwd;
+      const taskProjectName =
+        taskCwd.split("/").filter(Boolean).pop() ?? taskCwd;
       commands.push({
         id: "create-task",
         label: `Create task in ${taskProjectName}`,
@@ -1017,7 +1149,8 @@
     }
     const createTaskInChildren: Command[] = paletteProjects.map((p) => ({
       id: `create-task-in:${p.path}`,
-      label: p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
+      label:
+        p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
       group: "Projects",
       icon: FolderIcon,
       keywords: [p.folderName, p.path],
@@ -1038,7 +1171,9 @@
     // project. Only the active project's tasks count (the store is scoped to one
     // cwd, so anything else is stale).
     const tasksLoadedForProject =
-      !!taskCwd && session.tasksStore.cwd === taskCwd && session.tasksStore.loaded;
+      !!taskCwd &&
+      session.tasksStore.cwd === taskCwd &&
+      session.tasksStore.loaded;
     const goToTaskChildren: Command[] = tasksLoadedForProject
       ? session.tasksStore.tasks.map((t) => ({
           id: `go-to-task:${t.id}`,
@@ -1070,7 +1205,8 @@
       run: () => session.openPrs(),
     });
 
-    const gitCtx = session.activeSession?.gitContext ?? session.globalDefaults.gitContext;
+    const gitCtx =
+      session.activeSession?.gitContext ?? session.globalDefaults.gitContext;
     if (gitCtx) {
       const worktreeBranchNames = worktrees.map((wt) => wt.branch);
       const branchCommands: Command[] = [
@@ -1140,7 +1276,14 @@
                 label: "Continue in worktree",
                 group: "General",
                 icon: TreeStructureIcon,
-                keywords: ["worktree", "continue", "move", "branch", "isolated", "fork"],
+                keywords: [
+                  "worktree",
+                  "continue",
+                  "move",
+                  "branch",
+                  "isolated",
+                  "fork",
+                ],
                 hint: comboHint("global.continue-worktree"),
                 run: () => void session.continueInWorktree(activeTabId),
               } as Command,
@@ -1159,7 +1302,17 @@
           label: "New session in…",
           group: "General",
           icon: GitForkIcon,
-          keywords: ["session", "branch", "worktree", "checkout", "switch", "remote", "existing", "open", "pick"],
+          keywords: [
+            "session",
+            "branch",
+            "worktree",
+            "checkout",
+            "switch",
+            "remote",
+            "existing",
+            "open",
+            "pick",
+          ],
           children: newSessionInChildren,
         },
         {
@@ -1184,8 +1337,17 @@
             group: "Pull requests",
             icon: GitPullRequestIcon,
             hint: `#${pr.number}`,
-            keywords: ["pr", "pull request", "review", String(pr.number), pr.author],
-            run: () => void session.enterPrReview(pr.number, pr.title),
+            keywords: [
+              "pr",
+              "pull request",
+              "review",
+              String(pr.number),
+              pr.author,
+            ],
+            run: () =>
+              void session.enterPrReview(pr.number, pr.title, {
+                ctx: paletteGitTarget?.ctx,
+              }),
           })),
         },
       ];
@@ -1205,28 +1367,30 @@
   );
 
   $effect(() => {
-    if (!isEditorMode && !isExpanded && session.artifactViewer.activePlanId) {
+    if (!isEditorMode && !isExpanded && session.panes.activePlanId) {
       session.closePlanModal();
     }
   });
 
-  async function handleScreenshot() {
+  async function handleScreenshot(tabId?: string) {
     if (!desktopHandlersAvailable) return;
     const result = await window.solus.takeScreenshot();
     if (!result) return;
-    session.addAttachments([result]);
+    session.addAttachments([result], tabId);
   }
 
-  async function handleAttachFile() {
+  async function handleAttachFile(tabId?: string) {
     const files = await window.solus.attachFiles();
     if (!files || files.length === 0) return;
-    session.addAttachments(files);
+    session.addAttachments(files, tabId);
   }
 
-  async function handleDesignMode() {
+  async function handleDesignMode(tabId?: string) {
     if (!desktopHandlersAvailable) return;
+    designModeTargetTabId = tabId;
     const result = await window.solus.enterDesignMode();
     if (!result) {
+      designModeTargetTabId = undefined;
       // Capture failed: tell main to restore opacity so we don't leave the window invisible.
       await window.solus.designModeReady();
       await window.solus.exitDesignMode();
@@ -1258,15 +1422,17 @@
       annotations,
     });
     if (attachment) {
-      session.addAttachments([attachment]);
+      session.addAttachments([attachment], designModeTargetTabId);
     }
     designModeScreenshot = null;
+    designModeTargetTabId = undefined;
     await tick();
     await window.solus.exitDesignMode();
   }
 
   async function handleDesignCancel() {
     designModeScreenshot = null;
+    designModeTargetTabId = undefined;
     await tick();
     await window.solus.exitDesignMode();
   }
@@ -1294,19 +1460,47 @@
   });
 
   $effect(() => {
-    const handler = () => {
-      if (!isRunning) {
-        directoryPickerNewTab = false;
-        directoryPickerOpen = true;
-      }
+    const handler = (event: Event) => {
+      const targetTabId = (event as CustomEvent<{ tabId?: string }>).detail
+        ?.tabId;
+      const tab = targetTabId ? session.tabs[targetTabId] : null;
+      const opensInNewTab = tab?.sessionId != null;
+      directoryPickerNewTab = opensInNewTab;
+      directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
+      directoryPickerOpen = true;
     };
     const newTabHandler = () => {
       directoryPickerNewTab = true;
+      directoryPickerTargetTabId = undefined;
       directoryPickerOpen = true;
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
-    const reviewPrHandler = () => {
+    const reviewPrHandler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          tabId?: string;
+          cwd?: string;
+          checkout?: GitCheckout | null;
+        }>
+      ).detail;
+      const targetTabId = detail?.tabId ?? activeTabId;
+      const targetSession = session.sessionFor(targetTabId);
+      const dir =
+        detail?.cwd ??
+        targetSession?.gitContext?.repoRoot ??
+        targetSession?.workingDirectory;
+      paletteGitTarget = {
+        tabId: targetTabId,
+        ctx: detail?.cwd
+          ? session.ctxForEnvironment(
+              detail.cwd,
+              detail.checkout ?? null,
+              targetTabId,
+            )
+          : session.ctxFor(targetTabId),
+        projectRoot: dir && dir !== "~" ? worktreeProjectRoot(dir) : null,
+      };
       paletteInitialPage = { id: "review-pr", title: "Review PR" };
       commandPaletteOpen = true;
     };
@@ -1329,18 +1523,21 @@
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false;
     invalidateHomeCache();
+    const targetTabId = directoryPickerTargetTabId;
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
       await session.createTab(dir);
     } else {
-      await session.setBaseDirectory(dir);
+      await session.setBaseDirectory(dir, targetTabId);
     }
-    requestInputFocus();
+    directoryPickerTargetTabId = undefined;
+    requestInputFocus(targetTabId ? { tabId: targetTabId } : undefined);
   }
 
   function handleDirectoryPickerClose() {
     directoryPickerOpen = false;
     directoryPickerNewTab = false;
+    directoryPickerTargetTabId = undefined;
     requestInputFocus();
   }
 
@@ -1489,6 +1686,8 @@
       bind:open={directoryPickerOpen}
       onClose={handleDirectoryPickerClose}
       onSelect={handleDirectorySelected}
+      title={directoryPickerTitle}
+      actionLabel={directoryPickerAction}
     />
   {/await}
 {/if}
@@ -1562,7 +1761,8 @@
         const cwd = taskComposer?.cwd;
         if (!cwd) return;
         try {
-          if (session.tasksStore.cwd === cwd) await session.tasksStore.create(cwd, input);
+          if (session.tasksStore.cwd === cwd)
+            await session.tasksStore.create(cwd, input);
           else await window.solus.tasksCreate(cwd, input);
           toasts.success("Task created");
         } catch (err) {

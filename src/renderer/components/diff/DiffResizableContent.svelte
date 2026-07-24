@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { runtime } from "../../contexts/runtime.svelte";
+  import { runtime } from "../../contexts";
   import {
     paneBoundsPercent,
     percentToPixels,

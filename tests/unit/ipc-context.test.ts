@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { runInputFromContext } from '../../src/main/agents/run-input'
-import { IpcContextBuilder, type IpcContextBuilderDeps } from '../../src/renderer/contexts/ipc-context'
+import { IpcContextBuilder, type IpcContextBuilderDeps } from '../../src/renderer/contexts/workspace/ipc-context'
 import type { StatusBarCtx } from '../../src/shared/types'
 
 function statusBar(model: string, reasoningEffort: StatusBarCtx['reasoningEffort']): StatusBarCtx {
@@ -57,5 +57,35 @@ describe('IPC context', () => {
 
     expect(runInput.model).toBe('split-model')
     expect(runInput.reasoningEffort).toBe('low')
+  })
+
+  test('an environment context carries its checkout without a tab', () => {
+    const checkout = {
+      repoRoot: '/repo',
+      worktreePath: '/repo/.solus-worktrees/feature',
+      branch: 'feature',
+      targetBranch: 'main',
+    }
+    const deps = {
+      tabs: () => ({}),
+      sessionFor: () => undefined,
+      globalDefaults: {
+        permissionMode: 'auto',
+        workingDirectory: '/repo',
+        gitContext: null,
+        worktreeBaseBranch: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      },
+      staticInfo: () => null,
+      window: { viewMode: 'editor' },
+      settings: { ctx: { activeAgent: 'codex' } },
+      statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
+    } as unknown as IpcContextBuilderDeps
+
+    const ctx = new IpcContextBuilder(deps).forEnvironment('', checkout.worktreePath, checkout)
+
+    expect(ctx.session.tabId).toBe('')
+    expect(ctx.session.workingDirectory).toBe(checkout.worktreePath)
+    expect(ctx.session.gitContext).toEqual(checkout)
   })
 })

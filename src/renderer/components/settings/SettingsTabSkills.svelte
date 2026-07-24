@@ -10,8 +10,7 @@
     WarningCircleIcon,
   } from "phosphor-svelte";
   import { Input } from "../ui/input";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getAgentContext, getWorkspaceContext } from "../../contexts";
   import { buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import type { RemoteSkill } from "../../../shared/types";
   import { Button } from "../ui/button";

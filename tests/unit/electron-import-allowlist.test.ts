@@ -10,6 +10,7 @@ const ALLOWED = new Set([
   'src/main/updater.ts',
   'src/main/server/handlers/file-handlers.ts',
   'src/main/server/handlers/theme-handlers.ts',
+  'src/main/transcription/index.ts',
 ])
 
 function listSourceFiles(dir: string): string[] {

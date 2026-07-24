@@ -43,7 +43,7 @@
 {#if progress && progress.totalSteps > 0 && !allDone}
   <div in:fly={{ y: -6, duration: 220 }} class="sticky top-0 z-5 pt-3 pb-3 px-0">
     <div
-      class="progress-pill rounded-2xl relative overflow-hidden {interrupted
+      class="progress-pill mx-auto w-[88%] rounded-2xl relative overflow-hidden {interrupted
         ? 'progress-pill-done'
         : ''}"
     >

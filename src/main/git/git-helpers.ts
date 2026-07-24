@@ -1,17 +1,18 @@
 import { existsSync } from 'fs'
 import path from 'path'
-import type { GitProjectStatus, GitProjectStatusFile, GitProjectStatusOptions } from '../../shared/types'
+import type { GitIdentity, GitState, GitStateOptions, UncommittedFile } from '../../shared/types'
 import type { RepoRef } from '../providers/types'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
 import { getWorkingTreeStats } from './session-snapshots'
-import { getDefaultBranch, getExistingPR } from './worktree-manager'
+import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 
 const log = createLogger('main', 'git-helpers')
 
-export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'files'> {
+export function parseStatus(raw: string): { branch: string | null; files: UncommittedFile[]; hasMoreFiles: boolean } {
   let branch: string | null = null
-  const files: GitProjectStatusFile[] = []
+  const files: UncommittedFile[] = []
+  let hasMoreFiles = false
 
   for (const line of raw.split('\n')) {
     if (!line) continue
@@ -21,7 +22,10 @@ export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'fil
       continue
     }
     if (line.startsWith('#')) continue
-    if (files.length >= 200) continue
+    if (files.length >= 200) {
+      hasMoreFiles = true
+      continue
+    }
 
     const kind = line[0]
     let filePath = ''
@@ -41,10 +45,10 @@ export function parseStatus(raw: string): Pick<GitProjectStatus, 'branch' | 'fil
     files.push({ path: filePath, conflicted })
   }
 
-  return { branch, files }
+  return { branch, files, hasMoreFiles }
 }
 
-const statusInflight = new Map<string, Promise<GitProjectStatus | null>>()
+const statusInflight = new Map<string, Promise<GitState | null>>()
 
 /**
  * Compute live branch, file, and conflict state for a working tree. The default
@@ -52,17 +56,18 @@ const statusInflight = new Map<string, Promise<GitProjectStatus | null>>()
  * every watcher fire and completed edit. Visible Git UI opts into those details.
  * Concurrent callers for the same cwd/detail level share one process pipeline.
  */
-export function computeGitProjectStatus(
+export function computeGitState(
   cwd: string,
-  options: GitProjectStatusOptions = {},
-): Promise<GitProjectStatus | null> {
+  options: GitStateOptions | null = {},
+): Promise<GitState | null> {
   if (!cwd || cwd === '~') return Promise.resolve(null)
+  options ??= {}
 
   const key = `${cwd}\0${options.includeDetails ? 'details' : 'summary'}`
   const existing = statusInflight.get(key)
   if (existing) return existing
 
-  const pending = computeGitProjectStatusUncached(cwd, options)
+  const pending = computeGitStateUncached(cwd, options)
     .finally(() => {
       if (statusInflight.get(key) === pending) statusInflight.delete(key)
     })
@@ -70,54 +75,103 @@ export function computeGitProjectStatus(
   return pending
 }
 
-async function computeGitProjectStatusUncached(
+async function computeGitStateUncached(
   cwd: string,
-  options: GitProjectStatusOptions,
-): Promise<GitProjectStatus | null> {
+  options: GitStateOptions,
+): Promise<GitState | null> {
   if (options.includeDetails) {
     // Reuse an in-flight summary from the watcher/renderer instead of starting
     // a second status pipeline when the visible panel asks for details.
-    const status = await computeGitProjectStatus(cwd)
+    const status = await computeGitState(cwd)
     if (!status) return null
     const [workingTreeStats, prUrl] = await Promise.all([
       getWorkingTreeStats(cwd, status.repoRoot).catch(() => ({ additions: 0, deletions: 0 })),
       status.branch && status.branch !== status.targetBranch
-        ? getExistingPR(status.branch, cwd)
+        ? getExistingPR(status.branch, cwd, options.bypassCache === true)
         : Promise.resolve(null),
     ])
     return {
       ...status,
-      insertions: workingTreeStats.additions,
-      deletions: workingTreeStats.deletions,
+      uncommittedChanges: {
+        ...status.uncommittedChanges,
+        insertions: workingTreeStats.additions,
+        deletions: workingTreeStats.deletions,
+      },
       prUrl: prUrl ?? undefined,
     }
   }
 
-  const repoRoot = await resolveRepoRoot(cwd)
-  if (!repoRoot) return null
+  // Identity is the same work `computeGitIdentity` does, so run it alongside the
+  // working-tree scan rather than duplicating it — the sidebar's earlier
+  // identity call is usually still in flight and gets shared.
+  const [identity, statusRaw, inProgressPaths] = await Promise.all([
+    computeGitIdentity(cwd),
+    runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd).catch(() => null),
+    runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
+  ])
+  // A null identity is the ordinary "not a repository" answer, so stay quiet;
+  // a repo whose status scan failed is worth a warning.
+  if (!identity) return null
+  if (statusRaw === null) {
+    log.warn(`computeGitState: git status failed for ${cwd}`)
+    return null
+  }
 
-  try {
-    const [statusRaw, inProgressPaths, targetBranch] = await Promise.all([
-      runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd),
-      runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
-      getDefaultBranch(cwd),
-    ])
-    const mergeInProgress = inProgressPaths
-      .split('\n')
-      .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
-    const status = parseStatus(statusRaw)
-    return {
-      repoRoot,
-      ...status,
-      targetBranch,
+  const mergeInProgress = inProgressPaths
+    .split('\n')
+    .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
+  const status = parseStatus(statusRaw)
+  return {
+    ...identity,
+    // `--branch` reports the branch as of this scan; prefer it over identity's
+    // separate read so branch and files always describe the same instant.
+    branch: status.branch,
+    uncommittedChanges: {
+      files: status.files,
+      hasMoreFiles: status.hasMoreFiles,
       insertions: 0,
       deletions: 0,
       mergeInProgress,
-    }
-  } catch (err: any) {
-    log.warn(`computeGitProjectStatus failed for ${cwd}: ${err?.message ?? err}`)
-    return null
+    },
   }
+}
+
+const identityInflight = new Map<string, Promise<GitIdentity | null>>()
+
+/**
+ * Repo/branch identity only — no working-tree scan. Surfaces that just need to
+ * place a session in its project and branch (the session sidebar) use this so
+ * they don't sit behind a cold `git status` over a large worktree.
+ */
+export function computeGitIdentity(cwd: string): Promise<GitIdentity | null> {
+  if (!cwd || cwd === '~') return Promise.resolve(null)
+
+  const existing = identityInflight.get(cwd)
+  if (existing) return existing
+
+  const pending = computeGitIdentityUncached(cwd)
+    .finally(() => {
+      if (identityInflight.get(cwd) === pending) identityInflight.delete(cwd)
+    })
+  identityInflight.set(cwd, pending)
+  return pending
+}
+
+async function computeGitIdentityUncached(cwd: string): Promise<GitIdentity | null> {
+  const [repoRoot, headRaw, targetBranch] = await Promise.all([
+    resolveRepoRoot(cwd),
+    runAsync('git', ['rev-parse', 'HEAD', '--abbrev-ref', 'HEAD'], cwd).catch(() => null),
+    getDefaultBranchLocal(cwd),
+  ])
+  // Both null cases are ordinary, not failures: no repo here, or a repo with no
+  // commits yet. `resolveRepoRoot` already logs the former.
+  if (!repoRoot || headRaw === null) return null
+
+  const [headSha, headRef] = headRaw.split('\n').map((line) => line.trim())
+  if (!headSha) return null
+  // `--abbrev-ref HEAD` prints the literal "HEAD" when detached, matching
+  // `parseStatus`'s `branch: null` convention for the same state.
+  return { repoRoot, headSha, branch: headRef === 'HEAD' ? null : headRef, targetBranch }
 }
 
 /** Resolve the parent repo root from a worktree path (handles linked + main worktrees). */

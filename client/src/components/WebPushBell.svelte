@@ -2,6 +2,7 @@
   import { BellIcon, BellSlashIcon, SpinnerIcon } from "phosphor-svelte";
   import { tooltip } from "@renderer/lib/tooltip";
   import { webPushState } from "../lib/web-push.svelte";
+  import { toasts } from "../lib/toast.store.svelte";
 
   interface Props {
     variant?: "status" | "row";
@@ -12,8 +13,16 @@
     webPushState.subscribed ? "Disable notifications" : "Enable notifications",
   );
 
-  function toggle() {
-    void webPushState.toggle();
+  async function toggle() {
+    if (webPushState.permission === "denied") {
+      toasts.error("Notifications are blocked in your browser settings");
+      return;
+    }
+
+    await webPushState.toggle();
+    if (webPushState.permission === "denied") {
+      toasts.error("Notifications are blocked in your browser settings");
+    }
   }
 </script>
 
@@ -23,7 +32,7 @@
       type="button"
       class="flex w-full min-h-12 items-center gap-3.5 border-0 bg-transparent px-3.5 py-3 text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]"
       onclick={toggle}
-      disabled={webPushState.busy || webPushState.permission === "denied"}
+      disabled={webPushState.busy}
       aria-pressed={webPushState.subscribed}
     >
       <span class="flex w-5 shrink-0 items-center justify-center text-(--solus-text-secondary)">
@@ -39,7 +48,7 @@
         Notifications
       </span>
       <span class="shrink-0 text-[0.8125rem] text-(--solus-text-tertiary)">
-        {webPushState.permission === "denied" ? "Blocked" : webPushState.subscribed ? "On" : "Off"}
+        {webPushState.subscribed ? "On" : "Off"}
       </span>
     </button>
   {:else}
@@ -48,10 +57,10 @@
       class="ws-push-btn"
       class:ws-push-btn--active={webPushState.subscribed}
       onclick={toggle}
-      disabled={webPushState.busy || webPushState.permission === "denied"}
+      disabled={webPushState.busy}
       aria-label={label}
       aria-pressed={webPushState.subscribed}
-      use:tooltip={webPushState.permission === "denied" ? "Notifications blocked in browser settings" : label}
+      use:tooltip={label}
     >
       {#if webPushState.busy}
         <SpinnerIcon size={13} class="animate-spin" />

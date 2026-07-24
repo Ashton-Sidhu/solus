@@ -20,19 +20,16 @@
     type TaskPriority,
     type TaskProviderId,
   } from "../../../shared/task-types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getProjectConfigStore } from "../../contexts/project-config.store.svelte";
+  import { getWorkspaceContext, getProjectConfigStore, runtime, toasts } from "../../contexts";
   import {
     TasksSelectionStore,
     setTasksSelection,
-  } from "../../contexts/tasks-selection.store.svelte";
+  } from "./tasks-selection.store.svelte";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { runtime } from "../../contexts/runtime.svelte";
-  import { toasts } from "../../contexts/toast.store.svelte";
   import {
     buildTaskGroups,
     relativeTime,
@@ -41,7 +38,12 @@
     type StatusFilter,
     type TaskSort,
   } from "./lib/tasks-api";
-  import { PAGE_PRIMARY_BTN, PAGE_ICON_BTN } from "../../lib/page-chrome";
+  import {
+    PAGE_PRIMARY_BTN,
+    PAGE_ICON_BTN,
+    PAGE_SECONDARY_BTN,
+  } from "../../lib/page-chrome";
+  import PageEmpty from "../ui/PageEmpty.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
   import TaskFilters from "./TaskFilters.svelte";
@@ -99,6 +101,12 @@
   let query = $state("");
   let statusFilter = $state<StatusFilter>("active");
   let assignedToMe = $state(false);
+
+  function clearFilters() {
+    query = "";
+    statusFilter = "active";
+    assignedToMe = false;
+  }
   // Ordering for both list + board. `priority`/`due` answer "what's next".
   let sort = $state<TaskSort>("updated");
   // List (dense, epic-grouped) vs board (kanban by status). The board is a flat
@@ -608,55 +616,41 @@
           </button>
         </div>
       {:else if store.error}
-        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
-          <WarningCircleIcon size={28} class="text-(--solus-text-tertiary)" />
-          <p class="text-balance text-base font-semibold text-(--solus-text-primary)">
-            {isAuthError ? "Connect GitHub to see tasks." : "Couldn't load tasks."}
-          </p>
-          <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
-            {isAuthError
-              ? "This project reads issues from its GitHub remote. Connect your account to browse and update them."
-              : displayError}
-          </p>
-          {#if isAuthError}
-            <button
-              type="button"
-              class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
-              onclick={() => session.showSettings("api-access")}
-            >
-              <PlugIcon size={13} weight="bold" />
-              Connect GitHub
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
-              onclick={refresh}
-            >
-              <ArrowClockwiseIcon size={13} />
-              Retry
-            </button>
-          {/if}
-        </div>
-      {:else if store.tasks.length === 0}
-        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
-          <p class="text-balance text-base font-semibold text-(--solus-text-primary)">
-            No tasks yet.
-          </p>
-          <p class="max-w-[25rem] text-[0.8125rem] leading-[1.55] text-(--solus-text-tertiary)">
-            {#if canCreate}
-              Create {allowEpics ? "a task or epic" : "a task"}, then start a
-              session from it to give the agent its full context.
-            {:else}
-              When this project's provider has tickets, they'll show up here —
-              start a session from any one to give the agent its full context.
-            {/if}
-          </p>
-          {#if canCreate}
-            <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
+        <PageEmpty
+          icon={isAuthError ? PlugIcon : WarningCircleIcon}
+          tone={isAuthError ? "accent" : "muted"}
+          title={isAuthError ? "Connect GitHub to see tasks." : "Couldn't load tasks."}
+        >
+          {isAuthError
+            ? "This project reads issues from its GitHub remote. Connect your account to browse and update them."
+            : displayError}
+          {#snippet actions()}
+            {#if isAuthError}
               <button
                 type="button"
-                class="inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border-0 bg-(--solus-accent-light) px-3.5 py-[0.4375rem] text-xs font-semibold text-(--solus-accent) hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_14%)] focus-visible:outline-none"
+                class={PAGE_PRIMARY_BTN}
+                onclick={() => session.showSettings("api-access")}
+              >
+                <PlugIcon size={13} weight="bold" />
+                Connect GitHub
+              </button>
+            {:else}
+              <button type="button" class={PAGE_SECONDARY_BTN} onclick={refresh}>
+                <ArrowClockwiseIcon size={13} />
+                Retry
+              </button>
+            {/if}
+          {/snippet}
+        </PageEmpty>
+      {:else if store.tasks.length === 0}
+        {#if canCreate}
+          <PageEmpty icon={ListChecksIcon} title="No tasks yet.">
+            Create {allowEpics ? "a task or epic" : "a task"}, then start a
+            session from it to give the agent its full context.
+            {#snippet actions()}
+              <button
+                type="button"
+                class={PAGE_PRIMARY_BTN}
                 onclick={() => (composing = { parentId: undefined })}
               >
                 <PlusIcon size={13} weight="bold" />
@@ -665,16 +659,21 @@
               {#if provider === "local"}
                 <button
                   type="button"
-                  class="inline-flex cursor-pointer items-center gap-1.5 rounded-[0.4375rem] border border-(--solus-container-border) bg-transparent px-3.5 py-[0.375rem] text-xs font-semibold text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none"
+                  class={PAGE_SECONDARY_BTN}
                   onclick={() => void switchTaskProvider("github")}
                 >
                   <PlugIcon size={13} weight="bold" />
                   <span>Connect a task provider</span>
                 </button>
               {/if}
-            </div>
-          {/if}
-        </div>
+            {/snippet}
+          </PageEmpty>
+        {:else}
+          <PageEmpty icon={ListChecksIcon} title="No tasks yet.">
+            When this project's provider has tickets, they'll show up here —
+            start a session from any one to give the agent its full context.
+          </PageEmpty>
+        {/if}
       {:else if view === "board"}
         <TaskBoard
           tasks={store.tasks}
@@ -691,14 +690,14 @@
             : undefined}
         />
       {:else if groups.length === 0}
-        <div class="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
-          <p class="text-base font-semibold text-(--solus-text-primary)">
-            No tasks match.
-          </p>
-          <p class="max-w-[25rem] text-[0.8125rem] text-(--solus-text-tertiary)">
-            Try a different search or filter.
-          </p>
-        </div>
+        <PageEmpty title="No tasks match.">
+          Try a different search or filter.
+          {#snippet actions()}
+            <button type="button" class={PAGE_SECONDARY_BTN} onclick={clearFilters}>
+              Clear filters
+            </button>
+          {/snippet}
+        </PageEmpty>
       {:else}
         {#each groups as group (group.epic?.id ?? "__standalone")}
           {#if group.epic}

@@ -5,9 +5,7 @@
     SpinnerGapIcon,
     XIcon,
   } from "phosphor-svelte";
-  import { getRunStore } from "../../contexts/run.store.svelte";
-  import { getRunDockStore } from "../../contexts/run-dock.store.svelte";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
+  import { getRunStore, getRunDockStore, getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { runLabel } from "../../lib/run-utils";
   import LogConsole from "../project-panel/LogConsole.svelte";
@@ -172,7 +170,7 @@
       color 0.12s ease;
   }
   .dock-tab:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-secondary);
   }
   .dock-tab.active {
@@ -256,7 +254,7 @@
       color 0.12s ease;
   }
   .dock-close:hover {
-    background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .dock-close:focus-visible {

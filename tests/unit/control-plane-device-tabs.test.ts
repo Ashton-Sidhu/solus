@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'events'
 import { ControlPlane } from '../../src/main/control-plane'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput } from '../../src/shared/types'
+import type { BuiltHandoff, BuildHandoffDeps } from '../../src/main/agents/session-handoff'
+import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput, SessionStatus } from '../../src/shared/types'
 
 const GRACE_MS = 5 * 60_000
 
@@ -41,31 +42,97 @@ class FakePermissions implements PermissionResponder {
 }
 
 class FakeBackend extends EventEmitter implements AgentBackend {
-  readonly id = 'codex' as const
-  readonly metadata: AgentMetadata = {
-    id: 'codex',
-    label: 'Codex',
-    models: [],
-    defaultModel: '',
-  }
+  readonly id: AgentId
+  readonly metadata: AgentMetadata
   readonly permissions = new FakePermissions()
   running = new Set<string>()
+  lastInput: SessionRunInput | undefined
+  inputs: SessionRunInput[] = []
+  private nextSession = 1
+  private handles = new Map<string, RunHandle>()
+  private pendingHandles = new Set<RunHandle>()
 
-  startRun(_input: SessionRunInput, _options: PromptOptions): RunHandle {
-    throw new Error('not used')
+  constructor(id: AgentId = 'codex') {
+    super()
+    this.id = id
+    this.metadata = {
+      id,
+      label: id,
+      models: [],
+      defaultModel: '',
+    }
+  }
+
+  startRun(input: SessionRunInput, _options: PromptOptions): RunHandle {
+    this.lastInput = input
+    this.inputs.push(input)
+    const sessionId = input.agentSessionId ?? `headless-${this.nextSession++}`
+    let resolveRun!: () => void
+    let rejectRun!: (err: Error) => void
+    const runPromise = new Promise<void>((resolve, reject) => {
+      resolveRun = resolve
+      rejectRun = reject
+    })
+    const handle: RunHandle = {
+      sessionId: input.agentSessionId,
+      startedAt: Date.now(),
+      toolCallCount: 0,
+      sawPermissionRequest: false,
+      permissionDenials: [],
+      abortController: new AbortController(),
+      runPromise,
+      _resolveRun: resolveRun,
+      _rejectRun: rejectRun,
+    }
+    this.pendingHandles.add(handle)
+    handle.abortController.signal.addEventListener('abort', () => {
+      this.pendingHandles.delete(handle)
+      rejectRun(new Error('Interrupted'))
+    }, { once: true })
+    queueMicrotask(() => {
+      if (handle.abortController.signal.aborted) return
+      handle.sessionId = sessionId
+      this.pendingHandles.delete(handle)
+      this.handles.set(sessionId, handle)
+      this.running.add(sessionId)
+      this.emit('normalized', sessionId, {
+        type: 'session_init',
+        sessionId,
+        model: input.model,
+        skills: [],
+      } satisfies NormalizedEvent)
+    })
+    return handle
+  }
+  complete(sessionId: string, result: string): void {
+    const handle = this.handles.get(sessionId)
+    if (!handle) throw new Error(`Unknown session ${sessionId}`)
+    this.emit('normalized', sessionId, {
+      type: 'task_complete',
+      result,
+      costUsd: 0,
+      durationMs: 1,
+      numTurns: 1,
+      usage: {},
+      sessionId,
+    } satisfies NormalizedEvent)
+    handle._resolveRun()
+    this.running.delete(sessionId)
+    this.emit('exit', sessionId, 0, null)
   }
   cancelSession(sessionId: string): boolean {
+    this.handles.get(sessionId)?.abortController.abort()
     this.running.delete(sessionId)
     return true
   }
   isSessionRunning(sessionId: string): boolean {
     return this.running.has(sessionId)
   }
-  getSessionHandle(): RunHandle | undefined {
-    return undefined
+  getSessionHandle(sessionId: string): RunHandle | undefined {
+    return this.handles.get(sessionId)
   }
   getPendingHandles(): RunHandle[] {
-    return []
+    return [...this.pendingHandles]
   }
   getEnrichedError() {
     return { message: 'error', isError: true, stderrTail: [] }
@@ -88,28 +155,47 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   async refreshPluginCommands() {}
 }
 
-function setup() {
+function setup(options: {
+  backendIds?: AgentId[]
+  buildHandoff?: (
+    oldSessionId: string,
+    projectPath: string,
+    deps: BuildHandoffDeps,
+  ) => Promise<BuiltHandoff>
+} = {}) {
   let now = 0
   const timers = new ManualTimers()
-  const backend = new FakeBackend()
-  const controlPlane = new ControlPlane(new Map([[backend.id, backend]]), {
+  const backends = (options.backendIds ?? ['codex']).map((id) => new FakeBackend(id))
+  const backend = backends[0]
+  const controlPlane = new ControlPlane(new Map(backends.map((entry) => [entry.id, entry])), {
     tabDisconnectGraceMs: GRACE_MS,
     now: () => now,
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
+    buildHandoff: options.buildHandoff,
   })
   const events: Array<{ tabId: string; event: NormalizedEvent }> = []
   controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
     events.push({ tabId, event })
   })
 
-  function seedSession(sessionId: string): void {
-    backend.running.add(sessionId)
+  function seedSession(
+    sessionId: string,
+    options: {
+      backendId?: AgentId
+      status?: SessionStatus
+      runInput?: SessionRunInput
+    } = {},
+  ): void {
+    const sessionBackend = backends.find((entry) => entry.id === (options.backendId ?? backend.id))
+    if (!sessionBackend) throw new Error(`Unknown fake backend ${options.backendId}`)
+    sessionBackend.running.add(sessionId)
     const session: BackendSession = {
       sessionId,
-      backendId: backend.id,
-      status: 'running',
+      backendId: sessionBackend.id,
+      status: options.status ?? 'running',
       pendingInputEvents: [],
+      runInput: options.runInput,
       lastActivityAt: now,
       promptCount: 1,
     }
@@ -127,6 +213,7 @@ function setup() {
 
   return {
     backend,
+    backends,
     controlPlane,
     events,
     timers,
@@ -147,6 +234,339 @@ const planes: ControlPlane[] = []
 
 afterEach(() => {
   for (const plane of planes.splice(0)) plane.shutdown()
+})
+
+function sampleRunInput(provider: AgentId, agentSessionId: string | null): SessionRunInput {
+  return {
+    provider,
+    agentSessionId,
+    forked: false,
+    workingDirectory: process.cwd(),
+    projectPath: process.cwd(),
+    additionalDirs: [],
+    gitContext: null,
+    worktreeBaseBranch: null,
+    sessionChangedFiles: [],
+    contextWindow: null,
+    model: 'test-model',
+    preferredModel: 'test-model',
+    reasoningEffort: 'medium',
+    fastMode: false,
+    permissionMode: 'ask',
+    rateLimitBehavior: 'queue',
+    extraInstructions: '',
+  }
+}
+
+function promptContext(tabId: string, provider: AgentId, agentSessionId: string): IpcContext {
+  return {
+    session: {
+      tabId,
+      provider,
+      agentSessionId,
+      status: 'completed',
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      preferredModel: 'test-model',
+      reasoningEffort: 'medium',
+      contextWindow: null,
+      fastMode: false,
+      permissionMode: 'ask',
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      readOnlyReason: null,
+      latestCheckpointId: null,
+    },
+    settings: {
+      activeAgent: provider,
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+      modelInstructions: {},
+    },
+    statusBar: {
+      model: 'test-model',
+      reasoningEffort: 'medium',
+      fastMode: false,
+    },
+  } as IpcContext
+}
+
+describe('ControlPlane headless sessions', () => {
+  test('starts a headless session without creating tab-scoped state', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+
+    const result = await env.controlPlane.createSession({
+      prompt: 'Run in the background',
+      provider: 'codex',
+      modelId: 'gpt-test',
+      reasoningEffort: 'medium',
+      contextWindow: null,
+      cwd: process.cwd(),
+    })
+
+    expect(result.agentSessionId).toBe('headless-1')
+    expect('tabId' in (env.backend.lastInput ?? {})).toBe(false)
+    const internals = env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+      tabWatchKeys: Map<string, string>
+    }
+    expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toEqual(env.backend.lastInput)
+    expect(internals.tabWatchKeys.size).toBe(0)
+  })
+
+  test('resumes an explicit session target without tab routing state', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: 'cold-session',
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'session', sessionId: 'cold-session' },
+      options: {
+        prompt: 'Continue in the background',
+        displayPrompt: 'Continue in the background',
+      },
+    })
+    const result = await lifecycle.agentSessionId
+
+    expect(result.agentSessionId).toBe('cold-session')
+    expect(lifecycle.disposition).toBe('started')
+    expect(env.backend.lastInput).toEqual(input)
+    const tabWatchKeys = (env.controlPlane as unknown as { tabWatchKeys: Map<string, string> }).tabWatchKeys
+    expect(tabWatchKeys.size).toBe(0)
+  })
+
+  test('exposes an automation session at init while completion stays attached to the same run', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+
+    const lifecycle = await env.controlPlane.startAutomationSession({
+      prompt: 'Run unattended',
+      automationId: 'automation-1',
+      automationName: 'Nightly check',
+      provider: 'codex',
+      modelId: 'gpt-test',
+      reasoningEffort: 'medium',
+      cwd: process.cwd(),
+    })
+
+    expect(lifecycle.agentSessionId).toBe('headless-1')
+    expect(env.backend.lastInput?.permissionMode).toBe('auto')
+    expect(env.backend.lastInput?.toolProfile).toBe('automation')
+
+    env.backend.complete(lifecycle.agentSessionId, 'Automation finished')
+    await expect(lifecycle.done).resolves.toEqual({ output: 'Automation finished' })
+  })
+
+  test('returns the same lifecycle shape for a queued turn and cancels by queue id', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('busy-session')
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: 'busy-session',
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'session', sessionId: 'busy-session' },
+      options: { prompt: 'Queue me' },
+    })
+
+    expect(lifecycle.disposition).toBe('queued')
+    await expect(lifecycle.agentSessionId).resolves.toEqual({ agentSessionId: 'busy-session' })
+    expect(env.backend.inputs).toHaveLength(0)
+
+    lifecycle.cancel()
+    await expect(lifecycle.done).rejects.toThrow('Cancelled by user')
+  })
+
+  test('cancels a new run before session_init through the shared lifecycle', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: null,
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+
+    const lifecycle = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'new-session' },
+      options: { prompt: 'Cancel before init' },
+    })
+    lifecycle.cancel()
+
+    await expect(lifecycle.agentSessionId).rejects.toThrow('Interrupted')
+    await expect(lifecycle.done).rejects.toThrow('Interrupted')
+  })
+})
+
+describe('ControlPlane provider handoff', () => {
+  test('switches the tab instantly, without building the handoff, then builds it on the next prompt', async () => {
+    const buildCalls: Array<{ sessionId: string; projectPath: string }> = []
+    const env = setup({
+      backendIds: ['codex', 'claude-code'],
+      buildHandoff: async (sessionId, projectPath) => {
+        buildCalls.push({ sessionId, projectPath })
+        return {
+          transcriptFilePath: '/tmp/solus-handoffs/old-session-transcript.md',
+          reasoningFilePath: '/tmp/solus-handoffs/old-session-reasoning.md',
+        }
+      },
+    })
+    planes.push(env.controlPlane)
+    env.seedSession('old-session', {
+      backendId: 'codex',
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'old-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
+
+    await expect(env.controlPlane.switchSessionProvider('tab-a', 'claude-code')).resolves.toEqual({
+      fromProvider: 'codex',
+      fromSessionId: 'old-session',
+    })
+    // The switch itself never touches the handoff builder — it's deferred to
+    // the first prompt sent to the new provider.
+    expect(buildCalls).toEqual([])
+
+    // Deliberately submit the renderer's stale pre-switch context. The pending
+    // main-process handoff remains authoritative for the provider and session start.
+    await env.controlPlane.submitPrompt(
+      promptContext('tab-a', 'codex', 'old-session'),
+      { prompt: 'Continue from here' },
+    )
+
+    expect(buildCalls).toEqual([{
+      sessionId: 'old-session',
+      projectPath: process.cwd(),
+    }])
+
+    const claude = env.backends.find((backend) => backend.id === 'claude-code')!
+    expect(claude.lastInput?.provider).toBe('claude-code')
+    expect(claude.lastInput?.agentSessionId).toBeNull()
+    expect(claude.lastInput?.handoff).toMatchObject({
+      fromProvider: 'codex',
+      fromSessionId: 'old-session',
+    })
+    expect(claude.lastInput?.handoff?.seedSystemAppend).toContain('/tmp/solus-handoffs/old-session-transcript.md')
+    expect(claude.lastInput?.handoff?.seedSystemAppend).toContain('/tmp/solus-handoffs/old-session-reasoning.md')
+
+    const init = env.events.find(({ event }) =>
+      event.type === 'session_init' && event.handoffFrom?.sessionId === 'old-session'
+    )
+    expect(init?.event).toMatchObject({
+      type: 'session_init',
+      handoffFrom: { provider: 'codex', sessionId: 'old-session' },
+    })
+    const tab = (env.controlPlane as unknown as {
+      tabs: Map<string, { handoffFrom?: { provider: AgentId; sessionId: string } }>
+    }).tabs.get('tab-a')
+    expect(tab?.handoffFrom).toEqual({ provider: 'codex', sessionId: 'old-session' })
+  })
+
+  test('rejects an idle provider mismatch that has no pending handoff', async () => {
+    const env = setup({ backendIds: ['codex', 'claude-code'] })
+    planes.push(env.controlPlane)
+    env.seedSession('old-session', {
+      backendId: 'codex',
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'old-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
+
+    await expect(env.controlPlane.submitPrompt(
+      promptContext('tab-a', 'claude-code', 'old-session'),
+      { prompt: 'Continue from here' },
+    )).rejects.toThrow('Provider changed without a handoff — this is a bug')
+
+    const claude = env.backends.find((backend) => backend.id === 'claude-code')!
+    expect(claude.inputs).toHaveLength(0)
+  })
+
+  test('rejects switching while the current session is busy', async () => {
+    const env = setup({ backendIds: ['codex', 'claude-code'] })
+    planes.push(env.controlPlane)
+    env.seedSession('busy-session', {
+      backendId: 'codex',
+      status: 'running',
+      runInput: sampleRunInput('codex', 'busy-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'busy-session')
+
+    await expect(
+      env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
+    ).rejects.toThrow('must be idle before switching providers')
+  })
+})
+
+describe('ControlPlane idle-tab Git environments', () => {
+  test('broadcasts live Git state without requiring a backend session', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.controlPlane.createTab('idle-tab', { clientId: 'ws:a', deviceId: 'device-1' })
+    env.controlPlane.setTabGitEnvironment('idle-tab', process.cwd(), {
+      repoRoot: process.cwd(),
+      branch: 'stale-branch',
+      targetBranch: 'main',
+    })
+
+    await (env.controlPlane as unknown as { _onGitWatchFire(cwd: string): Promise<void> })._onGitWatchFire(process.cwd())
+
+    expect(env.events.some(({ tabId, event }) => tabId === 'idle-tab' && event.type === 'git_status')).toBe(true)
+    expect(env.events.some(({ tabId, event }) => tabId === 'idle-tab' && event.type === 'git_context')).toBe(true)
+  })
 })
 
 describe('ControlPlane device-scoped tab watches', () => {
@@ -185,8 +605,11 @@ describe('ControlPlane device-scoped tab watches', () => {
     expect(terminalEvents.map((event) => event.type)).toEqual([
       'status_change',
       'task_complete',
-      'status_change',
     ])
+    expect(terminalEvents[0]).toMatchObject({
+      type: 'status_change',
+      status: 'completed',
+    })
     expect(terminalEvents.some((event) => event.type === 'prompt_queued')).toBe(false)
   })
 

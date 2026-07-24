@@ -281,10 +281,10 @@
     display: none;
   }
 
-  /* Expanded rows read as a menu: active + hovered rows get the accent wash,
-     matching the slash-command / autocomplete dropdowns. */
+  /* Expanded rows read as a menu: hover stays neutral while active keeps the
+     accent wash used for the current location. */
   .msg-nav.expanded .msg-nav-row:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .msg-nav.expanded .msg-nav-row.active {

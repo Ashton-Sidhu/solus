@@ -18,13 +18,15 @@
   import {
     APP_FONT_FAMILIES,
     APP_CODE_FONT_FAMILIES,
-    getSettingsContext,
-  } from "../contexts/settings.context.svelte";
+  } from "../contexts/app/settings.context.svelte";
   import { useKeybinding } from "../lib/keybindings/use-keybinding.svelte";
-  import { getAgentContext } from "../contexts/agent.context.svelte";
-  import { getWorkspaceContext } from "../contexts/workspace.context.svelte";
-  import { getWindowContext } from "../contexts/window.context.svelte";
-  import { toolsStore } from "../contexts/tools.store.svelte";
+  import {
+    getAgentContext,
+    getSettingsContext,
+    getWorkspaceContext,
+    getWindowContext,
+    toolsStore,
+  } from "../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../lib/agentAvailability";
   import { getPopoverLayer, useClickOutside } from "./popoverLayer.svelte";
   import { portal } from "./portal";
@@ -183,7 +185,7 @@
     bind:this={popoverEl}
     use:portal={layer.el}
     transition:fly={{ y: 4, duration: 120 }}
-    class="rounded-xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+    class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
     style="
         position:fixed;
         bottom:{pos.bottom}px;
@@ -255,7 +257,7 @@
           </button>
           {#if agentOpen}
             <div
-              class="rounded-xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+              class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
               style="
                 position:absolute;
                 top:calc(100% + 0.25rem);
@@ -267,29 +269,15 @@
                 box-shadow:var(--solus-popover-shadow);
               "
             >
-              <div class="py-1">
+              <div class="p-1">
                 {#each agentRows as agent (agent.id)}
                   <button
                     type="button"
                     aria-label={`Use ${agent.label} as the default agent`}
                     onclick={() => selectAgent(agent.id)}
-                    class="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[0.6875rem] transition-[background-color,color,opacity] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
-                    style="
-                      color:{agent.id === theme.activeAgent
-                        ? 'var(--solus-text-primary)'
-                        : 'var(--solus-text-secondary)'};
-                      font-weight:{agent.id === theme.activeAgent ? 600 : 400};
-                      cursor:pointer;
-                      opacity:1;
-                    "
-                    onmouseenter={(e) => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        "var(--solus-accent-light)";
-                    }}
-                    onmouseleave={(e) => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        "transparent";
-                    }}
+                    class="menu-item-stagger w-full flex cursor-pointer items-center justify-between gap-2 rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-[background-color,color] focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) {agent.id === theme.activeAgent
+                      ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
+                      : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
                   >
                     <span class="min-w-0 truncate">{agent.label}</span>
                     {#if agent.id === theme.activeAgent}<CheckIcon
@@ -497,7 +485,7 @@
             {#if editorOpen}
               {@const selected = theme.defaultEditor ?? ""}
               <div
-                class="rounded-xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+                class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
                 style="
                     position:absolute;
                     top:calc(100% + 0.25rem);
@@ -509,17 +497,13 @@
                     box-shadow:var(--solus-popover-shadow);
                   "
               >
-                <div class="py-1">
+                <div class="p-1">
                   {#each tools.detectedEditors as editor (editor.id)}
                     <button
                       onclick={() => selectEditor(editor.id)}
-                      class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
-                      style="color:{selected === editor.id
-                        ? 'var(--solus-text-primary)'
-                        : 'var(--solus-text-secondary)'};font-weight:{selected ===
-                      editor.id
-                        ? 600
-                        : 400}"
+                      class="menu-item-stagger w-full flex items-center justify-between rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-colors {selected === editor.id
+                        ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
+                        : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
                     >
                       {editor.name}
                       {#if selected === editor.id}<CheckIcon
@@ -566,7 +550,7 @@
             {#if terminalOpen}
               {@const selected = theme.defaultTerminal ?? "default-terminal"}
               <div
-                class="rounded-xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+                class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
                 style="
                     position:absolute;
                     top:calc(100% + 0.25rem);
@@ -578,17 +562,13 @@
                     box-shadow:var(--solus-popover-shadow);
                   "
               >
-                <div class="py-1">
+                <div class="p-1">
                   {#each tools.detectedTerminals as terminal (terminal.id)}
                     <button
                       onclick={() => selectTerminal(terminal.id)}
-                      class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
-                      style="color:{selected === terminal.id
-                        ? 'var(--solus-text-primary)'
-                        : 'var(--solus-text-secondary)'};font-weight:{selected ===
-                      terminal.id
-                        ? 600
-                        : 400}"
+                      class="menu-item-stagger w-full flex items-center justify-between rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-colors {selected === terminal.id
+                        ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
+                        : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
                     >
                       {terminal.name}
                       {#if selected === terminal.id}<CheckIcon
@@ -635,7 +615,7 @@
           {#if rateLimitOpen}
             {@const selected = theme.rateLimitBehavior}
             <div
-              class="rounded-xl bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+              class="rounded-[14px] bg-(--solus-popover-bg) border border-(--solus-popover-border)"
               style="
                 position:absolute;
                 bottom:calc(100% + 0.25rem);
@@ -647,20 +627,16 @@
                 box-shadow:var(--solus-popover-shadow);
               "
             >
-              <div class="py-1">
+              <div class="p-1">
                 {#each rateLimitStrats as [val, label] (val)}
                   <button
                     onclick={() =>
                       selectRateLimitBehavior(
                         val as "ask" | "continue" | "stop" | "queue",
                       )}
-                    class="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] transition-colors hover:bg-(--solus-accent-light)"
-                    style="color:{selected === val
-                      ? 'var(--solus-text-primary)'
-                      : 'var(--solus-text-secondary)'};font-weight:{selected ===
-                    val
-                      ? 600
-                      : 400}"
+                    class="menu-item-stagger w-full flex items-center justify-between rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-colors {selected === val
+                      ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
+                      : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
                   >
                     {label}
                     {#if selected === val}<CheckIcon

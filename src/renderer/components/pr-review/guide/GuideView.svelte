@@ -1,7 +1,13 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import { ClockIcon } from "phosphor-svelte";
   import type { ReviewGuide, ReviewLedger } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
+  import type { FileVersions } from "../../../lib/diff-expandable";
+  import {
+    formatAbsoluteTimestamp,
+    formatTimeAgoFromTimestamp,
+  } from "../../../lib/sessionUtils";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
   import CodeSpan from "../../ui/CodeSpan.svelte";
   import { splitPatchByFile, type GuideDiffCommentSave } from "./lib/guide-data";
@@ -19,7 +25,9 @@
     guide,
     ledger,
     patch,
+    fileVersions,
     meta,
+    guideCurrent = true,
     onFileJump,
     comments = [],
     onCommentSave,
@@ -28,9 +36,14 @@
     guide: ReviewGuide;
     ledger: ReviewLedger | null;
     patch: string;
+    /** Both versions of each changed file, keyed by path. Present only when the
+     *  host could fetch them; without it the cards' hunk gaps aren't expandable. */
+    fileVersions?: Map<string, FileVersions>;
     /** PR identity for the intro header's metadata line (`repo#number · base ←
      *  branch`). Absent for standalone local-branch reviews. */
     meta?: { repo?: string; number?: number; baseRef: string; branch: string };
+    /** Whether the cached guide describes the checkout's current HEAD. */
+    guideCurrent?: boolean;
     /** Forwarded to each section so file chips can route to a host Diff tab. */
     onFileJump?: (path: string) => void;
     /** Review-draft comments + handlers, forwarded to every section's diff cards.
@@ -45,6 +58,15 @@
 
   const mainSections = $derived(guide.sections.filter((s) => s.significance !== "low-signal"));
   const lowSignalSections = $derived(guide.sections.filter((s) => s.significance === "low-signal"));
+  const generatedTimestamp = $derived(
+    guide.generatedAt ? new Date(guide.generatedAt).getTime() : 0,
+  );
+  const generatedTime = $derived(
+    formatTimeAgoFromTimestamp(generatedTimestamp),
+  );
+  const generatedTitle = $derived(
+    formatAbsoluteTimestamp(generatedTimestamp),
+  );
 
   // The guide owns its own scroller so the rail can pin to its viewport.
   let scrollEl = $state<HTMLElement | null>(null);
@@ -64,19 +86,41 @@
             {guide.title}
           </h1>
 
-          {#if meta}
+          {#if meta || guide.generatedAt}
             <div
               class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-(--solus-text-tertiary)"
             >
-              {#if meta.repo}
+              {#if meta?.repo}
                 <span class="font-medium text-(--solus-text-secondary)">{meta.repo}#{meta.number}</span>
                 <span class="opacity-50">·</span>
               {/if}
-              <span class="inline-flex items-center gap-1.5 font-mono text-[0.75rem]">
-                <span>{meta.baseRef}</span>
-                <span aria-hidden="true">←</span>
-                <span class="text-(--solus-text-secondary)">{meta.branch}</span>
-              </span>
+              {#if meta}
+                <span class="inline-flex items-center gap-1.5 font-mono text-[0.75rem]">
+                  <span>{meta.baseRef}</span>
+                  <span aria-hidden="true">←</span>
+                  <span class="text-(--solus-text-secondary)">{meta.branch}</span>
+                </span>
+              {/if}
+              {#if meta && guide.generatedAt}
+                <span class="opacity-50">·</span>
+              {/if}
+              {#if guide.generatedAt}
+                <span
+                  class="inline-flex items-center gap-1 tabular-nums"
+                  title={generatedTitle ? `Generated ${generatedTitle}` : undefined}
+                >
+                  <ClockIcon size={12} weight="bold" />
+                  Generated {generatedTime ?? "recently"}
+                </span>
+                <span class="opacity-50">·</span>
+                <span
+                  class="font-medium {guideCurrent
+                    ? 'text-(--solus-text-secondary)'
+                    : 'text-amber-700 dark:text-amber-400'}"
+                >
+                  {guideCurrent ? "Current" : "Outdated"}
+                </span>
+              {/if}
             </div>
           {/if}
 
@@ -93,6 +137,7 @@
               {section}
               {records}
               {patchByPath}
+              {fileVersions}
               {onFileJump}
               {comments}
               {onCommentSave}
@@ -119,6 +164,7 @@
                   {section}
                   {records}
                   {patchByPath}
+                  {fileVersions}
                   {onFileJump}
                   {comments}
                   {onCommentSave}

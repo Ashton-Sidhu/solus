@@ -2,7 +2,7 @@ import { GitBranchIcon, GitMergeIcon, GitPullRequestIcon, WarningCircleIcon } fr
 import type { PullRequestSummary } from '../../../../shared/providers'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
-export type PrSortMode = 'updated' | 'created'
+export type PrSortMode = 'updated' | 'created' | 'effort'
 
 export interface PrStatusBadge {
   label: string
@@ -31,6 +31,12 @@ export function prStatusBadge(
   return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--solus-art-positive)' }
 }
 
+/** Shorten an absolute project path for display in the project switcher: the
+ *  home prefix collapses to `~` so the repo location still reads at a glance. */
+export function displayProjectPath(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
+}
+
 export function filterPrs(
   items: PullRequestSummary[],
   query: string,
@@ -56,10 +62,34 @@ export function sortPrs(
   mode: PrSortMode,
 ): PullRequestSummary[] {
   return [...items].sort((a, b) => {
+    if (mode === 'effort') {
+      if (!a.effort && !b.effort) return b.updatedAt.localeCompare(a.updatedAt)
+      if (!a.effort) return 1
+      if (!b.effort) return -1
+      return a.effort.minutes - b.effort.minutes || b.updatedAt.localeCompare(a.updatedAt)
+    }
     const dateA = mode === 'created' ? a.createdAt : a.updatedAt
     const dateB = mode === 'created' ? b.createdAt : b.updatedAt
     return dateB.localeCompare(dateA)
   })
+}
+
+export function reviewEffortSummary(items: PullRequestSummary[]): {
+  count: number
+  knownCount: number
+  minutes: number
+} | null {
+  const known = items.filter((pr) => pr.effort)
+  if (known.length === 0) return null
+  return {
+    count: items.length,
+    knownCount: known.length,
+    minutes: known.reduce((sum, pr) => sum + pr.effort!.minutes, 0),
+  }
+}
+
+export function reviewEffortTooltip(pr: PullRequestSummary): string | undefined {
+  return pr.effort?.signals.join(' · ')
 }
 
 export function relativeTime(iso: string): string {

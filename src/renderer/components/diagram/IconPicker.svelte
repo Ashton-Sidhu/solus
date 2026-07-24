@@ -252,7 +252,7 @@
   }
 
   .icon-picker__item:hover {
-    background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
+    background: var(--solus-surface-hover);
     color: var(--solus-accent);
     border-color: color-mix(in srgb, var(--solus-accent) 20%, transparent);
   }
@@ -322,7 +322,7 @@
 
   .icon-picker__clear:hover {
     color: var(--solus-text-secondary);
-    background: color-mix(in srgb, var(--solus-text-tertiary) 12%, transparent);
+    background: var(--solus-surface-hover);
   }
 
   .icon-picker__clear:focus-visible {
@@ -355,6 +355,6 @@
   }
 
   .icon-picker__retry:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
 </style>

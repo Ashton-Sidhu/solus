@@ -3,6 +3,7 @@
   import { Editor, Extension, type AnyExtension } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
   import { Markdown } from "@tiptap/markdown";
+  import { createMarkdownParser } from "./markdownParser";
   import Placeholder from "@tiptap/extension-placeholder";
   import Typography from "@tiptap/extension-typography";
   import TaskList from "@tiptap/extension-task-list";
@@ -45,6 +46,7 @@
     onKeyDown?: (e: KeyboardEvent) => boolean;
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
+    onPrRefClick?: (number: number, title?: string) => void;
     onFileRefClick?: (path: string) => void;
     onFocus?: () => void;
     onBlur?: () => void;
@@ -67,6 +69,7 @@
     onKeyDown,
     onPlanRefClick,
     onWorkRefClick,
+    onPrRefClick,
     onFileRefClick,
     onFocus,
     onBlur,
@@ -143,7 +146,7 @@
             class: "solus-dropcursor",
           },
         }),
-        Markdown,
+        Markdown.configure({ marked: createMarkdownParser() }),
         CodeBlockLowlight.configure({ lowlight }),
         // Whole-doc placeholder when empty, otherwise a "/" command hint on the
         // current empty line so the slash menu is discoverable.
@@ -250,6 +253,11 @@
           if (node.type.name === "workReference") {
             event.preventDefault();
             onWorkRefClick?.(node.attrs.workId, node.attrs.title);
+            return true;
+          }
+          if (node.type.name === "prReference") {
+            event.preventDefault();
+            onPrRefClick?.(node.attrs.number, node.attrs.title);
             return true;
           }
           if (node.type.name === "fileReference") {

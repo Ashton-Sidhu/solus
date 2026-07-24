@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { AnyExtension, Editor } from "@tiptap/core";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
+  import { getWorkspaceContext, getPlanStore } from "../../contexts";
   import type {
     AgentId,
     PlanReference,
@@ -15,6 +14,7 @@
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
   import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
   import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
+  import PrAutocompleteMenu from "../prs/PrAutocompleteMenu.svelte";
 
   interface Props {
     value: string;
@@ -30,6 +30,7 @@
     onKeyDown?: (e: KeyboardEvent) => void;
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
+    onPrRefClick?: (number: number, title?: string) => void;
     onFileRefClick?: (path: string) => void;
     onFocus?: () => void;
     onBlur?: () => void;
@@ -59,6 +60,7 @@
     onKeyDown,
     onPlanRefClick,
     onWorkRefClick,
+    onPrRefClick,
     onFileRefClick,
     onFocus,
     onBlur,
@@ -83,7 +85,7 @@
   const ed = () => docEl?.getEditor() ?? null;
 
   // The reference-autocomplete machine, with the `/` channel off — the document
-  // editor's own block-command menu owns `/`. Only @ # % insert references here.
+  // editor's own block-command menu owns `/`. Only @ # % ! insert references here.
   const ac = new AutocompleteController({
     readOnly: () => readOnly,
     workingDirectory: () => workingDirectory,
@@ -187,6 +189,17 @@
   />
 {/if}
 
+{#if ac.showPrMenu}
+  <PrAutocompleteMenu
+    pullRequests={ac.prResults}
+    isLoading={ac.isPrMenuLoading}
+    selectedIndex={ac.prIndex}
+    onSelect={ac.handlePrSelect}
+    anchorRect={ac.cursorAnchorRect}
+    placement={menuPlacement}
+  />
+{/if}
+
 <DocumentEditor
   bind:this={docEl}
   {value}
@@ -197,6 +210,7 @@
   {onModeChange}
   {onPlanRefClick}
   {onWorkRefClick}
+  {onPrRefClick}
   {onFileRefClick}
   {onFocus}
   {onBlur}

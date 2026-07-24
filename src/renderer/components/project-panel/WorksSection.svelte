@@ -1,6 +1,6 @@
 <script lang="ts">
   import { FileTextIcon, GraphIcon, PresentationIcon } from "phosphor-svelte";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import type { SessionWork } from "./lib/session-works";
@@ -23,7 +23,7 @@
     <li>
       <button
         type="button"
-        class="group flex min-h-[2rem] w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left text-(--solus-text-primary) transition-colors duration-150 hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+        class="group flex min-h-[2rem] w-full cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left text-(--solus-text-primary) transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
         onclick={() => open(item)}
       >
         <span

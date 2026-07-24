@@ -1,6 +1,9 @@
+import { processFile } from "@pierre/diffs";
 import type { ReviewGuide, ReviewLedger, ReviewProgressStep } from "../../../../shared/review";
-import type { AgentId, IpcContext, ReasoningEffort } from "../../../../shared/types";
+import { FULL_CONTEXT_LINES, type AgentId, type IpcContext, type ReasoningEffort } from "../../../../shared/types";
+import { fileVersionsFromFullContext, type FileVersions } from "../../../lib/diff-expandable";
 import { requestInputFocus } from "../../../lib/inputFocus";
+import { splitPatchByFile } from "../../pr-review/guide/lib/guide-data";
 
 export interface GuideLoaderOptions {
   /** The session IPC context to issue calls against. */
@@ -11,8 +14,22 @@ export interface GuideLoaderOptions {
    *  the full-branch walkthrough. The stable key identifies storage; scope tells
    *  the producer which point-in-time diff base to record. */
   getScope: () => "branch" | "session";
+  /** Present only while a PR is using its live stacked-parent base. */
+  getOwnDeltaBase?: () => { parent: number; headSha: string } | null;
   /** Effective agent/model/reasoning for a fresh generation. */
   getAgent: () => { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null };
+}
+
+/** Recover each file's old/new contents from a full-context patch, keyed by the
+ *  post-image path the guide's file refs use. */
+function parseFileVersions(patch: string): Map<string, FileVersions> {
+  const out = new Map<string, FileVersions>();
+  for (const [path, chunk] of splitPatchByFile(patch)) {
+    const parsed = processFile(chunk, { isGitDiff: true });
+    const versions = parsed && fileVersionsFromFullContext(parsed);
+    if (versions) out.set(path, versions);
+  }
+  return out;
 }
 
 /**
@@ -28,6 +45,10 @@ export class GuideLoader {
   guide = $state<ReviewGuide | null>(null);
   ledger = $state<ReviewLedger | null>(null);
   patch = $state("");
+  /** Both versions of each changed file, so the guide's diff cards can expand
+   *  the unchanged gaps between hunks. Empty when the extra fetch failed — the
+   *  cards then render exactly as they do today. */
+  fileVersions = $state(new Map<string, FileVersions>());
   loading = $state(true);
   progressStep = $state<ReviewProgressStep>("preparing");
   /** A cached guide whose `headSha` no longer matches the checkout's HEAD —
@@ -40,7 +61,7 @@ export class GuideLoader {
     this.#opts = opts;
   }
 
-  async load(regenerate: boolean): Promise<void> {
+  async load(regenerate: boolean, generateIfMissing = true): Promise<void> {
     const ctx = this.#opts.getCtx();
     const key = this.#opts.getKey();
     this.loading = true;
@@ -49,6 +70,12 @@ export class GuideLoader {
     const cached = regenerate ? null : await window.solus.readGuide(ctx, key);
     if (cached) {
       this.guide = cached;
+    } else if (!generateIfMissing) {
+      this.guide = null;
+      this.ledger = null;
+      this.patch = "";
+      this.loading = false;
+      return;
     } else {
       this.progressStep = "preparing";
       // Match progress events to this key's generation (events broadcast to
@@ -61,6 +88,7 @@ export class GuideLoader {
         const generated = await window.solus.generateGuide(ctx, {
           ...this.#opts.getAgent(),
           scope: this.#opts.getScope(),
+          ownDeltaBase: this.#opts.getOwnDeltaBase?.() ?? undefined,
         });
         this.guide = generated?.guide ?? null;
       } finally {
@@ -85,12 +113,22 @@ export class GuideLoader {
       // shows only this session's diff (not the whole branch). Older cached guides
       // predate `baseSha`, so fall back to the branch base.
       const baseSha = this.guide.baseSha ?? reviewCtx?.baseSha ?? null;
-      this.patch = baseSha
-        ? (await window.solus.diff(ctx, { scope: { kind: "pr", baseSha } }).catch(() => null))?.patch ?? ""
-        : "";
+      // The second request asks for the same diff with enough context to swallow
+      // each file whole, which is what makes the cards' hunk gaps expandable.
+      const [patch, fullContext] = baseSha
+        ? await Promise.all([
+            window.solus.diff(ctx, { scope: { kind: "pr", baseSha } }).catch(() => null),
+            window.solus
+              .diff(ctx, { scope: { kind: "pr", baseSha }, contextLines: FULL_CONTEXT_LINES })
+              .catch(() => null),
+          ])
+        : [null, null];
+      this.patch = patch?.patch ?? "";
+      this.fileVersions = parseFileVersions(fullContext?.patch ?? "");
     } else {
       this.ledger = null;
       this.patch = "";
+      this.fileVersions = new Map();
     }
 
     this.loading = false;

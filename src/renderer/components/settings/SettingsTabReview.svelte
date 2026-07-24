@@ -5,11 +5,13 @@
     RobotIcon,
     SparkleIcon,
     GaugeIcon,
+    LightningIcon,
+    PlayCircleIcon,
   } from "phosphor-svelte";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from "../../../shared/types";
-  import { getSettingsContext } from "../../contexts/settings.context.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
+  import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { Switch } from "../ui/switch";
 
   interface Props {
     searchQuery?: string;
@@ -19,6 +21,9 @@
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
+  const session = getWorkspaceContext();
+  const projectPath = $derived(session.ctx.session.projectPath || session.ctx.session.workingDirectory);
+  const warmingEnabled = $derived(theme.isReviewWarmingEnabled(projectPath));
 
   let reviewAgentOpen = $state(false);
   let reviewModelOpen = $state(false);
@@ -84,12 +89,25 @@
     requestInputFocus();
   }
 
+  function setWarmingEnabled(enabled: boolean) {
+    theme.setReviewWarmingEnabled(projectPath, enabled);
+    void session.prsStore.refreshNeedsReview(session.ctx).catch(() => {});
+    requestInputFocus();
+  }
+
+  function setGenerateOnOpen(enabled: boolean) {
+    theme.update({ generatePrGuidesOnOpen: enabled });
+    requestInputFocus();
+  }
+
   interface SettingItem {
     id: string;
     keywords: string[];
   }
 
   const settingItems: SettingItem[] = [
+    { id: "review-generate-on-open", keywords: ["review", "guide", "generate", "open", "automatic", "agent"] },
+    { id: "review-warming", keywords: ["review", "guide", "warm", "background", "prefetch", "worktree"] },
     { id: "review-agent", keywords: ["review", "companion", "agent", "code review", "backend", "claude", "codex"] },
     { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
     { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
@@ -107,6 +125,42 @@
 </script>
 
 <div class="flex flex-col">
+  {#if isVisible("review-generate-on-open")}
+    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
+      <div class="flex min-w-0 items-center gap-3">
+        <PlayCircleIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+        <div>
+          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Generate PR guides on open</div>
+          <div class="mt-px text-pretty text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary)">Run the review agent when an opened PR has no cached guide</div>
+        </div>
+      </div>
+      <Switch
+        checked={theme.generatePrGuidesOnOpen}
+        onCheckedChange={setGenerateOnOpen}
+        class="after:-inset-y-[11px]"
+        aria-label="Generate PR review guides when opened"
+      />
+    </div>
+  {/if}
+
+  {#if isVisible("review-warming")}
+    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <LightningIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+        <div>
+          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Warm review guides</div>
+          <div class="text-pretty text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Generate guides and prefetch top PR worktrees for this project</div>
+        </div>
+      </div>
+      <Switch
+        checked={warmingEnabled}
+        onCheckedChange={setWarmingEnabled}
+        class="after:-inset-y-[11px]"
+        aria-label="Warm review guides for this project"
+      />
+    </div>
+  {/if}
+
   {#if isVisible("review-agent")}
     <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
       <div class="flex items-center gap-3 min-w-0">

@@ -61,13 +61,79 @@ export const DIFFS_THEME_CSS = `
   :host diffs-component span {
     font-family: inherit !important;
   }
-  [data-separator] {
+  [data-separator='metadata'] {
     color: var(--solus-diff-hunk-text);
     font-size: 0.75em;
     font-style: italic;
     padding: 3px 0;
     letter-spacing: 0.01em;
     opacity: 0.7;
+  }
+  /* Expandable gaps: "N unchanged lines" with up/down chevrons and, on gaps
+     bigger than one expansion chunk, "Expand all". The library packs those
+     controls into a gutter-width grid that drops the last one onto a second row,
+     so — following its own CustomHunkSeparators example — the wrapper becomes a
+     max-content row anchored at the gutter's right edge and pulled back over the
+     number column. Height stays 32px: the virtualizer hard-codes that for this
+     separator type, so changing it desyncs scroll positions.
+
+     Additions-side wrappers stay hidden (the library's own rule); matching only
+     the unified / deletions gutter keeps split view from drawing them twice. */
+  [data-diff-type='single'] [data-gutter],
+  [data-diff-type='split'] [data-deletions] [data-gutter] {
+    [data-separator='line-info-basic'] [data-separator-wrapper] {
+      display: flex;
+      align-items: center;
+      inset-inline: auto;
+      left: 100%;
+      width: max-content;
+      margin-left: calc(-2ch - 4px);
+      background: transparent;
+      color: var(--solus-diff-hunk-text);
+      font-size: 0.85em;
+      letter-spacing: 0.01em;
+    }
+    [data-separator='line-info-basic'] [data-expand-button],
+    [data-separator='line-info-basic'] [data-separator-content] {
+      align-self: center;
+      flex: none;
+      min-width: 0;
+      height: auto;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: inherit;
+      grid-column: unset;
+    }
+    [data-separator='line-info-basic'] [data-separator-content] {
+      padding-inline: 0.75ch;
+    }
+    [data-separator='line-info-basic'] [data-expand-button] {
+      width: 2ch;
+      justify-content: center;
+      border-radius: 3px;
+      transition: color 120ms ease, transform 120ms ease;
+    }
+    [data-separator='line-info-basic'] [data-expand-button] svg {
+      width: 9px;
+      height: 9px;
+    }
+    [data-separator='line-info-basic'] [data-expand-button]:hover,
+    [data-separator='line-info-basic'] [data-separator-content]:hover {
+      color: var(--solus-accent);
+    }
+    [data-separator='line-info-basic'] [data-expand-button]:active {
+      transform: scale(0.9);
+    }
+    /* Shipped display:none for consumers to opt into. It only renders when the
+       gap is larger than a single expansion chunk. */
+    [data-separator='line-info-basic'] [data-expand-button][data-expand-all-button] {
+      display: flex;
+      width: auto;
+      margin-left: 0.75ch;
+      padding-inline: 0.5ch;
+      font-size: 0.95em;
+    }
   }
   [data-column-number] {
     padding-left: 1.5ch;
@@ -160,6 +226,23 @@ export const DIFFS_THEME_CSS = `
   [data-deletions-count] {
     color: var(--solus-diff-removed-text-vivid);
     background: var(--solus-diff-removed-number-vivid);
+  }
+  /* Moved blocks keep their syntax shape but recede to context strength. Only
+     the character ranges changed inside a moved block regain vivid emphasis. */
+  [data-solus-moved],
+  [data-solus-moved] * {
+    color: var(--solus-text-tertiary) !important;
+    background-color: transparent !important;
+  }
+  [data-solus-move-edit] {
+    color: var(--solus-text-primary) !important;
+    border-radius: 2px;
+  }
+  [data-solus-move-edit='old'] {
+    background-color: var(--solus-diff-removed-emphasis-vivid) !important;
+  }
+  [data-solus-move-edit='new'] {
+    background-color: var(--solus-diff-added-emphasis-vivid) !important;
   }
   /* Ensure annotations land in the correct grid column in split+wrap mode.
      Without these, auto-placement can put additions-side annotations in cols 1-2. */

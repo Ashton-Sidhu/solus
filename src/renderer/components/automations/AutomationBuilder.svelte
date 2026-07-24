@@ -18,6 +18,7 @@
     Automation,
     AutomationAction,
     AutomationPlanRef,
+    AutomationRun,
     AutomationTrigger,
     AgentId,
     PlanReference,
@@ -25,13 +26,11 @@
     WorkReference,
   } from "../../../shared/types";
   import { REASONING_EFFORT_LABELS } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts/workspace.context.svelte";
+  import { getWorkspaceContext, toasts, getAgentContext, getPlanStore } from "../../contexts";
   import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
-  import { getAgentContext } from "../../contexts/agent.context.svelte";
-  import { getPlanStore } from "../../contexts/plan.store.svelte";
   import { agentLabel } from "../../lib/agentAvailability";
   import * as Select from "../ui/select";
   import { Input } from "../ui/input";
@@ -57,12 +56,13 @@
     runDuration,
     WEEKDAYS,
     RUN_STATUS_META,
+    automationRunCwd,
   } from "./lib/automation-format";
   import { formatSavedAgo } from "../document-shell/saveStatus";
 
   import { untrack } from "svelte";
 
-  import type { PaneSlot } from "../../contexts/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
 
   interface Props {
     automation: Automation | null;
@@ -112,7 +112,7 @@
     "hover:bg-(--solus-surface-hover) dark:bg-transparent dark:hover:bg-(--solus-surface-hover) [&_svg]:size-[11px] [&_svg]:opacity-60";
   const TIME_FIELD =
     "sel-ghost scheme-light dark:scheme-dark h-6 w-[4.75rem] min-w-0 appearance-none rounded-md border-0 bg-transparent px-1.5 py-0.5 text-[0.6875rem] tabular-nums " +
-    "text-(--solus-text-primary) transition-[background-color,outline-color] duration-120 hover:bg-(--solus-accent-light) " +
+    "text-(--solus-text-primary) transition-[background-color,outline-color] duration-120 hover:bg-(--solus-surface-hover) " +
     "focus-visible:border-transparent focus-visible:bg-(--solus-accent-light) focus-visible:ring-0 " +
     "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
     "pointer-coarse:h-10 pointer-coarse:w-24 pointer-coarse:rounded-lg pointer-coarse:px-2 pointer-coarse:text-xs " +
@@ -156,7 +156,7 @@
   const FIELD =
     "text-md text-(--solus-text-primary) bg-(--solus-surface-hover) rounded-lg px-2 py-[0.3125rem] border-0 " +
     "[outline:0.0625rem_solid_transparent] [color-scheme:light] [.dark_&]:[color-scheme:dark] transition-[background-color,outline-color] duration-120 " +
-    "hover:bg-(--solus-accent-light) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
+    "hover:bg-(--solus-surface-hover) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
     "focus-visible:[outline:0.125rem_solid_color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
     "[&::-webkit-calendar-picker-indicator]:opacity-45 [&::-webkit-calendar-picker-indicator]:cursor-pointer hover:[&::-webkit-calendar-picker-indicator]:opacity-80 " +
     "pointer-coarse:min-h-11 pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-base";
@@ -166,7 +166,7 @@
   const SUB_LABEL = "text-[0.6875rem] text-(--solus-text-tertiary) shrink-0";
   const RUN_ROW =
     "w-full flex items-center gap-2 px-2 py-[0.4375rem] rounded-lg border-0 bg-transparent cursor-pointer text-left transition-[background-color] duration-100 " +
-    "hover:not-disabled:bg-(--solus-accent-light) disabled:cursor-default " +
+    "hover:not-disabled:bg-(--solus-surface-hover) disabled:cursor-default " +
     "focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] " +
     "pointer-coarse:min-h-12 pointer-coarse:px-2.5 pointer-coarse:py-2.5";
 
@@ -174,7 +174,7 @@
   const PANE_ICON_BTN =
     "inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent " +
     "text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out " +
-    "hover:bg-(--solus-accent-soft) hover:text-(--solus-accent) " +
+    "hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) " +
     "pointer-coarse:size-11";
 
@@ -440,7 +440,6 @@
   }
 
   // ── Persistence (auto-save) ──
-  let error = $state<string | null>(null);
   // Header save indicator — mirrors DocumentShell's auto-save status: a pulsing
   // dot + "Saving…" while a write is in flight, then a check + self-refreshing
   // "Last saved …" once it lands. `savedStatusNow` is ticked on an interval so
@@ -483,7 +482,6 @@
     // don't materialize it just because a field blurred or a select changed.
     // (Run now still creates via ensureCreated: running IS an intent to keep it.)
     if (!current && !name.trim() && !prompt.trim()) return;
-    error = null;
     isSaving = true;
     try {
       // First edit on a new automation: the lazy create already saved every draft.
@@ -496,7 +494,7 @@
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
     } catch (e: any) {
-      error = String(e?.message ?? e);
+      toasts.error(`Couldn't save automation: ${String(e?.message ?? e)}`);
     } finally {
       isSaving = false;
     }
@@ -511,7 +509,7 @@
   function commitTrigger() {
     const t = buildTrigger();
     if ("error" in t) {
-      error = t.error;
+      toasts.error(t.error);
       return;
     }
     void persist({ trigger: t });
@@ -539,7 +537,7 @@
     try {
       await store.runNow(id);
     } catch (e: any) {
-      error = String(e?.message ?? e);
+      toasts.error(`Couldn't run automation: ${String(e?.message ?? e)}`);
     } finally {
       running = false;
     }
@@ -553,7 +551,7 @@
     try {
       await store.cancel(id);
     } catch (e: any) {
-      error = String(e?.message ?? e);
+      toasts.error(`Couldn't stop automation: ${String(e?.message ?? e)}`);
     } finally {
       cancelling = false;
     }
@@ -561,24 +559,32 @@
 
   // ── Directory picker (Project) ──
   let pickerOpen = $state(false);
+  let pickerTriggerEl: HTMLButtonElement | null = $state(null);
+
+  function closePicker() {
+    pickerOpen = false;
+    requestAnimationFrame(() => pickerTriggerEl?.focus());
+  }
+
   function handlePickerSelect(dir: string) {
     cwd = dir;
-    pickerOpen = false;
+    closePicker();
     commitAction();
   }
 
-  function openRunSession(sessionId: string | null | undefined) {
-    if (!sessionId) return;
+  function openRunSession(run: AutomationRun) {
+    if (!run.agentSessionId) return;
+    const automationCwd = current?.action.cwd ?? cwd;
     // Resume the spawned run as a session so the user can inspect what it did,
-    // under the automation's SAVED provider/cwd (drafts may hold unsaved edits).
+    // under the exact directory used by that run (drafts may hold unsaved edits).
     void session.resumeSession({
       provider: current?.action.agentProvider ?? agentProvider,
-      sessionId,
+      sessionId: run.agentSessionId,
       slug: null,
       firstMessage: name || "Automation run",
       lastTimestamp: new Date().toISOString(),
       size: 0,
-      cwd: current?.action.cwd ?? cwd,
+      cwd: automationRunCwd(run, automationCwd, session.staticInfo?.homePath),
       projectPath: "",
     });
     // Leave the builder: close the pane (editor) or the full-page list (pill).
@@ -632,15 +638,6 @@
 {/snippet}
 
 {#snippet formBody()}
-  {#if error}
-    <p
-      class="text-xs text-[var(--solus-status-error,#e53e3e)] bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_10%,transparent)] px-3 py-2 rounded-lg"
-      role="alert"
-    >
-      {error}
-    </p>
-  {/if}
-
   <div
     class="grid grid-cols-[minmax(0,1fr)_minmax(15rem,19rem)] grid-rows-[minmax(0,1fr)] gap-8 items-stretch flex-1 min-h-0 @max-[56rem]:gap-6 @max-[46rem]:grid-cols-1 @max-[46rem]:grid-rows-[auto_minmax(0,1fr)] @max-[46rem]:gap-5"
   >
@@ -668,8 +665,12 @@
           onPlanRefClick={(planId) => session.openPlanModal(planId)}
           onWorkRefClick={(workId, title) =>
             session.openWorkModal(workId, title)}
+          onPrRefClick={(number, title) =>
+            void session.enterPrReview(number, title, {
+              ctx: session.ctxForDirectory(cwd),
+            })}
           menuPlacement="down"
-          placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs."
+          placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs, ! for PRs."
         />
       </div>
     </section>
@@ -678,7 +679,7 @@
     <!-- Retarget the shared ghost-select hover to the brand accent wash within
            these cards (overrides Select.svelte's neutral hover via specificity). -->
     <aside
-      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-ghost:hover]:bg-(--solus-accent-light)"
+      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-ghost:hover]:bg-(--solus-surface-hover)"
     >
       <!-- Status -->
       <section id="status" class={SECTION}>
@@ -760,7 +761,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Repeats">
                   {repeatOptions.find((o) => o.value === kind)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each repeatOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -795,7 +796,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Interval unit">
                   {intervalUnit}
                 </Select.Trigger>
-                <Select.Content class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each intervalUnitOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -831,7 +832,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Day of week">
                   {weekdayOptions.find((o) => o.value === weekday)?.label}
                 </Select.Trigger>
-                <Select.Content class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each weekdayOptions as opt (opt.value)}
                     <Select.Item value={String(opt.value)} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -903,8 +904,9 @@
             <dt>Project</dt>
             <dd>
               <button
+                bind:this={pickerTriggerEl}
                 type="button"
-                class="inline-flex items-center justify-end w-auto max-w-[11rem] gap-1 px-1.5 py-1 text-xs rounded-lg border-0 bg-transparent text-(--solus-text-primary) cursor-pointer transition-[background-color] duration-100 hover:bg-(--solus-accent-light) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:min-h-11 pointer-coarse:max-w-[14rem] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[0.9375rem]"
+                class="inline-flex items-center justify-end w-auto max-w-[11rem] gap-1 px-1.5 py-1 text-xs rounded-lg border-0 bg-transparent text-(--solus-text-primary) cursor-pointer transition-[background-color] duration-100 hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:min-h-11 pointer-coarse:max-w-[14rem] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[0.9375rem]"
                 onclick={() => (pickerOpen = true)}
                 title={cwd}
               >
@@ -924,7 +926,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Agent">
                   {agentSelectOptions.find((o) => o.value === agentProvider)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each agentSelectOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -947,7 +949,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Model">
                   {modelSelectOptions.find((o) => o.value === effectiveModelId)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each modelSelectOptions as opt (opt.value)}
                     <Select.Item value={opt.value ?? ""} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -970,7 +972,7 @@
                 <Select.Trigger class={GHOST_TRIGGER} aria-label="Reasoning">
                   {reasoningSelectOptions.find((o) => o.value === reasoningEffort)?.label}
                 </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
+                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each reasoningSelectOptions as opt (opt.value)}
                     <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
@@ -1038,7 +1040,7 @@
                 <button
                   type="button"
                   class={RUN_ROW}
-                  onclick={() => openRunSession(r.agentSessionId)}
+                  onclick={() => openRunSession(r)}
                   disabled={!r.agentSessionId}
                 >
                   <span
@@ -1209,7 +1211,9 @@
 
 <DirectoryPicker
   bind:open={pickerOpen}
-  onClose={() => (pickerOpen = false)}
+  onClose={closePicker}
   onSelect={handlePickerSelect}
   initialPath={cwd}
+  title="Choose automation project"
+  actionLabel="Use project"
 />

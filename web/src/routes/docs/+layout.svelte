@@ -33,8 +33,8 @@
 			</svg>
 			<span class="font-[family-name:var(--font-display)] text-[15px] font-bold tracking-[-0.03em] text-[#1A1714]">Solus</span>
 		</a>
+		<a href="/#workflow" class="nav-link text-[13px] text-[#6B6158] hover:text-[#1A1714] transition-colors no-underline whitespace-nowrap max-sm:hidden">Workflow</a>
 		<a href="/#how-it-works" class="nav-link text-[13px] text-[#6B6158] hover:text-[#1A1714] transition-colors no-underline whitespace-nowrap max-sm:hidden">How it works</a>
-		<a href="/#features" class="nav-link text-[13px] text-[#6B6158] hover:text-[#1A1714] transition-colors no-underline whitespace-nowrap max-sm:hidden">Features</a>
 		<a href="/docs" class="nav-link text-[13px] text-[#1A1714] font-medium no-underline whitespace-nowrap max-sm:hidden">Docs</a>
 		<button
 			onclick={downloadApp}
@@ -85,15 +85,15 @@
 			style="animation: popup-in 0.2s cubic-bezier(0.16, 1, 0.3, 1)"
 		>
 			<a
+				href="/#workflow"
+				class="px-4 py-3 text-[15px] text-[#1A1714] no-underline rounded-xl hover:bg-black/[0.04] transition-colors"
+				onclick={() => mobileMenuOpen = false}
+			>Workflow</a>
+			<a
 				href="/#how-it-works"
 				class="px-4 py-3 text-[15px] text-[#1A1714] no-underline rounded-xl hover:bg-black/[0.04] transition-colors"
 				onclick={() => mobileMenuOpen = false}
 			>How it works</a>
-			<a
-				href="/#features"
-				class="px-4 py-3 text-[15px] text-[#1A1714] no-underline rounded-xl hover:bg-black/[0.04] transition-colors"
-				onclick={() => mobileMenuOpen = false}
-			>Features</a>
 			<a
 				href="/docs"
 				class="px-4 py-3 text-[15px] text-[#1A1714] font-medium no-underline rounded-xl hover:bg-black/[0.04] transition-colors"

@@ -7,8 +7,22 @@
     type SelectionSide,
   } from "@pierre/diffs";
   import type { DiffComment } from "../../../../shared/types";
-  import { getSettingsContext } from "../../../contexts/settings.context.svelte";
+  import { getSettingsContext } from "../../../contexts";
   import { parsePatchMetadata } from "../../../lib/diff";
+  import {
+    buildExpandableMetadata,
+    type FileVersions,
+  } from "../../../lib/diff-expandable";
+  import {
+    detectMovedBlocks,
+    type DiffMoveAnalysis,
+  } from "../../../lib/diff-moves";
+  import { decorateMovedLines } from "../../../lib/diff-move-highlight";
+  import {
+    analyzeDiffNoise,
+    collapseFormatOnlyHunks,
+    diffNoiseLabel,
+  } from "../../../lib/diff-noise";
   import { DIFFS_THEME_CSS } from "../../../lib/diffTheme";
   import {
     getDiffWorkerPool,
@@ -19,8 +33,10 @@
   } from "../../../lib/diff-worker-pool";
   import DiffCommentForm from "../../diff/DiffCommentForm.svelte";
   import DiffInlineComment from "../../diff/DiffInlineComment.svelte";
-  import { InlineCommentDraft } from "../../../contexts/diff-comment-draft.store.svelte";
+  import { Button } from "../../ui/button";
+  import { InlineCommentDraft } from "../../diff/diff-comment-draft.store.svelte";
   import type { GuideDiffCommentSave } from "./lib/guide-data";
+  import { profilePrReviewWork } from "../lib/pr-review-profiler";
 
   type AnnotationMeta =
     | { kind: "comment"; comment: DiffComment }
@@ -38,15 +54,21 @@
   let {
     patch,
     filePath,
+    versions,
     comments = [],
     onSaveComment,
     onDeleteComment,
+    moveAnalysis: sharedMoveAnalysis,
   }: {
     patch: string;
     filePath: string;
+    /** Both versions of this file. When they line up with `patch`, the card's
+     *  hunk gaps become expandable; otherwise it renders exactly as before. */
+    versions?: FileVersions;
     comments?: DiffComment[];
     onSaveComment?: (comment: GuideDiffCommentSave) => void;
     onDeleteComment?: (id: string) => void;
+    moveAnalysis?: DiffMoveAnalysis;
   } = $props();
 
   const theme = getSettingsContext();
@@ -68,7 +90,73 @@
 
   // parsePatchMetadata caches by patch string, so this returns a stable reference
   // across annotation-only re-renders (keeps FileDiff from treating it as a new diff).
-  const fileDiffMeta = $derived(parsePatchMetadata(patch));
+  // Re-parsing against the file's two versions (when the host has them) is what
+  // makes the gaps between this card's hunks expandable — including for the
+  // concern-scoped hunk subsets the guide author picked.
+  const fileDiffMeta = $derived(
+    profilePrReviewWork(
+      "patch-parse",
+      () => {
+        const partial = parsePatchMetadata(patch);
+        if (!partial || !versions) return partial;
+        return buildExpandableMetadata(patch, partial, versions) ?? partial;
+      },
+      { filePath, patchCharacters: patch.length },
+    ),
+  );
+  const analyzedFiles = $derived(fileDiffMeta ? [fileDiffMeta] : []);
+  const localMoveAnalysis = $derived(
+    profilePrReviewWork(
+      "moved-block-analysis",
+      () => detectMovedBlocks(analyzedFiles),
+      { filePath },
+    ),
+  );
+  const moveAnalysis = $derived(sharedMoveAnalysis ?? localMoveAnalysis);
+  const noiseAnalysis = $derived(
+    fileDiffMeta
+      ? profilePrReviewWork(
+          "diff-noise-analysis",
+          () => analyzeDiffNoise(fileDiffMeta),
+          { filePath },
+        )
+      : null,
+  );
+  const movedSummary = $derived(moveAnalysis.byFile.get(filePath));
+  const autoCollapse = $derived(
+    noiseAnalysis?.autoCollapse === true ||
+      movedSummary?.allChangesMovedUnchanged === true,
+  );
+  let expanded = $state(false);
+  let formatExpanded = $state(false);
+  let previousMetadata = fileDiffMeta;
+  const formatOnlyCollapsed = $derived(
+    !!fileDiffMeta && !formatExpanded &&
+      !(autoCollapse && expanded) &&
+      (noiseAnalysis?.formatOnlyHunks.length ?? 0) > 0 &&
+      (noiseAnalysis?.formatOnlyHunks.length ?? 0) < fileDiffMeta.hunks.length,
+  );
+  const displayFileDiffMeta = $derived(
+    fileDiffMeta && formatOnlyCollapsed
+      ? collapseFormatOnlyHunks(fileDiffMeta)
+      : fileDiffMeta,
+  );
+  const formatSummary = $derived(
+    noiseAnalysis
+      ? `${noiseAnalysis.formatOnlyLineCount.toLocaleString()} line${noiseAnalysis.formatOnlyLineCount === 1 ? "" : "s"} · format-only · collapsed · unreviewed`
+      : "",
+  );
+
+  const collapsedSummary = $derived.by(() => {
+    if (noiseAnalysis?.kind) {
+      return `${filePath.split("/").pop() ?? filePath} · ${diffNoiseLabel(noiseAnalysis)} · unreviewed`;
+    }
+    if (movedSummary?.allChangesMovedUnchanged) {
+      const count = movedSummary.unchangedMovedLines;
+      return `${filePath.split("/").pop() ?? filePath} · ${count.toLocaleString()} line${count === 1 ? "" : "s"} · moved (unchanged) · collapsed · unreviewed`;
+    }
+    return "";
+  });
 
   function mapSide(side: SelectionSide | undefined): "old" | "new" {
     return side === "deletions" ? "old" : "new";
@@ -108,16 +196,20 @@
   }
 
   function renderDiff() {
-    if (!fileInstance || !container || !fileDiffMeta) return;
+    if (!fileInstance || !container || !displayFileDiffMeta) return;
     // renderAnnotation re-mounts comment components, so drop the previous
     // instances first (the same unmount-then-resync order DiffStream uses).
     unmountComments();
     try {
-      fileInstance.render({
-        fileDiff: fileDiffMeta,
-        containerWrapper: container,
-        lineAnnotations: buildAnnotations(),
-      });
+      profilePrReviewWork(
+        "diff-render",
+        () => fileInstance?.render({
+          fileDiff: displayFileDiffMeta,
+          containerWrapper: container,
+          lineAnnotations: buildAnnotations(),
+        }),
+        { filePath, patchCharacters: patch.length },
+      );
     } catch {
       /* leave the container empty rather than crash. */
     }
@@ -131,10 +223,24 @@
       diffIndicators: "bars" as const,
       lineDiffType: "word-alt" as const,
       overflow: "wrap" as const,
-      hunkSeparators: "metadata" as const,
+      // "line-info-basic" over "metadata": the guide's concern-scoped cards often
+      // hold several disjoint hunks, and a @@ rule at every boundary reads as
+      // line noise in a walkthrough meant for reading. This one says how many
+      // lines it skipped and, once the file's contents are loaded, lets the
+      // reader pull them in without leaving the card.
+      hunkSeparators: "line-info-basic" as const,
+      expansionLineCount: 20,
+      collapsedContextThreshold: 10,
       disableFileHeader: true,
       disableErrorHandling: true,
       unsafeCSS: DIFFS_THEME_CSS,
+      onPostRender: (node: HTMLElement) => {
+        decorateMovedLines(
+          [{ id: filePath, element: node }],
+          moveAnalysis,
+          "unified",
+        );
+      },
     };
     if (!commentsEnabled) return base;
     return {
@@ -236,13 +342,19 @@
   // Owns the FileDiff lifecycle and re-renders on patch + annotation-state change.
   // Theme is pushed through the lighter setThemeType effect below instead.
   $effect(() => {
+    if (fileDiffMeta !== previousMetadata) {
+      previousMetadata = fileDiffMeta;
+      expanded = false;
+      formatExpanded = false;
+    }
     if (!container || !workerPoolReady) return;
     void fileDiffMeta;
+    void displayFileDiffMeta;
     void comments;
     void draft.range;
     void draft.editingCommentId;
 
-    if (!fileDiffMeta) {
+    if (!fileDiffMeta || (autoCollapse && !expanded)) {
       unmountComments();
       fileInstance?.cleanUp();
       fileInstance = null;
@@ -269,7 +381,31 @@
   });
 </script>
 
-<div bind:this={container} class="pierre-diff-host overflow-hidden"></div>
+<Button
+  type="button"
+  variant="ghost"
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {autoCollapse && !expanded ? '' : 'hidden'}"
+  aria-label={`Expand ${collapsedSummary}`}
+  onclick={() => (expanded = true)}
+>
+  <span class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"></span>
+  <span class="min-w-0 flex-1 truncate">{collapsedSummary}</span>
+</Button>
+<Button
+  type="button"
+  variant="ghost"
+  class="flex min-h-10 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left font-mono text-[0.6875rem] text-(--solus-accent) transition-[background-color,scale] duration-150 hover:bg-(--solus-surface-hover) active:scale-[0.96] {formatOnlyCollapsed && (!autoCollapse || expanded) ? '' : 'hidden'}"
+  aria-label={`Expand ${formatSummary}`}
+  onclick={() => (formatExpanded = true)}
+>
+  <span class="inline-block size-1.5 shrink-0 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current"></span>
+  <span class="min-w-0 flex-1 truncate">{formatSummary}</span>
+</Button>
+<div
+  bind:this={container}
+  class:hidden={autoCollapse && !expanded}
+  class="pierre-diff-host overflow-hidden"
+></div>
 
 <!--
   Draft form portal — Svelte owns this element, but @pierre/diffs adopts (relocates)
