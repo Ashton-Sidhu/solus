@@ -219,7 +219,7 @@
 			<p class="text-base sm:text-[15px] max-[1440px]:sm:text-[14px] text-[#6B6158] leading-relaxed max-w-[560px]">
 				Everything you need to know — keybindings, workspace panes, plans, diff review, Review Companion, automations, tasks, voice input, connections, and settings.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 15, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 24, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -244,6 +244,8 @@
 						['Voice input', 'Dictate prompts hands-free with local Whisper transcription — audio never leaves your machine.'],
 						['Automations', 'Save a prompt and run it on a schedule — daily, weekly, on an interval, or a raw cron expression — or trigger it on demand. Agents can create automations for you too.'],
 						['Tasks', 'Track project work from local tasks or GitHub Issues. Start a session from a task so the agent receives the ticket context and Solus can link the work back to that task.'],
+						['Session references', 'Type & in the input bar to reference another session by name. The agent reads that conversation’s transcript on demand, so you can hand it prior context without re-explaining it.'],
+						['Custom instructions', 'Append your own instructions to every agent run, or only to runs on a specific model.'],
 						['File & screenshot attachments', 'Attach files or screenshots directly in the input bar.'],
 						['Session history', 'Resume past sessions or pick up where you left off.'],
 						['Remote connections', 'Connect to your Solus desktop instance from any browser on your network — pair once and work from your phone, tablet, or another computer.'],
@@ -367,6 +369,9 @@
 					['↑ / ↓  (file menu)', 'Navigate files'],
 					['Tab or Enter  (file menu)', 'Select file'],
 					['Escape  (file menu)', 'Close file menu'],
+					['&', 'Open session reference menu (recent sessions in this project)'],
+					['↑ / ↓  (session menu)', 'Navigate sessions'],
+					['Tab or Enter  (session menu)', 'Insert session reference'],
 					['/', 'Open slash command menu'],
 					['↑ / ↓  (slash menu)', 'Navigate commands'],
 					['Tab  (slash menu)', 'Select command'],
@@ -1011,6 +1016,20 @@ solus claim                           # claim the server from this machine</div>
 						['Git worktrees', 'When enabled, new sessions automatically run in an isolated git worktree so your working branch stays clean. Changes are merged back when the session completes.'],
 					] as [key, val], i}
 						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
+							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
+						</div>
+					{/each}
+				</div>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Custom instructions</h3>
+				<p class="text-base/7 sm:text-[14px]">Instructions you write once and Solus appends to the system prompt on every run. They live in their own <strong class="text-[#A09488] font-medium">Settings → Custom Instructions</strong> tab and accept Markdown.</p>
+				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
+					{#each [
+						['Extra instructions', 'Appended to the system prompt for every agent run, whichever agent or model is active. Good for standing preferences — response length, libraries to favor, writing style.'],
+						['Per-model instructions', 'Appended only while a specific model is running, on top of the extra instructions above. Pick the model from the dropdown; models with instructions saved are marked with a dot.'],
+					] as [key, val], i}
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>
