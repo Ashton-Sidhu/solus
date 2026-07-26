@@ -11,6 +11,11 @@ const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 export interface ServerSettings {
   remoteAccess: boolean
   name?: string
+  /**
+   * Where projects live on this host: what "Open project" lists, and where its
+   * primary action puts a clone. Empty means the home folder.
+   */
+  projectsBaseDirectory?: string
 }
 
 const DEFAULT_SETTINGS: ServerSettings = {
@@ -29,6 +34,7 @@ export function getServerSettings(): ServerSettings {
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
         name: normalizeServerName(parsed?.name),
+        projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
       }
       return _settings
     } catch (err) {
@@ -56,8 +62,22 @@ export function setServerName(name: string): ServerSettings {
   return _settings
 }
 
+/** Empty clears the setting, so the picker falls back to the home folder. */
+export function setProjectsBaseDirectory(path: string): ServerSettings {
+  _settings = { ...getServerSettings(), projectsBaseDirectory: normalizeProjectsBaseDirectory(path) }
+  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
+  writeFileSync(SETTINGS_FILE, JSON.stringify(_settings, null, 2), { mode: 0o600 })
+  return _settings
+}
+
 function normalizeServerName(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim().replace(/\s+/g, ' ')
   return trimmed ? trimmed.slice(0, 80) : undefined
+}
+
+function normalizeProjectsBaseDirectory(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, 1024) : undefined
 }

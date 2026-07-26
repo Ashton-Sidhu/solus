@@ -8,7 +8,7 @@ const log = createLogger('main', 'task-tools.ts')
 
 /**
  * Agent-facing task tools for long-running sessions: re-fetch the bound ticket
- * (`get_task`) and move it (`update_task_status`). Like work-tools.ts and
+ * (`read_task`) and move it (`update_task_status`). Like work-tools.ts and
  * automation-tools.ts, one set of zod shapes is exported in three shapes — Claude
  * SDK `tool()` objects, Codex JSON-schema descriptors, and a shared executor —
  * so both backends call identical logic. The provider is resolved per-cwd by
@@ -24,7 +24,7 @@ const KIND_VALUES = ['task', 'epic'] as const
 
 // ─── Schemas ───
 
-const getTaskShape = {
+const readTaskShape = {
   task_id: z
     .string()
     .describe('Provider-native task id — the GitHub issue number, or the local task uuid. The bound task id is in the session\'s task context.'),
@@ -70,7 +70,7 @@ const linkTaskSessionShape = {
 
 // ─── Descriptions ───
 
-const GET_DESC =
+const READ_TASK_DESC =
   "Re-fetch a task (ticket) by id, hydrated with its latest description, status, comments, and linked pull requests. Use this to refresh the ticket a long-running session is working on — the version injected at session start can go stale."
 const UPDATE_DESC =
   "Move a task to a new status, writing it back to the provider: 'in_progress' marks it in progress (GitHub: adds the in-progress label), 'done' closes/completes it, 'open' reopens it. Narrow, intentional write-back — only status changes are pushed upstream."
@@ -136,9 +136,9 @@ export async function executeTaskTool(
       return { ok: true, text: lines.length ? `Tasks:\n${lines.join('\n')}${suffix}` : `No tasks matched.${suffix}` }
     }
 
-    if (name === 'get_task') {
+    if (name === 'read_task') {
       const id = String(args.task_id ?? '').trim()
-      if (!id) return { ok: false, text: 'get_task requires a task_id.' }
+      if (!id) return { ok: false, text: 'read_task requires a task_id.' }
       const task = await getTask(cwd, id)
       return {
         ok: true,
@@ -236,7 +236,7 @@ export function taskSdkTools(deps: TaskSdkDeps) {
     toToolResult(await executeTaskTool(n, (args ?? {}) as Record<string, unknown>, mk()))
   return [
     tool('list_tasks', LIST_TASKS_DESC, listTasksShape, run('list_tasks')),
-    tool('get_task', GET_DESC, getTaskShape, run('get_task')),
+    tool('read_task', READ_TASK_DESC, readTaskShape, run('read_task')),
     tool('update_task_status', UPDATE_DESC, updateStatusShape, run('update_task_status')),
     tool('create_task', CREATE_TASK_DESC, createTaskShape, run('create_task')),
     tool('comment_task', COMMENT_TASK_DESC, commentTaskShape, run('comment_task')),
@@ -254,7 +254,7 @@ export interface TaskToolDescriptor {
 
 export const TASK_TOOL_JSON_SCHEMAS: TaskToolDescriptor[] = [
   { name: 'list_tasks', description: LIST_TASKS_DESC, inputSchema: z.toJSONSchema(z.object(listTasksShape)) as Record<string, unknown> },
-  { name: 'get_task', description: GET_DESC, inputSchema: z.toJSONSchema(z.object(getTaskShape)) as Record<string, unknown> },
+  { name: 'read_task', description: READ_TASK_DESC, inputSchema: z.toJSONSchema(z.object(readTaskShape)) as Record<string, unknown> },
   { name: 'update_task_status', description: UPDATE_DESC, inputSchema: z.toJSONSchema(z.object(updateStatusShape)) as Record<string, unknown> },
   { name: 'create_task', description: CREATE_TASK_DESC, inputSchema: z.toJSONSchema(z.object(createTaskShape)) as Record<string, unknown> },
   { name: 'comment_task', description: COMMENT_TASK_DESC, inputSchema: z.toJSONSchema(z.object(commentTaskShape)) as Record<string, unknown> },

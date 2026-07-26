@@ -133,7 +133,7 @@ export interface CodexOneShotResult {
 export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexOneShotResult> {
   const client = getCodexAppServerClient()
   const model = opts.model && codexProfiles[opts.model] ? opts.model : DEFAULT_CODEX_MODEL
-  const reasoningEffort = opts.reasoningEffort ?? 'high'
+  const reasoningEffort = opts.reasoningEffort ?? codexProfiles[model]?.defaultReasoningEffort ?? 'medium'
   const general = isWorkspacePath(opts.cwd)
   const developerInstructions = buildSystemPrompt({
     agent: 'codex',
@@ -245,6 +245,7 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
         approvalPolicy: approvalPolicyFor(PERMISSION),
         sandboxPolicy: sandboxPolicyFor(sandboxMode),
         model,
+        summary: 'auto',
         reasoning_effort: reasoningEffort,
         collaborationMode: {
           mode: 'default',

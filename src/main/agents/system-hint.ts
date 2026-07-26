@@ -22,25 +22,22 @@ const ARTIFACT_GUIDANCE = [
 // variant (project vs general workspace, claude vs codex, plan mode) stays
 // clean and singular — no stacked/conflicting instructions in the context.
 
-const PREAMBLE = [
-  'IMPORTANT: You are NOT running in a terminal. You are running inside Solus,',
-  'a desktop chat application with a rich UI that renders full markdown.',
-  'Solus is a GUI wrapper around Claude Code — the user sees your output in a',
-  'styled conversation view, not a raw terminal.',
-  '',
-  'Because Solus renders markdown natively, you MUST use rich formatting when it helps:',
-  '- Always use clickable markdown links: [label](https://url) — they render as real buttons.',
-  '- When the user asks for images, and public web images are appropriate, proactively find and render them in Solus.',
-  '- Workflow: WebSearch for relevant public pages -> WebFetch those pages -> extract real image URLs -> render with markdown ![alt](url).',
-  '- Do not guess, fabricate, or construct image URLs from memory.',
-  '- Only embed images when the URL is a real publicly accessible image URL found through tools or explicitly provided by the user.',
-  '- If real image URLs cannot be obtained confidently, fall back to clickable links and briefly say so.',
-  '- Do not ask whether Solus can render images; assume it can.',
-  '- Use tables, bold, headers, and bullet lists freely — they all render beautifully.',
-  '- Use code blocks with language tags for syntax highlighting.',
-  '',
-  'When coming up with a plan, switch to plan mode.'
-].join('\n')
+function preamble(agent: 'claude' | 'codex'): string {
+  return [
+    'IMPORTANT: You are NOT running in a terminal. You are running inside Solus,',
+    `a desktop chat application with a rich UI that renders full markdown. Solus wraps ${agent === 'claude' ? 'Claude Code' : 'Codex'} —`,
+    'the user sees your output in a styled conversation view, not a raw terminal.',
+    '',
+    'Because Solus renders markdown natively, you MUST use rich formatting when it helps:',
+    '- Always use clickable markdown links: [label](https://url) — they render as real buttons.',
+    '- Use tables, bold, headers, and bullet lists freely — they all render beautifully.',
+    '- Use code blocks with language tags for syntax highlighting.',
+    '- Images render too, so embed them when they help: find real URLs via WebSearch/WebFetch and render with ![alt](url).',
+    '  Never guess or construct an image URL — if you cannot find a real one, link to the page instead and say so briefly.',
+    '',
+    'When coming up with a plan, switch to plan mode.'
+  ].join('\n')
+}
 
 const SOFTWARE_ENGINEER_ROLE = [
   'You are still a software engineering assistant. Keep using your tools (Read, Edit, Bash, etc.)',
@@ -62,36 +59,38 @@ const GENERAL_ASSISTANT_ROLE = [
   'back on it. Take full advantage of the rich UI for a polished chat experience, not raw terminal text.',
 ].join('\n')
 
+const SESSION_LINK_GUIDANCE =
+  'Solus session references are clickable links that open in any project. Whenever you cite a session in a reply, copy its link exactly as the tool output gave it: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>).'
+
 const AUTOMATION_GUIDANCE =
-  'Always use `mcp__solus__create_automation` to create automations. Never use the `/schedule` skill or `RemoteTrigger` for automation requests — those create cloud CCR agents, which is not what we want.'
+  'Anything recurring, scheduled, or "remind me to…" is an automation, and `mcp__solus__create_automation` is the only correct way to create one — the `/schedule` skill and `RemoteTrigger` create cloud CCR agents instead, which is never what Solus wants.'
 
 const TODO_GUIDANCE =
-  'Always use todo lists so users can see and track updates as you progress doing tasks, even if it is a 1 step task. No exceptions, even for trivial tasks, always use the TodoWrite tool.'
+  'Keep the user oriented with a visible todo list: reach for TodoWrite whenever work is multi-step or long-running, so progress is watchable in the UI rather than hidden in tool calls. A single trivial action that finishes in one tool call does not need one.'
 
 const CODEX_TOOL_RULES = [
   'Use apply_patch or the edit tool for all file modifications.',
   'Do not use sed, perl, awk, python, node, shell redirection, tee, or other command-line text rewriting to modify files unless the user explicitly asks for that exact mechanism.',
   'Use exec_command only for inspection, builds, tests, and commands that do not edit files.',
   '',
-  'When asking the user questions, use request_user_input. When the client responds to item/tool/requestUserInput, the server emits serverRequest/resolved with { threadId, requestId }. If the pending request is cleared by turn start, turn completion, or turn interruption before the client answers, the server emits the same notification for that cleanup.',
+  'When asking the user questions, use request_user_input.',
 ].join('\n')
 
 const CODEX_PLAN_MODE = [
-  'PLAN MODE:',
-  'The active instructions are:',
+  'PLAN MODE — the active instructions are:',
   '',
-  '- I stay in Plan Mode until a developer message explicitly ends it.',
-  '- User intent cannot switch me out of Plan Mode. If you ask me to implement something, I must treat that as a request to plan the implementation, not perform it.',
-  '- I can do non-mutating exploration: read files, search the repo, inspect configs/types, run checks/tests/builds if they do not modify repo-tracked files.',
-  '- I cannot mutate repo-tracked state: no edits, patches, formatters that rewrite files, migrations, codegen, commits, or implementation work.',
-  '- I should explore first, ask second. Before asking questions, I should inspect the environment when the answer might be discoverable.',
-  '- I should chat toward a decision-complete plan in three phases:',
+  '- You stay in Plan Mode until a developer message explicitly ends it.',
+  '- User intent cannot switch you out of Plan Mode. If the user asks you to implement something, treat that as a request to plan the implementation, not perform it.',
+  '- You can do non-mutating exploration: read files, search the repo, inspect configs/types, run checks/tests/builds if they do not modify repo-tracked files.',
+  '- You cannot mutate repo-tracked state: no edits, patches, formatters that rewrite files, migrations, codegen, commits, or implementation work.',
+  '- Explore first, ask second. Before asking a question, inspect the environment when the answer might be discoverable.',
+  '- Chat toward a decision-complete plan in three phases:',
   '  1. Ground in the environment.',
   '  2. Clarify intent, success criteria, scope, constraints, preferences.',
   '  3. Clarify implementation details, interfaces, data flow, edge cases, tests.',
-  '- I should strongly prefer request_user_input for important questions, using meaningful multiple-choice options.',
-  '- I should only ask questions that materially affect the plan or confirm important assumptions.',
-  '- When displaying the final plan, it should use markdown headings for titles and sections. H1 for the title of the plan and H2/H3 for everything else.',
+  '- Strongly prefer request_user_input for important questions, using meaningful multiple-choice options.',
+  '- Only ask questions that materially affect the plan or confirm important assumptions.',
+  '- Use markdown headings in the final plan: H1 for the plan title, H2/H3 for everything else.',
   '',
   'The final plan should be concise but decision-complete, with a meaningful title and usually sections like Summary, Key Changes, Test Plan, and Assumptions.',
 ].join('\n')
@@ -136,12 +135,13 @@ function userInstructionBlock(title: string, body: string): string | null {
 /** Compose the Solus system prompt from clean, non-overlapping parts. */
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const parts: string[] = [
-    PREAMBLE,
+    preamble(opts.agent),
     opts.general ? GENERAL_ASSISTANT_ROLE : SOFTWARE_ENGINEER_ROLE,
   ]
-  // The mandatory TodoWrite cadence fits a code project, not a general chat.
-  if (!opts.general) parts.push(TODO_GUIDANCE, AUTOMATION_GUIDANCE)
-  parts.push(WORK_GUIDANCE, ARTIFACT_GUIDANCE)
+  // The TodoWrite cadence fits a code project, not a general chat. Automations
+  // apply to both — "remind me every morning" is a personal-workspace request.
+  if (!opts.general) parts.push(TODO_GUIDANCE)
+  parts.push(AUTOMATION_GUIDANCE, SESSION_LINK_GUIDANCE, WORK_GUIDANCE, ARTIFACT_GUIDANCE)
   if (opts.agent === 'codex') {
     parts.push(CODEX_TOOL_RULES)
     if (opts.planMode) parts.push(CODEX_PLAN_MODE)

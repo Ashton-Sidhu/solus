@@ -1,0 +1,67 @@
+import { afterAll, describe, expect, test } from 'bun:test'
+
+const previousLocalStorage = globalThis.localStorage
+const previousState = (globalThis as unknown as { $state?: unknown }).$state
+
+const values = new Map<string, string>([
+  ['solus.activeServerId', 'local'],
+  ['solus.servers', JSON.stringify([{
+    id: 'remote',
+    label: 'Build host',
+    url: 'http://10.10.1.22:3000',
+    sessionToken: 'token',
+    installationId: 'build-host',
+    lastConnected: 1,
+  }])],
+])
+
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  writable: true,
+  value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+    clear: () => values.clear(),
+    key: (index: number) => [...values.keys()][index] ?? null,
+    get length() {
+      return values.size
+    },
+  } satisfies Storage,
+})
+;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+
+const { serversStore } = await import('../../src/renderer/contexts/connections/servers.store.svelte')
+
+afterAll(() => {
+  if (previousLocalStorage === undefined) {
+    delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+  } else {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: previousLocalStorage,
+    })
+  }
+  if (previousState === undefined) {
+    delete (globalThis as unknown as { $state?: unknown }).$state
+  } else {
+    ;(globalThis as unknown as { $state: unknown }).$state = previousState
+  }
+})
+
+describe('server status', () => {
+  test('every host surface follows the same connection transition', () => {
+    // WHY: a page mounted while a socket is connecting must advance with the
+    // status-bar picker instead of retaining a different snapshot forever.
+    serversStore.setConnectionStatus('remote', 'connecting')
+
+    expect(serversStore.statusFor('remote')).toBe('connecting')
+    expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('connecting')
+
+    serversStore.setConnectionStatus('remote', 'connected')
+
+    expect(serversStore.statusFor('remote')).toBe('online')
+    expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('online')
+  })
+})

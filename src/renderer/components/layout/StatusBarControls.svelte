@@ -12,6 +12,7 @@
     getSessionEnvironmentStore,
     runtime,
   } from "../../contexts";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { displayDirName } from "../../lib/paths";
   import ContextMeter from "../ContextMeter.svelte";
   import SettingsPopover from "../SettingsPopover.svelte";
@@ -46,6 +47,9 @@
     displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
   );
   const dirTooltip = $derived(ctx.workingDirectory);
+  // The directory below belongs to another host whenever the session was
+  // dispatched, and nothing else on this row says so.
+  const hostAffinity = $derived(serversStore.affinityFor(sess?.serverId));
 
   const projectDir = $derived(sess?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~");
   const defaultGitContext = $derived(session.tabCtx.gitContext);
@@ -109,10 +113,10 @@
   });
 
   function handleChooseDirectory() {
-    // The directory picker targets the active tab; a pinned strip shows the
+    // The Open project flow targets the active tab; a pinned strip shows the
     // directory as a plain label instead.
     if (isBusy || isPinned) return;
-    window.dispatchEvent(new CustomEvent("solus:open-directory-picker"));
+    window.dispatchEvent(new CustomEvent("solus:open-project"));
   }
 
   function toggleGitMenu() {
@@ -171,6 +175,15 @@
   <div
     class="flex items-center gap-2.5 min-w-0 overflow-hidden text-(--solus-text-tertiary)"
   >
+    {#if hostAffinity}
+      {@const HostIcon = hostAffinity.icon}
+      <span
+        class="flex shrink-0 items-center {hostAffinity.className}"
+        use:tooltip={hostAffinity.tooltip}
+      >
+        <HostIcon size={13} />
+      </span>
+    {/if}
     <button
       onclick={handleChooseDirectory}
       disabled={isBusy || isPinned}

@@ -19,7 +19,7 @@
     LightningIcon,
     ListChecksIcon,
     GitPullRequestIcon,
-    ColumnsIcon,
+    ChatsIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
@@ -33,6 +33,7 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import * as Sidebar from "../ui/sidebar";
   import SessionContextMenu from "./SessionContextMenu.svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
 
   interface Props {
@@ -258,7 +259,7 @@
                   void openPinnedSessionInSplit(pin);
                 }}
               >
-                <ColumnsIcon size={11} />
+                <ChatsIcon size={11} />
               </Sidebar.MenuAction>
               <Sidebar.MenuAction
                 class="left-2 right-auto text-(--solus-accent) hover:text-(--solus-stop-bg) hover:bg-[color-mix(in_srgb,var(--solus-stop-bg)_12%,transparent)]"
@@ -380,13 +381,11 @@
     </Sidebar.GroupLabel>
     <Sidebar.GroupAction
       class="right-2 top-1.5 text-(--solus-text-tertiary)"
-      aria-label="New session in project"
+      aria-label="Open project"
       onclick={() => {
-        window.dispatchEvent(
-          new CustomEvent("solus:open-directory-picker-new-tab"),
-        );
+        window.dispatchEvent(new CustomEvent("solus:open-project"));
       }}
-      tooltipContent="New session in project…"
+      tooltipContent="Open project…"
     >
       <PlusIcon size={14} />
     </Sidebar.GroupAction>
@@ -429,7 +428,7 @@
               openTabInSplit(tabIds[0]);
             }}
           >
-            <ColumnsIcon size={12} />
+            <ChatsIcon size={12} />
           </button>
         {/if}
         <button
@@ -602,6 +601,7 @@
                     {#each branch.tabIds as tabId (tabId)}
                       {@const child = sidebarStore.childForTab(tabId)}
                       {@const showChildActive = isActiveBranch && child.active}
+                      {@const hostAffinity = serversStore.affinityFor(child.serverId)}
                       <div
                         class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                           ? `${rowActiveWash} text-(--solus-text-primary)`
@@ -632,6 +632,15 @@
                         >
                           {child.label}
                         </span>
+                        {#if hostAffinity}
+                          {@const HostIcon = hostAffinity.icon}
+                          <span
+                            class="flex shrink-0 items-center {hostAffinity.className}"
+                            use:tooltip={hostAffinity.tooltip}
+                          >
+                            <HostIcon size={11} />
+                          </span>
+                        {/if}
                         {#if child.attention}
                           {@render attentionMark(child.attention)}
                         {/if}

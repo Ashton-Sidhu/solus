@@ -25,21 +25,17 @@
     orbScreenScale,
   }: Props = $props();
 
-  function scrollToActiveStep(node: HTMLElement) {
-    node
-      .querySelector("[data-active-step]")
-      ?.scrollIntoView({ block: "nearest" });
-  }
-
   let stepsLeft = $derived(
     progress.todos.filter((t) => t.status !== "completed").length,
   );
 
-  let stepsContentEl: HTMLDivElement | null = $state(null);
+  let stepsListEl: HTMLUListElement | null = $state(null);
   $effect(() => {
-    if (!stepsOpen || !stepsContentEl) return;
+    if (!stepsOpen || !stepsListEl) return;
     requestAnimationFrame(() => {
-      if (stepsContentEl) scrollToActiveStep(stepsContentEl);
+      stepsListEl
+        ?.querySelector("[data-active-step]")
+        ?.scrollIntoView({ block: "nearest" });
     });
   });
 </script>
@@ -84,8 +80,7 @@
 
 <Popover.Root bind:open={stepsOpen}>
   <Popover.Content
-    bind:ref={stepsContentEl}
-    class="progress-popover w-[min(calc(30rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[min(calc(22rem*var(--orb-scale)),60vh)] gap-0 overflow-y-auto px-[calc(1rem*var(--orb-scale))] pt-[calc(0.875rem*var(--orb-scale))] pb-[calc(0.375rem*var(--orb-scale))] [scrollbar-width:thin]"
+    class="progress-popover flex w-[min(calc(30rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[min(calc(26rem*var(--orb-scale)),calc(100vh-8rem))] flex-col gap-0 p-0"
     side="top"
     sideOffset={8}
     style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
@@ -93,7 +88,7 @@
     aria-label="Task steps"
   >
     <div
-      class="mb-[calc(0.4375rem*var(--orb-scale))] flex items-center gap-[calc(0.5rem*var(--orb-scale))]"
+      class="flex shrink-0 items-center gap-[calc(0.5rem*var(--orb-scale))] border-b border-border/30 px-[calc(1rem*var(--orb-scale))] py-[calc(0.6875rem*var(--orb-scale))]"
     >
       {#if stepsLeft === 0}
         {@render checkDot()}
@@ -120,10 +115,14 @@
         />
       </button>
     </div>
-    <ul class="m-0 flex list-none flex-col gap-[calc(0.125rem*var(--orb-scale))] p-0" role="list">
+    <ul
+      bind:this={stepsListEl}
+      class="m-0 flex min-h-0 flex-1 list-none flex-col gap-[calc(0.125rem*var(--orb-scale))] overflow-y-auto overscroll-contain px-[calc(0.625rem*var(--orb-scale))] py-[calc(0.5rem*var(--orb-scale))] [scrollbar-width:thin]"
+      role="list"
+    >
       {#each progress.todos as todo, i (i)}
         <li
-          class="flex items-center gap-[calc(0.625rem*var(--orb-scale))] rounded-[calc(0.75rem*var(--orb-scale))] border px-[calc(0.5rem*var(--orb-scale))] py-[calc(0.4375rem*var(--orb-scale))] {todo.status ===
+          class="flex scroll-my-[calc(0.5rem*var(--orb-scale))] items-start gap-[calc(0.625rem*var(--orb-scale))] rounded-[calc(0.75rem*var(--orb-scale))] border px-[calc(0.5rem*var(--orb-scale))] py-[calc(0.4375rem*var(--orb-scale))] {todo.status ===
           'in_progress'
             ? 'border-primary/30 bg-primary/[0.07] dark:border-primary/40 dark:bg-primary/10'
             : 'border-transparent'}"
@@ -137,13 +136,13 @@
             {@render dashedDot()}
           {/if}
           <span
-            class="min-w-0 flex-1 truncate text-[length:var(--pop-body-size)] {todo.status ===
+            class="min-w-0 flex-1 [overflow-wrap:anywhere] text-[length:var(--pop-body-size)] leading-[1.45] {todo.status ===
             'completed'
-              ? 'text-muted-foreground line-through opacity-70'
+              ? 'line-clamp-1 text-muted-foreground line-through opacity-70'
               : todo.status === 'in_progress'
                 ? 'font-medium text-foreground'
-                : 'font-normal text-[var(--solus-text-secondary)]'}"
-            title={todo.content}>{todo.content}</span
+                : 'line-clamp-2 font-normal text-[var(--solus-text-secondary)]'}"
+            >{todo.content}</span
           >
         </li>
       {/each}

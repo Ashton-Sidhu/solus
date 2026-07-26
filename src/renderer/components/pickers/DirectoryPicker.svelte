@@ -1,25 +1,53 @@
 <script lang="ts">
-  import { fly } from "svelte/transition";
+  import { fade, fly } from "svelte/transition";
+  import { expoOut } from "svelte/easing";
   import { Input } from "../ui/input";
+  import { Button } from "../ui/button";
   import {
     MagnifyingGlassIcon,
     FolderIcon,
-    CaretRightIcon,
+    FolderPlusIcon,
     HouseIcon,
+    CaretRightIcon,
     ClockCounterClockwiseIcon,
     EyeIcon,
     EyeSlashIcon,
+    DesktopTowerIcon,
     XIcon,
   } from "phosphor-svelte";
   import VirtualList from "svelte-tiny-virtual-list";
-  import { projectsStore, getWorkspaceContext, getStatusBarContext, runtime } from "../../contexts";
+  import DirectoryRow from "./DirectoryRow.svelte";
+  import {
+    projectsStore,
+    connectionsStore,
+    runtime,
+  } from "../../contexts";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
-  import { abbreviateHome } from "../../lib/paths";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
+  import { abbreviateHome } from "../../lib/paths";
   import Kbd from "../ui/Kbd.svelte";
-  import type { DirectoryEntry } from "../../../shared/types";
-  import { resolveDirectorySelection } from "./lib/directory-selection";
+  import type { DirectoryEntry, RecentProject } from "../../../shared/types";
+  import {
+    centringPadding,
+    observeConversationBounds,
+    type ConversationBounds,
+  } from "./lib/conversation-bounds";
+  import {
+    appendPathSegment,
+    breadcrumbTrail,
+    browsePathPlatform,
+    browseDirectoryPath,
+    browseLeafSegment,
+    browseParentPath,
+    ensureDirectoryPath,
+    hasTrailingSeparator,
+    inferFolderName,
+    isRootedPath,
+    joinBrowsePath,
+    resolveRelativePath,
+    type BrowsePathPlatform,
+  } from "./lib/browse-path";
 
   interface Props {
     open: boolean;
@@ -28,6 +56,10 @@
     initialPath?: string;
     title?: string;
     actionLabel?: string;
+    /** RPC surface of the host being browsed. Defaults to the active server. */
+    api?: typeof window.solus;
+    /** Shown as a chip when browsing a host other than the active server. */
+    hostLabel?: string;
   }
 
   let {
@@ -37,78 +69,119 @@
     initialPath,
     title = "Choose folder",
     actionLabel = "Select",
+    api = undefined,
+    hostLabel = undefined,
   }: Props = $props();
 
-  const session = getWorkspaceContext();
-  const statusBar = getStatusBarContext();
   const layer = getPopoverLayer();
-  const projectMetadata = projectsStore;
 
-  let currentPath = $state("");
-  let parentPath = $state<string | null>(null);
+  const host = $derived(api ?? window.solus);
+  const isPrimaryHost = $derived(host === window.solus);
+
+  /** The typed path is the only selection state; everything below derives from it. */
+  let path = $state("");
+  let relativeAnchor = $state("");
+  let hostPlatform = $state<BrowsePathPlatform>("posix");
+  let hostSystem = $state<string | null>(null);
+  let hostReady = $state(false);
   let entries = $state<DirectoryEntry[]>([]);
+  /** Host-resolved absolute form of `directoryPath`, with `~` already expanded. */
+  let resolvedDirectory = $state("");
+  /** Host-resolved parent, needed to walk above aliases such as `~`. */
+  let resolvedParentDirectory = $state<string | null>(null);
   let loading = $state(false);
   let loadError = $state<string | null>(null);
+  /** Kept apart from `loadError` so a failed reveal never hides the folder list. */
+  let fileManagerError = $state<string | null>(null);
+  let creating = $state(false);
   let reloadVersion = $state(0);
-  let selectedIndex = $state(-1);
-  let filterQuery = $state("");
+  let highlightedIndex = $state(-1);
   let showHidden = $state(false);
+  let remoteRecents = $state<RecentProject[]>([]);
+  let sidebarLocations = $state<Array<{ label: string; path: string }>>([]);
   let popoverEl: HTMLDivElement | null = $state(null);
-  let searchEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
-  let virtualList: VirtualList | null = $state(null);
+  let pathInputEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
+  let pathBarEl: HTMLElement | null = $state(null);
   let listHeight = $state(0);
+  let viewportWidth = $state(0);
+  let conversationBounds = $state<ConversationBounds | null>(null);
 
-  const filteredEntries = $derived(
-    filterQuery.trim()
-      ? entries.filter((e) =>
-          e.name.toLowerCase().includes(filterQuery.toLowerCase()),
-        )
-      : entries,
+  const directoryPath = $derived(browseDirectoryPath(path, hostPlatform));
+  const leaf = $derived(browseLeafSegment(path, hostPlatform));
+  /** The directory shown as crumbs; the leaf stays editable text beside them. */
+  const crumbs = $derived(breadcrumbTrail(path, hostPlatform));
+  const dirEntries = $derived.by(() => {
+    const prefix = leaf.toLowerCase();
+    const revealHidden = showHidden || leaf.startsWith(".");
+    return entries.filter(
+      (e) =>
+        e.isDir &&
+        e.name.toLowerCase().startsWith(prefix) &&
+        (revealHidden || !e.name.startsWith(".")),
+    );
+  });
+
+  const canGoUp = $derived(
+    hasTrailingSeparator(path, hostPlatform) &&
+      (browseParentPath(path, hostPlatform) !== null ||
+        resolvedParentDirectory !== null),
   );
-
-  const dirEntries = $derived(filteredEntries.filter((e) => e.isDir));
-  const shouldAutofocus = $derived(
-    !runtime.shouldSuppressFocus,
-  );
-  const dirItemHeight = $derived(runtime.isMobileViewport ? 48 : 40);
-
-  const breadcrumbs = $derived(
-    currentPath
-      .split("/")
-      .filter(Boolean)
-      .map((seg, i, arr) => ({
-        label: seg,
-        path: "/" + arr.slice(0, i + 1).join("/"),
-      })),
-  );
-
-  const homePath = $derived(session.staticInfo?.homePath || "~");
-
-  const currentFolderName = $derived(
-    currentPath.split("/").filter(Boolean).pop() || "/",
-  );
-
-  const selection = $derived(
-    resolveDirectorySelection(
-      currentPath,
-      currentFolderName,
-      dirEntries,
-      selectedIndex,
-    ),
-  );
-  const selectedEntry = $derived(selection.entry);
-  const selectionPath = $derived(selection.path);
-  const primaryTargetName = $derived(selection.name);
-  const activeDescendant = $derived(
-    selectedEntry ? `directory-option-${selectedIndex}` : undefined,
-  );
-
-  const sidebarLocations = $derived([
-    { label: "Home", path: homePath },
-    { label: "Desktop", path: homePath + "/Desktop" },
-    { label: "Documents", path: homePath + "/Documents" },
-    { label: "Downloads", path: homePath + "/Downloads" },
+  type Row = { kind: "up" } | { kind: "dir"; entry: DirectoryEntry };
+  const rows: Row[] = $derived([
+    ...(canGoUp ? [{ kind: "up" } as Row] : []),
+    ...dirEntries.map((entry): Row => ({ kind: "dir", entry })),
   ]);
+  const highlightedRow = $derived(rows[highlightedIndex] ?? null);
+
+  const exactEntry = $derived(
+    leaf ? (dirEntries.find((e) => e.name === leaf) ?? null) : null,
+  );
+  /** The path Enter commits — always host-absolute so the tab's host can act on it. */
+  const resolvedPath = $derived.by(() => {
+    if (!resolvedDirectory) return resolveRelativePath(path, relativeAnchor, hostPlatform);
+    if (!leaf) return resolvedDirectory;
+    return exactEntry?.path ?? joinBrowsePath(resolvedDirectory, leaf, hostPlatform);
+  });
+  /** A path with no matching folder is created on submit instead of rejected. */
+  const willCreate = $derived(
+    !loading &&
+      path.trim().length > 0 &&
+      (leaf ? exactEntry === null : !!loadError),
+  );
+  const submitLabel = $derived(willCreate ? `Create & ${actionLabel}` : actionLabel);
+  const targetName = $derived(inferFolderName(resolvedPath || path, hostPlatform));
+
+  /** Footer readout: what Enter commits, in the shorthand the user typed it in. */
+  const displayPath = $derived(abbreviateHome(resolvedPath || path));
+
+  const shouldAutofocus = $derived(!runtime.shouldSuppressFocus);
+  /** Must track DirectoryRow's height — the virtual list positions on this number. */
+  const rowHeight = $derived(runtime.isMobileViewport ? 48 : 32);
+  const activeDescendant = $derived(
+    highlightedRow ? `directory-option-${highlightedIndex}` : undefined,
+  );
+  /** Empty on mobile — the sheet is full-width — and wherever there is no column. */
+  const centringStyle = $derived(
+    runtime.isMobileViewport ? "" : centringPadding(conversationBounds, viewportWidth),
+  );
+
+  const recentProjects = $derived(
+    isPrimaryHost ? projectsStore.recentProjects : remoteRecents,
+  );
+
+  const fileManagerName = $derived(
+    hostPlatform === "win32"
+      ? "Explorer"
+      : hostSystem === "linux"
+        ? // The desktop's xdg default — could be Nautilus, Dolphin, Thunar…
+          "File Manager"
+        : "Finder",
+  );
+  // The file manager opens on the machine running the handler, so it is only
+  // meaningful when the browsed host is this one.
+  const canOpenFileManager = $derived(
+    isPrimaryHost && connectionsStore.desktopHandlersAvailable && !runtime.isMobileViewport,
+  );
 
   function handleBackdropMousedown(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose();
@@ -117,38 +190,105 @@
   $effect(() => {
     if (!open) return;
 
-    const startPath =
-      initialPath ||
-      statusBar.ctx.workingDirectory ||
-      session.staticInfo?.homePath ||
-      "~";
-    currentPath = startPath;
+    const browseApi = host;
+    let cancelled = false;
+    hostReady = false;
+    path = "";
+    entries = [];
+    resolvedDirectory = "";
+    resolvedParentDirectory = null;
+    highlightedIndex = -1;
+    loadError = null;
+    sidebarLocations = [];
 
     blurActiveTextInputOnMobile();
 
-    void projectMetadata.loadRecentProjects();
+    const recents = isPrimaryHost
+      ? projectsStore.loadRecentProjects().then(() => projectsStore.recentProjects)
+      : browseApi.listRecentProjects();
+    void Promise.all([
+      browseApi.getServerCapabilities().catch(() => null),
+      browseApi.listDirectory("~", true).catch(() => null),
+      recents.catch(() => []),
+    ]).then(([capabilities, home, loadedRecents]) => {
+      if (cancelled) return;
+      hostSystem = capabilities?.platform ?? null;
+      hostPlatform = browsePathPlatform(capabilities?.platform, initialPath);
+      remoteRecents = loadedRecents;
 
-    if (shouldAutofocus) requestAnimationFrame(() => searchEl?.focus());
+      const homePath = ensureDirectoryPath("~", hostPlatform);
+      const standardNames = ["Desktop", "Documents", "Downloads"];
+      const projectsPath = capabilities?.projectsBaseDirectory
+        ? ensureDirectoryPath(capabilities.projectsBaseDirectory, hostPlatform)
+        : null;
+      const resolvedHomePath = home?.currentPath
+        ? ensureDirectoryPath(home.currentPath, hostPlatform)
+        : homePath;
+      const filesystemRoot = breadcrumbTrail(
+        resolvedHomePath,
+        hostPlatform,
+      )[0]?.path;
+      sidebarLocations = [
+        ...(projectsPath && projectsPath !== homePath && projectsPath !== resolvedHomePath
+          ? [{ label: "Projects", path: projectsPath }]
+          : []),
+        { label: "Home", path: homePath },
+        ...(filesystemRoot &&
+        filesystemRoot !== homePath &&
+        filesystemRoot !== resolvedHomePath
+          ? [{ label: hostPlatform === "win32" ? filesystemRoot : "Root", path: filesystemRoot }]
+          : []),
+        ...standardNames
+          .filter((name) => home?.entries.some((entry) => entry.isDir && entry.name === name))
+          .map((name) => ({
+            label: name,
+            path: appendPathSegment(homePath, name, hostPlatform),
+          })),
+      ];
+
+      const seed = initialPath || capabilities?.projectsBaseDirectory || "~";
+      relativeAnchor = isRootedPath(seed, hostPlatform)
+        ? seed
+        : capabilities?.projectsBaseDirectory || "~";
+      path = ensureDirectoryPath(seed, hostPlatform);
+      hostReady = true;
+      if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
+    });
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
-    if (!open || !currentPath) return;
+    if (!open) return;
+    return observeConversationBounds((bounds) => (conversationBounds = bounds));
+  });
+
+  // Keyed on the directory only: typing a leaf name filters the loaded entries
+  // in place and never re-fetches.
+  $effect(() => {
+    if (!open || !hostReady || !directoryPath) return;
+    const request = resolveRelativePath(directoryPath, relativeAnchor, hostPlatform);
+    if (!request) return;
     void reloadVersion;
+    const browseApi = host;
     let cancelled = false;
     loading = true;
     loadError = null;
-    window.solus
-      .listDirectory(currentPath, showHidden)
+    fileManagerError = null;
+    resolvedParentDirectory = null;
+    browseApi
+      // Annotated: which folders are checkouts and which Solus already knows is
+      // exactly what you can't tell by name on a machine you've never used.
+      .listDirectory(request, true, true)
       .then((result) => {
         if (cancelled) return;
         entries = result.entries;
-        currentPath = result.currentPath;
-        parentPath = result.parentPath;
+        resolvedDirectory = result.currentPath;
+        resolvedParentDirectory = result.parentPath;
         loadError = result.error;
         loading = false;
-        selectedIndex = -1;
-        filterQuery = "";
-        if (shouldAutofocus) requestAnimationFrame(() => searchEl?.focus());
+        highlightedIndex = -1;
       })
       .catch(() => {
         if (cancelled) return;
@@ -161,19 +301,64 @@
     };
   });
 
-  function navigateTo(path: string) {
-    selectedIndex = -1;
-    filterQuery = "";
-    if (path === currentPath) return;
-    currentPath = path;
+  // The crumb trail can outgrow the field, and what matters is always its tail:
+  // the folder being browsed and the name being typed next to it.
+  $effect(() => {
+    void path;
+    if (pathBarEl) pathBarEl.scrollLeft = pathBarEl.scrollWidth;
+  });
+
+  function navigateTo(next: string) {
+    highlightedIndex = -1;
+    path = next;
+    if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
+  }
+
+  /** Typing extends the folder the crumbs point at — unless it carries its own root. */
+  function setLeaf(next: string) {
+    highlightedIndex = -1;
+    // A bare "~" is a root, not a name: land in home instead of filtering for it.
+    if (next === "~") path = ensureDirectoryPath("~", hostPlatform);
+    else path = isRootedPath(next, hostPlatform) ? next : `${directoryPath}${next}`;
   }
 
   function navigateUp() {
-    if (parentPath) navigateTo(parentPath);
+    if (!hasTrailingSeparator(path, hostPlatform)) return;
+    const parent =
+      browseParentPath(path, hostPlatform) ?? resolvedParentDirectory;
+    if (parent) navigateTo(ensureDirectoryPath(parent, hostPlatform));
   }
 
-  function primarySelect() {
-    if (!loading && !loadError) onSelect(selectionPath);
+  function descend(row: Row) {
+    if (row.kind === "up") navigateUp();
+    else navigateTo(appendPathSegment(path, row.entry.name, hostPlatform));
+  }
+
+  async function submit() {
+    if (loading || creating || !resolvedPath) return;
+    if (!willCreate) {
+      onSelect(resolvedPath);
+      return;
+    }
+    creating = true;
+    try {
+      const result = await host.createDirectory(resolvedPath);
+      if (result.error) {
+        loadError = result.error;
+        return;
+      }
+      onSelect(result.path);
+    } catch {
+      loadError = "Couldn’t create this folder. Check the connection and try again.";
+    } finally {
+      creating = false;
+    }
+  }
+
+  async function openInFileManager() {
+    if (!resolvedDirectory) return;
+    const opened = await host.openInFileManager(resolvedDirectory).catch(() => false);
+    fileManagerError = opened ? null : `Couldn’t open this folder in ${fileManagerName}.`;
   }
 
   // Keep Tab focus cycling inside the dialog so keyboard users can't fall
@@ -216,249 +401,277 @@
       return;
     }
 
-    // When a focusable control (sidebar location, recent, breadcrumb, toggle,
-    // Select button) has focus, let it handle Enter/Space/arrows natively
-    // instead of hijacking them for list navigation.
-    const target = e.target as HTMLElement | null;
-    if (
-      target &&
-      target.closest(
-        ".fn-sidebar-item, .fn-crumb, .toggle-hidden-btn, .error-action-btn, .picker-mobile-close, .cancel-btn, .select-btn",
-      )
-    ) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (highlightedRow && !(e.metaKey || e.ctrlKey)) descend(highlightedRow);
+      else void submit();
       return;
     }
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (dirEntries.length > 0) {
-        selectedIndex = Math.min(selectedIndex + 1, dirEntries.length - 1);
+      if (rows.length > 0) {
+        highlightedIndex = Math.min(highlightedIndex + 1, rows.length - 1);
       }
-      return;
-    }
-
-    if (e.key === "ArrowUp" && e.metaKey) {
-      e.preventDefault();
-      navigateUp();
       return;
     }
 
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      if (dirEntries.length > 0) selectedIndex = Math.max(selectedIndex - 1, 0);
+      if (rows.length > 0) highlightedIndex = Math.max(highlightedIndex - 1, 0);
       return;
     }
 
-    // ← / → only navigate the folder tree when the filter is empty; otherwise
-    // they move the text cursor in the filter box (consistent on both sides).
-    if (e.key === "ArrowLeft" && filterQuery === "") {
+    if (e.key === "ArrowRight") {
+      if (!highlightedRow) return;
+      e.preventDefault();
+      descend(highlightedRow);
+      return;
+    }
+
+    // ← / Backspace walk the tree only at a directory boundary; mid-name they
+    // are ordinary text editing on the path input.
+    if ((e.key === "ArrowLeft" || e.key === "Backspace") && hasTrailingSeparator(path, hostPlatform)) {
       e.preventDefault();
       navigateUp();
-      return;
-    }
-
-    if (e.key === "ArrowRight" && filterQuery === "") {
-      e.preventDefault();
-      if (selectedEntry) navigateTo(selectedEntry.path);
-      return;
-    }
-
-    if (e.key === "Enter") {
-      e.preventDefault();
-      primarySelect();
-      return;
-    }
-
-    if (e.key === "Backspace" && filterQuery === "") {
-      e.preventDefault();
-      navigateUp();
-      return;
     }
   }
-
-  const scrollThumb = `color-mix(in srgb, var(--solus-text-tertiary) 40%, transparent)`;
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth} />
+
 {#if open && layer.el}
-  <div use:portal={layer.el} class="picker-backdrop" role="presentation" onmousedown={handleBackdropMousedown}>
+  <!-- The scrim covers the window, but its centring box is padded down to the
+       conversation column so the dialog lands on the conversation's axis. -->
+  <div
+    use:portal={layer.el}
+    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-black/12
+      max-md:bottom-auto max-md:h-[100dvh] max-md:items-end"
+    style={centringStyle}
+    role="presentation"
+    onmousedown={handleBackdropMousedown}
+    transition:fade={{ duration: 120 }}
+  >
     <div
       bind:this={popoverEl}
-      class="picker-container"
+      id="directory-picker"
+      class="flex w-[clamp(35rem,64vw,56rem)] max-w-full h-[clamp(21.25rem,50vh,36.25rem)] origin-top flex-col overflow-hidden overscroll-contain
+        rounded-[0.875rem] bg-popover text-foreground
+        shadow-[0_1.5rem_4rem_-1rem_rgba(28,22,15,0.34),0_0.0625rem_0.1875rem_rgba(28,22,15,0.10)]
+        dark:shadow-[0_1.5rem_4rem_-1rem_rgba(0,0,0,0.55),inset_0_0_0_0.0625rem_var(--border)]
+        max-md:mt-auto max-md:h-[90dvh] max-md:w-full max-md:rounded-b-none max-md:rounded-t-2xl"
       role="dialog"
       aria-modal="true"
       aria-labelledby="directory-picker-title"
       tabindex="-1"
       onkeydown={handleKeyDown}
-      transition:fly={{ y: 8, duration: 180 }}
+      transition:fly={{ y: 10, duration: 220, easing: expoOut }}
     >
-      <div class="picker-mobile-header">
-        <span id="directory-picker-title" class="picker-mobile-title">{title}</span>
-        <button
-          type="button"
-          class="picker-mobile-close"
-          onclick={onClose}
-          aria-label="Cancel"
-        >
-          <XIcon size={18} />
-        </button>
-      </div>
+      <header class="flex h-14 shrink-0 items-center gap-3 px-5 max-md:h-auto max-md:px-4 max-md:pb-2 max-md:pt-3">
+        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-tight">
+          {title}
+        </span>
+        {#if hostLabel}
+          <span class="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[0.71875rem] text-muted-foreground">
+            <DesktopTowerIcon size={11} />
+            {hostLabel}
+          </span>
+        {/if}
+        <Button variant="ghost" size="icon-xs" class="-mr-1.5 text-muted-foreground" onclick={onClose} aria-label="Cancel">
+          <XIcon size={11} />
+        </Button>
+      </header>
 
-      <div class="fn-main">
-        <div class="fn-sidebar" style="--scroll-thumb:{scrollThumb}">
-          {#each sidebarLocations as loc}
+      <div class="flex min-h-0 flex-1 max-md:flex-col">
+        <nav
+          class="hairline-scroll flex w-49 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-r-border p-2
+            max-md:flex max-md:w-full max-md:flex-row max-md:gap-1.5 max-md:overflow-x-auto max-md:overflow-y-hidden
+            max-md:border-r-0 max-md:border-b max-md:border-b-(--solus-popover-border)/30 max-md:bg-transparent max-md:px-3 max-md:py-2
+            max-md:[touch-action:pan-x] max-md:[-webkit-overflow-scrolling:touch]"
+          aria-label="Places"
+        >
+          {#snippet place(label: string, target: string, icon: "home" | "folder" | "recent")}
             <button
-              class="fn-sidebar-item"
-              class:fn-sidebar-item-active={currentPath === loc.path}
-              onclick={() => navigateTo(loc.path)}
-              title={loc.path}
+              type="button"
+              class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[0.78125rem] outline-none
+                [transition:background-color_var(--duration-quick)_var(--ease-premium),color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
+                focus-visible:ring-2 focus-visible:ring-(--solus-accent)
+                max-md:h-9 max-md:w-auto max-md:whitespace-nowrap max-md:rounded-full max-md:px-3.5 max-md:text-xs
+                {path === target
+                  ? 'bg-secondary text-primary'
+                  : icon === 'recent'
+                    ? 'text-muted-foreground hover:bg-muted'
+                    : 'hover:bg-muted'}"
+              onclick={() => navigateTo(target)}
+              title={target}
             >
-              {#if loc.label === "Home"}
-                <HouseIcon size={14} weight="fill" class="flex-shrink-0" />
+              {#if icon === "home"}
+                <HouseIcon size={13} class="shrink-0" />
+              {:else if icon === "recent"}
+                <ClockCounterClockwiseIcon size={12} class="shrink-0" />
               {:else}
-                <FolderIcon size={14} weight="fill" class="flex-shrink-0" />
+                <FolderIcon size={13} class="shrink-0" />
               {/if}
-              <span class="truncate">{loc.label}</span>
+              <span class="truncate">{label}</span>
             </button>
+          {/snippet}
+
+          {#each sidebarLocations as loc (loc.path)}
+            {@render place(loc.label, loc.path, loc.label === "Home" ? "home" : "folder")}
           {/each}
 
-          <div class="fn-sidebar-sep"></div>
+          <div class="my-2 h-px shrink-0 bg-border max-md:my-0 max-md:h-5 max-md:w-px max-md:self-center"></div>
 
-          {#if projectMetadata.recentProjects.length > 0}
-            {#each projectMetadata.recentProjects.slice(0, 6) as project (project.path)}
-              <button
-                class="fn-sidebar-item"
-                class:fn-sidebar-item-active={currentPath === project.path}
-                onclick={() => navigateTo(project.path)}
-                title={project.path}
-              >
-                <ClockCounterClockwiseIcon size={14} class="flex-shrink-0" />
-                <span class="truncate">{project.folderName}</span>
-              </button>
-            {/each}
-          {/if}
-        </div>
+          {#each recentProjects.slice(0, 6) as project (project.path)}
+            {@render place(project.folderName, ensureDirectoryPath(project.path, hostPlatform), "recent")}
+          {/each}
+        </nav>
 
-        <div class="fn-content">
-          <div class="fn-content-header">
-            <div class="fn-breadcrumbs">
-              <button class="fn-crumb" onclick={() => navigateTo("/")}>/</button>
-              {#each breadcrumbs as crumb, i (crumb.path)}
-                <CaretRightIcon size={8} class="flex-shrink-0 text-(--solus-text-muted)" />
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <!-- Trail on top, filter under it: the trail says where the list is,
+               the filter says what is being narrowed inside it. -->
+          <div class="shrink-0 px-4 pb-2 pt-3">
+            <nav
+              bind:this={pathBarEl}
+              class="crumb-strip flex items-center gap-[0.1875rem] overflow-x-auto pb-2 max-md:gap-1"
+              aria-label="Path breadcrumbs"
+            >
+              {#each crumbs as crumb, i (crumb.path)}
+                {#if i > 0}
+                  <CaretRightIcon size={8} class="shrink-0 text-muted-foreground/60" />
+                {/if}
+                <!-- Kept out of the tab order: the trail is walked with ← and
+                     Backspace from the filter, which never loses focus. -->
                 <button
-                  class="fn-crumb"
-                  class:fn-crumb-active={i === breadcrumbs.length - 1}
+                  type="button"
+                  tabindex={-1}
+                  class="min-h-5 shrink-0 whitespace-nowrap rounded-[0.3125rem] px-1 font-mono text-[0.6875rem] outline-none
+                    hover:bg-muted max-md:min-h-8 max-md:px-2 max-md:text-[0.8125rem]
+                    {i === crumbs.length - 1 ? 'font-medium' : 'text-muted-foreground'}"
+                  onmousedown={(e) => e.preventDefault()}
                   onclick={() => navigateTo(crumb.path)}
-                >{crumb.label}</button>
+                  title={crumb.path}
+                >
+                  {crumb.label}
+                </button>
               {/each}
-            </div>
-            <div class="fn-search-row">
-              <MagnifyingGlassIcon size={13} class="flex-shrink-0 text-(--solus-text-tertiary)" />
+            </nav>
+
+            <!-- A soft pill rather than a bare row: icon, text and the hidden
+                 folder toggle read as one object instead of three loose parts. -->
+            <div class="flex h-8 items-center gap-2 rounded-lg bg-muted px-2.5 max-md:h-10">
+              {#if willCreate}
+                <FolderPlusIcon size={13} weight="fill" class="shrink-0 text-primary" />
+              {:else}
+                <MagnifyingGlassIcon size={13} class="shrink-0 text-muted-foreground" />
+              {/if}
               <Input
-                bind:ref={searchEl}
-                bind:value={filterQuery}
+                bind:ref={pathInputEl}
+                value={leaf}
                 type="text"
-                class="h-auto rounded-none border-0 bg-transparent p-0 text-[0.8438rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
-                placeholder="Filter..."
+                class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.78125rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent"
+                placeholder="Filter folders"
+                spellcheck={false}
+                autocomplete="off"
+                autocapitalize="off"
+                dictation={false}
                 role="combobox"
-                aria-label="Filter folders"
+                aria-label="Folder path"
                 aria-autocomplete="list"
                 aria-controls="directory-picker-list"
                 aria-expanded={!loading && !loadError}
                 aria-activedescendant={activeDescendant}
-                oninput={() => { selectedIndex = -1 }}
-                onkeydown={(e) => {
-                  if (e.key === 'Enter' && runtime.isMobileViewport) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    (e.target as HTMLInputElement)?.blur();
-                  }
-                }}
+                oninput={(e) => setLeaf(e.currentTarget.value)}
               />
-              <button
-                class="toggle-hidden-btn"
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabindex={-1}
+                class="size-5 shrink-0 rounded text-muted-foreground hover:bg-card max-md:size-8 {showHidden ? '' : 'opacity-55'}"
+                onmousedown={(e) => e.preventDefault()}
                 onclick={() => (showHidden = !showHidden)}
                 title={showHidden ? "Hide hidden folders" : "Show hidden folders"}
                 aria-label={showHidden ? "Hide hidden folders" : "Show hidden folders"}
                 aria-pressed={showHidden}
               >
-                {#if showHidden}<EyeSlashIcon size={12} />{:else}<EyeIcon size={12} />{/if}
-              </button>
+                {#if showHidden}<EyeSlashIcon size={13} />{:else}<EyeIcon size={13} />{/if}
+              </Button>
             </div>
           </div>
 
           <div
-            class="fn-content-list"
+            class="virtual-scroll min-h-0 flex-1 overflow-hidden pb-2 [overscroll-behavior-y:contain]"
             bind:clientHeight={listHeight}
             id="directory-picker-list"
             role="listbox"
             aria-label="Folders"
           >
+            {#snippet row(index: number, style?: string)}
+              {@const item = rows[index]}
+              <DirectoryRow
+                id={`directory-option-${index}`}
+                name={item.kind === "up" ? ".." : item.entry.name}
+                isUpRow={item.kind === "up"}
+                selected={index === highlightedIndex}
+                isRepo={item.kind === "dir" && item.entry.isRepo}
+                branch={item.kind === "dir" ? item.entry.branch : undefined}
+                isProject={item.kind === "dir" && item.entry.isProject}
+                {style}
+                onclick={() => descend(item)}
+              />
+            {/snippet}
+
             {#if loading}
-              <div class="picker-empty" role="status" aria-live="polite"><span class="empty-text">Loading folders…</span></div>
+              <div class="flex h-full flex-col items-center justify-center gap-2" role="status" aria-live="polite">
+                <span class="text-xs text-(--solus-text-tertiary)">Loading folders…</span>
+              </div>
             {:else if loadError}
-              <div class="picker-empty picker-error" role="alert">
+              <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center" role="alert">
                 <FolderIcon size={18} class="text-(--solus-status-error)" />
-                <span class="empty-text">{loadError}</span>
-                <div class="error-actions">
-                  {#if parentPath}
-                    <button class="error-action-btn" onclick={navigateUp}>Go up</button>
+                <span class="text-pretty text-xs text-(--solus-text-tertiary)">{loadError}</span>
+                {#if willCreate}
+                  <span class="text-pretty text-xs text-(--solus-text-tertiary)">
+                    Press <Kbd variant="hint">↵</Kbd> to create “{targetName}”.
+                  </span>
+                {/if}
+                <div class="flex items-center gap-2">
+                  {#if canGoUp}
+                    <Button variant="ghost" onclick={navigateUp}>Go up</Button>
                   {/if}
-                  <button class="error-action-btn" onclick={() => reloadVersion++}>Retry</button>
+                  <Button variant="ghost" onclick={() => reloadVersion++}>Retry</Button>
                 </div>
               </div>
-            {:else if dirEntries.length === 0}
-              <div class="picker-empty">
+            {:else if willCreate && rows.length === 0}
+              <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+                <FolderPlusIcon size={18} class="text-(--solus-text-muted)" />
+                <span class="text-pretty text-xs text-(--solus-text-tertiary)">
+                  Press <Kbd variant="hint">↵</Kbd> to create “{targetName}” and {actionLabel.toLowerCase()} it.
+                </span>
+              </div>
+            {:else if rows.length === 0}
+              <div class="flex h-full flex-col items-center justify-center gap-2">
                 <FolderIcon size={18} class="text-(--solus-text-muted)" />
-                <span class="empty-text">{filterQuery ? "No matching folders" : "Empty"}</span>
+                <span class="text-xs text-(--solus-text-tertiary)">{leaf ? "No matching folders" : "Empty"}</span>
               </div>
             {:else if runtime.isMobileViewport}
-              <div class="fn-mobile-dir-list">
-                {#each dirEntries as entry (entry.path)}
-                  {@const sel = false}
-                  <button
-                    class="fn-dir-item"
-                    role="option"
-                    aria-selected={sel}
-                    tabindex={-1}
-                    onclick={() => navigateTo(entry.path)}
-                  >
-                    <FolderIcon size={15} weight="fill" class="flex-shrink-0 {sel ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
-                    <span class="flex-1 truncate text-[0.8125rem] {sel ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{entry.name}</span>
-                    <CaretRightIcon size={10} class="flex-shrink-0 opacity-25 {sel ? 'text-(--solus-accent)' : 'text-(--solus-text-muted)'}" />
-                  </button>
+              <div class="hairline-scroll h-full overflow-y-auto [-webkit-overflow-scrolling:touch] [overscroll-behavior-y:contain] [touch-action:pan-y]">
+                {#each rows as _item, index (index)}
+                  {@render row(index)}
                 {/each}
               </div>
             {:else if listHeight > 0}
               <VirtualList
-                bind:this={virtualList}
                 width="100%"
                 height={listHeight}
-                itemCount={dirEntries.length}
-                itemSize={dirItemHeight}
-                scrollToIndex={Math.max(selectedIndex, 0)}
+                itemCount={rows.length}
+                itemSize={rowHeight}
+                scrollToIndex={Math.max(highlightedIndex, 0)}
                 scrollToAlignment="auto"
                 scrollToBehaviour="instant"
                 overscanCount={5}
               >
                 {#snippet item({ index, style }: { index: number; style: string })}
-                  {@const entry = dirEntries[index]}
-                  {@const sel = index === selectedIndex}
-                  <div {style}>
-                    <button
-                      class="fn-dir-item"
-                      id={`directory-option-${index}`}
-                      class:fn-dir-item-sel={sel}
-                      role="option"
-                      aria-selected={sel}
-                      tabindex={-1}
-                      onclick={() => (selectedIndex = index)}
-                      ondblclick={() => navigateTo(entry.path)}
-                    >
-                      <FolderIcon size={15} weight="fill" class="flex-shrink-0 {sel ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
-                      <span class="flex-1 truncate text-[0.8125rem] {sel ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{entry.name}</span>
-                      <CaretRightIcon size={10} class="flex-shrink-0 opacity-25 {sel ? 'text-(--solus-accent)' : 'text-(--solus-text-muted)'}" />
-                    </button>
-                  </div>
+                  {@render row(index, style)}
                 {/snippet}
               </VirtualList>
             {/if}
@@ -466,454 +679,101 @@
         </div>
       </div>
 
-      <div class="picker-footer">
-        <span class="footer-path" title={selectionPath}>{abbreviateHome(selectionPath)}</span>
-        <div class="picker-footer-actions flex items-center gap-3">
-          <div class="footer-hints">
-            <span class="hint"><Kbd variant="hint">↑↓</Kbd> navigate</span>
-            <span class="hint"><Kbd variant="hint">→</Kbd> open</span>
+      <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4
+        max-md:h-auto max-md:flex-wrap max-md:gap-2 max-md:py-2.5 max-md:pb-[max(0.625rem,env(safe-area-inset-bottom,0))]">
+        {#if fileManagerError}
+          <span class="min-w-0 flex-1 truncate text-[0.6875rem] text-muted-foreground max-md:hidden">{fileManagerError}</span>
+        {:else}
+          <!-- What Enter commits, spelled out — the typed path can be a prefix,
+               a "~", or a folder about to be created. -->
+          <span class="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground max-md:hidden" title={resolvedPath}>
+            {displayPath}
+          </span>
+          <div class="flex shrink-0 items-center gap-3 text-[0.6875rem] text-muted-foreground max-md:hidden">
+            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden">
+              <Kbd variant="hint">↑↓</Kbd>navigate
+            </span>
+            <span class="flex items-center gap-1.5 whitespace-nowrap max-[1100px]:hidden">
+              <Kbd variant="hint">→</Kbd>open
+            </span>
+            <span class="whitespace-nowrap tabular-nums">{dirEntries.length} folders</span>
           </div>
-          {#if !runtime.isMobileViewport}
-            <span class="text-[0.6563rem] text-(--solus-text-muted) tabular-nums flex-shrink-0">{dirEntries.length} folders</span>
-            <button class="cancel-btn" onclick={onClose}>Cancel</button>
-          {/if}
-          <button class="select-btn" onclick={primarySelect} disabled={loading || !!loadError}>{actionLabel} <span class="select-btn-name">“{primaryTargetName}”</span>{#if !runtime.isMobileViewport} <Kbd variant="inline" class="opacity-70 ml-1">↵</Kbd>{/if}</button>
-        </div>
-      </div>
+        {/if}
+        {#if canOpenFileManager}
+          <Button
+            variant="ghost"
+            class="shrink-0 text-[0.8125rem] text-muted-foreground"
+            disabled={loading || !resolvedDirectory}
+            onclick={() => void openInFileManager()}
+          >
+            Open in {fileManagerName}
+          </Button>
+        {/if}
+        {#if !runtime.isMobileViewport}
+          <Button variant="ghost" class="shrink-0 text-[0.8125rem]" onclick={onClose}>Cancel</Button>
+        {/if}
+        <Button
+          class="shrink-0 px-3.5 text-[0.8125rem] max-md:h-11 max-md:flex-1"
+          disabled={loading || creating || !resolvedPath}
+          onclick={() => void submit()}
+        >
+          {creating ? "Creating" : submitLabel}
+          <span class="inline-block max-w-36 truncate align-bottom">“{targetName}”</span>
+        </Button>
+      </footer>
     </div>
   </div>
 {/if}
 
 <style>
-  .picker-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: auto;
-    overflow: hidden;
-    overscroll-behavior: contain;
-    background: color-mix(in srgb, black 12%, transparent);
+  /* svelte-tiny-virtual-list renders its scroller outside this component, and
+     sets `overflow: auto` inline — which the row width rounds into a spurious
+     horizontal bar, so the axis is closed off here. */
+  .virtual-scroll :global(.virtual-list-wrapper) {
+    overflow-x: hidden !important;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+    touch-action: pan-y;
   }
 
-  .picker-container {
-    width: clamp(32.5rem, 60vw, 60rem);
-    height: clamp(21.25rem, 50vh, 36.25rem);
-    background: #fcfbf8;
-    border: 0.0625rem solid var(--solus-popover-border);
-    border-radius: 1.125rem;
-    box-shadow:
-      var(--solus-popover-shadow),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.14);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    overscroll-behavior: contain;
-    transform-origin: center top;
-  }
-  :global(.dark) .picker-container {
-    background: #1e1d1a;
-    box-shadow:
-      var(--solus-popover-shadow),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.06);
-  }
-
-
-  .toggle-hidden-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 0.375rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-  }
-  .toggle-hidden-btn:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
-
-  .picker-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    gap: 0.5rem;
-  }
-  .empty-text { font-size: 0.75rem; color: var(--solus-text-tertiary); }
-  .picker-error { padding: 1.5rem; text-align: center; }
-  .error-actions { display: flex; align-items: center; gap: 0.5rem; }
-  .error-action-btn,
-  .cancel-btn {
-    min-height: 2.5rem;
-    padding: 0 0.75rem;
-    border: none;
-    border-radius: 0.5rem;
-    background: transparent;
-    color: var(--solus-text-secondary);
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .error-action-btn:hover,
-  .cancel-btn:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
-  .error-action-btn:active,
-  .cancel-btn:active { scale: 0.96; }
-
-  .picker-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.625rem 1.125rem;
-    flex-shrink: 0;
-    border-top: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 40%, transparent);
-  }
-  .footer-path {
-    flex: 1;
-    min-width: 0;
-    font-family: var(--font-mono, "Geist Mono", monospace);
-    font-size: 0.6875rem;
-    color: var(--solus-text-tertiary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .footer-hints { display: flex; gap: 0.5rem; flex-shrink: 0; }
-  .hint { font-size: 0.625rem; color: var(--solus-text-muted); white-space: nowrap; }
-
-  .select-btn {
-    min-height: 2.5rem;
-    padding: 0.3125rem 1rem;
-    border-radius: 0.5rem;
-    border: none;
-    background: var(--solus-accent);
-    color: white;
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition-property: scale, opacity;
-    transition-duration: 100ms;
-  }
-  .select-btn:hover { opacity: 0.9; }
-  .select-btn:active { scale: 0.96; }
-  .select-btn:disabled { cursor: not-allowed; opacity: 0.5; scale: 1; }
-  .select-btn-name {
-    display: inline-block;
-    max-width: 12rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: bottom;
-  }
-
-  /* Visible focus rings for keyboard users tabbing through the dialog. */
-  .fn-sidebar-item:focus-visible,
-  .fn-crumb:focus-visible,
-  .toggle-hidden-btn:focus-visible,
-  .error-action-btn:focus-visible,
-  .picker-mobile-close:focus-visible,
-  .cancel-btn:focus-visible,
-  .select-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: -0.125rem;
-    border-radius: 0.5rem;
-  }
-
-  .picker-mobile-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 3rem;
-    padding: 0.375rem 0.75rem 0.375rem 1rem;
-    flex-shrink: 0;
-    border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 25%, transparent);
-  }
-
-  .picker-mobile-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--solus-text-primary);
-  }
-
-  .picker-mobile-close {
-    width: 2.5rem;
-    height: 2.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.625rem;
-    border: none;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .picker-mobile-close:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  /* ─── Finder layout ─── */
-  .fn-main { flex: 1; display: flex; min-height: 0; }
-
-  .fn-sidebar {
-    width: 10.625rem;
-    flex-shrink: 0;
-    border-right: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 30%, transparent);
-    padding: 0.625rem 0;
-    overflow-y: auto;
-    background: var(--solus-surface-hover);
-  }
-  .fn-sidebar::-webkit-scrollbar { width: 0.125rem; }
-  .fn-sidebar::-webkit-scrollbar-track { background: transparent; }
-  .fn-sidebar::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 0.25rem; }
-
-  .fn-sidebar-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: calc(100% - 1rem);
-    margin: 0.0625rem 0.5rem;
-    padding: 0.375rem 0.625rem;
-    border: none;
-    border-radius: 0.5rem;
-    background: transparent;
-    color: var(--solus-text-secondary);
-    font-size: 0.7813rem;
-    cursor: pointer;
-    text-align: left;
-    min-height: 2.5rem;
-  }
-  .fn-sidebar-item:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
-  .fn-sidebar-item-active { background: var(--solus-accent-light); color: var(--solus-accent); }
-
-  .fn-sidebar-sep {
-    height: 0.0625rem;
-    margin: 0.5rem 1rem;
-    background: color-mix(in srgb, var(--solus-popover-border) 40%, transparent);
-  }
-
-  .fn-content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-
-  .fn-content-header {
-    flex-shrink: 0;
-    border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 25%, transparent);
-  }
-
-  .fn-breadcrumbs {
-    display: flex;
-    align-items: center;
-    gap: 0.1875rem;
-    padding: 0.625rem 1rem 0;
-    overflow-x: auto;
-    touch-action: pan-x;
+  /* The trail auto-scrolls to its tail on every path change, so a bar under it
+     would only eat into the row's height — it is swiped instead. */
+  .crumb-strip {
     scrollbar-width: none;
+    touch-action: pan-x;
   }
-  .fn-breadcrumbs::-webkit-scrollbar { display: none; }
-
-  .fn-crumb {
-    font-family: var(--font-mono, "Geist Mono", monospace);
-    font-size: 0.6875rem;
-    color: var(--solus-text-tertiary);
-    background: none;
-    border: none;
-    padding: 0.125rem 0.375rem;
-    border-radius: 0.3125rem;
-    cursor: pointer;
-    white-space: nowrap;
-    min-height: 2.5rem;
-  }
-  .fn-crumb:hover { background: var(--solus-surface-hover); color: var(--solus-text-primary); }
-  .fn-crumb-active { color: var(--solus-text-primary); font-weight: 500; }
-
-  .fn-search-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0 1rem;
-    height: 2.75rem;
+  .crumb-strip::-webkit-scrollbar {
+    display: none;
   }
 
-  .fn-content-list { flex: 1; min-height: 0; overflow: hidden; overscroll-behavior-y: contain; }
-  :global(.fn-content-list .virtual-list-wrapper) {
-    overscroll-behavior-y: contain;
+  /* A dialog this small can't afford chrome-width scrollbars on two rails, so
+     both scroll on a hairline thumb over a track that isn't drawn at all. */
+  .hairline-scroll {
     scrollbar-width: thin;
-    touch-action: pan-y;
   }
-  .fn-mobile-dir-list {
-    height: 100%;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    scrollbar-width: thin;
-    touch-action: pan-y;
-    -webkit-overflow-scrolling: touch;
+  .hairline-scroll::-webkit-scrollbar,
+  .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar) {
+    width: 0.1875rem;
+    height: 0.1875rem;
   }
-
-  .fn-dir-item {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    width: 100%;
-    height: 2.5rem;
-    padding: 0 1rem;
-    border: none;
+  .hairline-scroll::-webkit-scrollbar-track,
+  .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar-track) {
     background: transparent;
-    cursor: pointer;
-    text-align: left;
   }
-  .fn-dir-item-sel {
-    background: var(--solus-accent-light);
-    border-radius: 0.5rem;
-    margin: 0 0.375rem;
-    padding: 0 0.625rem;
-    width: calc(100% - 0.75rem);
+  .hairline-scroll::-webkit-scrollbar-thumb,
+  .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar-thumb) {
+    background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
+    border-radius: 0.25rem;
   }
 
-  /* ── Mobile ── */
+  /* The places rail turns into a swipeable strip on mobile; a bar under it just
+     steals height from the row. */
   @media (max-width: 767px) {
-    .picker-container {
-      width: 100%;
-      height: 90dvh;
-      border-radius: 1rem 1rem 0 0;
-      box-shadow: 0 -0.25rem 1.5rem rgba(0, 0, 0, 0.15);
-      border: none;
-      margin-top: auto;
-    }
-
-    /* On a fixed `inset:0` backdrop the bottom edge resolves to the large
-       viewport (behind the browser's bottom chrome). Pin the backdrop to the
-       dynamic viewport height instead so the bottom-anchored sheet — and its
-       footer — land just above the address bar rather than behind it. */
-    .picker-backdrop {
-      align-items: flex-end;
-      bottom: auto;
-      height: 100dvh;
-    }
-
-    .picker-mobile-header {
-      padding: 0.75rem 1rem 0.5rem;
-    }
-
-    .fn-main {
-      flex-direction: column;
-      flex: 1 1 auto;
-      min-height: 0;
-    }
-
-    .fn-content {
-      flex: 1 1 auto;
-      min-height: 0;
-    }
-
-    .fn-content-list {
-      flex: 1 1 auto;
-      min-height: 0;
-    }
-
-    .fn-sidebar {
-      width: 100%;
-      flex-shrink: 0;
-      border-right: none;
-      border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-popover-border) 30%, transparent);
-      display: flex;
-      flex-direction: row;
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding: 0.5rem 0.75rem;
-      gap: 0.375rem;
+    .hairline-scroll {
       scrollbar-width: none;
-      background: transparent;
-      -webkit-overflow-scrolling: touch;
-      touch-action: pan-x;
     }
-
-    .fn-sidebar::-webkit-scrollbar {
+    .hairline-scroll::-webkit-scrollbar {
       display: none;
     }
-
-    .fn-sidebar-item {
-      white-space: nowrap;
-      flex-shrink: 0;
-      width: auto;
-      margin: 0;
-      padding: 0.5rem 0.875rem;
-      border-radius: 1.25rem;
-      font-size: 0.75rem;
-      min-height: 2.5rem;
-    }
-
-    .fn-sidebar-sep {
-      width: 0.0625rem;
-      height: 1.25rem;
-      margin: 0 0.125rem;
-      align-self: center;
-    }
-
-    .fn-dir-item {
-      min-height: 3rem;
-      height: 3rem;
-    }
-
-    .fn-dir-item-sel {
-      min-height: 3rem;
-      height: 3rem;
-    }
-
-    .fn-search-row {
-      height: 2.75rem;
-    }
-
-
-    .fn-breadcrumbs {
-      padding: 0.625rem 1rem 0.125rem;
-      gap: 0.25rem;
-    }
-
-    .fn-crumb {
-      font-size: 0.8125rem;
-      padding: 0.25rem 0.5rem;
-    }
-
-    .picker-footer {
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      padding: 0.625rem 1rem;
-      padding-bottom: max(0.625rem, env(safe-area-inset-bottom, 0));
-    }
-
-    .footer-hints {
-      display: none;
-    }
-
-    /* The current path already shows in the breadcrumbs; the footer is just the
-       primary action on mobile, so the Select button spans the full width. */
-    .footer-path {
-      display: none;
-    }
-
-    .picker-footer-actions {
-      flex: 1;
-      gap: 0;
-    }
-
-    .select-btn {
-      flex: 1;
-      padding: 0.625rem 1rem;
-      font-size: 0.875rem;
-      min-height: 2.75rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.25rem;
-    }
-  }
-
-  @media (max-width: 1100px) and (min-width: 768px) {
-    .footer-hints { display: none; }
   }
 </style>

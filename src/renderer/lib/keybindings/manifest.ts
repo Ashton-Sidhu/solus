@@ -3,7 +3,8 @@ import { defaultCombo, formatCombo } from './match'
 
 export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
-  'global.select-project':    { combo: { mod: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Select project',           group: 'General' },
+  'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
+  'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open project',             group: 'General' },
   'global.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New tab',                  group: 'Tabs' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'New chat in split',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
@@ -191,9 +192,6 @@ export const KEYBINDINGS = {
 
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },
-  'command-palette.next':         { combo: { code: 'ArrowDown' }, aliases: [{ ctrl: true, code: 'KeyN' }], repeatable: true, scope: 'command-palette',    label: 'Next command',             group: 'Palette' },
-  'command-palette.prev':         { combo: { code: 'ArrowUp' }, aliases: [{ ctrl: true, code: 'KeyP' }],   repeatable: true, scope: 'command-palette',    label: 'Previous command',         group: 'Palette' },
-  'command-palette.select':       { combo: { code: 'Enter' },                              scope: 'command-palette',    label: 'Run command',              group: 'Palette' },
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },

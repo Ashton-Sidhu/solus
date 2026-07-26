@@ -29,10 +29,6 @@ export interface CommandGroup {
   items: Command[]
 }
 
-export type CommandDisplayRow =
-  | { kind: 'header'; title: string }
-  | { kind: 'command'; cmd: Command; commandIndex: number }
-
 const searchTextCache = new WeakMap<Command, string>()
 
 function commandSearchText(command: Command): string {
@@ -70,36 +66,14 @@ export function groupCommands(commands: Command[]): CommandGroup[] {
 }
 
 /**
- * Returns the visible edge command to adopt when the selected command is
- * outside a virtual viewport. Returns null while selection is already visible.
+ * Keeps the user's selected command across live list updates. Falls back to the
+ * first visible command only when the previous selection is no longer present.
  */
-export function visibleCommandEdge(
-  rows: CommandDisplayRow[],
-  selectedIndex: number,
-  scrollOffset: number,
-  viewportHeight: number,
-  headerHeight: number,
-  commandHeight: number,
-  direction: 1 | -1,
-): number | null {
-  let offset = 0
-  let selectedIsVisible = false
-  let firstVisible = -1
-  let lastVisible = -1
-  const viewportEnd = scrollOffset + viewportHeight
-
-  for (const row of rows) {
-    const size = row.kind === 'header' ? headerHeight : commandHeight
-    const rowEnd = offset + size
-    if (row.kind === 'command' && rowEnd > scrollOffset && offset < viewportEnd) {
-      if (firstVisible === -1) firstVisible = row.commandIndex
-      lastVisible = row.commandIndex
-      if (row.commandIndex === selectedIndex) selectedIsVisible = true
-    }
-    offset = rowEnd
-  }
-
-  if (selectedIsVisible) return null
-  const edge = direction === 1 ? firstVisible : lastVisible
-  return edge === -1 ? null : edge
+export function retainCommandSelection(
+  commands: Command[],
+  selectedCommandId: string,
+): string {
+  return commands.some((command) => command.id === selectedCommandId)
+    ? selectedCommandId
+    : commands[0]?.id ?? ''
 }

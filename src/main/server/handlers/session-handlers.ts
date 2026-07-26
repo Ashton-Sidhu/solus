@@ -13,6 +13,7 @@ import { appVersion } from '../../platform/paths'
 import { warmFinder } from '../file-finder'
 import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
+import { setupProjectsRoot } from './setup-handlers'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
@@ -127,7 +128,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(enrichAgentMetadata),
     )
-    return { projectPath: process.cwd(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
+    return { projectPath: setupProjectsRoot(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
   })
 
   function tabOwner(handlerCtx: HandlerCtx): { clientId: string; deviceId?: string } {

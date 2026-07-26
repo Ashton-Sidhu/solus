@@ -17,6 +17,7 @@
   import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import PlanCard from "./PlanCard.svelte";
+  import PlanGallerySkeleton from "./PlanGallerySkeleton.svelte";
   import PlanListRow from "./PlanListRow.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import PageShell from "../ui/PageShell.svelte";
@@ -435,7 +436,7 @@
 {#snippet editorGrid()}
   <div bind:this={scrollEl} class="outline-none" role="listbox" tabindex="-1" onmousemove={() => { mouseHasMoved = true; }}>
     {#if loading && descriptors.length === 0}
-      <PageEmpty compact>Loading plans…</PageEmpty>
+      <PlanGallerySkeleton />
     {:else if filtered.length === 0}
       {@render emptyState(false)}
     {:else}
@@ -501,7 +502,7 @@
     onmousemove={() => { mouseHasMoved = true; }}
   >
     {#if loading && descriptors.length === 0}
-      <PageEmpty compact>Loading plans…</PageEmpty>
+      <PlanGallerySkeleton compact />
     {:else if filtered.length === 0}
       {@render emptyState(true)}
     {:else}

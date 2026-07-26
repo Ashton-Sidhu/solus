@@ -27,22 +27,24 @@
   }
 
   /* Action-bar composer lines up under the text column: same reading measure,
-     centered between the same gutters the editor reserves — the left TOC rail
-     (w-60 = 15rem, shown above 1100px) and the right comments-rail gutter
-     (--plan-rail-w, reserved at all non-mobile widths). Without the gutters it
-     would center on the whole modal and sit left of the text. */
+     centered in the same box. It lives in the shell's editor column, so the TOC
+     and comments rails are already outside its box — it only drops its own inset
+     (so the % in --solus-doc-measure resolves against the same width the editor
+     sees) and mirrors the gutter the editor reserves while the rail is closed.
+     Both must track the shell container, never the viewport: a split pane is
+     narrow while the window is wide. */
   .plan-shell .plan-action-bar {
-    max-width: var(--solus-doc-measure);
+    /* Never wider than the text column, and never flush against the pane edges
+       on panes narrow enough that the measure bottoms out on its floor. */
+    max-width: min(var(--solus-doc-measure), calc(100% - 2.5rem));
     margin-inline: auto;
   }
   @media (min-width: 768px) {
     .plan-shell .plan-action-bar-sleeve {
-      padding-right: var(--plan-rail-w);
+      padding-inline: 0;
     }
-  }
-  @media (min-width: 1101px) {
-    .plan-shell .plan-action-bar-sleeve {
-      padding-left: 15rem;
+    .plan-shell .plan-action-bar-sleeve--no-rail {
+      padding-right: var(--plan-composer-gutter, var(--plan-rail-w));
     }
   }
 
@@ -131,6 +133,11 @@
   @container doc-shell (max-width: 112.5rem) {
     .plan-shell .plan-editor-scroll--no-rail {
       padding-right: 0;
+    }
+    /* Cleared as a variable, not a padding, so the composer keeps its mobile
+       inset where the padding rule above doesn't apply. */
+    .plan-shell .plan-action-bar-sleeve--no-rail {
+      --plan-composer-gutter: 0px;
     }
     .plan-shell .doc-shell-toolbar-row,
     .plan-document-editor .solus-doc-raw {

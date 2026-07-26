@@ -14,6 +14,7 @@
   import type { AppGlobalShortcuts, AppShortcutCombo } from "../../../shared/types";
   import { getSettingsContext, getWindowContext, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import SettingsSection from "./SettingsSection.svelte";
 
   interface Props {
     searchQuery?: string;
@@ -321,7 +322,7 @@
   {@const conflict = pendingConflict?.id === id ? pendingConflict : null}
   {@const custom = isOverridden(id) && !recording && !conflict}
   <div
-    class="flex items-center justify-between gap-4 min-h-[2.375rem] px-3 py-[0.3125rem] border-b border-b-(--solus-container-border)/45 last:border-b-0
+    class="flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
       {recording ? 'bg-(--solus-accent)/5' : ''}"
   >
     <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{def.label}</span>
@@ -387,7 +388,7 @@
   {@const combo = appShortcuts[key]}
   {@const recording = recordingId === `app:${key}`}
   {@const failed = appFailed[key]}
-  <div class="flex items-center justify-between gap-4 min-h-[2.375rem] px-3 py-[0.3125rem] border-b border-b-(--solus-container-border)/45 last:border-b-0
+  <div class="flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
     {recording ? 'bg-(--solus-accent)/5' : ''}">
     <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
@@ -422,10 +423,10 @@
 {/snippet}
 
 <div class="flex flex-col gap-1">
-  <div class="flex items-center justify-between gap-4 py-1 pb-3">
+  <div class="flex items-center justify-between gap-4 pb-3">
     <div class="flex items-center gap-2">
       <KeyboardIcon size={15} class="text-(--solus-text-tertiary)" />
-      <span class="text-[0.75rem] text-(--solus-text-tertiary)">Click a shortcut to rebind it. Saved on this device only.</span>
+      <span class="text-[0.75rem] text-(--solus-text-tertiary)">Click a shortcut to rebind it.</span>
     </div>
     {#if anyOverride}
       <Button variant="ghost" size="xs" onclick={resetAll}>
@@ -440,26 +441,27 @@
     </p>
   {/if}
 
-  <div class="flex gap-5 items-start mt-2">
-    <nav class="w-[11.5rem] shrink-0 sticky top-0 flex flex-col gap-px" aria-label="Shortcut categories">
+  <div class="flex gap-5 items-start">
+    <nav class="w-[10.5rem] shrink-0 sticky top-0 flex flex-col gap-px" aria-label="Shortcut categories">
       {#each railItems as item (item.key)}
+        {@const active = selectedScope === item.key && !searchQuery}
         <button
           type="button"
-          class="relative flex items-center justify-between gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left [transition:color_0.15s_ease,background_0.15s_ease,opacity_0.15s_ease] outline-none focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]
-            {selectedScope === item.key && !searchQuery
-              ? 'bg-(--solus-accent)/8 text-(--solus-text-primary) before:content-[\'\'] before:absolute before:-left-0.5 before:top-1/2 before:-translate-y-1/2 before:w-[0.1875rem] before:h-[1.0625rem] before:rounded-r-sm before:bg-(--solus-accent)'
+          class="flex items-center justify-between gap-2 w-full h-8 px-2.5 rounded-md border cursor-pointer text-left [transition:color_0.15s_ease,background_0.15s_ease,border-color_0.15s_ease,opacity_0.15s_ease] outline-none focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]
+            {active
+              ? 'border-border bg-card text-foreground shadow-xs'
               : searchQuery && item.matchCount === 0
-                ? 'text-(--solus-text-secondary) opacity-40'
-                : 'text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-surface-hover)'}"
-          aria-current={selectedScope === item.key && !searchQuery ? "true" : undefined}
+                ? 'border-transparent bg-transparent text-(--solus-text-secondary) opacity-40'
+                : 'border-transparent bg-transparent text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5'}"
+          aria-current={active ? "true" : undefined}
           onclick={() => selectScope(item.key)}
         >
-          <span class="text-[0.8125rem] font-medium tracking-[-0.01em] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.label}</span>
+          <span class="text-[0.8125rem] tracking-[-0.01em] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
           <span class="inline-flex items-center gap-1.5 shrink-0">
             {#if item.overrides > 0}
               <span class="w-1.5 h-1.5 rounded-full bg-(--solus-accent)" title={`${item.overrides} customized`}></span>
             {/if}
-            <span class="text-[0.6875rem] tabular-nums {selectedScope === item.key && !searchQuery ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}">{searchQuery ? item.matchCount : item.total}</span>
+            <span class="text-[0.6875rem] tabular-nums {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}">{searchQuery ? item.matchCount : item.total}</span>
           </span>
         </button>
       {/each}
@@ -471,35 +473,29 @@
           <div class="py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">No shortcuts match your search</div>
         {:else}
           {#each searchSections as section (section.scope)}
-            <div class="flex flex-col gap-[0.4375rem]">
-              <div class="text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-(--solus-text-tertiary) opacity-80 px-0.5">{section.label}</div>
-              <div class="border border-(--solus-art-border)/90 rounded-[0.625rem] bg-(--solus-art-surface) overflow-hidden">
-                {#each section.rows as { id, def } (id)}
-                  {@render bindingRow(id, def)}
-                {/each}
-              </div>
-            </div>
+            <SettingsSection label={section.label}>
+              {#each section.rows as { id, def } (id)}
+                {@render bindingRow(id, def)}
+              {/each}
+            </SettingsSection>
           {/each}
         {/if}
       {:else if selectedScope === "system"}
         <div class="flex flex-col gap-[0.4375rem]">
           <p class="text-[0.6875rem] text-(--solus-text-tertiary) px-0.5 pb-0.5">Global shortcuts that summon Solus from anywhere on your computer.</p>
-          <div class="border border-(--solus-art-border)/90 rounded-[0.625rem] bg-(--solus-art-surface) overflow-hidden">
+          <SettingsSection>
             {#each APP_ROWS as appRow (appRow.key)}
               {@render appBindingRow(appRow.key, appRow.label)}
             {/each}
-          </div>
+          </SettingsSection>
         </div>
       {:else}
         {#each selectedGroups as g (g.group)}
-          <div class="flex flex-col gap-[0.4375rem]">
-            <div class="text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-(--solus-text-tertiary) opacity-80 px-0.5">{g.group}</div>
-            <div class="border border-(--solus-art-border)/90 rounded-[0.625rem] bg-(--solus-art-surface) overflow-hidden">
-              {#each g.rows as { id, def } (id)}
-                {@render bindingRow(id, def)}
-              {/each}
-            </div>
-          </div>
+          <SettingsSection label={g.group}>
+            {#each g.rows as { id, def } (id)}
+              {@render bindingRow(id, def)}
+            {/each}
+          </SettingsSection>
         {/each}
       {/if}
     </div>

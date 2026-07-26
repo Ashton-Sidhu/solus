@@ -26,6 +26,7 @@
   import { getRecommendedGitActionKey } from "../../lib/git-recommendation";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { tooltip } from "../../lib/tooltip";
   import * as Popover from "../ui/popover";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -562,7 +563,7 @@
     class:is-loading={def.phase === "loading"}
     disabled={def.disabled}
     onclick={def.run}
-    use:tooltip={def.tooltip}
+    use:tooltip={def.tooltip ?? null}
   >
     <span class="menu-left">
       <span class="menu-icon">{@render actionGlyph(def)}</span>

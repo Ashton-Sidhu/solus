@@ -3,6 +3,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import { agentLabel } from "../../lib/agentAvailability";
   import ConversationRefCard from "./ConversationRefCard.svelte";
+  import { resolveSessionLinkMeta } from "./lib/session-link";
   import type { AgentId } from "../../../shared/types";
 
   interface Props {
@@ -19,17 +20,13 @@
 
   const session = getWorkspaceContext();
 
-  function open() {
-    void session.resumeSession({
+  async function open() {
+    const meta = await resolveSessionLinkMeta({
       provider: ref.provider,
       sessionId: ref.agentSessionId,
-      slug: null,
-      firstMessage: ref.title,
-      lastTimestamp: new Date().toISOString(),
-      size: 0,
       cwd: ref.cwd,
-      projectPath: ref.cwd,
     });
+    await session.resumeSession(meta);
   }
 </script>
 

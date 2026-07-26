@@ -1,6 +1,8 @@
 import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../auth'
 import { discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { createLogger } from '../../logger'
+import { bootstrapDiscoveredServerOverSsh } from '../ssh-bootstrap'
+import type { DiscoveredServer } from '../../../shared/types'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'connections-handlers')
@@ -10,6 +12,7 @@ export interface ConnectionsDeps {
   getServerInfo(): { host: string; port: number; allowLan: boolean; remoteAccess: boolean; requireAuth: boolean }
   /** Returns currently-connected WebSocket clients. */
   getActiveSessions(): ActiveConnectionSession[]
+  discoverLanServers(): Promise<DiscoveredServer[]>
   setRemoteAccess(remoteAccess: boolean): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
 }
 
@@ -62,9 +65,17 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return listReachableEndpoints(host, port)
   })
 
-  server.register('discoverServers', () => {
+  server.register('discoverServers', async () => {
     const { port } = deps.getServerInfo()
-    return discoverTailnetServers({ boundPort: port, ownInstallationId: getInstallationId() })
+    const [lan, tailnet] = await Promise.all([
+      deps.discoverLanServers(),
+      discoverTailnetServers({ boundPort: port, ownInstallationId: getInstallationId() }),
+    ])
+    const discovered = new Map<string, DiscoveredServer>()
+    for (const candidate of [...tailnet, ...lan]) {
+      if (!discovered.has(candidate.installationId)) discovered.set(candidate.installationId, candidate)
+    }
+    return [...discovered.values()]
   })
 
   server.register('connectionsGeneratePairToken', () => {
@@ -75,6 +86,11 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsListSessions', () => {
     return aggregateConnectionSessionsByDevice(deps.getActiveSessions())
+  })
+
+  server.register('connectionsBootstrapDiscoveredServer', (args) => {
+    const [input] = args as [Parameters<typeof bootstrapDiscoveredServerOverSsh>[0]]
+    return bootstrapDiscoveredServerOverSsh(input)
   })
 
   server.register('connectionsRevokeDevice', (args) => {

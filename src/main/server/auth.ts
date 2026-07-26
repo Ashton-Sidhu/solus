@@ -222,6 +222,39 @@ export function claimOwnership(tokenOrCode: string, deviceLabel: string, now = D
   }
 }
 
+export interface SshBootstrapCredential {
+  sessionToken: string
+  installationId: string
+  fingerprint: string
+  ownerDeviceId?: string
+  claimedAt?: number
+}
+
+export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now()): SshBootstrapCredential {
+  const keys = loadOrCreateKeys()
+  const sessionToken = issueSessionToken(deviceLabel, now)
+  const session = verifySessionToken(sessionToken, now)
+  if (!session) throw new Error('Failed to issue session credential')
+
+  let claimedAt: number | undefined
+  let ownerDeviceId: string | undefined
+  if (keys.ownership === 'unclaimed') {
+    claimedAt = now
+    ownerDeviceId = session.deviceId
+    keys.ownership = { owned: { ownerDeviceId, claimedAt } }
+    _activeClaimWindow = null
+    persistKeys()
+  }
+
+  return {
+    sessionToken,
+    installationId: keys.installationId,
+    fingerprint: getServerFingerprint(),
+    ...(ownerDeviceId ? { ownerDeviceId } : {}),
+    ...(claimedAt ? { claimedAt } : {}),
+  }
+}
+
 function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: number): string {
   const keys = loadOrCreateKeys()
   const labelB64 = Buffer.from(deviceLabel).toString('base64url')

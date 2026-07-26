@@ -43,6 +43,12 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     installRendererGlobals()
 
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { serverConnections } = await import('../../src/client-core/server-connections')
+    const originalConnectionFor = serverConnections.connectionFor.bind(serverConnections)
+    serverConnections.connectionFor = (() => ({
+      serverId: 'remote-server',
+      target: { local: false },
+    })) as typeof serverConnections.connectionFor
     const registry = {
       tabs: {} as Record<string, Tab>,
       sessions: {} as Record<string, Session>,
@@ -95,14 +101,20 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     workspace.resetOverlays = () => {}
     workspace.refreshPluginCommands = () => Promise.resolve()
 
-    const tabId = workspace.createTabFromDefaults()
-    const created = registry.sessions[registry.tabs[tabId].sessionId]
+    let created: Session
+    try {
+      const tabId = workspace.createTabFromDefaults()
+      created = registry.sessions[registry.tabs[tabId].sessionId]
+    } finally {
+      serverConnections.connectionFor = originalConnectionFor
+    }
 
     expect(created.gitContext).toEqual({
       repoRoot: '/repo',
       branch: 'feature',
       targetBranch: 'main',
     })
+    expect(created.serverId).toBe('remote-server')
   })
 
   test('uses the saved worktree default for a fresh session even when its source session is direct', async () => {

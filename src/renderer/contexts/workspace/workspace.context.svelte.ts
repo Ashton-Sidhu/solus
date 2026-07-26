@@ -522,7 +522,7 @@ export class WorkspaceContext {
       : window.solus
     const { tabId } = await tabApi.createTab()
     const session = makeSession(this.settings, {
-      serverId: activeSession?.serverId ?? LOCAL_SERVER_ID,
+      serverId: activeSession?.serverId ?? serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
       workingDirectory: inheritedDir,
       gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
       worktreeBaseBranch: worktreeRequested ? inheritedGitContext?.targetBranch ?? null : null,
@@ -817,6 +817,7 @@ export class WorkspaceContext {
       ? null
       : this.globalDefaults.worktreeBaseBranch
     const session = makeSession(this.settings, {
+      serverId: serverConnections.connectionFor()?.serverId ?? LOCAL_SERVER_ID,
       workingDirectory,
       gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
       worktreeBaseBranch: inheritedWorktreeBaseBranch,

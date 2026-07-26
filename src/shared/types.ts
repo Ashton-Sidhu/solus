@@ -29,10 +29,15 @@ export interface ServerCapabilities {
     github: boolean
   }
   serverName?: string
+  /** Where this host's folder picker starts when opening a new project. */
+  projectsBaseDirectory?: string
 }
 
 export type SetupAgent = 'claude' | 'codex'
-export type SetupStreamStep = 'install-claude' | 'install-codex' | 'clone'
+/** `signin-*` reuse the install streaming machinery — same log/status topics. */
+export type SetupStreamStep =
+  | 'install-claude' | 'install-codex' | 'install-git' | 'clone'
+  | 'signin-claude' | 'signin-codex'
 export type SetupStepStatus = 'running' | 'done' | 'failed'
 
 export interface SetupLogEvent {
@@ -40,10 +45,18 @@ export interface SetupLogEvent {
   line: string
 }
 
+/** The device-flow prompt an agent sign-in is blocked on until the user opens it. */
+export interface SetupVerification {
+  url: string
+  code: string
+}
+
 export interface SetupStatusEvent {
   step: SetupStreamStep
   status: SetupStepStatus
   error?: string
+  /** Present while an agent sign-in waits on the user to open the URL. */
+  verification?: SetupVerification
 }
 
 export interface SetupStepResult {
@@ -71,9 +84,91 @@ export type SetupGithubReposResult =
   | { connected: false }
   | { connected: true; repos: SetupGithubRepo[] }
 
+/**
+ * How a clone authenticated — and therefore whether this host can also push. An
+ * `anonymous` clone read a public repo with no credentials at all, so it works
+ * right up until the push.
+ */
+export type CloneAuth = 'ssh' | 'token' | 'anonymous'
+
 export interface SetupCloneProjectResult {
   path: string
   projectKey: string
+  auth: CloneAuth
+}
+
+/** Registering a checkout the host already had, instead of cloning a new one. */
+export interface SetupAdoptProjectResult {
+  path: string
+  projectKey: string
+}
+
+/** How a clone reaches the code host. HTTPS rides the host's stored token; SSH needs a key on the host. */
+export type CloneProtocol = 'https' | 'ssh'
+
+export interface SetupCloneProjectRequest {
+  cloneUrl: string
+  /** Overrides the directory name derived from the repo. */
+  name?: string
+  /** Absolute (or `~`-rooted) destination on the host; defaults under its projects root. */
+  destination?: string
+  protocol?: CloneProtocol
+  /** Removes the partial directory a previous clone on this host left behind. */
+  clean?: boolean
+}
+
+/** The command that installs git on a host, and whether Solus may run it unattended. */
+export interface GitInstallCommand {
+  display: string
+  /** False when the command needs sudo we don't have — the client shows it to copy instead. */
+  autoRunnable: boolean
+}
+
+/** The `user.name`/`user.email` a host commits under. */
+export interface GitCommitIdentity {
+  name: string
+  email: string
+}
+
+/**
+ * Everything a host needs before it can clone and then push: the git binary, a
+ * commit identity, GitHub credentials, and any SSH keys it holds. Probed on the
+ * host itself — a remote host inherits none of this from the client.
+ */
+export interface HostReadiness {
+  platform: string
+  home: string
+  /** Where a clone lands when no destination is given. */
+  projectsRoot: string
+  git: {
+    installed: boolean
+    version: string | null
+    identity: GitCommitIdentity | null
+    /** True when git is configured to fetch github.com credentials from Solus. */
+    credentialHelper: boolean
+  }
+  github: {
+    /** A `repo`-scoped token is stored in this host's keyring. */
+    solusToken: boolean
+    solusLogin: string | null
+    ghCli: boolean
+    ghAuthenticated: boolean
+  }
+  ssh: {
+    /** Basenames of `~/.ssh/*.pub`. Presence only — nothing is dialled. */
+    publicKeys: string[]
+  }
+  /** Folded in so readiness is one answer to "can this host take a session?". */
+  agents: Record<SetupAgent, { installed: boolean; signedIn: boolean }>
+  /** Null when git is already installed, or when no installer is known here. */
+  installGit: GitInstallCommand | null
+}
+
+export interface SetupSshAccessResult {
+  host: string
+  ok: boolean
+  /** The host's own words — shown verbatim so an unfamiliar failure isn't hidden. */
+  message: string
 }
 
 export interface DiscoveredServer {
@@ -82,8 +177,27 @@ export interface DiscoveredServer {
   name: string
   installationId: string
   claimable: boolean
-  source: 'tailnet'
+  source: 'lan' | 'tailnet'
 }
+
+export interface SshBootstrapCredential {
+  sessionToken: string
+  installationId: string
+  fingerprint: string
+  ownerDeviceId?: string
+  claimedAt?: number
+}
+
+export interface SshTargetCandidate {
+  target: string
+  label: string
+  source: 'ssh-config' | 'known-hosts'
+}
+
+export type SshBootstrapResult =
+  | { status: 'connected'; credential: SshBootstrapCredential }
+  | { status: 'needs-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
+  | { status: 'needs-auth'; sshTarget: string; attempt: number; message: string }
 
 export interface WebPushSubscriptionJSON {
   endpoint: string
@@ -464,6 +578,8 @@ export interface Message {
    *  (tool calls + assistant text) diverted out of the main thread by
    *  `parentToolUseId`. Presence === "render this tool as a sub-agent card." */
   subMessages?: Message[]
+  /** Renderer-only marker for a nested assistant block receiving live deltas. */
+  isStreaming?: boolean
   /** Resolved `subagent_type` from the Agent tool input, for the card's chip. */
   subagentType?: string
   timestamp: number
@@ -498,7 +614,6 @@ export interface Message {
   handoffDivider?: {
     fromProvider: AgentId
     toProvider: AgentId
-    truncated: boolean
   }
   /** Set on the fork-divider system message to identify it. */
   forkSourceSessionId?: string
@@ -1209,12 +1324,26 @@ export interface DirectoryEntry {
   name: string
   isDir: boolean
   path: string
+  // The three fields below are only populated when `listDirectory` is asked to
+  // annotate, and are best-effort: an unreadable folder simply stays bare.
+  /** The folder is a git checkout. */
+  isRepo?: boolean
+  /** The checked-out branch, when it resolves from `.git/HEAD`. */
+  branch?: string
+  /** Solus already knows this folder as a project on this host. */
+  isProject?: boolean
 }
 
 export interface DirectoryListResult {
   entries: DirectoryEntry[]
   parentPath: string | null
   currentPath: string
+  error: string | null
+}
+
+export interface CreateDirectoryResult {
+  /** Host-resolved absolute path, with `~` already expanded. */
+  path: string
   error: string | null
 }
 

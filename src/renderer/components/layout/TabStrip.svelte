@@ -14,7 +14,7 @@
     ClockIcon,
     CaretLeftIcon,
     CaretRightIcon,
-    ColumnsIcon,
+    ChatsIcon,
     FunnelSimpleIcon,
     SidebarSimpleIcon,
     HandPalmIcon,
@@ -23,9 +23,7 @@
     XCircleIcon,
     CircleDashedIcon,
     CircleIcon,
-    GlobeSimpleIcon,
   } from "phosphor-svelte";
-  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { getWorkspaceContext, getPlanStore, type TabGroupMode } from "../../contexts";
   import { tooltip } from "../../lib/tooltip";
@@ -369,9 +367,7 @@
   {@const sess = session.sessionFor(tabId)}
   {@const statusIcon =
     showStatus && tab && sess ? getStatusIcon(sess.status) : null}
-  {@const remoteServer = sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
-    ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { id: sess.serverId, label: "Remote host" })
-    : null}
+  {@const hostAffinity = serversStore.affinityFor(sess?.serverId)}
   {@const showProgressRing =
     !!sess &&
     shouldShowSessionProgressRing(
@@ -381,16 +377,13 @@
     )}
   {#if tab}
     <div class="flex min-w-0 items-center gap-[0.3125rem]">
-      {#if remoteServer}
-        {@const remoteStatus = serversStore.statusFor(remoteServer.id)}
+      {#if hostAffinity}
+        {@const HostIcon = hostAffinity.icon}
         <span
-          class="relative flex size-3 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
-          use:tooltip={`Runs on ${remoteServer.label} · ${remoteStatus === "online" ? "Online" : remoteStatus === "connecting" ? "Reconnecting" : "Offline"}`}
+          class="flex size-3 shrink-0 items-center justify-center {hostAffinity.className}"
+          use:tooltip={hostAffinity.tooltip}
         >
-          <GlobeSimpleIcon size={10} />
-          <span
-            class={`absolute -bottom-px -right-px size-1.5 rounded-full ring-1 ring-(--solus-bg-primary) ${remoteStatus === "online" ? "bg-(--solus-status-complete)" : remoteStatus === "connecting" ? "animate-pulse bg-(--solus-accent)" : "bg-(--solus-status-error)"}`}
-          ></span>
+          <HostIcon size={10} />
         </span>
       {/if}
       {#if showProgressRing && sess?.progress}
@@ -410,7 +403,7 @@
           class="tab-split-icon flex shrink-0 items-center"
           use:tooltip={"Open in split pane"}
         >
-          <ColumnsIcon size={10} />
+          <ChatsIcon size={10} />
         </span>
       {/if}
       <span

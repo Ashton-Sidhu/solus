@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, WebPushSubscriptionJSON, SetupAgent, SetupAgentAuthCheckResult, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupStatusEvent, SetupStepResult, VoiceModelStatus } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
@@ -27,9 +27,9 @@ export interface SolusAPI {
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
   closeTab(ctx: IpcContext): Promise<void>
   switchSessionAgent(tabId: string, provider: AgentId): Promise<SessionProviderSwitchResult>
-  selectDirectory(ctx?: IpcContext): Promise<string | null>
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
+  openInFileManager(path: string): Promise<boolean>
   openInTerminal(ctx: IpcContext): Promise<boolean>
   openWorktreeTerminal(ctx: IpcContext): Promise<boolean>
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
@@ -52,7 +52,9 @@ export interface SolusAPI {
     success: boolean
   }): Promise<void>
   searchFiles(query: string, cwd: string, ctx?: IpcContext): Promise<{ files: FileMatch[] }>
-  listDirectory(path: string, showHidden?: boolean): Promise<DirectoryListResult>
+  /** `annotate` adds per-entry repo/branch/project marks — costs a stat per folder. */
+  listDirectory(path: string, showHidden?: boolean, annotate?: boolean): Promise<DirectoryListResult>
+  createDirectory(path: string): Promise<CreateDirectoryResult>
   readProjectFile(ctx: IpcContext, request: FilePreviewRequest): Promise<FilePreviewResult>
   listProjectFiles(ctx: IpcContext, request?: ProjectFilesRequest): Promise<ProjectFilesResult>
   writeFile(ctx: IpcContext, request: WriteFileRequest): Promise<WriteFileResult>
@@ -91,15 +93,32 @@ export interface SolusAPI {
   connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
   connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>
   connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number; connectionCount: number; connectionIds: string[] }>>
+  connectionsBootstrapDiscoveredServer(args: { server: DiscoveredServer; sshTarget?: string; authSecret?: string; attempt?: number; deviceLabel?: string }): Promise<SshBootstrapResult>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   discoverServers(): Promise<DiscoveredServer[]>
   getServerCapabilities(): Promise<ServerCapabilities>
   setServerName(name: string): Promise<{ name?: string }>
+  setProjectsBaseDirectory(path: string): Promise<{ projectsBaseDirectory?: string }>
   setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
+  /** Runs the agent CLI's device-auth flow on the host, streaming on `setup-log`. */
+  setupAgentSignIn(args: { agent: SetupAgent }): Promise<SetupStepResult>
+  /** Stops the host's active agent device-auth flow, if one is waiting. */
+  setupCancelAgentSignIn(): Promise<{ cancelled: boolean }>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
-  setupCloneProject(args: { cloneUrl: string; name?: string }): Promise<SetupCloneProjectResult>
+  setupCloneProject(args: SetupCloneProjectRequest): Promise<SetupCloneProjectResult>
+  /** Registers a checkout the host already has, instead of cloning a new one. */
+  setupAdoptProject(args: { path: string; cloneUrl?: string }): Promise<SetupAdoptProjectResult>
+  /** Git binary, commit identity, GitHub credentials and SSH keys — on this host alone. */
+  setupHostReadiness(): Promise<HostReadiness>
+  setupInstallGit(): Promise<SetupStepResult>
+  setupSetGitIdentity(args: GitCommitIdentity): Promise<GitCommitIdentity>
+  setupCheckSshAccess(args: { host?: string }): Promise<SetupSshAccessResult>
+  /** Hands this host's stored token to `gh` so agent `gh pr create` calls work. */
+  setupAuthorizeGhCli(): Promise<{ ok: true }>
+  /** Points git at `solus git-credential` so pushes stop prompting. */
+  setupInstallGitCredentialHelper(): Promise<{ ok: true }>
   onSetupLog(callback: (event: SetupLogEvent) => void): () => void
   onSetupStatus(callback: (event: SetupStatusEvent) => void): () => void
 

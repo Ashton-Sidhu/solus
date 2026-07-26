@@ -1,8 +1,17 @@
 {
   "claude-code": {
+    "claude-opus-5": {
+      "label": "Opus 5",
+      "isDefault": true,
+      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max", "ultracode"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1000000],
+      "defaultContextWindow": 1000000
+    },
     "claude-sonnet-5": {
       "label": "Sonnet 5",
-      "isDefault": true,
+      "isDefault": false,
       "reasoningLevels": ["none", "low", "medium", "high", "max"],
       "defaultReasoningEffort": "high",
       "supportsFastMode": false,

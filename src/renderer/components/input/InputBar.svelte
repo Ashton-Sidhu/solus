@@ -77,7 +77,9 @@
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
-    sess?.workingDirectory ?? statusBar.ctxFor(targetTabId).workingDirectory,
+    sess?.gitContext?.worktreePath ??
+      sess?.workingDirectory ??
+      statusBar.ctxFor(targetTabId).workingDirectory,
   );
 
   // ─── Prompt history ───
@@ -887,6 +889,7 @@
       onEmptyChange={(empty) => (editorHasText = !empty)}
       {pluginCommands}
       provider={activeProvider}
+      tabId={targetTabId}
       workingDirectory={composerCwd}
       onRefsChange={handleRefsChange}
       includeSolusCommands
@@ -904,6 +907,7 @@
       readOnly={isReadOnly}
       disabled={isReadOnly || isConnecting || voiceState === "transcribing"}
       maxHeight={INPUT_MAX_HEIGHT}
+      class="[--solus-font-weight-body:var(--solus-font-weight-user-content)]"
     />
   </div>
 {/snippet}

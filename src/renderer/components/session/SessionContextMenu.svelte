@@ -2,7 +2,7 @@
   import {
     GitForkIcon,
     TreeStructureIcon,
-    ColumnsIcon,
+    ChatsIcon,
     CopyIcon,
     XIcon,
   } from "phosphor-svelte";
@@ -138,12 +138,12 @@
     {#if canSplit}
       {#if isSplit}
         <ContextMenu.Item onSelect={closeSplit}>
-          <ColumnsIcon />
+          <ChatsIcon />
           Close Split
         </ContextMenu.Item>
       {:else}
         <ContextMenu.Item onSelect={openInSplit}>
-          <ColumnsIcon />
+          <ChatsIcon />
           Open in Split
         </ContextMenu.Item>
       {/if}

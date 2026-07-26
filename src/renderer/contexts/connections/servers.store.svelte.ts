@@ -2,7 +2,7 @@ import type { ConnectionStatus } from '@client-core/ws-transport'
 import { connectionState, subscribe } from '@client-core/connection-state'
 import { serverConnections } from '@client-core/server-connections'
 import type { LocalConnectionInfoLike, SolusServerTarget } from '@client-core/server-connection'
-import { SvelteSet } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   getActiveServerId,
   loadServers,
@@ -16,11 +16,25 @@ import {
 import type { DiscoveredServer, ProjectIdentity } from '../../../shared/types'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../app/toast.store.svelte'
-import { discoveredServerUrl, filterNewDiscoveredServers } from '../../components/servers/discovery'
+import {
+  compareNearbyHosts,
+  filterUnsavedDiscoveredServers,
+  mergeNearbyHosts,
+  unannouncedDiscoveredServers,
+  type NearbyHost,
+} from '../../components/servers/discovery'
+import { hostAffinityGlyph, type HostAffinityGlyph } from '../../components/servers/lib/host-affinity'
 
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved'
 
 const DISCOVERY_INTERVAL_MS = 30_000
+interface ServerConnectionState {
+  transportStatus: ConnectionStatus
+  probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
+  attempt: number
+  hasConnected: boolean
+}
+
 export interface ServerItem {
   id: string
   label: string
@@ -34,23 +48,22 @@ class ServersStore {
   local = $state<LocalConnectionInfoLike | null>(null)
   remotes = $state<SavedServer[]>(loadServers())
   activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
-  connectionStatus = $state<ConnectionStatus>(connectionState.status)
-  reconnectAttempt = $state(connectionState.attempt)
-  hasConnected = $state(connectionState.status === 'connected')
   addServerOpen = $state(false)
   addServerUrl = $state('')
-  claimServerOpen = $state(false)
-  claimTarget = $state<DiscoveredServer | null>(null)
+  switcherOpen = $state(false)
+  pendingRunOnTabId = $state<string | null>(null)
+  justPairedServerId = $state<string | null>(null)
   discoveryBusy = $state(false)
-  discovered = $state<DiscoveredServer[]>([])
-  statusesByServer = $state<Record<string, ServerItemStatus>>({})
+  private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
   probingServers = $state(false)
-  readonly dismissedDiscovered = new SvelteSet<string>()
+  readonly nearby = new SvelteMap<string, NearbyHost>()
+  readonly toastSnoozedInstallationIds = new SvelteSet<string>()
 
   private initialized = false
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
+  private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
   get servers(): ServerItem[] {
     const local = this.local
@@ -84,6 +97,28 @@ class ServersStore {
     return connectionState.target ?? null
   }
 
+  get connectionStatus(): ConnectionStatus {
+    return this.connectionStatesByServer[this.activeServerId]?.transportStatus ?? connectionState.status
+  }
+
+  get reconnectAttempt(): number {
+    return this.connectionStatesByServer[this.activeServerId]?.attempt ?? connectionState.attempt
+  }
+
+  get hasConnected(): boolean {
+    return this.connectionStatesByServer[this.activeServerId]?.hasConnected
+      ?? connectionState.status === 'connected'
+  }
+
+  get nearbyHosts(): NearbyHost[] {
+    const registeredInstallationIds = new Set(
+      this.servers.flatMap((server) => server.installationId ? [server.installationId] : []),
+    )
+    return [...this.nearby.values()]
+      .filter((host) => !registeredInstallationIds.has(host.server.installationId))
+      .sort(compareNearbyHosts)
+  }
+
   init(): void {
     if (this.initialized) return
     this.initialized = true
@@ -100,16 +135,17 @@ class ServersStore {
     })
 
     subscribe(({ status, attempt, target }) => {
-      if (target) this.activeServerId = target.id
-      this.connectionStatus = status
-      this.reconnectAttempt = attempt
-      if (status === 'connected') this.hasConnected = true
+      if (target) {
+        this.activeServerId = target.id
+        this.setConnectionStatus(target.id, status, attempt)
+      }
       this.updateAutoDiscovery()
     })
 
-    serverConnections.onStatusChange((serverId, status) => {
-      this.statusesByServer[serverId] = this.itemStatus(status)
+    serverConnections.onStatusChange((serverId, status, attempt) => {
+      this.setConnectionStatus(serverId, status, attempt)
     })
+
   }
 
   refreshServers(): void {
@@ -119,6 +155,8 @@ class ServersStore {
   savePairedServer(server: SavedServer): void {
     upsertServer(server)
     this.refreshServers()
+    if (server.installationId) this.nearby.delete(server.installationId)
+    this.justPairedServerId = server.id
   }
 
   openAddServer(prefillUrl = ''): void {
@@ -132,32 +170,29 @@ class ServersStore {
     requestInputFocus()
   }
 
-  openClaimServer(server: DiscoveredServer): void {
-    this.claimTarget = server
-    this.claimServerOpen = true
-  }
-
-  closeClaimServer(): void {
-    this.claimServerOpen = false
-    this.claimTarget = null
-    requestInputFocus()
-  }
-
   async scanForServers(): Promise<{ newServers: number } | { error: string } | null> {
     if (this.scanInFlight) return null
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
-      const discovered = await window.solus.discoverServers()
-      const filtered = filterNewDiscoveredServers({
+      const discovered = await serverConnections.apiFor(LOCAL_SERVER_ID).discoverServers()
+      const filtered = filterUnsavedDiscoveredServers({
         discovered,
         savedServers: loadServers(),
-        dismissedInstallationIds: this.dismissedDiscovered,
         selfInstallationId: this.local?.installationId,
       })
-      this.discovered = filtered
-      if (filtered.length > 0) this.showDiscoveryToast(filtered[0])
-      return { newServers: filtered.length }
+      const merged = mergeNearbyHosts(this.nearby, filtered, Date.now())
+      const mergedInstallationIds = new Set<string>()
+      for (const nearbyHost of merged) {
+        const installationId = nearbyHost.server.installationId
+        mergedInstallationIds.add(installationId)
+        this.nearby.set(installationId, nearbyHost)
+      }
+      for (const installationId of this.nearby.keys()) {
+        if (!mergedInstallationIds.has(installationId)) this.nearby.delete(installationId)
+      }
+      this.showDiscoveryToast(filtered)
+      return { newServers: merged.length }
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) }
     } finally {
@@ -179,10 +214,21 @@ class ServersStore {
 
   remove(serverId: string): void {
     if (serverId === LOCAL_SERVER_ID) return
+    if (serverId === this.activeServerId) {
+      const serverLabel = this.remotes.find((server) => server.id === serverId)?.label ?? 'this host'
+      toasts.error(`Switch to another host before forgetting ${serverLabel}`)
+      requestInputFocus()
+      return
+    }
+    const forgottenInstallationId = this.remotes.find((server) => server.id === serverId)?.installationId
     removeServer(serverId)
     this.refreshServers()
     requestInputFocus()
-    if (serverId === this.activeServerId) location.reload()
+    // A forgotten host becomes discoverable again — rescan so it drops straight
+    // back into Nearby instead of vanishing until the next sweep. Suppress its
+    // toast: the user just dismissed this host, they don't need it announced.
+    if (forgottenInstallationId) this.announcedDiscoveredInstallationIds.add(forgottenInstallationId)
+    void this.scanForServers()
   }
 
   retryActive(): void {
@@ -198,7 +244,8 @@ class ServersStore {
         try {
           health = await serverConnections.probeHealth(server.id)
         } catch {}
-        this.statusesByServer[server.id] = health ? 'online' : 'offline'
+        const state = this.connectionStateFor(server.id)
+        state.probeStatus = health ? 'online' : 'offline'
         if (!health) return
         const hadConnection = serverConnections.connectionFor(server.id) !== undefined
         try {
@@ -218,13 +265,50 @@ class ServersStore {
     return this.projectIdentitiesByServer[serverId] ?? []
   }
 
+  /** An empty list means "no repos here" only once the host has actually been asked. */
+  hasProbedIdentities(serverId: string): boolean {
+    return this.projectIdentitiesByServer[serverId] !== undefined
+  }
+
+  /**
+   * The host badge for a surface that holds a session's `serverId` rather than a
+   * resolved host. A saved host that has since been forgotten still earns one:
+   * the session on it is no more local for having lost its name.
+   */
+  affinityFor(serverId: string | null | undefined): HostAffinityGlyph | null {
+    if (!serverId || serverId === LOCAL_SERVER_ID) return null
+    const host = this.servers.find((server) => server.id === serverId)
+    return hostAffinityGlyph({ label: host?.label ?? 'Unknown host', local: false }, this.statusFor(serverId))
+  }
+
   statusFor(serverId: string): ServerItemStatus {
-    const managedStatus = serverConnections.statusFor(serverId)
-    if (managedStatus !== 'disconnected') return this.itemStatus(managedStatus)
-    const probedStatus = this.statusesByServer[serverId]
-    if (probedStatus) return probedStatus
+    const state = this.connectionStatesByServer[serverId]
+    if (state?.transportStatus && state.transportStatus !== 'disconnected') {
+      return this.itemStatus(state.transportStatus)
+    }
+    if (state?.probeStatus) return state.probeStatus
     if (serverId !== this.activeServerId) return 'saved'
     return this.itemStatus(this.connectionStatus)
+  }
+
+  setConnectionStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
+    const state = this.connectionStateFor(serverId)
+    state.transportStatus = status
+    state.attempt = attempt
+    if (status === 'connected') state.hasConnected = true
+  }
+
+  private connectionStateFor(serverId: string): ServerConnectionState {
+    let state = this.connectionStatesByServer[serverId]
+    if (!state) {
+      state = {
+        transportStatus: 'disconnected',
+        attempt: 0,
+        hasConnected: false,
+      }
+      this.connectionStatesByServer[serverId] = state
+    }
+    return state
   }
 
   private itemStatus(status: ConnectionStatus): ServerItemStatus {
@@ -251,23 +335,37 @@ class ServersStore {
 
   private shouldAutoDiscover(): boolean {
     if (document.hidden || !document.hasFocus()) return false
-    if (this.activeServerId !== LOCAL_SERVER_ID) return false
-    if (!this.activeTarget?.local) return false
     return window.solus.getPlatform?.() !== 'web'
   }
 
-  private showDiscoveryToast(server: DiscoveredServer): void {
-    toasts.info(`New Solus server found: ${server.name}`, {
+  private showDiscoveryToast(servers: DiscoveredServer[]): void {
+    const unsnoozed = servers.filter(
+      (server) => !this.toastSnoozedInstallationIds.has(server.installationId),
+    )
+    const unannounced = unannouncedDiscoveredServers(
+      unsnoozed,
+      this.announcedDiscoveredInstallationIds,
+    )
+    if (unannounced.length === 0) return
+    for (const server of unannounced) {
+      this.announcedDiscoveredInstallationIds.add(server.installationId)
+    }
+    const installationIds = unannounced.map((server) => server.installationId)
+    const message = unannounced.length === 1
+      ? `Solus host found: ${unannounced[0].name}`
+      : `${unannounced.length} Solus hosts found nearby`
+    toasts.info(message, {
       duration: 12_000,
       action: {
-        label: server.claimable ? 'Claim' : 'Pair',
+        label: 'Show',
         onAction: () => {
-          if (server.claimable) this.openClaimServer(server)
-          else this.openAddServer(discoveredServerUrl(server))
+          this.switcherOpen = true
         },
       },
       onDismiss: () => {
-        this.dismissedDiscovered.add(server.installationId)
+        for (const installationId of installationIds) {
+          this.toastSnoozedInstallationIds.add(installationId)
+        }
       },
     })
   }

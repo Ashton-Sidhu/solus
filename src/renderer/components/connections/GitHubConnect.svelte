@@ -10,6 +10,9 @@
   import { onMount } from "svelte";
   import { getWorkspaceContext, connectionsStore, toasts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { Button } from "../ui/button";
+  import SettingsSection from "../settings/SettingsSection.svelte";
+  import SettingsRow from "../settings/SettingsRow.svelte";
 
   const session = getWorkspaceContext();
   const connections = connectionsStore;
@@ -23,6 +26,14 @@
     !!connections.providerStatus?.connected &&
       !connections.providerStatus.scopes?.includes("project"),
   );
+
+  const accountDescription = $derived.by(() => {
+    if (!connections.providerLoaded || connections.providerLoading) return "Checking…";
+    if (!connections.providerStatus?.connected)
+      return "Review pull requests, manage project boards, and comment as yourself.";
+    const { login } = connections.providerStatus;
+    return login ? `Connected as @${login}` : "Connected";
+  });
 
   // Focus-trap the prompt modal so Esc reaches its keydown handler immediately.
   $effect(() => {
@@ -87,84 +98,45 @@
   }
 </script>
 
-<div class="flex flex-col gap-3">
-  <div
-    class="flex items-center gap-3 py-2.5 px-3 rounded-xl border border-(--solus-container-border) bg-transparent"
-  >
-    <div
-      class="size-9 rounded-lg bg-(--solus-surface-active) flex items-center justify-center shrink-0"
-    >
-      <GithubLogoIcon
-        size={18}
-        weight="fill"
-        class="text-(--solus-text-primary)"
-      />
-    </div>
-    <div class="flex-1 min-w-0">
-      <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
-        GitHub
-      </p>
-      {#if !connections.providerLoaded || connections.providerLoading}
-        <p class="text-[0.6875rem] text-(--solus-text-tertiary)">Checking…</p>
-      {:else if connections.providerStatus?.connected}
-        <p class="text-[0.6875rem] text-(--solus-text-tertiary) truncate">
-          Connected{connections.providerStatus.login
-            ? ` as @${connections.providerStatus.login}`
-            : ""}
-        </p>
+<SettingsSection label="GitHub">
+  <SettingsRow label="GitHub account" description={accountDescription}>
+    {#snippet control()}
+      {#if connections.providerStatus?.connected}
+        <Button variant="outline" size="sm" onclick={disconnect}>
+          <SignOutIcon size={13} />
+          Disconnect
+        </Button>
       {:else}
-        <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
-          Review pull requests, manage project boards, and comment as yourself.
-        </p>
+        <Button size="sm" onclick={connect} disabled={connections.providerConnecting}>
+          {#if connections.providerConnecting}
+            <SpinnerGapIcon size={14} class="animate-spin" />
+            Connecting…
+          {:else}
+            <GithubLogoIcon size={14} weight="fill" />
+            Connect GitHub
+          {/if}
+        </Button>
       {/if}
-    </div>
+    {/snippet}
+  </SettingsRow>
 
-    {#if connections.providerStatus?.connected}
-      <button
-        type="button"
-        onclick={disconnect}
-        class="flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg text-[0.75rem] font-medium text-(--solus-text-secondary) border border-(--solus-container-border) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      >
-        <SignOutIcon size={13} />
-        Disconnect
-      </button>
-    {:else}
-      <button
-        type="button"
+  <SettingsRow
+    label="Project access"
+    description="Reconnect to grant project access and enable due date, priority & status on GitHub tasks."
+    visible={needsProjectScope}
+  >
+    {#snippet control()}
+      <Button
+        variant="outline"
+        size="sm"
         onclick={connect}
         disabled={connections.providerConnecting}
-        class="flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-[0.8125rem] font-medium bg-(--solus-accent) text-(--solus-text-on-accent) hover:opacity-90 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      >
-        {#if connections.providerConnecting}
-          <SpinnerGapIcon size={14} class="animate-spin" />
-          Connecting…
-        {:else}
-          <GithubLogoIcon size={14} weight="fill" />
-          Connect GitHub
-        {/if}
-      </button>
-    {/if}
-  </div>
-
-  {#if needsProjectScope}
-    <div
-      class="flex items-center gap-2 py-2 px-3 rounded-lg border border-(--solus-container-border) bg-(--solus-surface-hover)"
-    >
-      <p class="flex-1 text-[0.6875rem] text-(--solus-text-tertiary)">
-        Reconnect to grant project access and enable due date, priority &amp;
-        status on GitHub tasks.
-      </p>
-      <button
-        type="button"
-        onclick={connect}
-        disabled={connections.providerConnecting}
-        class="shrink-0 py-1 px-2.5 rounded-lg text-[0.75rem] font-medium text-(--solus-text-secondary) border border-(--solus-container-border) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
       >
         Reconnect
-      </button>
-    </div>
-  {/if}
-</div>
+      </Button>
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
 
 <!-- Device-code prompt -->
 {#if connections.providerPrompt}
@@ -178,7 +150,7 @@
     onkeydown={onModalKeydown}
   >
     <div
-      class="w-full max-w-sm flex flex-col gap-5 p-6 rounded-2xl bg-(--solus-container-bg) border border-(--solus-container-border) shadow-xl"
+      class="w-full max-w-sm flex flex-col gap-5 p-6 rounded-2xl bg-card border border-border shadow-xl"
     >
       <div class="flex flex-col items-center gap-2 text-center">
         <div
@@ -204,10 +176,11 @@
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.providerPrompt.userCode}</code
         >
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onclick={copyCode}
-          class="size-7 flex items-center justify-center rounded-lg text-(--solus-text-tertiary) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)"
+          class="text-(--solus-text-tertiary)"
           aria-label="Copy code"
         >
           {#if copied}
@@ -215,25 +188,22 @@
           {:else}
             <CopyIcon size={14} />
           {/if}
-        </button>
+        </Button>
       </div>
 
-      <button
-        type="button"
-        onclick={openVerification}
-        class="flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-[0.8125rem] font-medium bg-(--solus-accent) text-(--solus-text-on-accent) hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      >
+      <Button onclick={openVerification}>
         <ArrowSquareOutIcon size={14} />
         Open github.com/login/device
-      </button>
+      </Button>
 
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onclick={cancel}
-        class="self-center text-[0.75rem] font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+        class="self-center text-(--solus-text-tertiary)"
       >
         Cancel
-      </button>
+      </Button>
     </div>
   </div>
 {/if}

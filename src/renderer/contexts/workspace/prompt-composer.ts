@@ -61,12 +61,12 @@ export class PromptComposer {
       // The full ticket (body + comments + linked PRs) is hydrated and injected
       // server-side on the *first* prompt only. Re-affirm the binding by reference
       // on every follow-up so the agent doesn't lose the thread mid-session and
-      // can re-fetch the live state via get_task — mirrors the bound-work block.
+      // can re-fetch the live state via read_task — mirrors the bound-work block.
       const boundTask = this.tasksStore.tasks.find((t) => t.id === session.boundTaskId)
       const title = boundTask ? ` "${boundTask.title}"` : ''
       const taskBlock = [
         `[Working On Task${title} (task_id: ${session.boundTaskId})]`,
-        `Call get_task with task_id "${session.boundTaskId}" to read the latest status, comments, and linked PRs; call update_task_status to move it.`,
+        `Call read_task with task_id "${session.boundTaskId}" to read the latest status, comments, and linked PRs; call update_task_status to move it.`,
       ].join('\n')
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${taskBlock}` : taskBlock
     }

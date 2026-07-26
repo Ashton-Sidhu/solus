@@ -99,7 +99,7 @@ const DIAGRAM_GUIDANCE = [
 ].join('\n')
 
 const LIST_DESC =
-  'List the works (documents and architecture diagrams) the user has open in Solus, with their id, title, type and last-updated time. Call this first to discover a work_id before reading or updating.'
+  'List the works (documents, slide decks, architecture diagrams) the user has open in Solus, with their id, title, type and last-updated time. Call this first to discover a work_id before reading or updating.'
 const SEARCH_DESC =
   "Full-text search over the user's works (documents, slide decks, diagrams) by title AND content. Reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — instead of guessing from list_works titles, which carry no content. Put the topic in `query`. Each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
 const READ_DESC =
@@ -112,8 +112,7 @@ const CREATE_DESC = [
 ].join('\n')
 const UPDATE_DESC = [
   'Replace the content (and optionally the title) of an existing work by id. Use this to revise a document or diagram the user is looking at — never create a new work to revise one that already exists.',
-  '',
-  DIAGRAM_GUIDANCE,
+  'The `content` arg takes the same payload shapes as create_work; see its description for the diagram contract.',
 ].join('\n')
 
 // ─── Executor (shared by Codex handler + mock backend) ───

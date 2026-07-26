@@ -67,6 +67,8 @@ export interface FileMenuHandle {
  *  getters so reads stay reactive across the module boundary. */
 export interface AutocompleteDeps {
   readOnly: () => boolean;
+  /** Tab whose server owns autocomplete RPCs. */
+  tabId: () => string;
   workingDirectory: () => string | undefined;
   useRelativeFilePaths: () => boolean;
   provider: () => AgentId;
@@ -232,7 +234,8 @@ export class AutocompleteController {
     if (this.sessionFilter === null) return [] as SessionMeta[];
     const query = this.sessionFilter.trim().toLowerCase();
     // You can't reference your own conversation (matches prompt_session).
-    const currentSessionId = this.deps.session.activeSession?.agentSessionId;
+    const currentSessionId =
+      this.deps.session.sessionFor(this.deps.tabId())?.agentSessionId;
     const all = this.sessionCandidates.filter(
       (session) => session.sessionId !== currentSessionId,
     );
@@ -385,7 +388,7 @@ export class AutocompleteController {
       // without a debounce delay; debounce only while the user keeps typing.
       this.#fileSearchTimer = setTimeout(
         async () => {
-          const result = await this.deps.session.apiFor(this.deps.session.activeTabId).searchFiles(
+          const result = await this.deps.session.apiFor(this.deps.tabId()).searchFiles(
             query,
             // searchFiles' main-process handler tolerates an absent cwd; the
             // type says string, so pass through the possibly-undefined value.
@@ -511,9 +514,10 @@ export class AutocompleteController {
       // listSessions returns [] without a project path, so a session-less
       // composer has nothing to offer — bail before the IPC round-trip.
       if (!workingDirectory) return;
-      const sessions = await window.solus.listSessions(
+      const tabId = this.deps.tabId();
+      const sessions = await this.deps.session.apiFor(tabId).listSessions(
         workingDirectory,
-        this.deps.session.ctxForDirectory(workingDirectory),
+        this.deps.session.ctxFor(tabId),
       );
       if (requestId === this.#sessionLoadRequestId) {
         this.sessionCandidates = [...sessions].sort(

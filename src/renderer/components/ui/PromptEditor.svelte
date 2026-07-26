@@ -19,6 +19,7 @@
   import type { Transaction } from "@tiptap/pm/state";
   import * as refs from "../editor/references";
   import { AutocompleteController } from "../editor/autocomplete.svelte";
+  import { resolveAutocompleteScope } from "../editor/autocomplete-scope";
 
   interface Props {
     value: string;
@@ -29,6 +30,8 @@
     provider: AgentId;
     /** Directory used for @-file search, plan preload, and work loading. */
     workingDirectory: string | undefined;
+    /** Session tab whose checkout and host own autocomplete requests. */
+    tabId?: string;
     /** Notified whenever the editor's plan/work/session references change. */
     onRefsChange?: (
       planRefs: PlanReference[],
@@ -80,6 +83,7 @@
     pluginCommands,
     provider,
     workingDirectory,
+    tabId,
     onRefsChange,
     onEmptyChange,
     includeSolusCommands = false,
@@ -104,6 +108,9 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
+  const autocompleteScope = $derived(
+    resolveAutocompleteScope(session, workingDirectory, tabId),
+  );
 
   let markdownEditorEl: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let fileMenuEl: ReturnType<typeof FileAutocompleteMenu> | null = $state(null);
@@ -113,7 +120,8 @@
   // editor (via the accessors below), so this component is just the menu host.
   const ac = new AutocompleteController({
     readOnly: () => readOnly,
-    workingDirectory: () => workingDirectory,
+    tabId: () => autocompleteScope.tabId,
+    workingDirectory: () => autocompleteScope.workingDirectory,
     useRelativeFilePaths: () => useRelativeFilePaths,
     provider: () => provider,
     includeSolusCommands: () => includeSolusCommands,

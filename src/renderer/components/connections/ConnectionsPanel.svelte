@@ -15,8 +15,13 @@
     connectionsStore,
     type ConnectionEndpoint,
   } from "../../contexts";
+  import HostDirectory from "../servers/HostDirectory.svelte";
+  import { relativeTime } from "../servers/lib/relative-time";
   import { pairQrSvgPath } from "./lib/qrcode";
-  import Switch from "../ui/switch/switch.svelte";
+  import { Switch } from "../ui/switch";
+  import { Button } from "../ui/button";
+  import SettingsSection from "../settings/SettingsSection.svelte";
+  import SettingsRow from "../settings/SettingsRow.svelte";
 
   const connections = connectionsStore;
   let copiedField = $state<string | null>(null);
@@ -35,7 +40,12 @@
   }
 
   async function toggleRemoteAccess() {
-    if (!connections.serverInfo || connections.refreshing) return;
+    if (
+      !connections.serverInfo ||
+      connections.refreshing ||
+      connections.remoteAccessUpdating
+    )
+      return;
     await connections.setRemoteAccess(!connections.serverInfo.remoteAccess);
   }
 
@@ -60,14 +70,6 @@
     const mins = Math.floor(ms / 60_000);
     const secs = Math.floor((ms % 60_000) / 1000);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
-  }
-
-  function relativeTime(ts: number): string {
-    const diff = Date.now() - ts;
-    if (diff < 60_000) return "just now";
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-    return `${Math.floor(diff / 86_400_000)}d ago`;
   }
 
   const endpointIcon = {
@@ -95,7 +97,9 @@
   onMount(() => {
     void refresh();
     const interval = setInterval(refresh, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
   });
 
   let _now = $state(Date.now());
@@ -126,364 +130,281 @@
       return null;
     }
   });
+
+  const serverDescription = $derived(
+    connections.serverInfo
+      ? `Running on ${connections.serverInfo.host}:${connections.serverInfo.port} · ${connections.serverInfo.allowLan ? "reachable on your LAN" : "local only"}`
+      : "",
+  );
 </script>
 
-<div class="flex flex-col gap-6">
-  <!-- Server status bar -->
-  {#if connections.serverInfo}
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2.5">
-        <div
-          class="size-2 rounded-full bg-(--solus-status-complete) shrink-0"
-        ></div>
-        <p class="text-[0.8125rem] text-(--solus-text-secondary)">
-          Server running on <code
-            class="text-[0.75rem] font-medium px-1.5 py-0.5 rounded bg-(--solus-surface-hover) text-(--solus-text-primary)"
-            style="font-family: 'Geist Mono', ui-monospace, monospace"
-            >{connections.serverInfo.host}:{connections.serverInfo.port}</code
-          >
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
-        {#if connections.serverInfo.allowLan}
-          <span
-            class="text-[0.6875rem] font-medium px-2 py-0.5 rounded-full bg-(--solus-status-complete-bg) text-(--solus-status-complete)"
-            >LAN</span
-          >
-        {:else}
-          <span
-            class="text-[0.6875rem] font-medium px-2 py-0.5 rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
-            >Local only</span
-          >
-        {/if}
-        <button
-          type="button"
+{#if connections.serverInfo}
+  <SettingsSection label="Server">
+    <SettingsRow label="Status" description={serverDescription}>
+      {#snippet labelExtra()}
+        <span class="ml-2 inline-block size-2 rounded-full bg-(--solus-status-complete) align-middle"></span>
+      {/snippet}
+      {#snippet control()}
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onclick={refresh}
-          class="size-7 flex items-center justify-center rounded-lg text-(--solus-text-tertiary) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)"
-          class:animate-spin={connections.refreshing}
-          aria-label="Refresh"
+          class="text-(--solus-text-tertiary)"
+          aria-label="Refresh server status"
         >
-          <ArrowsClockwiseIcon size={13} />
-        </button>
-      </div>
-    </div>
+          <ArrowsClockwiseIcon size={13} class={connections.refreshing ? "animate-spin" : undefined} />
+        </Button>
+      {/snippet}
+    </SettingsRow>
 
-    <div
-      class="flex items-center justify-between gap-4 rounded-lg border border-(--solus-container-border) bg-transparent px-3 py-2.5"
+    <SettingsRow
+      label="Allow remote connections"
+      description="Bind to your network interfaces. Remote devices must pair before connecting."
     >
-      <div class="min-w-0">
-        <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
-          Allow remote connections
-        </p>
-        <p
-          class="mt-0.5 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)"
-        >
-          Bind to your network interfaces. Remote devices must pair before
-          connecting.
-        </p>
-      </div>
-      <Switch
-        checked={connections.serverInfo.remoteAccess}
-        onclick={toggleRemoteAccess}
-        disabled={connections.refreshing}
-        class="relative h-6 w-11 shrink-0 rounded-full border border-(--solus-container-border) bg-(--solus-surface-active) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) disabled:opacity-60"
-        aria-label="Allow remote connections"
-      ></Switch>
-    </div>
-  {/if}
+      {#snippet control()}
+        <Switch
+          checked={connections.serverInfo?.remoteAccess ?? false}
+          onclick={toggleRemoteAccess}
+          disabled={connections.refreshing || connections.remoteAccessUpdating}
+          size="default"
+          aria-label="Allow remote connections"
+        />
+      {/snippet}
+    </SettingsRow>
+  </SettingsSection>
+{/if}
 
-  <!-- Reachable endpoints -->
-  {#if connections.endpoints.length > 0}
-    <div class="flex flex-col gap-2">
-      <p
-        class="text-[0.6875rem] font-medium uppercase tracking-wider text-(--solus-text-tertiary)"
+<SettingsSection label="Reachable from" visible={connections.endpoints.length > 0}>
+  {#each connections.endpoints as endpoint (endpoint.host)}
+    {@const EndpointIcon = endpointIcon[endpoint.kind]}
+    <div
+      class="flex items-center gap-2.5 border-t border-border px-4 py-2.5 first:border-t-0"
+    >
+      <EndpointIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+      <code
+        class="min-w-0 flex-1 truncate text-[0.75rem] text-(--solus-text-primary)"
+        style="font-family: 'Geist Mono', ui-monospace, monospace"
+        >{endpoint.host}:{endpoint.port}</code
       >
-        Reachable from
-      </p>
-      <div class="flex flex-col gap-1">
-        {#each connections.endpoints as endpoint (endpoint.host)}
-          {@const EndpointIcon = endpointIcon[endpoint.kind]}
-          <div
-            class="flex items-center gap-2.5 py-1.5 px-2.5 rounded-lg hover:bg-(--solus-surface-hover) group"
-          >
-            <EndpointIcon
-              size={13}
-              class="text-(--solus-text-tertiary) shrink-0"
-            />
-            <code
-              class="text-[0.75rem] text-(--solus-text-primary) flex-1 truncate"
-              style="font-family: 'Geist Mono', ui-monospace, monospace"
-              >{endpoint.host}:{endpoint.port}</code
-            >
-            <span class="text-[0.6875rem] text-(--solus-text-tertiary)"
-              >{endpoint.label}</span
-            >
-          </div>
-        {/each}
-      </div>
+      <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">{endpoint.label}</span>
     </div>
-  {/if}
+  {/each}
+</SettingsSection>
 
-  <div class="h-px bg-(--solus-container-border)"></div>
+<HostDirectory />
 
-  <!-- Pair a new device -->
-  <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between">
-      <p
-        class="text-[0.6875rem] font-medium uppercase tracking-wider text-(--solus-text-tertiary)"
-      >
-        Pair a new device
-      </p>
-    </div>
-
-    {#if !connections.activePair}
-      <div class="flex flex-col gap-2.5">
-        <button
-          type="button"
-          onclick={generatePairToken}
-          class="self-start flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-[0.8125rem] font-medium bg-(--solus-accent) text-(--solus-text-on-accent) hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-        >
+<SettingsSection label="Pairing fallback">
+  {#if !connections.activePair}
+    <SettingsRow
+      label="Generate a pair code"
+      description="Use a one-time code for web, mobile, or environments without SSH."
+    >
+      {#snippet control()}
+        <Button size="sm" onclick={generatePairToken}>
           <PlusIcon size={14} weight="bold" />
           Generate pair code
-        </button>
-        <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
-          Creates a one-time code valid for 5 minutes. Share it with the device
-          you want to connect.
-        </p>
-      </div>
-    {:else}
-      <div
-        class="flex flex-col gap-4 p-4 rounded-xl bg-(--solus-surface-hover) border border-(--solus-container-border)"
-      >
-        <!-- Code display -->
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <code
-              class="text-[1.75rem] font-semibold tracking-[0.15em] text-(--solus-text-primary) tabular-nums"
-              class:opacity-40={pairExpired}
-              style="font-family: 'Geist Mono', ui-monospace, monospace"
-              >{connections.activePair.code}</code
-            >
-            <button
-              type="button"
-              onclick={() => copy(connections.activePair!.code, "code")}
-              class="size-7 flex items-center justify-center rounded-lg text-(--solus-text-tertiary) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)"
-              aria-label="Copy code"
-            >
-              {#if copiedField === "code"}
-                <CheckIcon size={13} class="text-(--solus-status-complete)" />
-              {:else}
-                <CopyIcon size={13} />
-              {/if}
-            </button>
-          </div>
-          <div class="flex items-center gap-2">
-            <span
-              class="text-[0.75rem] font-medium tabular-nums"
-              class:text-red-500={pairExpired}
-              class:text-(--solus-text-tertiary)={!pairExpired}
-              style="font-family: 'Geist Mono', ui-monospace, monospace"
-            >
-              {pairCountdown}
-            </span>
-            <button
-              type="button"
-              onclick={generatePairToken}
-              class="size-7 flex items-center justify-center rounded-lg text-(--solus-text-tertiary) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-              aria-label={pairExpired
-                ? "Generate new pair code"
-                : "Regenerate pair code"}
-            >
-              <ArrowsClockwiseIcon size={13} />
-            </button>
-          </div>
-        </div>
-
-        {#if bestPairLink && bestEndpoint && bestPairQr}
-          {@const BestIcon = endpointIcon[bestEndpoint.kind]}
-          <div
-            class="flex flex-col gap-3 rounded-2xl bg-(--solus-container-bg) p-3 shadow-[0_0_0_1px_var(--solus-container-border)] sm:flex-row"
+        </Button>
+      {/snippet}
+    </SettingsRow>
+  {:else}
+    <div class="flex flex-col gap-4 p-4">
+      <!-- Code display -->
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <code
+            class="text-[1.75rem] font-semibold tracking-[0.15em] text-(--solus-text-primary) tabular-nums"
+            class:opacity-40={pairExpired}
+            style="font-family: 'Geist Mono', ui-monospace, monospace"
+            >{connections.activePair.code}</code
           >
-            <div class="shrink-0">
-              <svg
-                class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0"
-                viewBox={bestPairQr.viewBox}
-                role="img"
-                aria-label={`QR code for pairing using ${bestEndpoint.label}`}
-                shape-rendering="crispEdges"
-                focusable="false"
-              >
-                <path d={bestPairQr.path} fill="currentColor" />
-              </svg>
-            </div>
-            <div class="flex min-w-0 flex-1 flex-col justify-between gap-3">
-              <div class="min-w-0">
-                <p
-                  class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
-                >
-                  Scan to pair
-                </p>
-                <p
-                  class="mt-1 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)"
-                >
-                  Opens the web client with this one-time token.
-                </p>
-              </div>
-              <div
-                class="flex min-w-0 items-center gap-2 rounded-lg bg-(--solus-surface-hover) py-1.5 pl-2.5 pr-1.5"
-              >
-                <BestIcon
-                  size={12}
-                  class="shrink-0 text-(--solus-text-tertiary)"
-                />
-                <code
-                  class="min-w-0 flex-1 truncate text-[0.6875rem] text-(--solus-text-secondary)"
-                  style="font-family: 'Geist Mono', ui-monospace, monospace"
-                  >{bestPairLink}</code
-                >
-                <button
-                  type="button"
-                  onclick={() => copy(bestPairLink, "best-link")}
-                  class="size-7 flex shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-                  aria-label="Copy best pair link"
-                >
-                  {#if copiedField === "best-link"}
-                    <CheckIcon
-                      size={12}
-                      class="text-(--solus-status-complete)"
-                    />
-                  {:else}
-                    <CopyIcon size={12} />
-                  {/if}
-                </button>
-              </div>
-            </div>
-          </div>
-        {/if}
-
-        <!-- Pair links per endpoint -->
-        {#if connections.endpoints.length > 0}
-          <div class="flex flex-col gap-1.5">
-            <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
-              Other direct links:
-            </p>
-            {#each connections.endpoints as endpoint (endpoint.host)}
-              {@const link = pairLinkFor(endpoint, connections.activePair)}
-              {@const PairIcon = endpointIcon[endpoint.kind]}
-              <div
-                class="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-(--solus-surface-hover) group"
-              >
-                <PairIcon
-                  size={11}
-                  class="text-(--solus-text-tertiary) shrink-0"
-                />
-                <code
-                  class="text-[0.6875rem] text-(--solus-text-secondary) flex-1 truncate"
-                  style="font-family: 'Geist Mono', ui-monospace, monospace"
-                  >{link}</code
-                >
-                <button
-                  type="button"
-                  onclick={() => copy(link, endpoint.host)}
-                  class="size-6 flex items-center justify-center rounded text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)"
-                  aria-label="Copy link"
-                >
-                  {#if copiedField === endpoint.host}
-                    <CheckIcon
-                      size={11}
-                      class="text-(--solus-status-complete)"
-                    />
-                  {:else}
-                    <CopyIcon size={11} />
-                  {/if}
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        <button
-          type="button"
-          onclick={() => {
-            connections.activePair = null;
-          }}
-          class="self-start text-[0.75rem] font-medium py-1.5 px-3 rounded-lg border border-(--solus-container-border) text-(--solus-text-secondary) hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)"
-        >
-          Dismiss
-        </button>
-      </div>
-    {/if}
-  </div>
-
-  <div class="h-px bg-(--solus-container-border)"></div>
-
-  <!-- Connected devices -->
-  <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between">
-      <p
-        class="text-[0.6875rem] font-medium uppercase tracking-wider text-(--solus-text-tertiary)"
-      >
-        Connected devices
-      </p>
-      {#if connections.sessions.length > 0}
-        <span
-          class="text-[0.6875rem] tabular-nums font-medium px-1.5 py-0.5 rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
-          >{connections.sessions.length}</span
-        >
-      {/if}
-    </div>
-
-    {#if connections.sessions.length === 0}
-      <div class="flex flex-col items-center justify-center py-8 gap-2">
-        <div
-          class="size-10 rounded-xl bg-(--solus-surface-hover) flex items-center justify-center"
-        >
-          <MonitorIcon size={20} class="text-(--solus-text-tertiary)" />
-        </div>
-        <p class="text-[0.8125rem] text-(--solus-text-tertiary)">
-          No devices connected
-        </p>
-        <p class="text-[0.6875rem] text-(--solus-text-tertiary) opacity-70">
-          Pair a device to get started
-        </p>
-      </div>
-    {:else}
-      <div class="flex flex-col gap-1">
-        {#each connections.sessions as session (session.id)}
-          <div
-            class="flex items-center gap-3 py-2 px-2.5 rounded-lg hover:bg-(--solus-surface-hover) group"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onclick={() => copy(connections.activePair!.code, "code")}
+            class="text-(--solus-text-tertiary)"
+            aria-label="Copy code"
           >
-            <div
-              class="size-8 rounded-lg bg-(--solus-surface-hover) flex items-center justify-center shrink-0"
-            >
-              <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <p
-                class="text-[0.8125rem] font-medium text-(--solus-text-primary) truncate"
-              >
-                {session.deviceLabel}
-              </p>
-              <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
-                {relativeTime(session.connectedAt)}
-                {#if session.connectionCount > 1}
-                  - {session.connectionCount} connections
-                {/if}
-              </p>
-            </div>
-            {#if session.deviceId}
-              <button
-                type="button"
-                onclick={() => revoke(session.deviceId)}
-                class="size-7 flex items-center justify-center rounded-lg text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-500"
-                aria-label="Revoke device"
-              >
-                <TrashIcon size={13} />
-              </button>
+            {#if copiedField === "code"}
+              <CheckIcon size={13} class="text-(--solus-status-complete)" />
+            {:else}
+              <CopyIcon size={13} />
             {/if}
-          </div>
-        {/each}
+          </Button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span
+            class="text-[0.75rem] font-medium tabular-nums"
+            class:text-red-500={pairExpired}
+            class:text-(--solus-text-tertiary)={!pairExpired}
+            style="font-family: 'Geist Mono', ui-monospace, monospace"
+          >
+            {pairCountdown}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onclick={generatePairToken}
+            class="text-(--solus-text-tertiary)"
+            aria-label={pairExpired
+              ? "Generate new pair code"
+              : "Regenerate pair code"}
+          >
+            <ArrowsClockwiseIcon size={13} />
+          </Button>
+        </div>
       </div>
-    {/if}
-  </div>
-</div>
+
+      {#if bestPairLink && bestEndpoint && bestPairQr}
+        {@const BestIcon = endpointIcon[bestEndpoint.kind]}
+        <div
+          class="flex flex-col gap-3 rounded-2xl border border-border bg-(--solus-container-bg) p-3 sm:flex-row"
+        >
+          <div class="shrink-0">
+            <svg
+              class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0"
+              viewBox={bestPairQr.viewBox}
+              role="img"
+              aria-label={`QR code for pairing using ${bestEndpoint.label}`}
+              shape-rendering="crispEdges"
+              focusable="false"
+            >
+              <path d={bestPairQr.path} fill="currentColor" />
+            </svg>
+          </div>
+          <div class="flex min-w-0 flex-1 flex-col justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-[0.8125rem] font-medium text-(--solus-text-primary)">
+                Scan to pair
+              </p>
+              <p class="mt-1 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)">
+                Opens the web client with this one-time token.
+              </p>
+            </div>
+            <div
+              class="flex min-w-0 items-center gap-2 rounded-lg bg-(--solus-surface-hover) py-1.5 pl-2.5 pr-1.5"
+            >
+              <BestIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
+              <code
+                class="min-w-0 flex-1 truncate text-[0.6875rem] text-(--solus-text-secondary)"
+                style="font-family: 'Geist Mono', ui-monospace, monospace"
+                >{bestPairLink}</code
+              >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onclick={() => copy(bestPairLink, "best-link")}
+                class="shrink-0 text-(--solus-text-tertiary)"
+                aria-label="Copy best pair link"
+              >
+                {#if copiedField === "best-link"}
+                  <CheckIcon size={12} class="text-(--solus-status-complete)" />
+                {:else}
+                  <CopyIcon size={12} />
+                {/if}
+              </Button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Pair links per endpoint -->
+      {#if connections.endpoints.length > 0}
+        <div class="flex flex-col gap-1.5">
+          <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+            Other direct links:
+          </p>
+          {#each connections.endpoints as endpoint (endpoint.host)}
+            {@const link = pairLinkFor(endpoint, connections.activePair)}
+            {@const PairIcon = endpointIcon[endpoint.kind]}
+            <div
+              class="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-(--solus-surface-hover)"
+            >
+              <PairIcon size={11} class="shrink-0 text-(--solus-text-tertiary)" />
+              <code
+                class="min-w-0 flex-1 truncate text-[0.6875rem] text-(--solus-text-secondary)"
+                style="font-family: 'Geist Mono', ui-monospace, monospace"
+                >{link}</code
+              >
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onclick={() => copy(link, endpoint.host)}
+                class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                aria-label="Copy link"
+              >
+                {#if copiedField === endpoint.host}
+                  <CheckIcon size={11} class="text-(--solus-status-complete)" />
+                {:else}
+                  <CopyIcon size={11} />
+                {/if}
+              </Button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <Button
+        variant="outline"
+        size="sm"
+        class="self-start"
+        onclick={() => {
+          connections.activePair = null;
+        }}
+      >
+        Dismiss
+      </Button>
+    </div>
+  {/if}
+</SettingsSection>
+
+<SettingsSection label="Connected devices">
+  {#if connections.sessions.length === 0}
+    <div class="flex flex-col items-center justify-center gap-2 py-8">
+      <div
+        class="flex size-10 items-center justify-center rounded-xl bg-(--solus-surface-hover)"
+      >
+        <MonitorIcon size={20} class="text-(--solus-text-tertiary)" />
+      </div>
+      <p class="text-[0.8125rem] text-(--solus-text-tertiary)">
+        No devices connected
+      </p>
+      <p class="text-[0.6875rem] text-(--solus-text-tertiary) opacity-70">
+        Pair a device to get started
+      </p>
+    </div>
+  {:else}
+    {#each connections.sessions as session (session.id)}
+      <div
+        class="group flex items-center gap-3 border-t border-border px-4 py-2.5 first:border-t-0"
+      >
+        <div
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
+        >
+          <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-[0.8125rem] font-medium text-(--solus-text-primary)">
+            {session.deviceLabel}
+          </p>
+          <p class="text-[0.6875rem] text-(--solus-text-tertiary)">
+            {relativeTime(session.connectedAt)}
+            {#if session.connectionCount > 1}
+              &middot; {session.connectionCount} connections
+            {/if}
+          </p>
+        </div>
+        {#if session.deviceId}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onclick={() => revoke(session.deviceId)}
+            class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-(--solus-status-error)/10 hover:text-(--solus-status-error)"
+            aria-label="Revoke device"
+          >
+            <TrashIcon size={13} />
+          </Button>
+        {/if}
+      </div>
+    {/each}
+  {/if}
+</SettingsSection>

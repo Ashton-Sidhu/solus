@@ -11,15 +11,12 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 export function buildHandoffDividerMessage(args: {
   fromProvider: AgentId
   toProvider: AgentId
-  truncated?: boolean
 }): Message {
-  const truncated = args.truncated ?? false
-  const truncationNote = truncated ? ' (earlier context truncated)' : ''
   return {
     id: nextMsgId(),
     role: 'system',
-    content: `Handed off from ${agentLabel(args.fromProvider)} to ${agentLabel(args.toProvider)} — context carried over${truncationNote}`,
-    handoffDivider: { fromProvider: args.fromProvider, toProvider: args.toProvider, truncated },
+    content: `Handed off from ${agentLabel(args.fromProvider)} to ${agentLabel(args.toProvider)}`,
+    handoffDivider: { fromProvider: args.fromProvider, toProvider: args.toProvider },
     timestamp: Date.now(),
   }
 }

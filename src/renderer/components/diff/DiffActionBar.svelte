@@ -47,6 +47,7 @@
   let submitting = $state(false);
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
   let useWorktree = $state(false);
+  let collapsed = $state(false);
 
   // The "send to new session" path spins up a fresh session, so an isolated
   // worktree is meaningful — offer it whenever the source is a real repo that
@@ -142,10 +143,16 @@
   }
 </script>
 
-<div class="px-3 pt-2 pb-3" style="background:var(--solus-container-bg)">
+<div
+  class={collapsed
+    ? "absolute bottom-3 left-3 z-20"
+    : "shrink-0 px-3 pt-2 pb-3"}
+  style:background={collapsed ? "transparent" : "var(--solus-container-bg)"}
+>
   <PromptComposer
     bind:this={composerRef}
     bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v)}
+    bind:collapsed
     tabId={session.activeTabId}
     workingDirectory={sess?.workingDirectory}
     canSubmitWhenEmpty={inlineCount > 0}

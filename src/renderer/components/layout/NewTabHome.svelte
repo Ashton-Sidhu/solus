@@ -6,6 +6,7 @@
     getWorkspaceContext,
     getWindowContext,
     runtime,
+    serversStore,
   } from "../../contexts";
 
   export function invalidateHomeCache(): void {
@@ -26,7 +27,7 @@
     CircleNotchIcon,
     ClockCountdownIcon,
     GitPullRequestIcon,
-    ColumnsIcon,
+    ChatsIcon,
   } from "phosphor-svelte";
   import { untrack } from "svelte";
   import { abbreviateHome } from "../../lib/paths";
@@ -56,6 +57,14 @@
     projectCarouselIndex,
     sessionTitle,
   } from "./lib/new-tab-home";
+  import {
+    alsoOnLabel,
+    alsoOnTooltip,
+    recentProjectRows,
+  } from "./lib/recent-projects";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { isDispatchedSession } from "../servers/run-on";
+  import { tooltip } from "../../lib/tooltip";
   import { relativeTime } from "../automations/lib/automation-format";
   import Kbd from "../ui/Kbd.svelte";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
@@ -83,12 +92,46 @@
   let sessionsLoaded = $state(false);
   let sessionsLoadSeq = 0;
   const projectMetadata = projectsStore;
-  const projects = $derived(projectMetadata.recentProjects.slice(0, 3));
+  // Recents come from whichever host is connected, so the host they belong to
+  // and the hosts that share the repo both have to be resolved here.
+  const recentsHostId = $derived(serversStore.activeServer?.id ?? LOCAL_SERVER_ID);
+  const projects = $derived(
+    recentProjectRows({
+      recents: projectMetadata.recentProjects,
+      identities: serversStore.projectIdentitiesFor(recentsHostId),
+      otherHosts: serversStore.servers
+        .filter((server) => server.id !== recentsHostId)
+        .map((server) => ({
+          id: server.id,
+          label: server.label,
+          identities: serversStore.projectIdentitiesFor(server.id),
+        })),
+      limit: 3,
+    }),
+  );
+  // Nothing else on this screen asks which hosts hold which repo, and without
+  // the answer the rows below can't dedupe or name a second host. Reading
+  // `remotes` rather than `servers` keeps this off the status the probe writes,
+  // which would otherwise re-trigger it forever.
+  let probedHostCount = $state(0);
+  $effect(() => {
+    const hostCount = serversStore.remotes.length;
+    if (hostCount === 0 || hostCount === probedHostCount) return;
+    probedHostCount = hostCount;
+    void serversStore.probeRunOnServers();
+  });
   const recentSessions = createSessionHistoryStore();
   const sessions = $derived(recentSessions.sessions);
 
   const currentDir = $derived(
     sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
+  );
+  const currentServer = $derived(
+    serversStore.servers.find((server) => server.id === sess?.serverId) ??
+      serversStore.activeServer,
+  );
+  const showCurrentServer = $derived(
+    serversStore.servers.length > 1 && !!currentServer,
   );
   const gitHome = $derived(
     homeGitDetails(
@@ -105,7 +148,10 @@
   // needed here — the hero is about identity (branch name) and worktree intent.
   const env = $derived(environmentStore.environmentFor(tab?.id));
   const worktreeBaseBranch = $derived(gitHome.baseBranch);
-  const canToggleWorktree = $derived(gitHome.canToggleWorktree);
+  // A dispatched session always works in its own worktree, so the toggle stays
+  // visible but inert rather than silently disagreeing with what will happen.
+  const worktreeForced = $derived(isDispatchedSession(sess));
+  const canToggleWorktree = $derived(gitHome.canToggleWorktree || worktreeForced);
   const presence = $derived(
     homePresence(
       tab?.id,
@@ -120,7 +166,7 @@
   const isFocusedHome = $derived(presence.isFocused);
 
   function toggleWorktree() {
-    if (!canToggleWorktree) return;
+    if (!canToggleWorktree || worktreeForced) return;
     session.toggleWorktreeMode(tab?.id);
     requestInputFocus(tab ? { tabId: tab.id } : undefined);
   }
@@ -137,10 +183,12 @@
 
   function changeDirectory() {
     window.dispatchEvent(
-      new CustomEvent("solus:open-directory-picker", {
-        detail: { tabId: tab?.id },
-      }),
+      new CustomEvent("solus:open-project", { detail: { tabId: tab?.id } }),
     );
+  }
+
+  function openServerSwitcher() {
+    serversStore.switcherOpen = true;
   }
 
   function goToWorkspace() {
@@ -370,15 +418,15 @@
       class="flex flex-row items-center gap-[clamp(0.625rem,2vw,1rem)] max-w-full min-w-0"
     >
       <span
-        class="inline-flex flex-none w-[clamp(2.25rem,7vw,3rem)] h-[clamp(2.25rem,7vw,3rem)] text-(--solus-accent)"
+        class="inline-flex flex-none w-[clamp(2.25rem,7vw,3rem)] h-[clamp(2.25rem,7vw,3rem)]"
         aria-hidden="true"
       >
-        <svg viewBox="0 0 18 18" fill="none" class="w-full h-full">
-          <circle cx="9" cy="9" r="4.8" fill="currentColor" />
-          <g stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-            <path d="M9,1 A8,8 0 0 1 17,9" />
-            <path d="M15.72,14.44 A8,8 0 0 1 6.44,16.68" />
-            <path d="M2.28,14.44 A8,8 0 0 1 1,6.44" />
+        <svg viewBox="0 0 32 32" fill="none" class="w-full h-full">
+          <circle cx="16" cy="16" r="6.6" fill="#D8AD58" />
+          <g stroke="#D8AD58" stroke-width="2.2" stroke-linecap="round">
+            <path d="M16,5 A11,11 0 0 1 27,16" />
+            <path d="M25.24,23.48 A11,11 0 0 1 12.48,26.56" />
+            <path d="M6.76,23.48 A11,11 0 0 1 5,12.48" />
           </g>
         </svg>
       </span>
@@ -390,7 +438,8 @@
             >Starting in</span
           >
           <button
-            class="group/dir inline-flex items-center gap-1.5 max-w-full min-w-0 py-px px-1.5 mx-[-0.125rem] rounded-[0.625rem] bg-transparent border-none cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] font-semibold text-(--solus-text-primary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent)"
+            type="button"
+            class="group/dir relative inline-flex items-center gap-1.5 max-w-full min-w-0 py-px px-1.5 mx-[-0.125rem] rounded-[0.625rem] bg-transparent border-none cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] font-semibold text-(--solus-text-primary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-full after:min-w-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
             onclick={changeDirectory}
             title={`Change directory (${comboHint("global.select-project")})`}
           >
@@ -401,6 +450,24 @@
               <CaretDownIcon size={16} weight="bold" />
             </span>
           </button>
+          {#if showCurrentServer}
+            <span class="flex-none text-(--solus-text-secondary)">on</span>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={serversStore.switcherOpen}
+              class="group/host relative inline-flex items-center gap-1.5 max-w-full min-w-0 py-px px-1.5 mx-[-0.125rem] rounded-[0.625rem] bg-transparent border-none cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] font-semibold text-(--solus-text-primary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-full after:min-w-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
+              onclick={openServerSwitcher}
+              title="Switch server"
+            >
+              <span class="truncate min-w-0">{currentServer?.label}</span>
+              <span
+                class="inline-flex flex-none text-(--solus-text-tertiary) transition-[transform,color] duration-150 group-hover/host:text-(--solus-accent) group-hover/host:translate-y-px"
+              >
+                <CaretDownIcon size={16} weight="bold" />
+              </span>
+            </button>
+          {/if}
         </div>
         <div
           class="flex flex-wrap items-center gap-x-2 gap-y-1.5 max-w-full text-xs text-(--solus-text-tertiary)"
@@ -465,18 +532,23 @@
         {/if}
         {#if canToggleWorktree}
           <button
-            class="group/wt inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 px-2.5 text-[0.6875rem] font-medium cursor-pointer transition-[background-color,color,box-shadow,scale] duration-150 ease-out hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) {env.pending
-              ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)]'
-              : 'bg-transparent text-(--solus-text-secondary)'}"
+            class="group/wt inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 px-2.5 text-[0.6875rem] font-medium transition-[background-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) {worktreeForced
+              ? 'cursor-default bg-(--solus-accent-light) text-(--solus-text-secondary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)]'
+              : env.pending
+                ? 'cursor-pointer bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)] hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96]'
+                : 'cursor-pointer bg-transparent text-(--solus-text-secondary) hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96]'}"
             type="button"
             role="switch"
-            aria-checked={env.pending}
+            aria-checked={env.pending || worktreeForced}
+            disabled={worktreeForced}
             onclick={toggleWorktree}
-            title={`${
-              env.pending
-                ? `Next session branches into its own worktree from ${worktreeBaseBranch}`
-                : `Start the next session in an isolated git worktree (branches from ${worktreeBaseBranch})`
-            } (${comboHint("global.toggle-worktree")})`}
+            title={worktreeForced
+              ? "A session on another host always gets its own worktree — its base checkout is shared with nobody watching it"
+              : `${
+                  env.pending
+                    ? `Next session branches into its own worktree from ${worktreeBaseBranch}`
+                    : `Start the next session in an isolated git worktree (branches from ${worktreeBaseBranch})`
+                } (${comboHint("global.toggle-worktree")})`}
           >
             <GitForkIcon size={15} class="text-(--solus-accent)" />
             <span>Worktree</span>
@@ -500,7 +572,7 @@
             onclick={openNewSplitChat}
             title="New split chat (⌥⇧/)"
           >
-            <ColumnsIcon size={15} class="text-(--solus-accent)" />
+            <ChatsIcon size={15} class="text-(--solus-accent)" />
             <span>Split chat</span>
             <Kbd class="ml-0.5">⌥⇧/</Kbd>
           </button>
@@ -764,8 +836,16 @@
           >
             {abbreviateHome(proj.path)}
           </div>
-          <div class="text-[0.6875rem] text-(--solus-text-tertiary)">
-            {formatTimeAgo(proj.lastOpened)}
+          <div
+            class="flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-(--solus-text-tertiary)"
+          >
+            <span class="shrink-0">{formatTimeAgo(proj.lastOpened)}</span>
+            {#if proj.alsoOn.length > 0}
+              <span aria-hidden="true">·</span>
+              <span class="truncate" use:tooltip={alsoOnTooltip(proj.alsoOn)}>
+                {alsoOnLabel(proj.alsoOn)}
+              </span>
+            {/if}
           </div>
         </button>
       {/each}
@@ -863,9 +943,13 @@
                     {abbreviateHome(proj.path)}
                   </div>
                   <div
-                    class="text-[0.6875rem] mt-0.5 text-(--solus-text-muted)"
+                    class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-(--solus-text-muted)"
                   >
-                    {formatTimeAgo(proj.lastOpened)}
+                    <span class="shrink-0">{formatTimeAgo(proj.lastOpened)}</span>
+                    {#if proj.alsoOn.length > 0}
+                      <span aria-hidden="true">·</span>
+                      <span class="truncate">{alsoOnLabel(proj.alsoOn)}</span>
+                    {/if}
                   </div>
                 </button>
               {/each}

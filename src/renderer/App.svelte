@@ -15,10 +15,18 @@
     TreeStructureIcon,
     CheckSquareIcon,
     FolderIcon,
+    FolderOpenIcon,
     ListChecksIcon,
     PlugsIcon,
   } from "phosphor-svelte";
   import OfflineBanner from "./components/servers/OfflineBanner.svelte";
+  import { openProjectStore } from "./components/servers/open-project.store.svelte";
+  import { hostOnboardingStore } from "./components/servers/host-onboarding.store.svelte";
+  import type { HostOption } from "./components/servers/lib/open-project-flow";
+  import {
+    isRunOnHostLocked,
+    retargetSessionHost,
+  } from "./components/servers/run-on";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
   import type { Command } from "./components/command-palette/lib/commands";
@@ -43,6 +51,7 @@
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
   import { materializeTabs } from "./contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "../client-core/server-registry";
+  import { serverConnections } from "../client-core/server-connections";
   import {
     createReconnectDetector,
     initializeRuntime,
@@ -74,6 +83,8 @@
   type EditorLayoutModule =
     typeof import("./components/layout/EditorLayout.svelte");
   type EditorLayoutComponent = EditorLayoutModule["default"];
+  const commandPaletteModulePromise =
+    import("./components/command-palette/CommandPalette.svelte");
   interface Props {
     initialEditorLayout?: EditorLayoutComponent;
   }
@@ -271,6 +282,12 @@
   let directoryPickerOpen = $state(false);
   let directoryPickerNewTab = $state(false);
   let directoryPickerTargetTabId = $state<string | undefined>(undefined);
+  // Set when a caller names the host to browse — the "Run on" picker and the
+  // Open project flow both browse a host no tab points at yet.
+  let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
+  // "Choose location…" in the Open project flow borrows the same browser; its
+  // selection is handed back to that flow instead of retargeting a tab here.
+  let directoryPickerForOpenProject = $state(false);
   let shortcutsModalOpen = $state(false);
   let shortcutsActiveScopes = $state<import("./lib/keybindings/types").Scope[]>(
     [],
@@ -285,7 +302,10 @@
   let hasMountedShortcuts = $state(false);
   let hasMountedCommandPalette = $state(false);
   let hasMountedAddServer = $state(false);
-  let hasMountedClaimServer = $state(false);
+  let hasMountedOpenProject = $state(false);
+  let hasMountedHostOnboarding = $state(false);
+  /** Offered as the prefill when a remote host has no commit identity of its own. */
+  let localGitIdentity = $state<{ name: string; email: string } | null>(null);
   // When set, the palette opens drilled straight into this sub-page (e.g. the
   // "Review a PR" git action reuses the "Review PR…" page). Cleared once consumed.
   let paletteInitialPage = $state<{ id: string; title: string } | null>(null);
@@ -356,7 +376,39 @@
     if (shortcutsModalOpen) hasMountedShortcuts = true;
     if (commandPaletteOpen) hasMountedCommandPalette = true;
     if (serversStore.addServerOpen) hasMountedAddServer = true;
-    if (serversStore.claimServerOpen) hasMountedClaimServer = true;
+    if (openProjectStore.isOpen) hasMountedOpenProject = true;
+    if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
+  });
+
+  // Warm the components a keystroke can summon, so the first ⌘K / Open project
+  // only opens them. Mounting is what pulls the lazy chunk in; doing it on the
+  // click meant paying a fetch-and-parse behind a "Loading…" placeholder every
+  // first time. Their data stays deferred until the store actually opens.
+  $effect(() => {
+    if (hasMountedCommandPalette && hasMountedOpenProject && hasMountedDirectoryPicker) return;
+    const warm = () => {
+      hasMountedCommandPalette = true;
+      hasMountedOpenProject = true;
+      // Home hands straight off to the picker, so it is on the same hot path.
+      hasMountedDirectoryPicker = true;
+    };
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(warm, { timeout: 1_500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timeoutId = window.setTimeout(warm, 250);
+    return () => window.clearTimeout(timeoutId);
+  });
+
+  // A bare host has no commit identity; this machine's is the obvious prefill,
+  // so read it once from the local host rather than from the one being set up.
+  $effect(() => {
+    if (!openProjectStore.isOpen || localGitIdentity) return;
+    void serverConnections
+      .apiFor(LOCAL_SERVER_ID)
+      .setupHostReadiness()
+      .then((readiness) => (localGitIdentity = readiness.git.identity))
+      .catch(() => {});
   });
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
@@ -374,14 +426,57 @@
     directoryPickerNewTab ||
       (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   );
-  const directoryPickerTitle = $derived(
-    directoryPickerCreatesTab
+  // Borrowed by the Open project flow, where the folder being chosen is a place
+  // to put a clone rather than a project to open — so it gets its own wording.
+  const directoryPickerTitle = $derived.by(() => {
+    if (directoryPickerForOpenProject) {
+      return openProjectStore.source === "local"
+        ? "Open a folder"
+        : "Choose where to clone";
+    }
+    return directoryPickerCreatesTab
       ? "Open project in a new tab"
-      : "Change project folder",
+      : "Change project folder";
+  });
+  const directoryPickerAction = $derived.by(() => {
+    if (directoryPickerForOpenProject) {
+      return openProjectStore.source === "local" ? "Open" : "Clone here";
+    }
+    return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
+  });
+  // Browse the host the tab actually runs on — a new tab inherits the active
+  // session's host, so both flows resolve to the same place the commit lands.
+  // An explicit override wins: it names a host before any tab points at it.
+  const directoryPickerServerId = $derived(
+    directoryPickerServerIdOverride ??
+      (directoryPickerTargetTabId
+        ? session.sessionFor(directoryPickerTargetTabId)?.serverId
+        : session.activeSession?.serverId) ??
+      LOCAL_SERVER_ID,
   );
-  const directoryPickerAction = $derived(
-    directoryPickerCreatesTab ? "Open in new tab" : "Choose",
+  // apiFor() opens the connection as a side effect, so only reach for it while
+  // the picker is actually on screen.
+  const directoryPickerApi = $derived(
+    !directoryPickerOpen || directoryPickerServerId === serversStore.activeServerId
+      ? window.solus
+      : (serverConnections.apiFor(directoryPickerServerId) as typeof window.solus),
   );
+  const directoryPickerHostLabel = $derived(
+    directoryPickerServerId === serversStore.activeServerId
+      ? undefined
+      : serversStore.servers.find((s) => s.id === directoryPickerServerId)?.label,
+  );
+  // Changing an existing tab's folder starts where that tab already is. Every
+  // other entry point lets the picker resolve the selected host's projects root.
+  const directoryPickerInitialPath = $derived.by(() => {
+    const targetSession = directoryPickerTargetTabId
+      ? session.sessionFor(directoryPickerTargetTabId)
+      : null;
+    if (targetSession?.serverId === directoryPickerServerId) {
+      return targetSession.workingDirectory;
+    }
+    return undefined;
+  });
 
   const visibleTabOrder = $derived(
     session.tabOrder.filter((id) => session.tabs[id]),
@@ -660,12 +755,18 @@
   });
 
   // ── Global keybinding handlers ────────────────────────────────────────────
-  useKeybinding("global.select-project", () => {
+  useKeybinding("global.open-host-project", () => {
     window.dispatchEvent(
       new CustomEvent("solus:open-directory-picker", {
-        detail: { tabId: session.focusedChatTabId ?? undefined },
+        detail: {
+          tabId: session.focusedChatTabId ?? undefined,
+          serverId: serversStore.activeServerId,
+        },
       }),
     );
+  });
+  useKeybinding("global.select-project", () => {
+    startOpenProject({ tabId: session.focusedChatTabId ?? undefined });
   });
   useKeybinding("global.new-tab", () => session.createTab());
 
@@ -956,6 +1057,25 @@
   // context-aware commands get layered in later.
   const baseCommands: Command[] = [
     {
+      id: "open-project",
+      label: "Open project…",
+      group: "General",
+      icon: FolderOpenIcon,
+      hint: comboHint("global.select-project"),
+      keywords: [
+        "new project",
+        "clone",
+        "repository",
+        "git",
+        "github",
+        "folder",
+        "directory",
+        "host",
+        "machine",
+      ],
+      run: () => startOpenProject({ tabId: activeTabId }),
+    },
+    {
       id: "new-tab",
       label: "New session",
       group: "General",
@@ -1005,6 +1125,17 @@
       icon: PlugsIcon,
       keywords: ["remote", "pair", "connect"],
       run: () => serversStore.openAddServer(),
+    },
+    {
+      id: "find-hosts",
+      label: "Find hosts nearby",
+      group: "Servers",
+      icon: PlugsIcon,
+      keywords: ["discover", "scan", "lan", "tailscale", "nearby"],
+      run: () => {
+        serversStore.switcherOpen = true;
+        void serversStore.scanForServers();
+      },
     },
   ];
 
@@ -1066,6 +1197,22 @@
           server.installationId ?? "",
         ],
         run: () => serversStore.switchTo(server.id),
+      });
+    }
+
+    for (const host of serversStore.nearbyHosts) {
+      commands.push({
+        id: `connect-host:${host.server.installationId}`,
+        label: `Connect to ${host.server.name}`,
+        group: "Servers",
+        icon: PlugsIcon,
+        keywords: [
+          "server",
+          "connect",
+          `${host.server.host}:${host.server.port}`,
+          host.server.source,
+        ],
+        run: () => hostOnboardingStore.openForDiscovered(host.server),
       });
     }
 
@@ -1461,18 +1608,22 @@
 
   $effect(() => {
     const handler = (event: Event) => {
-      const targetTabId = (event as CustomEvent<{ tabId?: string }>).detail
-        ?.tabId;
+      const detail = (
+        event as CustomEvent<{ tabId?: string; serverId?: string }>
+      ).detail;
+      const targetTabId = detail?.tabId;
       const tab = targetTabId ? session.tabs[targetTabId] : null;
       const opensInNewTab = tab?.sessionId != null;
       directoryPickerNewTab = opensInNewTab;
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
+      directoryPickerServerIdOverride = detail?.serverId;
+      directoryPickerForOpenProject = false;
       directoryPickerOpen = true;
     };
-    const newTabHandler = () => {
-      directoryPickerNewTab = true;
-      directoryPickerTargetTabId = undefined;
-      directoryPickerOpen = true;
+    const openProjectHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string } | undefined>)
+        .detail;
+      startOpenProject({ tabId: detail?.tabId });
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
@@ -1505,17 +1656,11 @@
       commandPaletteOpen = true;
     };
     window.addEventListener("solus:open-directory-picker", handler);
-    window.addEventListener(
-      "solus:open-directory-picker-new-tab",
-      newTabHandler,
-    );
+    window.addEventListener("solus:open-project", openProjectHandler);
     window.addEventListener("solus:review-pr", reviewPrHandler);
     return () => {
       window.removeEventListener("solus:open-directory-picker", handler);
-      window.removeEventListener(
-        "solus:open-directory-picker-new-tab",
-        newTabHandler,
-      );
+      window.removeEventListener("solus:open-project", openProjectHandler);
       window.removeEventListener("solus:review-pr", reviewPrHandler);
     };
   });
@@ -1523,10 +1668,25 @@
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false;
     invalidateHomeCache();
+    if (directoryPickerForOpenProject) {
+      await finishBrowsedOpenProject(dir);
+      return;
+    }
     const targetTabId = directoryPickerTargetTabId;
+    const overrideServerId = directoryPickerServerIdOverride;
+    directoryPickerServerIdOverride = undefined;
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
-      await session.createTab(dir);
+      const newTabId = await session.createTab(dir);
+      if (overrideServerId) moveTabToHost(newTabId, overrideServerId, dir);
+    } else if (
+      targetTabId &&
+      overrideServerId &&
+      session.sessionFor(targetTabId)?.serverId !== overrideServerId
+    ) {
+      // The folder lives on another host, so the tab has to move there too —
+      // setBaseDirectory alone would point the current host at a missing path.
+      moveTabToHost(targetTabId, overrideServerId, dir);
     } else {
       await session.setBaseDirectory(dir, targetTabId);
     }
@@ -1538,7 +1698,130 @@
     directoryPickerOpen = false;
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
+    directoryPickerServerIdOverride = undefined;
+    // Cancelling a browse that the Open project flow started returns to that
+    // flow, on the step it left — not to an empty screen.
+    if (directoryPickerForOpenProject) {
+      directoryPickerForOpenProject = false;
+      openProjectStore.back();
+      return;
+    }
     requestInputFocus();
+  }
+
+  function moveTabToHost(tabId: string, serverId: string, path: string) {
+    retargetSessionHost({
+      workspace: session,
+      tabId,
+      serverId,
+      isLocalHost: serverId === LOCAL_SERVER_ID,
+      path,
+      onDispatched: (dispatchedPath) =>
+        void session.environment.refreshTab(session, {
+          tabId,
+          cwd: dispatchedPath,
+          worktreeRequested: true,
+        }),
+    });
+  }
+
+  /**
+   * Every machine the Open project flow can land a project on, active one
+   * first — the flow binds the head of this list, so the chip defaults to the
+   * machine you are already working on.
+   */
+  function openProjectHosts(): HostOption[] {
+    const activeId = serversStore.activeServerId;
+    return serversStore.servers
+      .map((server) => ({
+        id: server.id,
+        label: server.label,
+        local: server.local,
+      }))
+      .sort((a, b) => Number(b.id === activeId) - Number(a.id === activeId));
+  }
+
+  function startOpenProject(options: { tabId?: string } = {}) {
+    openProjectStore.open(openProjectHosts(), { tabId: options.tabId });
+  }
+
+  /** Lands the chosen project in a session on the host that holds it. */
+  async function openProjectAtPath(path: string, cloned: boolean) {
+    const serverId = openProjectStore.serverId;
+    const hostLabel = openProjectStore.hostLabel;
+    const hostIsLocal = openProjectStore.hostIsLocal;
+    const tabId = openProjectStore.tabId;
+    const pushNote = openProjectStore.pushCapabilityNote;
+    openProjectStore.close();
+    if (!serverId) return;
+
+    // A started session keeps its folder — the project opens beside it instead.
+    const reusableTabId =
+      tabId &&
+      session.tabs[tabId] &&
+      !isRunOnHostLocked(session.sessionFor(tabId))
+        ? tabId
+        : null;
+    // A tab always starts on the active server, so even a brand new one has to
+    // be moved across before its first prompt runs on the right machine.
+    const targetTabId = reusableTabId ?? (await session.createTab(path));
+    moveTabToHost(targetTabId, serverId, path);
+    requestInputFocus({ tabId: targetTabId });
+
+    // A clone that authenticated as nobody works right up until the push, which
+    // is 25 minutes away at PR time. Say so now, without blocking the session.
+    if (pushNote) {
+      const onboardingHost = { id: serverId, label: hostLabel || serverId };
+      toasts.info(pushNote, {
+        actions: [
+          {
+            label: "Set up",
+            onAction: () => hostOnboardingStore.open(onboardingHost),
+          },
+        ],
+      });
+      return;
+    }
+
+    if (!cloned && hostIsLocal) return;
+    const name = path.split("/").pop();
+    toasts.success(
+      cloned
+        ? `Cloned ${name} on ${hostLabel || "host"}`
+        : `Opened ${name} on ${hostLabel || "host"}`,
+      {
+        actions: [
+          {
+            label: "Copy path",
+            onAction: () => void navigator.clipboard?.writeText(path),
+          },
+        ],
+      },
+    );
+  }
+
+  /** "Choose location…" — the same folder browser, handed back to the flow. */
+  function browseForOpenProject() {
+    if (!openProjectStore.serverId) return;
+    openProjectStore.beginBrowse();
+    directoryPickerForOpenProject = true;
+    directoryPickerNewTab = false;
+    directoryPickerTargetTabId = undefined;
+    directoryPickerServerIdOverride = openProjectStore.serverId;
+    directoryPickerOpen = true;
+  }
+
+  /** A folder chosen for the flow: opened as-is, or used as the clone's parent. */
+  async function finishBrowsedOpenProject(dir: string) {
+    directoryPickerForOpenProject = false;
+    directoryPickerServerIdOverride = undefined;
+    openProjectStore.back();
+    if (openProjectStore.source === "local") {
+      await openProjectAtPath(dir, false);
+      return;
+    }
+    const clonedPath = await openProjectStore.cloneInto(dir);
+    if (clonedPath) await openProjectAtPath(clonedPath, true);
   }
 
   let isDraggingFile = $state(false);
@@ -1595,6 +1878,7 @@
 <Toaster
   theme={settings.isDark ? "dark" : "light"}
   position="top-right"
+  offset={{ top: "1rem", right: "1rem" }}
   visibleToasts={1}
   duration={6000}
   hotkey={TOAST_HOTKEY}
@@ -1686,8 +1970,11 @@
       bind:open={directoryPickerOpen}
       onClose={handleDirectoryPickerClose}
       onSelect={handleDirectorySelected}
+      initialPath={directoryPickerInitialPath}
       title={directoryPickerTitle}
       actionLabel={directoryPickerAction}
+      api={directoryPickerApi}
+      hostLabel={directoryPickerHostLabel}
     />
   {/await}
 {/if}
@@ -1707,7 +1994,7 @@
 {/if}
 
 {#if hasMountedCommandPalette}
-  {#await import("./components/command-palette/CommandPalette.svelte")}
+  {#await commandPaletteModulePromise}
     {#if commandPaletteOpen}
       <div class="lazy-modal-loading" role="status">Loading commands…</div>
     {/if}
@@ -1716,7 +2003,7 @@
     <CommandPalette
       bind:open={commandPaletteOpen}
       bind:initialPage={paletteInitialPage}
-      commands={commandPaletteOpen ? paletteCommands : []}
+      commands={paletteCommands}
     />
   {/await}
 {/if}
@@ -1734,14 +2021,30 @@
   {/await}
 {/if}
 
-{#if hasMountedClaimServer}
-  {#await import("./components/servers/ClaimServerModal.svelte")}
-    {#if serversStore.claimServerOpen}
-      <div class="lazy-modal-loading" role="status">Loading server setup…</div>
+{#if hasMountedOpenProject}
+  {#await import("./components/servers/OpenProjectDialog.svelte")}
+    {#if openProjectStore.isOpen}
+      <div class="lazy-modal-loading" role="status">Loading projects…</div>
     {/if}
-  {:then claimServerModule}
-    {@const ClaimServerModal = claimServerModule.default}
-    <ClaimServerModal />
+  {:then openProjectModule}
+    {@const OpenProjectDialog = openProjectModule.default}
+    <OpenProjectDialog
+      onOpenProject={(path) =>
+        void openProjectAtPath(path, openProjectStore.source !== "local")}
+      onBrowse={browseForOpenProject}
+      localIdentity={localGitIdentity}
+    />
+  {/await}
+{/if}
+
+{#if hasMountedHostOnboarding}
+  {#await import("./components/servers/HostOnboarding.svelte")}
+    {#if hostOnboardingStore.isOpen}
+      <div class="lazy-modal-loading" role="status">Loading host setup…</div>
+    {/if}
+  {:then hostOnboardingModule}
+    {@const HostOnboarding = hostOnboardingModule.default}
+    <HostOnboarding />
   {/await}
 {/if}
 

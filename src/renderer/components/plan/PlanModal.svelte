@@ -101,6 +101,7 @@
   // Comments rail
   let commentsRailOpen = $state(false);
   let commentsRailInLayout = $state(false);
+  let composerCollapsed = $state(false);
   let commentsRailPlanId = $state<string | null>(null);
   let activeRailCommentId = $state<string | null>(null);
   let editingCommentId = $state<string | null>(null);
@@ -538,12 +539,22 @@
   {/snippet}
 
   {#snippet footer()}
-    <div class="plan-action-bar-sleeve shrink-0 px-5 pt-2 pb-3 max-md:px-3 max-md:pb-2">
+    <div
+      class="plan-action-bar-sleeve shrink-0 px-5 pt-2 pb-3 max-md:px-3 max-md:pb-2"
+      class:plan-action-bar-sleeve--no-rail={!commentsRailInLayout && !composerCollapsed}
+      class:absolute={composerCollapsed}
+      class:inset-x-0={composerCollapsed}
+      class:bottom-3={composerCollapsed}
+      class:z-20={composerCollapsed}
+      class:pointer-events-none={composerCollapsed}
+      style:padding={composerCollapsed ? "0" : undefined}
+    >
       <PlanActionBar
         planId={plan.id}
         inlineCommentCount={comments.length}
         compact={isMobile}
         forceShowWorktreeToggle={isPreview}
+        bind:collapsed={composerCollapsed}
         onDone={closeModal}
       />
     </div>

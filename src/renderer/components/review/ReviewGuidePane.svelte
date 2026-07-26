@@ -68,6 +68,7 @@
 
   let composerNote = $state("");
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
+  let composerCollapsed = $state(false);
   const sess = $derived(session.sessionFor(session.activeTabId));
   const tab = $derived(session.tabs[session.activeTabId]);
 
@@ -103,7 +104,7 @@
   }
 </script>
 
-<section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
+<section class="relative flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   <header
     class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] [.workspace-body.sidebar-collapsed_&]:pl-[max(2.75rem,calc(var(--solus-chrome-lead-inset,0px)+2rem))]"
   >
@@ -161,10 +162,15 @@
   {/if}
 
   {#if !loader.loading && loader.guide}
-    <div class="shrink-0 bg-(--solus-container-bg) px-3 pt-2 pb-3">
+    <div
+      class={composerCollapsed
+        ? "absolute bottom-3 left-3 z-20"
+        : "shrink-0 bg-(--solus-container-bg) px-3 pt-2 pb-3"}
+    >
       <PromptComposer
         bind:this={composerRef}
         bind:value={composerNote}
+        bind:collapsed={composerCollapsed}
         tabId={session.activeTabId}
         workingDirectory={sess?.workingDirectory}
         canSubmitWhenEmpty={reviewDrafts.drafts.length > 0}

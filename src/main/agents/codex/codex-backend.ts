@@ -373,6 +373,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         approvalPolicy: approvalPolicyFor(runInput.permissionMode),
         sandboxPolicy: sandboxPolicyFor(runInput.permissionMode),
         model,
+        summary: 'auto',
         reasoning_effort: reasoningEffort,
         collaborationMode: { mode: isPlanMode ? 'plan' : 'default', settings: {
           model,

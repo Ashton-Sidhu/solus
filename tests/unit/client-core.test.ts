@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overlay'
-import { claimServer, normalizeServerUrl, pairServer, parsePairLink } from '../../src/client-core/pairing'
+import { claimServer, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '../../src/client-core/pairing'
 import { base64UrlToUint8Array } from '../../src/client-core/push'
 import { encodeQrByteMode } from '../../src/client-core/qr'
 import {
@@ -163,6 +163,26 @@ describe('client core transport helpers', () => {
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+
+  test('saves SSH bootstrapped credentials without another pairing exchange', () => {
+    const server = saveBootstrappedServer(
+      'http://100.64.0.8:3000/',
+      {
+        sessionToken: 'ssh-issued-session',
+        installationId: 'ssh-installation',
+        fingerprint: 'abc12345',
+      },
+      'Build Host',
+    )
+
+    expect(server).toMatchObject({
+      id: 'ssh-installation',
+      label: 'Build Host',
+      url: 'http://100.64.0.8:3000',
+      sessionToken: 'ssh-issued-session',
+      installationId: 'ssh-installation',
+    })
   })
 
   test('encodes pair links as stable QR byte-mode matrices with finder patterns', () => {

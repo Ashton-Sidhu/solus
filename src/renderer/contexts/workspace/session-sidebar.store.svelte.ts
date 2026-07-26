@@ -33,6 +33,8 @@ export type SidebarSessionChild = {
   label: string
   attention: AttentionState
   active: boolean
+  /** Session history mixes hosts, so each row has to carry the one it runs on. */
+  serverId: string | null
 }
 
 const attentionRank: Record<NonNullable<AttentionState>, number> = {
@@ -173,6 +175,7 @@ export class SessionSidebarStore {
       label: tab && sess ? sessionTitle(sess, tab) : tabId,
       attention: tab && sess ? getAttentionState(sess, tab, this.planStore.plans) : null,
       active: tabId === this.session.activeTabId,
+      serverId: sess?.serverId ?? null,
     }
   }
 

@@ -1,5 +1,6 @@
 import { uuid } from '../shared/uuid'
 import type { SavedServer } from './server-registry'
+import type { SshBootstrapCredential } from '../shared/types'
 
 export interface ParsedPairLink {
   url: string
@@ -142,5 +143,21 @@ export async function claimServer(input: ClaimServerInput): Promise<ClaimServerR
     claimedAt: body.claimedAt,
     installationId: body.installationId,
     fingerprint: body.fingerprint,
+  }
+}
+
+export function saveBootstrappedServer(
+  urlInput: string,
+  credential: SshBootstrapCredential,
+  serverLabel?: string,
+): SavedServer {
+  const url = normalizeServerUrl(urlInput)
+  return {
+    id: credential.installationId || uuid(),
+    label: serverLabel || urlHost(url),
+    url,
+    sessionToken: credential.sessionToken,
+    installationId: credential.installationId,
+    lastConnected: Date.now(),
   }
 }

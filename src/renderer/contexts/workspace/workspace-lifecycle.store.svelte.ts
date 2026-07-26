@@ -10,6 +10,10 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
 
+export function startDirectoryForServer(result: StartInfo): string {
+  return result.workspacePath || result.projectPath || '~'
+}
+
 export interface StaticInfo {
   version: string
   email: string | null
@@ -62,7 +66,7 @@ export class WorkspaceLifecycleStore {
    * optimistic path never touches the active agent.
    */
   private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
-    const startDirectory = result.projectPath || result.workspacePath || '~'
+    const startDirectory = startDirectoryForServer(result)
     const currentDirectory = this.deps.config.globalDefaults.workingDirectory
     const canReconcileCachedDefault = this.deps.registry.tabOrder.length === 0
       && currentDirectory === this.appliedStartDirectory

@@ -28,6 +28,11 @@ interface UpdateOptions {
   repo: string
 }
 
+interface AuthSessionCreateOptions extends CommonOptions {
+  json: boolean
+  deviceLabel?: string
+}
+
 interface Endpoint {
   kind?: string
   host: string
@@ -55,6 +60,12 @@ async function main(argv: string[]): Promise<void> {
     case 'claim':
       await claim(parseCommonOptions(rest))
       return
+    case 'auth':
+      await auth(rest)
+      return
+    case 'git-credential':
+      await gitCredential(rest)
+      return
     case 'update':
       await update(parseUpdateOptions(rest))
       return
@@ -70,6 +81,8 @@ Usage:
   solus start [--data-dir PATH] [--host HOST] [--port PORT]
   solus logs [--data-dir PATH] [--lines N]
   solus claim [--data-dir PATH]
+  solus auth session create --json [--device-label LABEL] [--data-dir PATH]
+  solus git-credential <get|store|erase> [--data-dir PATH]
   solus update [--repo OWNER/REPO]
   solus --version
   solus --help`)
@@ -134,6 +147,47 @@ async function claim(opts: CommonOptions): Promise<void> {
     '',
     renderQrAscii(claimUrl),
   ].join('\n'))
+}
+
+async function auth(args: string[]): Promise<void> {
+  if (args[0] !== 'session' || args[1] !== 'create') {
+    throw new Error('Unknown auth command. Expected: solus auth session create')
+  }
+  const opts = parseAuthSessionCreateOptions(args.slice(2))
+  const paths = runtimePaths(opts.dataDir)
+  const childArgs = [
+    paths.serverEntry,
+    'auth', 'session', 'create',
+    '--data-dir', opts.dataDir,
+    ...(opts.json ? ['--json'] : []),
+    ...(opts.deviceLabel ? ['--device-label', opts.deviceLabel] : []),
+  ]
+  const child = spawn(paths.nodePath, childArgs, { stdio: 'inherit' })
+  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null]
+  if (signal) process.exitCode = 1
+  else process.exitCode = code ?? 1
+}
+
+/**
+ * Git's credential helper contract: the action is argv[1], the request arrives
+ * on stdin and the answer goes to stdout. Both are inherited straight through to
+ * the server entry, which is where the keyring lives.
+ */
+async function gitCredential(args: string[]): Promise<void> {
+  const [action, ...rest] = args
+  if (action !== 'get' && action !== 'store' && action !== 'erase') {
+    throw new Error('Unknown git-credential action. Expected: solus git-credential <get|store|erase>')
+  }
+  const opts = parseCommonOptions(rest)
+  const paths = runtimePaths(opts.dataDir)
+  const child = spawn(
+    paths.nodePath,
+    [paths.serverEntry, 'git-credential', action, '--data-dir', opts.dataDir],
+    { stdio: 'inherit' },
+  )
+  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null]
+  if (signal) process.exitCode = 1
+  else process.exitCode = code ?? 1
 }
 
 async function update(opts: UpdateOptions): Promise<void> {
@@ -203,6 +257,20 @@ function parseCommonOptions(args: string[]): CommonOptions {
     if (arg === '--data-dir') opts.dataDir = takeValue(args, ++i, arg)
     else if (arg.startsWith('--data-dir=')) opts.dataDir = arg.slice('--data-dir='.length)
     else throw new Error(`Unknown option: ${arg}`)
+  }
+  return opts
+}
+
+function parseAuthSessionCreateOptions(args: string[]): AuthSessionCreateOptions {
+  const opts: AuthSessionCreateOptions = { dataDir: defaultDataDir(), json: false }
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--json') opts.json = true
+    else if (arg === '--data-dir') opts.dataDir = takeValue(args, ++i, arg)
+    else if (arg.startsWith('--data-dir=')) opts.dataDir = arg.slice('--data-dir='.length)
+    else if (arg === '--device-label') opts.deviceLabel = takeValue(args, ++i, arg)
+    else if (arg.startsWith('--device-label=')) opts.deviceLabel = arg.slice('--device-label='.length)
+    else throw new Error(`Unknown auth session create option: ${arg}`)
   }
   return opts
 }

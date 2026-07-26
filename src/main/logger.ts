@@ -2,6 +2,7 @@ import { appendFile, appendFileSync, mkdirSync } from 'fs'
 import { inspect } from 'util'
 import { join } from 'path'
 import { isPackagedRuntime, logsDir } from './platform/paths'
+import { installBrokenPipeGuard } from './broken-pipe'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -37,6 +38,13 @@ const CONSOLE_FN: Record<LogLevel, (...args: unknown[]) => void> = {
   info: console.log,
   warn: console.warn,
   error: console.error,
+}
+const stdoutGuard = isDevRuntime ? installBrokenPipeGuard(process.stdout) : null
+const stderrGuard = isDevRuntime ? installBrokenPipeGuard(process.stderr) : null
+
+function writeToConsole(level: LogLevel, message: string): void {
+  const guard = level === 'debug' || level === 'info' ? stdoutGuard : stderrGuard
+  guard?.write(() => CONSOLE_FN[level](message))
 }
 
 function formatDevData(data: Record<string, unknown>): string {
@@ -98,9 +106,9 @@ function emit(level: LogLevel, tag: string, file: string, msg: string, data?: Re
     const lvl = level.toUpperCase().padEnd(5)
     const prefix = `${DIM}${t}${RESET} ${color}${lvl}${RESET} ${DIM}[${tag}]${RESET} ${DIM}(${file})${RESET}`
     if (data && Object.keys(data).length > 0) {
-      CONSOLE_FN[level](`${prefix} ${msg}\n${formatDevData(data)}`)
+      writeToConsole(level, `${prefix} ${msg}\n${formatDevData(data)}`)
     } else {
-      CONSOLE_FN[level](`${prefix} ${msg}`)
+      writeToConsole(level, `${prefix} ${msg}`)
     }
     return
   }
@@ -132,7 +140,7 @@ export function createLogger(tag: string, file: string): Logger {
       if (isDevRuntime) {
         const t = new Date().toISOString().slice(11, 23)
         const prefix = `${DIM}${t}${RESET} ${METRIC_COLOR}METRIC${RESET} ${DIM}[${tag}]${RESET} ${DIM}(${file})${RESET}`
-        console.log(`${prefix} ${label}\n${formatDevData(payload)}`)
+        stdoutGuard?.write(() => console.log(`${prefix} ${label}\n${formatDevData(payload)}`))
         return
       }
       const entry: Record<string, unknown> = { ts: new Date().toISOString(), level: 'metric', tag, file, label, ...payload }

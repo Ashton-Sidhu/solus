@@ -206,7 +206,7 @@
     onclick={() => (collapsed = false)}
     aria-label="Expand composer"
     aria-expanded="false"
-    class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
+    class="pointer-events-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
     use:tooltip={"Expand"}
   >
     <CaretUpIcon size={14} weight="bold" />
@@ -236,6 +236,7 @@
       onEmptyChange={(empty) => (editorEmpty = empty)}
       {pluginCommands}
       provider={selection.provider}
+      {tabId}
       {workingDirectory}
       onRefsChange={(p, w) => {
         planRefs = p;

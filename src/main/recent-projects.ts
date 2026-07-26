@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import type { RecentProject } from '../shared/types'
+import { canonicalRecentProjects } from '../shared/recent-projects'
+import { worktreeProjectRoot, type RecentProject } from '../shared/types'
 import { getDb, withTx } from './db'
 import { isWorkspacePath } from './workspace'
 
@@ -22,6 +23,7 @@ function fromRow(row: RecentProjectRow): RecentProject {
 
 export async function trackRecentProject(path: string): Promise<void> {
   if (!path || path === '~') return
+  path = worktreeProjectRoot(path)
   // The workspace is the app's default cwd, not a "project" — never log it.
   if (isWorkspacePath(path)) return
   withTx(() => {
@@ -53,5 +55,5 @@ export async function listRecentProjects(): Promise<RecentProject[]> {
     FROM recent_projects
     ORDER BY last_opened DESC, rowid DESC
   `).all() as unknown as RecentProjectRow[]
-  return rows.filter((row) => existsSync(row.path)).map(fromRow)
+  return canonicalRecentProjects(rows.map(fromRow)).filter((project) => existsSync(project.path))
 }

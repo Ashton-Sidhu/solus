@@ -38,6 +38,7 @@ export class ConnectionsStore {
   sessions = $state<ConnectionSession[]>([])
   activePair = $state<PairToken | null>(null)
   refreshing = $state(false)
+  remoteAccessUpdating = $state(false)
   capabilities = $state<ServerCapabilities | null>(null)
 
   providerStatus = $state<AuthStatus | null>(null)
@@ -77,18 +78,23 @@ export class ConnectionsStore {
   }
 
   async setRemoteAccess(remoteAccess: boolean): Promise<void> {
+    if (!this.serverInfo || this.remoteAccessUpdating) return
+    const previousRemoteAccess = this.serverInfo.remoteAccess
+    this.serverInfo.remoteAccess = remoteAccess
+    this.remoteAccessUpdating = true
     try {
       const info = await window.solus.connectionsSetRemoteAccess({ remoteAccess })
-      if (this.serverInfo) {
-        this.serverInfo.remoteAccess = info.remoteAccess
-        this.serverInfo.host = info.host
-        this.serverInfo.port = info.port
-        this.serverInfo.allowLan = info.allowLan
-        this.serverInfo.requireAuth = info.requireAuth
-      }
+      this.serverInfo.remoteAccess = info.remoteAccess
+      this.serverInfo.host = info.host
+      this.serverInfo.port = info.port
+      this.serverInfo.allowLan = info.allowLan
+      this.serverInfo.requireAuth = info.requireAuth
       await this.refreshServerMetadata()
     } catch (e) {
+      this.serverInfo.remoteAccess = previousRemoteAccess
       console.error('set remote access failed', e)
+    } finally {
+      this.remoteAccessUpdating = false
     }
   }
 
@@ -103,6 +109,12 @@ export class ConnectionsStore {
 
   get desktopHandlersAvailable(): boolean {
     return this.capabilities?.desktopHandlers !== false
+  }
+
+  /** Where this host's folder picker starts. Empty clears it back to the home folder. */
+  async setProjectsBaseDirectory(path: string): Promise<void> {
+    const result = await window.solus.setProjectsBaseDirectory(path)
+    if (this.capabilities) this.capabilities.projectsBaseDirectory = result.projectsBaseDirectory
   }
 
   async revokeDevice(deviceId: string): Promise<void> {

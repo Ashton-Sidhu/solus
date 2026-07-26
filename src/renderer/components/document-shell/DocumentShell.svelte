@@ -612,10 +612,13 @@
         </div>
       {/if}
 
+      <!-- Scroll region and footer share one column, so a footer composer lines up
+           under the text column without having to guess the rails' widths. -->
+      <div class="doc-shell-column flex min-w-0 flex-1 flex-col">
       <!-- svelte-ignore a11y_no_noninteractive_tabindex: Focusable so keyboard users can scroll immediately on open. -->
       <div
         bind:this={scrollContainer}
-        class="doc-shell-scroll min-w-0 flex-1 overflow-y-auto overscroll-y-contain outline-none [-webkit-overflow-scrolling:touch] {scrollClass}"
+        class="doc-shell-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain outline-none [-webkit-overflow-scrolling:touch] {scrollClass}"
         style:padding-bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}
         tabindex="0"
         role="region"
@@ -735,10 +738,11 @@
         />
       </div>
 
+      {@render footer?.()}
+      </div>
+
       {@render rail?.()}
     </div>
-
-    {@render footer?.()}
   </div>
 {/snippet}
 

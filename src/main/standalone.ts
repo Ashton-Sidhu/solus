@@ -1,14 +1,19 @@
 import { join } from 'path'
 import { createLogger, flushLogs } from './logger'
+import { coerceGitCredentialAction, runGitCredentialHelper, type GitCredentialAction } from './providers/github/git-credential'
 import type { BootCore } from './boot-core'
 import type { ReachableEndpoint } from './server/endpoints'
 
 const log = createLogger('main', 'standalone')
 
 interface StandaloneArgs {
+  command: 'serve' | 'auth-session-create' | 'git-credential'
   dataDir?: string
   host?: string
   port?: number
+  json?: boolean
+  deviceLabel?: string
+  credentialAction?: GitCredentialAction
 }
 
 function parsePort(value: string | undefined): number | undefined {
@@ -22,12 +27,38 @@ function parsePort(value: string | undefined): number | undefined {
 
 function parseArgs(argv: string[]): StandaloneArgs {
   const out: StandaloneArgs = {
+    command: 'serve',
     host: process.env.SOLUS_HOST || undefined,
     port: parsePort(process.env.SOLUS_PORT),
   }
 
+  if (argv[0] === 'auth' && argv[1] === 'session' && argv[2] === 'create') {
+    out.command = 'auth-session-create'
+    argv = argv.slice(3)
+  } else if (argv[0] === 'git-credential') {
+    out.command = 'git-credential'
+    out.credentialAction = coerceGitCredentialAction(argv[1])
+    argv = argv.slice(2)
+  }
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
+    if (arg === '--json') {
+      out.json = true
+      continue
+    }
+    if (arg === '--device-label') {
+      const value = argv[++i]
+      if (!value) throw new Error('--device-label requires a value')
+      out.deviceLabel = value
+      continue
+    }
+    if (arg.startsWith('--device-label=')) {
+      const value = arg.slice('--device-label='.length)
+      if (!value) throw new Error('--device-label requires a value')
+      out.deviceLabel = value
+      continue
+    }
     if (arg === '--data-dir') {
       const value = argv[++i]
       if (!value) throw new Error('--data-dir requires a path')
@@ -72,6 +103,18 @@ function printClaimBlock(baseUrl: string, code: string, expiresAt: number, finge
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   if (args.dataDir) process.env.SOLUS_DATA_DIR = args.dataDir
+
+  if (args.command === 'git-credential') {
+    await runGitCredentialHelper(args.credentialAction ?? 'get', process.stdin, process.stdout)
+    return
+  }
+
+  if (args.command === 'auth-session-create') {
+    const auth = await import('./server/auth')
+    const result = auth.issueSshBootstrapCredential((args.deviceLabel ?? 'Solus desktop').slice(0, 64))
+    process.stdout.write(args.json ? `${JSON.stringify(result)}\n` : `${result.sessionToken}\n`)
+    return
+  }
 
   const [{ bootCore }, auth, { listReachableEndpoints }] = await Promise.all([
     import('./boot-core'),

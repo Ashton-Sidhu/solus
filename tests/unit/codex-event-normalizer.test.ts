@@ -209,7 +209,7 @@ describe('CodexTurnNormalizer', () => {
     expect(normalizer.push({
       method: 'item/agentMessage/delta',
       params: { threadId: 'thread-1', delta: 'partial' },
-    })).toEqual([])
+    })).toEqual([{ type: 'text_chunk', text: 'partial' }])
     expect(normalizer.push({
       method: 'item/completed',
       params: { threadId: 'thread-1', item: { id: 'msg-1', type: 'agentMessage', text: 'Complete answer.' } },

@@ -14,6 +14,7 @@ export const CLAUDE_SUBAGENT_TOOL_NAME = 'claude_subagent'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
 const DEFAULT_CLAUDE_MODEL =
+  ('claude-sonnet-5' in claudeProfiles ? 'claude-sonnet-5' : undefined) ??
   Object.entries(claudeProfiles).find(([, profile]) => profile.isDefault)?.[0] ??
   Object.keys(claudeProfiles)[0] ??
   'claude-sonnet-5'
@@ -28,11 +29,18 @@ const claudeSubagentInputSchema = z.object({
     .string()
     .optional()
     .describe('Short (3-8 word) summary of the task, shown on the subagent card.'),
-  model: z.string().optional().describe("Claude model id (e.g. 'claude-sonnet-5'). Omit for the default."),
+  model: z
+    .string()
+    .optional()
+    .describe(
+      "Claude model id. Defaults to 'claude-sonnet-5' — right for most delegated tasks; pick 'claude-opus-5' for genuinely hard debugging or design work.",
+    ),
   reasoning_effort: z
     .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
     .optional()
-    .describe("Claude reasoning effort. Defaults to 'high'."),
+    .describe(
+      "Match to task difficulty: 'low' for mechanical edits and lookups, 'medium' for typical coding tasks, 'high'+ only for hard debugging or design. Omit to use the model's default.",
+    ),
   read_only: z
     .boolean()
     .optional()
@@ -81,13 +89,13 @@ const readOnlyGate: CanUseTool = async (toolName, input) => {
 }
 
 type ClaudeSubagentTranscriptEvent = Extract<NormalizedEvent, {
-  type: 'assistant_message' | 'tool_call' | 'tool_call_update' | 'tool_call_complete' | 'tool_result'
+  type: 'text_chunk' | 'assistant_message' | 'tool_call' | 'tool_call_update' | 'tool_call_complete' | 'tool_result'
 }>
 
 function isTranscriptEvent(event: NormalizedEvent): event is ClaudeSubagentTranscriptEvent {
-  return event.type === 'assistant_message' || event.type === 'tool_call' ||
-    event.type === 'tool_call_update' || event.type === 'tool_call_complete' ||
-    event.type === 'tool_result'
+  return event.type === 'text_chunk' || event.type === 'assistant_message' ||
+    event.type === 'tool_call' || event.type === 'tool_call_update' ||
+    event.type === 'tool_call_complete' || event.type === 'tool_result'
 }
 
 /** Run one ephemeral Claude turn for Codex's `claude_subagent` dynamic tool. */
@@ -103,7 +111,9 @@ export async function executeClaudeSubagent(
   const args = parsed.data
   const readOnly = deps.forceReadOnly === true || args.read_only === true
   const model = args.model && claudeProfiles[args.model] ? args.model : DEFAULT_CLAUDE_MODEL
-  const reasoningEffort = (args.reasoning_effort ?? 'high') as ReasoningEffort
+  const reasoningEffort = (
+    args.reasoning_effort ?? claudeProfiles[model]?.defaultReasoningEffort ?? 'medium'
+  ) as ReasoningEffort
   const agent = new ClaudeAgent()
 
   const solusServer = createSolusMcpServer({
@@ -131,7 +141,7 @@ export async function executeClaudeSubagent(
       mcpServers: { solus: solusServer },
       allowedTools: readOnly
         ? READ_ONLY_ALLOWED_TOOLS
-        : [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__search_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__create_session', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
+        : [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__search_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__create_session', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__read_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
       canUseTool: readOnly ? readOnlyGate : undefined,
     })
 
@@ -143,7 +153,8 @@ export async function executeClaudeSubagent(
       else if (event.type === 'error') runError = event.message
 
       // Claude emits streamed text and then an assembled assistant message.
-      // Only forward the assembled form so the nested transcript never doubles.
+      // Forward both forms; the renderer reconciles the stream with the assembled
+      // message so the nested transcript updates live without doubling.
       if (!isTranscriptEvent(event)) continue
       deps.onEvent?.(deps.parentToolUseId, { ...event, parentToolUseId: deps.parentToolUseId })
     }

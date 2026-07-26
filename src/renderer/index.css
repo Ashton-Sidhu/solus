@@ -139,6 +139,7 @@
      weight (see APP_FONT_FAMILIES in settings.context). */
   --solus-font-weight-body: 500;
   --solus-font-weight-secondary: 500;
+  --solus-font-weight-user-content: 500;
   /* macOS traffic-light safe area — single source of truth.
      `titleBarStyle: 'hiddenInset'` floats the real window controls over the
      top-left of our content, so every piece of chrome that can land in that
@@ -254,6 +255,10 @@
   --solus-popover-bg: rgba(252, 251, 248, 0.99);
   --solus-popover-border: #dddad2;
   --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.65), 0 0.0625rem 0.125rem rgba(0,0,0,0.05), 0 0.625rem 1.75rem rgba(60,45,30,0.14);
+  /* Toast — unlike a popover it isn't anchored to anything, so it needs a
+     deeper, wider drop to read as floating plus a tight contact shadow to keep
+     its edge crisp over busy content. */
+  --solus-toast-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.7), 0 0.0625rem 0.125rem rgba(60,45,30,0.07), 0 0.5rem 1rem -0.25rem rgba(60,45,30,0.10), 0 1.5rem 3rem -0.5rem rgba(60,45,30,0.18);
   /* Code */
   --solus-code-bg: #f4f2ec;
   --solus-code-shadow: 0 0.0625rem 0.125rem rgba(0,0,0,0.04);
@@ -498,6 +503,7 @@
   --solus-popover-bg: rgba(30, 29, 26, 0.99);
   --solus-popover-border: rgba(255, 255, 255, 0.10);
   --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.09), 0 0.125rem 0.375rem rgba(0,0,0,0.35), 0 0.875rem 2.25rem rgba(0,0,0,0.45);
+  --solus-toast-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.08), 0 0.0625rem 0.125rem rgba(0,0,0,0.4), 0 0.75rem 1.5rem -0.375rem rgba(0,0,0,0.45), 0 1.75rem 3.5rem -0.75rem rgba(0,0,0,0.55);
   /* Code */
   --solus-code-bg: #252420;
   --solus-code-shadow: 0 0.0625rem 0.1875rem rgba(0,0,0,0.25), 0 0 0 0.0625rem rgba(255,255,255,0.04);
@@ -1138,30 +1144,36 @@ button.solus-token {
 }
 /* Reading measure shared by the document text column and any surface that must
    line up under it (the plan action-bar composer). Defined on the shell root so
-   both inherit the same value; the % resolves per containing block. */
+   both inherit the same value. */
 .doc-shell-root {
-  --solus-doc-measure: clamp(100ch, 80%, 160ch);
+  --solus-doc-measure: clamp(68ch, 76%, 120ch);
 }
 .solus-doc-editor .ProseMirror {
   outline: none;
   border: none;
   background: transparent;
   width: 100%;
-  /* Reading measure: fills most of the pane (88%) with a 100ch floor on narrow
-     panes and a 170ch ceiling on the widest. Exposed as --solus-doc-measure so
-     the plan action-bar composer below can match the text column exactly. The %
-     resolves against the containing block, so it scales per-pane; ch tracks the
-     body font-size, so it scales with --solus-font-scale too. */
-  max-width: var(--solus-doc-measure, clamp(100ch, 80%, 160ch));
+  /* Reading measure: centered, and sized off the pane rather than pinned — 76%
+     of the containing block, with a 68ch floor (the comfortable measure, so a
+     narrow pane never goes below it) and a 120ch ceiling (past that the eye
+     loses the line it's returning to). The % resolves against the containing
+     block, so it tracks the pane, not the window; ch tracks the body
+     font-size, so both ends scale with --solus-font-scale. Exposed as
+     --solus-doc-measure so the plan action-bar composer below matches the text
+     column exactly. Box-sizing is border-box, so the box carries the measure
+     *plus* its own gutters — otherwise the padding would eat ~8ch out of the
+     line. --doc-pad-x keeps the two in step at every breakpoint. */
+  --doc-pad-x: 2rem;
+  max-width: calc(var(--solus-doc-measure, clamp(68ch, 76%, 120ch)) + 2 * var(--doc-pad-x));
   margin-inline: auto;
   font-family: inherit;
   /* Body at 400 (Regular) — at the 16px reading size, the app-wide 500 body
      weight reads heavy, and 400 gives the 600 headings room to anchor. */
   font-weight: 400;
   font-size: calc(1rem * var(--solus-font-scale, 1));
-  line-height: 1.75;
+  line-height: 1.7;
   color: var(--solus-text-primary);
-  padding: 0.75rem 2rem 3rem;
+  padding: 0.75rem var(--doc-pad-x) 3rem;
   min-height: 12.5rem;
   word-break: break-word;
   white-space: pre-wrap;
@@ -1196,8 +1208,11 @@ button.solus-token {
 .solus-doc-editor .ProseMirror > * + * {
   margin-top: 0.5em;
 }
+/* 0.75em between paragraphs — margins collapse, so the pair reads as one gap.
+   Loose enough to break the block at a 1.7 line-height, tight enough that
+   consecutive paragraphs still read as one section. */
 .solus-doc-editor .ProseMirror p {
-  margin: 1.2em 0;
+  margin: 0.75em 0;
   text-wrap: pretty;
 }
 .solus-doc-editor .ProseMirror strong { font-weight: 600; }
@@ -1211,7 +1226,7 @@ button.solus-token {
    heading separates the prior section, tight gap below bonds it to its content. */
 .solus-doc-editor .ProseMirror h1 {
   font-size: calc(1.9375rem * var(--solus-font-scale, 1)); font-weight: 600; letter-spacing: -0.02em;
-  margin: 1.2em 0 0.45em; line-height: 1.25;
+  margin: 1.8em 0 0.45em; line-height: 1.25;
 }
 .solus-doc-editor .ProseMirror h1:first-child { margin-top: 0; }
 .solus-doc-editor .ProseMirror h2 {
@@ -1245,18 +1260,19 @@ button.solus-token {
 }
 .solus-doc-editor .ProseMirror li { margin: 0.2em 0; }
 .solus-doc-editor .ProseMirror li p { margin: 0; }
-/* Inline code reads as code by shape (mono + chip), not by color — accent ink
-   on every span turned dense technical prose into confetti. Chat prose and the
-   input editor keep the shared accent treatment above. */
+/* Inline code reads as code by shape (mono) and a half-strength terracotta
+   tint — no chip. A filled chip behind every span pockmarks dense technical
+   prose, and full accent ink reads as a link. Chat prose keeps the shared 72%
+   mix above; only the long-form column tones down this far. */
 .solus-doc-editor .ProseMirror code {
-  color: inherit;
-  background: var(--solus-art-raised);
-  border-radius: 0.3125rem;
-  padding: 0.08em 0.32em;
-  font-size: 0.85em;
+  color: color-mix(in srgb, var(--solus-accent) 50%, var(--solus-text-primary));
+  font-size: 0.88em;
 }
+/* Block code is the one thing in the column that gets a fill — the parchment
+   raised tone, which is the only step of the palette that reads as filled in
+   light mode too (--solus-art-surface is within a hair of the page there). */
 .solus-doc-editor .ProseMirror pre {
-  background: var(--solus-art-surface);
+  background: var(--solus-art-raised);
   border-color: var(--solus-art-border);
   padding: 0.9em 1.1em;
   font-size: calc(0.8125rem * var(--solus-font-scale, 1));
@@ -1347,43 +1363,44 @@ button.solus-token {
 }
 
 /* ─── Lowlight syntax highlighting tokens (in document editor code blocks) ───
-   Tokens run at half intensity (mixed toward secondary text) so code blocks
-   inside prose read as quiet exhibits, not the loudest thing on the page. */
+   Tokens run at 70% intensity (mixed toward secondary text) so code blocks
+   inside prose read as quiet exhibits, not the loudest thing on the page —
+   still enough saturation to tell a string from a keyword at 13px. */
 .solus-doc-editor .hljs-comment,
 .solus-doc-editor .hljs-quote { color: var(--solus-syntax-comment); font-style: italic; }
 .solus-doc-editor .hljs-keyword,
 .solus-doc-editor .hljs-selector-tag,
-.solus-doc-editor .hljs-subst { color: color-mix(in srgb, var(--solus-syntax-keyword) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-subst { color: color-mix(in srgb, var(--solus-syntax-keyword) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-number,
 .solus-doc-editor .hljs-literal,
 .solus-doc-editor .hljs-variable,
 .solus-doc-editor .hljs-template-variable,
-.solus-doc-editor .hljs-tag .hljs-attr { color: color-mix(in srgb, var(--solus-syntax-number) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-tag .hljs-attr { color: color-mix(in srgb, var(--solus-syntax-number) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-string,
-.solus-doc-editor .hljs-doctag { color: color-mix(in srgb, var(--solus-syntax-string) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-doctag { color: color-mix(in srgb, var(--solus-syntax-string) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-title,
 .solus-doc-editor .hljs-section,
-.solus-doc-editor .hljs-selector-id { color: color-mix(in srgb, var(--solus-syntax-function) 50%, var(--solus-text-secondary)); font-weight: 600; }
+.solus-doc-editor .hljs-selector-id { color: color-mix(in srgb, var(--solus-syntax-function) 70%, var(--solus-text-secondary)); font-weight: 600; }
 .solus-doc-editor .hljs-type,
-.solus-doc-editor .hljs-class .hljs-title { color: color-mix(in srgb, var(--solus-syntax-type) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-class .hljs-title { color: color-mix(in srgb, var(--solus-syntax-type) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-attribute,
-.solus-doc-editor .hljs-name { color: color-mix(in srgb, var(--solus-syntax-attr) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-name { color: color-mix(in srgb, var(--solus-syntax-attr) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-regexp,
-.solus-doc-editor .hljs-link { color: color-mix(in srgb, var(--solus-syntax-string) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-link { color: color-mix(in srgb, var(--solus-syntax-string) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-symbol,
-.solus-doc-editor .hljs-bullet { color: color-mix(in srgb, var(--solus-syntax-number) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-bullet { color: color-mix(in srgb, var(--solus-syntax-number) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-built_in,
-.solus-doc-editor .hljs-builtin-name { color: color-mix(in srgb, var(--solus-syntax-type) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-builtin-name { color: color-mix(in srgb, var(--solus-syntax-type) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-meta { color: var(--solus-syntax-comment); }
-.solus-doc-editor .hljs-deletion { color: color-mix(in srgb, var(--solus-syntax-deletion) 50%, var(--solus-text-secondary)); }
-.solus-doc-editor .hljs-addition { color: color-mix(in srgb, var(--solus-syntax-addition) 50%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-deletion { color: color-mix(in srgb, var(--solus-syntax-deletion) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-addition { color: color-mix(in srgb, var(--solus-syntax-addition) 70%, var(--solus-text-secondary)); }
 .solus-doc-editor .hljs-emphasis { font-style: italic; }
 .solus-doc-editor .hljs-strong { font-weight: bold; }
 
 /* ─── Document editor: compact / mobile ─── */
 @media (max-width: 1100px) {
   .solus-doc-editor .ProseMirror {
-    padding-inline: 1rem;
+    --doc-pad-x: 1rem;
   }
   .solus-doc-raw {
     padding-inline: 1rem;
@@ -1393,7 +1410,8 @@ button.solus-token {
   /* Body stays at the 16px reading size (also the iOS no-zoom floor); headings
      run a compressed scale so h1 doesn't dominate a phone screen. */
   .solus-doc-editor .ProseMirror {
-    padding: 0.5rem 0.75rem 0.75rem;
+    --doc-pad-x: 0.75rem;
+    padding: 0.5rem var(--doc-pad-x) 0.75rem;
     line-height: 1.6;
   }
   .solus-doc-editor .ProseMirror h1 {
@@ -1898,6 +1916,7 @@ button.solus-token {
 .prose-user-bubble h4 {
   color: inherit;
 }
+.prose-user-bubble { font-weight: var(--solus-font-weight-user-content); }
 .prose-user-bubble h1 { font-size: calc(0.8438rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
 .prose-user-bubble h2 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
 .prose-user-bubble h3 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
@@ -2096,6 +2115,12 @@ html.is-mac-editor {
   animation: plan-comment-form-in 140ms var(--ease-premium) both;
 }
 
+/* ─── Pairing motion (consumed via [animation:…] utilities in HostPairingPanel.svelte) ─── */
+@keyframes connect-progress-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(250%); }
+}
+
 /* ─── Reduced motion ─── */
 @media (prefers-reduced-motion: reduce) {
   .doc-shell-root--floating,
@@ -2119,4 +2144,26 @@ html.is-mac-editor {
 @keyframes home-fade-in {
   from { opacity: 0; transform: translateY(0.375rem); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Toast motion (svelte-sonner) ───
+   Sonner's stock 400ms plain-ease slide reads slow and floaty next to the rest
+   of the app. Retime the wrapper to the shared premium curve, and let the card
+   settle in scale so the toast lands instead of merely arriving.
+   The wrapper rule is scoped past [data-swiping="false"] because Sonner drives
+   drag-to-dismiss through the same `transform` and kills its transition while
+   the pointer is down — overriding that unconditionally would make the toast
+   lag the finger. Reduced motion is already handled: Sonner's own
+   `prefers-reduced-motion` block zeroes [data-sonner-toast] and its children
+   with !important, which covers the card animation below. */
+[data-sonner-toaster] [data-sonner-toast][data-swiping="false"] {
+  transition:
+    transform 260ms var(--ease-modal),
+    opacity var(--duration-base) var(--ease-premium),
+    height 260ms var(--ease-modal),
+    box-shadow var(--duration-base) ease;
+}
+@keyframes toast-card-in {
+  from { opacity: 0; transform: scale(0.965); }
+  to   { opacity: 1; transform: scale(1); }
 }

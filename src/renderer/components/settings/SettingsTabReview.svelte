@@ -1,17 +1,13 @@
 <script lang="ts">
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import {
-    CaretDownIcon,
-    RobotIcon,
-    SparkleIcon,
-    GaugeIcon,
-    LightningIcon,
-    PlayCircleIcon,
-  } from "phosphor-svelte";
+  import { CaretDownIcon } from "phosphor-svelte";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from "../../../shared/types";
   import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
+  import { Button } from "../ui/button";
+  import SettingsSection from "./SettingsSection.svelte";
+  import SettingsRow from "./SettingsRow.svelte";
 
   interface Props {
     searchQuery?: string;
@@ -24,10 +20,6 @@
   const session = getWorkspaceContext();
   const projectPath = $derived(session.ctx.session.projectPath || session.ctx.session.workingDirectory);
   const warmingEnabled = $derived(theme.isReviewWarmingEnabled(projectPath));
-
-  let reviewAgentOpen = $state(false);
-  let reviewModelOpen = $state(false);
-  let reviewReasoningOpen = $state(false);
 
   // The review companion's agent/model/reasoning. `reviewAgent`/`reviewModel`/
   // `reviewReasoning` are overrides — null means "follow the active agent / that
@@ -69,7 +61,6 @@
     // list is different), mirroring the old ModelPicker coupling. Reasoning also
     // resets, since the level set is model-specific.
     theme.update({ reviewAgent: id as typeof theme.activeAgent, reviewModel: null, reviewReasoning: null });
-    reviewAgentOpen = false;
     requestInputFocus();
   }
 
@@ -79,13 +70,11 @@
     // changes provider — which is how a Claude model ended up "selected" while
     // codex actually ran. Reasoning levels differ per model, so clear that too.
     theme.update({ reviewAgent: reviewAgentId, reviewModel: id, reviewReasoning: null });
-    reviewModelOpen = false;
     requestInputFocus();
   }
 
   function selectReviewReasoning(id: (typeof reviewReasoningLevels)[number]) {
     theme.update({ reviewReasoning: id });
-    reviewReasoningOpen = false;
     requestInputFocus();
   }
 
@@ -124,62 +113,58 @@
   const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
 </script>
 
-<div class="flex flex-col">
-  {#if isVisible("review-generate-on-open")}
-    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
-      <div class="flex min-w-0 items-center gap-3">
-        <PlayCircleIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Generate PR guides on open</div>
-          <div class="mt-px text-pretty text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary)">Run the review agent when an opened PR has no cached guide</div>
-        </div>
-      </div>
+<SettingsSection
+  label="Automation"
+  visible={["review-generate-on-open", "review-warming"].some(isVisible)}
+>
+  <SettingsRow
+    label="Generate PR guides on open"
+    description="Run the review agent when an opened PR has no cached guide."
+    visible={isVisible("review-generate-on-open")}
+  >
+    {#snippet control()}
       <Switch
         checked={theme.generatePrGuidesOnOpen}
         onCheckedChange={setGenerateOnOpen}
-        class="after:-inset-y-[11px]"
         aria-label="Generate PR review guides when opened"
       />
-    </div>
-  {/if}
+    {/snippet}
+  </SettingsRow>
 
-  {#if isVisible("review-warming")}
-    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
-      <div class="flex items-center gap-3 min-w-0">
-        <LightningIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Warm review guides</div>
-          <div class="text-pretty text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Generate guides and prefetch top PR worktrees for this project</div>
-        </div>
-      </div>
+  <SettingsRow
+    label="Warm review guides"
+    description="Generate guides and prefetch top PR worktrees for this project."
+    visible={isVisible("review-warming")}
+  >
+    {#snippet control()}
       <Switch
         checked={warmingEnabled}
         onCheckedChange={setWarmingEnabled}
-        class="after:-inset-y-[11px]"
         aria-label="Warm review guides for this project"
       />
-    </div>
-  {/if}
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
 
-  {#if isVisible("review-agent")}
-    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
-      <div class="flex items-center gap-3 min-w-0">
-        <RobotIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Review companion agent</div>
-          <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Which agent reviews the diff for the code-review companion</div>
-        </div>
-      </div>
-      <DropdownMenu.Root bind:open={reviewAgentOpen} onOpenChange={(next) => { if (!next) requestInputFocus() }}>
-        <DropdownMenu.Trigger>{#snippet child({ props })}<button
-          {...props}
-          type="button"
-          aria-label="Review companion agent"
-          class="flex items-center justify-between gap-1.5 min-h-8 min-w-24 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-secondary) px-2.5 text-[0.8125rem] outline-none [transition:border-color_var(--duration-base)_var(--ease-premium),box-shadow_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:text-(--solus-text-primary) hover:border-(--solus-input-focus-border) focus-visible:text-(--solus-text-primary) focus-visible:border-(--solus-input-focus-border) focus-visible:shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)]"
-        >
-          <span class="truncate">{reviewAgentLabel}</span>
-          <CaretDownIcon size={11} style="opacity:0.6" />
-        </button>{/snippet}</DropdownMenu.Trigger>
+<SettingsSection
+  label="Model"
+  visible={["review-agent", "review-model", "review-reasoning"].some(isVisible)}
+>
+  <SettingsRow
+    label="Review companion agent"
+    description="Which agent reviews the diff for the code-review companion."
+    visible={isVisible("review-agent")}
+  >
+    {#snippet control()}
+      <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} variant="outline" size="sm" aria-label="Review companion agent" class="min-w-24 justify-between text-[0.75rem] shadow-xs">
+              <span class="truncate">{reviewAgentLabel}</span>
+              <CaretDownIcon size={11} style="opacity:0.6" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[176px]">
           <DropdownMenu.RadioGroup value={reviewAgentId}>
             {#each reviewAgentRows as agent (agent.id)}
@@ -188,28 +173,24 @@
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
-    </div>
-  {/if}
+    {/snippet}
+  </SettingsRow>
 
-  {#if isVisible("review-model")}
-    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
-      <div class="flex items-center gap-3 min-w-0">
-        <SparkleIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Review companion model</div>
-          <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Model the review agent uses</div>
-        </div>
-      </div>
-      <DropdownMenu.Root bind:open={reviewModelOpen} onOpenChange={(next) => { if (!next) requestInputFocus() }}>
-        <DropdownMenu.Trigger disabled={reviewModels.length === 0}>{#snippet child({ props })}<button
-          {...props}
-          type="button"
-          aria-label="Review companion model"
-          class="flex items-center justify-between gap-1.5 min-h-8 min-w-24 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-secondary) px-2.5 text-[0.8125rem] outline-none [transition:border-color_var(--duration-base)_var(--ease-premium),box-shadow_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:text-(--solus-text-primary) hover:border-(--solus-input-focus-border) focus-visible:text-(--solus-text-primary) focus-visible:border-(--solus-input-focus-border) focus-visible:shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)] disabled:opacity-50"
-        >
-          <span class="truncate">{reviewModelLabel || "Default"}</span>
-          <CaretDownIcon size={11} style="opacity:0.6" />
-        </button>{/snippet}</DropdownMenu.Trigger>
+  <SettingsRow
+    label="Review companion model"
+    description="Model the review agent uses."
+    visible={isVisible("review-model")}
+  >
+    {#snippet control()}
+      <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger disabled={reviewModels.length === 0}>
+          {#snippet child({ props })}
+            <Button {...props} variant="outline" size="sm" aria-label="Review companion model" class="min-w-24 justify-between text-[0.75rem] shadow-xs">
+              <span class="truncate">{reviewModelLabel || "Default"}</span>
+              <CaretDownIcon size={11} style="opacity:0.6" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[200px]">
           <DropdownMenu.RadioGroup value={reviewModelId}>
             {#each reviewModels as model (model.id)}
@@ -218,28 +199,24 @@
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
-    </div>
-  {/if}
+    {/snippet}
+  </SettingsRow>
 
-  {#if isVisible("review-reasoning")}
-    <div class="flex items-center justify-between gap-4 py-3.5 border-b border-b-(--solus-container-border)/50 last:border-b-0">
-      <div class="flex items-center gap-3 min-w-0">
-        <GaugeIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-        <div>
-          <div class="text-[0.8125rem] font-medium text-(--solus-text-primary)">Review companion reasoning</div>
-          <div class="text-[clamp(0.6875rem,0.64rem+0.2vw,0.8125rem)] text-(--solus-text-tertiary) mt-px">Reasoning effort the review agent uses</div>
-        </div>
-      </div>
-      <DropdownMenu.Root bind:open={reviewReasoningOpen} onOpenChange={(next) => { if (!next) requestInputFocus() }}>
-        <DropdownMenu.Trigger disabled={reviewReasoningLevels.length === 0}>{#snippet child({ props })}<button
-          {...props}
-          type="button"
-          aria-label="Review companion reasoning"
-          class="flex items-center justify-between gap-1.5 min-h-8 min-w-24 border border-(--solus-container-border) rounded-lg bg-(--solus-input-bg-soft) text-(--solus-text-secondary) px-2.5 text-[0.8125rem] outline-none [transition:border-color_var(--duration-base)_var(--ease-premium),box-shadow_var(--duration-base)_var(--ease-premium),color_var(--duration-base)_var(--ease-premium)] hover:text-(--solus-text-primary) hover:border-(--solus-input-focus-border) focus-visible:text-(--solus-text-primary) focus-visible:border-(--solus-input-focus-border) focus-visible:shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)] disabled:opacity-50"
-        >
-          <span class="truncate">{reviewReasoningLabel || "Default"}</span>
-          <CaretDownIcon size={11} style="opacity:0.6" />
-        </button>{/snippet}</DropdownMenu.Trigger>
+  <SettingsRow
+    label="Review companion reasoning"
+    description="Reasoning effort the review agent uses."
+    visible={isVisible("review-reasoning")}
+  >
+    {#snippet control()}
+      <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger disabled={reviewReasoningLevels.length === 0}>
+          {#snippet child({ props })}
+            <Button {...props} variant="outline" size="sm" aria-label="Review companion reasoning" class="min-w-24 justify-between text-[0.75rem] shadow-xs">
+              <span class="truncate">{reviewReasoningLabel || "Default"}</span>
+              <CaretDownIcon size={11} style="opacity:0.6" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[176px]">
           <DropdownMenu.RadioGroup value={reviewReasoningId}>
             {#each reviewReasoningLevels as level (level)}
@@ -248,12 +225,12 @@
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
-    </div>
-  {/if}
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
 
-  {#if !anyVisible}
-    <div class="py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
-      No settings match your search
-    </div>
-  {/if}
-</div>
+{#if !anyVisible}
+  <div class="py-8 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+    No settings match your search
+  </div>
+{/if}

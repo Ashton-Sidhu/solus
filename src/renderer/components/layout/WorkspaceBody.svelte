@@ -6,6 +6,7 @@
     getRunStore,
     getRunDockStore,
     getSettingsContext,
+    getSessionEnvironmentStore,
     environmentBranchKey,
   } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
@@ -79,6 +80,7 @@
   const settings = getSettingsContext();
   const runStore = getRunStore();
   const runDock = getRunDockStore();
+  const environmentStore = getSessionEnvironmentStore();
   const panes = session.panes;
   let outerScrollTargets = $state<HTMLElement[]>([]);
   let outerScrollTarget = $state<HTMLElement | null>(null);
@@ -110,8 +112,10 @@
   const focusedChatTabId = $derived(
     session.focusedChatTabId ?? session.activeTabId,
   );
-  const focusedSess = $derived(session.sessionFor(focusedChatTabId));
-  const canShowFocusedDiffPanel = $derived(!!focusedSess?.workingDirectory);
+  const focusedEnvironment = $derived(
+    environmentStore.environmentFor(focusedChatTabId),
+  );
+  const canShowFocusedDiffPanel = $derived(!!focusedEnvironment.cwd);
   const secondaryVisible = $derived.by(() =>
     isSecondaryContentVisible(panes.secondaryVisible, session),
   );
@@ -295,7 +299,13 @@
     "global.toggle-files",
     () => {
       if (panes.secondaryOverlay?.kind === "files") panes.closeOverlay();
-      else panes.openFiles(focusedChatTabId);
+      else {
+        panes.openFiles(
+          focusedChatTabId,
+          focusedEnvironment.cwd,
+          focusedEnvironment.checkout,
+        );
+      }
       requestInputFocus();
     },
     { enabled: () => active && canShowFocusedDiffPanel },
@@ -608,6 +618,7 @@
   class:is-resizing={isResizingSecondary}
   class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
+  class:page-flush={panes.primaryContent.kind === "settings"}
   class:project-panel-open={enableProjectPanel && settings.projectPanelOpen}
   class:project-panel-collapsed={enableProjectPanel && !settings.projectPanelOpen}
   bind:clientWidth={workspaceBodyWidth}
@@ -646,8 +657,11 @@
     <Resizable.Pane order={2} class="min-w-0">
       <div class="content-column flex h-full flex-col min-h-0 min-w-0 relative">
     <div class="conversation-card flex-1 flex flex-col min-h-0">
+      <!-- Tagged so modals portaled into the global overlay layer (the directory
+           picker) can centre on the conversation instead of the window. -->
       <div
         class="conversation-area flex-1 flex min-h-0 relative"
+        data-conversation-space
         bind:this={conversationAreaEl}
         bind:clientWidth={conversationAreaWidth}
       >
@@ -918,6 +932,14 @@
   }
   .workspace-body.project-panel-open .content-column {
     padding-right: 0;
+  }
+  /* Settings is the only full-page view with a tinted nav column, so the card
+     gutter reads as its sidebar failing to reach the window edge. Drop the
+     padding entirely while settings owns the primary slot. Declared last so it
+     beats the sidebar-collapsed and project-panel rules above (equal
+     specificity). */
+  .workspace-body.page-flush .content-column {
+    padding: 0;
   }
   .conversation-card {
     background: var(--solus-container-bg);

@@ -88,6 +88,7 @@
   // editor's own block-command menu owns `/`. Only @ # % ! insert references here.
   const ac = new AutocompleteController({
     readOnly: () => readOnly,
+    tabId: () => session.activeTabId,
     workingDirectory: () => workingDirectory,
     useRelativeFilePaths: () => useRelativeFilePaths,
     provider: () => provider,

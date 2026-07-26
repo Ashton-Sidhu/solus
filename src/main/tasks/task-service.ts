@@ -432,7 +432,7 @@ export function formatTaskForAgent(task: Task, opts: TaskAgentTextOptions): stri
   if (opts.includeRefreshHint) {
     lines.push(
       '',
-      `To re-fetch this task call get_task (task_id: "${task.id}"); to move it call update_task_status.`,
+      `To re-fetch this task call read_task (task_id: "${task.id}"); to move it call update_task_status.`,
     )
   }
   return lines.join('\n')

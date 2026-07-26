@@ -70,8 +70,6 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
     }
 
     case 'item/agentMessage/delta':
-      if (opts?.assembledAgentMessages) return []
-      // Sub-agent text no longer streams — it arrives whole on item/completed.
       return typeof params?.delta === 'string' && params.delta && !codexParentToolUseId(params)
         ? [{ type: 'text_chunk', text: params.delta }]
         : []
@@ -475,9 +473,10 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     toolName?.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
 
   if (item.type === 'agentMessage') {
-    // Not parented: main-thread paragraph separator between streamed messages.
-    // Parented: sub-agent prose no longer streams, so deliver the full text here
-    // as the assembled assistant message the reducer lands in the sub-agent card.
+    // Not parented: headless transcript mode emits the assembled message so the
+    // renderer can reconcile it with streamed chunks; regular mode adds a
+    // paragraph separator. Parented Codex collaboration messages still arrive
+    // assembled here because their deltas are filtered above.
     if (!parentToolUseId) {
       if (opts?.assembledAgentMessages) {
         return typeof item.text === 'string' && item.text

@@ -332,7 +332,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
           const divider = buildHandoffDividerMessage({
             fromProvider: handoffFrom.provider,
             toProvider: provider,
-            truncated: predecessorTranscript?.truncated ?? false,
           })
           const stitchedMessages = [...predecessorMessages, divider, ...currentMessages]
           s.messages.splice(0, s.messages.length, ...stitchedMessages)

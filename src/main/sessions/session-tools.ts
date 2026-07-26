@@ -117,7 +117,7 @@ const createSessionShape = {
   model_id: z
     .string()
     .min(1)
-    .describe("Required model id to run with (e.g. 'claude-opus-4-8', 'gpt-5.5'). Must be valid for the chosen provider."),
+    .describe("Required model id to run with (e.g. 'claude-opus-5', 'gpt-5.5'). Must be valid for the chosen provider."),
   reasoning_effort: z
     .enum(REASONING_VALUES)
     .optional()
@@ -179,11 +179,11 @@ const stopSessionShape = {
 export const CREATE_SESSION_DESC =
   'Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. model_id is required and must be a valid model id for the chosen provider. A card appears in the conversation; clicking it opens the new session in a tab. Use this to spin off a parallel task into its own thread. Call it once per session you want to start. Returns the new session id.'
 const LIST_SESSIONS_DESC =
-  'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions. Session references are clickable links that open in any project. When citing a session in a reply, copy its link exactly as given in the tool output: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>).'
+  'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
 const SEARCH_SESSIONS_DESC =
-  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for this WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query`; leave `project` unset (topic and working directory routinely differ — see that param). Each result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer. When citing a session in a reply, use exactly [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>)."
+  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for this WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query`; leave `project` unset (topic and working directory routinely differ — see that param). Each result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status plus message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. Session references are clickable links that open in any project. When citing a session in a reply, copy its link exactly as given: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>).'
+  'Load a Solus session by id: its status plus message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead.'
 const PROMPT_SESSION_DESC =
   "Send a prompt into another Solus session by session id. If the target is busy, the prompt is queued. By default, its reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
 const WAIT_FOR_SESSION_DESC =

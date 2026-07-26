@@ -118,11 +118,14 @@ export const APP_FONT_FAMILIES: { id: AppFontFamily; label: string; stack: strin
 
 function applyFontFamily(fontFamily: AppFontFamily): void {
   const family = APP_FONT_FAMILIES.find((option) => option.id === fontFamily) ?? APP_FONT_FAMILIES[0]
+  const userContentWeight = family.id === 'sf-pro-text' ? 400 : family.weight
   document.documentElement.style.setProperty('--solus-font-family', family.stack)
   // Each typeface has its own crisp body weight — drive both the body and the
-  // (currently matched) secondary-label weight from it.
+  // (currently matched) secondary-label weight from it. SF Pro's authored text
+  // stays at Regular so the composer and user messages retain enough presence.
   document.documentElement.style.setProperty('--solus-font-weight-body', String(family.weight))
   document.documentElement.style.setProperty('--solus-font-weight-secondary', String(family.weight))
+  document.documentElement.style.setProperty('--solus-font-weight-user-content', String(userContentWeight))
 }
 
 export const APP_CODE_FONT_FAMILIES: { id: AppCodeFontFamily; label: string; stack: string }[] = [
@@ -226,7 +229,7 @@ function loadSettings(): SettingsFields {
     if (raw) {
       const parsed = JSON.parse(raw)
       return {
-        themeMode: (['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
+        themeMode: (['light', 'dark', 'system'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         voiceModeEnabled: typeof parsed.voiceModeEnabled === 'boolean' ? parsed.voiceModeEnabled : false,
         autoSendVoiceTranscripts: typeof parsed.autoSendVoiceTranscripts === 'boolean' ? parsed.autoSendVoiceTranscripts : false,
@@ -321,7 +324,9 @@ export class SettingsContext {
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
   splitLayout = $state<SplitLayoutSettings | null>(null)
-  private _systemIsDark = $state(true)
+  // Seeded from the media query so 'system' paints correctly before the main
+  // process answers; `setSystemTheme` takes over from there.
+  private _systemIsDark = $state(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
 
   constructor() {
     const saved = loadSettings()
@@ -356,7 +361,7 @@ export class SettingsContext {
     this.splitLayout = saved.splitLayout
 
     // Must run before first paint so CSS variables resolve to the saved palette.
-    applyTheme(saved.themeMode !== 'light')
+    applyTheme(this.isDark)
     applyFontFamily(saved.fontFamily)
     applyFontSize(saved.fontSize)
     applyCodeFontFamily(saved.codeFontFamily)

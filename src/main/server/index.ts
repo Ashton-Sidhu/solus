@@ -13,6 +13,7 @@ import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
+import { registerFilesystemHandlers } from './handlers/filesystem-handlers'
 import { registerHistoryHandlers } from './handlers/history-handlers'
 import type { FileDeps } from './handlers/file-handlers'
 import { registerFolioHandlers } from './handlers/folio-handlers'
@@ -23,6 +24,7 @@ import { setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatche
 import { setAutomationsChangedListener } from '../automations/automations-store'
 import { setSessionController, setSessionCreator } from '../sessions/session-tools'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
+import { startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
 import { setPrsChangedNotifier } from '../providers/pr-tools'
@@ -37,7 +39,7 @@ import { setVoiceModelStatusListener } from '../model-downloader'
 import { createLogger } from '../logger'
 import type { RunManager } from '../run/run-manager'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
-import { ensureClaimWindow } from './auth'
+import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../package.json'
 
@@ -154,6 +156,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSessionHandlers(server, sessionDeps)
 
   registerWorktreeHandlers(server, { controlPlane: opts.controlPlane })
+  // Browsing a host's filesystem must work headless — that is the whole point
+  // of pairing a server that has no window.
+  registerFilesystemHandlers(server)
   registerHistoryHandlers(server, {
     controlPlane: opts.controlPlane,
     agentIdFromContext: opts.agentIdFromContext,
@@ -258,7 +263,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   ensureClaimWindow()
 
-  const { server: http } = buildHttpServer({ host, port, staticDir: opts.staticDir, getHost: () => host, getPort: () => actualPort })
+  const { server: http } = buildHttpServer({
+    host,
+    port,
+    staticDir: opts.staticDir,
+    getHost: () => host,
+    getPort: () => actualPort,
+  })
   let ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
@@ -355,6 +366,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     log.warn('lock acquisition failed; proceeding without single-instance enforcement')
   }
 
+  let lanDiscovery: LanDiscoveryService
+  try {
+    lanDiscovery = await startLanDiscoveryService(() => ({
+      port: actualPort,
+      installationId: getInstallationId(),
+      claimable: isClaimable(),
+      isReachable: !isLoopbackHost(host),
+    }))
+  } catch (err) {
+    log.warn(`LAN discovery unavailable: ${err}`)
+    lanDiscovery = {
+      discoverServers: async () => [],
+      close: async () => {},
+    }
+  }
+
   async function rebind(remoteAccess: boolean): Promise<void> {
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess })
     if (next.host === host && next.requireAuth === requireAuth) return
@@ -381,6 +408,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       deviceId: s.deviceId,
       connectedAt: s.connectedAt,
     })),
+    discoverLanServers: () => lanDiscovery.discoverServers(),
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
       await rebind(next.remoteAccess)
@@ -404,6 +432,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopAutomationScheduler()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
+        await lanDiscovery.close()
         try { ws.close() } catch (err) { log.warn(`ws.close failed: ${err}`) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()

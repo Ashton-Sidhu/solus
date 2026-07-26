@@ -712,6 +712,23 @@ export class SessionEventReducer {
     const subs = parent.subMessages
 
     switch (event.type) {
+      case 'text_chunk': {
+        if (!event.text) break
+        const lastSub = subs[subs.length - 1]
+        if (lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.isStreaming) {
+          lastSub.content += event.text
+        } else {
+          subs.push({
+            id: nextMsgId(),
+            role: 'assistant',
+            content: event.text,
+            isStreaming: true,
+            timestamp: Date.now(),
+          })
+        }
+        break
+      }
+
       case 'tool_call':
         // Sub-agent tool calls are synthesized from assembled assistant messages,
         // which can be re-delivered (resume/replay); skip if we already have it.
@@ -762,12 +779,17 @@ export class SessionEventReducer {
         break
 
       case 'assistant_message': {
-        // Sub-agent text no longer streams; the assembled assistant_message is the
-        // sole path. Dedup exact re-deliveries (resume/replay), but let consecutive
-        // distinct texts land as separate blocks.
+        // Live sub-agent text streams first, then the assembled assistant_message
+        // replaces that block authoritatively. Replay only delivers assembled
+        // messages, so dedupe exact re-deliveries while preserving distinct blocks.
         if (!event.text) break
         const text = event.text
         const lastSub = subs[subs.length - 1]
+        if (lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.isStreaming) {
+          lastSub.content = text
+          delete lastSub.isStreaming
+          break
+        }
         if (lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.content === text) break
         subs.push({ id: nextMsgId(), role: 'assistant', content: text, timestamp: Date.now() })
         break
@@ -789,7 +811,14 @@ export class SessionEventReducer {
     if (!pendingText) return
     if (!session) return
     const lastMsg = session.messages[session.messages.length - 1]
-    if (lastMsg?.role === 'assistant' && !lastMsg.toolName && !lastMsg.artifact && !lastMsg.workRef && !lastMsg.automationRef) {
+    if (
+      lastMsg?.role === 'assistant' &&
+      !lastMsg.toolName &&
+      !lastMsg.artifact &&
+      !lastMsg.workRef &&
+      !lastMsg.automationRef &&
+      !lastMsg.sessionRef
+    ) {
       lastMsg.content += pendingText
     } else {
       session.messages.push({

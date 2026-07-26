@@ -14,10 +14,18 @@
     inlineCommentCount?: number
     compact?: boolean
     forceShowWorktreeToggle?: boolean
+    collapsed?: boolean
     onDone?: () => void
   }
 
-  let { planId, inlineCommentCount = 0, compact = false, forceShowWorktreeToggle = false, onDone }: Props = $props()
+  let {
+    planId,
+    inlineCommentCount = 0,
+    compact = false,
+    forceShowWorktreeToggle = false,
+    collapsed = $bindable(false),
+    onDone,
+  }: Props = $props()
 
   const session = getWorkspaceContext()
   const statusBar = getStatusBarContext()
@@ -26,10 +34,6 @@
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null)
   let menuOpen = $state(false)
   let triggerEl: HTMLButtonElement | null = $state(null)
-  // Owned here so ⌥D can drive the composer's collapse and the worktree binding
-  // can stand down while its switch is off screen.
-  let collapsed = $state(false)
-
   const sess = $derived(session.sessionFor(session.activeTabId))
   const hasGit = $derived(!!sess?.gitContext)
   const alreadyInWorktree = $derived(!!sess?.gitContext?.worktreePath)
@@ -94,7 +98,7 @@
 </script>
 
 
-<div class="plan-action-bar">
+<div class="plan-action-bar" class:pointer-events-none={collapsed}>
   <PromptComposer
     bind:this={composerRef}
     bind:value={actionComment}

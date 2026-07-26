@@ -1,12 +1,15 @@
 <script lang="ts">
   import { MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
   import { Input } from "../input";
+  import { cn } from "@renderer/lib/utils.js";
 
   interface Props {
     value?: string;
     ref?: HTMLInputElement | null;
     placeholder?: string;
     onkeydown?: (event: KeyboardEvent) => void;
+    /** Overrides on the field shell — e.g. a denser variant in a settings rail. */
+    class?: string;
   }
 
   let {
@@ -14,11 +17,15 @@
     ref = $bindable(null),
     placeholder = "Search…",
     onkeydown,
+    class: className,
   }: Props = $props();
 </script>
 
 <div
-  class="flex min-w-0 flex-1 basis-56 items-center gap-2 rounded-[0.625rem] border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5 py-[0.375rem] transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)] @max-[44rem]:basis-full"
+  class={cn(
+    "flex min-w-0 flex-1 basis-56 items-center gap-2 rounded-[0.625rem] border border-[color-mix(in_srgb,var(--solus-container-border)_60%,transparent)] bg-transparent px-2.5 py-[0.375rem] transition-[border-color] duration-100 ease-in-out focus-within:border-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)] @max-[44rem]:basis-full",
+    className,
+  )}
 >
   <MagnifyingGlassIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
   <Input

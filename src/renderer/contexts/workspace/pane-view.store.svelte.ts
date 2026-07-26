@@ -32,7 +32,7 @@ export type BaseContent =
  *  content. `sourceTabId` identifies the chat session that opened the viewer. */
 export type OverlayContent =
   | { kind: 'diff'; scope?: DiffScope; sourceTabId: string; cwd?: string; checkout?: GitCheckout | null; filePath?: string; navigationRequestId?: number }
-  | { kind: 'files'; sourceTabId: string; cwd?: string; checkout?: GitCheckout | null }
+  | { kind: 'files'; sourceTabId: string; cwd: string; checkout: GitCheckout | null }
   | { kind: 'file-editor'; file: FilePreviewRequest; sourceTabId: string }
   // A sub-agent's nested transcript, popped out of its conversation card. Not a
   // session/tab — `messageId` locates the parent tool message within `tabId`'s
@@ -238,7 +238,7 @@ export class PaneViewStore {
     this.setArtifact({ kind: 'automation', automationId })
   }
 
-  openFiles(sourceTabId: string, cwd?: string, checkout?: GitCheckout | null): void {
+  openFiles(sourceTabId: string, cwd: string, checkout: GitCheckout | null): void {
     this.showOverlay({ kind: 'files', sourceTabId, cwd, checkout })
   }
 

@@ -6,6 +6,7 @@ import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from '../app/toast.store.svelte'
+import { isDispatchedSession } from '../../components/servers/run-on'
 import { buildHandoffDividerMessage } from './session-transcript'
 
 export interface SessionConfigControllerDeps {
@@ -167,6 +168,8 @@ export class SessionConfigController {
       const session = this.deps.registry.sessionFor(tabId)
       if (!session || session.agentSessionId || session.gitContext?.worktreePath) continue
       if (session.status === 'connecting' || session.status === 'running') continue
+      // A dispatched session's worktree is not the global default's to revoke.
+      if (isDispatchedSession(session)) continue
       session.worktreeBaseBranch = enabled ? (session.gitContext?.targetBranch ?? null) : null
     }
   }
@@ -185,6 +188,10 @@ export class SessionConfigController {
       return
     }
     if (session.gitContext?.worktreePath) return
+    // A dispatched session always gets its own worktree: its base checkout sits
+    // on a host nobody is watching, so a collision there has no one to untangle
+    // it. The surface shows the toggle disabled rather than accepting the click.
+    if (isDispatchedSession(session)) return
     if (session.worktreeBaseBranch) {
       session.worktreeBaseBranch = null
     } else {

@@ -19,11 +19,18 @@ const codexSubagentShape = {
     .string()
     .optional()
     .describe('Short (3-8 word) summary of the task, shown on the subagent card.'),
-  model: z.string().optional().describe("Codex model id (e.g. 'gpt-5.5'). Omit for the default."),
+  model: z
+    .string()
+    .optional()
+    .describe(
+      "Codex model id. Defaults to 'gpt-5.6-terra' — right for most delegated tasks; pick 'gpt-5.6-sol' for genuinely hard debugging or design work.",
+    ),
   reasoning_effort: z
     .enum(['none', 'low', 'medium', 'high', 'xhigh'])
     .optional()
-    .describe("Codex reasoning effort. Defaults to 'high'."),
+    .describe(
+      "Match to task difficulty: 'low' for mechanical edits and lookups, 'medium' for typical coding tasks, 'high'+ only for hard debugging or design. Omit to use the model's default.",
+    ),
   read_only: z
     .boolean()
     .optional()
@@ -62,7 +69,7 @@ export function codexSubagentSdkTool(deps: CodexSubagentDeps) {
       const { text, sessionId, toolCallCount } = await runCodexOneShot({
         prompt: args.prompt,
         cwd: deps.cwd,
-        model: args.model ?? null, // unknown ids fall back to the default inside runCodexOneShot
+        model: args.model ?? 'gpt-5.6-terra', // unknown ids fall back to the default inside runCodexOneShot
         reasoningEffort: args.reasoning_effort,
         abortSignal: deps.abortSignal,
         readOnly: args.read_only === true,
