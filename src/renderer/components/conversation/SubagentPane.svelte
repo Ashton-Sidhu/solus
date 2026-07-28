@@ -6,7 +6,7 @@
     XIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { parseSubagentInput } from "./lib/subagent";
   import SubagentTranscript from "./SubagentTranscript.svelte";
 
@@ -73,12 +73,14 @@
       {/if}
     </div>
     {#if onToggleMaximize}
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         type="button"
         class={headerButton}
         aria-label={panes.maximized ? "Restore panel" : "Maximize panel"}
         onclick={onToggleMaximize}
-        use:tooltip={panes.maximized ? "Restore" : "Maximize"}
       >
         {#if panes.maximized}
           <ArrowsInSimpleIcon size={13} weight="bold" />
@@ -86,16 +88,26 @@
           <ArrowsOutSimpleIcon size={13} weight="bold" />
         {/if}
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={panes.maximized ? "Restore" : "Maximize"} />
+      </TooltipUI.Root>
     {/if}
-    <button
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       type="button"
       class={headerButton}
       aria-label="Close sub-agent panel"
       onclick={onClose}
-      use:tooltip={"Close"}
     >
       <XIcon size={13} weight="bold" />
     </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Close"} />
+    </TooltipUI.Root>
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto">

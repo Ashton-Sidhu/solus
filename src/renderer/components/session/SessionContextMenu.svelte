@@ -50,13 +50,15 @@
   );
 
   async function fork() {
+    const targetTabId = tabId;
     onClose();
-    if (tabId) await session.forkTab(tabId);
+    if (targetTabId) await session.forkTab(targetTabId);
   }
 
   async function continueWorktree() {
+    const targetTabId = tabId;
     onClose();
-    if (tabId) await session.continueInWorktree(tabId);
+    if (targetTabId) await session.continueInWorktree(targetTabId);
   }
 
   async function copySessionId() {
@@ -88,9 +90,11 @@
   }
 
   function openInSplit() {
+    const targetTabId = tabId;
+    const openTargetInSplit = onOpenInSplit;
     onClose();
-    if (onOpenInSplit) onOpenInSplit();
-    else if (tabId) session.openTabInSplit(tabId);
+    if (openTargetInSplit) openTargetInSplit();
+    else if (targetTabId) session.openTabInSplit(targetTabId);
   }
 
   function closeSplit() {
@@ -100,8 +104,9 @@
   }
 
   function closeTab() {
+    const targetTabId = tabId;
     onClose();
-    if (tabId) session.closeTab(tabId);
+    if (targetTabId) session.closeTab(targetTabId);
   }
 </script>
 

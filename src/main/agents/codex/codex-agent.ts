@@ -23,6 +23,17 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
+export class CodexRpcError extends Error {
+  constructor(
+    message: string,
+    readonly code: number,
+    readonly data?: unknown,
+  ) {
+    super(message)
+    this.name = 'CodexRpcError'
+  }
+}
+
 export class CodexAppServerClient extends EventEmitter {
   private proc: ChildProcessWithoutNullStreams | null = null
   private buffer = ''
@@ -183,7 +194,11 @@ export class CodexAppServerClient extends EventEmitter {
     this.pending.delete(response.id)
     clearTimeout(pending.timer)
     if (response.error) {
-      pending.reject(new Error(response.error.message))
+      pending.reject(new CodexRpcError(
+        response.error.message,
+        response.error.code,
+        response.error.data,
+      ))
     } else {
       pending.resolve(response.result)
     }

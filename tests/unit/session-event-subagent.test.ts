@@ -103,4 +103,23 @@ describe('SessionEventReducer sub-agent transcript events', () => {
       ['assistant', 'After tool final'],
     ])
   })
+
+  test('settles the card only when the child delivers its final answer', async () => {
+    const { parent, reducer } = await createReducer()
+
+    reducer.apply('tab-1', {
+      type: 'assistant_message',
+      text: 'Still investigating.',
+      parentToolUseId: 'parent-tool',
+    })
+    expect(parent.toolStatus).toBe('running')
+
+    reducer.apply('tab-1', {
+      type: 'assistant_message',
+      text: 'Investigation complete.',
+      parentToolUseId: 'parent-tool',
+      isFinal: true,
+    })
+    expect(parent.toolStatus).toBe('completed')
+  })
 })

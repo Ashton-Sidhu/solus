@@ -10,7 +10,7 @@
   import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import PendingReviewTray from "../pr-review/PendingReviewTray.svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import GuideSurface from "./GuideSurface.svelte";
@@ -113,10 +113,12 @@
     >
     <div class="inline-flex gap-1">
       {#if onOpenInSplit}
-        <button
-          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
           onclick={onOpenInSplit}
-          use:tooltip={slot === "secondary" ? "Move to main pane" : "Open in split"}
           aria-label={slot === "secondary" ? "Move review guide to main pane" : "Open review guide in split"}
         >
           {#if slot === "secondary"}
@@ -125,25 +127,41 @@
             <ArrowSquareOutIcon size={15} weight="bold" />
           {/if}
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={slot === "secondary" ? "Move to main pane" : "Open in split"} />
+        </TooltipUI.Root>
       {/if}
       {#if !isDemo}
-        <button
-          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
           onclick={() => loader.refresh()}
-          use:tooltip={"Regenerate review"}
           aria-label="Regenerate review guide"
         >
           <ArrowsClockwiseIcon size={15} weight="bold" />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Regenerate review"} />
+        </TooltipUI.Root>
       {/if}
-      <button
-        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
+        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
         onclick={onClose}
-        use:tooltip={"Close"}
         aria-label="Close review guide"
       >
         <XIcon size={15} weight="bold" />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Close"} />
+      </TooltipUI.Root>
     </div>
   </header>
 

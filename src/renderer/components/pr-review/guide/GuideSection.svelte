@@ -169,7 +169,7 @@
             >
               {@render typeBadge(file.path)}
               <span
-                class="min-w-0 flex-1 truncate font-mono text-[0.75rem] text-(--solus-text-secondary)"
+                class="min-w-0 flex-1 truncate font-mono text-[0.75rem] font-secondary text-(--solus-text-secondary)"
               >
                 <span class="text-(--solus-text-primary)"
                   >{fileName(file.path)}</span

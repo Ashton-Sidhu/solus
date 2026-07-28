@@ -40,7 +40,7 @@
   // Comment bodies are GitHub markdown — same pipeline + prose scale as the
   // activity timeline's conversation rows.
   const bodyProseClass =
-    "github-markdown prose-cloud text-[0.8125rem] leading-relaxed text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+    "github-markdown prose-cloud text-[0.8125rem] leading-relaxed font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
 
   let replying = $state(false);
   let replyText = $state("");
@@ -135,7 +135,7 @@
     <Button
       type="button"
       variant="ghost"
-      class="min-h-10 min-w-0 flex-1 justify-start cursor-pointer truncate rounded-md text-left font-mono text-[0.75rem] text-(--solus-text-secondary) transition-[color,scale] duration-150 ease-out hover:text-(--solus-accent) active:scale-[0.96]"
+      class="min-h-10 min-w-0 flex-1 justify-start cursor-pointer truncate rounded-md text-left font-mono text-[0.75rem] font-secondary text-(--solus-text-secondary) transition-[color,scale] duration-150 ease-out hover:text-(--solus-accent) active:scale-[0.96]"
       onclick={() => onJump?.(thread.filePath, thread.line)}
     >
       <span class="text-(--solus-text-tertiary)">{dirName(thread.filePath)}</span>{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}

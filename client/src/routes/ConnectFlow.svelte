@@ -187,7 +187,14 @@
   <div class="cf-container">
     <!-- Header -->
     <header class="cf-header">
-      <div class="cf-logo">S</div>
+      <svg class="cf-logo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="6.6" fill="#B45A3C" />
+        <g stroke="#D97757" stroke-width="2.2" stroke-linecap="round">
+          <path d="M16,5 A11,11 0 0 1 27,16" />
+          <path d="M25.24,23.48 A11,11 0 0 1 12.48,26.56" />
+          <path d="M6.76,23.48 A11,11 0 0 1 5,12.48" />
+        </g>
+      </svg>
       <h1 class="cf-title">Solus</h1>
       <p class="cf-subtitle">
         {#if view === 'servers'}
@@ -413,15 +420,6 @@
     width: 2.75rem;
     height: 2.75rem;
     margin: 0 auto 0.875rem;
-    border-radius: 0.75rem;
-    background: var(--solus-accent);
-    color: var(--solus-text-on-accent);
-    font-size: 1.25rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    letter-spacing: -0.02em;
   }
 
   .cf-title {

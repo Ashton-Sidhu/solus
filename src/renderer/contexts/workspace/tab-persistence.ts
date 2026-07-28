@@ -75,9 +75,13 @@ export interface PersistedTab {
   provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
   workingDirectory: string
+  /** Stable sidebar grouping path for a checkout dispatched to another host. */
+  projectGroupPath?: string | null
   additionalDirs: string[]
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /** Missing in legacy snapshots and false for projects merely opened remotely. */
+  worktreeRequired?: boolean
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean

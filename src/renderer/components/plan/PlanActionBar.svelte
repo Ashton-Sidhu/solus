@@ -38,6 +38,7 @@
   const hasGit = $derived(!!sess?.gitContext)
   const alreadyInWorktree = $derived(!!sess?.gitContext?.worktreePath)
   let useWorktree = $state(false)
+  let startNewSession = $state(true)
   const showWorktreeToggle = $derived((hasGit || forceShowWorktreeToggle) && !alreadyInWorktree)
 
   const hasRevise = $derived(actionComment.trim().length > 0 || inlineCommentCount > 0)
@@ -74,6 +75,7 @@
       reasoningEffort: picked?.reasoningEffort,
       generalComment: actionComment.trim() || undefined,
       useWorktree: useWorktree || undefined,
+      startNewSession,
       planRefs: picked?.planRefs,
       workRefs: picked?.workRefs,
     })
@@ -105,7 +107,6 @@
     bind:collapsed
     tabId={session.activeTabId}
     workingDirectory={sess?.workingDirectory}
-    allowAgentSwitch
     menuPlacement="up"
     showWorktree={showWorktreeToggle && !compact}
     bind:useWorktree
@@ -119,7 +120,7 @@
           onclick={() => { menuOpen = !menuOpen }}
           class="flex size-9 cursor-pointer items-center justify-center rounded-md border transition-[background-color,color,border-color,transform] duration-(--duration-quick) ease-(--ease-premium) active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {menuOpen
             ? 'border-(--solus-accent-border) bg-(--solus-surface-hover) text-(--solus-text-primary)'
-            : 'border-(--solus-tool-border) bg-transparent text-(--solus-text-secondary) hover:border-[color-mix(in_srgb,var(--solus-tool-border)_50%,var(--solus-text-tertiary))] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+            : 'border-(--solus-tool-border) bg-transparent font-secondary text-(--solus-text-secondary) hover:border-[color-mix(in_srgb,var(--solus-tool-border)_50%,var(--solus-text-tertiary))] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
           title="More actions"
           aria-expanded={menuOpen}
         >
@@ -141,6 +142,7 @@
 
       <PlanApproveButton
         bind:useWorktree
+        bind:startNewSession
         showWorktreeToggle={false}
         onApprove={handleApprove}
       />

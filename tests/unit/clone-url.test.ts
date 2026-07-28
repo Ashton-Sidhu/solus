@@ -11,10 +11,12 @@ describe('new project omnibox classification', () => {
     expect(classifyCloneInput('   ')).toEqual({ kind: 'empty' })
   })
 
-  test('folder paths open, they never clone', () => {
-    expect(classifyCloneInput('~/dev/solus')).toEqual({ kind: 'path', path: '~/dev/solus' })
-    expect(classifyCloneInput('/srv/checkouts')).toEqual({ kind: 'path', path: '/srv/checkouts' })
-    expect(classifyCloneInput('../sibling')).toEqual({ kind: 'path', path: '../sibling' })
+  test('a typed path stays a search instead of promising an open action the omnibox cannot perform', () => {
+    // WHY: folders are opened through the browser action. Classifying a typed
+    // path specially produced no row and dead-ended on "Nothing matches".
+    expect(classifyCloneInput('~/dev/solus')).toEqual({ kind: 'search', query: '~/dev/solus' })
+    expect(classifyCloneInput('/srv/checkouts')).toEqual({ kind: 'search', query: '/srv/checkouts' })
+    expect(classifyCloneInput('../sibling')).toEqual({ kind: 'search', query: '../sibling' })
   })
 
   test('owner/repo resolves without a lookup round-trip', () => {

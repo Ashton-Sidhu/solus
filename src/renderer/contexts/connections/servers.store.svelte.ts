@@ -14,6 +14,7 @@ import {
   type SavedServer,
 } from '@client-core/server-registry'
 import type { DiscoveredServer, ProjectIdentity } from '../../../shared/types'
+import type { SolusAPI } from '../../../preload'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../app/toast.store.svelte'
 import {
@@ -22,12 +23,14 @@ import {
   mergeNearbyHosts,
   unannouncedDiscoveredServers,
   type NearbyHost,
-} from '../../components/servers/discovery'
-import { hostAffinityGlyph, type HostAffinityGlyph } from '../../components/servers/lib/host-affinity'
+} from './discovery'
+import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved'
 
 const DISCOVERY_INTERVAL_MS = 30_000
+const RUN_ON_PROBE_STALE_MS = 30_000
+const RECENT_PROJECTS_STALE_MS = 30_000
 interface ServerConnectionState {
   transportStatus: ConnectionStatus
   probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
@@ -42,6 +45,19 @@ export interface ServerItem {
   installationId?: string
   local: boolean
   status: ServerItemStatus
+}
+
+/** A session can outlive the saved-host entry that once named its remote host. */
+export interface UnknownRemoteHost {
+  id: string
+  label: string
+  local: false
+  unknown: true
+}
+
+interface RecentProjectsCacheEntry {
+  projects: Awaited<ReturnType<SolusAPI['listRecentProjects']>>
+  expiresAt: number
 }
 
 class ServersStore {
@@ -63,6 +79,8 @@ class ServersStore {
   private initialized = false
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
+  private lastRunOnProbeAt = 0
+  private readonly recentProjectsByServer = new Map<string, RecentProjectsCacheEntry>()
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
   get servers(): ServerItem[] {
@@ -159,6 +177,19 @@ class ServersStore {
     this.justPairedServerId = server.id
   }
 
+  pairForRunOn(tabId: string): void {
+    this.pendingRunOnTabId = tabId
+  }
+
+  /** Returns a just-paired host to the picker that initiated pairing, once. */
+  consumeJustPaired(tabId: string): string | null {
+    if (!this.justPairedServerId || this.pendingRunOnTabId !== tabId) return null
+    const serverId = this.justPairedServerId
+    this.justPairedServerId = null
+    this.pendingRunOnTabId = null
+    return serverId
+  }
+
   openAddServer(prefillUrl = ''): void {
     this.addServerUrl = prefillUrl
     this.addServerOpen = true
@@ -235,30 +266,56 @@ class ServersStore {
     location.reload()
   }
 
+  /**
+   * Dials one host and records the verdict. The single probe path, so the host
+   * list and the host page can never disagree about whether a host is up.
+   */
+  async checkReachable(serverId: string): Promise<boolean> {
+    let health = null
+    try {
+      health = await serverConnections.probeHealth(serverId, true)
+    } catch {}
+    this.connectionStateFor(serverId).probeStatus = health ? 'online' : 'offline'
+    return !!health
+  }
+
   async probeRunOnServers(): Promise<void> {
-    if (this.probingServers) return
+    if (this.probingServers || Date.now() - this.lastRunOnProbeAt < RUN_ON_PROBE_STALE_MS) return
     this.probingServers = true
     try {
       await Promise.all(this.servers.map(async (server) => {
-        let health = null
+        if (!(await this.checkReachable(server.id))) return
         try {
-          health = await serverConnections.probeHealth(server.id)
-        } catch {}
-        const state = this.connectionStateFor(server.id)
-        state.probeStatus = health ? 'online' : 'offline'
-        if (!health) return
-        const hadConnection = serverConnections.connectionFor(server.id) !== undefined
-        try {
-          this.projectIdentitiesByServer[server.id] = await serverConnections.projectIdentities(server.id)
+          this.projectIdentitiesByServer[server.id] = await serverConnections.withTemporaryConnection(
+            server.id,
+            () => serverConnections.projectIdentities(server.id),
+          )
         } catch {
           this.projectIdentitiesByServer[server.id] = []
-        } finally {
-          if (!hadConnection) serverConnections.release(server.id)
         }
       }))
     } finally {
       this.probingServers = false
+      this.lastRunOnProbeAt = Date.now()
     }
+  }
+
+  async recentProjectsFor(serverId: string): Promise<Awaited<ReturnType<SolusAPI['listRecentProjects']>>> {
+    const cached = this.recentProjectsByServer.get(serverId)
+    if (cached && cached.expiresAt > Date.now()) return cached.projects
+
+    let projects: Awaited<ReturnType<SolusAPI['listRecentProjects']>> = []
+    try {
+      projects = await serverConnections.withTemporaryConnection(
+        serverId,
+        (api) => api.listRecentProjects(),
+      )
+    } catch {}
+    this.recentProjectsByServer.set(serverId, {
+      projects,
+      expiresAt: Date.now() + RECENT_PROJECTS_STALE_MS,
+    })
+    return projects
   }
 
   projectIdentitiesFor(serverId: string): ProjectIdentity[] {
@@ -276,13 +333,26 @@ class ServersStore {
    * the session on it is no more local for having lost its name.
    */
   affinityFor(serverId: string | null | undefined): HostAffinityGlyph | null {
-    if (!serverId || serverId === LOCAL_SERVER_ID) return null
+    const host = this.hostFor(serverId)
+    if (!host || host.local) return null
+    return hostAffinityGlyph(host, this.statusFor(host.id))
+  }
+
+  hostFor(serverId: string | null | undefined): ServerItem | UnknownRemoteHost | null {
+    if (!serverId) return null
     const host = this.servers.find((server) => server.id === serverId)
-    return hostAffinityGlyph({ label: host?.label ?? 'Unknown host', local: false }, this.statusFor(serverId))
+    if (host) return host
+    if (serverId === LOCAL_SERVER_ID) return null
+    return { id: serverId, label: 'Unknown host', local: false, unknown: true }
   }
 
   statusFor(serverId: string): ServerItemStatus {
     const state = this.connectionStatesByServer[serverId]
+    if (state?.transportStatus === 'connected') return 'online'
+    // A socket retries for as long as a saved host is unavailable. Once the
+    // picker has checked that host and found it unreachable, that fresh result
+    // is more useful than displaying the transport's perpetual "connecting".
+    if (state?.probeStatus === 'offline') return 'offline'
     if (state?.transportStatus && state.transportStatus !== 'disconnected') {
       return this.itemStatus(state.transportStatus)
     }
@@ -358,8 +428,10 @@ class ServersStore {
       duration: 12_000,
       action: {
         label: 'Show',
+        // Settings → Connections → Nearby is the surface that can actually act
+        // on this, and unlike the switcher chip it exists in every view mode.
         onAction: () => {
-          this.switcherOpen = true
+          window.dispatchEvent(new CustomEvent('solus:show-connections'))
         },
       },
       onDismiss: () => {

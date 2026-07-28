@@ -195,7 +195,7 @@
   const groupCard = "flex flex-col rounded-xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
   const listRow =
     "flex items-center gap-3.5 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
-  const listIcon = "w-5 flex items-center justify-center shrink-0 text-(--solus-text-secondary)";
+  const listIcon = "w-5 flex items-center justify-center shrink-0 font-secondary text-(--solus-text-secondary)";
   const listLabel = "flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)";
   const listValue = "shrink-0 max-w-[8rem] truncate text-[0.8125rem] text-(--solus-text-tertiary)";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-12";
@@ -235,7 +235,7 @@
     <div class="relative flex items-center justify-center h-9 mb-3">
       <button
         type="button"
-        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
+        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
         aria-label="Close menu"
         onclick={onClose}
       >

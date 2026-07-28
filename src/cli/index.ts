@@ -1,12 +1,13 @@
 import { spawn } from 'child_process'
 import { createHash } from 'crypto'
 import { once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync,  readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
-import {  tmpdir } from 'os'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { basename, dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { renderQrAscii } from './lib/qr'
-import { defaultDataDir, hostForUrl, isProcessAlive, localConnectHost, readLockFile,  runtimePaths, type ServerLock } from './lib/runtime'
+import { defaultDataDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
+import { bestEndpoint, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
 import packageJson from '../../package.json'
 
 const DEFAULT_RELEASE_REPO = process.env.SOLUS_RELEASE_REPO || 'Ashton-Sidhu/solus'
@@ -31,12 +32,6 @@ interface UpdateOptions {
 interface AuthSessionCreateOptions extends CommonOptions {
   json: boolean
   deviceLabel?: string
-}
-
-interface Endpoint {
-  kind?: string
-  host: string
-  port: number
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -93,7 +88,7 @@ async function start(opts: StartOptions): Promise<void> {
   mkdirSync(paths.dataDir, { recursive: true })
   mkdirSync(dirname(paths.logFile), { recursive: true })
 
-  const child = spawn(paths.nodePath, serverArgs(paths, opts), {
+  const child = spawn(paths.nodePath, [paths.serverEntry, '--data-dir', paths.dataDir], {
     env: serverEnv(opts),
     stdio: 'inherit',
   })
@@ -137,13 +132,9 @@ async function claim(opts: CommonOptions): Promise<void> {
   }
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   const claimUrl = `${baseUrl}/pair#claim=${body.code}`
-  const ttlMinutes = Math.max(0, Math.ceil((Number(body.expiresAt) - Date.now()) / 60_000))
   console.log([
     'Solus server claim',
-    `Claim URL: ${claimUrl}`,
-    `Code: ${body.code}`,
-    `Fingerprint: ${body.fingerprint}`,
-    `Expires in: ${ttlMinutes} minute${ttlMinutes === 1 ? '' : 's'}`,
+    ...formatClaimBlock(claimUrl, body.code, Number(body.expiresAt), body.fingerprint),
     '',
     renderQrAscii(claimUrl),
   ].join('\n'))
@@ -237,88 +228,53 @@ async function update(opts: UpdateOptions): Promise<void> {
 
 function parseStartOptions(args: string[]): StartOptions {
   const opts: StartOptions = { dataDir: defaultDataDir() }
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--data-dir') opts.dataDir = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--data-dir=')) opts.dataDir = arg.slice('--data-dir='.length)
-    else if (arg === '--host') opts.host = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--host=')) opts.host = arg.slice('--host='.length)
-    else if (arg === '--port') opts.port = parsePort(takeValue(args, ++i, arg))
-    else if (arg.startsWith('--port=')) opts.port = parsePort(arg.slice('--port='.length))
-    else throw new Error(`Unknown start option: ${arg}`)
-  }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--host': { value: (value) => { opts.host = value } },
+    '--port': { value: (value) => { opts.port = String(parsePort(value, '--port')) } },
+  }, (arg) => new Error(`Unknown start option: ${arg}`))
   return opts
 }
 
 function parseCommonOptions(args: string[]): CommonOptions {
   const opts: CommonOptions = { dataDir: defaultDataDir() }
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--data-dir') opts.dataDir = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--data-dir=')) opts.dataDir = arg.slice('--data-dir='.length)
-    else throw new Error(`Unknown option: ${arg}`)
-  }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+  }, (arg) => new Error(`Unknown option: ${arg}`))
   return opts
 }
 
 function parseAuthSessionCreateOptions(args: string[]): AuthSessionCreateOptions {
   const opts: AuthSessionCreateOptions = { dataDir: defaultDataDir(), json: false }
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--json') opts.json = true
-    else if (arg === '--data-dir') opts.dataDir = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--data-dir=')) opts.dataDir = arg.slice('--data-dir='.length)
-    else if (arg === '--device-label') opts.deviceLabel = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--device-label=')) opts.deviceLabel = arg.slice('--device-label='.length)
-    else throw new Error(`Unknown auth session create option: ${arg}`)
-  }
+  parseFlags(args, {
+    '--json': { set: () => { opts.json = true } },
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--device-label': { value: (value) => { opts.deviceLabel = value } },
+  }, (arg) => new Error(`Unknown auth session create option: ${arg}`))
   return opts
 }
 
 function parseLogsOptions(args: string[]): LogsOptions {
   const opts: LogsOptions = { dataDir: defaultDataDir(), lines: 100 }
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--data-dir') opts.dataDir = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--data-dir=')) opts.dataDir = arg.slice('--data-dir='.length)
-    else if (arg === '--lines') opts.lines = parsePositiveInt(takeValue(args, ++i, arg), arg)
-    else if (arg.startsWith('--lines=')) opts.lines = parsePositiveInt(arg.slice('--lines='.length), '--lines')
-    else throw new Error(`Unknown logs option: ${arg}`)
-  }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--lines': { value: (value) => { opts.lines = parsePositiveInt(value, '--lines') } },
+  }, (arg) => new Error(`Unknown logs option: ${arg}`))
   return opts
 }
 
 function parseUpdateOptions(args: string[]): UpdateOptions {
   const opts: UpdateOptions = { repo: DEFAULT_RELEASE_REPO }
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--repo') opts.repo = takeValue(args, ++i, arg)
-    else if (arg.startsWith('--repo=')) opts.repo = arg.slice('--repo='.length)
-    else throw new Error(`Unknown update option: ${arg}`)
-  }
+  parseFlags(args, {
+    '--repo': { value: (value) => { opts.repo = value } },
+  }, (arg) => new Error(`Unknown update option: ${arg}`))
   return opts
-}
-
-function takeValue(args: string[], index: number, flag: string): string {
-  const value = args[index]
-  if (!value) throw new Error(`${flag} requires a value`)
-  return value
-}
-
-function parsePort(value: string): string {
-  const port = Number(value)
-  if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error(`Invalid --port: ${value}`)
-  return String(port)
 }
 
 function parsePositiveInt(value: string, flag: string): number {
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${flag} requires a positive integer`)
   return parsed
-}
-
-function serverArgs(paths: ReturnType<typeof runtimePaths>, opts: StartOptions): string[] {
-  return [paths.serverEntry, '--data-dir', paths.dataDir]
 }
 
 function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
@@ -344,14 +300,6 @@ function isTarballInstall(installDir: string): boolean {
 
 function serverBaseUrl(lock: ServerLock): string {
   return `http://${hostForUrl(localConnectHost(lock.host))}:${lock.port}`
-}
-
-function bestEndpoint(endpoints: Endpoint[]): Endpoint | null {
-  const valid = endpoints.filter((endpoint) => typeof endpoint.host === 'string' && Number.isInteger(endpoint.port))
-  return valid.find((endpoint) => endpoint.kind === 'tailnet') ??
-    valid.find((endpoint) => endpoint.kind === 'lan') ??
-    valid[0] ??
-    null
 }
 
 interface ReleaseAsset {

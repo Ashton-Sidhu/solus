@@ -29,7 +29,7 @@
 </script>
 
 <div class="flex flex-col gap-3.5">
-  <div class="prose-cloud prose-reading text-(--solus-text-secondary)">
+  <div class="prose-cloud prose-reading font-secondary text-(--solus-text-secondary)">
     <SvelteMarkdown source={section.explanation} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
   </div>
 
@@ -63,7 +63,7 @@
                   <p class="font-mono text-[0.6875rem] font-semibold tracking-wide text-(--solus-text-tertiary) uppercase">
                     {field.label}
                   </p>
-                  <div class="prose-cloud prose-reading text-(--solus-text-secondary)">
+                  <div class="prose-cloud prose-reading font-secondary text-(--solus-text-secondary)">
                     <SvelteMarkdown source={detail} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
                   </div>
                 </div>

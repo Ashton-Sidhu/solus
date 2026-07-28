@@ -13,7 +13,7 @@
 <span
 	bind:this={ref}
 	data-slot="dropdown-menu-shortcut"
-	class={cn("text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground ml-auto text-xs lg:text-[0.8125rem] tracking-widest", className)}
+	class={cn("text-(--solus-text-tertiary) ml-auto font-mono text-menu-meta tracking-widest", className)}
 	{...restProps}
 >
 	{@render children?.()}

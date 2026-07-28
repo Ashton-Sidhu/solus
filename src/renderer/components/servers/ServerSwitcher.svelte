@@ -9,25 +9,18 @@
     WifiHighIcon,
   } from "phosphor-svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     serversStore,
     toasts,
+    hostStatusDotClass,
+    hostStatusLabel,
     type ServerItem,
-    type ServerItemStatus,
   } from "../../contexts";
-  import { hostStatusLabel } from "./lib/host-affinity";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
 
   const active = $derived(serversStore.activeServer);
-
-  function dotClass(status: ServerItemStatus): string {
-    if (status === "online") return "bg-(--solus-status-complete)";
-    if (status === "connecting") return "bg-(--solus-accent)";
-    if (status === "offline") return "bg-(--solus-status-error)";
-    return "bg-(--solus-text-quaternary)";
-  }
 
   function switchTo(server: ServerItem) {
     serversStore.switcherOpen = false;
@@ -61,23 +54,29 @@
 >
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         {...props}
         type="button"
         class="group relative inline-flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg px-2 text-[0.8125rem] text-(--solus-text-tertiary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-        use:tooltip={active
-          ? `${active.label} · ${hostStatusLabel(active.status)}`
-          : "Servers"}
       >
         <span
           class="relative flex h-3 w-3 shrink-0 items-center justify-center"
         >
           <span
-            class={`h-2 w-2 rounded-full ${active ? dotClass(active.status) : "bg-(--solus-text-quaternary)"} ${active?.status === "connecting" ? "animate-pulse" : ""}`}
+            class={`h-2 w-2 rounded-full ${active ? hostStatusDotClass(active.status) : "bg-(--solus-text-quaternary)"}`}
           ></span>
         </span>
         <span class="truncate">{active?.label ?? "Servers"}</span>
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={active
+          ? `${active.label} · ${hostStatusLabel(active.status)}`
+          : "Servers"} />
+      </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
   <DropdownMenu.Content
@@ -107,7 +106,7 @@
             <GlobeSimpleIcon class="size-3.5" />
           {/if}
           <span
-            class="absolute -bottom-px -right-px size-2 rounded-full ring-2 ring-(--solus-popover-bg) {dotClass(
+            class="absolute -bottom-px -right-px size-2 rounded-full ring-2 ring-(--solus-popover-bg) {hostStatusDotClass(
               server.status,
             )}"
             title={hostStatusLabel(server.status)}
@@ -146,20 +145,26 @@
       >
         Nearby
       </span>
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         type="button"
         aria-label="Scan for nearby hosts"
         disabled={serversStore.discoveryBusy}
         class="relative -mr-1 flex size-6 items-center justify-center rounded-lg text-(--solus-text-quaternary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring) disabled:pointer-events-none disabled:text-(--solus-text-quaternary) after:absolute after:left-1/2 after:top-1/2 after:size-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
         onclick={() => void scanServers()}
-        use:tooltip={serversStore.discoveryBusy
-          ? "Scanning…"
-          : "Scan for servers"}
       >
         <ArrowsClockwiseIcon
           class="size-3 {serversStore.discoveryBusy ? 'animate-spin' : ''}"
         />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={serversStore.discoveryBusy
+          ? "Scanning…"
+          : "Scan for servers"} />
+      </TooltipUI.Root>
     </div>
 
     {#if serversStore.nearbyHosts.length === 0}

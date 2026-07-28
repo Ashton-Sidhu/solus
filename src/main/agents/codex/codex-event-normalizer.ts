@@ -2,6 +2,7 @@ import type { NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/typ
 import { findResetTimestamp } from '../../rate-limits'
 import {
   codexImageArtifactPath,
+  codexSubagentActivityInput,
   codexToolNameForItem,
   isInterruptedTurnStatus,
   planFromCompletedItem,
@@ -199,6 +200,14 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
           this.subagentParentByThreadId.set(threadId, item.id)
         }
       }
+    }
+    if (
+      item?.type === 'subAgentActivity' &&
+      item.kind === 'started' &&
+      typeof item.id === 'string' &&
+      typeof item.agentThreadId === 'string'
+    ) {
+      this.subagentParentByThreadId.set(item.agentThreadId, item.id)
     }
 
     if (codexParentToolUseId(params)) return params
@@ -432,11 +441,37 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id || !item?.type) return []
 
+  if (item.type === 'subAgentActivity') {
+    if (item.kind === 'started') {
+      return [{
+        type: 'tool_call',
+        toolName: 'spawnAgent',
+        toolId: item.id,
+        index: 0,
+        toolInput: codexSubagentActivityInput(item),
+        parentToolUseId: codexParentToolUseId(params),
+        isSubagent: true,
+        subagentType: 'codex',
+      }]
+    }
+    if (item.kind === 'interrupted') {
+      return [{
+        type: 'tool_result',
+        toolUseId: item.id,
+        content: 'Interrupted',
+        isError: true,
+        parentToolUseId: codexParentToolUseId(params),
+      }]
+    }
+    return []
+  }
+
   const toolName = codexToolNameForItem(item)
   if (!toolName) return []
   const isClaudeSubagent = item.type === 'dynamicToolCall' &&
     toolName.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
-  const isSubagent = item.type === 'collabAgentToolCall' || isClaudeSubagent
+  const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+  const isSubagent = isCodexSubagent || isClaudeSubagent
 
   return [{
     type: 'tool_call',
@@ -446,7 +481,7 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
     toolInput: codexStartedToolInput(item),
     parentToolUseId: codexParentToolUseId(params),
     isSubagent,
-    subagentType: isClaudeSubagent ? 'claude' : isSubagent ? toolName : undefined,
+    subagentType: isClaudeSubagent ? 'claude' : isCodexSubagent ? 'codex' : undefined,
   }]
 }
 
@@ -467,10 +502,15 @@ function normalizeToolUpdate(params: any): NormalizedEvent[] {
 function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: boolean }): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id) return []
+  // A subAgentActivity item completes as soon as Codex records the lifecycle
+  // notification. The child agent is still running, so its card must not settle.
+  if (item.type === 'subAgentActivity') return []
   const parentToolUseId = codexParentToolUseId(params)
   const toolName = codexToolNameForItem(item)
   const isClaudeSubagent = item.type === 'dynamicToolCall' &&
     toolName?.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
+  const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+  const isSubagent = isCodexSubagent || isClaudeSubagent
 
   if (item.type === 'agentMessage') {
     // Not parented: headless transcript mode emits the assembled message so the
@@ -480,13 +520,22 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
     if (!parentToolUseId) {
       if (opts?.assembledAgentMessages) {
         return typeof item.text === 'string' && item.text
-          ? [{ type: 'assistant_message', text: item.text }]
+          ? [{
+              type: 'assistant_message',
+              text: item.text,
+              ...(item.phase === 'final_answer' ? { isFinal: true } : {}),
+            }]
           : []
       }
       return [{ type: 'text_chunk', text: '\n\n' }]
     }
     return typeof item.text === 'string' && item.text
-      ? [{ type: 'assistant_message', text: item.text, parentToolUseId }]
+      ? [{
+          type: 'assistant_message',
+          text: item.text,
+          parentToolUseId,
+          ...(item.phase === 'final_answer' ? { isFinal: true } : {}),
+        }]
       : []
   }
 
@@ -521,13 +570,13 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       toolId: item.id,
       toolInput: JSON.stringify({ changes: item.changes }),
     })
-  } else if (!isClaudeSubagent) {
-    const payload = item.aggregatedOutput || item.result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null) || item.status
+  } else if (!isSubagent) {
+    const payload = item.aggregatedOutput || item.result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null)
     if (payload) {
       updates.push({
         type: 'tool_call_update',
         toolId: item.id,
-        toolInput: typeof payload === 'string' ? payload : JSON.stringify(payload),
+        content: typeof payload === 'string' ? payload : JSON.stringify(payload),
       })
     }
   }

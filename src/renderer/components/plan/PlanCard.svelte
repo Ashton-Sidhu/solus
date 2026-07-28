@@ -9,7 +9,7 @@
   import ClaudeIcon from '../ClaudeIcon.svelte'
   import type { AgentId, PlanDescriptor } from '../../../shared/types'
   import { formatTimeAgo } from '../../lib/sessionUtils'
-  import { tooltip } from '../../lib/tooltip'
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from '../ui/button'
   import * as Card from '../ui/card'
 
@@ -113,7 +113,10 @@
         {/if}
       </div>
       <div class="card-actions">
-        <span class="inline-flex" use:tooltip={"Resume session (⇧+Enter)"}>
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps} class="inline-flex">
           <Button
             variant="ghost"
             size="icon-xs"
@@ -123,7 +126,14 @@
             <ArrowUpRightIcon size={11} />
           </Button>
         </span>
-        <span class="inline-flex" use:tooltip={descriptor.bookmarked ? "Remove bookmark (⌥B)" : "Bookmark (⌥B)"}>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Resume session (⇧+Enter)"} />
+        </TooltipUI.Root>
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps} class="inline-flex">
           <Button
             variant="ghost"
             size="icon-xs"
@@ -133,6 +143,10 @@
             <BookmarkSimpleIcon size={11} weight={descriptor.bookmarked ? 'fill' : 'regular'} />
           </Button>
         </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={descriptor.bookmarked ? "Remove bookmark (⌥B)" : "Bookmark (⌥B)"} />
+        </TooltipUI.Root>
       </div>
     </div>
 

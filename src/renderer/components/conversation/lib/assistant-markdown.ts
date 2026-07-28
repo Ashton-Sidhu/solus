@@ -1,15 +1,6 @@
-import type { MarkedExtension } from "@humanspeak/svelte-markdown";
-import { walkTokens, type Token } from "marked";
+import type { SvelteMarkdownOptions } from "@humanspeak/svelte-markdown";
 
-export function preserveUnmatchedHtml(token: Token): void {
-  walkTokens([token], (nestedToken) => {
-    if (nestedToken.type !== "html" || "tag" in nestedToken) return;
-
-    nestedToken.type = "escape";
-    nestedToken.text = nestedToken.raw;
-  });
-}
-
-export const assistantMarkdownExtensions: MarkedExtension[] = [
-  { walkTokens: preserveUnmatchedHtml },
-];
+// Parser hooks disable svelte-markdown's append-only tail window. Keep the
+// assistant configuration hook-free so a streamed response only reparses its
+// changing tail.
+export const assistantMarkdownOptions: SvelteMarkdownOptions = {};

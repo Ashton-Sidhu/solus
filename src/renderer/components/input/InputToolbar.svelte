@@ -12,7 +12,6 @@
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
     onDesignMode?: (() => void) | null;
-    dirMaxWidth?: number;
     /** Extra controls appended to the right cluster (web: push bell, logout). */
     trailingActions?: Snippet;
   }
@@ -22,7 +21,6 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
-    dirMaxWidth = 240,
     trailingActions,
   }: Props = $props();
 
@@ -49,6 +47,6 @@
   <SessionChip {tabId} />
 
   <div class="ml-auto flex min-w-0 items-center">
-    <StatusBarControls {mode} {tabId} {dirMaxWidth} {trailingActions} />
+    <StatusBarControls {mode} {tabId} {trailingActions} />
   </div>
 </div>

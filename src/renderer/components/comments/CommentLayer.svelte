@@ -6,7 +6,7 @@
   import type { PlanComment } from "../../../shared/types";
   import { uuid } from "../../../shared/uuid";
   import { portal } from "../portal";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
   import { toasts } from "../../contexts";
@@ -401,7 +401,10 @@
           <span class="cl-send-bar__hint">
             {comments.length} comment{comments.length === 1 ? "" : "s"}
           </span>
-          <span class="inline-flex" use:tooltip={"Send to agent"}>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps} class="inline-flex">
             <Button
               size="icon"
               class="rounded-full"
@@ -413,6 +416,10 @@
               <ArrowUpIcon size={16} weight="bold" />
             </Button>
           </span>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Send to agent"} />
+          </TooltipUI.Root>
         </div>
       {/snippet}
     </PlanCommentsRail>

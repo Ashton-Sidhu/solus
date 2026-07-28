@@ -6,7 +6,7 @@ import {
   mergeNearbyHosts,
   NEARBY_HOST_TTL_MS,
   unannouncedDiscoveredServers,
-} from '../../src/renderer/components/servers/discovery'
+} from '../../src/renderer/contexts/connections/discovery'
 import type { DiscoveredServer } from '../../src/shared/types'
 
 describe('server discovery', () => {

@@ -12,6 +12,48 @@ export interface PickerSelection {
   reasoningEffort: ReasoningEffort;
 }
 
+export type ModelPickerColumn = "model" | "reasoning";
+
+interface ModelPickerNavigation {
+  key: string;
+  column: ModelPickerColumn;
+  index: number;
+  columnLength: number;
+  oppositeColumnLength: number;
+  preferredOppositeIndex: number;
+}
+
+/**
+ * Keep vertical movement inside the visual column. Crossing columns is an
+ * explicit left/right action so reaching Reasoning never costs a lap through
+ * every model.
+ */
+export function modelPickerNavigationTarget({
+  key,
+  column,
+  index,
+  columnLength,
+  oppositeColumnLength,
+  preferredOppositeIndex,
+}: ModelPickerNavigation): { column: ModelPickerColumn; index: number } | null {
+  if (key === "ArrowUp")
+    return { column, index: Math.max(0, index - 1) };
+  if (key === "ArrowDown")
+    return { column, index: Math.min(columnLength - 1, index + 1) };
+  if (key === "Home") return { column, index: 0 };
+  if (key === "End") return { column, index: columnLength - 1 };
+
+  const isCrossing =
+    (key === "ArrowRight" && column === "model") ||
+    (key === "ArrowLeft" && column === "reasoning");
+  if (!isCrossing || oppositeColumnLength === 0) return null;
+
+  return {
+    column: column === "model" ? "reasoning" : "model",
+    index: Math.min(Math.max(0, preferredOppositeIndex), oppositeColumnLength - 1),
+  };
+}
+
 /** Models offered for an agent: live metadata when present, static MODEL_PROFILES otherwise. */
 export function modelOptionsFor(
   provider: AgentId,
@@ -39,6 +81,14 @@ export function defaultModelIdFor(
 
 export function reasoningLevelsFor(provider: AgentId, modelId: string | null): ReasoningEffort[] {
   return MODEL_PROFILES[provider]?.[modelId ?? ""]?.reasoningLevels ?? ["low", "medium", "high"];
+}
+
+/** The effort a model lands on when it is picked — the menu previews this on hover. */
+export function defaultReasoningFor(
+  provider: AgentId,
+  modelId: string | null,
+): ReasoningEffort | null {
+  return MODEL_PROFILES[provider]?.[modelId ?? ""]?.defaultReasoningEffort ?? null;
 }
 
 /** Keep the chosen effort when the model supports it; otherwise fall back to the model's default. */

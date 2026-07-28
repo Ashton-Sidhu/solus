@@ -15,6 +15,8 @@ export type SubagentInput = {
   instructions?: string
   model?: string
   reasoning_effort?: string
+  agent_thread_id?: string
+  agent_path?: string
 }
 
 export function parseSubagentInput(toolInput: string | undefined): SubagentInput {

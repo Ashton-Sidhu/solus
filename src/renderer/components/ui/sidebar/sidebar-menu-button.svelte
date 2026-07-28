@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import { tv, type VariantProps } from "tailwind-variants";
+  import { tv, type VariantProps } from "@renderer/lib/tw";
 
   export const sidebarMenuButtonVariants = tv({
     base: "peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 text-left text-sm outline-none transition-[color,background-color,transform] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground [&_svg]:shrink-0 [&>span:last-child]:truncate",

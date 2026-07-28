@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import { fade, fly, slide } from "svelte/transition";
   import { expoOut } from "svelte/easing";
   import {
@@ -11,6 +10,7 @@
     XIcon,
   } from "phosphor-svelte";
   import { Button } from "../ui/button";
+  import Kbd from "../ui/Kbd.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
@@ -19,12 +19,11 @@
     requestInputFocus,
   } from "../../lib/inputFocus";
   import { abbreviateHome, truncateMiddle } from "../../lib/paths";
-  import { connectionsStore, runtime, serversStore } from "../../contexts";
-  import type { ServerItemStatus } from "../../contexts/connections/servers.store.svelte";
+  import { connectionsStore, hostStatusDotClass, runtime, serversStore } from "../../contexts";
   import OpenProjectDestination from "./OpenProjectDestination.svelte";
   import OpenProjectHome from "./OpenProjectHome.svelte";
   import { openProjectStore as store } from "./open-project.store.svelte";
-  import type { HostOption } from "./lib/open-project-flow";
+  import type { CloneFailure } from "./lib/clone-outcome";
   import { homeRows } from "./lib/open-project-home";
 
   interface Props {
@@ -32,11 +31,13 @@
     onOpenProject: (path: string) => void;
     /** Opens the host-scoped folder browser for the secondary action. */
     onBrowse: () => void;
+    /** A clone that failed after the dialog was dismissed reports here. */
+    onBackgroundCloneFailure: (failure: CloneFailure) => void;
     /** This client's git identity, offered as the prefill for a bare host. */
     localIdentity?: { name: string; email: string } | null;
   }
 
-  let { onOpenProject, onBrowse, localIdentity = null }: Props = $props();
+  let { onOpenProject, onBrowse, onBackgroundCloneFailure, localIdentity = null }: Props = $props();
 
   const layer = getPopoverLayer();
 
@@ -49,13 +50,7 @@
   let showOutput = $state(false);
   let hostMenuOpen = $state(false);
 
-  const hosts = $derived<HostOption[]>(
-    serversStore.servers.map((server) => ({
-      id: server.id,
-      label: server.label,
-      local: server.local,
-    })),
-  );
+  const hosts = $derived(serversStore.servers);
   const multiHost = $derived(hosts.length > 1);
   // GitHub credentials are per-machine, but the question home asks is about
   // *you* — so the row is gated on this client's sign-in, and a chosen host
@@ -80,6 +75,9 @@
     }
     return 0;
   });
+  const clampedHighlightedIndex = $derived(
+    Math.min(highlightedIndex, Math.max(rowCount - 1, 0)),
+  );
 
   const isGithub = $derived(store.step === "destination" && store.source === "github");
   const rootLabel = $derived(truncateMiddle(abbreviateHome(store.projectsRoot), 22));
@@ -96,21 +94,6 @@
     return isGithub ? "45rem" : "39rem";
   });
   const tailLogLine = $derived(store.logLines[store.logLines.length - 1] ?? "");
-
-  // The list can shrink under the highlight while filtering; clamping here beats
-  // resetting to 0, which would throw away the row the user just arrowed to.
-  $effect(() => {
-    const max = Math.max(rowCount - 1, 0);
-    untrack(() => {
-      if (highlightedIndex > max) highlightedIndex = max;
-    });
-  });
-
-  $effect(() => {
-    void store.step;
-    void store.source;
-    highlightedIndex = 0;
-  });
 
   $effect(() => {
     if (!store.isOpen || store.step === "browse") return;
@@ -141,16 +124,20 @@
     if (bodyHeight > 0) hasMeasured = true;
   });
 
-  function statusDot(status: ServerItemStatus): string {
-    if (status === "online") return "bg-(--solus-status-complete)";
-    if (status === "connecting") return "animate-pulse bg-(--solus-accent)";
-    if (status === "offline") return "bg-(--solus-status-error)";
-    return "bg-(--solus-text-tertiary)/50";
-  }
-
   function browseFolder() {
+    highlightedIndex = 0;
     store.browseFolder();
     onBrowse();
+  }
+
+  function goBack() {
+    highlightedIndex = 0;
+    store.back();
+  }
+
+  function selectHost(host: (typeof hosts)[number]) {
+    highlightedIndex = 0;
+    store.selectHost(host);
   }
 
   function activate(index: number) {
@@ -158,32 +145,40 @@
       const row = rows[index];
       if (!row) return;
       if (row.kind === "clone") {
+        highlightedIndex = 0;
         store.chooseCloneUrl(row.seed);
       } else if (row.kind === "recent") {
         // A recent is a folder that already exists, so the open reads as one
         // rather than as a clone that never ran.
-        store.source = "local";
+        store.openRecent();
         onOpenProject(row.project.path);
       } else if (row.action === "browse") {
         browseFolder();
       } else if (row.action === "github") {
+        highlightedIndex = 0;
         store.chooseGithub();
       } else {
+        highlightedIndex = 0;
         store.chooseCloneUrl();
       }
       return;
     }
     if (isGithub) {
       const repo = store.filteredRepos[index];
-      if (repo) store.selectedRepoFullName = repo.fullName;
+      if (repo) store.selectRepo(repo.fullName);
     }
     void submit();
   }
 
   async function submit() {
     if (!store.canSubmit) return;
-    const path = await store.submit();
-    if (!path) return;
+    const path = await store.clone();
+    if (!path) {
+      // A clone that failed after the dialog was dismissed has no form to land
+      // its error on — say so, or the failure is silent.
+      if (!store.isOpen && store.cloneFailure) onBackgroundCloneFailure(store.cloneFailure);
+      return;
+    }
     onOpenProject(path);
   }
 
@@ -192,6 +187,13 @@
     const path = await store.adoptOccupiedDestination();
     if (!path) return;
     onOpenProject(path);
+  }
+
+  async function connectGithub() {
+    const boundSetup = store.setup;
+    if (!boundSetup) return;
+    await boundSetup.runStep("github");
+    if (store.setup === boundSetup && store.source === "github") await store.loadRepos();
   }
 
   function close() {
@@ -231,30 +233,47 @@
       trapFocus(e);
       return;
     }
+    if (multiHost && store.step !== "cloning" && e.altKey && e.code === "KeyH") {
+      claim(e);
+      hostMenuOpen = true;
+      return;
+    }
     // Escape steps back through the flow before it dismisses it, the same way
     // the command palette leaves a sub-page first. A clone in flight is not
     // stepped back into — it keeps running, and the tab opens when it lands.
     if (e.key === "Escape") {
       claim(e);
       if (store.step === "home" || store.step === "cloning") close();
-      else store.back();
+      else goBack();
       return;
     }
     if (e.key === "Enter") {
+      // A real button under focus keeps its native Enter — otherwise tabbing to
+      // Cancel and pressing Enter would clone. Option rows stay with the flow:
+      // ↑↓ owns which one Enter means.
+      const focused = document.activeElement;
+      if (
+        focused instanceof HTMLButtonElement &&
+        focused.getAttribute("role") !== "option" &&
+        !e.metaKey &&
+        !e.ctrlKey
+      ) {
+        return;
+      }
       claim(e);
       if (e.metaKey || e.ctrlKey) void submit();
-      else if (rowCount > 0) activate(highlightedIndex);
+      else if (rowCount > 0) activate(clampedHighlightedIndex);
       else void submit();
       return;
     }
     if (e.key === "ArrowDown") {
       claim(e);
-      highlightedIndex = Math.min(highlightedIndex + 1, rowCount - 1);
+      highlightedIndex = Math.min(clampedHighlightedIndex + 1, rowCount - 1);
       return;
     }
     if (e.key === "ArrowUp") {
       claim(e);
-      highlightedIndex = Math.max(highlightedIndex - 1, 0);
+      highlightedIndex = Math.max(clampedHighlightedIndex - 1, 0);
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o" && store.step === "home") {
@@ -266,7 +285,7 @@
     // in the picker.
     if (e.key === "Backspace" && !store.query && store.step === "destination") {
       claim(e);
-      store.back();
+      goBack();
     }
   }
 
@@ -287,7 +306,7 @@
 {#if store.isOpen && store.step !== "browse" && layer.el}
   <div
     use:portal={layer.el}
-    class="fixed inset-0 z-[200] flex items-start justify-center overflow-hidden overscroll-contain bg-[rgba(28,22,15,0.24)] pt-[12vh]
+    class="fixed inset-0 z-[200] flex items-start justify-center overflow-hidden overscroll-contain bg-[rgba(28,22,15,0.12)] pt-[12vh]
       max-md:bottom-auto max-md:h-[100dvh] max-md:items-end max-md:pt-0"
     role="presentation"
     onmousedown={(e) => e.target === e.currentTarget && close()}
@@ -316,7 +335,7 @@
             size="icon-xs"
             class="-ml-1.5 text-muted-foreground"
             aria-label="Back"
-            onclick={() => store.back()}
+            onclick={goBack}
           >
             <ArrowLeftIcon size={13} />
           </Button>
@@ -349,6 +368,7 @@
                     <GlobeSimpleIcon size={11} class="shrink-0" />
                   {/if}
                   <span class="truncate">{store.hostLabel || "This Mac"}</span>
+                  <Kbd variant="hint" class="hidden sm:inline-flex">⌥H</Kbd>
                   <CaretDownIcon size={9} class="shrink-0" />
                 </button>
               {/snippet}
@@ -361,23 +381,20 @@
               side="bottom"
               align="end"
               sideOffset={6}
-              class="w-[10.75rem] gap-0.5 rounded-lg p-1"
+              class="w-[11.5rem]"
             >
-              <DropdownMenu.Label class="px-2 pb-1 pt-1 text-[0.65625rem] font-normal text-muted-foreground">
-                Run on
-              </DropdownMenu.Label>
+              <DropdownMenu.Label>Run on</DropdownMenu.Label>
               {#each hosts as host (host.id)}
-                {@const server = serversStore.servers.find((candidate) => candidate.id === host.id)}
                 {@const bound = host.id === store.serverId}
                 <DropdownMenu.Item
-                  class="h-7 gap-2 rounded-md px-2 text-[0.78125rem] {bound ? 'bg-muted' : ''}"
-                  onSelect={() => store.selectHost(host)}
+                  data-menu-current={bound ? "" : undefined}
+                  onSelect={() => selectHost(host)}
                 >
-                  <CheckIcon size={11} class="shrink-0 text-primary {bound ? '' : 'opacity-0'}" />
+                  <CheckIcon size={12} class="shrink-0 text-primary {bound ? '' : 'opacity-0'}" />
                   <span class="min-w-0 flex-1 truncate">{host.label}</span>
                   <span
-                    class="size-1.5 shrink-0 rounded-full {statusDot(server?.status ?? 'saved')}"
-                    title={server?.status ?? "saved"}
+                    class="size-1.5 shrink-0 rounded-full {hostStatusDotClass(host.status)}"
+                    title={host.status}
                   ></span>
                 </DropdownMenu.Item>
               {/each}
@@ -410,7 +427,7 @@
             <OpenProjectHome
               {store}
               {rows}
-              {highlightedIndex}
+              highlightedIndex={clampedHighlightedIndex}
               onHighlight={(index) => (highlightedIndex = index)}
               onActivate={activate}
               bind:inputEl
@@ -439,7 +456,7 @@
           {:else}
             <OpenProjectDestination
               {store}
-              {highlightedIndex}
+              highlightedIndex={clampedHighlightedIndex}
               onHighlight={(index) => (highlightedIndex = index)}
               onActivate={activate}
               bind:inputEl
@@ -494,16 +511,16 @@
               <Button
                 variant="outline"
                 class="shrink-0 text-[0.8125rem]"
-                disabled={store.connectingGithub}
-                onclick={() => void store.connectGithub()}
+                disabled={store.setup?.runningStep === "github"}
+                onclick={() => void connectGithub()}
               >
-                {store.connectingGithub ? "Waiting for GitHub…" : "Set up"}
+                {store.setup?.runningStep === "github" ? "Waiting for GitHub…" : "Set up"}
               </Button>
             {:else if store.partialPath}
               <Button
                 variant="ghost"
                 class="shrink-0 text-[0.8125rem] text-muted-foreground"
-                onclick={() => void store.retryClone({ clean: true })}
+                onclick={() => void store.clone({ clean: true })}
               >
                 Remove partial &amp; retry
               </Button>
@@ -528,7 +545,7 @@
           <Button
             variant="ghost"
             class="shrink-0 text-[0.8125rem] max-md:h-11 max-md:flex-1"
-            onclick={() => store.back()}
+            onclick={goBack}
           >
             Cancel
           </Button>
@@ -546,20 +563,6 @@
 {/if}
 
 <style>
-  .hairline-scroll {
-    scrollbar-width: thin;
-  }
-  .hairline-scroll::-webkit-scrollbar {
-    width: 0.1875rem;
-  }
-  .hairline-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .hairline-scroll::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
-    border-radius: 0.25rem;
-  }
-
   .clone-bar {
     animation: clone-sweep 1.1s ease-in-out infinite;
   }

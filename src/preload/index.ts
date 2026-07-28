@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
@@ -22,7 +22,7 @@ export interface LocalConnectionInfo {
 export interface SolusAPI {
   start(): Promise<StartInfo>
   createTab(tabId?: string): Promise<{ tabId: string }>
-  prompt(ctx: IpcContext, options: PromptOptions): Promise<void>
+  prompt(ctx: IpcContext, options: PromptOptions): Promise<PromptDispatchResult>
   stopTab(ctx: IpcContext): Promise<boolean>
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
   closeTab(ctx: IpcContext): Promise<void>
@@ -102,17 +102,22 @@ export interface SolusAPI {
   setProjectsBaseDirectory(path: string): Promise<{ projectsBaseDirectory?: string }>
   setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
-  /** Runs the agent CLI's device-auth flow on the host, streaming on `setup-log`. */
+  /** Runs the agent CLI's browser-auth flow on the host, streaming on `setup-log`. */
   setupAgentSignIn(args: { agent: SetupAgent }): Promise<SetupStepResult>
-  /** Stops the host's active agent device-auth flow, if one is waiting. */
+  /** Sends a browser-returned code to an agent sign-in waiting on stdin. */
+  setupSubmitAgentSignInCode(args: { agent: SetupAgent; code: string }): Promise<{ submitted: boolean }>
+  /** Stops the host's active agent browser-auth flow, if one is waiting. */
   setupCancelAgentSignIn(): Promise<{ cancelled: boolean }>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
   setupCloneProject(args: SetupCloneProjectRequest): Promise<SetupCloneProjectResult>
+  setupSyncProject(args: SetupSyncProjectRequest): Promise<SetupAdoptProjectResult>
   /** Registers a checkout the host already has, instead of cloning a new one. */
   setupAdoptProject(args: { path: string; cloneUrl?: string }): Promise<SetupAdoptProjectResult>
   /** Git binary, commit identity, GitHub credentials and SSH keys — on this host alone. */
   setupHostReadiness(): Promise<HostReadiness>
   setupInstallGit(): Promise<SetupStepResult>
+  /** Installs the GitHub CLI, which is what `gh auth` and `gh pr create` need to exist first. */
+  setupInstallGh(): Promise<SetupStepResult>
   setupSetGitIdentity(args: GitCommitIdentity): Promise<GitCommitIdentity>
   setupCheckSshAccess(args: { host?: string }): Promise<SetupSshAccessResult>
   /** Hands this host's stored token to `gh` so agent `gh pr create` calls work. */

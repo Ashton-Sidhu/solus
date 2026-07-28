@@ -36,6 +36,7 @@
     focusedSplitChatTabId,
     isSecondaryContentVisible,
     primaryPaneMinSize,
+    retainedConversationTabIds,
     secondaryPaneBounds,
     secondaryPaneDefaultSize,
     SECONDARY_CONTENT_DELAY_MS,
@@ -156,21 +157,41 @@
       session,
       session.activeTabId,
       splitTabId,
-      (tabId) => environmentBranchKey(session.environment.environmentFor(tabId)),
+      (tabId) =>
+        environmentBranchKey(
+          session.environment.environmentFor(tabId),
+          session.sessionFor(tabId)?.projectGroupPath,
+        ),
     ),
   );
 
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the
-  // first time it becomes the active tab (or is visible on load). This prevents
-  // 20 heavy component trees from being constructed and kept alive in memory
-  // for tabs the user may never actually visit in the current session.
-  // Start empty — the $effect below populates it reactively so Svelte tracks
-  // `visibleTabIds` properly rather than only capturing the initial value.
+  // first time it becomes the active tab. Split chats own a separate force-visible
+  // ConversationView in ConversationPane, so mounting them here would duplicate
+  // the heavy transcript tree. This also prevents 20 heavy component trees from
+  // being constructed and kept alive for tabs the user may never actually visit.
+  // Start empty — the $effect below populates it reactively.
   const mountedTabIds = new SvelteSet<string>();
+  const retainedTranscriptTabIds = new SvelteSet<string>();
+  const transcriptRecency: string[] = [];
   $effect(() => {
-    for (const id of visibleTabIds) mountedTabIds.add(id);
+    const displayedTabIds = [session.activeTabId].filter(
+      (tabId): tabId is string => !!tabId && !!session.tabs[tabId],
+    );
+    for (const id of displayedTabIds) mountedTabIds.add(id);
     for (const id of mountedTabIds) {
       if (!session.tabs[id]) mountedTabIds.delete(id);
+    }
+
+    const retained = retainedConversationTabIds(
+      transcriptRecency,
+      displayedTabIds,
+      session.tabOrder,
+    );
+    transcriptRecency.splice(0, transcriptRecency.length, ...retained);
+    for (const id of retained) retainedTranscriptTabIds.add(id);
+    for (const id of retainedTranscriptTabIds) {
+      if (!retained.includes(id)) retainedTranscriptTabIds.delete(id);
     }
   });
 
@@ -723,6 +744,7 @@
                   >
                     <ConversationView
                       tabId={tId}
+                      retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                       onDiffToggle={() =>
                         panes.toggleDiff(
                           !!session.sessionFor(tId)?.workingDirectory,

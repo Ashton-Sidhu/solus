@@ -91,7 +91,7 @@
       </div>
 
       {#if permission.toolDescription}
-        <p class="text-sm sm:text-xs leading-[1.4] mb-1.5 text-(--solus-text-secondary)">
+        <p class="text-sm sm:text-xs leading-[1.4] mb-1.5 font-secondary text-(--solus-text-secondary)">
           {permission.toolDescription}
         </p>
       {/if}
@@ -100,7 +100,7 @@
         <div class="mb-2 space-y-1.5">
           {#each editChanges as change (change.path)}
             <div class="overflow-hidden rounded-md border border-(--solus-permission-header-border)">
-              <div class="flex items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] text-(--solus-text-secondary)">
+              <div class="flex items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] font-secondary text-(--solus-text-secondary)">
                 <span class="truncate min-w-0 flex-1">{change.path}</span>
                 <span class="shrink-0 text-(--solus-text-tertiary)">{change.kind}</span>
               </div>
@@ -121,7 +121,7 @@
         {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
         <div class="mb-2 overflow-hidden rounded-md border border-(--solus-permission-header-border)">
           {#if typeof input.file_path === 'string'}
-            <div class="truncate border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] text-(--solus-text-secondary)">
+            <div class="truncate border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] font-secondary text-(--solus-text-secondary)">
               {input.file_path}
             </div>
           {/if}
@@ -142,7 +142,7 @@
       {#if isWrite && input}
         <div class="mb-2 overflow-hidden rounded-md border border-(--solus-permission-header-border)">
           {#if typeof input.file_path === 'string'}
-            <div class="truncate border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] text-(--solus-text-secondary)">
+            <div class="truncate border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] font-secondary text-(--solus-text-secondary)">
               {input.file_path}
             </div>
           {/if}
@@ -164,7 +164,7 @@
 
       {#if inputPreview}
         <pre
-          class="text-xs sm:text-[0.625rem] leading-[1.4] px-2 py-1.5 rounded-md overflow-x-auto whitespace-pre-wrap break-all mb-2 bg-(--solus-code-bg) text-(--solus-text-secondary)"
+          class="text-xs sm:text-[0.625rem] leading-[1.4] px-2 py-1.5 rounded-md overflow-x-auto whitespace-pre-wrap break-all mb-2 bg-(--solus-code-bg) font-secondary text-(--solus-text-secondary)"
           style="max-height:5rem"
         >{inputPreview}</pre>
       {/if}

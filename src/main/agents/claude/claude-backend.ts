@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, SAFE_TOOLS } from './claude-agent'
+import { TurnInputChannel } from './claude-turn-input'
 import { createSolusMcpServer } from '../../folio/work-tools'
 import { codexSubagentSdkTool } from '../codex/codex-subagent-tool'
 import { CodexSubagentEventBridge } from '../codex/codex-subagent-event-bridge'
@@ -47,11 +48,11 @@ import {
   type AnnotatedPlan,
 } from './claude-plan-helpers'
 import { _pluginCmdCache, PLUGIN_CMD_TTL, resolvePluginCommands } from './claude-plugin-helpers'
-import { MemoryCache } from '../../../shared/cache'
 import { runBounded } from '../../lib/concurrency'
 import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
 import { listIndexedSessions, sessionIndexReady } from '../../db/session-indexer'
+import { ClaudeCommandDiscovery } from './claude-command-discovery'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
 
@@ -76,18 +77,28 @@ type TurnBlock =
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
 
 /**
- * Build the prompt input for a turn. With no images it's a plain string (single
- * message input, unchanged). With images it's a one-shot async generator
- * (streaming input mode) that yields a single user message carrying real text +
- * image content blocks, then returns — closing the stream so the SDK runs
- * exactly one turn. The base64 bytes already live in memory (from the renderer
- * preview), so the generator never touches the filesystem and can't throw.
+ * A user message for a turn — the opening one, or one steered into a turn that
+ * is already running. Images become real content blocks; the base64 bytes
+ * already live in memory (from the renderer preview), so this never touches the
+ * filesystem and can't throw.
  */
-function buildPromptInput(
+function buildUserMessage(
   text: string,
   images: Array<{ mimeType: string; dataUrl: string }> | undefined,
-): string | AsyncIterable<SDKUserMessage> {
-  if (!images || images.length === 0) return text
+): SDKUserMessage {
+  return {
+    type: 'user',
+    message: { role: 'user', content: imageContent(text, images) ?? text },
+    parent_tool_use_id: null,
+  } as SDKUserMessage
+}
+
+/** Content blocks for a turn carrying images, or null for a plain text turn. */
+function imageContent(
+  text: string,
+  images: Array<{ mimeType: string; dataUrl: string }> | undefined,
+): TurnBlock[] | null {
+  if (!images || images.length === 0) return null
 
   const content: TurnBlock[] = []
   if (text) content.push({ type: 'text', text })
@@ -97,23 +108,24 @@ function buildPromptInput(
     content.push({ type: 'image', source: { type: 'base64', media_type: img.mimeType || m[1], data: m[2] } })
   }
   // Every dataUrl was malformed — fall back to the plain text turn.
-  if (!content.some((b) => b.type === 'image')) return text
-
-  return (async function* (): AsyncGenerator<SDKUserMessage> {
-    yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null } as SDKUserMessage
-  })()
+  return content.some((b) => b.type === 'image') ? content : null
 }
 
-/** Cache of SDK-reported built-in commands, keyed by working directory.
- *  Stores promises so concurrent calls for the same cwd share one subprocess. */
-const _builtinCmdCache = new MemoryCache<string, Promise<AgentSlashCommand[]>>({ ttlMs: PLUGIN_CMD_TTL })
+interface ClaudeRunHandle extends RunHandle {
+  /** The turn's open input stream — steering pushes into it while the run is live. */
+  input: TurnInputChannel
+}
 
-export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
+export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements AgentBackend {
   readonly id: AgentId = 'claude-code'
   readonly metadata: AgentMetadata = CLAUDE_METADATA
   readonly permissions = new PermissionManager()
 
   private agent = new ClaudeAgent()
+  private commandDiscovery = new ClaudeCommandDiscovery(
+    (target) => this.agent.supportedCommands(target),
+    PLUGIN_CMD_TTL,
+  )
 
   constructor() {
     super()
@@ -126,22 +138,14 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
-  /** SDK-reported built-in commands for a working directory, fetched via a
+  /** SDK-reported built-in commands for a working directory and model, fetched via a
    *  short-lived streaming query (the only mode that exposes `supportedCommands`)
-   *  and cached per-cwd. No persistent session is kept. */
+   *  and serialized across cache misses. No persistent session is kept. */
   private builtinCommands(ctx: IpcContext): Promise<AgentSlashCommand[]> {
     const cwd = ctx.session.workingDirectory
-    const cached = _builtinCmdCache.get(cwd)
-    if (cached) return cached
-
     const baseModel = ctx.statusBar.model
     const model = ctx.session.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
-    const promise = this.agent.supportedCommands({ cwd, model }).catch((e) => {
-      _builtinCmdCache.delete(cwd)
-      throw e
-    })
-    _builtinCmdCache.set(cwd, promise)
-    return promise
+    return this.commandDiscovery.get({ cwd, model })
   }
 
   startRun(input: SessionRunInput, options: PromptOptions): RunHandle {
@@ -155,7 +159,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
-    const handle: RunHandle = {
+    const handle: ClaudeRunHandle = {
       sessionId,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -165,6 +169,10 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
       runPromise,
       _resolveRun,
       _rejectRun,
+      input: new TurnInputChannel(
+        buildUserMessage(options.prompt, options.imageAttachments),
+        options.prompt,
+      ),
     }
 
     const workTree = input.gitContext?.worktreePath ?? input.workingDirectory
@@ -276,7 +284,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
         : baseSystemPromptAppend
 
       const { events, result } = this.agent.run({
-        prompt: buildPromptInput(options.prompt, options.imageAttachments),
+        prompt: handle.input,
         cwd: input.workingDirectory,
         sessionId,
         forkSession: input.forked,
@@ -328,7 +336,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   private async _runLoop(
-    handle: RunHandle,
+    handle: ClaudeRunHandle,
     events: AsyncIterable<NormalizedEvent>,
     result: Promise<ClaudeRunResult>,
     sessionRef: { current: string | null },
@@ -366,6 +374,26 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
   override cancelSession(sessionId: string): boolean {
     log.info(`Cancelling session ${sessionId}`)
     return super.cancelSession(sessionId)
+  }
+
+  /**
+   * Push a message into the turn that is already running, so the model picks it
+   * up at its next decision point and keeps going in the same turn.
+   */
+  async steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null> {
+    const handle = this.activeRuns.get(sessionId)
+    // The turn can settle between the control-plane's busy check and this push.
+    // A closed stream means its agent loop is already draining and will never
+    // read the message, so the caller keeps the prompt for the next turn.
+    if (!handle || handle.input.closed) return null
+    handle.input.push({
+      ...buildUserMessage(options.prompt, options.imageAttachments),
+      priority: 'now',
+    })
+    return handle
   }
 
   rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {
@@ -673,6 +701,6 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
 
   async refreshPluginCommands(): Promise<void> {
     _pluginCmdCache.clear()
-    _builtinCmdCache.clear()
+    this.commandDiscovery.clear()
   }
 }

@@ -31,6 +31,8 @@ import type {
   GitCheckout,
   IpcContext,
   PromptOptions,
+  PromptDelivery,
+  PromptDispatchResult,
   PlanDescriptor,
   PluginCommandsResult,
   QueuedPromptSnapshot,
@@ -46,7 +48,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../shared/types'
-import { encodePathAsFolder, gitCheckoutFromState } from '../shared/types'
+import { encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus } from '../shared/types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { Task } from '../shared/task-types'
 
@@ -94,7 +96,8 @@ export interface SessionRunLifecycle {
   agentSessionId: Promise<{ agentSessionId: string }>
   done: Promise<{ output?: string }>
   cancel: () => void
-  disposition: 'started' | 'queued'
+  disposition: 'started' | 'steered' | 'queued'
+  queueId?: string
 }
 
 export type DispatchTarget =
@@ -336,7 +339,7 @@ export class ControlPlane extends EventEmitter {
           log.info(`Task ${event.taskId} started for session ${session.sessionId} (${session.backgroundTaskIds.size} in flight)`)
           // A task can be backgrounded after the turn already settled to idle;
           // pull the session back to running so it reflects the in-flight work.
-          if (!this._isBusyStatus(session.status)) this._setStatus({ sessionId: session.sessionId }, 'running')
+          if (!isSessionBusyStatus(session.status)) this._setStatus({ sessionId: session.sessionId }, 'running')
         }
 
         if (event.type === 'background_task_settled') {
@@ -697,7 +700,9 @@ export class ControlPlane extends EventEmitter {
     if (tab.sessionId) {
       this.rateLimits.clear(tab.sessionId)
     }
+    this.pendingHandoffs.delete(ctx.session.tabId)
     tab.sessionId = null
+    delete tab.handoffFrom
     tab.status = 'idle'
 
     if (session) {
@@ -751,7 +756,7 @@ export class ControlPlane extends EventEmitter {
     }
     this._backendFor(newProvider)
     const status = session?.status ?? tab.status
-    if (this._isBusyStatus(status)) {
+    if (isSessionBusyStatus(status)) {
       throw new Error(`Session ${oldSessionId} must be idle before switching providers (current status: ${status})`)
     }
     if ((this.requestQueue.get(oldSessionId)?.length ?? 0) > 0) {
@@ -982,7 +987,7 @@ export class ControlPlane extends EventEmitter {
   }
 
   /** The only execution entry point. Every caller supplies an explicit target
-   * and receives the same lifecycle whether the turn starts now or queues. */
+   * and receives the same lifecycle whether the input starts, steers, or queues. */
   async runTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
     if (request.target.kind === 'session') {
       const agentSessionId = request.target.sessionId
@@ -1004,7 +1009,36 @@ export class ControlPlane extends EventEmitter {
         }
 
         const hasQueuedForSession = (this.requestQueue.get(agentSessionId)?.length ?? 0) > 0
-        if (this._isBusyStatus(session.status) || hasQueuedForSession) {
+        const wasRunningAtDispatch = session.status === 'running'
+        if (isSessionBusyStatus(session.status)) {
+          if (request.options.delivery !== 'queue') {
+            const steered = isSteerableStatus(session.status)
+              ? await this._steerActiveTurn(request, agentSessionId, session)
+              : null
+            if (steered) return steered
+            // `turn/steer` is preconditioned on an active turn. If that turn
+            // completed while the request was in flight, its exit handler may
+            // already have checked an empty queue. Start directly instead of
+            // enqueuing work that would have no later event to drain it.
+            const currentSession = this.activeSessions.get(agentSessionId)
+            const hasQueuedAfterSteer = (this.requestQueue.get(agentSessionId)?.length ?? 0) > 0
+            if ((!currentSession || !isSessionBusyStatus(currentSession.status)) && !hasQueuedAfterSteer) {
+              // The sender withheld its own bubble waiting on a steer verdict
+              // (see _steerActiveTurn), and a fresh run broadcasts the user
+              // message to every tab *but* the sender — so echo it back here.
+              if (request.sourceTabId && wasRunningAtDispatch) {
+                this.emit('event', request.sourceTabId, this._userMessageEvent(request.options))
+              }
+              return this._startRunLifecycle(request)
+            }
+          }
+          return this._enqueueRequest(request, {
+            agentSessionId,
+            reason: 'busy',
+            deviceId,
+          })
+        }
+        if (hasQueuedForSession) {
           return this._enqueueRequest(request, {
             agentSessionId,
             reason: 'busy',
@@ -1017,12 +1051,56 @@ export class ControlPlane extends EventEmitter {
     return this._startRunLifecycle(request)
   }
 
-  /** Submit a prompt to a tab and resolve once it has started or queued. */
+  /** The transcript echo for a prompt whose sender is waiting on us to render
+   *  it — every other tab gets the same event from the run itself. */
+  private _userMessageEvent(
+    options: PromptOptions,
+    delivery?: PromptDelivery,
+  ): NormalizedEvent {
+    return {
+      type: 'user_message',
+      text: options.displayPrompt ?? options.prompt,
+      ...(delivery ? { delivery } : {}),
+      ...(options.clientPromptId ? { clientPromptId: options.clientPromptId } : {}),
+      ...(options.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
+      ...(options.via ? { via: options.via, automationId: options.automationId, automationName: options.automationName } : {}),
+    }
+  }
+
+  private async _steerActiveTurn(
+    request: SessionRunRequest,
+    agentSessionId: string,
+    session: BackendSession,
+  ): Promise<SessionRunLifecycle | null> {
+    const backend = this._backendFor(session.backendId)
+    const handle = await backend.steerSession(agentSessionId, request.options)
+    if (!handle) return null
+
+    session.promptCount = (session.promptCount ?? 0) + 1
+    session.lastActivityAt = Date.now()
+    const userMessage = this._userMessageEvent(request.options, 'steer')
+    this._broadcastToSessionId('event', agentSessionId, userMessage)
+
+    const done = handle.runPromise.then(() => (
+      handle.resultText ? { output: handle.resultText } : {}
+    ))
+    void done.catch(() => {})
+    return {
+      agentSessionId: Promise.resolve({ agentSessionId }),
+      done,
+      // Accepted steering input cannot be withdrawn without interrupting the
+      // entire active turn, so this lifecycle has no independent cancellation.
+      cancel: () => {},
+      disposition: 'steered',
+    }
+  }
+
+  /** Submit a prompt to a tab and resolve once it has started, steered, or queued. */
   async submitPrompt(
     ctx: IpcContext,
     options: PromptOptions,
     deviceId?: string,
-  ): Promise<void> {
+  ): Promise<PromptDispatchResult> {
     const tabId = ctx.session.tabId
     if (!tabId) {
       throw new Error('No targetSession (tabId) provided — rejecting to prevent misrouting')
@@ -1037,6 +1115,10 @@ export class ControlPlane extends EventEmitter {
       : { kind: 'new-session' }
     const lifecycle = await this.runTurn({ input, target, sourceTabId: tabId, options }, deviceId)
     await lifecycle.agentSessionId
+    return {
+      disposition: lifecycle.disposition,
+      ...(lifecycle.queueId ? { queueId: lifecycle.queueId } : {}),
+    }
   }
 
   /**
@@ -1089,6 +1171,7 @@ export class ControlPlane extends EventEmitter {
       options: {
         prompt,
         displayPrompt: prompt,
+        delivery: 'queue',
         via: 'automation',
         automationId,
         automationName,
@@ -1097,7 +1180,11 @@ export class ControlPlane extends EventEmitter {
     await lifecycle.done
   }
 
-  async promptSession(agentSessionId: string, prompt: string): Promise<{ queued: boolean }> {
+  async promptSession(
+    agentSessionId: string,
+    prompt: string,
+    delivery: PromptDelivery = 'queue',
+  ): Promise<{ disposition: SessionRunLifecycle['disposition'] }> {
     const resident = this.activeSessions.get(agentSessionId)
     let input: SessionRunInput | undefined
     if (resident?.runInput) {
@@ -1132,14 +1219,14 @@ export class ControlPlane extends EventEmitter {
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'session', sessionId: agentSessionId },
-      options: { prompt, displayPrompt: prompt },
+      options: { prompt, displayPrompt: prompt, delivery },
     })
-    return { queued: lifecycle.disposition === 'queued' }
+    return { disposition: lifecycle.disposition }
   }
 
   stopSession(agentSessionId: string): boolean {
     const session = this.activeSessions.get(agentSessionId)
-    if (!session || !this._isBusyStatus(session.status)) return false
+    if (!session || !isSessionBusyStatus(session.status)) return false
 
     const queue = this.requestQueue.get(agentSessionId)
     if (queue) {
@@ -1390,7 +1477,7 @@ export class ControlPlane extends EventEmitter {
 
   /**
    * True while any agent is actually executing ('connecting'/'running').
-   * Narrower than _isBusyStatus on purpose: sessions parked on user input or a
+   * Narrower than isSessionBusyStatus on purpose: sessions parked on user input or a
    * rate-limit reset consume no compute, so they must not hold the process
    * power-save blocker (see syncPowerSaveBlocker in main/index.ts).
    */
@@ -1409,16 +1496,6 @@ export class ControlPlane extends EventEmitter {
     if (active === this.hadActiveWork) return
     this.hadActiveWork = active
     this.emit('active-work-changed', active)
-  }
-
-  private _isBusyStatus(status: SessionStatus): boolean {
-    return (
-      status === 'connecting' ||
-      status === 'running' ||
-      status === 'awaiting_input' ||
-      status === 'awaiting_plan' ||
-      status === 'rate_limited'
-    )
   }
 
   private _enqueueRequest(
@@ -1455,6 +1532,7 @@ export class ControlPlane extends EventEmitter {
       releaseAt: metadata.releaseAt,
       rateLimitType: metadata.rateLimitType,
       images: options.imageAttachments,
+      clientPromptId: options.clientPromptId,
     })
 
     let resolveDone!: () => void
@@ -1488,6 +1566,7 @@ export class ControlPlane extends EventEmitter {
       done,
       cancel: () => { this.cancelQueuedPromptForSession(queueKey, queueId) },
       disposition: 'queued',
+      queueId,
     }
   }
 
@@ -1669,12 +1748,7 @@ export class ControlPlane extends EventEmitter {
 
     const sourceTabId = request.sourceTabId
     if (sessionId) {
-      const userMessage: NormalizedEvent = {
-        type: 'user_message',
-        text: options.displayPrompt ?? options.prompt,
-        ...(options.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
-        ...(options.via ? { via: options.via, automationId: options.automationId, automationName: options.automationName } : {}),
-      }
+      const userMessage = this._userMessageEvent(options)
       if (sourceTabId) {
         this._broadcastToSessionExcept('event', sourceTabId, sessionId, userMessage)
       } else {
@@ -2207,12 +2281,7 @@ export class ControlPlane extends EventEmitter {
 
     const { sourceTabId, options } = req.run
     if (sourceTabId) {
-      this.emit('event', sourceTabId, {
-        type: 'user_message',
-        text: options.displayPrompt ?? options.prompt,
-        ...(options.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
-        ...(options.via ? { via: options.via, automationId: options.automationId, automationName: options.automationName } : {}),
-      })
+      this.emit('event', sourceTabId, this._userMessageEvent(options))
     }
 
     const reqInput = req.run.input
@@ -2254,6 +2323,7 @@ export class ControlPlane extends EventEmitter {
     return queue
       .map((r) => ({
         queueId: r.queueId,
+        clientPromptId: r.run.options.clientPromptId,
         text: r.prompt,
         enqueuedAt: r.enqueuedAt,
         reason: r.reason,

@@ -74,12 +74,11 @@ describe('Git state initialization', () => {
     expect(globalDefaults.workingDirectory).toBe('/my-workspace')
     expect(refreshedDirectory).toBe('/my-workspace')
     expect(globalDefaults.gitContext?.targetBranch).toBe('main')
-    const { homeGitDetails } = await import('../../src/renderer/components/layout/lib/new-tab-home')
+    const { homeGitDetails } = await import('../../src/renderer/lib/git-context')
     const home = homeGitDetails(
       globalDefaults.workingDirectory,
       undefined,
       globalDefaults.gitContext,
-      globalDefaults.worktreeBaseBranch,
     )
     expect(home.canToggleWorktree).toBe(true)
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')

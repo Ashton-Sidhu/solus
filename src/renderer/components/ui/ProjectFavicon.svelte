@@ -37,7 +37,7 @@
 
 <span class="relative flex size-3.5 flex-shrink-0 items-center justify-center">
   {#if isWorkspace}
-    <WorkspaceMark class="size-3.5 text-(--solus-brand-gold)" />
+    <WorkspaceMark class="size-3.5" />
   {:else}
     <FolderIcon
       size={13}

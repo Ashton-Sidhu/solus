@@ -9,6 +9,7 @@ import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { findLastUserIndex, normalizeTodoStatus, nextMsgId, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 
 const FINISHED_STATUSES = new Set(['completed', 'failed', 'dead', 'interrupted'])
 
@@ -34,6 +35,10 @@ export interface SessionEventReducerDeps {
 export class SessionEventReducer {
   // Separate $state bag so per-chunk text updates don't re-run reactions on other tabs.
   streaming = $state<{ text: Record<string, string> }>({ text: {} })
+  // Hidden tabs do not render their stream. Keep their new chunks append-only so
+  // concurrent background sessions avoid copying an ever-growing string on every
+  // transport flush; materialize once when the tab becomes visible or commits.
+  private hiddenTextChunks = new Map<string, string[]>()
 
   constructor(private deps: SessionEventReducerDeps) {}
 
@@ -345,7 +350,7 @@ export class SessionEventReducer {
             session.permissionQueue = []
             session.questionQueue = []
           } else if (session.rateLimitStrategy === 'stop') {
-            session.serverQueuedPrompts.splice(0, session.serverQueuedPrompts.length)
+            session.outboundPrompts.splice(0, session.outboundPrompts.length)
           }
 
           session.messages.push({
@@ -393,7 +398,7 @@ export class SessionEventReducer {
       }
 
       case 'status_card':
-        session.statusCard = event.card
+        session.statusCard = mergeRemoteDispatchProgress(session.statusCard, event.card)
         break
 
       case 'git_context':
@@ -411,24 +416,46 @@ export class SessionEventReducer {
         session.latestCheckpointId = event.checkpointId
         break
 
-      case 'user_message':
+      case 'user_message': {
+        const outbound = this.takeOutboundPrompt(session, event.clientPromptId)
         session.messages.push({
-          id: nextMsgId(),
+          id: event.clientPromptId ?? nextMsgId(),
           role: 'user' as const,
           content: event.text,
           timestamp: Date.now(),
-          ...(event.imageAttachments?.length
+          clientPromptId: event.clientPromptId,
+          delivery: event.delivery,
+          ...(outbound?.attachments?.length
+            ? { attachments: outbound.attachments }
+            : event.imageAttachments?.length
             ? { attachments: event.imageAttachments.map((img) => ({ name: '', dataUrl: img.dataUrl, mimeType: img.mimeType, type: 'image' as const })) }
             : {}),
+          ...(outbound?.planRefs?.length ? { planRefs: outbound.planRefs } : {}),
+          ...(outbound?.workRefs?.length ? { workRefs: outbound.workRefs } : {}),
+          ...(outbound?.sessionRefs?.length ? { sessionRefs: outbound.sessionRefs } : {}),
           ...(event.via ? { via: event.via, automationId: event.automationId, automationName: event.automationName } : {}),
         })
         break
+      }
 
-      case 'prompt_queued':
-        if (!session.serverQueuedPrompts.some((queued) => queued.queueId === event.queueId)) {
-          session.serverQueuedPrompts.push({
+      case 'prompt_queued': {
+        const existing = event.clientPromptId
+          ? session.outboundPrompts.find((prompt) => prompt.clientPromptId === event.clientPromptId)
+          : session.outboundPrompts.find((prompt) => prompt.queueId === event.queueId)
+        if (existing) {
+          existing.queueId = event.queueId
+          existing.state = 'queued'
+          existing.enqueuedAt = event.enqueuedAt
+          existing.reason = event.reason ?? 'busy'
+          existing.releaseAt = event.releaseAt
+          existing.rateLimitType = event.rateLimitType
+          existing.images = event.images
+        } else {
+          session.outboundPrompts.push({
+            clientPromptId: event.clientPromptId ?? `queued:${event.queueId}`,
             queueId: event.queueId,
             text: event.text,
+            state: 'queued',
             enqueuedAt: event.enqueuedAt,
             reason: event.reason ?? 'busy',
             releaseAt: event.releaseAt,
@@ -437,10 +464,11 @@ export class SessionEventReducer {
           })
         }
         break
+      }
 
       case 'prompt_dequeued': {
-        const idx = session.serverQueuedPrompts.findIndex((queued) => queued.queueId === event.queueId)
-        if (idx !== -1) session.serverQueuedPrompts.splice(idx, 1)
+        const idx = session.outboundPrompts.findIndex((prompt) => prompt.queueId === event.queueId)
+        if (idx !== -1) session.outboundPrompts.splice(idx, 1)
         break
       }
 
@@ -479,7 +507,7 @@ export class SessionEventReducer {
           session.statusCard = null
         }
         if (event.status === 'interrupted') {
-          session.serverQueuedPrompts.splice(0, session.serverQueuedPrompts.length)
+          session.outboundPrompts.splice(0, session.outboundPrompts.length)
           this.deps.closePlanModal()
         }
         if (FINISHED_STATUSES.has(event.status) || event.status === 'idle') {
@@ -610,7 +638,7 @@ export class SessionEventReducer {
     this.deps.workStreamTracker.sweep(tabId, session)
     session.status = 'interrupted'
     this.resetSessionRunState(session)
-    session.serverQueuedPrompts.splice(0, session.serverQueuedPrompts.length)
+    session.outboundPrompts.splice(0, session.outboundPrompts.length)
     this.deps.closePlanModal()
     this.deps.registry.forEachSiblingTab(tabId, (siblingId) => {
       this.commitPendingStream(siblingId)
@@ -788,24 +816,48 @@ export class SessionEventReducer {
         if (lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.isStreaming) {
           lastSub.content = text
           delete lastSub.isStreaming
-          break
+        } else if (!(lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.content === text)) {
+          subs.push({ id: nextMsgId(), role: 'assistant', content: text, timestamp: Date.now() })
         }
-        if (lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.content === text) break
-        subs.push({ id: nextMsgId(), role: 'assistant', content: text, timestamp: Date.now() })
+        if (event.isFinal) parent.toolStatus = 'completed'
         break
       }
     }
   }
 
   appendTextChunk(tabId: string, session: Session, text: string): void {
-    const prev = this.streaming.text[tabId]
-    this.streaming.text[tabId] = (prev ?? '') + text
+    if (this.deps.isTabVisible(tabId)) {
+      this.streaming.text[tabId] = this.pendingText(tabId) + text
+      this.hiddenTextChunks.delete(tabId)
+    } else {
+      const chunks = this.hiddenTextChunks.get(tabId)
+      if (chunks) chunks.push(text)
+      else this.hiddenTextChunks.set(tabId, [text])
+    }
     if (!session.isStreamingText) session.isStreamingText = true
   }
 
-  commitPendingStream(tabId: string): void {
-    const pendingText = this.streaming.text[tabId] ?? ''
+  streamingTextFor(tabId: string, isVisible: boolean): string {
+    const current = this.streaming.text[tabId] ?? ''
+    if (!isVisible) return current
+    const chunks = this.hiddenTextChunks.get(tabId)
+    return chunks?.length ? current + chunks.join('') : current
+  }
+
+  clearStreamingText(tabId: string): void {
     delete this.streaming.text[tabId]
+    this.hiddenTextChunks.delete(tabId)
+  }
+
+  private pendingText(tabId: string): string {
+    const current = this.streaming.text[tabId] ?? ''
+    const chunks = this.hiddenTextChunks.get(tabId)
+    return chunks?.length ? current + chunks.join('') : current
+  }
+
+  commitPendingStream(tabId: string): void {
+    const pendingText = this.pendingText(tabId)
+    this.clearStreamingText(tabId)
     const session = this.deps.registry.sessionFor(tabId)
     if (session) session.isStreamingText = false
     if (!pendingText) return
@@ -836,5 +888,13 @@ export class SessionEventReducer {
     session.permissionQueue = []
     session.questionQueue = []
     session.permissionDenied = null
+  }
+
+  private takeOutboundPrompt(session: Session, clientPromptId?: string) {
+    if (!clientPromptId) return undefined
+    const index = session.outboundPrompts.findIndex((prompt) => prompt.clientPromptId === clientPromptId)
+    if (index === -1) return undefined
+    const [prompt] = session.outboundPrompts.splice(index, 1)
+    return prompt
   }
 }

@@ -4,6 +4,7 @@
     CheckCircleIcon,
     CircleNotchIcon,
     CircleIcon,
+    DesktopTowerIcon,
     WarningCircleIcon,
   } from "phosphor-svelte";
   import type { StatusCardState } from "../../../shared/types";
@@ -44,6 +45,13 @@
       >
         {#if card.icon === "git-branch"}
           <GitBranchIcon
+            size={16}
+            weight="regular"
+            class="relative z-[1]"
+            style="color:var(--solus-accent)"
+          />
+        {:else if card.icon === "server"}
+          <DesktopTowerIcon
             size={16}
             weight="regular"
             class="relative z-[1]"
@@ -115,8 +123,8 @@
             {/if}
           </span>
 
-          <span
-            class="min-w-0 flex-1 truncate text-[0.7813rem] leading-tight transition-colors duration-300 ease-(--ease-premium)"
+          <div
+            class="min-w-0 flex-1 py-2.5 text-[0.7813rem] leading-tight transition-colors duration-300 ease-(--ease-premium)"
             class:font-medium={isActive}
             style:color={isError
               ? "var(--solus-status-error)"
@@ -126,8 +134,16 @@
                   ? "var(--solus-text-secondary)"
                   : "var(--solus-text-tertiary)"}
           >
-            {step.label}
-          </span>
+            <span class="block truncate">{step.label}</span>
+            {#if step.detail}
+              <p
+                class="mt-1 line-clamp-3 text-pretty break-words text-[0.6875rem] font-normal leading-relaxed text-(--solus-text-secondary)"
+                title={step.detail}
+              >
+                {step.detail}
+              </p>
+            {/if}
+          </div>
         </li>
       {/each}
     </ul>

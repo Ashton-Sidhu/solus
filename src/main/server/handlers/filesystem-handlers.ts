@@ -5,8 +5,6 @@ import { listProjects } from '../../project-config/projects-manifest'
 import type { SolusServer } from '../server'
 import { expandHome } from './lib/host-path'
 
-export { expandHome } from './lib/host-path'
-
 /**
  * Filesystem browsing, registered unconditionally so a `--headless` host can
  * still be browsed from a paired client. Anything needing an Electron window
@@ -62,6 +60,7 @@ export function registerFilesystemHandlers(server: SolusServer): void {
   server.register('listDirectory', async (args) => {
     const [rawPath, showHidden, annotate] = args as [string, boolean | undefined, boolean | undefined]
     const resolved = expandHome(rawPath)
+    const parent = dirname(resolved)
 
     try {
       const dirents = await readdir(resolved, { withFileTypes: true })
@@ -76,7 +75,6 @@ export function registerFilesystemHandlers(server: SolusServer): void {
       const sorted = sortDirEntries(filtered)
       const entries: DirectoryEntry[] = sorted.map(e => ({ name: e.name, isDir: e.isDir, path: join(resolved, e.name) }))
       if (annotate) await annotateEntries(entries)
-      const parent = dirname(resolved)
       return {
         entries,
         parentPath: parent === resolved ? null : parent,
@@ -84,7 +82,6 @@ export function registerFilesystemHandlers(server: SolusServer): void {
         error: null,
       } satisfies DirectoryListResult
     } catch (error) {
-      const parent = dirname(resolved)
       return {
         entries: [],
         parentPath: parent === resolved ? null : parent,

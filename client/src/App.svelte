@@ -25,6 +25,7 @@
   } from "@renderer/lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { invalidateHomeCache } from "@renderer/components/layout/NewTabHome.svelte";
+  import * as Tooltip from "@renderer/components/ui/tooltip";
   import WebLayout from "./components/WebLayout.svelte";
 
   const { settings, planStore, runStore, sessionSidebarStore, session, agent, keybindings } =
@@ -371,6 +372,11 @@
   });
 </script>
 
+<Tooltip.Provider
+  delayDuration={450}
+  skipDelayDuration={300}
+  disableHoverableContent
+>
 <div
   bind:this={overlayEl}
   data-solus-ui
@@ -419,6 +425,7 @@
     </div>
   </div>
 {/if}
+</Tooltip.Provider>
 
 <style>
   .lazy-modal-loading {

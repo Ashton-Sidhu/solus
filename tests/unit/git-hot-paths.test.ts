@@ -210,6 +210,17 @@ describe('diff statistics hot path', () => {
     })
     expect(first?.sessionChangedFiles?.sort()).toEqual(['temporary.txt', 'tracked.txt'])
 
+    const unchanged = await snapshotTurn(cwd, cwd, 'session-1', {
+      sessionChangedFiles: ['tracked.txt', 'temporary.txt'],
+    })
+    expect(unchanged?.snapshot.sha).toBe(first?.snapshot.sha)
+    expect(unchanged?.snapshot).toMatchObject({
+      filesChanged: 0,
+      additions: 0,
+      deletions: 0,
+    })
+    expect(unchanged?.sessionChangedFiles?.sort()).toEqual(['temporary.txt', 'tracked.txt'])
+
     writeFileSync(join(cwd, 'tracked.txt'), 'first\n')
     unlinkSync(join(cwd, 'temporary.txt'))
     const second = await snapshotTurn(cwd, cwd, 'session-1', {

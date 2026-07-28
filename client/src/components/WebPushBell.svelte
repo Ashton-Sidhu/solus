@@ -1,6 +1,6 @@
 <script lang="ts">
   import { BellIcon, BellSlashIcon, SpinnerIcon } from "phosphor-svelte";
-  import { tooltip } from "@renderer/lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { webPushState } from "../lib/web-push.svelte";
   import { toasts } from "../lib/toast.store.svelte";
 
@@ -35,7 +35,7 @@
       disabled={webPushState.busy}
       aria-pressed={webPushState.subscribed}
     >
-      <span class="flex w-5 shrink-0 items-center justify-center text-(--solus-text-secondary)">
+      <span class="flex w-5 shrink-0 items-center justify-center font-secondary text-(--solus-text-secondary)">
         {#if webPushState.busy}
           <SpinnerIcon size={18} class="animate-spin" />
         {:else if webPushState.subscribed}
@@ -52,7 +52,10 @@
       </span>
     </button>
   {:else}
-    <button
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       type="button"
       class="ws-push-btn"
       class:ws-push-btn--active={webPushState.subscribed}
@@ -60,7 +63,6 @@
       disabled={webPushState.busy}
       aria-label={label}
       aria-pressed={webPushState.subscribed}
-      use:tooltip={label}
     >
       {#if webPushState.busy}
         <SpinnerIcon size={13} class="animate-spin" />
@@ -70,6 +72,10 @@
         <BellSlashIcon size={13} />
       {/if}
     </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={label} />
+    </TooltipUI.Root>
   {/if}
 {/if}
 

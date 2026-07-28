@@ -136,7 +136,7 @@
       </span>
       <span class="px-1.5 text-(--solus-tool-border)" aria-hidden="true">—</span>
       <span
-        class="min-w-0 truncate text-(--solus-text-secondary)"
+        class="min-w-0 truncate font-secondary text-(--solus-text-secondary)"
         style:color={isError ? "var(--solus-art-negative)" : undefined}
       >
         {activity}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Input } from "../ui/input";
 
   interface Props {
@@ -102,33 +102,51 @@
       {current}/{total}
     {/if}
   </span>
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     onclick={onPrev}
     disabled={total === 0}
     aria-label="Previous match"
     class="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-(--solus-text-tertiary) transition-[color,background-color] duration-120 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-    use:tooltip={"Previous (⇧↵)"}
   >
     <CaretUpIcon size={12} weight="bold" />
   </button>
-  <button
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Previous (⇧↵)"} />
+  </TooltipUI.Root>
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     onclick={onNext}
     disabled={total === 0}
     aria-label="Next match"
     class="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-(--solus-text-tertiary) transition-[color,background-color] duration-120 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-    use:tooltip={"Next (↵)"}
   >
     <CaretDownIcon size={12} weight="bold" />
   </button>
-  <button
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Next (↵)"} />
+  </TooltipUI.Root>
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     onclick={onClose}
     aria-label="Close find"
     class="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-(--solus-text-tertiary) transition-[color,background-color] duration-120 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
-    use:tooltip={"Close (Esc)"}
   >
     <XIcon size={12} />
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Close (Esc)"} />
+  </TooltipUI.Root>
 </div>

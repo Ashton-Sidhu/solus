@@ -1,0 +1,3 @@
+{"method":"item/started","params":{"threadId":"parent-thread","turnId":"turn-1","item":{"type":"subAgentActivity","id":"call-agent-1","kind":"started","agentThreadId":"child-thread","agentPath":"/root/investigate_split_crash"}}}
+{"method":"item/completed","params":{"threadId":"parent-thread","turnId":"turn-1","item":{"type":"subAgentActivity","id":"call-agent-1","kind":"started","agentThreadId":"child-thread","agentPath":"/root/investigate_split_crash"}}}
+{"method":"item/completed","params":{"threadId":"child-thread","turnId":"child-turn","item":{"id":"child-answer","type":"agentMessage","text":"The split fix is safe.","phase":"final_answer"}}}

@@ -41,7 +41,7 @@
 </script>
 
 {#snippet progressRing(fraction: number)}
-  <span class="size-[calc(1.15rem*var(--orb-scale))] shrink-0" aria-hidden="true">
+  <span class="size-[calc(1.3rem*var(--orb-scale))] shrink-0" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" class="size-full -rotate-90">
       <circle cx="12" cy="12" r="9" stroke-width="2.5" class="stroke-primary/20" />
       <circle
@@ -61,11 +61,11 @@
 
 {#snippet checkDot()}
   <span
-    class="flex size-[calc(1.15rem*var(--orb-scale))] shrink-0 items-center justify-center rounded-full bg-primary/15"
+    class="flex size-[calc(1.3rem*var(--orb-scale))] shrink-0 items-center justify-center rounded-full bg-primary/15"
     aria-hidden="true"
   >
     <CheckIcon
-      class="size-[calc(0.72rem*var(--orb-scale))] text-primary"
+      class="size-[calc(0.82rem*var(--orb-scale))] text-primary"
       weight="bold"
     />
   </span>
@@ -73,14 +73,14 @@
 
 {#snippet dashedDot()}
   <span
-    class="size-[calc(1.15rem*var(--orb-scale))] shrink-0 rounded-full border border-dashed border-muted-foreground/45"
+    class="size-[calc(1.3rem*var(--orb-scale))] shrink-0 rounded-full border border-dashed border-muted-foreground/45"
     aria-hidden="true"
   ></span>
 {/snippet}
 
 <Popover.Root bind:open={stepsOpen}>
   <Popover.Content
-    class="progress-popover flex w-[min(calc(30rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[min(calc(26rem*var(--orb-scale)),calc(100vh-8rem))] flex-col gap-0 p-0"
+    class="progress-popover flex w-[min(calc(34rem*var(--orb-scale)),calc(100vw-1.5rem))] max-h-[calc(100vh-8rem)] flex-col gap-0 p-0 [--pop-body-size:calc(0.875rem*var(--orb-scale))] [--pop-title-size:calc(0.9375rem*var(--orb-scale))]"
     side="top"
     sideOffset={8}
     style={`--orb-scale: calc(var(--solus-font-scale, 1) * ${orbScreenScale})`}
@@ -122,7 +122,7 @@
     >
       {#each progress.todos as todo, i (i)}
         <li
-          class="flex scroll-my-[calc(0.5rem*var(--orb-scale))] items-start gap-[calc(0.625rem*var(--orb-scale))] rounded-[calc(0.75rem*var(--orb-scale))] border px-[calc(0.5rem*var(--orb-scale))] py-[calc(0.4375rem*var(--orb-scale))] {todo.status ===
+          class="flex scroll-my-[calc(0.5rem*var(--orb-scale))] items-start gap-[calc(0.625rem*var(--orb-scale))] rounded-[calc(0.75rem*var(--orb-scale))] border px-[calc(0.625rem*var(--orb-scale))] py-[calc(0.5rem*var(--orb-scale))] {todo.status ===
           'in_progress'
             ? 'border-primary/30 bg-primary/[0.07] dark:border-primary/40 dark:bg-primary/10'
             : 'border-transparent'}"
@@ -136,12 +136,12 @@
             {@render dashedDot()}
           {/if}
           <span
-            class="min-w-0 flex-1 [overflow-wrap:anywhere] text-[length:var(--pop-body-size)] leading-[1.45] {todo.status ===
+            class="min-w-0 flex-1 [overflow-wrap:anywhere] text-[length:var(--pop-body-size)] leading-[1.5] {todo.status ===
             'completed'
-              ? 'line-clamp-1 text-muted-foreground line-through opacity-70'
+              ? 'text-muted-foreground line-through opacity-70'
               : todo.status === 'in_progress'
                 ? 'font-medium text-foreground'
-                : 'line-clamp-2 font-normal text-[var(--solus-text-secondary)]'}"
+                : 'font-normal text-[var(--solus-text-secondary)]'}"
             >{todo.content}</span
           >
         </li>

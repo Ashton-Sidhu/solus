@@ -1,6 +1,6 @@
 <script lang="ts">
   import { MicrophoneIcon, SpinnerGapIcon, XIcon, CheckIcon } from 'phosphor-svelte'
-  import { tooltip } from '../../lib/tooltip'
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import WaveformVisualizer from './WaveformVisualizer.svelte'
   import type { VoiceState } from '../../lib/voice-recorder.svelte'
 
@@ -33,7 +33,7 @@
     onToggle,
     disabled = false,
     waiting = false,
-    idleTooltip = 'Voice input (⌥⇧K)',
+    idleTooltip = 'Voice input (⌥⇧Space)',
     showMic = true,
     micTextarea = false,
     progressPct = null,
@@ -43,22 +43,34 @@
 {#if variant === 'bar'}
   {#if state === 'recording'}
     <div class="flex items-center gap-1">
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         type="button"
         onmousedown={(e) => e.preventDefault()}
         onclick={onCancel}
         aria-label="Cancel recording"
         class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
-        use:tooltip={"Cancel recording"}
       ><XIcon size={15} weight="bold" /></button>
-      <button
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Cancel recording"} />
+      </TooltipUI.Root>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         type="button"
         onmousedown={(e) => e.preventDefault()}
         onclick={onConfirm}
         aria-label="Finish recording"
         class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] bg-(--solus-accent) text-(--solus-text-on-accent)"
-        use:tooltip={"Confirm recording"}
       ><CheckIcon size={15} weight="bold" /></button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
+      </TooltipUI.Root>
     </div>
   {:else if state === 'transcribing'}
     <button
@@ -68,7 +80,10 @@
       class="w-9 h-9 rounded-full border border-(--solus-container-border) flex items-center justify-center text-(--solus-mic-color)"
     ><SpinnerGapIcon size={16} class="animate-spin" /></button>
   {:else}
-    <button
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       type="button"
       onmousedown={(e) => e.preventDefault()}
       onclick={onToggle}
@@ -84,30 +99,45 @@
         : waiting
           ? 'var(--solus-text-on-accent)'
           : 'var(--solus-mic-color)'};opacity:{disabled ? 0.4 : 1}"
-      use:tooltip={idleTooltip}
     >{#if progressPct !== null}<span class="flex h-7 w-7 items-center justify-center rounded-full bg-(--solus-input-pill-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={idleTooltip} />
+    </TooltipUI.Root>
   {/if}
 {:else if state === 'recording'}
   <span class="rc-row">
     <span class="rc-waveform">
       <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
     </span>
-    <button
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       type="button"
       class="rc-action-btn"
       onmousedown={(e) => e.preventDefault()}
       onclick={onCancel}
-      use:tooltip={"Cancel recording"}
       aria-label="Cancel recording"
     ><XIcon size={13} weight="bold" /></button>
-    <button
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Cancel recording"} />
+    </TooltipUI.Root>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       type="button"
       class="rc-action-btn rc-action-btn--confirm"
       onmousedown={(e) => e.preventDefault()}
       onclick={onConfirm}
-      use:tooltip={"Confirm recording"}
       aria-label="Confirm recording"
     ><CheckIcon size={13} weight="bold" /></button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
+    </TooltipUI.Root>
   </span>
 {:else if state === 'transcribing'}
   <button
@@ -118,19 +148,25 @@
     aria-label="Transcribing…"
   ><SpinnerGapIcon size={14} class="animate-spin" /></button>
 {:else if showMic}
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     class="rc-mic"
     class:rc-mic--textarea={micTextarea}
     {disabled}
     onmousedown={(e) => e.preventDefault()}
     onclick={onToggle}
-    use:tooltip={idleTooltip}
     aria-label="Voice input"
     style={progressPct !== null
       ? `background:conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, transparent 0deg)`
       : undefined}
   ><MicrophoneIcon size={14} /></button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={idleTooltip} />
+  </TooltipUI.Root>
 {/if}
 
 <style>

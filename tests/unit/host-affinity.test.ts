@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   hostAffinityGlyph,
   hostStatusLabel,
-} from '../../src/renderer/components/servers/lib/host-affinity'
+} from '../../src/renderer/contexts/connections/host-affinity'
 
 describe('host affinity badge', () => {
   test('every host surface shares one availability vocabulary', () => {

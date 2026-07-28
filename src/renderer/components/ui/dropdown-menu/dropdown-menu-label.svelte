@@ -17,7 +17,7 @@
 	bind:this={ref}
 	data-slot="dropdown-menu-label"
 	data-inset={inset}
-	class={cn("text-muted-foreground px-1.5 py-1 text-xs lg:text-[0.8125rem] font-medium data-inset:pl-7 data-[inset]:pl-8", className)}
+	class={cn("menu-heading data-inset:pl-7 data-[inset]:pl-8", className)}
 	{...restProps}
 >
 	{@render children?.()}

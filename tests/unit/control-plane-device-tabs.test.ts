@@ -1,9 +1,17 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'events'
-import { ControlPlane } from '../../src/main/control-plane'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
 import type { BuiltHandoff, BuildHandoffDeps } from '../../src/main/agents/session-handoff'
 import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput, SessionStatus } from '../../src/shared/types'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
+type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
+beforeAll(async () => {
+  ;({ ControlPlane } = await import('../../src/main/control-plane'))
+})
 
 const GRACE_MS = 5 * 60_000
 
@@ -48,6 +56,9 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   running = new Set<string>()
   lastInput: SessionRunInput | undefined
   inputs: SessionRunInput[] = []
+  steeredOptions: Array<Pick<PromptOptions, 'prompt' | 'imageAttachments'>> = []
+  steerResult: 'accepted' | 'not-active' = 'accepted'
+  onSteer: (() => void) | null = null
   private nextSession = 1
   private handles = new Map<string, RunHandle>()
   private pendingHandles = new Set<RunHandle>()
@@ -103,6 +114,16 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       } satisfies NormalizedEvent)
     })
     return handle
+  }
+  async steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null> {
+    if (!this.running.has(sessionId) || !this.handles.has(sessionId)) return null
+    this.onSteer?.()
+    if (this.steerResult === 'not-active') return null
+    this.steeredOptions.push(options)
+    return this.handles.get(sessionId) ?? null
   }
   complete(sessionId: string, result: string): void {
     const handle = this.handles.get(sessionId)
@@ -230,7 +251,7 @@ function setup(options: {
   }
 }
 
-const planes: ControlPlane[] = []
+const planes: ControlPlaneInstance[] = []
 
 afterEach(() => {
   for (const plane of planes.splice(0)) plane.shutdown()
@@ -406,15 +427,128 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'busy-session' },
-      options: { prompt: 'Queue me' },
+      options: { prompt: 'Queue me', delivery: 'queue' },
     })
 
     expect(lifecycle.disposition).toBe('queued')
+    expect(lifecycle.queueId).toBeString()
     await expect(lifecycle.agentSessionId).resolves.toEqual({ agentSessionId: 'busy-session' })
     expect(env.backend.inputs).toHaveLength(0)
 
     lifecycle.cancel()
     await expect(lifecycle.done).rejects.toThrow('Cancelled by user')
+  })
+
+  test('steers a running turn by default and shares its completion lifecycle', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: null,
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+    const active = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'new-session' },
+      options: { prompt: 'Start working' },
+    })
+    const { agentSessionId } = await active.agentSessionId
+    env.registerWatch('tab-a', 'ws:a', 'device-a', agentSessionId)
+    env.registerWatch('tab-b', 'ws:b', 'device-b', agentSessionId)
+    env.events.length = 0
+
+    const steered = await env.controlPlane.runTurn({
+      input: { ...input, agentSessionId },
+      target: { kind: 'session', sessionId: agentSessionId },
+      sourceTabId: 'tab-a',
+      options: { prompt: 'Change direction', imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }] },
+    })
+
+    expect(steered.disposition).toBe('steered')
+    expect(env.backend.inputs).toHaveLength(1)
+    expect(env.backend.steeredOptions).toEqual([{
+      prompt: 'Change direction',
+      imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
+    }])
+    expect(env.events.filter(({ event }) => event.type === 'user_message')).toEqual([
+      {
+        tabId: 'tab-a',
+        event: {
+          type: 'user_message',
+          text: 'Change direction',
+          delivery: 'steer',
+          imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
+        },
+      },
+      {
+        tabId: 'tab-b',
+        event: {
+          type: 'user_message',
+          text: 'Change direction',
+          delivery: 'steer',
+          imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
+        },
+      },
+    ])
+
+    env.backend.complete(agentSessionId, 'Finished after steering')
+    await expect(active.done).resolves.toEqual({ output: 'Finished after steering' })
+    await expect(steered.done).resolves.toEqual({ output: 'Finished after steering' })
+  })
+
+  test('starts a fresh turn when the active turn completes during steering', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: null,
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+    const active = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'new-session' },
+      options: { prompt: 'Start working' },
+    })
+    const { agentSessionId } = await active.agentSessionId
+    env.backend.steerResult = 'not-active'
+    env.backend.onSteer = () => env.backend.complete(agentSessionId, 'First turn finished')
+
+    const followUp = await env.controlPlane.runTurn({
+      input: { ...input, agentSessionId },
+      target: { kind: 'session', sessionId: agentSessionId },
+      options: { prompt: 'Follow up at the boundary' },
+    })
+
+    expect(followUp.disposition).toBe('started')
+    expect(env.backend.inputs).toHaveLength(2)
   })
 
   test('cancels a new run before session_init through the shared lifecycle', async () => {
@@ -453,6 +587,53 @@ describe('ControlPlane headless sessions', () => {
 })
 
 describe('ControlPlane provider handoff', () => {
+  test('resetting a tab cancels a pending provider handoff', async () => {
+    const buildCalls: string[] = []
+    const env = setup({
+      backendIds: ['codex', 'claude-code'],
+      buildHandoff: async (sessionId) => {
+        buildCalls.push(sessionId)
+        return {
+          transcriptFilePath: '/tmp/solus-handoffs/old-session-transcript.md',
+          reasoningFilePath: '/tmp/solus-handoffs/old-session-reasoning.md',
+        }
+      },
+    })
+    planes.push(env.controlPlane)
+    env.seedSession('old-session', {
+      backendId: 'codex',
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'old-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
+    env.controlPlane.bindRuntimeSession(
+      'tab-a',
+      'old-session',
+      { clientId: 'ws:a', deviceId: 'device-1' },
+      { provider: 'claude-code', sessionId: 'earlier-session' },
+      'codex',
+    )
+
+    await env.controlPlane.switchSessionProvider('tab-a', 'claude-code')
+    env.controlPlane.resetTabSession(
+      promptContext('tab-a', 'codex', 'old-session'),
+      { clientId: 'ws:a', deviceId: 'device-1' },
+    )
+    const resetTab = (env.controlPlane as unknown as {
+      tabs: Map<string, { handoffFrom?: { provider: AgentId; sessionId: string } }>
+    }).tabs.get('tab-a')
+    expect(resetTab?.handoffFrom).toBeUndefined()
+
+    const freshContext = promptContext('tab-a', 'claude-code', 'old-session')
+    freshContext.session.agentSessionId = null
+    await env.controlPlane.submitPrompt(freshContext, { prompt: 'Start fresh' })
+
+    const claude = env.backends.find((backend) => backend.id === 'claude-code')!
+    expect(buildCalls).toEqual([])
+    expect(claude.lastInput?.agentSessionId).toBeNull()
+    expect(claude.lastInput?.handoff).toBeUndefined()
+  })
+
   test('switches the tab instantly, without building the handoff, then builds it on the next prompt', async () => {
     const buildCalls: Array<{ sessionId: string; projectPath: string }> = []
     const env = setup({

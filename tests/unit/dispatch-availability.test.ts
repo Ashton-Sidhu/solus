@@ -8,7 +8,9 @@ describe('dispatch availability', () => {
     // and the session would start in a path that doesn't exist there.
     const result = dispatchAvailability({ inCheckout: true, repoKey: null, identitiesProbed: true })
     expect(result.canDispatch).toBe(false)
-    expect(result.canDispatch === false && result.reason).toBe('no-remote')
+    expect(result.canDispatch === false && result.note).toBe(
+      'This project has no git remote, so no other host can fetch it. Open a folder there instead.',
+    )
   })
 
   test('an unprobed host is never accused of having no remote', () => {

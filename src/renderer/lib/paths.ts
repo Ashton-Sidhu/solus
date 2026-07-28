@@ -36,3 +36,18 @@ export function displayDirName(
   if (isWorkspaceDir(path, workspacePath)) return 'My Workspace'
   return abbreviateHome(path)
 }
+
+/**
+ * The project's own name — its last path segment. Companion to
+ * `displayDirName` for rows too narrow for a path, where the folder name is
+ * the only part a reader identifies the project by.
+ */
+export function projectDirLabel(
+  path: string | null | undefined,
+  workspacePath: string | null | undefined,
+): string {
+  if (isWorkspaceDir(path, workspacePath)) return 'My Workspace'
+  const dir = path?.replace(/\/+$/, '')
+  if (!dir || dir === '~') return '~'
+  return dir.split('/').pop() || abbreviateHome(dir)
+}

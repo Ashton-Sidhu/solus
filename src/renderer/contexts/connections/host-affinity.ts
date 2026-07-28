@@ -1,6 +1,6 @@
 import { CloudSlashIcon, GlobeSimpleIcon } from 'phosphor-svelte'
 import type { Component } from 'svelte'
-import type { ServerItemStatus } from '../../../contexts/connections/servers.store.svelte'
+import type { ServerItemStatus } from './servers.store.svelte'
 
 /** The host a surface belongs to, in the two facts every badge needs. */
 export interface HostAffinityTarget {
@@ -23,6 +23,14 @@ export function hostStatusLabel(status: ServerItemStatus): string {
   if (status === 'connecting') return 'Connecting'
   if (status === 'offline') return 'Offline'
   return 'Not checked'
+}
+
+/** The matching availability dot, including motion while a host is connecting. */
+export function hostStatusDotClass(status: ServerItemStatus): string {
+  if (status === 'online') return 'bg-(--solus-status-complete)'
+  if (status === 'connecting') return 'animate-pulse bg-(--solus-accent)'
+  if (status === 'offline') return 'bg-(--solus-status-error)'
+  return 'bg-(--solus-text-quaternary)'
 }
 
 /**

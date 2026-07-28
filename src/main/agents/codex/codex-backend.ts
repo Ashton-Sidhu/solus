@@ -1,6 +1,5 @@
-import { existsSync } from 'node:fs'
 import { BaseAgentBackend } from '../base-backend'
-import { getCodexAppServerClient, isHeadlessCodexThread } from './codex-agent'
+import { CodexRpcError, getCodexAppServerClient, isHeadlessCodexThread } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { loadAllAnnotations } from '../../plans/annotations'
@@ -46,6 +45,8 @@ import type {
   CodexThreadStartResponse,
   CodexTurnStartParams,
   CodexTurnStartResponse,
+  CodexTurnSteerParams,
+  CodexTurnSteerResponse,
   JsonRpcNotification,
   JsonRpcRequest,
 } from './codex-protocol'
@@ -65,12 +66,9 @@ import {
   codexThreadBelongsToProject,
   extractCodexChangedFilePaths,
   groupCodexPlansBySession,
-  hasUpdatePlanMessage,
-  insertMessageByTimestamp,
   isInterruptedTurnStatus,
   isNormalStreamingTextNotification,
   isSolusWorktreePath,
-  latestCodexUpdatePlanMessageFromJsonl,
   sandboxPolicyFor,
   scanCodexPlans,
   scanCodexThreadActivityTimestamp,
@@ -98,6 +96,22 @@ import {
 } from '../claude/claude-subagent-tool'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
+
+function isSteerTurnBoundaryError(error: unknown): boolean {
+  if (!(error instanceof CodexRpcError)) return false
+  const data = error.data
+  if (data && typeof data === 'object') {
+    const info = (data as { codexErrorInfo?: unknown }).codexErrorInfo
+    if (
+      info &&
+      typeof info === 'object' &&
+      'activeTurnNotSteerable' in info
+    ) {
+      return true
+    }
+  }
+  return /expected turn .*no longer active|active turn .*not steerable/i.test(error.message)
+}
 
 /** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
  *  new user's first full sweep from spiking the RPC channel. */
@@ -428,6 +442,44 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return true
   }
 
+  async steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null> {
+    const handle = this.activeRuns.get(sessionId)
+    if (!handle?.threadId || !handle.turnId) return null
+
+    const expectedTurnId = handle.turnId
+    const params: CodexTurnSteerParams = {
+      threadId: handle.threadId,
+      expectedTurnId,
+      input: await this.buildTurnInput(
+        options.prompt,
+        handle.cwd,
+        options.imageAttachments,
+      ) as CodexTurnSteerParams['input'],
+    }
+
+    try {
+      const response = await this.client.request<CodexTurnSteerResponse>('turn/steer', params)
+      if (response.turnId !== expectedTurnId) {
+        log.warn(`Codex steer returned unexpected turn ${response.turnId}; expected ${expectedTurnId}`)
+        return null
+      }
+      log.info(`Codex steer accepted for ${sessionId} on turn ${expectedTurnId}`)
+      return handle
+    } catch (error) {
+      // The active turn may complete, or enter a non-steerable review/compact
+      // turn, between the control-plane check and this request. The caller keeps
+      // the input and dispatches it at the next turn boundary.
+      if (isSteerTurnBoundaryError(error)) {
+        log.info(`Codex steer rejected for ${sessionId}; preserving prompt for next turn: ${error.message}`)
+        return null
+      }
+      throw error
+    }
+  }
+
   protected override _errorMessage(_exitCode: number | null): string {
     return 'Codex run failed'
   }
@@ -599,8 +651,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     })
     const messages: SessionLoadMessage[] = []
     this.appendCodexTurnMessages(messages, response.thread?.turns ?? [])
-    const full = await this.withLatestUpdatePlanMessage(sessionId, messages)
-    return limit && limit > 0 && full.length > limit ? full.slice(-limit) : full
+    return limit && limit > 0 && messages.length > limit ? messages.slice(-limit) : messages
   }
 
   private appendCodexTurnMessages(messages: SessionLoadMessage[], turns: CodexTurnHistory[]): void {
@@ -610,27 +661,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         const msg = codexItemToMessage(item, timestamp)
         if (msg) messages.push(msg)
       }
-    }
-  }
-
-  private async withLatestUpdatePlanMessage(sessionId: string, messages: SessionLoadMessage[]): Promise<SessionLoadMessage[]> {
-    const latestUpdatePlan = await this.loadLatestUpdatePlanMessage(sessionId)
-    if (latestUpdatePlan && !hasUpdatePlanMessage(messages, latestUpdatePlan)) {
-      insertMessageByTimestamp(messages, latestUpdatePlan)
-    }
-
-    return messages
-  }
-
-  private async loadLatestUpdatePlanMessage(sessionId: string): Promise<SessionLoadMessage | null> {
-    try {
-      const threads = await this.listAllThreads()
-      const thread = threads.find((candidate) => candidate.id === sessionId)
-      if (!thread?.path || !existsSync(thread.path)) return null
-      return await latestCodexUpdatePlanMessageFromJsonl(thread.path)
-    } catch (err: any) {
-      log.warn(`Failed to synthesize Codex update_plan history for ${sessionId}: ${err?.message || err}`)
-      return null
     }
   }
 

@@ -3,7 +3,7 @@
   import { ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import { getWorkspaceContext, getStatusBarContext } from "../../contexts";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import type { DiffComment } from "../../../shared/types";
 
   interface Props {
@@ -156,7 +156,6 @@
     tabId={session.activeTabId}
     workingDirectory={sess?.workingDirectory}
     canSubmitWhenEmpty={inlineCount > 0}
-    allowAgentSwitch={workingTree}
     showWorktree={showWorktree}
     bind:useWorktree
     onKeyDown={handleKeyDown}
@@ -166,19 +165,28 @@
   >
     {#snippet trailing()}
       {#if inlineCount > 0}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={() => onShowComments?.()}
           class="comments-chip"
           aria-label={`View ${inlineCount} queued comment${inlineCount === 1 ? "" : "s"}`}
-          use:tooltip={"View queued comments"}
         >
           <ChatCircleTextIcon size={10} weight="fill" />
           <span class="tabular-nums">{inlineCount}</span>
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"View queued comments"} />
+        </TooltipUI.Root>
       {/if}
       {#if canSubmit && !workingTree}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={() => {
             const payload = composerRef?.payload();
@@ -187,12 +195,15 @@
           disabled={submitting}
           aria-label="Send to new session"
           class="split-btn relative flex size-6 items-center justify-center rounded-full cursor-pointer"
-          use:tooltip={"Send to new session · ⌘⇧↵"}
           transition:fly={{ x: 4, duration: 120 }}
         >
           <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
           <ArrowsSplitIcon size={12} weight="bold" />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Send to new session · ⌘⇧↵"} />
+        </TooltipUI.Root>
       {/if}
     {/snippet}
   </PromptComposer>

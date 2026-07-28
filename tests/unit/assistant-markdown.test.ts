@@ -1,34 +1,64 @@
 import { describe, expect, test } from "bun:test";
-import { Lexer, type Token } from "marked";
-import { preserveUnmatchedHtml } from "../../src/renderer/components/conversation/lib/assistant-markdown";
+import { IncrementalParser } from "../../node_modules/@humanspeak/svelte-markdown/dist/index.js";
+import { assistantMarkdownOptions } from "../../src/renderer/components/conversation/lib/assistant-markdown";
 
 describe("assistant markdown", () => {
-  test("shows an inline unmatched HTML-looking tag as the literal text the assistant wrote", () => {
-    const tokens = Lexer.lex("<button> ?");
+  test("keeps parser hooks disabled so append-only streams can use the tail window", () => {
+    const parser = new IncrementalParser(assistantMarkdownOptions);
+    const initialSource = "# Stable heading\n\nChanging tail";
+    parser.update(initialSource);
 
-    tokens.forEach(preserveUnmatchedHtml);
+    const internals = parser as unknown as {
+      tailWindowDisabled: boolean;
+      getTailWindowBoundary: () => {
+        prefixCount: number;
+        reparseOffset: number;
+      };
+      canUseTailWindow: (
+        source: string,
+        boundary: { prefixCount: number; reparseOffset: number },
+      ) => boolean;
+    };
+    const boundary = internals.getTailWindowBoundary();
 
-    const paragraph = tokens[0] as Token & { tokens: Token[] };
-    expect(paragraph.tokens[0]).toMatchObject({
-      type: "escape",
-      raw: "<button>",
-      text: "<button>",
-    });
+    expect(internals.tailWindowDisabled).toBeFalse();
+    expect(boundary.reparseOffset).toBeGreaterThan(0);
+    expect(boundary.reparseOffset).toBeLessThan(initialSource.length);
+    expect(
+      internals.canUseTailWindow(`${initialSource} grows`, boundary),
+    ).toBeTrue();
   });
 
-  test("leaves matched HTML and ordinary markdown tokens unchanged", () => {
-    const matchedHtml = {
+  test("keeps unmatched HTML distinguishable from matched HTML for literal fallback rendering", () => {
+    const unmatched = new IncrementalParser(assistantMarkdownOptions).update(
+      "<button> ?",
+    ).tokens;
+    const matched = new IncrementalParser(assistantMarkdownOptions).update(
+      "<button>ok</button>",
+    ).tokens;
+
+    const unmatchedInline = unmatched[0] as {
+      tokens: Array<{ type: string; raw: string; tag?: string }>;
+    };
+    const matchedInline = matched[0] as {
+      tokens: Array<{
+        type: string;
+        raw: string;
+        tag?: string;
+        tokens?: Array<{ text?: string }>;
+      }>;
+    };
+
+    expect(unmatchedInline.tokens[0]).toMatchObject({
+      type: "html",
+      raw: "<button>",
+    });
+    expect(unmatchedInline.tokens[0].tag).toBeUndefined();
+    expect(matchedInline.tokens[0]).toMatchObject({
       type: "html",
       raw: "<button>",
       tag: "button",
-      tokens: [],
-    } as Token;
-    const text: Token = { type: "text", raw: "button", text: "button" };
-
-    preserveUnmatchedHtml(matchedHtml);
-    preserveUnmatchedHtml(text);
-
-    expect(matchedHtml.type).toBe("html");
-    expect(text.type).toBe("text");
+    });
+    expect(matchedInline.tokens[0].tokens?.[0]?.text).toBe("ok");
   });
 });

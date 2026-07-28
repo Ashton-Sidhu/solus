@@ -87,8 +87,9 @@ export class SessionConfigController {
     if ('fastMode' in patch) mc.fastMode = patch.fastMode!
   }
 
-  async switchActiveAgent(agentId: AgentId): Promise<void> {
-    const session = this.deps.registry.activeSession
+  async switchActiveAgent(agentId: AgentId, tabId?: string): Promise<void> {
+    const targetTabId = tabId ?? this.deps.registry.activeTabId
+    const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (this.handoffInProgress) return
     if (session) {
       if (session.provider === agentId) return
@@ -115,10 +116,9 @@ export class SessionConfigController {
       return
     }
 
-    const tabId = this.deps.registry.activeTabId
     this.handoffInProgress = true
     try {
-      const result = await this.apiFor(tabId).switchSessionAgent(tabId, agentId)
+      const result = await this.apiFor(targetTabId).switchSessionAgent(targetTabId, agentId)
       analytics.agentSwitched({ from: result.fromProvider, to: agentId })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
@@ -137,7 +137,7 @@ export class SessionConfigController {
         fromProvider: result.fromProvider,
         toProvider: agentId,
       }))
-      this.deps.refreshPluginCommands(session.workingDirectory, tabId)
+      this.deps.refreshPluginCommands(session.workingDirectory, targetTabId)
     } catch (error) {
       toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -335,6 +335,18 @@ export class SessionConfigController {
 
   pendingSessionStartTarget(tabId?: string): Promise<void> | null {
     return this.sessionStartTargetResolutions.get(tabId ?? '') ?? null
+  }
+
+  /** Registers a host/project move on the same gate the first prompt awaits. */
+  refreshSessionStartTarget(
+    tabId: string,
+    cwd: string,
+    worktreeRequested: boolean,
+  ): Promise<void> {
+    return this.trackSessionStartTargetResolution(
+      tabId,
+      this.deps.refreshGitState({ tabId, cwd, worktreeRequested }),
+    )
   }
 
   private async trackSessionStartTargetResolution(

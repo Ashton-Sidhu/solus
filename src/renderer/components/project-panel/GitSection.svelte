@@ -26,12 +26,15 @@
   import { getRecommendedGitActionKey } from "../../lib/git-recommendation";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as Popover from "../ui/popover";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
-  import SearchablePickerList from "../pickers/SearchablePickerList.svelte";
-  import { worktreeProjectRoot, type IpcContext } from "../../../shared/types";
+  import GitDropdown from "../GitDropdown.svelte";
+  import {
+    worktreeProjectRoot,
+    type WorktreeEntry,
+  } from "../../../shared/types";
 
   interface Props {
     tabId: string;
@@ -76,11 +79,6 @@
       sess?.workingDirectory ??
       status?.repoRoot ??
       worktreeProjectRoot(cwd),
-  );
-  const branchRepoCtx = $derived<IpcContext | null>(
-    branchRepoRoot && branchRepoRoot !== "~"
-      ? session.ctxForDirectory(branchRepoRoot)
-      : null,
   );
   const recommendedActionKey = $derived(
     getRecommendedGitActionKey({
@@ -399,40 +397,11 @@
   });
 
   let branchPickerOpen = $state(false);
-  let branchPickerRef: SearchablePickerList | null = $state(null);
+  let branchTriggerEl: HTMLButtonElement | null = $state(null);
 
-  const branchRefs = $derived(environmentStore.refsFor(branchRepoRoot));
-  const branches = $derived(branchRefs.branches);
-  const worktrees = $derived(branchRefs.worktrees);
-  const worktreeBranches = $derived(worktrees.map((wt) => wt.branch));
-  const localBranchItems = $derived(
-    branches.filter((branch) => !worktreeBranches.includes(branch)),
+  const worktrees = $derived(
+    environmentStore.refsFor(branchRepoRoot).worktrees,
   );
-  const worktreeItems = $derived(worktrees.map((wt) => wt.branch));
-  const branchPickerItems = $derived([...localBranchItems, ...worktreeItems]);
-  const selectedBranchItem = $derived(currentBranch);
-
-  function handleBranchOpenChange(next: boolean) {
-    branchPickerOpen = next;
-    if (next && branchRepoCtx) {
-      void environmentStore
-        .refreshRefs(branchRepoRoot, branchRepoCtx, { force: true })
-        .then((ok) => {
-          if (!ok) toasts.error("Couldn't refresh branches");
-        });
-    }
-  }
-
-  $effect(() => {
-    if (!branchPickerOpen) {
-      return;
-    }
-    const onKeydown = (e: KeyboardEvent) => {
-      if (branchPickerRef?.handleKeydown(e)) return;
-    };
-    document.addEventListener("keydown", onKeydown, true);
-    return () => document.removeEventListener("keydown", onKeydown, true);
-  });
 
   async function handleReview(regenerate = false) {
     if (reviewKey && !regenerate) {
@@ -491,21 +460,31 @@
     requestInputFocus();
   }
 
-  async function selectBranchTarget(item: string) {
-    branchPickerOpen = false;
-    const entry = worktrees.find((wt) => wt.branch === item);
-    // Environment selection is navigation, not an in-place retarget of this
-    // panel's tab. Omitting tabId lets the workspace preserve a started session
-    // and create/activate a destination tab in the selected environment group.
+  // Environment selection is navigation, not an in-place retarget of this
+  // panel's tab. Omitting tabId lets the workspace preserve a started session
+  // and create/activate a destination tab in the selected environment group.
+  async function selectBranch(branch: string) {
+    // A branch already checked out somewhere *is* that worktree, so the picker's
+    // "Checked out" rows move there rather than checking it out again here.
+    const entry = worktrees.find((wt) => wt.branch === branch);
     if (entry) {
-      await session.switchToWorktree(entry.path);
-    } else {
-      const ok = await session.switchToBranch(item);
-      if (!ok) {
-        requestInputFocus();
-        return;
-      }
+      await selectWorktree(entry);
+      return;
     }
+    const ok = await session.switchToBranch(branch);
+    if (!ok) {
+      requestInputFocus();
+      return;
+    }
+    settleOnDestination();
+  }
+
+  async function selectWorktree(worktree: WorktreeEntry) {
+    await session.switchToWorktree(worktree.path);
+    settleOnDestination();
+  }
+
+  function settleOnDestination() {
     const nextCwd =
       session.activeSession?.gitContext?.worktreePath ??
       session.activeSession?.workingDirectory ??
@@ -552,7 +531,10 @@
 {/snippet}
 
 {#snippet menuButton(def: ActionDef, split: boolean)}
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     class="menu-row"
     class:split-primary={split}
@@ -563,7 +545,6 @@
     class:is-loading={def.phase === "loading"}
     disabled={def.disabled}
     onclick={def.run}
-    use:tooltip={def.tooltip ?? null}
   >
     <span class="menu-left">
       <span class="menu-icon">{@render actionGlyph(def)}</span>
@@ -571,6 +552,10 @@
     </span>
     {#if def.badge}<span class="menu-trail">{def.badge}</span>{/if}
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={def.tooltip ?? null} />
+  </TooltipUI.Root>
 {/snippet}
 
 {#snippet groupRow(group: ActionGroup)}
@@ -612,7 +597,7 @@
   <p class="empty">Loading git status…</p>
 {:else if !env.branch && status === null}
   <div class="flex flex-col items-start gap-1 px-2 py-2">
-    <span class="text-[0.8125rem] text-(--solus-text-secondary)"
+    <span class="text-[0.8125rem] font-secondary text-(--solus-text-secondary)"
       >No Git repository</span
     >
     <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
@@ -621,67 +606,49 @@
   </div>
 {:else}
   <div class="env">
-    <Popover.Root
-      bind:open={branchPickerOpen}
-      onOpenChange={handleBranchOpenChange}
+    <button
+      bind:this={branchTriggerEl}
+      class="branch-row"
+      type="button"
+      title="Switch branch or worktree"
+      disabled={!currentBranch || env.pending}
+      onclick={() => (branchPickerOpen = !branchPickerOpen)}
     >
-      <Popover.Trigger disabled={!currentBranch || env.pending}>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            class="branch-row"
-            type="button"
-            title="Switch branch or worktree"
-          >
-            <span class="branch-row-icon"
-              >{#if isWorktree || env.pending}<GitForkIcon
-                  size={13}
-                />{:else}<GitBranchIcon size={13} />{/if}</span
-            >
-            <span class="branch-row-name" title={status?.branch ?? undefined}
-              >{env.pending
-                ? env.name
-                : (currentBranch ?? "detached HEAD")}</span
-            >
-            <span class="branch-row-trail">
-              {#if uncommittedFileCount > 0}
-                <span class="branch-row-stats">
-                  <span class="menu-trail"
-                    >{uncommittedFileCount}{status?.uncommittedChanges
-                      .hasMoreFiles
-                      ? "+"
-                      : ""}</span
-                  >
-                  {#if insertions > 0}<span class="stat-add">+{insertions}</span
-                    >{/if}
-                  {#if deletions > 0}<span class="stat-del">−{deletions}</span
-                    >{/if}
-                </span>
-              {/if}
-              <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
-            </span>
-          </button>
-        {/snippet}
-      </Popover.Trigger>
-      <Popover.Content
-        side="left"
-        align="start"
-        sideOffset={6}
-        collisionPadding={8}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        class="z-[10002] w-[420px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 py-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+      <span class="branch-row-icon"
+        >{#if isWorktree || env.pending}<GitForkIcon
+            size={13}
+          />{:else}<GitBranchIcon size={13} />{/if}</span
       >
-        <SearchablePickerList
-          bind:this={branchPickerRef}
-          items={branchPickerItems}
-          selected={selectedBranchItem}
-          size="comfortable"
-          placeholder="Filter branches and worktrees..."
-          emptyLabel="No branches or worktrees found"
-          onselect={selectBranchTarget}
-        />
-      </Popover.Content>
-    </Popover.Root>
+      <span class="branch-row-name" title={status?.branch ?? undefined}
+        >{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span
+      >
+      <span class="branch-row-trail">
+        {#if uncommittedFileCount > 0}
+          <span class="branch-row-stats">
+            <span class="menu-trail"
+              >{uncommittedFileCount}{status?.uncommittedChanges.hasMoreFiles
+                ? "+"
+                : ""}</span
+            >
+            {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
+            {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
+          </span>
+        {/if}
+        <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
+      </span>
+    </button>
+    {#if currentBranch}
+      <GitDropdown
+        bind:open={branchPickerOpen}
+        side="left"
+        triggerEl={branchTriggerEl}
+        displayBranch={currentBranch}
+        selectedBranch={currentBranch}
+        workingDirectory={branchRepoRoot}
+        onSelectBranch={selectBranch}
+        onSelectWorktree={selectWorktree}
+      />
+    {/if}
     <div class="menu-list">
       {#each actionGroups as group (group.key)}
         {@render groupRow(group)}
@@ -706,7 +673,7 @@
             type="button"
             disabled={def.disabled}
             onclick={() => runSecondary(def)}
-            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger
+            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger
               ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
               : ''}"
           >

@@ -109,7 +109,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     if (!consumePairToken(pairToken)) {
       return c.json({ error: 'Invalid or expired pair token' }, 401)
     }
-    const sessionToken = issueSessionToken(deviceLabel)
+    const { token: sessionToken } = issueSessionToken(deviceLabel)
     log.info(`pair: issued session for "${deviceLabel}"`)
     return c.json({ sessionToken, installationId: getInstallationId() })
   })

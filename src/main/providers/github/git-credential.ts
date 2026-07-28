@@ -1,4 +1,5 @@
 import { loadToken } from './token-store'
+import { text } from 'node:stream/consumers'
 
 /**
  * `solus git-credential` speaks git's credential protocol so a host that cloned
@@ -20,7 +21,7 @@ export function coerceGitCredentialAction(value: string | undefined): GitCredent
   throw new Error('Unknown git-credential action. Expected: get, store or erase.')
 }
 
-export function parseCredentialRequest(input: string): Record<string, string> {
+function parseCredentialRequest(input: string): Record<string, string> {
   const fields: Record<string, string> = {}
   for (const line of input.split('\n')) {
     if (!line.trim()) continue
@@ -35,7 +36,7 @@ export function parseCredentialRequest(input: string): Record<string, string> {
  * The credential git should use, or null when this host has nothing to offer for
  * the request — an unknown host, a non-HTTPS protocol, or no stored token.
  */
-export function credentialFor(
+function credentialFor(
   fields: Record<string, string>,
   token: string | null,
 ): { username: string; password: string } | null {
@@ -43,10 +44,6 @@ export function credentialFor(
   if (fields.protocol && fields.protocol !== 'https') return null
   if (fields.host && fields.host !== SUPPORTED_HOST) return null
   return { username: TOKEN_USERNAME, password: token }
-}
-
-export function formatCredentialResponse(credential: { username: string; password: string }): string {
-  return `username=${credential.username}\npassword=${credential.password}\n`
 }
 
 export async function runGitCredentialHelper(
@@ -58,10 +55,10 @@ export async function runGitCredentialHelper(
   // keyring, and git must not be able to delete it.
   if (action !== 'get') return
 
-  const fields = parseCredentialRequest(await readAll(stdin))
+  const fields = parseCredentialRequest(await text(stdin))
   const token = loadTokenSafely()
   const credential = credentialFor(fields, token)
-  if (credential) stdout.write(formatCredentialResponse(credential))
+  if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
 }
 
 function loadTokenSafely(): string | null {
@@ -70,13 +67,4 @@ function loadTokenSafely(): string | null {
   } catch {
     return null
   }
-}
-
-function readAll(stream: NodeJS.ReadableStream): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    stream.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))))
-    stream.on('error', reject)
-    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-  })
 }

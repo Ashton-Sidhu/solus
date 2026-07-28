@@ -243,7 +243,7 @@
                   {:else}
                     <XCircleIcon size={14} weight="fill" class="shrink-0 text-(--solus-art-negative)" />
                   {/if}
-                  <span class="min-w-0 flex-1 truncate text-[0.75rem] text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)">
+                  <span class="min-w-0 flex-1 truncate text-[0.75rem] font-secondary text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)">
                     {item.name}
                   </span>
                 </Button>
@@ -301,7 +301,7 @@
           {#each reviewers as reviewer (reviewer.login)}
             <li class="flex min-h-8 items-center gap-2">
               <PrAvatar name={reviewer.login} size="size-6 text-[0.5625rem]" />
-              <span class="min-w-0 flex-1 truncate text-[0.75rem] text-(--solus-text-secondary)">
+              <span class="min-w-0 flex-1 truncate text-[0.75rem] font-secondary text-(--solus-text-secondary)">
                 {reviewer.login}
               </span>
               <PrReviewStateBadge state={reviewer.state} />
@@ -373,7 +373,7 @@
                 <FileIcon size={14} weight="regular" class="shrink-0 text-(--solus-text-tertiary)" />
               {/if}
               <span class="min-w-0 flex-1 truncate text-[0.75rem]">
-                <span class="!font-normal text-(--solus-text-secondary) group-hover:text-(--solus-accent)"
+                <span class="font-normal text-(--solus-text-secondary) group-hover:text-(--solus-accent)"
                   >{fileName(file.path)}</span
                 >
                 {#if dirName(file.path)}

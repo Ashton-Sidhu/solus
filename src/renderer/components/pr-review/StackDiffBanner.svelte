@@ -15,7 +15,7 @@
 </script>
 
 <div
-  class="flex min-h-10 shrink-0 items-center gap-2 border-b border-(--solus-accent-border) bg-(--solus-accent-light) px-3 text-xs text-(--solus-text-secondary)"
+  class="flex min-h-10 shrink-0 items-center gap-2 border-b border-(--solus-accent-border) bg-(--solus-accent-light) px-3 text-xs font-secondary text-(--solus-text-secondary)"
   role="status"
 >
   {#if showingFull}
@@ -36,7 +36,7 @@
       Showing this PR's own changes on top of #{parent}
     </strong>
     <span aria-hidden="true" class="text-(--solus-text-tertiary)">·</span>
-    <em class="shrink-0 tabular-nums text-(--solus-text-secondary)">
+    <em class="shrink-0 tabular-nums font-secondary text-(--solus-text-secondary)">
       {fileCount === null ? "… files" : `${fileCount} ${fileCount === 1 ? "file" : "files"}`}
     </em>
     <span aria-hidden="true" class="text-(--solus-text-tertiary)">—</span>

@@ -82,6 +82,8 @@ export interface ApprovePlanOptions {
   reasoningEffort?: ReasoningEffort
   generalComment?: string
   useWorktree?: boolean
+  /** Defaults to true to preserve the existing approval behavior. */
+  startNewSession?: boolean
   /** Extra references from the approval note's editor. */
   planRefs?: PlanReference[]
   workRefs?: WorkReference[]
@@ -114,8 +116,13 @@ export async function approvePlanWithModel(
     ctx.interruptTab(tabId)
   }
 
-  ctx.apiFor(tabId).resetTabSession(ctx.ctxFor(tabId))
-  session.agentSessionId = null
+  // A provider/model switch cannot resume the previous agent session. Otherwise
+  // let the reviewer keep implementing in the session that produced the plan.
+  const shouldStartNewSession = opts.startNewSession !== false || !!(opts.provider && opts.modelId)
+  if (shouldStartNewSession) {
+    ctx.apiFor(tabId).resetTabSession(ctx.ctxFor(tabId))
+    session.agentSessionId = null
+  }
 
   if (opts.provider && opts.modelId) {
     session.provider = opts.provider

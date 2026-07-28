@@ -1,6 +1,7 @@
 import { execSync } from 'child_process'
-import { Options, PermissionMode, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer } from './claude-event-normalizer'
+import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
 import { getCliEnv } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
@@ -49,9 +50,10 @@ try {
 export type CanUseTool = (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any>
 
 export interface ClaudeRunOptions {
-  /** A plain string for a single text turn, or an async stream of user messages
-   *  (streaming input mode) when the turn carries real content blocks (e.g. images). */
-  prompt: string | AsyncIterable<SDKUserMessage>
+  /** A plain string for a one-shot turn (background/utility runs), or a
+   *  TurnInputChannel (streaming input mode) for session turns, whose stream is
+   *  held open across the turn so it can be steered while the agent loop runs. */
+  prompt: string | TurnInputChannel
   cwd: string
   sessionId?: string | null
   model?: string | null
@@ -150,11 +152,19 @@ export class ClaudeAgent {
       rejectResult = rej
     })
 
-    const userMessagePreview = typeof opts.prompt === 'string' ? opts.prompt.slice(0, 200) : ''
+    const input = opts.prompt instanceof TurnInputChannel ? opts.prompt : null
+    const promptInput = opts.prompt instanceof TurnInputChannel ? opts.prompt.stream : opts.prompt
+    const userMessagePreview = (input?.previewText ?? String(opts.prompt)).slice(0, 200)
 
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
+      // A turn is over once its result lands, but the SDK keeps the query open
+      // while backgrounded sub-agents finish. Closing the input stream is what
+      // ends the query, so hold it open until nothing is still in flight —
+      // otherwise those tasks get cut off mid-run.
+      let sawResult = false
+      let backgroundTasks = 0
       try {
-        const cquery = query({ prompt: opts.prompt, options: claudeOptions })
+        const cquery = query({ prompt: promptInput, options: claudeOptions })
 
         for await (const msg of cquery) {
           if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
@@ -170,17 +180,25 @@ export class ClaudeAgent {
           logRawClaudeEvent(state.sessionId, msg)
 
           const normalized = normalizer.push(msg)
-          if (msg.type === 'result' && state.sessionId && opts.onTurnComplete) {
-            try {
-              const changedFiles = await opts.onTurnComplete(state.sessionId, {
-                partial: false,
-                userMessagePreview,
-                editedFiles: normalizer.editedFiles,
-              })
-              if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
-            }
-            catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
+          for (const evt of normalized) {
+            if (evt.type === 'background_task_started') backgroundTasks++
+            else if (evt.type === 'background_task_settled' && backgroundTasks > 0) backgroundTasks--
           }
+          if (msg.type === 'result') {
+            sawResult = true
+            if (state.sessionId && opts.onTurnComplete) {
+              try {
+                const changedFiles = await opts.onTurnComplete(state.sessionId, {
+                  partial: false,
+                  userMessagePreview,
+                  editedFiles: normalizer.editedFiles,
+                })
+                if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
+              }
+              catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
+            }
+          }
+          if (sawResult && backgroundTasks === 0) input?.close()
           for (const evt of normalized) yield evt
         }
 
@@ -216,6 +234,10 @@ export class ClaudeAgent {
         } else {
           rejectResult(err instanceof Error ? err : new Error(String(err)))
         }
+      } finally {
+        // An aborted or failed turn never reaches the result path above; release
+        // the stream so the query can't be left waiting on input that never comes.
+        input?.close()
       }
     })()
 

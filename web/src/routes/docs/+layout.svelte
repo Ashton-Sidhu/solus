@@ -24,8 +24,8 @@
 	>
 		<a href="/" class="flex items-center gap-2 mr-auto no-underline">
 			<svg width="20" height="20" viewBox="-60 -60 120 120" fill="none" aria-hidden="true">
-				<circle cx="0" cy="0" r="31.2" fill="#D4AF6A" />
-				<g stroke="#D4AF6A" stroke-width="10.4" stroke-linecap="round">
+				<circle cx="0" cy="0" r="31.2" fill="#B45A3C" />
+				<g stroke="#D97757" stroke-width="10.4" stroke-linecap="round">
 					<path d="M 0,-52 A 52,52 0 0 1 52,0" />
 					<path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92" />
 					<path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64" />
@@ -116,8 +116,8 @@
 	<div class="max-w-[1200px] mx-auto flex items-center gap-6 max-sm:flex-col max-sm:items-start max-sm:gap-5">
 		<a href="/" class="flex items-center gap-1.5 no-underline">
 			<svg width="16" height="16" viewBox="-60 -60 120 120" fill="none" aria-hidden="true">
-				<circle cx="0" cy="0" r="31.2" fill="#D4AF6A" />
-				<g stroke="#D4AF6A" stroke-width="10.4" stroke-linecap="round">
+				<circle cx="0" cy="0" r="31.2" fill="#B45A3C" />
+				<g stroke="#D97757" stroke-width="10.4" stroke-linecap="round">
 					<path d="M 0,-52 A 52,52 0 0 1 52,0" />
 					<path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92" />
 					<path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64" />

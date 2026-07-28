@@ -1,8 +1,10 @@
 import type { HostReadiness, SetupAgent } from '../../../../shared/types'
+import { hasGithubCliScopes } from '../../../../shared/github-auth'
 
 export type OnboardingStepId =
   | 'github'
   | 'credential-helper'
+  | 'gh-cli'
   | 'gh-auth'
   | 'providers'
 
@@ -66,7 +68,7 @@ export interface ProviderRow {
   detail: string
   state: 'busy' | 'done' | 'available'
   actionLabel?: string
-  /** Only one setup action runs at a time, so the rest of the card goes quiet. */
+  /** Some rows have their own reason to be unavailable. */
   disabled?: boolean
   run?: () => void
 }
@@ -83,17 +85,27 @@ export interface GitHostRowsInput {
 export function gitHostRows(input: GitHostRowsInput): ProviderRow[] {
   const { readiness, connecting, busy, connect } = input
   const github = readiness?.github
+  const needsReconnect =
+    !!github?.solusToken && !hasGithubCliScopes(github.solusScopes)
   return [
     {
       id: 'github',
       label: 'GitHub',
-      detail: github?.solusToken
+      detail: needsReconnect
+        ? 'Reconnect to authorize the GitHub CLI'
+        : github?.solusToken
         ? `Connected · ${github.solusLogin ?? 'this host'}`
         : connecting
           ? 'Waiting on your browser…'
-          : 'github.com · repo scope',
-      state: github?.solusToken ? 'done' : connecting ? 'busy' : 'available',
-      actionLabel: 'Connect',
+          : 'github.com · repo and project access',
+      state: needsReconnect
+        ? 'available'
+        : github?.solusToken
+          ? 'done'
+          : connecting
+            ? 'busy'
+            : 'available',
+      actionLabel: needsReconnect ? 'Reconnect' : 'Connect',
       disabled: busy,
       run: connect,
     },
@@ -102,10 +114,8 @@ export function gitHostRows(input: GitHostRowsInput): ProviderRow[] {
 
 export interface CodingProviderRowsInput {
   readiness: HostReadiness | null
-  /** The provider a running install or sign-in belongs to. */
-  inFlight: SetupAgent | null
-  stage: ProviderSetupAction | null
-  busy: boolean
+  /** Each provider owns its setup state so installs and sign-ins can overlap. */
+  stages: Record<SetupAgent, ProviderSetupAction | null>
   add: (agent: SetupAgent) => void
 }
 
@@ -116,15 +126,11 @@ export interface CodingProviderRowsInput {
  * other later" with nowhere to click.
  */
 export function codingProviderRows(input: CodingProviderRowsInput): ProviderRow[] {
-  const { readiness, inFlight, stage, busy, add } = input
-  const agents: Array<{ id: SetupAgent & ProviderLogoId; label: string }> = [
-    { id: 'claude', label: 'Claude Code' },
-    { id: 'codex', label: 'Codex' },
-  ]
-
-  return agents.map(({ id, label }) => {
+  const { readiness, stages, add } = input
+  return SETUP_PROVIDERS.map(({ id, label }) => {
     const state = readiness?.agents?.[id] ?? { installed: false, signedIn: false }
-    if (inFlight === id && stage)
+    const stage = stages[id]
+    if (stage)
       return {
         id,
         label,
@@ -140,7 +146,6 @@ export function codingProviderRows(input: CodingProviderRowsInput): ProviderRow[
       detail: state.installed ? 'Installed · not signed in' : 'Not installed',
       state: 'available',
       actionLabel: actions.includes('install') ? 'Add' : 'Sign in',
-      disabled: busy,
       run: () => add(id),
     }
   })
@@ -166,6 +171,9 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
   // is reached defensively so a missing one reads as "not done yet" rather than
   // throwing and taking the whole host directory down with it.
   const hasToken = !!readiness?.github?.solusToken
+  const hasCliToken =
+    hasToken && hasGithubCliScopes(readiness?.github?.solusScopes)
+  const hasGhCli = !!readiness?.github?.ghCli
   const agents = Object.values(readiness?.agents ?? {})
   // One runnable provider is all a host needs to take a session. Installing and
   // signing in are not split into two steps: a host that arrived with a CLI
@@ -182,7 +190,7 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
       detail: 'A token of its own — nothing carries over from this machine.',
       why: 'This host needs a token of its own — nothing carries over from this machine. It also finishes the two carried-over items still waiting on GitHub.',
       automatic: false,
-      done: hasToken,
+      done: hasCliToken,
       blockedBy: null,
     },
     {
@@ -195,13 +203,22 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
       blockedBy: hasToken ? null : 'github',
     },
     {
+      id: 'gh-cli',
+      label: 'Install the GitHub CLI',
+      detail: 'The binary the next step signs in.',
+      why: 'Installs the GitHub CLI, which is what the agent runs to open a pull request.',
+      automatic: true,
+      done: hasGhCli,
+      blockedBy: null,
+    },
+    {
       id: 'gh-auth',
       label: 'Authorize the gh CLI',
       detail: 'What the agent uses to open a pull request.',
       why: 'Signs the gh CLI in with the same token, which is what the agent uses to open a pull request.',
       automatic: true,
       done: !!readiness?.github?.ghAuthenticated,
-      blockedBy: hasToken ? null : 'github',
+      blockedBy: !hasCliToken ? 'github' : !hasGhCli ? 'gh-cli' : null,
     },
     {
       id: 'providers',
@@ -231,6 +248,82 @@ export interface CarriedOverFact {
   title: string
   detail: string
   done: boolean
+}
+
+export interface OnboardingRailInput {
+  readiness: HostReadiness | null
+  hostName: string
+  hostUrl?: string
+  fingerprint?: string
+  stepError?: { step: string; message: string; provider?: SetupAgent } | null
+}
+
+/**
+ * The complete read model for the onboarding rail. Keeping its ordering,
+ * failure routing and weighted progress together prevents the sidebar and main
+ * panel from independently deciding that a blocked host is already done.
+ */
+export function onboardingRailModel(input: OnboardingRailInput) {
+  const steps = hostOnboardingSteps({ readiness: input.readiness })
+  const facts = hostCarriedOverFacts({
+    readiness: input.readiness,
+    hostName: input.hostName,
+  })
+  const decisions = steps.filter((step) => !step.automatic)
+  const automaticSteps = steps.filter((step) => step.automatic)
+  const blockingFailureStep = input.stepError
+    ? decisions.find((step) => step.id === input.stepError?.step && !step.done)
+    : undefined
+  const current =
+    blockingFailureStep ??
+    decisions.find((step) => !step.done && !step.blockedBy) ??
+    null
+  const currentNumber = current ? decisions.indexOf(current) + 1 : 0
+  const doneDecisions = decisions.filter(
+    (step) => step.done && step.id !== blockingFailureStep?.id,
+  )
+  const upcoming = decisions.filter(
+    (step) => step !== current && !step.done,
+  )
+  const failure = input.stepError &&
+    (input.stepError.step === 'providers' || input.stepError.step === current?.id)
+      ? input.stepError
+      : null
+  const carriedTotal = facts.length + automaticSteps.length
+  const carriedDone =
+    facts.filter((fact) => fact.done).length +
+    automaticSteps.filter((step) => step.done).length
+  // Decisions are the only items that cost user attention, so each has twice
+  // the weight of a carried-over fact or automatic follow-through.
+  const weightedTotal = carriedTotal + decisions.length * 2
+  const percentDone = weightedTotal === 0
+    ? 100
+    : Math.round(
+        ((carriedDone + doneDecisions.length * 2) / weightedTotal) * 100,
+      )
+  const hostMeta = [
+    input.readiness?.platform,
+    input.hostUrl,
+    shortFingerprint(input.fingerprint),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  return {
+    steps,
+    facts,
+    decisions,
+    automaticSteps,
+    current,
+    currentNumber,
+    doneDecisions,
+    upcoming,
+    failure,
+    carriedTotal,
+    carriedDone,
+    percentDone,
+    hostMeta,
+  }
 }
 
 /**
@@ -263,7 +356,7 @@ export function hostCarriedOverFacts(
     },
     {
       id: 'git',
-      title: git?.installed ? `${git.version ?? 'git'} already there` : "git isn't installed here",
+      title: git?.installed ? 'git is already here' : "git isn't installed here",
       detail: git?.installed
         ? 'nothing to install'
         : readiness?.installGit?.display ?? 'install it on the host to clone',

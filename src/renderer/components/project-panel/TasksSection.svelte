@@ -122,7 +122,7 @@
   <p class="m-0 py-0.5 text-[0.6875rem] text-(--solus-text-tertiary)">Loading tasks…</p>
 {:else if isAuthError || providerStatus?.reason === "github_not_connected"}
   <div class="flex flex-col gap-1 rounded-[0.4375rem] px-2 py-2">
-    <span class="text-[0.8125rem] text-(--solus-text-secondary)">No open tasks</span>
+    <span class="text-[0.8125rem] font-secondary text-(--solus-text-secondary)">No open tasks</span>
     <span class="text-[0.6875rem] leading-snug text-(--solus-text-tertiary)">
       Connect GitHub to view issues for this project.
     </span>
@@ -153,7 +153,7 @@
     class="flex w-full cursor-pointer flex-col items-start gap-1 rounded-[0.4375rem] border-none bg-transparent px-2 py-2 text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
     onclick={openAll}
   >
-    <span class="text-[0.8125rem] text-(--solus-text-secondary)">No open tasks</span>
+    <span class="text-[0.8125rem] font-secondary text-(--solus-text-secondary)">No open tasks</span>
     <span class="text-[0.6875rem] text-(--solus-text-tertiary)">View all tasks or create one.</span>
   </button>
 {:else}

@@ -7,6 +7,29 @@ export const SECONDARY_SHELL_EXIT_MS = 140
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
 export const MIN_SECONDARY_PANE_WIDTH = 360
+export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
+
+/**
+ * Keep heavy transcript rows for the visible chats plus the most recently
+ * visited hidden chats. ConversationView itself stays mounted, preserving its
+ * local interaction state; only cold message component trees are released.
+ */
+export function retainedConversationTabIds(
+  recentTabIds: readonly string[],
+  visibleTabIds: readonly string[],
+  openTabIds: readonly string[],
+  limit = MAX_RETAINED_CONVERSATION_TRANSCRIPTS,
+): string[] {
+  const open = new Set(openTabIds)
+  const retained: string[] = []
+  const add = (tabId: string) => {
+    if (open.has(tabId) && !retained.includes(tabId)) retained.push(tabId)
+  }
+
+  for (const tabId of visibleTabIds) add(tabId)
+  for (const tabId of recentTabIds) add(tabId)
+  return retained.slice(0, Math.max(limit, visibleTabIds.length))
+}
 
 export function defaultWorkspaceRailWidth(viewportWidth: number): number {
   return Math.round(Math.min(400, Math.max(280, viewportWidth * 0.19)))

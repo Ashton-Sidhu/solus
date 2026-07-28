@@ -192,7 +192,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
     pendingInputEvents: (sessionId) => opts.controlPlane.pendingInputEventsForSession(sessionId),
-    promptSession: (sessionId, prompt) => opts.controlPlane.promptSession(sessionId, prompt),
+    promptSession: (sessionId, prompt, delivery) => opts.controlPlane.promptSession(sessionId, prompt, delivery),
     watchSessionSettled: (targetSessionId, callerSessionId) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId),
     stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
   })

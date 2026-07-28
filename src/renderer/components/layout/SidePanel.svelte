@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Component, Snippet } from "svelte";
   import { SidebarSimpleIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { getWindowContext } from "../../contexts";
   import * as Sidebar from "../ui/sidebar";
 
@@ -87,14 +87,20 @@
               {@render headerActions()}
             {/if}
             {#if onAction}
-              <button
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <button {...tooltipProps}
                 class="flex size-[1.625rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
-                use:tooltip={actionTooltip}
                 onclick={onAction}
                 aria-label={actionAriaLabel}
               >
                 <ActionIcon size={13} />
               </button>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={actionTooltip} />
+              </TooltipUI.Root>
             {/if}
           </div>
         </Sidebar.Header>

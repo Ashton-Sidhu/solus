@@ -62,7 +62,7 @@
   <span class="plan-comment-popover__arrow" aria-hidden="true"></span>
   <div class="px-3 py-2.5">
     <div
-      class="plan-comment-popover__quote text-[0.6563rem] italic leading-snug mb-1.5 px-2 py-1 rounded text-(--solus-text-secondary)"
+      class="plan-comment-popover__quote text-[0.6563rem] italic leading-snug mb-1.5 px-2 py-1 rounded font-secondary text-(--solus-text-secondary)"
     >
       &ldquo;{comment.selectedText.length > 100
         ? comment.selectedText.slice(0, 100) + '…'

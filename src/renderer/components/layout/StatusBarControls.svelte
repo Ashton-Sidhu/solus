@@ -14,22 +14,23 @@
   } from "../../contexts";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { displayDirName } from "../../lib/paths";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import type { WorktreeEntry } from "../../../shared/types";
   import ContextMeter from "../ContextMeter.svelte";
   import SettingsPopover from "../SettingsPopover.svelte";
   import GitDropdown from "../GitDropdown.svelte";
   import ServerSwitcher from "../servers/ServerSwitcher.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
-    dirMaxWidth?: number;
     mode?: "pill" | "editor";
     showDirIcon?: boolean;
     tabId?: string;
     trailingActions?: Snippet;
   }
-  let { dirMaxWidth = 160, mode = "pill", showDirIcon = true, tabId, trailingActions }: Props = $props();
+  let { mode = "pill", showDirIcon = true, tabId, trailingActions }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -87,7 +88,7 @@
   );
 
   let gitOpen = $state(false);
-  let gitInitialView: "menu" | "worktrees" | "branches" = $state("menu");
+  let gitInitialView: "worktrees" | "branches" = $state("branches");
   let gitTriggerEl: HTMLButtonElement | null = $state(null);
   // This cluster now lives on the full-width input toolbar row, so the old
   // width-based collapse no longer applies: dir + usage always show, and branch
@@ -119,10 +120,23 @@
     window.dispatchEvent(new CustomEvent("solus:open-project"));
   }
 
+  // The pill names a branch, so it always opens the branch list.
   function toggleGitMenu() {
     if (!displayBranch) return;
-    gitInitialView = "menu";
+    gitInitialView = "branches";
     gitOpen = !gitOpen;
+  }
+
+  function selectBranch(branch: string) {
+    if (!tab?.id) return;
+    // The branch you are already on means this checkout as it stands,
+    // uncommitted work and all, so it names no base to cut a worktree from.
+    session.setWorktreeBaseBranch(branch === displayBranch ? null : branch);
+  }
+
+  async function selectWorktree(worktree: WorktreeEntry) {
+    await session.switchToWorktree(worktree.path, tab?.id);
+    requestInputFocus(tab?.id ? { tabId: tab.id } : undefined);
   }
 
 </script>
@@ -133,22 +147,32 @@
   than spanning a full-width status bar.
 -->
 <div class="relative flex min-w-0 items-center gap-2 text-[0.8125rem]">
-  <!-- Project info (dir + branch). -->
-  {@render projectInfo()}
+  <!-- Project info (dir + branch). Editor mode says this in the input bar's
+       header strip instead, where it can also be changed. -->
+  {#if mode === "pill"}
+    {@render projectInfo()}
+  {/if}
 
   {#if showUsage}
     <ContextMeter tabId={targetTabId} />
   {/if}
-  {#if !isPinned}
-    {#if session.runtimeSyncing}
-      <span
-        class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
-        use:tooltip={"Syncing runtime state"}
-      >
-        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
-        <span>Syncing...</span>
-      </span>
-    {/if}
+  <!-- Transient status, not destination config, so it stays in both modes. -->
+  {#if !isPinned && session.runtimeSyncing}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps}
+      class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
+    >
+      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
+      <span>Syncing...</span>
+    </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Syncing runtime state"} />
+    </TooltipUI.Root>
+  {/if}
+  {#if mode === "pill" && !isPinned}
     <RunOnPicker tabId={targetTabId} />
     <ServerSwitcher />
   {/if}
@@ -164,10 +188,10 @@
     initialView={gitInitialView}
     triggerEl={gitTriggerEl}
     {displayBranch}
-    {worktreePath}
-    {worktreeBaseBranch}
-    tabId={tab?.id ?? null}
+    selectedBranch={worktreeBaseBranch ?? displayBranch}
     workingDirectory={ctx.workingDirectory}
+    onSelectBranch={selectBranch}
+    onSelectWorktree={selectWorktree}
   />
 {/if}
 
@@ -177,21 +201,27 @@
   >
     {#if hostAffinity}
       {@const HostIcon = hostAffinity.icon}
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="flex shrink-0 items-center {hostAffinity.className}"
-        use:tooltip={hostAffinity.tooltip}
       >
         <HostIcon size={13} />
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={hostAffinity.tooltip} />
+      </TooltipUI.Root>
     {/if}
-    <button
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       onclick={handleChooseDirectory}
       disabled={isBusy || isPinned}
       class="flex items-center gap-1 shrink-0 transition-[color,opacity] text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
-      style="max-width:{dirMaxWidth}px;cursor:{isPinned ? 'default' : isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
-      use:tooltip={isPinned
-        ? dirTooltip
-        : `${dirTooltip} — click or press ${comboHint("global.select-project")} to change`}
+      style="max-width:240px;cursor:{isPinned ? 'default' : isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
     >
       {#if showDirIcon}
         <FolderOpenIcon size={13} class="flex-shrink-0 opacity-50" />
@@ -200,9 +230,21 @@
         <span class="truncate">{displayDir}</span>
       {/if}
     </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={isPinned
+        ? dirTooltip
+        : {
+            label: "Change the project for this chat",
+            shortcut: comboHint("global.select-project"),
+          }} />
+    </TooltipUI.Root>
 
     {#if showBranch && displayBranch}
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         bind:this={gitTriggerEl}
         type="button"
         onclick={toggleGitMenu}
@@ -210,7 +252,6 @@
         aria-expanded={gitOpen}
         class="flex items-center gap-1 min-w-0 text-(--solus-text-tertiary) cursor-pointer transition-[color] hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
         style="max-width:16rem"
-        use:tooltip={displayBranch}
       >
         <GitBranchIcon size={12} class="flex-shrink-0 opacity-50" />
         <span class="truncate">{displayBranch}</span>
@@ -222,6 +263,10 @@
           <span class="flex-shrink-0 text-[0.625rem] text-(--solus-accent)">Creating…</span>
         {/if}
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={displayBranch} />
+      </TooltipUI.Root>
     {/if}
 
   </div>

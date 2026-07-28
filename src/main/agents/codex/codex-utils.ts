@@ -57,6 +57,9 @@ export type CodexHistoryItem = {
   success?: boolean | null
   changes?: unknown[]
   summary?: unknown
+  kind?: string
+  agentThreadId?: string
+  agentPath?: string
 }
 
 export interface ScannedCodexPlan {
@@ -353,11 +356,49 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     return item.text ? { role: 'assistant', content: item.text, timestamp } : null
   }
 
+  if (item.type === 'plan') {
+    return item.text
+      ? {
+          role: 'plan',
+          content: '',
+          planContent: item.text,
+          planToolUseId: `codex-plan-${item.id || timestamp}`,
+          timestamp,
+        }
+      : null
+  }
+
   if (item.type === 'reasoning') {
     // Reasoning/thinking span, carried for provider handoffs; display surfaces
     // skip this role. Prefer the concise summary over the raw content.
     const content = codexReasoningText(item)
     return content ? { role: 'reasoning', content, timestamp } : null
+  }
+
+  if (item.type === 'subAgentActivity') {
+    if (item.kind === 'started') {
+      return {
+        role: 'tool',
+        content: '',
+        toolName: 'spawnAgent',
+        toolId: item.id,
+        toolInput: codexSubagentActivityInput(item),
+        toolStatus: 'running',
+        isSubagent: true,
+        subagentType: 'codex',
+        timestamp,
+      }
+    }
+    if (item.kind === 'interrupted') {
+      return {
+        role: 'tool_result',
+        content: 'Interrupted',
+        toolResultForId: item.id,
+        toolResultIsError: true,
+        timestamp,
+      }
+    }
+    return null
   }
 
   const toolName = codexToolNameForItem(item)
@@ -403,6 +444,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     }
   }
 
+  const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
   return {
     role: 'tool',
     content: codexToolResultText(
@@ -410,8 +452,24 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     ),
     toolName,
     toolInput: codexToolInputFromArguments(item.arguments),
+    isSubagent: isCodexSubagent || undefined,
+    subagentType: isCodexSubagent ? 'codex' : undefined,
     timestamp,
   }
+}
+
+export function codexSubagentActivityInput(item: {
+  agentThreadId?: unknown
+  agentPath?: unknown
+}): string {
+  const agentPath = typeof item.agentPath === 'string' ? item.agentPath : ''
+  const taskName = agentPath.split('/').filter(Boolean).at(-1)?.replaceAll('_', ' ') || 'Sub-agent'
+  return JSON.stringify({
+    subagent_type: 'codex',
+    description: taskName,
+    agent_thread_id: typeof item.agentThreadId === 'string' ? item.agentThreadId : undefined,
+    agent_path: agentPath || undefined,
+  })
 }
 
 function joinReasoningStrings(value: unknown): string {
@@ -659,38 +717,4 @@ export function extractPlanText(value: any): string {
 
 export function isInterruptedTurnStatus(status: unknown): boolean {
   return status === 'interrupted' || status === 'cancelled' || status === 'canceled' || status === 'aborted'
-}
-
-export function hasUpdatePlanMessage(messages: SessionLoadMessage[], candidate: SessionLoadMessage): boolean {
-  return messages.some((m) => m.role === candidate.role && m.content === candidate.content && m.timestamp === candidate.timestamp)
-}
-
-export function insertMessageByTimestamp(messages: SessionLoadMessage[], msg: SessionLoadMessage): void {
-  const idx = messages.findIndex((m) => m.timestamp > msg.timestamp)
-  if (idx === -1) messages.push(msg)
-  else messages.splice(idx, 0, msg)
-}
-
-export async function latestCodexUpdatePlanMessageFromJsonl(filePath: string): Promise<SessionLoadMessage | null> {
-  let latest: SessionLoadMessage | null = null
-  await new Promise<void>((resolve) => {
-    const rl = createInterface({ input: createReadStream(filePath) })
-    rl.on('line', (line: string) => {
-      try {
-        const obj = JSON.parse(line)
-        if (obj.type !== 'response_item') return
-        const payload = obj.payload
-        if (payload?.type !== 'plan') return
-        const content = extractPlanText(payload)
-        if (!content.trim()) return
-        const timestamp = toEpochMs(obj.timestamp)
-        if (!latest || timestamp > latest.timestamp) {
-          latest = { role: 'plan' as any, content: '', planContent: content, timestamp }
-        }
-      } catch {}
-    })
-    rl.on('close', () => resolve())
-    rl.on('error', () => resolve())
-  })
-  return latest
 }

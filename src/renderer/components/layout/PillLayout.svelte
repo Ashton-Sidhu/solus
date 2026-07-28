@@ -9,6 +9,7 @@
   import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
   import NewTabHome from "./NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { retainedConversationTabIds } from "./lib/workspace-body";
 
   interface Props {
     onAttachFile: () => void;
@@ -71,10 +72,27 @@
   // Lazy-mount the pill conversation pool. Only create a tab's ConversationView
   // the first time it becomes active, rather than mounting all N at once.
   const mountedTabIds = new SvelteSet<string>([session.activeTabId].filter(Boolean));
+  const retainedTranscriptTabIds = new SvelteSet<string>();
+  const transcriptRecency: string[] = [];
   $effect(() => {
-    if (session.activeTabId) mountedTabIds.add(session.activeTabId);
+    const displayedTabIds =
+      session.activeTabId && session.tabs[session.activeTabId]
+        ? [session.activeTabId]
+        : [];
+    for (const id of displayedTabIds) mountedTabIds.add(id);
     for (const id of mountedTabIds) {
       if (!session.tabs[id]) mountedTabIds.delete(id);
+    }
+
+    const retained = retainedConversationTabIds(
+      transcriptRecency,
+      displayedTabIds,
+      session.tabOrder,
+    );
+    transcriptRecency.splice(0, transcriptRecency.length, ...retained);
+    for (const id of retained) retainedTranscriptTabIds.add(id);
+    for (const id of retainedTranscriptTabIds) {
+      if (!retained.includes(id)) retainedTranscriptTabIds.delete(id);
     }
   });
 
@@ -240,7 +258,10 @@
                         class="tab-slot [contain-intrinsic-size:auto_37.5rem] [content-visibility:auto]"
                         class:tab-hidden={tId !== session.activeTabId}
                       >
-                        <ConversationView tabId={tId} />
+                        <ConversationView
+                          tabId={tId}
+                          retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
+                        />
                       </div>
                     {/if}
                   {/each}

@@ -1,5 +1,5 @@
 import { createContext } from 'svelte'
-import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext } from '../../../shared/types'
+import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery } from '../../../shared/types'
 import type { PullRequestSummary } from '../../../shared/providers'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession } from '../../lib/sessionUtils'
@@ -33,7 +33,7 @@ import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/sess
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
 import { nextMsgId } from './session.utils'
-import { gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
+import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, type ApprovePlanOptions } from './session-plan-operations'
@@ -50,6 +50,8 @@ import {
   markPrReviewProfile,
   settlePrReviewProfile,
 } from '../../components/pr-review/lib/pr-review-profiler'
+import { prepareHostCheckout, retargetSessionHost } from '../../components/servers/run-on'
+import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -108,6 +110,7 @@ export class WorkspaceContext {
   private workStreamTracker: WorkStreamTracker
   private ipcContextBuilder: IpcContextBuilder
   private promptComposer: PromptComposer
+  private hostDispatchAttempts = new Map<string, number>()
   environment: SessionEnvironmentStore
 
   constructor(settings: SettingsContext, windowCtx: WindowContext, statusBar: StatusBarContext, planStore: PlanStore, environment: SessionEnvironmentStore, agent?: AgentContext) {
@@ -203,6 +206,18 @@ export class WorkspaceContext {
   set runtimeSyncing(value: boolean) { this.lifecycle.runtimeSyncing = value }
   get streaming(): { text: Record<string, string> } { return this.eventReducer.streaming }
   set streaming(value: { text: Record<string, string> }) { this.eventReducer.streaming = value }
+  streamingTextFor(tabId: string, isVisible: boolean): string {
+    return this.eventReducer.streamingTextFor(tabId, isVisible)
+  }
+  clearStreamingText(tabId: string): void {
+    if (typeof this.eventReducer.clearStreamingText === 'function') {
+      this.eventReducer.clearStreamingText(tabId)
+      return
+    }
+    // Structural test doubles and restored legacy contexts only expose the
+    // original reactive text bag.
+    delete this.eventReducer.streaming.text[tabId]
+  }
   get tabs(): Record<string, Tab> { return this.registry.tabs }
   set tabs(value: Record<string, Tab>) { this.registry.tabs = value }
   get sessions(): Record<string, Session> { return this.registry.sessions }
@@ -685,6 +700,8 @@ export class WorkspaceContext {
   selectTab(tabId: string): void {
     if (tabId === this.panes.chatTabIn('secondary', this.activeTabId)) {
       this.panes.focusPane('secondary')
+      const secondarySession = this.sessionFor(tabId)
+      if (secondarySession) void this.refreshPluginCommands(secondarySession.workingDirectory, tabId)
       requestInputFocus({ tabId })
       return
     }
@@ -711,6 +728,7 @@ export class WorkspaceContext {
     if (session?.provider && this.settings.activeAgent !== session.provider) {
       this.settings.update({ activeAgent: session.provider })
     }
+    if (session) void this.refreshPluginCommands(session.workingDirectory, tabId)
   }
 
   toggleExpanded(): void {
@@ -904,6 +922,7 @@ export class WorkspaceContext {
     if (!session) return
     session.agentSessionId = null
     session.provider = null
+    session.handoffFrom = undefined
     session.messages = []
     session.sessionChangedFiles = []
     session.lastResult = null
@@ -913,7 +932,7 @@ export class WorkspaceContext {
     session.permissionQueue = []
     session.questionQueue = []
     session.permissionDenied = null
-    session.serverQueuedPrompts.splice(0, session.serverQueuedPrompts.length)
+    session.outboundPrompts.splice(0, session.outboundPrompts.length)
     session.status = 'idle'
     session.progress = null
     session.readOnlyReason = null
@@ -921,7 +940,7 @@ export class WorkspaceContext {
     // Reset tab title
     const tab = this.tabs[targetTabId]
     if (tab) tab.title = 'New Tab'
-    delete this.streaming.text[targetTabId]
+    this.clearStreamingText(targetTabId)
     if (session.workingDirectory && !session.gitContext) {
       void this.environment.refreshTab(this, { tabId: targetTabId })
     }
@@ -1111,8 +1130,8 @@ export class WorkspaceContext {
     this.config.updateModelConfig(patch, tabId)
   }
 
-  switchActiveAgent(agentId: AgentId): Promise<void> {
-    return this.config.switchActiveAgent(agentId)
+  switchActiveAgent(agentId: AgentId, tabId?: string): Promise<void> {
+    return this.config.switchActiveAgent(agentId, tabId)
   }
 
   setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {
@@ -1172,7 +1191,7 @@ export class WorkspaceContext {
     session.messages.push({ id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() })
   }
 
-  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string }): void {
+  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string }): void {
     const api = this.apiFor(tabId)
     api.createTab(tabId)
       .then(() => this.config.pendingSessionStartTarget(tabId))
@@ -1185,17 +1204,32 @@ export class WorkspaceContext {
         return api.prompt(this.ctxFor(tabId), options)
       })
       .catch((err: Error) => {
+        if (options.clientPromptId) {
+          const session = this.sessionFor(tabId)
+          const outbound = session?.outboundPrompts.find(
+            (prompt) => prompt.clientPromptId === options.clientPromptId,
+          )
+          if (outbound) {
+            outbound.state = 'failed'
+            outbound.error = err.message
+          }
+        }
         this.handleError(tabId, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
       })
   }
 
   /** Sends to the active tab unless `tabId` targets another one (the split
    *  conversation pane's composer). */
-  sendMessage(prompt: string, projectPath?: string, tabId?: string): void {
+  sendMessage(
+    prompt: string,
+    projectPath?: string,
+    tabId?: string,
+    delivery: PromptDelivery = 'steer',
+  ): void {
     if (!tabId && this.tabOrder.length === 0) {
       const sessionStartTargetResolution = this.config.pendingSessionStartTarget()
       if (sessionStartTargetResolution) {
-        void sessionStartTargetResolution.then(() => this.sendMessage(prompt, projectPath, tabId))
+        void sessionStartTargetResolution.then(() => this.sendMessage(prompt, projectPath, tabId, delivery))
         return
       }
       this.createTabFromDefaults()
@@ -1207,17 +1241,35 @@ export class WorkspaceContext {
     if (session.status === 'connecting') return
     if (session.readOnlyReason) return
 
+    if (session.pendingHostDispatch) {
+      session.status = 'connecting'
+      void this.prepareHostDispatchAndSend(targetTabId, prompt, projectPath, delivery)
+      return
+    }
+
     const resolvedPath = projectPath || session.workingDirectory
     if (session.serverId !== LOCAL_SERVER_ID && (!resolvedPath || resolvedPath === '~')) {
       toasts.error('Choose a project on the remote host before sending')
       return
     }
-    const isBusy = session.status === 'running'
+    const isBusy = isSessionBusyStatus(session.status)
     const input = tab.input
 
     const fullPrompt = this.promptComposer.compose(prompt, input, session)
     // Capture image blocks before the input's attachments are cleared below.
     const imageAttachments = this.promptComposer.composeImages(input)
+    const clientPromptId = nextMsgId()
+    const attachments = input.attachments.length > 0
+      ? input.attachments.map((attachment) => ({
+          name: attachment.name,
+          dataUrl: attachment.dataUrl,
+          mimeType: attachment.mimeType,
+          type: attachment.type,
+        }))
+      : undefined
+    const planRefs = input.planRefs.length > 0 ? [...input.planRefs] : undefined
+    const workRefs = input.workRefs.length > 0 ? [...input.workRefs] : undefined
+    const sessionRefs = input.sessionRefs.length > 0 ? [...input.sessionRefs] : undefined
 
     const title = session.messages.length === 0
       ? (prompt.length > 80 ? prompt.substring(0, 80) : prompt)
@@ -1237,35 +1289,34 @@ export class WorkspaceContext {
     if (isFirstMessage) analytics.conversationStarted({ agent })
     analytics.messageSent({ agent, isFirstMessage })
 
-    if (session.status === 'rate_limited' && (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue')) {
-      tab.title = title
-      input.attachments = []
-      input.planRefs = []
-      input.workRefs = []
-      input.sessionRefs = []
-      this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
-      requestConversationScrollToBottom(targetTabId)
-      return
-    }
-
     if (isBusy) {
       tab.title = title
+      session.outboundPrompts.push({
+        clientPromptId,
+        text: prompt,
+        state: isSteerableStatus(session.status) && delivery === 'steer' ? 'steering' : 'queueing',
+        enqueuedAt: Date.now(),
+        ...(imageAttachments.length > 0 ? { images: imageAttachments } : {}),
+        ...(attachments ? { attachments } : {}),
+        ...(planRefs ? { planRefs } : {}),
+        ...(workRefs ? { workRefs } : {}),
+        ...(sessionRefs ? { sessionRefs } : {}),
+      })
       input.attachments = []
       input.planRefs = []
       input.workRefs = []
       input.sessionRefs = []
     } else {
       const userMsg: Message = {
-        id: nextMsgId(),
+        id: clientPromptId,
         role: 'user' as const,
         content: prompt,
         timestamp: Date.now(),
-        attachments: input.attachments.length > 0
-          ? input.attachments.map((a) => ({ name: a.name, dataUrl: a.dataUrl, mimeType: a.mimeType, type: a.type }))
-          : undefined,
-        planRefs: input.planRefs.length > 0 ? [...input.planRefs] : undefined,
-        workRefs: input.workRefs.length > 0 ? [...input.workRefs] : undefined,
-        sessionRefs: input.sessionRefs.length > 0 ? [...input.sessionRefs] : undefined,
+        clientPromptId,
+        attachments,
+        planRefs,
+        workRefs,
+        sessionRefs,
       }
       session.status = 'connecting'
       tab.title = title
@@ -1278,8 +1329,109 @@ export class WorkspaceContext {
       session.messages.push(userMsg)
     }
 
-    this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, imageAttachments, taskId: session.boundTaskId ?? undefined })
+    this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, clientPromptId, delivery, imageAttachments, taskId: session.boundTaskId ?? undefined })
     requestConversationScrollToBottom(targetTabId)
+  }
+
+  private async prepareHostDispatchAndSend(
+    tabId: string,
+    prompt: string,
+    projectPath?: string,
+    delivery: PromptDelivery = 'steer',
+  ): Promise<void> {
+    const tab = this.tabs[tabId]
+    const session = this.sessionFor(tabId)
+    const pending = session?.pendingHostDispatch
+    if (!tab || !session || !pending) return
+    const attempt = (this.hostDispatchAttempts.get(tabId) ?? 0) + 1
+    this.hostDispatchAttempts.set(tabId, attempt)
+    const superseded = () =>
+      this.hostDispatchAttempts.get(tabId) !== attempt || this.sessionFor(tabId) !== session
+    const bailIfStale = (): boolean => {
+      if (superseded()) return true
+      if (session.status === 'connecting' && session.pendingHostDispatch === pending) return false
+      // The user withdrew this send (Stop, or a replaced pick); this attempt still
+      // owns the tab's dispatch UI, so it also cleans it up and returns the prompt.
+      session.statusCard = null
+      if (!tab.input.text) tab.input.text = prompt
+      return true
+    }
+    const repositoryAction = pending.checkout ? 'pull' : 'clone'
+    let activeStep: 'connection' | 'repository' = 'connection'
+    session.statusCard = buildRemoteDispatchCard({
+      tabId,
+      hostLabel: pending.hostLabel,
+      repositoryAction,
+      phase: 'connecting',
+    })
+    requestConversationScrollToBottom(tabId)
+
+    try {
+      const connection = serverConnections.ensure(pending.serverId)
+      await connection.api.connectionsGetServerInfo()
+      if (bailIfStale()) return
+      activeStep = 'repository'
+      session.statusCard = buildRemoteDispatchCard({
+        tabId,
+        hostLabel: pending.hostLabel,
+        repositoryAction,
+        phase: 'repository',
+      })
+      const prepared = await prepareHostCheckout(
+        connection.api,
+        pending.repoKey,
+        pending.checkout,
+      )
+      if (bailIfStale()) return
+      session.statusCard = buildRemoteDispatchCard({
+        tabId,
+        hostLabel: pending.hostLabel,
+        repositoryAction,
+        phase: 'ready',
+      })
+      const result = retargetSessionHost({
+        workspace: this,
+        tabId,
+        serverId: pending.serverId,
+        isLocalHost: pending.isLocalHost,
+        path: prepared.path,
+        repoKey: pending.repoKey,
+        requireWorktree: true,
+      })
+      if (!result.ok) throw new Error('The selected host has no usable checkout.')
+      session.pendingHostDispatch = null
+      await result.refreshStartTarget
+      if (superseded()) return
+      if (session.status !== 'connecting') {
+        // Interrupted after the move already landed: keep the move, drop the send.
+        session.statusCard = null
+        if (!tab.input.text) tab.input.text = prompt
+        return
+      }
+      session.status = 'idle'
+      this.sendMessage(prompt, projectPath, tabId, delivery)
+    } catch (error) {
+      if (superseded()) return
+      const message = error instanceof Error ? error.message : String(error)
+      session.status = 'idle'
+      session.statusCard = buildRemoteDispatchCard({
+        tabId,
+        hostLabel: pending.hostLabel,
+        repositoryAction,
+        phase: activeStep === 'connection' ? 'connecting' : 'repository',
+        error: { step: activeStep, message },
+      })
+      if (!tab.input.text) tab.input.text = prompt
+      requestInputFocus({ tabId })
+    }
+  }
+
+  refreshStartTarget(tabId: string, path: string, worktree: boolean): Promise<void> {
+    return this.config.refreshSessionStartTarget(
+      tabId,
+      path,
+      worktree || this.settings.worktreeEnabled,
+    )
   }
 
   retryLastMessage(tabId: string): void {
@@ -1288,7 +1440,7 @@ export class WorkspaceContext {
     if (session.status === 'connecting') return
     if (session.readOnlyReason) return
 
-    if (session.status === 'rate_limited' && session.serverQueuedPrompts.some((prompt) => prompt.reason === 'rate_limit')) {
+    if (session.status === 'rate_limited' && session.outboundPrompts.some((prompt) => prompt.state === 'queued' && prompt.reason === 'rate_limit')) {
       sendRateLimitedNow(this.apiFor(tabId), this.ctxFor(tabId), true, (err) => this.handleError(tabId, err))
       return
     }

@@ -41,8 +41,8 @@
   <!-- Left side: Brand + copy -->
   <!-- Logo mark -->
   <g transform="translate(100, 200)">
-    <circle cx="0" cy="0" r="19.2" fill="#D4AF6A" opacity="0.9" />
-    <g fill="none" stroke="#D4AF6A" stroke-width="6.4" stroke-linecap="round" opacity="0.9">
+    <circle cx="0" cy="0" r="19.2" fill="#B45A3C" opacity="0.9" />
+    <g fill="none" stroke="#D97757" stroke-width="6.4" stroke-linecap="round" opacity="0.9">
       <path d="M 0,-32 A 32,32 0 0 1 32,0" />
       <path d="M 26.88,21.76 A 32,32 0 0 1 -10.24,30.72" />
       <path d="M -26.88,21.76 A 32,32 0 0 1 -32,-10.24" />

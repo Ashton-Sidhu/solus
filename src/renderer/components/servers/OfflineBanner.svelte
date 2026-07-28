@@ -14,7 +14,7 @@
 </script>
 
 {#if show}
-  <div class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-[0.75rem] text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl">
+  <div class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-[0.75rem] font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl">
     <WifiXIcon size={14} class="shrink-0 text-(--solus-accent)" />
     <span class="max-w-[18rem] truncate">{active?.label} · {statusLabel}</span>
     {#if serversStore.connectionStatus !== "blocked"}

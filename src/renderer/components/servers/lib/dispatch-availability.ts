@@ -1,6 +1,6 @@
 export type DispatchAvailability =
   | { canDispatch: true }
-  | { canDispatch: false; reason: 'no-remote'; note: string }
+  | { canDispatch: false; note: string }
 
 export interface DispatchAvailabilityInput {
   /** True when the session is sitting in a git checkout at all. */
@@ -25,7 +25,6 @@ export function dispatchAvailability(input: DispatchAvailabilityInput): Dispatch
   if (!inCheckout || repoKey || !identitiesProbed) return { canDispatch: true }
   return {
     canDispatch: false,
-    reason: 'no-remote',
     note: 'This project has no git remote, so no other host can fetch it. Open a folder there instead.',
   }
 }

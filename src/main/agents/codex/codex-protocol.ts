@@ -23,6 +23,8 @@ import type {
   ThreadStartParams,
   ThreadStartResponse,
   TurnInterruptResponse,
+  TurnSteerParams,
+  TurnSteerResponse,
   TurnStartParams,
   TurnStartResponse,
 } from './generated/v2'
@@ -50,6 +52,7 @@ export type CodexThreadStartResponse = ThreadStartResponse
 export type CodexThreadResumeResponse = ThreadResumeResponse
 export type CodexThreadForkResponse = ThreadForkResponse
 export type CodexTurnStartResponse = TurnStartResponse
+export type CodexTurnSteerResponse = TurnSteerResponse
 export type CodexThreadListResponse = ThreadListResponse
 export type CodexThreadReadResponse = ThreadReadResponse
 export type CodexModelListResponse = ModelListResponse
@@ -78,6 +81,7 @@ export type CodexThreadStartParams = ThreadStartParams & CodexThreadConfigExtras
 export type CodexThreadResumeParams = ThreadResumeParams & CodexThreadConfigExtras
 export type CodexThreadForkParams = ThreadForkParams
 export type CodexTurnStartParams = TurnStartParams & CodexTurnConfigExtras
+export type CodexTurnSteerParams = TurnSteerParams
 export type CodexThreadGoalSetParams = ThreadGoalSetParams
 
 export interface CodexResponseByMethod {
@@ -92,6 +96,7 @@ export interface CodexResponseByMethod {
   'thread/goal/set': ThreadGoalSetResponse
   'thread/goal/clear': ThreadGoalClearResponse
   'turn/start': CodexTurnStartResponse
+  'turn/steer': CodexTurnSteerResponse
   'turn/interrupt': TurnInterruptResponse
   'skills/list': CodexSkillsListResponse
   'model/list': CodexModelListResponse

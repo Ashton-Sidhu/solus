@@ -173,7 +173,7 @@
   // Square icon button for the inline pane chrome (split / focus / close).
   const PANE_ICON_BTN =
     "inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent " +
-    "text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out " +
+    "font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out " +
     "hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) " +
     "pointer-coarse:size-11";
@@ -763,7 +763,7 @@
                 </Select.Trigger>
                 <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each repeatOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
                 </Select.Content>
               </Select.Root>
@@ -798,7 +798,7 @@
                 </Select.Trigger>
                 <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each intervalUnitOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
                 </Select.Content>
               </Select.Root>
@@ -834,7 +834,7 @@
                 </Select.Trigger>
                 <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each weekdayOptions as opt (opt.value)}
-                    <Select.Item value={String(opt.value)} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                    <Select.Item value={String(opt.value)} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
                 </Select.Content>
               </Select.Root>
@@ -928,7 +928,7 @@
                 </Select.Trigger>
                 <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each agentSelectOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
                 </Select.Content>
               </Select.Root>
@@ -951,7 +951,7 @@
                 </Select.Trigger>
                 <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each modelSelectOptions as opt (opt.value)}
-                    <Select.Item value={opt.value ?? ""} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                    <Select.Item value={opt.value ?? ""} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
                 </Select.Content>
               </Select.Root>
@@ -974,7 +974,7 @@
                 </Select.Trigger>
                 <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
                   {#each reasoningSelectOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
+                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
                   {/each}
                 </Select.Content>
               </Select.Root>

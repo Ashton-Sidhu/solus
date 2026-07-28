@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { File as PierreFile, type FileContents, type FileOptions } from "@pierre/diffs";
-  import { Editor } from "@pierre/diffs/editor";
+  import { Editor } from "@pierre/diffs/edit";
   import type { IpcContext } from "../../../shared/types";
   import { DIFFS_THEME_CSS } from "../../lib/diffTheme";
   import {

@@ -341,7 +341,7 @@
     <span class="rounded-md bg-(--solus-accent-light) px-2 py-1 text-[0.625rem] font-semibold tracking-[0.06em] text-(--solus-accent) uppercase ring-1 ring-inset ring-(--solus-accent-border)">
       Review mode
     </span>
-    <span class="text-xs text-(--solus-text-secondary) tabular-nums">
+    <span class="text-xs font-secondary text-(--solus-text-secondary) tabular-nums">
       {settledCount + (state?.pending.length ?? 0)} of {state?.entries.length ?? items.length} reviewed
       {#if currentEntry} · viewing <strong class="font-semibold text-(--solus-text-primary)">{store.position}</strong>{/if}
     </span>

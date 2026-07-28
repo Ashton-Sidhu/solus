@@ -1,6 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { ArrowUpIcon, SquareIcon, XIcon } from "phosphor-svelte";
+  import {
+    ArrowBendDownRightIcon,
+    ArrowUpIcon,
+    SquareIcon,
+    XIcon,
+  } from "phosphor-svelte";
   import {
     getWorkspaceContext,
     getStatusBarContext,
@@ -11,17 +16,20 @@
   } from "../../contexts";
   import type {
     PlanReference,
+    PromptDelivery,
     WorkReference,
     SessionReference,
   } from "../../../shared/types";
+  import { isSteerableStatus } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import AttachmentChips from "./AttachmentChips.svelte";
   import { SLASH_COMMANDS, type SlashCommand } from "./slash-commands";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
   import RecordingControls from "./RecordingControls.svelte";
   import { dictation, isDictationTarget } from "../../lib/dictation.svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
   import { requestFilePreview } from "../../lib/filePreview";
   import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
@@ -68,10 +76,12 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isConnecting = $derived(sess?.status === "connecting");
+  const activeProvider = $derived(sess?.provider ?? theme.activeAgent);
+  // Every provider steers; the turn just has to have actually started.
+  const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
   const isReadOnly = $derived(!!sess?.readOnlyReason);
   const attachments = $derived(input.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
-  const activeProvider = $derived(sess?.provider ?? theme.activeAgent);
   const pluginCommands = $derived(
     sess?.pluginCommands ?? session.pluginCommands,
   );
@@ -290,7 +300,9 @@
       ? "Read-only session"
       : (voiceModelTooltip ??
           voicePausedTooltip ??
-          (isVoiceWaiting ? "Voice mode waiting..." : "Voice input")),
+          (isVoiceWaiting
+            ? "Voice mode waiting..."
+            : `Voice input (${comboHint("voice.toggle-recorder")})`)),
   );
   const placeholder = $derived(
     isReadOnly
@@ -302,7 +314,11 @@
           : isBusy
             ? voiceModeEnabled && ownsVoice
               ? "Waiting for Claude..."
-              : "Type to queue a message..."
+              : canSteer
+                ? isMobile
+                  ? "Send to steer this response..."
+                  : "Enter to steer now · ⌥Enter to queue next"
+                : "Type to queue a message..."
             : "Plan, Build, Automate / @ for context",
   );
 
@@ -622,7 +638,10 @@
 
   // ─── Core input handlers ───
 
-  function sendPrompt(prompt: string, options: { refocus?: boolean } = {}) {
+  function sendPrompt(
+    prompt: string,
+    options: { refocus?: boolean; delivery?: PromptDelivery } = {},
+  ) {
     savePromptToHistory(prompt);
     input.text = "";
     resetHistoryNavigation();
@@ -630,14 +649,19 @@
     if (mode === "pill") {
       session.isExpanded = true;
     }
-    session.sendMessage(prompt || "See attached files", undefined, tabId);
+    session.sendMessage(
+      prompt || "See attached files",
+      undefined,
+      tabId,
+      options.delivery,
+    );
 
     if (options.refocus !== false) {
       refocusComposer();
     }
   }
 
-  function handleSend() {
+  function handleSend(delivery: PromptDelivery = "steer") {
     if (isReadOnly) return;
     let prompt = inputText.trim();
     if (
@@ -669,7 +693,7 @@
       return;
     }
 
-    sendPrompt(prompt);
+    sendPrompt(prompt, { delivery });
   }
 
   function navigateHistory(delta: -1 | 1) {
@@ -717,7 +741,7 @@
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSend(e.altKey ? "queue" : "steer");
     }
   }
 
@@ -914,28 +938,51 @@
 
 {#snippet sendButton()}
   {#if canSend && !showWaveform}
-    <button
-      onclick={handleSend}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+      onclick={() => handleSend()}
       data-testid="send-button"
-      class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform] duration-150 active:scale-[0.94] hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)]"
-      use:tooltip={isBusy ? "Queue message" : "Send (Enter)"}
+      aria-label={canSteer ? "Steer the live turn" : "Send message"}
+      class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform] duration-150 active:scale-[0.96] hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)]"
     >
-      <ArrowUpIcon size={16} weight="bold" />
+      {#if canSteer}
+        <ArrowBendDownRightIcon size={16} weight="bold" />
+      {:else}
+        <ArrowUpIcon size={16} weight="bold" />
+      {/if}
     </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content
+        value={canSteer
+          ? { label: "Steer this response · Queue next with ⌥Enter", shortcut: "Enter" }
+          : isBusy
+            ? "Queue message (Enter)"
+            : "Send (Enter)"}
+      />
+    </TooltipUI.Root>
   {/if}
 {/snippet}
 
 {#snippet stopButton()}
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     onmousedown={(e) => e.preventDefault()}
     onclick={handleInterrupt}
     data-testid="mobile-stop-button"
     class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-(--solus-stop-bg) shadow-[0_0.125rem_0.5rem_rgba(239,68,68,0.24),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,background] duration-150 active:scale-[0.94] hover:bg-(--solus-stop-hover)"
     aria-label="Stop current task"
-    use:tooltip={"Stop current task"}
   >
     <SquareIcon size={11} weight="fill" />
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Stop current task"} />
+  </TooltipUI.Root>
 {/snippet}
 
 {#snippet voiceButtons()}

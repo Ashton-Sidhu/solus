@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
+import { serverConnections } from '../../src/client-core/server-connections'
 
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -33,6 +34,11 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const { serversStore } = await import('../../src/renderer/contexts/connections/servers.store.svelte')
 
+// The store is a module singleton shared with other test files (e.g. server
+// removal deletes 'remote' from its in-memory list); re-read this file's
+// localStorage so the fixture host exists regardless of execution order.
+serversStore.refreshServers()
+
 afterAll(() => {
   if (previousLocalStorage === undefined) {
     delete (globalThis as unknown as { localStorage?: Storage }).localStorage
@@ -63,5 +69,35 @@ describe('server status', () => {
 
     expect(serversStore.statusFor('remote')).toBe('online')
     expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('online')
+  })
+
+  test('a fresh failed probe settles a retrying host as offline', async () => {
+    // WHY: the socket intentionally retries a saved host forever, but the host
+    // picker must not imply that a powered-off machine is about to connect.
+    const originalProbeHealth = serverConnections.probeHealth
+    let forced = false
+    serverConnections.probeHealth = async (_serverId, force) => {
+      forced = force === true
+      return null
+    }
+
+    try {
+      serversStore.setConnectionStatus('remote', 'connecting')
+      await serversStore.probeRunOnServers()
+
+      expect(forced).toBe(true)
+      expect(serversStore.statusFor('remote')).toBe('offline')
+      expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('offline')
+    } finally {
+      serverConnections.probeHealth = originalProbeHealth
+    }
+  })
+
+  test('a connected socket wins over an older failed probe', () => {
+    // WHY: recovering the host must immediately turn it green; users should not
+    // have to wait for the next picker probe to clear a stale offline result.
+    serversStore.setConnectionStatus('remote', 'connected')
+
+    expect(serversStore.statusFor('remote')).toBe('online')
   })
 })

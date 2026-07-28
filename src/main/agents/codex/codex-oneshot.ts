@@ -125,10 +125,9 @@ export interface CodexOneShotResult {
  * two server-request listeners on the shared client never both respond.
  *
  * The app-server client is a shared singleton (the interactive backend uses it
- * too), so we cannot read text off the global notification firehose reliably —
- * delta notifications don't all carry a thread/turn id. Instead we only watch
- * for *our* turn to complete (turn/completed is routed by thread/turn id), then
- * read the finished thread back for the assistant text and tool-call count.
+ * too), so notifications are routed by thread/turn id. Completed agent-message
+ * items carry assembled text, which is retained as the result. A finished-thread
+ * read remains as a fallback for older providers that do not emit those items.
  */
 export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexOneShotResult> {
   const client = getCodexAppServerClient()
@@ -180,9 +179,11 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
 
   let turnId = ''
   let settled = false
+  let capturedAssistantText = ''
+  let capturedFinalText = ''
   const normalizer = new CodexTurnNormalizer({
     planMode: false,
-    assembledAgentMessages: !!opts.onEvent,
+    assembledAgentMessages: true,
   })
 
   try {
@@ -213,6 +214,10 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
       const params: any = msg.params || {}
       if (!isOurs(params)) return
       for (const evt of normalizer.push({ method: msg.method, params })) {
+        if (evt.type === 'assistant_message') {
+          capturedAssistantText = evt.text
+          if (evt.isFinal) capturedFinalText = evt.text
+        }
         opts.onEvent?.(evt)
         if (evt.type === 'task_complete') done()
         else if (evt.type === 'error' && evt.isError) done(new Error(evt.message || 'Codex turn failed'))
@@ -267,7 +272,17 @@ export async function runCodexOneShot(opts: CodexOneShotOptions): Promise<CodexO
     detachToolHandler?.()
   }
 
-  // Read the finished thread back for the assistant text and tool-call count.
+  const capturedText = capturedFinalText || capturedAssistantText
+  if (capturedText) {
+    return {
+      sessionId: threadId,
+      text: capturedText,
+      toolCallCount: normalizer.summary.toolCallCount,
+    }
+  }
+
+  // Older providers may omit completed agent-message items. Non-ephemeral
+  // threads can still recover their outcome from persisted history.
   return { sessionId: threadId, ...(await readThreadOutcome(client, threadId)) }
 }
 

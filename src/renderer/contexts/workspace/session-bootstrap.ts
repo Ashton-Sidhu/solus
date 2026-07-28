@@ -132,7 +132,8 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
     // Clear only the affected host's in-flight state so replayed text doesn't
     // double-append without churning healthy tabs on other connections.
     for (const tabId of tabIds) {
-      delete ctx.streaming.text[tabId]
+      if (typeof ctx.clearStreamingText === 'function') ctx.clearStreamingText(tabId)
+      else delete ctx.streaming.text[tabId]
       delete ctx.turnSnapshots[tabId]
     }
     await Promise.all(tabIds.map(async (tabId) => {
@@ -200,9 +201,11 @@ function _materializeTabs(
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
         status: 'idle',
         workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
+        projectGroupPath: snapTab.projectGroupPath ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         gitContext: snapTab.gitContext,
         worktreeBaseBranch: snapTab.worktreeBaseBranch,
+        worktreeRequired: snapTab.worktreeRequired ?? false,
         modelConfig: snapTab.modelConfig ? { ...snapTab.modelConfig } : undefined,
         permissionMode: snapTab.permissionMode as any,
       })
@@ -373,5 +376,4 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   }
 
   await environmentRefresh
-  void ctx.refreshPluginCommands(session.workingDirectory, snapTab.tabId)
 }

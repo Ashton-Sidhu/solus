@@ -48,8 +48,7 @@ export function getServerSettings(): ServerSettings {
 
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
   _settings = { ...getServerSettings(), remoteAccess }
-  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
-  writeFileSync(SETTINGS_FILE, JSON.stringify(_settings, null, 2), { mode: 0o600 })
+  persistSettings(_settings)
   return _settings
 }
 
@@ -57,17 +56,20 @@ export function setServerName(name: string): ServerSettings {
   const normalized = normalizeServerName(name)
   if (!normalized) throw new Error('Server name cannot be empty.')
   _settings = { ...getServerSettings(), name: normalized }
-  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
-  writeFileSync(SETTINGS_FILE, JSON.stringify(_settings, null, 2), { mode: 0o600 })
+  persistSettings(_settings)
   return _settings
 }
 
 /** Empty clears the setting, so the picker falls back to the home folder. */
 export function setProjectsBaseDirectory(path: string): ServerSettings {
   _settings = { ...getServerSettings(), projectsBaseDirectory: normalizeProjectsBaseDirectory(path) }
-  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
-  writeFileSync(SETTINGS_FILE, JSON.stringify(_settings, null, 2), { mode: 0o600 })
+  persistSettings(_settings)
   return _settings
+}
+
+function persistSettings(next: ServerSettings): void {
+  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
+  writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 })
 }
 
 function normalizeServerName(value: unknown): string | undefined {

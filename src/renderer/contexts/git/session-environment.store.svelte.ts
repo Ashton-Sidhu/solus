@@ -77,14 +77,14 @@ export interface SessionEnvironment {
   status: GitState | null | undefined
 }
 
-export function environmentProjectKey(environment: SessionEnvironment): string {
-  return environment.repoRoot ?? environment.cwd ?? '~'
+export function environmentProjectKey(environment: SessionEnvironment, projectGroupPath?: string | null): string {
+  return projectGroupPath ?? environment.repoRoot ?? environment.cwd ?? '~'
 }
 
-export function environmentBranchKey(environment: SessionEnvironment): string {
+export function environmentBranchKey(environment: SessionEnvironment, projectGroupPath?: string | null): string {
   const branch = environment.branch ?? 'no branch'
   const worktreeSuffix = environment.isolated ? ' (worktree)' : ''
-  return `${environmentProjectKey(environment)}::${branch}${worktreeSuffix}`
+  return `${environmentProjectKey(environment, projectGroupPath)}::${branch}${worktreeSuffix}`
 }
 
 const WORKSPACE_NAME = 'Workspace'

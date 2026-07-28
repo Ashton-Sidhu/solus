@@ -7,45 +7,98 @@
     DesktopTowerIcon,
     DownloadSimpleIcon,
     FolderOpenIcon,
+    GitForkIcon,
     PlusIcon,
   } from "phosphor-svelte";
+  import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serverConnections } from "@client-core/server-connections";
   import { preferredRunOnHost } from "@client-core/run-on-preferences";
   import type { RecentProject } from "../../../shared/types";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext, hostAffinityGlyph } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import { hasSessionStarted } from "../../lib/sessionUtils";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { Button } from "../ui/button";
+  import { MenuFooter } from "../ui/menu";
   import {
     serversStore,
     type ServerItem,
-  } from "../../contexts/connections/servers.store.svelte";
+    type UnknownRemoteHost,
+  } from "../../contexts";
   import {
     checkoutForRepo,
     isRunOnHostLocked,
     repoKeyForPath,
+    queueSessionHostDispatch,
     retargetSessionHost,
+    worktreeBlockedReason,
   } from "./run-on";
   import { dispatchAvailability } from "./lib/dispatch-availability";
-  import { hostAffinityGlyph } from "./lib/host-affinity";
+  import { resolvePreferredHost } from "./lib/preferred-host";
   import { openProjectStore } from "./open-project.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
 
   interface Props {
     tabId: string;
+    /**
+     * `chip` is the standalone "Run on: X" pill the pill-mode status row uses.
+     * `header` is the input bar's "Start in" chip, which answers where the next
+     * session runs *and* whether it gets its own worktree — one question to the
+     * user, so one control.
+     */
+    variant?: "chip" | "header";
+    /** Worktree state, owned by the header; unused by the `chip` variant. */
+    startsNewWorktree?: boolean;
+    /** The checkout the session sits in is itself a worktree. */
+    inWorktree?: boolean;
+    canToggleWorktree?: boolean;
+    /** A dispatched session always gets a worktree, so the choice is inert. */
+    worktreeForced?: boolean;
+    setWorktree?: (next: boolean) => void;
   }
 
-  let { tabId }: Props = $props();
+  let {
+    tabId,
+    variant = "chip",
+    startsNewWorktree = false,
+    inWorktree = false,
+    canToggleWorktree = false,
+    worktreeForced = false,
+    setWorktree,
+  }: Props = $props();
 
   const workspace = getWorkspaceContext();
   const session = $derived(workspace.sessionFor(tabId));
-  const locked = $derived(isRunOnHostLocked(session));
-  const selectedServer = $derived(
-    serversStore.servers.find((server) => server.id === session?.serverId) ?? serversStore.servers[0] ?? null,
+  // A tab with no session yet has no host to move, but it does still choose the
+  // shape of its next checkout, so the header chip stays live until one starts.
+  const locked = $derived(
+    variant === "header"
+      ? hasSessionStarted(session)
+      : isRunOnHostLocked(session),
   );
-  const selectedAffinity = $derived(
-    hostAffinityGlyph(selectedServer, selectedServer?.status ?? "saved"),
+  const selectedHostId = $derived(
+    session?.pendingHostDispatch?.serverId ?? session?.serverId,
+  );
+  const selectedServer = $derived(serversStore.hostFor(selectedHostId));
+  const selectedAffinity = $derived(serversStore.affinityFor(selectedHostId));
+  const onRemoteHost = $derived(!!selectedServer && !selectedServer.local);
+  // Keep local choices on one conceptual axis: both labels describe the shape
+  // of the checkout. A remote target is named for the host instead.
+  // Where you already are is a worktree often enough that calling it a plain
+  // checkout reads as a mistake — name it for what it is.
+  const stayLabel = "Local";
+  const startInLabel = $derived(
+    onRemoteHost
+      ? hostLabel(selectedServer)
+      : startsNewWorktree
+        ? "New worktree"
+        : stayLabel,
+  );
+  // A disabled row with no reason is the worst of both worlds, so say why the
+  // choice is off the table.
+  const worktreeBlockedNote = $derived(
+    worktreeBlockedReason(canToggleWorktree, inWorktree),
   );
   // The repo is resolved against the host the session is already on — a
   // dispatched session's checkout path means nothing in the local manifest.
@@ -65,67 +118,83 @@
   );
 
   let open = $state(false);
+  let triggerTooltipOpen = $state(false);
   let choosingProjectFor = $state<ServerItem | null>(null);
   let recentProjects = $state<RecentProject[]>([]);
   let loadingProjects = $state(false);
   let projectLoadError = $state(false);
   let resolvedDefaultKey = $state<string | null>(null);
-  let autoProbeKey = $state<string | null>(null);
   let sourceRepoKey = $state<string | null>(null);
 
+  // Same footer contract as the model picker: teach the key, then say what the
+  // menu currently resolves to, so the choice is legible without reading rows.
+  const footerSummary = $derived(
+    choosingProjectFor
+      ? `${recentProjects.length} project${recentProjects.length === 1 ? "" : "s"}`
+      : variant === "header"
+        ? startInLabel
+        : hostLabel(selectedServer),
+  );
+
   $effect(() => {
+    // Retargeting clears gitContext, so retain the last repo key while selection finishes.
     if (detectedRepoKey) sourceRepoKey = detectedRepoKey;
   });
 
   $effect(() => {
     const path = session?.gitContext?.repoRoot ?? session?.workingDirectory;
-    const key = !locked && path && path !== "~" ? `${tabId}:${path}` : null;
-    if (!key || autoProbeKey === key) return;
-    autoProbeKey = key;
+    if (locked || !path || path === "~") return;
     void serversStore.probeRunOnServers();
   });
 
   $effect(() => {
     const repoKey = sourceRepoKey;
-    const resolutionKey = repoKey ? `${tabId}:${repoKey}` : null;
-    const currentSession = session;
-    if (!repoKey || !resolutionKey || resolvedDefaultKey === resolutionKey || !currentSession || locked) return;
-    if (currentSession.serverId !== LOCAL_SERVER_ID) {
-      resolvedDefaultKey = resolutionKey;
-      return;
-    }
     const preferredId = preferredRunOnHost(repoKey);
-    if (preferredId === LOCAL_SERVER_ID) {
-      resolvedDefaultKey = resolutionKey;
-      return;
-    }
-    const preferred = serversStore.servers.find((server) => server.id === preferredId);
-    if (!preferred) {
-      resolvedDefaultKey = resolutionKey;
-      return;
-    }
-    const status = serversStore.statusFor(preferredId);
-    if (status === "saved" || status === "connecting") return;
+    const resolutionKey = repoKey ? `${tabId}:${repoKey}` : null;
+    const preferred = preferredId
+      ? serversStore.servers.find((server) => server.id === preferredId)
+      : undefined;
+    const resolution = resolvePreferredHost({
+      repoKey,
+      hasResolved: resolvedDefaultKey === resolutionKey,
+      isLocked: locked,
+      currentServerId: session?.serverId,
+      pendingServerId: session?.pendingHostDispatch?.serverId,
+      preferredServerId: preferredId,
+      preferredServer: preferred,
+      preferredStatus: preferredId ? serversStore.statusFor(preferredId) : null,
+      preferredIdentities: preferredId
+        ? serversStore.projectIdentitiesFor(preferredId)
+        : [],
+    });
+    if (!resolution.done || !resolutionKey) return;
     resolvedDefaultKey = resolutionKey;
-    if (status !== "online") return;
-    const checkout = checkoutForRepo(serversStore.projectIdentitiesFor(preferredId), repoKey);
-    if (!checkout) return;
-    serverConnections.ensure(preferredId);
-    currentSession.serverId = preferredId;
-    currentSession.workingDirectory = checkout.path;
+    if (resolution.target) selectTarget(resolution.target);
   });
 
   $effect(() => {
-    const pairedId = serversStore.justPairedServerId;
-    if (!pairedId || serversStore.pendingRunOnTabId !== tabId) return;
-    serversStore.justPairedServerId = null;
-    serversStore.pendingRunOnTabId = null;
-    const server = serversStore.servers.find((candidate) => candidate.id === pairedId);
-    if (server) setTarget(server);
+    const pairedId = serversStore.consumeJustPaired(tabId);
+    if (!pairedId) return;
+    const server = serversStore.servers.find(
+      (candidate) => candidate.id === pairedId,
+    );
+    if (server) selectTarget(server);
   });
 
+  /**
+   * A host is named for where the work runs, and "runs here" is what local
+   * means — the device's own name ("This Mac") is only interesting on surfaces
+   * that list it beside other people's machines.
+   */
+  function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
+    return !server || server.local ? "Local" : server.label;
+  }
+
   function checkoutFor(serverId: string) {
-    return checkoutForRepo(serversStore.projectIdentitiesFor(serverId), sourceRepoKey);
+    return checkoutForRepo(
+      serversStore.projectIdentitiesFor(serverId),
+      sourceRepoKey,
+    );
   }
 
   function setTarget(server: ServerItem, path?: string) {
@@ -137,12 +206,7 @@
       isLocalHost: server.local,
       path,
       repoKey: sourceRepoKey,
-      onDispatched: (dispatchedPath) =>
-        void workspace.environment.refreshTab(workspace, {
-          tabId,
-          cwd: dispatchedPath,
-          worktreeRequested: true,
-        }),
+      requireWorktree: true,
     });
     // Without a directory on the target the move is refused, so send the user to
     // the step that can supply one rather than closing over a silent no-op.
@@ -154,14 +218,26 @@
     open = false;
   }
 
+  function selectTarget(server: ServerItem) {
+    if (!session || locked || !sourceRepoKey) return;
+    queueSessionHostDispatch(session, {
+      serverId: server.id,
+      hostLabel: server.label,
+      isLocalHost: server.local,
+      repoKey: sourceRepoKey,
+      checkout: checkoutFor(server.id),
+    });
+    choosingProjectFor = null;
+    open = false;
+  }
+
   async function chooseProjectOn(server: ServerItem) {
     choosingProjectFor = server;
     recentProjects = [];
     projectLoadError = false;
     loadingProjects = true;
     try {
-      const api = serverConnections.ensure(server.id).api;
-      recentProjects = await api.listRecentProjects();
+      recentProjects = await serversStore.recentProjectsFor(server.id);
     } catch {
       projectLoadError = true;
     } finally {
@@ -171,7 +247,8 @@
 
   /** The repo this tab sits in, offered as the omnibox seed on a host that lacks it. */
   function cloneSeedFor(server: ServerItem): string | undefined {
-    if (server.local || !sourceRepoKey || checkoutFor(server.id)) return undefined;
+    if (server.local || !sourceRepoKey || checkoutFor(server.id))
+      return undefined;
     const [, owner, repo] = sourceRepoKey.split("/");
     return owner && repo ? `${owner}/${repo}` : undefined;
   }
@@ -180,19 +257,12 @@
   function startNewProject(server: ServerItem, seed?: string) {
     open = false;
     choosingProjectFor = null;
-    openProjectStore.open(
-      serversStore.servers.map((candidate) => ({
-        id: candidate.id,
-        label: candidate.label,
-        local: candidate.local,
-      })),
-      {
-        tabId,
-        host: { id: server.id, label: server.label, local: server.local },
-        seed,
-        source: seed ? "clone" : undefined,
-      },
-    );
+    openProjectStore.open(serversStore.servers, {
+      tabId,
+      host: server,
+      seed,
+      source: seed ? "clone" : undefined,
+    });
   }
 
   function browseHost(server: ServerItem) {
@@ -200,198 +270,426 @@
     choosingProjectFor = null;
     window.dispatchEvent(
       new CustomEvent("solus:open-directory-picker", {
-        detail: { tabId, serverId: server.id },
+        detail: { tabId, serverId: server.id, requireWorktree: true },
       }),
     );
   }
 
   async function chooseServer(event: Event, server: ServerItem) {
-    const checkout = checkoutFor(server.id);
     // Staying on the host you're already using isn't a dispatch, so it needs no
     // directory of its own; every real move does.
-    if (server.id === session?.serverId || checkout) {
-      setTarget(server, checkout?.path);
+    if (
+      server.id ===
+      selectedHostId
+    ) {
+      open = false;
       return;
     }
 
     event.preventDefault();
+    if (sourceRepoKey) {
+      selectTarget(server);
+      return;
+    }
     await chooseProjectOn(server);
+  }
+
+  /** Both local checkout choices cancel a queued remote dispatch first. */
+  function chooseLocalStart(worktree: boolean) {
+    const local = serversStore.servers.find((server) => server.local);
+    if (session && local && session.serverId !== local.id) {
+      // Coming back from a host the session already moved to needs a directory
+      // on this machine, exactly as any other move between hosts does.
+      void chooseProjectOn(local);
+      return;
+    }
+    if (session?.pendingHostDispatch) {
+      if (sourceRepoKey) {
+        queueSessionHostDispatch(session, {
+          serverId: session.serverId,
+          hostLabel: "Local",
+          isLocalHost: true,
+          repoKey: sourceRepoKey,
+          checkout: checkoutFor(session.serverId),
+        });
+      } else {
+        session.pendingHostDispatch = null;
+      }
+    }
+    if (!worktreeForced && worktree !== startsNewWorktree)
+      setWorktree?.(worktree);
+    open = false;
   }
 
   function handleOpenChange(next: boolean) {
     open = next;
     if (next) {
+      triggerTooltipOpen = false;
       choosingProjectFor = null;
       void serversStore.probeRunOnServers();
       return;
     }
     requestInputFocus();
   }
+
+  function getTriggerTooltipOpen() {
+    return triggerTooltipOpen && !open;
+  }
+
+  function setTriggerTooltipOpen(next: boolean) {
+    triggerTooltipOpen = next && !open;
+  }
 </script>
 
-{#if serversStore.remotes.length > 0}
-  {#if locked}
-    <span
-      class="inline-flex h-7 max-w-40 shrink-0 items-center gap-1.5 rounded-full px-2 text-[0.6875rem] text-(--solus-text-tertiary)"
-      use:tooltip={`Runs on ${selectedServer?.label ?? "unknown host"} — sessions stay on the host they started on`}
-    >
-      {#if selectedAffinity}
-        {@const HostIcon = selectedAffinity.icon}
-        <HostIcon size={11} class="shrink-0 {selectedAffinity.className}" />
-      {:else}
-        <DesktopTowerIcon size={11} class="shrink-0 opacity-60" />
-      {/if}
-      <span class="truncate">{selectedServer?.label ?? "Unknown host"}</span>
+{#snippet serverRow(server: ServerItem)}
+  {@const isSelectedHost = server.id === selectedHostId}
+  {@const affinity = hostAffinityGlyph(server, server.status)}
+  {@const blocked = !availability.canDispatch && !isSelectedHost}
+  <DropdownMenu.Item
+    data-menu-current={isSelectedHost ? "" : undefined}
+    disabled={blocked}
+    onSelect={(event) => void chooseServer(event, server)}
+  >
+    {#if affinity}
+      {@const HostIcon = affinity.icon}
+      <HostIcon size={13} class="shrink-0 {affinity.className}" />
+    {:else}
+      <DesktopTowerIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+    {/if}
+    <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
+    {#if isSelectedHost}
+      <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+    {:else if affinity && server.status !== "saved"}
+      <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
+    {/if}
+  </DropdownMenu.Item>
+{/snippet}
+
+{#snippet availabilityNote()}
+  {#if !availability.canDispatch}
+    <p class="text-pretty px-2.5 pb-1 pt-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)">
+      {availability.note}
+    </p>
+  {/if}
+{/snippet}
+
+{#snippet nearbyRow(host: (typeof serversStore.nearbyHosts)[number])}
+  <DropdownMenu.Item
+    onSelect={(event) => {
+      event.preventDefault();
+      serversStore.pairForRunOn(tabId);
+      hostOnboardingStore.openForDiscovered(host.server);
+    }}
+    title="{host.server.host}:{host.server.port}"
+  >
+    <span class="flex size-3.5 shrink-0 items-center justify-center">
+      <span class="size-2 rounded-full border border-(--solus-text-quaternary)"></span>
     </span>
+    <span class="min-w-0 flex-1 truncate">{host.server.name}</span>
+    <span class="shrink-0 text-[0.6875rem] font-medium text-(--solus-accent)">Connect</span>
+  </DropdownMenu.Item>
+{/snippet}
+
+<!-- The header chip is the only control for worktree mode, so it shows even on
+     a machine that has never seen another host; the pill-mode chip is purely
+     about hosts and stays hidden until there is one to choose. -->
+{#if variant === "header" || serversStore.remotes.length > 0}
+  {#if locked}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span
+            {...tooltipProps}
+            class="inline-flex h-7 max-w-40 shrink-0 items-center gap-1.5 rounded-full px-2 text-[0.6875rem] text-(--solus-text-tertiary)"
+          >
+            {#if selectedAffinity}
+              {@const HostIcon = selectedAffinity.icon}
+              <HostIcon
+                size={11}
+                class="shrink-0 {selectedAffinity.className}"
+              />
+            {:else}
+              <DesktopTowerIcon size={11} class="shrink-0 opacity-60" />
+            {/if}
+            <span class="truncate"
+              >{selectedServer
+                ? hostLabel(selectedServer)
+                : "Unknown host"}</span
+            >
+          </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content
+        value={`Runs on ${selectedServer ? hostLabel(selectedServer) : "an unknown host"} — sessions stay on the host they started on`}
+      />
+    </TooltipUI.Root>
   {:else}
     <DropdownMenu.Root bind:open onOpenChange={handleOpenChange}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <button
-            {...props}
-            type="button"
-            class="relative inline-flex h-7 max-w-44 items-center gap-1.5 rounded-full px-2 text-[0.6875rem] text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-full after:min-w-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
-            use:tooltip={open ? null : `Run new session on ${selectedServer?.label ?? "This Mac"}`}
-          >
-            {#if selectedAffinity}
-              {@const HostIcon = selectedAffinity.icon}
-              <HostIcon size={11} class="shrink-0 {selectedAffinity.className}" />
-            {/if}
-            <span class="truncate">Run on: {selectedServer?.label ?? "This Mac"}</span>
-            <CaretDownIcon size={9} class="shrink-0 opacity-60" />
-          </button>
+          {#if variant === "header"}
+            <TooltipUI.Root
+              bind:open={getTriggerTooltipOpen, setTriggerTooltipOpen}
+              disabled={open}
+            >
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <Button
+                    {...mergeProps(tooltipProps, props)}
+                    variant="ghost"
+                    class="group relative h-auto max-w-44 gap-1.5 rounded-lg px-2 py-1 text-[0.8125rem] font-normal tracking-[-0.006em] transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {open
+                      ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+                      : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
+                  >
+                    {#if onRemoteHost && selectedAffinity}
+                      {@const HostIcon = selectedAffinity.icon}
+                      <HostIcon
+                        size={14}
+                        class="shrink-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+                          ? 'opacity-100'
+                          : 'opacity-70'} {selectedAffinity.className}"
+                      />
+                    {:else}
+                      <DesktopTowerIcon
+                        size={14}
+                        class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+                          ? 'opacity-100'
+                          : 'opacity-70'}"
+                      />
+                    {/if}
+                    <span class="truncate">{startInLabel}</span>
+                  </Button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content
+                value={`Where the next session starts — now: ${startInLabel}`}
+              />
+            </TooltipUI.Root>
+          {:else}
+            <TooltipUI.Root
+              bind:open={getTriggerTooltipOpen, setTriggerTooltipOpen}
+              disabled={open}
+            >
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <Button
+                    {...mergeProps(tooltipProps, props)}
+                    variant="ghost"
+                    class="relative h-7 max-w-44 gap-1.5 rounded-full px-2 text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:ring-0 after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-full after:min-w-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
+                  >
+                    {#if selectedAffinity}
+                      {@const HostIcon = selectedAffinity.icon}
+                      <HostIcon
+                        size={11}
+                        class="shrink-0 {selectedAffinity.className}"
+                      />
+                    {/if}
+                    <span class="truncate"
+                      >Run on: {hostLabel(selectedServer)}</span
+                    >
+                    <CaretDownIcon size={9} class="shrink-0 opacity-60" />
+                  </Button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content
+                value={`Run new session on ${hostLabel(selectedServer)}`}
+              />
+            </TooltipUI.Root>
+          {/if}
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="bottom" align="start" sideOffset={6} class="w-[300px]">
-        {#if choosingProjectFor}
-          <DropdownMenu.Item
-            class="py-2"
-            onSelect={(event) => {
-              event.preventDefault();
-              choosingProjectFor = null;
-            }}
-          >
-            <ArrowLeftIcon size={12} />
-            <span>Choose a host</span>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator />
-          <DropdownMenu.Label class="truncate px-3 py-1.5 text-[0.625rem] text-(--solus-text-tertiary)">
-            Recent projects on {choosingProjectFor.label}
-          </DropdownMenu.Label>
-          {#if loadingProjects}
-            <div class="flex min-h-10 items-center gap-2 px-3 py-2 text-[0.6875rem] text-(--solus-text-tertiary)">
-              <CircleNotchIcon size={12} class="animate-spin" />
-              Loading projects…
-            </div>
-          {:else if projectLoadError}
-            <div class="px-3 py-2 text-[0.6875rem] leading-relaxed text-(--solus-status-error)">
-              Couldn’t reach this host. Check its connection and try again.
-            </div>
-          {:else if recentProjects.length === 0}
-            <div class="px-3 pb-1 pt-2 text-pretty text-[0.6875rem] leading-relaxed text-(--solus-text-tertiary)">
-              Nothing here yet — this host has no projects.
-            </div>
-          {:else}
-            {#each recentProjects as project (project.path)}
-              <DropdownMenu.Item class="py-2" onSelect={() => setTarget(choosingProjectFor!, project.path)}>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate font-medium text-(--solus-text-primary)">{project.folderName}</span>
-                  <span class="mt-0.5 block truncate font-mono text-[0.625rem] text-(--solus-text-tertiary)">{project.path}</span>
-                </span>
-              </DropdownMenu.Item>
-            {/each}
-          {/if}
-
-          <!-- A host with no checkout used to dead-end here; these two are the
-               way forward, and the primary CTA when there are no recents. -->
-          <DropdownMenu.Separator />
-          {#if cloneSeedFor(choosingProjectFor)}
-            {@const seed = cloneSeedFor(choosingProjectFor)!}
-            <DropdownMenu.Item class="py-2" onSelect={() => startNewProject(choosingProjectFor!, seed)}>
-              <DownloadSimpleIcon size={12} class="shrink-0 text-(--solus-accent)" />
-              <span class="min-w-0 flex-1 truncate font-medium text-(--solus-accent)">
-                Clone {seed.split("/")[1]} here
-              </span>
-            </DropdownMenu.Item>
-          {/if}
-          <DropdownMenu.Item class="py-2" onSelect={() => startNewProject(choosingProjectFor!)}>
-            <PlusIcon size={12} class="shrink-0" />
-            <span class="min-w-0 flex-1 truncate">Open a project on {choosingProjectFor.label}…</span>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item class="py-2" onSelect={() => browseHost(choosingProjectFor!)}>
-            <FolderOpenIcon size={12} class="shrink-0" />
-            <span class="min-w-0 flex-1 truncate">Browse folder…</span>
-          </DropdownMenu.Item>
-        {:else}
-          <DropdownMenu.Label class="px-3 py-1.5 text-[0.625rem] text-(--solus-text-tertiary)">Start the next session on</DropdownMenu.Label>
-          {#each serversStore.servers as server (server.id)}
-            {@const checkout = checkoutFor(server.id)}
-            {@const isCurrentHost = server.id === session?.serverId}
-            {@const affinity = hostAffinityGlyph(server, server.status)}
-            {@const blocked = !availability.canDispatch && !isCurrentHost}
+      <!-- Both triggers live on the bottom-anchored composer, so downward is
+           where there is no room; the list opens over the transcript instead. -->
+      <DropdownMenu.Content
+        side="top"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
+        class="w-[300px] p-0"
+      >
+        <!-- The footer spans the surface, so the rows scroll inside their own
+             padded body rather than dragging it out of view. -->
+        <div class="max-h-[288px] overflow-y-auto p-1.5">
+          {#if choosingProjectFor}
             <DropdownMenu.Item
-              class="py-2"
-              disabled={blocked}
-              onSelect={(event) => void chooseServer(event, server)}
+              onSelect={(event) => {
+                event.preventDefault();
+                choosingProjectFor = null;
+              }}
             >
-              <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) {affinity?.className ?? 'text-(--solus-text-tertiary)'}">
-                {#if affinity}
-                  {@const HostIcon = affinity.icon}
-                  <HostIcon size={14} />
-                {:else}
-                  <DesktopTowerIcon size={14} />
-                {/if}
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="flex min-w-0 items-center gap-1.5">
-                  <span class="truncate font-medium text-(--solus-text-primary)">{server.label}</span>
-                  {#if affinity}
-                    <span class="shrink-0 text-[0.625rem] text-(--solus-text-tertiary)">{affinity.statusLabel}</span>
-                  {/if}
-                </span>
-                <span class="mt-0.5 block truncate font-mono text-[0.625rem] text-(--solus-text-tertiary)">
-                  {checkout?.path ?? (isCurrentHost ? session?.workingDirectory : "Choose a recent project")}
-                </span>
-              </span>
-              {#if isCurrentHost}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
+              <ArrowLeftIcon size={13} class="shrink-0" />
+              <span class="min-w-0 flex-1 truncate">Choose a host</span>
             </DropdownMenu.Item>
-          {/each}
-          {#if !availability.canDispatch}
-            <p class="px-3 pb-1.5 pt-1 text-pretty text-[0.625rem] leading-relaxed text-(--solus-text-tertiary)">
-              {availability.note}
-            </p>
-          {/if}
-          {#if serversStore.nearbyHosts.length > 0}
-            <DropdownMenu.Label class="px-3 pb-1 pt-2 text-[0.625rem] text-(--solus-text-tertiary)">
-              Nearby
+            <DropdownMenu.Separator />
+            <DropdownMenu.Label class="truncate">
+              Recent projects on {hostLabel(choosingProjectFor)}
             </DropdownMenu.Label>
-            {#each serversStore.nearbyHosts as host (host.server.installationId)}
-              <DropdownMenu.Item
-                class="py-2 text-(--solus-text-tertiary)"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  serversStore.pendingRunOnTabId = tabId;
-                  hostOnboardingStore.openForDiscovered(host.server);
-                }}
+            {#if loadingProjects}
+              <div
+                class="flex h-8 items-center gap-2.5 px-2.5 text-menu text-(--solus-text-tertiary)"
               >
-                <span class="flex size-7 shrink-0 items-center justify-center">
-                  <span class="size-2 rounded-full border border-(--solus-text-quaternary)"></span>
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate font-medium text-(--solus-text-secondary)">
-                    {host.server.name}
+                <CircleNotchIcon size={13} class="shrink-0 animate-spin" />
+                Loading projects…
+              </div>
+            {:else if projectLoadError}
+              <div
+                class="text-pretty px-2.5 py-1.5 text-[0.6875rem] leading-snug text-(--solus-status-error)"
+              >
+                Couldn’t reach this host. Check its connection and try again.
+              </div>
+            {:else if recentProjects.length === 0}
+              <div
+                class="text-pretty px-2.5 pb-1 pt-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)"
+              >
+                Nothing here yet — this host has no projects.
+              </div>
+            {:else}
+              {#each recentProjects as project (project.path)}
+                <DropdownMenu.Item
+                  onSelect={() => setTarget(choosingProjectFor!, project.path)}
+                >
+                  <span class="min-w-0 flex-1 truncate"
+                    >{project.folderName}</span
+                  >
+                  <span
+                    class="min-w-0 shrink truncate text-[0.6875rem] text-(--solus-text-tertiary)"
+                    title={project.path}
+                  >
+                    {project.path}
                   </span>
-                  <span class="mt-0.5 block truncate font-mono text-[0.625rem] text-(--solus-text-tertiary)">
-                    {host.server.host}:{host.server.port}
-                  </span>
-                </span>
-                <span class="shrink-0 text-[0.6875rem] font-medium text-(--solus-accent)">
-                  Connect
+                </DropdownMenu.Item>
+              {/each}
+            {/if}
+
+            <!-- A host with no checkout used to dead-end here; these two are the
+               way forward, and the primary CTA when there are no recents. -->
+            <DropdownMenu.Separator />
+            {#if cloneSeedFor(choosingProjectFor)}
+              {@const seed = cloneSeedFor(choosingProjectFor)!}
+              <DropdownMenu.Item
+                onSelect={() => startNewProject(choosingProjectFor!, seed)}
+              >
+                <DownloadSimpleIcon
+                  size={13}
+                  class="shrink-0 text-(--solus-accent)"
+                />
+                <span
+                  class="min-w-0 flex-1 truncate font-medium text-(--solus-accent)"
+                >
+                  Clone {seed.split("/")[1]} here
                 </span>
               </DropdownMenu.Item>
+            {/if}
+            <DropdownMenu.Item
+              onSelect={() => startNewProject(choosingProjectFor!)}
+            >
+              <PlusIcon size={13} class="shrink-0" />
+              <span class="min-w-0 flex-1 truncate"
+                >Open a project on {hostLabel(choosingProjectFor)}…</span
+              >
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={() => browseHost(choosingProjectFor!)}>
+              <FolderOpenIcon size={13} class="shrink-0" />
+              <span class="min-w-0 flex-1 truncate">Browse folder…</span>
+            </DropdownMenu.Item>
+          {:else if variant === "header"}
+            <DropdownMenu.Label>Start in</DropdownMenu.Label>
+            <DropdownMenu.Item
+              data-menu-current={!onRemoteHost && !startsNewWorktree
+                ? ""
+                : undefined}
+              disabled={worktreeForced}
+              onSelect={(event) => {
+                event.preventDefault();
+                chooseLocalStart(false);
+              }}
+            >
+              {#if inWorktree}
+                <GitForkIcon
+                  size={13}
+                  class="shrink-0 text-(--solus-text-tertiary)"
+                />
+              {:else}
+                <DesktopTowerIcon
+                  size={13}
+                  class="shrink-0 text-(--solus-text-tertiary)"
+                />
+              {/if}
+              <span class="min-w-0 flex-1 truncate">{stayLabel}</span>
+              {#if !onRemoteHost && !startsNewWorktree}<CheckIcon
+                  size={12}
+                  class="shrink-0 text-(--solus-accent)"
+                />{/if}
+            </DropdownMenu.Item>
+            {#snippet newWorktreeItemContent()}
+                <PlusIcon
+                  size={13}
+                  class="shrink-0 text-(--solus-text-tertiary)"
+                />
+                <span class="min-w-0 flex-1 truncate">New worktree</span>
+                {#if !onRemoteHost && startsNewWorktree}<CheckIcon
+                    size={12}
+                    class="shrink-0 text-(--solus-accent)"
+                  />{/if}
+              {/snippet}
+              {#if worktreeBlockedNote}
+                <DropdownMenu.Item disabled>
+                  {@render newWorktreeItemContent()}
+                </DropdownMenu.Item>
+                <p
+                  class="text-pretty px-2.5 pb-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)"
+                >
+                  {worktreeBlockedNote}
+                </p>
+              {:else}
+                <DropdownMenu.Item
+                  data-menu-current={!onRemoteHost && startsNewWorktree
+                    ? ""
+                    : undefined}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    chooseLocalStart(true);
+                  }}
+                >
+                  {@render newWorktreeItemContent()}
+                </DropdownMenu.Item>
+              {/if}
+
+            <!-- Hosts are a different dimension from checkout shape, so give
+               them their own group instead of presenting them as peers. -->
+            {#if serversStore.remotes.length > 0}
+              <DropdownMenu.Separator />
+              <DropdownMenu.Label>Run on another host</DropdownMenu.Label>
+            {/if}
+            {#each serversStore.servers as server (server.id)}
+              {#if !server.local}{@render serverRow(server)}{/if}
             {/each}
+            {#if serversStore.remotes.length > 0}{@render availabilityNote()}{/if}
+            {#if serversStore.nearbyHosts.length > 0}
+              <DropdownMenu.Separator />
+              {#each serversStore.nearbyHosts as host (host.server.installationId)}
+                {@render nearbyRow(host)}
+              {/each}
+            {/if}
+          {:else}
+            <DropdownMenu.Label>Start the next session on</DropdownMenu.Label>
+            {#each serversStore.servers as server (server.id)}
+              {@render serverRow(server)}
+            {/each}
+            {@render availabilityNote()}
+            {#if serversStore.nearbyHosts.length > 0}
+              <DropdownMenu.Separator />
+              <DropdownMenu.Label>Nearby</DropdownMenu.Label>
+              {#each serversStore.nearbyHosts as host (host.server.installationId)}
+                {@render nearbyRow(host)}
+              {/each}
+            {/if}
           {/if}
-        {/if}
+        </div>
+        <MenuFooter
+          hints={[["⏎", choosingProjectFor ? "open" : "select"]]}
+          summary={footerSummary}
+        />
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   {/if}

@@ -7,7 +7,7 @@ import { WORKSPACE_DIR } from '../../workspace'
 import type { ControlPlane } from '../../control-plane'
 import type { AgentId, AgentMetadata, IpcContext, PromptOptions, RateLimitDecisionAction, ThreadGoalSetRequest } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
-import { getCliEnv, warmCliPath } from '../../cli-env'
+import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { appVersion } from '../../platform/paths'
 import { warmFinder } from '../file-finder'
@@ -57,28 +57,45 @@ function savePersistedBinaries(): void {
 async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
   const bin = AGENT_BIN[agentId]
   if (!bin) return null
+  // Wait for the async PATH warmup instead of letting getCliEnv() fall back to
+  // the synchronous login-shell probes, which would block the main process.
+  const path = await warmCliPath()
   try {
-    // Wait for the async PATH warmup instead of letting getCliEnv() fall back to
-    // the synchronous login-shell probes, which would block the main process.
-    await warmCliPath()
     const { stdout } = await execFileAsync('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 })
-    return stdout.trim() || null
-  } catch {
-    return null
+    const result = stdout.trim()
+    if (result) {
+      log.info(`probeAgentBinary(${agentId}): which ${bin} -> ${result}`)
+      return result
+    }
+    // `which` answered "found nothing" without failing — an installed binary has
+    // been reported missing this way, so don't take its word for it.
+    log.warn(`probeAgentBinary(${agentId}): which ${bin} exited 0 with no output; scanning PATH [PATH=${path}]`)
+  } catch (err) {
+    log.warn(`probeAgentBinary(${agentId}): which ${bin} failed: ${String(err)}; scanning PATH [PATH=${path}]`)
   }
+  const scanned = findOnPath(bin, path)
+  log.info(`probeAgentBinary(${agentId}): PATH scan for ${bin} -> ${scanned ?? '(not found)'}`)
+  return scanned
 }
 
 async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
-  if (_agentBinaryCache.has(agentId)) return _agentBinaryCache.get(agentId)!
+  if (_agentBinaryCache.has(agentId)) {
+    const cached = _agentBinaryCache.get(agentId)!
+    log.info(`resolveAgentBinary(${agentId}): in-memory cache hit -> ${cached ?? 'null'}`)
+    return cached
+  }
 
   const persisted = loadPersistedBinaries()
   const persistedPath = persisted[agentId]
   if (persistedPath && existsSync(persistedPath)) {
     _agentBinaryCache.set(agentId, persistedPath)
+    log.info(`resolveAgentBinary(${agentId}): persisted cache hit -> ${persistedPath}`)
     // Self-heal in the background: if the binary moved/upgraded, update the
-    // cache and the persisted file for the next lookup/launch.
+    // cache and the persisted file for the next lookup/launch. A probe that
+    // comes back empty is ignored — the path it would replace demonstrably
+    // exists, so the probe is the thing that's wrong.
     void probeAgentBinary(agentId).then((fresh) => {
-      if (fresh !== persistedPath) {
+      if (fresh && fresh !== persistedPath) {
         _agentBinaryCache.set(agentId, fresh)
         persisted[agentId] = fresh
         savePersistedBinaries()
@@ -87,10 +104,16 @@ async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
     return persistedPath
   }
 
+  log.info(`resolveAgentBinary(${agentId}): no usable cache (persisted=${persistedPath ?? 'null'}), probing fresh`)
   const result = await probeAgentBinary(agentId)
-  _agentBinaryCache.set(agentId, result)
-  persisted[agentId] = result
-  savePersistedBinaries()
+  // Only a hit is remembered. A miss can be the probe's fault rather than the
+  // agent's, and caching one strands every agent picker empty — with no way
+  // back — for the rest of the app run; the next start() re-probes instead.
+  if (result) {
+    _agentBinaryCache.set(agentId, result)
+    persisted[agentId] = result
+    savePersistedBinaries()
+  }
   return result
 }
 
@@ -186,7 +209,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info(`RPC prompt: tab=${tabId}`)
     if (!tabId) throw new Error('No tabId provided — prompt rejected')
     try {
-      await controlPlane.submitPrompt(ctx, options, handlerCtx.deviceId)
+      return await controlPlane.submitPrompt(ctx, options, handlerCtx.deviceId)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       log.error(`prompt error: ${msg}`)

@@ -56,6 +56,13 @@ export interface AgentBackend extends EventEmitter {
   readonly metadata: AgentMetadata
 
   startRun(input: SessionRunInput, options: PromptOptions): RunHandle
+  /** Append input to the provider's active turn. Expected turn-boundary races
+   *  return null; provider failures reject. The accepted run handle anchors the
+   *  caller's completion lifecycle to the exact turn that consumed the input. */
+  steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null>
   cancelSession(sessionId: string): boolean
   isSessionRunning(sessionId: string): boolean
   getSessionHandle(sessionId: string): RunHandle | undefined

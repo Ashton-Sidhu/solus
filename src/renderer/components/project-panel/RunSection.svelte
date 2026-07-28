@@ -16,7 +16,7 @@
     getSettingsContext,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { fence, runLabel } from "../../lib/run-utils";
   import type { RunStatus } from "../../../shared/types";
   import { Button } from "../ui/button";
@@ -117,7 +117,10 @@
 
 {#snippet tools(run: RunStatus, active: boolean)}
   {#if active || run.state === "error"}
-    <span class="inline-flex" use:tooltip={`Restart ${runLabel(run)}`}>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps} class="inline-flex">
       <Button
         variant="ghost"
         size="icon-xs"
@@ -129,11 +132,17 @@
         <ArrowClockwiseIcon size={12} />
       </Button>
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={`Restart ${runLabel(run)}`} />
+    </TooltipUI.Root>
   {/if}
   {#if run.state === "error"}
-    <span
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps}
       class="inline-flex"
-      use:tooltip={`Debug ${runLabel(run)} with an agent`}
     >
       <Button
         variant="ghost"
@@ -146,8 +155,15 @@
         <RobotIcon size={13} />
       </Button>
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={`Debug ${runLabel(run)} with an agent`} />
+    </TooltipUI.Root>
   {/if}
-  <span class="inline-flex" use:tooltip={`Show logs for ${runLabel(run)}`}>
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <span {...tooltipProps} class="inline-flex">
     <Button
       variant="ghost"
       size="icon-xs"
@@ -159,6 +175,10 @@
       <ListBulletsIcon size={13} />
     </Button>
   </span>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={`Show logs for ${runLabel(run)}`} />
+  </TooltipUI.Root>
 {/snippet}
 
 {#if runs.length === 0}
@@ -188,16 +208,16 @@
           class="svc-row flex min-h-8 items-center gap-1.5 rounded-[0.4375rem] py-[0.1875rem] pr-1 pl-[0.1875rem]"
         >
           <!-- Leading glyph IS the start / stop / cancel control. -->
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="svc-toggle state-{run.state} relative inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent"
             type="button"
             aria-label={active
               ? `Stop ${runLabel(run)}`
               : `Start ${runLabel(run)}`}
             onclick={() => toggleRun(run)}
-            use:tooltip={active
-              ? `Stop ${runLabel(run)}`
-              : `Start ${runLabel(run)}`}
           >
             {#if run.state === "starting"}
               <span class="glyph-spin inline-flex"
@@ -222,6 +242,12 @@
               <PlayIcon size={11} weight="fill" />
             {/if}
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={active
+              ? `Stop ${runLabel(run)}`
+              : `Start ${runLabel(run)}`} />
+          </TooltipUI.Root>
 
           <!-- Name opens the log dock (progressive disclosure). -->
           <button
@@ -244,9 +270,11 @@
                 {@render tools(run, active)}
               </span>
               {#each ports as port (port)}
-                <span
+                <TooltipUI.Root>
+                  <TooltipUI.Trigger>
+                    {#snippet child({ props: tooltipProps })}
+                      <span {...tooltipProps}
                   class="inline-flex"
-                  use:tooltip={`Open http://localhost:${port}`}
                 >
                   <Button
                     variant="secondary"
@@ -259,6 +287,10 @@
                     <ArrowSquareOutIcon size={10} /> :{port}
                   </Button>
                 </span>
+                    {/snippet}
+                  </TooltipUI.Trigger>
+                  <TooltipUI.Content value={`Open http://localhost:${port}`} />
+                </TooltipUI.Root>
               {/each}
             {:else}
               <!-- Status word sits flush-right at rest and cross-fades to the
@@ -340,20 +372,29 @@
 
   /* Running: a steady glow dot at rest, becomes a stop control on hover. */
   .svc-dot {
+    position: relative;
     background: var(--solus-status-live);
+    box-shadow: 0 0 0.375rem var(--solus-status-live-glow);
   }
   @media (prefers-reduced-motion: no-preference) {
-    .svc-toggle.state-running .svc-dot {
+    .svc-toggle.state-running .svc-dot::after {
+      content: "";
+      position: absolute;
+      inset: -0.125rem;
+      border: 0.0625rem solid var(--solus-status-live-glow);
+      border-radius: inherit;
       animation: dot-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
   }
   @keyframes dot-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 var(--solus-status-live-glow);
+    0% {
+      opacity: 0.55;
+      transform: scale(0.72);
     }
-    50% {
-      box-shadow: 0 0 0 0.1875rem transparent;
+    55%,
+    100% {
+      opacity: 0;
+      transform: scale(1.5);
     }
   }
   .svc-stop {

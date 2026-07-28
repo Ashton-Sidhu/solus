@@ -70,8 +70,8 @@
 				fill="none"
 				aria-hidden="true"
 			>
-				<circle cx="0" cy="0" r="31.2" fill="#D4AF6A" />
-				<g stroke="#D4AF6A" stroke-width="10.4" stroke-linecap="round">
+				<circle cx="0" cy="0" r="31.2" fill="#B45A3C" />
+				<g stroke="#D97757" stroke-width="10.4" stroke-linecap="round">
 					<path d="M 0,-52 A 52,52 0 0 1 52,0" />
 					<path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92" />
 					<path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64" />
@@ -496,8 +496,8 @@
 				fill="none"
 				aria-hidden="true"
 			>
-				<circle cx="0" cy="0" r="31.2" fill="#D4AF6A" />
-				<g stroke="#D4AF6A" stroke-width="10.4" stroke-linecap="round">
+				<circle cx="0" cy="0" r="31.2" fill="#B45A3C" />
+				<g stroke="#D97757" stroke-width="10.4" stroke-linecap="round">
 					<path d="M 0,-52 A 52,52 0 0 1 52,0" />
 					<path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92" />
 					<path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64" />

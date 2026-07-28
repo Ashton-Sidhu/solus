@@ -44,12 +44,39 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('normalizes Codex collab agent starts as subagent tool calls', () => {
+  test('preserves the final-answer marker for assembled headless messages', () => {
+    const normalizer = new CodexTurnNormalizer({
+      planMode: false,
+      assembledAgentMessages: true,
+    })
+
+    expect(normalizer.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          text: 'Finished the requested changes.',
+          phase: 'final_answer',
+        },
+      },
+    })).toEqual([
+      {
+        type: 'assistant_message',
+        text: 'Finished the requested changes.',
+        isFinal: true,
+      },
+    ])
+  })
+
+  test('normalizes Codex spawn-agent starts as subagent tool calls', () => {
     expect(normalizeCodexNotification('item/started', {
       item: {
         id: 'agent-1',
         type: 'collabAgentToolCall',
-        tool: 'researcher',
+        tool: 'spawnAgent',
         prompt: 'Read auth files and report risks',
         model: 'gpt-5.5',
         reasoningEffort: 'high',
@@ -60,11 +87,11 @@ describe('normalizeCodexNotification', () => {
     })).toEqual([
       {
         type: 'tool_call',
-        toolName: 'researcher',
+        toolName: 'spawnAgent',
         toolId: 'agent-1',
         index: 0,
         toolInput: JSON.stringify({
-          subagent_type: 'researcher',
+          subagent_type: 'spawnAgent',
           description: 'Inspect the auth flow',
           prompt: 'Read auth files and report risks',
           model: 'gpt-5.5',
@@ -72,7 +99,81 @@ describe('normalizeCodexNotification', () => {
         }),
         parentToolUseId: undefined,
         isSubagent: true,
-        subagentType: 'researcher',
+        subagentType: 'codex',
+      },
+    ])
+  })
+
+  test('normalizes persisted sub-agent activity into a card and parents child events', async () => {
+    const { events } = await normalizeCodexFixture('codex-subagent-activity.jsonl', { planMode: false })
+
+    expect(events).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'spawnAgent',
+        toolId: 'call-agent-1',
+        index: 0,
+        toolInput: JSON.stringify({
+          subagent_type: 'codex',
+          description: 'investigate split crash',
+          agent_thread_id: 'child-thread',
+          agent_path: '/root/investigate_split_crash',
+        }),
+        parentToolUseId: undefined,
+        isSubagent: true,
+        subagentType: 'codex',
+      },
+      {
+        type: 'assistant_message',
+        text: 'The split fix is safe.',
+        parentToolUseId: 'call-agent-1',
+        isFinal: true,
+      },
+    ])
+  })
+
+  test('settles interrupted sub-agent activity as an error', () => {
+    expect(normalizeCodexNotification('item/started', {
+      item: {
+        type: 'subAgentActivity',
+        id: 'call-agent-1',
+        kind: 'interrupted',
+        agentThreadId: 'child-thread',
+        agentPath: '/root/investigate_split_crash',
+      },
+    })).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'call-agent-1',
+        content: 'Interrupted',
+        isError: true,
+        parentToolUseId: undefined,
+      },
+    ])
+  })
+
+  test('normalizes Codex wait operations as ordinary tool calls', () => {
+    expect(normalizeCodexNotification('item/started', {
+      item: {
+        id: 'wait-1',
+        type: 'collabAgentToolCall',
+        tool: 'wait',
+        status: 'inProgress',
+        receiverThreadIds: [],
+      },
+    })).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'wait',
+        toolId: 'wait-1',
+        index: 0,
+        toolInput: JSON.stringify({
+          subagent_type: 'wait',
+          description: 'wait',
+        }),
+        parentToolUseId: undefined,
+        isSubagent: false,
+        subagentType: undefined,
       },
     ])
   })
@@ -125,19 +226,33 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('normalizes Codex collab agent completion as a tool result', () => {
+  test('settles a Codex subagent without overwriting its launch metadata', () => {
     expect(normalizeCodexNotification('item/completed', {
       item: {
         id: 'agent-1',
         type: 'collabAgentToolCall',
-        tool: 'researcher',
+        tool: 'spawnAgent',
         result: 'No auth regressions found.',
         status: 'completed',
       },
     })).toEqual([
-      { type: 'tool_call_update', toolId: 'agent-1', toolInput: 'No auth regressions found.' },
       { type: 'tool_call_complete', index: 0, toolId: 'agent-1' },
       { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false },
+    ])
+  })
+
+  test('completes a Codex wait without replacing its input with the status', () => {
+    expect(normalizeCodexNotification('item/completed', {
+      item: {
+        id: 'wait-1',
+        type: 'collabAgentToolCall',
+        tool: 'wait',
+        status: 'completed',
+        receiverThreadIds: [],
+      },
+    })).toEqual([
+      { type: 'tool_call_complete', index: 0, toolId: 'wait-1' },
+      { type: 'tool_result', toolUseId: 'wait-1', content: 'completed', isError: false },
     ])
   })
 
@@ -172,7 +287,7 @@ describe('normalizeCodexNotification', () => {
         item: {
           id: 'agent-1',
           type: 'collabAgentToolCall',
-          tool: 'spawn_agent',
+          tool: 'spawnAgent',
           receiverThreadIds: ['child-thread'],
           prompt: 'Inspect the auth flow',
         },
@@ -366,6 +481,61 @@ describe('CodexTurnNormalizer', () => {
 })
 
 describe('Codex subagent history', () => {
+  test('hydrates persisted plans with the same stable id as live plan events', () => {
+    expect(codexItemToMessage({
+      id: 'plan-item-1',
+      type: 'plan',
+      text: '# Plan\n\n- Ship it',
+    }, 123)).toEqual({
+      role: 'plan',
+      content: '',
+      planContent: '# Plan\n\n- Ship it',
+      planToolUseId: 'codex-plan-plan-item-1',
+      timestamp: 123,
+    })
+  })
+
+  test('hydrates started sub-agent activity as a running Codex card', () => {
+    expect(codexItemToMessage({
+      id: 'call-agent-1',
+      type: 'subAgentActivity',
+      kind: 'started',
+      agentThreadId: 'child-thread',
+      agentPath: '/root/investigate_split_crash',
+    }, 123)).toEqual({
+      role: 'tool',
+      content: '',
+      toolName: 'spawnAgent',
+      toolId: 'call-agent-1',
+      toolInput: JSON.stringify({
+        subagent_type: 'codex',
+        description: 'investigate split crash',
+        agent_thread_id: 'child-thread',
+        agent_path: '/root/investigate_split_crash',
+      }),
+      toolStatus: 'running',
+      isSubagent: true,
+      subagentType: 'codex',
+      timestamp: 123,
+    })
+  })
+
+  test('hydrates interrupted sub-agent activity as an error result', () => {
+    expect(codexItemToMessage({
+      id: 'call-agent-1',
+      type: 'subAgentActivity',
+      kind: 'interrupted',
+      agentThreadId: 'child-thread',
+      agentPath: '/root/investigate_split_crash',
+    }, 124)).toEqual({
+      role: 'tool_result',
+      content: 'Interrupted',
+      toolResultForId: 'call-agent-1',
+      toolResultIsError: true,
+      timestamp: 124,
+    })
+  })
+
   test('keeps the Claude dynamic tool input and final answer for card reloads', () => {
     const input = { prompt: 'Inspect auth', description: 'Review auth' }
     expect(codexItemToMessage({

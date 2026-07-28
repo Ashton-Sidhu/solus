@@ -539,7 +539,7 @@
     <button
       onclick={onCancel}
       title="Cancel (Esc)"
-      class="text-(--solus-text-secondary)"
+      class="font-secondary text-(--solus-text-secondary)"
       style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.625rem;border:none;cursor:pointer;background:transparent;"
     >
       <XIcon size={16} />

@@ -275,7 +275,7 @@
                     {d.side === "old" ? "LEFT" : "RIGHT"}
                   </span>
                 </div>
-                <p class="mt-1 text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-(--solus-text-secondary)">{d.body}</p>
+                <p class="mt-1 text-[0.8125rem] leading-relaxed whitespace-pre-wrap font-secondary text-(--solus-text-secondary)">{d.body}</p>
               </li>
             {/each}
           </ul>

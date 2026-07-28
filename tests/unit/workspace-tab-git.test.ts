@@ -38,6 +38,50 @@ afterEach(() => {
   else globalThis.Audio = previousAudio
 })
 
+describe('WorkspaceContext tab clearing', () => {
+  test('removes provider handoff lineage from the cleared session', async () => {
+    installRendererGlobals()
+
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const session = {
+      agentSessionId: null,
+      provider: 'claude-code',
+      handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
+      messages: [],
+      sessionChangedFiles: [],
+      lastResult: null,
+      sessionUsage: null,
+      isStreamingText: false,
+      isReconnecting: false,
+      permissionQueue: [],
+      questionQueue: [],
+      permissionDenied: null,
+      outboundPrompts: [],
+      status: 'idle',
+      progress: null,
+      readOnlyReason: null,
+      worktreeBaseBranch: null,
+      gitContext: null,
+      workingDirectory: '/repo',
+    } as unknown as Session
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    workspace.registry = {
+      tabs: { 'tab-a': { id: 'tab-a', sessionId: 'session-a', title: 'Handoff' } },
+      sessions: { 'session-a': session },
+      tabOrder: ['tab-a'],
+      activeTabId: 'tab-a',
+    }
+    workspace.apiFor = () => ({ resetTabSession: async () => {} })
+    workspace.ctxFor = () => ({ session: { tabId: 'tab-a' } })
+    workspace.eventReducer = { streaming: { text: {} } }
+    workspace.environment = { refreshTab: async () => {} }
+
+    workspace.clearTab('tab-a')
+
+    expect(session.handoffFrom).toBeUndefined()
+  })
+})
+
 describe('WorkspaceContext new-tab Git initialization', () => {
   test('seeds the first prompt tab from the cached Git environment', async () => {
     installRendererGlobals()

@@ -30,7 +30,9 @@
   import { agentLabel, buildAgentAvailabilityRows } from "../lib/agentAvailability";
   import { getPopoverLayer, useClickOutside } from "./popoverLayer.svelte";
   import { portal } from "./portal";
-  import { tooltip } from "../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
+  import { cn } from "@renderer/lib/utils.js";
+  import { menuRowVariants } from "./ui/menu";
   import { requestInputFocus } from "../lib/inputFocus";
   import { Button } from "./ui/button";
   import { Switch } from "./ui/switch";
@@ -49,8 +51,8 @@
     ["continue", "Continue"],
   ];
   const activeAgentLabel = $derived(agentLabel(theme.activeAgent, agentContext.metadata));
-  const allAgentRows = $derived(buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata));
-  const agentRows = $derived(allAgentRows.filter((agent) => agent.enabled));
+  // Unavailable agents stay on the list, disabled — see SessionChip.
+  const agentRows = $derived(buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata));
 
   let open = $state(false);
   let agentOpen = $state(false);
@@ -100,9 +102,9 @@
   });
 
   $effect(() => {
-    const active = allAgentRows.find((agent) => agent.id === theme.activeAgent);
+    const active = agentRows.find((agent) => agent.id === theme.activeAgent);
     if (!active || active.enabled) return;
-    const fallback = allAgentRows.find((agent) => agent.enabled);
+    const fallback = agentRows.find((agent) => agent.enabled);
     if (fallback) session.switchActiveAgent(fallback.id);
   });
 
@@ -168,7 +170,10 @@
   }
 </script>
 
-<span class="inline-flex" use:tooltip={open ? null : "Settings"}>
+<TooltipUI.Root>
+  <TooltipUI.Trigger>
+    {#snippet child({ props: tooltipProps })}
+      <span {...tooltipProps} class="inline-flex">
   <Button
     bind:ref={triggerEl}
     variant="ghost"
@@ -179,6 +184,10 @@
     <GearIcon size={15} />
   </Button>
 </span>
+    {/snippet}
+  </TooltipUI.Trigger>
+  <TooltipUI.Content value={open ? null : "Settings"} />
+</TooltipUI.Root>
 
 {#if open && layer.el}
   <div
@@ -250,7 +259,7 @@
               terminalOpen = false;
               rateLimitOpen = false;
             }}
-            class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+            class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
           >
             <span class="max-w-20 truncate">{activeAgentLabel}</span>
             <CaretDownIcon size={9} style="opacity:0.6" />
@@ -269,20 +278,24 @@
                 box-shadow:var(--solus-popover-shadow);
               "
             >
-              <div class="p-1">
+              <div class="p-1.5">
                 {#each agentRows as agent (agent.id)}
                   <button
                     type="button"
                     aria-label={`Use ${agent.label} as the default agent`}
                     onclick={() => selectAgent(agent.id)}
-                    class="menu-item-stagger w-full flex cursor-pointer items-center justify-between gap-2 rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-[background-color,color] focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) {agent.id === theme.activeAgent
-                      ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
-                      : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+                    disabled={!agent.enabled}
+                    data-disabled={agent.enabled ? undefined : ""}
+                    data-menu-current={agent.id === theme.activeAgent ? "" : undefined}
+                    class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                   >
-                    <span class="min-w-0 truncate">{agent.label}</span>
+                    <span class="min-w-0 flex-1 truncate text-left">{agent.label}</span>
+                    {#if !agent.enabled}
+                      <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">Not installed</span>
+                    {/if}
                     {#if agent.id === theme.activeAgent}<CheckIcon
                         size={12}
-                        class="shrink-0 text-(--solus-accent)"
+                        class="absolute end-2 text-(--solus-accent)"
                       />{/if}
                   </button>
                 {/each}
@@ -310,7 +323,7 @@
               theme.update({ fontFamily: e.currentTarget.value as typeof theme.fontFamily });
               requestInputFocus();
             }}
-            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 text-[0.6875rem] text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
+            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 text-[0.6875rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
           >
             {#each APP_FONT_FAMILIES as font (font.id)}
               <option value={font.id}>{font.label}</option>
@@ -338,7 +351,7 @@
           <button
             onclick={() =>
               theme.update({ fontSize: Math.max(8, theme.fontSize - 1) })}
-            class="px-2 py-0.5 text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 text-[0.75rem] font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >&minus;</button
           >
           <Input
@@ -358,7 +371,7 @@
           >
           <button
             onclick={() => theme.update({ fontSize: theme.fontSize + 1 })}
-            class="px-2 py-0.5 text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 text-[0.75rem] font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >+</button
           >
         </div>
@@ -382,7 +395,7 @@
               theme.update({ codeFontFamily: e.currentTarget.value as typeof theme.codeFontFamily });
               requestInputFocus();
             }}
-            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 text-[0.6875rem] text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
+            class="appearance-none min-w-20 rounded-full border border-(--solus-container-border) bg-(--solus-surface-secondary) py-0.5 pl-2 pr-6 text-[0.6875rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)/50"
           >
             {#each APP_CODE_FONT_FAMILIES as font (font.id)}
               <option value={font.id}>{font.label}</option>
@@ -410,7 +423,7 @@
           <button
             onclick={() =>
               theme.update({ codeFontSize: Math.max(8, theme.codeFontSize - 1) })}
-            class="px-2 py-0.5 text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 text-[0.75rem] font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >&minus;</button
           >
           <Input
@@ -430,7 +443,7 @@
           >
           <button
             onclick={() => theme.update({ codeFontSize: theme.codeFontSize + 1 })}
-            class="px-2 py-0.5 text-[0.75rem] text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
+            class="px-2 py-0.5 text-[0.75rem] font-secondary text-(--solus-text-secondary) hover:text-(--solus-text-primary) transition-colors"
             >+</button
           >
         </div>
@@ -476,7 +489,7 @@
                 terminalOpen = false;
                 rateLimitOpen = false;
               }}
-              class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+              class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
               {tools.detectedEditors.find((e) => e.id === theme.defaultEditor)
                 ?.name ?? "None"}
@@ -497,18 +510,17 @@
                     box-shadow:var(--solus-popover-shadow);
                   "
               >
-                <div class="p-1">
+                <div class="p-1.5">
                   {#each tools.detectedEditors as editor (editor.id)}
                     <button
                       onclick={() => selectEditor(editor.id)}
-                      class="menu-item-stagger w-full flex items-center justify-between rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-colors {selected === editor.id
-                        ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
-                        : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+                      data-menu-current={selected === editor.id ? "" : undefined}
+                      class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                     >
-                      {editor.name}
+                      <span class="min-w-0 flex-1 truncate text-left">{editor.name}</span>
                       {#if selected === editor.id}<CheckIcon
                           size={12}
-                          class="text-(--solus-accent)"
+                          class="absolute end-2 text-(--solus-accent)"
                         />{/if}
                     </button>
                   {/each}
@@ -540,7 +552,7 @@
                 editorOpen = false;
                 rateLimitOpen = false;
               }}
-              class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+              class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
             >
               {tools.detectedTerminals.find(
                 (t) => t.id === (theme.defaultTerminal ?? "default-terminal"),
@@ -562,18 +574,17 @@
                     box-shadow:var(--solus-popover-shadow);
                   "
               >
-                <div class="p-1">
+                <div class="p-1.5">
                   {#each tools.detectedTerminals as terminal (terminal.id)}
                     <button
                       onclick={() => selectTerminal(terminal.id)}
-                      class="menu-item-stagger w-full flex items-center justify-between rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-colors {selected === terminal.id
-                        ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
-                        : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+                      data-menu-current={selected === terminal.id ? "" : undefined}
+                      class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                     >
-                      {terminal.name}
+                      <span class="min-w-0 flex-1 truncate text-left">{terminal.name}</span>
                       {#if selected === terminal.id}<CheckIcon
                           size={12}
-                          class="text-(--solus-accent)"
+                          class="absolute end-2 text-(--solus-accent)"
                         />{/if}
                     </button>
                   {/each}
@@ -606,7 +617,7 @@
               editorOpen = false;
               terminalOpen = false;
             }}
-            class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
+            class="flex items-center gap-1 text-[0.6875rem] rounded-full px-2 py-0.5 transition-colors font-secondary text-(--solus-text-secondary) bg-(--solus-surface-secondary) border border-(--solus-container-border)"
           >
             {theme.rateLimitBehavior.at(0)?.toUpperCase() +
               theme.rateLimitBehavior.slice(1)}
@@ -627,21 +638,20 @@
                 box-shadow:var(--solus-popover-shadow);
               "
             >
-              <div class="p-1">
+              <div class="p-1.5">
                 {#each rateLimitStrats as [val, label] (val)}
                   <button
                     onclick={() =>
                       selectRateLimitBehavior(
                         val as "ask" | "continue" | "stop" | "queue",
                       )}
-                    class="menu-item-stagger w-full flex items-center justify-between rounded-[9px] px-2 py-1.5 text-[0.6875rem] transition-colors {selected === val
-                      ? 'bg-(--solus-accent-light) font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]'
-                      : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+                    data-menu-current={selected === val ? "" : undefined}
+                    class={cn(menuRowVariants({ indicator: "trailing" }), "w-full")}
                   >
-                    {label}
+                    <span class="min-w-0 flex-1 truncate text-left">{label}</span>
                     {#if selected === val}<CheckIcon
                         size={12}
-                        class="text-(--solus-accent)"
+                        class="absolute end-2 text-(--solus-accent)"
                       />{/if}
                   </button>
                 {/each}

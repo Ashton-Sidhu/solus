@@ -6,6 +6,7 @@ import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
 import { GOOGLE_CLIENT_ID } from './client-id'
 import { GOOGLE_CLIENT_SECRET } from './client-secret'
+import { hostForUrl } from '../../shared/entrypoint'
 
 const log = createLogger('main', 'google-oauth')
 
@@ -105,12 +106,6 @@ function normalizeCallbackBaseUrl(value: string | undefined): string | null {
   } catch {
     return null
   }
-}
-
-function hostForUrl(host: string): string {
-  if (!host || host === '0.0.0.0' || host === '::') return '127.0.0.1'
-  if (host.includes(':') && !host.startsWith('[')) return `[${host}]`
-  return host
 }
 
 function buildRedirectUri(opts: GoogleOAuthStartOptions): string {

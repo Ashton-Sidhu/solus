@@ -36,7 +36,7 @@ export interface ServerCapabilities {
 export type SetupAgent = 'claude' | 'codex'
 /** `signin-*` reuse the install streaming machinery — same log/status topics. */
 export type SetupStreamStep =
-  | 'install-claude' | 'install-codex' | 'install-git' | 'clone'
+  | 'install-claude' | 'install-codex' | 'install-git' | 'install-gh' | 'clone'
   | 'signin-claude' | 'signin-codex'
 export type SetupStepStatus = 'running' | 'done' | 'failed'
 
@@ -45,10 +45,11 @@ export interface SetupLogEvent {
   line: string
 }
 
-/** The device-flow prompt an agent sign-in is blocked on until the user opens it. */
+/** The browser prompt an agent sign-in is blocked on. Some CLIs require a returned code. */
 export interface SetupVerification {
   url: string
-  code: string
+  code?: string
+  requiresCodeInput?: boolean
 }
 
 export interface SetupStatusEvent {
@@ -97,6 +98,13 @@ export interface SetupCloneProjectResult {
   auth: CloneAuth
 }
 
+/** Fast-forwards a checkout that already exists on the selected host. */
+export interface SetupSyncProjectRequest {
+  path: string
+  /** Refuses to update the path when its origin names a different repository. */
+  cloneUrl: string
+}
+
 /** Registering a checkout the host already had, instead of cloning a new one. */
 export interface SetupAdoptProjectResult {
   path: string
@@ -117,8 +125,8 @@ export interface SetupCloneProjectRequest {
   clean?: boolean
 }
 
-/** The command that installs git on a host, and whether Solus may run it unattended. */
-export interface GitInstallCommand {
+/** The command that installs a package on a host, and whether Solus may run it unattended. */
+export interface PackageInstallCommand {
   display: string
   /** False when the command needs sudo we don't have — the client shows it to copy instead. */
   autoRunnable: boolean
@@ -142,15 +150,16 @@ export interface HostReadiness {
   projectsRoot: string
   git: {
     installed: boolean
-    version: string | null
     identity: GitCommitIdentity | null
     /** True when git is configured to fetch github.com credentials from Solus. */
     credentialHelper: boolean
   }
   github: {
-    /** A `repo`-scoped token is stored in this host's keyring. */
+    /** A GitHub OAuth token is stored in this host's keyring. */
     solusToken: boolean
     solusLogin: string | null
+    /** Omitted by older hosts; callers must treat omission as unknown. */
+    solusScopes?: string[]
     ghCli: boolean
     ghAuthenticated: boolean
   }
@@ -161,7 +170,9 @@ export interface HostReadiness {
   /** Folded in so readiness is one answer to "can this host take a session?". */
   agents: Record<SetupAgent, { installed: boolean; signedIn: boolean }>
   /** Null when git is already installed, or when no installer is known here. */
-  installGit: GitInstallCommand | null
+  installGit: PackageInstallCommand | null
+  /** Null when the GitHub CLI is already installed, or when no installer is known here. */
+  installGh: PackageInstallCommand | null
 }
 
 export interface SetupSshAccessResult {
@@ -274,6 +285,18 @@ export type SessionStatus =
   | 'failed'
   | 'interrupted'
   | 'dead'
+
+export function isSteerableStatus(status: SessionStatus): boolean {
+  return status === 'running'
+}
+
+export function isSessionBusyStatus(status: SessionStatus): boolean {
+  return status === 'connecting'
+    || status === 'running'
+    || status === 'awaiting_input'
+    || status === 'awaiting_plan'
+    || status === 'rate_limited'
+}
 
 export interface PermissionRequest {
   questionId: string
@@ -392,6 +415,15 @@ export interface SessionHandoffLineage {
   sessionId: string
 }
 
+/** A picker choice waiting for the first prompt to prepare and enter its host. */
+export interface PendingHostDispatch {
+  serverId: string
+  hostLabel: string
+  isLocalHost: boolean
+  repoKey: string
+  checkout: ProjectIdentity | null
+}
+
 /** Backend-driven session state. Shared across tabs watching the same session. */
 export interface Session {
   id: string
@@ -408,7 +440,9 @@ export interface Session {
   permissionQueue: PermissionRequest[]
   questionQueue: QuestionRequest[]
   permissionDenied: { tools: Array<{ toolName: string; toolUseId: string }> } | null
-  serverQueuedPrompts: QueuedPromptSnapshot[]
+  /** Prompts submitted while a turn cannot start immediately. Client-only
+   *  optimistic state is reconciled with server queue snapshots and events. */
+  outboundPrompts: OutboundPrompt[]
   rateLimitInfo: RateLimitInfo | null
   rateLimitStrategy: 'queue' | 'ask' | 'stop' | 'continue'
   lastResult: RunResult | null
@@ -422,15 +456,22 @@ export interface Session {
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
+  /** Selection is inert until Send; then connection and repo preparation begin. */
+  pendingHostDispatch: PendingHostDispatch | null
   /** Files changed since this Solus session began. Committing does not clear
    * these paths; uncommitted files come from live Git state instead. */
   sessionChangedFiles: string[]
   gitContext: GitCheckout | null
   workingDirectory: string
+  /** Stable sidebar grouping path when this checkout runs on another host. */
+  projectGroupPath: string | null
   additionalDirs: string[]
   modelConfig: ModelConfig
   permissionMode: 'ask' | 'auto' | 'plan'
   worktreeBaseBranch: string | null
+  /** True only when the user dispatched this specific session through the
+   *  Run on host picker, which requires an isolated worktree on that host. */
+  worktreeRequired: boolean
   readOnlyReason: string | null
   loadingHistory: boolean
   /** True when only a recent window of the transcript was hydrated and older
@@ -628,6 +669,10 @@ export interface Message {
   via?: 'automation'
   automationId?: string
   automationName?: string
+  /** Correlates the committed transcript entry with its optimistic outbox row. */
+  clientPromptId?: string
+  /** How this message entered an already-running session. */
+  delivery?: PromptDelivery
 }
 
 // ─── Folio / Works ───
@@ -807,6 +852,8 @@ export interface StatusCardStep {
   /** Stable key within the card. */
   id: string
   label: string
+  /** Optional supporting context, primarily for an actionable failed step. */
+  detail?: string
   status: StatusCardStepStatus
 }
 
@@ -818,7 +865,7 @@ export interface StatusCardState {
   id: string
   title: string
   /** Icon hint for the header; the renderer maps it to a component. */
-  icon?: 'git-branch'
+  icon?: 'git-branch' | 'server'
   status: 'active' | 'done' | 'error'
   steps: StatusCardStep[]
 }
@@ -832,7 +879,7 @@ export type NormalizedEvent =
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean }
-  | { type: 'assistant_message'; text: string; parentToolUseId?: string }
+  | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   | { type: 'background_task_started'; taskId: string; toolUseId?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
@@ -850,8 +897,8 @@ export type NormalizedEvent =
   | { type: 'checkpoint'; checkpointId: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: 'automation'; automationId?: string; automationName?: string }
-  | { type: 'prompt_queued'; text: string; queueId: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }> }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: 'automation'; automationId?: string; automationName?: string }
+  | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }> }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'rate_limit_resolved'; sessionId: string; action: RateLimitDecisionAction }
   | { type: 'goal_updated'; goal: ThreadGoal }
@@ -871,8 +918,20 @@ export type NormalizedEvent =
 
 // ─── Prompt Options ───
 
+export type PromptDelivery = 'steer' | 'queue'
+
+export interface PromptDispatchResult {
+  disposition: 'started' | 'steered' | 'queued'
+  queueId?: string
+}
+
 export interface PromptOptions {
   prompt: string
+  /** Stable renderer-generated identity for correlating optimistic delivery state. */
+  clientPromptId?: string
+  /** How to deliver input when the target already has an active turn.
+   *  User input defaults to steering; background callers should opt into FIFO queueing. */
+  delivery?: PromptDelivery
   /** User-visible prompt text. `prompt` may include internal attachment/reference context. */
   displayPrompt?: string
   /** Image attachments sent as real content blocks rather than flattened into `prompt`.
@@ -1085,6 +1144,7 @@ export interface TabRegistryEntry {
 
 export interface QueuedPromptSnapshot {
   queueId: string
+  clientPromptId?: string
   text: string
   enqueuedAt: number
   reason: QueuedPromptReason
@@ -1093,6 +1153,28 @@ export interface QueuedPromptSnapshot {
   /** Image attachments sent with the queued prompt, so the queued bubble can
    *  render them. `dataUrl` is a base64 data URL (`data:<mime>;base64,<data>`). */
   images?: Array<{ mimeType: string; dataUrl: string }>
+}
+
+export type OutboundPromptState = 'steering' | 'queueing' | 'queued' | 'failed'
+
+/** One renderer-side representation for every prompt waiting to be accepted,
+ *  queued, or retried. `clientPromptId` is generated before dispatch and is the
+ *  sole correlation key used to reconcile backend events. */
+export interface OutboundPrompt {
+  clientPromptId: string
+  queueId?: string
+  text: string
+  state: OutboundPromptState
+  enqueuedAt: number
+  reason?: QueuedPromptReason
+  releaseAt?: number
+  rateLimitType?: string
+  images?: Array<{ mimeType: string; dataUrl: string }>
+  attachments?: Message['attachments']
+  planRefs?: PlanReference[]
+  workRefs?: WorkReference[]
+  sessionRefs?: SessionReference[]
+  error?: string
 }
 
 export interface RateLimitInfo {

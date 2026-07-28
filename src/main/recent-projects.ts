@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import { canonicalRecentProjects } from '../shared/recent-projects'
 import { worktreeProjectRoot, type RecentProject } from '../shared/types'
 import { getDb, withTx } from './db'
 import { isWorkspacePath } from './workspace'
@@ -55,5 +54,5 @@ export async function listRecentProjects(): Promise<RecentProject[]> {
     FROM recent_projects
     ORDER BY last_opened DESC, rowid DESC
   `).all() as unknown as RecentProjectRow[]
-  return canonicalRecentProjects(rows.map(fromRow)).filter((project) => existsSync(project.path))
+  return rows.map(fromRow).filter((project) => existsSync(project.path))
 }

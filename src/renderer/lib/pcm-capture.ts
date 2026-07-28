@@ -29,7 +29,8 @@ registerProcessor('solus-pcm-capture', SolusPcmCaptureProcessor)
 // One capture context per renderer. Recreating and asynchronously closing an
 // AudioContext for every utterance makes Chromium's shared audio service retain
 // teardown work across rapid starts and renderer reloads. Reusing the context
-// also means the worklet module is compiled only once instead of on every ⌥⇧K.
+// also means the worklet module is compiled only once instead of on every
+// voice invocation.
 let captureAudioCtx: AudioContext | null = null
 let captureWorkletReady: Promise<void> | null = null
 

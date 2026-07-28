@@ -1,4 +1,12 @@
-<!-- DIVERGED FROM STOCK: Solus field dictation and submit behavior lives here. -->
+<!-- DIVERGED FROM STOCK: Solus field dictation and submit behavior lives here.
+     The size default `text-xs` deliberately carries no important marker, so a
+     call site's own `text-[…]` wins the merge instead of losing to a marked
+     default. But neither one reaches the DOM unaided: `textarea { font-size:
+     inherit }` in index.css is UNLAYERED, and unlayered normal declarations beat
+     anything in `@layer utilities` no matter the specificity — so every textarea
+     silently inherits its parent's size. A call site that needs a specific size
+     must mark it (`text-xs!`); see QuestionCard. -->
+
 <script lang="ts">
 	import type { HTMLTextareaAttributes } from "svelte/elements";
 	import { cn, type WithElementRef } from "@renderer/lib/utils.js";
@@ -56,7 +64,7 @@
 			bind:this={ref}
 			data-slot={dataSlot}
 			class={cn(
-				"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 field-sizing-content min-h-16 w-full resize-none rounded-lg border bg-transparent! px-2.5 py-2 text-xs! leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:cursor-not-allowed disabled:opacity-50",
+				"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 field-sizing-content min-h-16 w-full resize-none rounded-lg border bg-transparent! px-2.5 py-2 text-xs leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:cursor-not-allowed disabled:opacity-50",
 				mic && "pr-8",
 				field.micState === "recording" && "invisible pointer-events-none",
 				className
@@ -88,7 +96,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 field-sizing-content min-h-16 w-full resize-none rounded-lg border bg-transparent! px-2.5 py-2 text-xs! leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:cursor-not-allowed disabled:opacity-50",
+			"border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 field-sizing-content min-h-16 w-full resize-none rounded-lg border bg-transparent! px-2.5 py-2 text-xs leading-4! placeholder:text-xs! placeholder:leading-[1.125rem]! shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		bind:value

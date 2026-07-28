@@ -14,7 +14,7 @@
   } from "../../lib/sessionUtils";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
@@ -66,7 +66,7 @@
   // Comment/review bodies are GitHub markdown — same pipeline as the PR
   // description, scaled to the timeline's 13px type with edge margins trimmed.
   const bodyProseClass =
-    "github-markdown prose-cloud mt-1.5 text-[0.8125rem] leading-relaxed text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+    "github-markdown prose-cloud mt-1.5 text-[0.8125rem] leading-relaxed font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
@@ -105,14 +105,20 @@
       <GitPullRequestIcon size={13} weight="bold" />
     </span>
     <div class="min-w-0 flex-1 pt-1">
-      <p class="text-[0.8125rem] text-(--solus-text-secondary)">
+      <p class="text-[0.8125rem] font-secondary text-(--solus-text-secondary)">
         <span class="font-semibold text-(--solus-text-primary)">{authorName}</span>
-        opened this pull request{#if openedAt}<span
+        opened this pull request{#if openedAt}<TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
             class="text-(--solus-text-tertiary)"
-            use:tooltip={formatAbsoluteTimestamp(openedAt)}
           >
             · {formatTimeAgoFromTimestamp(openedAt)}</span
-          >{/if}
+          >
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={formatAbsoluteTimestamp(openedAt)} />
+        </TooltipUI.Root>{/if}
       </p>
     </div>
   </li>
@@ -155,9 +161,16 @@
               >
               added {event.commits.length}
               {event.commits.length === 1 ? "commit" : "commits"}
-              <span use:tooltip={formatAbsoluteTimestamp(event.ts)}
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <span {...tooltipProps}
                 >· {formatTimeAgoFromTimestamp(event.ts)}</span
               >
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
+              </TooltipUI.Root>
             </p>
             <!-- Sha + message only — the run header already credits the author,
                  and repeating the name at the row's far edge reads orphaned. -->
@@ -169,7 +182,7 @@
                     >{commit.sha.slice(0, 7)}</code
                   >
                   <span
-                    class="min-w-0 flex-1 truncate text-[0.75rem] text-(--solus-text-secondary)"
+                    class="min-w-0 flex-1 truncate text-[0.75rem] font-secondary text-(--solus-text-secondary)"
                     >{commit.message}</span
                   >
                 </li>
@@ -232,12 +245,18 @@
             <div class="min-w-0 flex-1 pt-1">
               <p class="text-[0.8125rem] font-semibold text-(--solus-text-primary)">
                 {event.comment.author}
-                {milestone.headline}<span
+                {milestone.headline}<TooltipUI.Root>
+                  <TooltipUI.Trigger>
+                    {#snippet child({ props: tooltipProps })}
+                {milestone.headline}      <span {...tooltipProps}
                   class="font-normal text-(--solus-text-tertiary)"
-                  use:tooltip={formatAbsoluteTimestamp(ts)}
                 >
                   · {formatTimeAgoFromTimestamp(ts)}</span
                 >
+                    {/snippet}
+                  </TooltipUI.Trigger>
+                  <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
+                </TooltipUI.Root>
               </p>
               {#if event.comment.body.trim()}
                 <div class={bodyProseClass}>
@@ -266,12 +285,18 @@
                 <span class="font-medium text-(--solus-text-primary)"
                   >{event.comment.author}</span
                 >
-                <span
+                <TooltipUI.Root>
+                  <TooltipUI.Trigger>
+                    {#snippet child({ props: tooltipProps })}
+                      <span {...tooltipProps}
                   class="text-(--solus-text-tertiary)"
-                  use:tooltip={formatAbsoluteTimestamp(ts)}
                 >
                   · {formatTimeAgoFromTimestamp(ts)}</span
                 >
+                    {/snippet}
+                  </TooltipUI.Trigger>
+                  <TooltipUI.Content value={formatAbsoluteTimestamp(ts)} />
+                </TooltipUI.Root>
                 {#if event.comment.kind === "review" && event.comment.reviewState}
                   <span class="ml-2 inline-flex align-middle">
                     <PrReviewStateBadge state={event.comment.reviewState} />

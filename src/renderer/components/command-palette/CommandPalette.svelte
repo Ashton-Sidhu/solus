@@ -2,14 +2,18 @@
   import { tick, untrack } from 'svelte'
   import { MagnifyingGlassIcon, CaretRightIcon, CaretLeftIcon } from 'phosphor-svelte'
   import Kbd from '../ui/Kbd.svelte'
-  import * as CommandMenu from '../ui/command'
+  import { menuRowVariants } from '../ui/menu/menu-row'
   import { useScope, useKeybinding } from '../../lib/keybindings/use-keybinding.svelte'
+  import { comboHint } from '../../lib/keybindings/manifest'
   import { requestInputFocus } from '../../lib/inputFocus'
+  import { cn } from '../../lib/utils'
   import {
     filterCommands,
     groupCommands,
+    moveCommandSelection,
     retainCommandSelection,
     type Command,
+    type CommandSelectionMove,
   } from './lib/commands'
 
   interface Props {
@@ -28,8 +32,6 @@
   let selectedValue = $state('')
   let searchEl: HTMLInputElement | null = $state(null)
   let commandRootEl: HTMLDivElement | null = $state(null)
-  let userSelectionRevision = 0
-  let listChangeVersion = 0
   let previousQuery = ''
   let previousPageId: string | null = null
   // When set, we're drilled into a parent command's children sub-page. We hold
@@ -51,18 +53,45 @@
   useScope('command-palette', { exclusive: true, active: () => open })
   useKeybinding('command-palette.close', () => close())
 
-  function trackKeyboardSelection(e: KeyboardEvent) {
-    const navigates =
+  function keyboardMove(e: KeyboardEvent): CommandSelectionMove | null {
+    if (e.key === 'Home') return 'first'
+    if (e.key === 'End') return 'last'
+
+    const isNext =
       e.key === 'ArrowDown' ||
+      (e.ctrlKey && ['n', 'j'].includes(e.key.toLowerCase()))
+    if (isNext) {
+      if (e.metaKey) return 'last'
+      if (e.altKey) return 'next-group'
+      return 'next'
+    }
+
+    const isPrevious =
       e.key === 'ArrowUp' ||
-      e.key === 'Home' ||
-      e.key === 'End' ||
-      (e.ctrlKey && ['n', 'j', 'p', 'k'].includes(e.key.toLowerCase()))
-    if (navigates) userSelectionRevision += 1
+      (e.ctrlKey && ['p', 'k'].includes(e.key.toLowerCase()))
+    if (isPrevious) {
+      if (e.metaKey) return 'first'
+      if (e.altKey) return 'previous-group'
+      return 'previous'
+    }
+
+    return null
   }
 
-  function trackPointerSelection() {
-    userSelectionRevision += 1
+  function onPaletteKeydown(e: KeyboardEvent) {
+    const move = keyboardMove(e)
+    if (move) {
+      e.preventDefault()
+      selectedValue = moveCommandSelection(ordered, selectedValue, move, true)
+      void tick().then(() => scrollCommandIntoView(selectedValue))
+      return
+    }
+
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return
+    const selectedCommand = ordered.find((command) => command.id === selectedValue)
+    if (!selectedCommand) return
+    e.preventDefault()
+    run(selectedCommand)
   }
 
   function scrollCommandIntoView(commandId: string) {
@@ -73,30 +102,6 @@
       item.scrollIntoView({ block: 'nearest' })
       return
     }
-  }
-
-  // Bits UI selects the first item when a live command registers. Restore the
-  // previous selection after registration settles, unless the user navigated
-  // in the meantime. Normal keyboard changes remain entirely inside Bits UI,
-  // preserving its native scroll-into-view behavior.
-  async function restoreSelectionAfterListChange(
-    commandId: string,
-    userRevision: number,
-    changeVersion: number,
-  ) {
-    await tick()
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    if (
-      !open ||
-      userSelectionRevision !== userRevision ||
-      listChangeVersion !== changeVersion ||
-      !ordered.some((command) => command.id === commandId) ||
-      selectedValue === commandId
-    ) return
-
-    selectedValue = commandId
-    await tick()
-    scrollCommandIntoView(commandId)
   }
 
   function run(cmd: Command) {
@@ -173,37 +178,31 @@
     const retainedSelection = retainCommandSelection(ordered, selectionBeforeListChange)
     if (contextChanged || retainedSelection !== selectionBeforeListChange) {
       selectedValue = ordered[0]?.id ?? ''
-      return
     }
-
-    const changeVersion = ++listChangeVersion
-    void restoreSelectionAfterListChange(
-      selectionBeforeListChange,
-      userSelectionRevision,
-      changeVersion,
-    )
   })
 
 </script>
 
-{#snippet commandContent(cmd: Command, isSelected: boolean | null)}
+{#snippet commandContent(cmd: Command)}
   {#if cmd.icon}
     {@const Icon = cmd.icon}
-    <Icon
-      size={15}
-      weight="regular"
-      class="flex-shrink-0 {isSelected === true ? 'text-(--solus-accent)' : isSelected === false ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-tertiary) group-data-[selected]/command-item:text-(--solus-accent)'}"
-    />
+    <span
+      class="inline-flex size-[1.625rem] flex-shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-colors duration-100 group-data-[selected]/command-item:bg-(--solus-accent-soft) group-data-[selected]/command-item:text-(--solus-accent)"
+    >
+      <Icon size={14} weight="regular" />
+    </span>
+  {:else}
+    <span class="size-[1.625rem] flex-shrink-0"></span>
   {/if}
-  <span class="flex-1 text-[0.8125rem] tracking-[-0.005em]">{cmd.label}</span>
+  <span class="min-w-0 flex-1 truncate text-[length:calc(0.90625rem*var(--solus-font-scale,1))] tracking-[-0.01em]">{cmd.label}</span>
   {#if cmd.hint}
-    <CommandMenu.Shortcut class="flex-shrink-0 text-[0.6875rem] tabular-nums tracking-[0.02em] text-(--solus-text-tertiary)">{cmd.hint}</CommandMenu.Shortcut>
+    <Kbd variant="keycap" class="flex-shrink-0">{cmd.hint}</Kbd>
   {/if}
   {#if cmd.children}
     <CaretRightIcon
-      size={13}
+      size={10}
       weight="bold"
-      class="flex-shrink-0 {isSelected === true ? 'text-(--solus-text-secondary)' : isSelected === false ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-tertiary) group-data-[selected]/command-item:text-(--solus-text-secondary)'}"
+      class="flex-shrink-0 text-(--solus-text-tertiary) opacity-50 group-data-[selected]/command-item:opacity-70"
     />
   {/if}
 {/snippet}
@@ -212,7 +211,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto"
+  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   class:hidden={!open}
   aria-hidden={!open}
   inert={!open}
@@ -220,63 +219,69 @@
   onclick={(e) => { if (e.target === e.currentTarget) close() }}
 >
   <div
-    class="w-[clamp(22rem,56vw,40rem)] max-w-[calc(100vw-3rem)] max-h-[60vh] outline-none flex flex-col rounded-[1.125rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] overflow-hidden origin-top"
+    class="w-[clamp(22rem,56vw,38.75rem)] max-w-[calc(100vw-3rem)] max-h-[60vh] outline-none flex flex-col rounded-[1.5rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)] overflow-hidden origin-top"
     class:command-palette-enter={open}
     role="dialog"
     aria-label="Command palette"
     aria-modal="true"
   >
-    <CommandMenu.Root
-        bind:ref={commandRootEl}
-        bind:value={selectedValue}
-        shouldFilter={false}
-        loop
-        disableInitialScroll
-        onkeydowncapture={trackKeyboardSelection}
-        onpointermovecapture={trackPointerSelection}
-        class="h-auto"
-        label="Command palette"
-      >
+    <div
+      bind:this={commandRootEl}
+      class="flex h-auto w-full flex-col overflow-hidden"
+      role="application"
+      aria-label="Command palette"
+      onkeydown={onPaletteKeydown}
+    >
       <!-- Search -->
       <div
-        class="flex items-center gap-2.5 px-[1.125rem] h-[3.25rem] flex-shrink-0 relative after:content-[''] after:absolute after:left-[1.125rem] after:right-[1.125rem] after:bottom-0 after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35]"
+        class="flex items-center gap-3 px-5 h-[3.3125rem] flex-shrink-0 border-b border-(--solus-menu-hairline)"
       >
         {#if page}
           <button
             type="button"
-            class="inline-flex items-center justify-center size-[1.375rem] flex-shrink-0 border-none rounded-[0.4375rem] bg-(--solus-surface-hover) text-(--solus-text-secondary) cursor-pointer transition-colors duration-100 hover:text-(--solus-text-primary)"
+            class="inline-flex items-center justify-center size-[1.375rem] flex-shrink-0 border-none rounded-[0.4375rem] bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) cursor-pointer transition-colors duration-100 hover:text-(--solus-text-primary)"
             aria-label="Back"
             onclick={back}
           >
             <CaretLeftIcon size={14} weight="bold" />
           </button>
-          <span class="flex-shrink-0 text-[0.8125rem] font-semibold tracking-[-0.005em] text-(--solus-text-primary)">{page.title}</span>
+          <span class="flex-shrink-0 text-[length:calc(0.96875rem*var(--solus-font-scale,1))] font-semibold tracking-[-0.012em] text-(--solus-text-primary)">{page.title}</span>
         {:else}
-          <MagnifyingGlassIcon size={15} class="flex-shrink-0 text-(--solus-text-tertiary)" />
+          <MagnifyingGlassIcon size={16} class="flex-shrink-0 text-(--solus-text-tertiary) opacity-65" />
         {/if}
-        <CommandMenu.Input
-          bind:ref={searchEl}
+        <input
+          bind:this={searchEl}
           bind:value={query}
           onkeydown={onSearchKeydown}
           type="search"
           name="command-palette-search"
           aria-label={page ? `Search ${page.title}` : 'Search commands'}
+          aria-controls="command-palette-results"
+          aria-expanded="true"
+          aria-activedescendant={selectedValue ? `command-palette-option-${selectedValue}` : undefined}
+          role="combobox"
           placeholder={page ? `Search ${page.title.toLowerCase()}…` : 'Type a command or search…'}
-          class="flex-1 h-auto bg-transparent border-none outline-none text-sm tracking-[-0.005em] text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
+          class="flex-1 min-w-0 h-auto bg-transparent border-none outline-none text-[length:calc(0.96875rem*var(--solus-font-scale,1))] tracking-[-0.012em] text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
           autocomplete="off"
           spellcheck="false"
         />
+        {#if !page}
+          <Kbd variant="keycap" class="flex-shrink-0">{comboHint('global.command-palette')}</Kbd>
+        {/if}
       </div>
 
       <!-- Results -->
-      <CommandMenu.List
-        class="flex-1 max-h-[24.875rem] overflow-hidden"
+      <div
+        id="command-palette-results"
+        role="listbox"
+        aria-label={page ? page.title : 'Commands'}
+        class="flex-1 max-h-[26rem] overflow-hidden"
       >
-        <CommandMenu.Viewport
-          class="max-h-96 overflow-x-hidden overflow-y-auto overscroll-y-contain pt-1.5 px-1.5 pb-2 [scrollbar-width:thin]"
+        <div
+          class="max-h-[26rem] overflow-x-hidden overflow-y-auto overscroll-y-contain p-2 [scrollbar-width:thin]"
         >
           {#if !hasResults}
-            <CommandMenu.Empty forceMount class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-[0.8125rem] text-(--solus-text-tertiary)">
+            <div role="status" class="flex flex-col items-center justify-center gap-2.5 py-11 px-6 text-center text-[length:calc(0.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)">
               <MagnifyingGlassIcon size={18} weight="light" class="text-(--solus-text-tertiary)" />
               <span>
                 {#if activeCommands.length === 0}
@@ -285,46 +290,66 @@
                   No commands match “{query.trim()}”
                 {/if}
               </span>
-            </CommandMenu.Empty>
+            </div>
           {:else}
-            {#each groups as group (group.title)}
-              <CommandMenu.Group
-                heading={group.title}
-                class="p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:h-7 [&_[data-command-group-heading]]:items-end [&_[data-command-group-heading]]:px-3.5 [&_[data-command-group-heading]]:pb-[0.3125rem] [&_[data-command-group-heading]]:pt-[0.1875rem] [&_[data-command-group-heading]]:text-[0.6875rem] [&_[data-command-group-heading]]:font-semibold [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:tracking-[0.08em] [&_[data-command-group-heading]]:text-(--solus-text-secondary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none"
+            {#each groups as group, groupIndex (group.title)}
+              <div
+                role="group"
+                aria-labelledby={`command-palette-group-${groupIndex}`}
+                class="overflow-hidden p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:items-center [&_[data-command-group-heading]]:gap-3 [&_[data-command-group-heading]]:px-3 [&_[data-command-group-heading]]:pt-3 [&_[data-command-group-heading]]:pb-[0.4375rem] [&_[data-command-group-heading]]:text-[length:calc(0.59375rem*var(--solus-font-scale,1))] [&_[data-command-group-heading]]:font-medium [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:tracking-[0.13em] [&_[data-command-group-heading]]:text-(--solus-text-tertiary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none [&_[data-command-group-heading]]:after:content-[''] [&_[data-command-group-heading]]:after:flex-1 [&_[data-command-group-heading]]:after:h-[0.0625rem] [&_[data-command-group-heading]]:after:bg-(--solus-menu-hairline)"
               >
+                <div
+                  id={`command-palette-group-${groupIndex}`}
+                  data-command-group-heading
+                >
+                  {group.title}
+                </div>
                 {#each group.items as cmd (cmd.id)}
-                  <CommandMenu.Item
-                    value={cmd.id}
-                    keywords={[cmd.label, cmd.group, ...(cmd.keywords ?? [])]}
-                    class="h-9 gap-2.5 w-full px-3.5 border-none rounded-lg cursor-pointer text-left bg-transparent text-(--solus-text-secondary) data-[selected]:bg-(--solus-accent-light) data-[selected]:text-(--solus-text-primary)"
-                    onSelect={() => run(cmd)}
+                  <button
+                    id={`command-palette-option-${cmd.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedValue === cmd.id}
+                    data-command-item
+                    data-slot="command-item"
+                    data-value={cmd.id}
+                    data-selected={selectedValue === cmd.id ? '' : undefined}
+                    class={cn(
+                      menuRowVariants({ stagger: false }),
+                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-xl cursor-pointer text-left bg-transparent font-secondary text-(--solus-text-secondary) data-[selected]:font-medium data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]!',
+                    )}
+                    onpointermove={() => (selectedValue = cmd.id)}
+                    onclick={() => run(cmd)}
                   >
-                    {@render commandContent(cmd, null)}
-                  </CommandMenu.Item>
+                    {@render commandContent(cmd)}
+                  </button>
                 {/each}
-              </CommandMenu.Group>
+              </div>
             {/each}
           {/if}
-        </CommandMenu.Viewport>
-      </CommandMenu.List>
+        </div>
+      </div>
 
       <!-- Footer -->
-      <div class="flex items-center gap-4 px-[1.125rem] h-9 flex-shrink-0 relative text-xs text-(--solus-text-tertiary) before:content-[''] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35]">
+      <div class="flex items-center gap-5 px-4 h-10 flex-shrink-0 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) text-[length:calc(0.71875rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)">
         <span class="inline-flex items-center gap-1.5">
-          <Kbd variant="hint">↑</Kbd>
-          <Kbd variant="hint">↓</Kbd>
-          to navigate
+          <Kbd variant="keycap">↑</Kbd>
+          <Kbd variant="keycap">↓</Kbd>
+          navigate
         </span>
         <span class="inline-flex items-center gap-1.5">
-          <Kbd variant="hint">↵</Kbd>
-          to run
+          <Kbd variant="keycap">↵</Kbd>
+          run
         </span>
         <span class="inline-flex items-center gap-1.5">
-          <Kbd variant="hint">esc</Kbd>
-          {page ? 'to go back' : 'to close'}
+          <Kbd variant="keycap">esc</Kbd>
+          {page ? 'back' : 'close'}
+        </span>
+        <span class="ml-auto tabular-nums">
+          {filtered.length === 1 ? '1 command' : `${filtered.length} commands`}
         </span>
       </div>
-    </CommandMenu.Root>
+    </div>
   </div>
 </div>
 

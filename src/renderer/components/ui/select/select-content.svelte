@@ -27,7 +27,7 @@
 		{preventScroll}
 		data-slot="select-content"
 		class={cn(
-			"bg-(--solus-popover-bg) text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 min-w-36 rounded-[14px] border border-(--solus-popover-border) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl duration-100 data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2 relative isolate z-50 overflow-x-hidden overflow-y-auto",
+			"text-popover-foreground data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 menu-surface min-w-36 p-1.5 ring-0 duration-100 relative isolate z-50 overflow-x-hidden overflow-y-auto",
 			className
 		)}
 		{...restProps}

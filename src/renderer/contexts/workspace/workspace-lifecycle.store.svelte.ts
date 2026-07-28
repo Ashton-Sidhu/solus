@@ -56,6 +56,8 @@ export class WorkspaceLifecycleStore {
   private staticInfoInitialized = false
   private staticInfoInitialization: Promise<void> | null = null
   private appliedStartDirectory: string | null = null
+  private pluginCommandRequestSequence = 0
+  private pluginCommandRequests = new Map<string, number>()
 
   constructor(private deps: WorkspaceLifecycleStoreDeps) {}
 
@@ -118,7 +120,9 @@ export class WorkspaceLifecycleStore {
         await optimisticEnvironmentRefresh
         await this.deps.refreshGitState()
       }
-      void this.refreshPluginCommands(this.deps.config.globalDefaults.workingDirectory).catch((error) => {
+      const commandDirectory = this.deps.registry.activeSession?.workingDirectory
+        ?? this.deps.config.globalDefaults.workingDirectory
+      void this.refreshPluginCommands(commandDirectory).catch((error) => {
         if (!(error instanceof TransportDisconnectedError)) {
           console.error('getPluginCommands failed', error)
         }
@@ -136,13 +140,27 @@ export class WorkspaceLifecycleStore {
 
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
+    const targetSession = this.deps.registry.sessionFor(targetTabId)
+    const requestKey = targetSession ? targetTabId : ''
+    const requestSequence = ++this.pluginCommandRequestSequence
+    this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
-    ctx.session.provider = this.deps.settings.activeAgent as AgentId
+    ctx.session.provider = (targetSession?.provider ?? this.deps.settings.activeAgent) as AgentId
     const result = await (this.deps.apiFor?.(targetTabId) ?? window.solus)
       .getPluginCommands(workingDirectory, $state.snapshot(ctx))
+    if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
+
+    if (targetSession) {
+      const currentSession = this.deps.registry.sessionFor(targetTabId)
+      if (currentSession !== targetSession || currentSession.workingDirectory !== workingDirectory) return
+      currentSession.pluginCommands = result
+      if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = result
+      return
+    }
+
+    if (this.deps.registry.activeSession) return
+    if (this.deps.config.globalDefaults.workingDirectory !== workingDirectory) return
     this.pluginCommands = result
-    const session = this.deps.registry.sessionFor(targetTabId)
-    if (session) session.pluginCommands = result
   }
 
   recomputeChangedFiles(tabId: string): void {

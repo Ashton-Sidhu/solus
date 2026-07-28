@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../contexts";
-  import { tooltip } from "../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../lib/inputFocus";
   import * as Popover from "./ui/popover";
   import {
@@ -42,14 +42,16 @@
     <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
       <Popover.Trigger>
         {#snippet child({ props })}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             {...props}
             type="button"
             aria-haspopup="dialog"
             aria-label={`${pct}% of context window used`}
             data-testid="context-meter-trigger"
             class="group flex items-center rounded-full p-1 cursor-pointer transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
-            use:tooltip={`${pct}% of context window used`}
           >
       <svg
         class="h-4 w-4 -rotate-90"
@@ -78,6 +80,10 @@
         />
       </svg>
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={`${pct}% of context window used`} />
+          </TooltipUI.Root>
         {/snippet}
       </Popover.Trigger>
       <Popover.Content side="bottom" align="start" sideOffset={6} class="z-[10002] w-[224px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
@@ -101,7 +107,7 @@
 
         <div class="px-3 py-1.5 border-b border-(--solus-permission-border)">
           <div
-            class="flex items-center justify-between text-[0.6875rem] text-(--solus-text-secondary) tabular-nums"
+            class="flex items-center justify-between text-[0.6875rem] font-secondary text-(--solus-text-secondary) tabular-nums"
           >
             <span>{used.toLocaleString()}</span>
             <span class="text-(--solus-text-tertiary)"
@@ -126,7 +132,7 @@
               class="flex items-center justify-between text-[0.6875rem] tabular-nums"
             >
               <span class="text-(--solus-text-tertiary)">{row.label}</span>
-              <span class="text-(--solus-text-secondary)"
+              <span class="font-secondary text-(--solus-text-secondary)"
                 >{row.value.toLocaleString()}</span
               >
             </div>
@@ -138,7 +144,7 @@
                 class="flex items-center justify-between text-[0.6875rem] tabular-nums"
               >
                 <span class="text-(--solus-text-tertiary)">Cost</span>
-                <span class="text-(--solus-text-secondary)"
+                <span class="font-secondary text-(--solus-text-secondary)"
                   >${result.totalCostUsd.toFixed(4)}</span
                 >
               </div>

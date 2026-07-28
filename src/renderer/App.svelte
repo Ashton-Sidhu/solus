@@ -29,6 +29,7 @@
   } from "./components/servers/run-on";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
+  import * as Tooltip from "./components/ui/tooltip";
   import type { Command } from "./components/command-palette/lib/commands";
   import {
     projectsStore,
@@ -70,7 +71,8 @@
     useKeybinding,
     installGlobalDispatcher,
   } from "./lib/keybindings/use-keybinding.svelte";
-  import { comboHint } from "./lib/keybindings/manifest";
+  import { comboHint, KEYBINDINGS } from "./lib/keybindings/manifest";
+  import { defaultCombo, eventMatches } from "./lib/keybindings/match";
   import { requestInputFocus } from "./lib/inputFocus";
   import { initRootScaling } from "./lib/uiScale";
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
@@ -144,9 +146,11 @@
           handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory:
             sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
+          projectGroupPath: sess?.projectGroupPath ?? null,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
           gitContext: sess?.gitContext ? { ...sess.gitContext } : null,
           worktreeBaseBranch: sess?.worktreeBaseBranch ?? null,
+          worktreeRequired: sess?.worktreeRequired ?? false,
           modelConfig: sess
             ? { ...sess.modelConfig }
             : { ...session.globalDefaults.modelConfig },
@@ -251,18 +255,15 @@
     const sess = session.sessionFor(tabId);
     const gitCwd = sess?.gitContext?.worktreePath ?? cwd;
     if (!gitCwd) return;
-    // onTurnSettled fires on every completed Write/Edit/exec tool call (mid-turn)
-    // as well as at task_complete. By that point the backend has already emitted
-    // the status_change, so a still-running status means this is a mid-turn
-    // settle — respect the store's throttle so ~20 edits don't spawn ~20 git
-    // pipelines. When the turn actually completes (status reset off running),
-    // force one authoritative refresh.
-    const midTurn = sess?.status === "running" || sess?.status === "connecting";
+    // Tool settles, the Git watcher, and task completion can arrive together.
+    // Keep all of them behind the store's two-second freshness window so the
+    // final snapshot pipeline does not overlap a redundant status scan. A stale
+    // checkout still refreshes immediately.
     void sessionEnvironmentStore.refreshTab(session, {
       tabId,
       cwd: gitCwd,
       level: "status",
-      force: !midTurn,
+      force: false,
     });
   };
 
@@ -285,6 +286,9 @@
   // Set when a caller names the host to browse — the "Run on" picker and the
   // Open project flow both browse a host no tab points at yet.
   let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
+  // Only the Run on picker turns a cross-host folder choice into a mandatory
+  // session worktree. Opening a remote project uses the normal preference.
+  let directoryPickerRequireWorktree = $state(false);
   // "Choose location…" in the Open project flow borrows the same browser; its
   // selection is handed back to that flow instead of retargeting a tab here.
   let directoryPickerForOpenProject = $state(false);
@@ -300,7 +304,9 @@
   } | null>(null);
   let hasMountedDirectoryPicker = $state(false);
   let hasMountedShortcuts = $state(false);
-  let hasMountedCommandPalette = $state(false);
+  // The command palette is keyboard-critical and cheap while hidden. Mount it
+  // with the app so the first shortcut never pays component setup work.
+  let hasMountedCommandPalette = $state(true);
   let hasMountedAddServer = $state(false);
   let hasMountedOpenProject = $state(false);
   let hasMountedHostOnboarding = $state(false);
@@ -734,7 +740,8 @@
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);
   $effect(() => {
-    // Pre-listener for ⌥⇧K: always claims the combo so macOS never sees it
+    // Pre-listener for the voice shortcut: always claims the combo so the OS
+    // never sees it
     // (exclusive scopes in DocumentShell block the normal dispatcher for global
     // bindings, which would otherwise let macOS insert the  character).
     // Handles dictation into focused plain inputs. Non-dictation cases (e.g.
@@ -743,9 +750,12 @@
     //
     // Runs in the capture phase so it fires before any subtree keydown handler
     // (e.g. the diff panel's tree/diff widgets) can stopPropagation and swallow
-    // the combo — without this, ⌥⇧K does nothing while focused inside the panel.
+    // the combo — without this, dictation does nothing while focused in a panel.
     const handleVoiceKey = (e: KeyboardEvent) => {
-      if (e.repeat || !e.altKey || !e.shiftKey || e.code !== "KeyK") return;
+      const combo =
+        settings.keybindings["voice.toggle-recorder"] ??
+        defaultCombo(KEYBINDINGS["voice.toggle-recorder"]);
+      if (e.repeat || !eventMatches(e, combo)) return;
       e.preventDefault();
       const el = document.activeElement;
       if (isDictationTarget(el)) dictation.toggleInto(el);
@@ -1132,8 +1142,11 @@
       group: "Servers",
       icon: PlugsIcon,
       keywords: ["discover", "scan", "lan", "tailscale", "nearby"],
+      // Settings → Connections owns the fuller version of this: a scan button,
+      // last-seen times and connect. The switcher chip it used to open is not
+      // rendered in editor mode at all.
       run: () => {
-        serversStore.switcherOpen = true;
+        session.showSettings("api-access");
         void serversStore.scanForServers();
       },
     },
@@ -1182,10 +1195,10 @@
   const paletteCommands = $derived.by(() => {
     const commands: Command[] = [...baseCommands];
 
-    for (const server of serversStore.servers) {
-      commands.push({
+    const switchServerChildren: Command[] = serversStore.servers.map(
+      (server) => ({
         id: `switch-server:${server.id}`,
-        label: `Switch server: ${server.label}`,
+        label: server.label,
         group: "Servers",
         icon: PlugsIcon,
         hint: server.id === serversStore.activeServerId ? "Active" : undefined,
@@ -1197,8 +1210,16 @@
           server.installationId ?? "",
         ],
         run: () => serversStore.switchTo(server.id),
-      });
-    }
+      }),
+    );
+    commands.push({
+      id: "switch-server",
+      label: "Switch server…",
+      group: "Servers",
+      icon: PlugsIcon,
+      keywords: ["server", "remote", "connect", "host", "machine"],
+      children: switchServerChildren,
+    });
 
     for (const host of serversStore.nearbyHosts) {
       commands.push({
@@ -1609,7 +1630,11 @@
   $effect(() => {
     const handler = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ tabId?: string; serverId?: string }>
+        event as CustomEvent<{
+          tabId?: string;
+          serverId?: string;
+          requireWorktree?: boolean;
+        }>
       ).detail;
       const targetTabId = detail?.tabId;
       const tab = targetTabId ? session.tabs[targetTabId] : null;
@@ -1617,6 +1642,7 @@
       directoryPickerNewTab = opensInNewTab;
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
       directoryPickerServerIdOverride = detail?.serverId;
+      directoryPickerRequireWorktree = detail?.requireWorktree === true;
       directoryPickerForOpenProject = false;
       directoryPickerOpen = true;
     };
@@ -1655,13 +1681,21 @@
       paletteInitialPage = { id: "review-pr", title: "Review PR" };
       commandPaletteOpen = true;
     };
+    // The nearby-host discovery toast fires from a store, which has no way to
+    // reach the settings pane on its own.
+    const showConnectionsHandler = () => session.showSettings("api-access");
     window.addEventListener("solus:open-directory-picker", handler);
     window.addEventListener("solus:open-project", openProjectHandler);
     window.addEventListener("solus:review-pr", reviewPrHandler);
+    window.addEventListener("solus:show-connections", showConnectionsHandler);
     return () => {
       window.removeEventListener("solus:open-directory-picker", handler);
       window.removeEventListener("solus:open-project", openProjectHandler);
       window.removeEventListener("solus:review-pr", reviewPrHandler);
+      window.removeEventListener(
+        "solus:show-connections",
+        showConnectionsHandler,
+      );
     };
   });
 
@@ -1674,11 +1708,15 @@
     }
     const targetTabId = directoryPickerTargetTabId;
     const overrideServerId = directoryPickerServerIdOverride;
+    const requireWorktree = directoryPickerRequireWorktree;
     directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
       const newTabId = await session.createTab(dir);
-      if (overrideServerId) moveTabToHost(newTabId, overrideServerId, dir);
+      if (overrideServerId) {
+        moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
+      }
     } else if (
       targetTabId &&
       overrideServerId &&
@@ -1686,7 +1724,7 @@
     ) {
       // The folder lives on another host, so the tab has to move there too —
       // setBaseDirectory alone would point the current host at a missing path.
-      moveTabToHost(targetTabId, overrideServerId, dir);
+      moveTabToHost(targetTabId, overrideServerId, dir, { requireWorktree });
     } else {
       await session.setBaseDirectory(dir, targetTabId);
     }
@@ -1699,6 +1737,7 @@
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
     directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
     // Cancelling a browse that the Open project flow started returns to that
     // flow, on the step it left — not to an empty screen.
     if (directoryPickerForOpenProject) {
@@ -1709,19 +1748,19 @@
     requestInputFocus();
   }
 
-  function moveTabToHost(tabId: string, serverId: string, path: string) {
+  function moveTabToHost(
+    tabId: string,
+    serverId: string,
+    path: string,
+    options: { requireWorktree?: boolean } = {},
+  ) {
     retargetSessionHost({
       workspace: session,
       tabId,
       serverId,
       isLocalHost: serverId === LOCAL_SERVER_ID,
       path,
-      onDispatched: (dispatchedPath) =>
-        void session.environment.refreshTab(session, {
-          tabId,
-          cwd: dispatchedPath,
-          worktreeRequested: true,
-        }),
+      requireWorktree: options.requireWorktree,
     });
   }
 
@@ -1732,13 +1771,9 @@
    */
   function openProjectHosts(): HostOption[] {
     const activeId = serversStore.activeServerId;
-    return serversStore.servers
-      .map((server) => ({
-        id: server.id,
-        label: server.label,
-        local: server.local,
-      }))
-      .sort((a, b) => Number(b.id === activeId) - Number(a.id === activeId));
+    return [...serversStore.servers].sort(
+      (a, b) => Number(b.id === activeId) - Number(a.id === activeId),
+    );
   }
 
   function startOpenProject(options: { tabId?: string } = {}) {
@@ -1784,7 +1819,7 @@
     }
 
     if (!cloned && hostIsLocal) return;
-    const name = path.split("/").pop();
+    const name = path.split(/[\\/]/).pop();
     toasts.success(
       cloned
         ? `Cloned ${name} on ${hostLabel || "host"}`
@@ -1803,11 +1838,11 @@
   /** "Choose location…" — the same folder browser, handed back to the flow. */
   function browseForOpenProject() {
     if (!openProjectStore.serverId) return;
-    openProjectStore.beginBrowse();
     directoryPickerForOpenProject = true;
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
     directoryPickerServerIdOverride = openProjectStore.serverId;
+    directoryPickerRequireWorktree = false;
     directoryPickerOpen = true;
   }
 
@@ -1815,6 +1850,7 @@
   async function finishBrowsedOpenProject(dir: string) {
     directoryPickerForOpenProject = false;
     directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
     openProjectStore.back();
     if (openProjectStore.source === "local") {
       await openProjectAtPath(dir, false);
@@ -1875,6 +1911,12 @@
 
 <svelte:window onkeydowncapture={toasts.handleKeydown} />
 
+<Tooltip.Provider
+  delayDuration={700}
+  skipDelayDuration={300}
+  disableHoverableContent
+  ignoreNonKeyboardFocus
+>
 <Toaster
   theme={settings.isDark ? "dark" : "light"}
   position="top-right"
@@ -1975,6 +2017,7 @@
       actionLabel={directoryPickerAction}
       api={directoryPickerApi}
       hostLabel={directoryPickerHostLabel}
+      serverId={directoryPickerServerId}
     />
   {/await}
 {/if}
@@ -2032,6 +2075,7 @@
       onOpenProject={(path) =>
         void openProjectAtPath(path, openProjectStore.source !== "local")}
       onBrowse={browseForOpenProject}
+      onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
       localIdentity={localGitIdentity}
     />
   {/await}
@@ -2097,6 +2141,7 @@
     </div>
   </div>
 {/if}
+</Tooltip.Provider>
 
 <style>
   .mode-hidden {

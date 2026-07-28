@@ -11,6 +11,8 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { toasts } from "../../contexts";
+  import GitHostPanel from "./GitHostPanel.svelte";
+  import ProviderPanel from "./ProviderPanel.svelte";
   import type { OpenProjectStore } from "./open-project.store.svelte";
 
   interface Props {
@@ -29,7 +31,8 @@
   let identityName = $state("");
   let identityEmail = $state("");
 
-  const readiness = $derived(store.readiness);
+  const setup = $derived(store.setup);
+  const readiness = $derived(setup?.readiness ?? null);
   // Guarded per field: an older host answers with an older readiness shape.
   const gitMissing = $derived(!!readiness && !readiness.git?.installed);
   const githubMissing = $derived(!!readiness && !readiness.github?.solusToken);
@@ -55,8 +58,8 @@
   function toggle(id: NoteId) {
     openNote = openNote === id ? null : id;
     if (openNote !== "identity") return;
-    identityName = readiness?.git.identity?.name ?? localIdentity?.name ?? "";
-    identityEmail = readiness?.git.identity?.email ?? localIdentity?.email ?? "";
+    identityName = readiness?.git?.identity?.name ?? localIdentity?.name ?? "";
+    identityEmail = readiness?.git?.identity?.email ?? localIdentity?.email ?? "";
   }
 
   async function copy(text: string) {
@@ -86,14 +89,14 @@
   </button>
 {/snippet}
 
-{#if gitMissing || showGithub || agentMissing || identityMissing || store.readinessError}
+{#if gitMissing || showGithub || agentMissing || identityMissing || setup?.readinessError}
   <div class="flex flex-col gap-0.5" transition:slide={{ duration: 160 }}>
-    {#if store.readinessError}
+    {#if setup?.readinessError}
       <p
         class="flex items-center gap-2 px-2 py-1.5 text-[0.75rem] text-(--solus-status-error)"
       >
         <WarningCircleIcon size={13} weight="fill" class="shrink-0" />
-        <span class="min-w-0 flex-1 truncate">{store.readinessError}</span>
+        <span class="min-w-0 flex-1 truncate">{setup.readinessError}</span>
       </p>
     {/if}
 
@@ -117,15 +120,19 @@
       >
         {#if openNote === "git"}
           {#if installGit?.autoRunnable}
-            <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
+            <p class="text-pretty text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary)">
               Solus can install git on {store.hostLabel || "this host"} by running
               <code class="font-mono text-[0.6875rem] text-(--solus-text-primary)">{installGit.display}</code>.
             </p>
-            <Button class="mt-2" disabled={store.installingGit} onclick={() => void store.installGit()}>
-              {store.installingGit ? "Installing…" : "Install git"}
+            <Button
+              class="mt-2"
+              disabled={!setup || !!setup.runningStep}
+              onclick={() => void setup?.installGit()}
+            >
+              {setup?.runningStep === "git" ? "Installing…" : "Install git"}
             </Button>
           {:else if installGit}
-            <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
+            <p class="text-pretty text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary)">
               Installing git here needs elevation Solus doesn’t have. Run this on the host, then re-check:
             </p>
             <div class="mt-2 flex items-center gap-2">
@@ -138,62 +145,35 @@
               </Button>
             </div>
           {:else}
-            <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
+            <p class="text-pretty text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary)">
               No package manager was found here. Install git on the host, then re-check.
             </p>
           {/if}
         {:else if openNote === "github"}
-          {#if store.deviceCode}
-            <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
-              Open
-              <a class="text-(--solus-accent) underline" href={store.deviceCode.verificationUri} target="_blank" rel="noreferrer">
-                {store.deviceCode.verificationUri}
-              </a>
-              and enter this code:
-            </p>
-            <div class="mt-2 flex items-center gap-2">
-              <code class="rounded-lg bg-(--solus-input-bg-soft) px-2 py-1.5 font-mono text-sm tracking-widest text-(--solus-text-primary)">
-                {store.deviceCode.userCode}
-              </code>
-              <Button variant="outline" size="sm" onclick={() => void copy(store.deviceCode!.userCode)}>
-                <CopyIcon size={12} />
-                Copy
-              </Button>
-              <Button variant="ghost" size="sm" onclick={() => void store.cancelGithubConnect()}>Cancel</Button>
-            </div>
-          {:else}
-            <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
-              Public repositories clone without it. Sign in on {store.hostLabel || "this host"} to reach private ones.
-            </p>
-            <Button class="mt-2" disabled={store.connectingGithub} onclick={() => void store.connectGithub()}>
-              {store.connectingGithub ? "Waiting for GitHub…" : "Connect GitHub"}
-            </Button>
-          {/if}
+          {#if setup}<GitHostPanel {setup} />{/if}
         {:else if openNote === "agent"}
-          <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
+          <p class="text-pretty text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary)">
             The project still opens — it just can’t run a session here until an agent CLI is installed.
           </p>
-          <Button class="mt-2" disabled={store.installingAgent} onclick={() => void store.installAgentCli("claude")}>
-            {store.installingAgent ? "Installing…" : "Install Claude Code"}
-          </Button>
+          {#if setup}<ProviderPanel {setup} />{/if}
         {:else if openNote === "identity"}
-          <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-secondary)">
+          <p class="text-pretty text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary)">
             Commits made on this host use this name and email. Cloning works without it.
           </p>
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <Input bind:value={identityName} class="h-8 min-w-40 flex-1 text-[0.75rem]" placeholder="Name" aria-label="Git user name" />
             <Input bind:value={identityEmail} class="h-8 min-w-48 flex-1 text-[0.75rem]" placeholder="you@example.com" aria-label="Git user email" />
             <Button
-              disabled={store.savingIdentity || !identityName.trim() || !identityEmail.trim()}
-              onclick={() => void store.setGitIdentity({ name: identityName.trim(), email: identityEmail.trim() })}
+              disabled={!setup || setup.runningStep === "identity" || !identityName.trim() || !identityEmail.trim()}
+              onclick={() => void setup?.setGitIdentity({ name: identityName.trim(), email: identityEmail.trim() })}
             >
-              {store.savingIdentity ? "Saving…" : "Save"}
+              {setup?.runningStep === "identity" ? "Saving…" : "Save"}
             </Button>
           </div>
         {/if}
 
-        {#if store.actionError}
-          <p class="mt-2 text-pretty text-[0.75rem] leading-relaxed text-(--solus-status-error)">{store.actionError}</p>
+        {#if setup?.stepError && (openNote === "git" || openNote === "identity")}
+          <p class="mt-2 text-pretty text-[0.75rem] leading-relaxed text-(--solus-status-error)">{setup.stepError.message}</p>
         {/if}
       </div>
     {/if}

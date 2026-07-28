@@ -13,8 +13,6 @@
     StarIcon,
     BinocularsIcon,
   } from "phosphor-svelte";
-  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import {
     REVIEW_PROGRESS_STEPS,
     type ReviewProgressStep,
@@ -27,6 +25,7 @@
     getWindowContext,
     getSessionEnvironmentStore,
     runtime,
+    serversStore,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
@@ -34,7 +33,7 @@
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import Kbd from "../ui/Kbd.svelte";
   import * as Popover from "../ui/popover";
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
@@ -127,11 +126,10 @@
     showNativeDesktopActions && hasUncommittedChanges,
   );
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
-  const remoteHost = $derived(
-    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
-      ? (serversStore.servers.find((server) => server.id === sess.serverId) ?? { label: "remote host" })
-      : null,
-  );
+  const remoteHost = $derived.by(() => {
+    const host = serversStore.hostFor(sess?.serverId);
+    return host?.local ? null : host;
+  });
   const terminalTooltip = $derived(
     remoteHost
       ? `Runs on ${remoteHost.label} — not available for remote sessions`
@@ -710,7 +708,10 @@
   class:orb-streaming={isRunning}
 >
   <!-- Trigger: always bottom-right, compact status button -->
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     class="orb-trigger pointer-events-auto absolute flex cursor-pointer items-center justify-center rounded-full [isolation:isolate]"
     class:orb-trigger-active={hasUncommittedChanges && !expanded}
     class:orb-trigger-open={expanded}
@@ -726,7 +727,6 @@
     aria-controls="action-orb-panel-{tabId}"
     aria-haspopup="true"
     aria-label={orbTooltip}
-    use:tooltip={orbTooltip}
   >
     <SparkleIcon size={13} weight="regular" />
     {#if orbBadge}
@@ -738,6 +738,10 @@
       </span>
     {/if}
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={orbTooltip} />
+  </TooltipUI.Root>
 
   <!-- Panel: streams up to center-bottom on expand -->
   <div
@@ -755,7 +759,10 @@
       class="dock-actions inline-flex items-center justify-center gap-(--orb-gap)"
     >
       {#if showPin}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn dock-btn-icon stagger-item"
           class:dock-btn-pinned={isPinned}
           data-orb-action="pin"
@@ -765,14 +772,20 @@
           title={isPinned ? "Unpin session" : "Pin session to sidebar"}
           aria-label={isPinned ? "Unpin session" : "Pin session to sidebar"}
           aria-pressed={isPinned}
-          use:tooltip={isPinned ? "Unpin session" : "Pin session to sidebar"}
         >
           <StarIcon size={13} weight={isPinned ? "fill" : "regular"} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={isPinned ? "Unpin session" : "Pin session to sidebar"} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showInterrupt}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn dock-btn-stop stagger-item"
           class:dock-btn-primary={primaryAction === "stop"}
           data-orb-action="stop"
@@ -785,7 +798,6 @@
           }}
           title="Stop current task"
           aria-label="Stop current task"
-          use:tooltip={"Stop current task"}
         >
           <SquareIcon size={9} weight="fill" />
           <span>Stop</span>
@@ -793,6 +805,10 @@
             >{shortcutLabel("conversation.interrupt")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Stop current task"} />
+        </TooltipUI.Root>
         <span class="dock-divider" aria-hidden="true"></span>
       {/if}
 
@@ -855,21 +871,27 @@
                   >
                 </span>
               </div>
-              <button
-                class="files-pop-primary inline-flex cursor-pointer items-center justify-center whitespace-nowrap bg-[color-mix(in_srgb,var(--solus-container-bg)_54%,transparent)] text-(--solus-text-secondary)"
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <button {...tooltipProps}
+                class="files-pop-primary inline-flex cursor-pointer items-center justify-center whitespace-nowrap bg-[color-mix(in_srgb,var(--solus-container-bg)_54%,transparent)] font-secondary text-(--solus-text-secondary)"
                 onclick={handleOpenFiles}
                 disabled={!theme.defaultEditor}
                 title={theme.defaultEditor
                   ? "Open files in editor"
                   : "Choose a default editor in settings"}
                 aria-label="Open files in editor"
-                use:tooltip={theme.defaultEditor
-                  ? "Open files in editor"
-                  : "Choose a default editor in settings"}
               >
                 <ArrowSquareOutIcon size={15} weight="regular" />
                 <span>Open files in editor</span>
               </button>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={theme.defaultEditor
+                  ? "Open files in editor"
+                  : "Choose a default editor in settings"} />
+              </TooltipUI.Root>
             </div>
             <div class="files-pop-list overflow-auto">
               {#each sessionChangedFiles as path (path)}
@@ -911,9 +933,7 @@
                 data-orb-action="files"
                 tabindex={tabIndexFor("files")}
                 style="--item-index:{itemIndices.files}"
-                title={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
                 aria-label={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
-                use:tooltip={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
               >
                 <FilesIcon size={13} weight="regular" />
                 <span>Changed Files ({sessionChangedFiles.length})</span>
@@ -927,7 +947,10 @@
       {/if}
 
       {#if showNativeDesktopActions}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           data-orb-action="terminal"
           tabindex={tabIndexFor("terminal")}
@@ -936,7 +959,6 @@
           disabled={!!remoteHost}
           title={terminalTooltip}
           aria-label="Open session in terminal"
-          use:tooltip={terminalTooltip}
         >
           <TerminalWindowIcon size={13} weight="regular" />
           <span>Terminal</span>
@@ -944,10 +966,17 @@
             >{shortcutLabel("orb.open-terminal")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={terminalTooltip} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showFork}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           data-orb-action="fork"
           tabindex={tabIndexFor("fork")}
@@ -958,7 +987,6 @@
           }}
           title="Fork session into a new tab"
           aria-label="Fork session into a new tab"
-          use:tooltip={"Fork session into a new tab"}
         >
           <GitForkIcon size={13} weight="regular" />
           <span>Fork</span>
@@ -966,10 +994,17 @@
             >{shortcutLabel("global.fork-tab")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Fork session into a new tab"} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showContinueWorktree}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           class:dock-btn-worktree-pending={isCreatingWorktree}
           data-orb-action="continueWorktree"
@@ -989,9 +1024,6 @@
             ? "Creating worktree"
             : "Continue this session in a new worktree"}
           aria-busy={isCreatingWorktree}
-          use:tooltip={isCreatingWorktree
-            ? "Creating worktree…"
-            : "Continue this session in a new worktree"}
         >
           {#if isCreatingWorktree}
             <TreeStructureIcon size={13} weight="regular" />
@@ -1004,6 +1036,12 @@
             >
           {/if}
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={isCreatingWorktree
+            ? "Creating worktree…"
+            : "Continue this session in a new worktree"} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showNativeDesktopActions || showFork || showContinueWorktree || showPin}
@@ -1058,7 +1096,10 @@
               closeDelay={120}
             >
               {#snippet child({ props })}
-                <button
+                <TooltipUI.Root>
+                  <TooltipUI.Trigger>
+                    {#snippet child({ props: tooltipProps })}
+                      <button {...tooltipProps}
                   {...props}
                   class="dock-btn stagger-item"
                   class:dock-btn-reviewing={reviewStatus === "generating"}
@@ -1068,44 +1109,62 @@
                   style="--item-index:{itemIndices.review}"
                   title={reviewLabel}
                   aria-label={reviewLabel}
-                  use:tooltip={reviewLabel}
                 >
                   <BinocularsIcon size={13} weight="regular" />
                   <span>{reviewLabel}</span>
                 </button>
+                    {/snippet}
+                  </TooltipUI.Trigger>
+                  <TooltipUI.Content value={reviewLabel} />
+                </TooltipUI.Root>
               {/snippet}
             </Popover.Trigger>
           </Popover.Root>
           {#if reviewStatus === "done"}
-            <button
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
               class="dock-btn dock-btn-icon stagger-item"
               style="--item-index:{itemIndices.review}"
               tabindex={expanded ? 0 : -1}
               onclick={handleRegenerate}
               title="Regenerate review"
               aria-label="Regenerate review"
-              use:tooltip={"Regenerate review"}
             >
               <ArrowsClockwiseIcon size={13} weight="regular" />
             </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={"Regenerate review"} />
+            </TooltipUI.Root>
           {:else if reviewStatus === "generating"}
-            <button
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
               class="dock-btn dock-btn-icon dock-btn-stop stagger-item"
               style="--item-index:{itemIndices.review}"
               tabindex={expanded ? 0 : -1}
               onclick={handleCancelReview}
               title="Cancel review"
               aria-label="Cancel review"
-              use:tooltip={"Cancel review"}
             >
               <SquareIcon size={9} weight="fill" />
             </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={"Cancel review"} />
+            </TooltipUI.Root>
           {/if}
         </span>
       {/if}
 
       {#if showViewDiff}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           data-orb-action="diff"
           tabindex={tabIndexFor("diff")}
@@ -1116,7 +1175,6 @@
           }}
           title="View diff"
           aria-label="View diff"
-          use:tooltip={"View diff"}
         >
           <ArrowsOutSimpleIcon size={13} weight="regular" />
           <span>Diff</span>
@@ -1124,6 +1182,10 @@
             >{shortcutLabel("global.toggle-diff-panel")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"View diff"} />
+        </TooltipUI.Root>
       {/if}
     </div>
   </div>

@@ -169,7 +169,7 @@
               <div
                 class="w-full overflow-hidden break-words rounded-l-none rounded-r-[0.625rem] border-l-2 border-l-[var(--solus-accent-light)] bg-transparent px-[0.6875rem] py-[0.4375rem] leading-[1.5]"
               >
-                <div class="text-[0.75rem] leading-[1.55] text-(--solus-text-secondary)">
+                <div class="text-[0.75rem] leading-[1.55] font-secondary text-(--solus-text-secondary)">
                   {getSnippet(m)}
                 </div>
               </div>

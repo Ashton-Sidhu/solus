@@ -139,9 +139,9 @@
           <span class="min-w-0 flex-1 truncate text-[0.8125rem]">{ACTION_LABELS[row.action]}</span>
           {#if row.action === "browse"}
             <span class="shrink-0 font-mono text-[0.6875rem] text-muted-foreground">⌘O</span>
-          {:else if row.action === "github" && store.readiness?.github.solusLogin}
+          {:else if row.action === "github" && store.readiness?.github?.solusLogin}
             <span class="shrink-0 truncate text-[0.6875rem] text-muted-foreground">
-              {store.readiness.github.solusLogin}
+              {store.readiness?.github?.solusLogin}
             </span>
           {/if}
         {/snippet}

@@ -88,7 +88,8 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return aggregateConnectionSessionsByDevice(deps.getActiveSessions())
   })
 
-  server.register('connectionsBootstrapDiscoveredServer', (args) => {
+  server.register('connectionsBootstrapDiscoveredServer', (args, ctx) => {
+    if (!ctx.deviceId) throw new Error('SSH bootstrap requires an authenticated device.')
     const [input] = args as [Parameters<typeof bootstrapDiscoveredServerOverSsh>[0]]
     return bootstrapDiscoveredServerOverSsh(input)
   })

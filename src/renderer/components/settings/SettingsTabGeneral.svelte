@@ -51,8 +51,8 @@
     ["continue", "Continue"],
   ];
 
-  const allAgentRows = $derived(buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata));
-  const agentRows = $derived(allAgentRows.filter((agent) => agent.enabled));
+  // Unavailable agents stay on the list, disabled — see SessionChip.
+  const agentRows = $derived(buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata));
   const activeAgentLabel = $derived(agentLabel(theme.activeAgent, agentContext.metadata));
 
   let projectsBasePickerOpen = $state(false);
@@ -297,13 +297,17 @@
             </Button>
           {/snippet}
         </DropdownMenu.Trigger>
-        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[160px]">
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[216px]">
           {#each agentRows as agent (agent.id)}
             <DropdownMenu.Item
               class={agent.id === theme.activeAgent ? "font-semibold" : undefined}
+              disabled={!agent.enabled}
               onSelect={() => selectAgent(agent.id)}
             >
-              <span class="min-w-0 truncate">{agent.label}</span>
+              <span class="min-w-0 flex-1 truncate">{agent.label}</span>
+              {#if !agent.enabled}
+                <span class="shrink-0 text-[0.6875rem] font-normal text-(--solus-text-tertiary)">Not installed</span>
+              {/if}
               {#if agent.id === theme.activeAgent}<CheckIcon size={14} class="text-(--solus-accent)" />{/if}
             </DropdownMenu.Item>
           {/each}

@@ -5,6 +5,7 @@
   import { Input } from "../ui/input";
   import type { CloneProtocol } from "../../../shared/types";
   import { abbreviateHome } from "../../lib/paths";
+  import DevicePrompt from "./DevicePrompt.svelte";
   import HostReadinessNotes from "./HostReadinessNotes.svelte";
   import type { OpenProjectStore } from "./open-project.store.svelte";
 
@@ -35,8 +36,18 @@
     "h-[2.125rem] rounded-lg border-0 bg-muted px-2.5 font-mono text-[0.75rem] text-foreground shadow-none focus-visible:ring-0 dark:bg-muted";
 
   const isClone = $derived(store.source === "clone");
+  const setup = $derived(store.setup);
   const showProtocol = $derived(!!store.cloneUrl);
   const destination = $derived(store.destinationPreview);
+
+  async function connectGithub() {
+    const boundSetup = store.setup;
+    if (!boundSetup) return;
+    await boundSetup.runStep("github");
+    // A connection started on one host must not reload repositories for a host
+    // selected while its browser flow was still open.
+    if (store.setup === boundSetup) await store.loadRepos();
+  }
 </script>
 
 {#if isClone}
@@ -68,7 +79,11 @@
         >
           {abbreviateHome(destination ?? store.projectsRoot)}
         </span>
-        <Button variant="outline" class="h-[2.125rem] shrink-0 px-3 text-[0.8125rem]" onclick={onBrowse}>
+        <Button
+          variant="outline"
+          class="h-[2.125rem] shrink-0 px-3 text-[0.8125rem]"
+          onclick={() => { store.beginBrowse(); onBrowse(); }}
+        >
           Choose…
         </Button>
       </div>
@@ -100,8 +115,8 @@
         aria-expanded={store.filteredRepos.length > 0}
         aria-controls="open-project-list"
       />
-      {#if store.readiness?.github.solusLogin}
-        <span class="shrink-0 text-[0.6875rem] text-muted-foreground">{store.readiness.github.solusLogin}</span>
+      {#if store.readiness?.github?.solusLogin}
+        <span class="shrink-0 text-[0.6875rem] text-muted-foreground">{store.readiness?.github?.solusLogin}</span>
       {/if}
     </label>
 
@@ -116,24 +131,22 @@
             ? "Sign in to browse and clone the repositories you can access."
             : "Each machine keeps its own credentials — nothing carries over from this one."}
         </div>
-        {#if store.deviceCode}
-          <p class="mt-2 text-[0.75rem] text-foreground">
-            Open
-            <a class="text-primary underline" href={store.deviceCode.verificationUri} target="_blank" rel="noreferrer">
-              {store.deviceCode.verificationUri}
-            </a>
-            and enter
-            <code class="ml-1 rounded-md bg-muted px-1.5 py-0.5 font-mono tracking-widest">
-              {store.deviceCode.userCode}
-            </code>
-          </p>
+        {#if setup?.deviceCode}
+          <DevicePrompt
+            url={setup.deviceCode.verificationUri}
+            code={setup.deviceCode.userCode}
+            why="Confirm this code on GitHub, then come back."
+          />
+          <Button variant="ghost" size="sm" onclick={() => void setup?.cancelGithubConnect()}>
+            Cancel
+          </Button>
         {:else}
           <Button
             class="mt-3 px-3.5 text-[0.8125rem]"
-            disabled={store.connectingGithub}
-            onclick={() => void store.connectGithub()}
+            disabled={setup?.runningStep === "github"}
+            onclick={() => void connectGithub()}
           >
-            {store.connectingGithub ? "Waiting for GitHub…" : "Connect GitHub"}
+            {setup?.runningStep === "github" ? "Waiting for GitHub…" : "Connect GitHub"}
           </Button>
         {/if}
       </div>
@@ -213,7 +226,7 @@
       {/each}
     </div>
     <p class="min-w-0 flex-1 text-pretty text-[0.71875rem] leading-relaxed text-muted-foreground">
-      {#if store.protocol === "https" && store.readiness?.github.solusToken}
+      {#if store.protocol === "https" && store.readiness?.github?.solusToken}
         Uses {store.hostLabel || "this machine"}’s own GitHub sign-in.
       {:else if store.protocol === "https"}
         Public repositories only, until {store.hostLabel || "this machine"} signs in.
@@ -231,21 +244,3 @@
 <div class="px-4 pb-1">
   <HostReadinessNotes {store} {localIdentity} />
 </div>
-
-<style>
-  /* Matches the folder picker: a hairline thumb over a track that isn't drawn,
-     because a dialog this size can't afford chrome-width bars. */
-  .hairline-scroll {
-    scrollbar-width: thin;
-  }
-  .hairline-scroll::-webkit-scrollbar {
-    width: 0.1875rem;
-  }
-  .hairline-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .hairline-scroll::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
-    border-radius: 0.25rem;
-  }
-</style>

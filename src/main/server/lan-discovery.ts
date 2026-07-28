@@ -60,6 +60,7 @@ export async function startLanDiscoveryService(
 
     const found = pending.get(message.nonce)
     if (!found) return
+    if (message.installationId === getAdvertisement().installationId) return
     const server: DiscoveredServer = {
       host: remote.address,
       port: message.port,

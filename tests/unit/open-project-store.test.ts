@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { RecentProject } from '../../src/shared/types'
+import type { HostReadiness, RecentProject } from '../../src/shared/types'
 import type { HostOption } from '../../src/renderer/components/servers/lib/open-project-flow'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousLocalStorage = (globalThis as unknown as { localStorage?: unknown }).localStorage
+const previousAudio = (globalThis as unknown as { Audio?: unknown }).Audio
 
 afterEach(() => {
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
   else (globalThis as unknown as { $state: unknown }).$state = previousState
   if (previousLocalStorage === undefined) delete (globalThis as unknown as { localStorage?: unknown }).localStorage
   else (globalThis as unknown as { localStorage: unknown }).localStorage = previousLocalStorage
+  if (previousAudio === undefined) delete (globalThis as unknown as { Audio?: unknown }).Audio
+  else (globalThis as unknown as { Audio: unknown }).Audio = previousAudio
 })
 
 const STUDIO: HostOption = { id: 'studio-vm', label: 'Studio VM', local: false }
@@ -36,6 +39,21 @@ interface FakeOptions {
   repoFailure?: Error
   cloneFailure?: Error
   recents?: RecentProject[]
+  deferredClone?: Deferred<{ path: string; projectKey: string; auth: 'token' }>
+  deferredRecents?: Deferred<RecentProject[]>[]
+}
+
+interface Deferred<T> {
+  promise: Promise<T>
+  resolve: (value: T) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve: (value: T) => void = () => {}
+  const promise = new Promise<T>((complete) => {
+    resolve = complete
+  })
+  return { promise, resolve }
 }
 
 /** Lets every request the store fired on open reach its `.then` before asserting. */
@@ -74,13 +92,14 @@ function fakeConnections(options: FakeOptions = {}) {
         if (method === 'setupCloneProject') {
           return options.cloneFailure
             ? Promise.reject(options.cloneFailure)
-            : Promise.resolve({ path: '/home/dev/projects/solus', projectKey: 'k', auth: 'token' })
+            : options.deferredClone?.promise ?? Promise.resolve({ path: '/home/dev/projects/solus', projectKey: 'k', auth: 'token' })
         }
         if (method === 'listRecentProjects') {
           // Tagged with the host that answered, so a reply landing on the wrong
           // machine is visible rather than indistinguishable.
-          return Promise.resolve(
-            (options.recents ?? []).map((project) => ({ ...project, path: `/hosts/${serverId}${project.path}` })),
+          const recents = options.deferredRecents?.shift()?.promise ?? Promise.resolve(options.recents ?? [])
+          return recents.then((projects) =>
+            projects.map((project) => ({ ...project, path: `/hosts/${serverId}${project.path}` })),
           )
         }
         return Promise.resolve(null)
@@ -91,13 +110,42 @@ function fakeConnections(options: FakeOptions = {}) {
 
 async function newStore(options: FakeOptions = {}) {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+  ;(globalThis as unknown as { Audio: unknown }).Audio = class {
+    play() {}
+  }
   ;(globalThis as unknown as { localStorage: unknown }).localStorage = {
     getItem: () => null,
     setItem: () => {},
   }
   const { OpenProjectStore } = await import('../../src/renderer/components/servers/open-project.store.svelte')
+  const { HostSetupSession } = await import('../../src/renderer/components/servers/host-setup.store.svelte')
   const { calls, resolveApi } = fakeConnections(options)
-  return { store: new OpenProjectStore(resolveApi), calls }
+  const apiFor = resolveApi as unknown as (serverId: string) => {
+    setupHostReadiness: () => Promise<HostReadiness>
+    listRecentProjects: () => Promise<RecentProject[]>
+  }
+  const readinessByHost: Record<string, HostReadiness> = {}
+  const setupStore = {
+    readinessByHost,
+    resolveApi,
+    refreshHost: async (serverId: string) => {
+      readinessByHost[serverId] = await apiFor(serverId).setupHostReadiness()
+    },
+  }
+  const sessions = new Map<string, InstanceType<typeof HostSetupSession>>()
+  const sessionFor = (serverId: string) => {
+    let session = sessions.get(serverId)
+    if (!session) {
+      session = new HostSetupSession(serverId, setupStore as never)
+      sessions.set(serverId, session)
+    }
+    return session
+  }
+  const recentProjectsFor = (serverId: string) => apiFor(serverId).listRecentProjects()
+  return {
+    store: new OpenProjectStore(resolveApi, sessionFor, recentProjectsFor),
+    calls,
+  }
 }
 
 describe('open project host scoping', () => {
@@ -110,12 +158,12 @@ describe('open project host scoping', () => {
 
     await store.refreshReadiness()
     await store.loadRepos()
-    await store.installGit()
-    await store.setGitIdentity({ name: 'Dev', email: 'dev@example.com' })
+    await store.setup!.installGit()
+    await store.setup!.setGitIdentity({ name: 'Dev', email: 'dev@example.com' })
     await store.checkSshAccess()
-    await store.authorizeGhCli()
-    await store.installCredentialHelper()
-    await store.submit()
+    await store.setup!.authorizeGhCli()
+    await store.setup!.installCredentialHelper()
+    await store.clone()
 
     expect(calls.length).toBeGreaterThan(8)
     expect(calls.every((call) => call.serverId === 'studio-vm')).toBe(true)
@@ -148,6 +196,22 @@ describe('open project host scoping', () => {
 
     expect(store.recents.map((project: RecentProject) => project.path)).toEqual([
       '/hosts/studio-vm/home/dev/projects/solus',
+    ])
+  })
+
+  test('a reply from a host you switched away from and back to is still stale', async () => {
+    const staleRecents = deferred<RecentProject[]>()
+    const { store } = await newStore({ recents: [NOTES], deferredRecents: [staleRecents] })
+    store.open([LAPTOP, STUDIO])
+    store.selectHost(STUDIO)
+    store.selectHost(LAPTOP)
+    await settle()
+
+    staleRecents.resolve([SOLUS])
+    await settle()
+
+    expect(store.recents.map((project: RecentProject) => project.path)).toEqual([
+      '/hosts/local/home/dev/scratch/notes',
     ])
   })
 })
@@ -245,13 +309,28 @@ describe('open project steps', () => {
     const { store } = await newStore({ cloneFailure: new Error('remote: Repository not found') })
     store.open([LAPTOP], { source: 'clone', seed: 'solus-sh/solus' })
 
-    const running = store.submit()
+    const running = store.clone()
     expect(store.step).toBe('cloning')
     await running
 
     // Retry and adopt live on the destination form, so a failure has to land there.
     expect(store.step).toBe('destination')
     expect(store.cloneFailure).not.toBeNull()
+  })
+
+  test('a clone finishing after the dialog was reopened returns no path and leaves the new state alone', async () => {
+    const delayedClone = deferred<{ path: string; projectKey: string; auth: 'token' }>()
+    const { store } = await newStore({ deferredClone: delayedClone })
+    store.open([LAPTOP], { source: 'clone', seed: 'solus-sh/solus' })
+
+    const clone = store.clone()
+    store.close()
+    store.open([LAPTOP], { source: 'clone', seed: 'solus-sh/solus' })
+    delayedClone.resolve({ path: '/home/dev/projects/solus', projectKey: 'k', auth: 'token' })
+
+    await expect(clone).resolves.toBeNull()
+    expect(store.cloneStatus).toBe('idle')
+    expect(store.clonedPath).toBeNull()
   })
 })
 
@@ -310,7 +389,7 @@ describe('where a project lands', () => {
     await store.refreshReadiness()
 
     expect(store.destinationPreview).toBe('/home/dev/projects/solus')
-    await store.submit()
+    await store.clone()
 
     const clone = calls.find((call) => call.method === 'setupCloneProject')
     expect((clone?.args[0] as { destination?: string }).destination).toBeUndefined()
@@ -334,7 +413,7 @@ describe('where a project lands', () => {
     await store.cloneInto('/data/checkouts')
     calls.length = 0
 
-    await store.retryClone({ clean: true })
+    await store.clone({ clean: true })
 
     const clone = calls.find((call) => call.method === 'setupCloneProject')
     expect((clone?.args[0] as { destination?: string; clean?: boolean }).destination).toBe('/data/checkouts/solus')

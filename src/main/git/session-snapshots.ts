@@ -13,6 +13,24 @@ const SNAPSHOT_AUTHOR_EMAIL = 'snapshot@solus.local'
 interface Sidecar {
   baseSha: string
   turns: TurnSnapshot[]
+  /** Tree captured by the latest turn (or the session base before turn 0). */
+  latestTreeSha?: string
+  /** Authoritative net paths from the base to the latest captured tree. */
+  sessionChangedFiles?: string[]
+}
+
+const snapshotQueueByRepo = new Map<string, Promise<void>>()
+
+async function inSnapshotQueue<T>(repoRoot: string, task: () => Promise<T>): Promise<T> {
+  const previous = snapshotQueueByRepo.get(repoRoot) ?? Promise.resolve()
+  const run = previous.catch(() => {}).then(task)
+  const tail = run.then(() => {}, () => {})
+  snapshotQueueByRepo.set(repoRoot, tail)
+  try {
+    return await run
+  } finally {
+    if (snapshotQueueByRepo.get(repoRoot) === tail) snapshotQueueByRepo.delete(repoRoot)
+  }
 }
 
 function refForBase(sessionId: string): string {
@@ -61,6 +79,10 @@ function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void 
 }
 
 export async function initSessionBase(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
+  return inSnapshotQueue(repoRoot, () => initSessionBaseQueued(repoRoot, sessionId, baseSha))
+}
+
+async function initSessionBaseQueued(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
   if (!sessionId || !baseSha) return
   const ref = refForBase(sessionId)
   try {
@@ -72,14 +94,20 @@ export async function initSessionBase(repoRoot: string, sessionId: string, baseS
   await runAsync('git', ['update-ref', ref, baseSha], repoRoot)
   ensureSolusDirs(repoRoot)
   if (!readSidecar(repoRoot, sessionId)) {
-    writeSidecar(repoRoot, sessionId, { baseSha, turns: [] })
+    const latestTreeSha = await runAsync('git', ['rev-parse', `${baseSha}^{tree}`], repoRoot)
+    writeSidecar(repoRoot, sessionId, {
+      baseSha,
+      turns: [],
+      latestTreeSha,
+      sessionChangedFiles: [],
+    })
   }
 }
 
-async function resolvePrev(repoRoot: string, sessionId: string, turnIndex: number): Promise<{ commit: string; tree: string } | null> {
-  const ref = turnIndex === 0 ? refForBase(sessionId) : refForTurn(sessionId, turnIndex - 1)
+async function resolvePrev(repoRoot: string, sidecar: Sidecar): Promise<{ commit: string; tree: string } | null> {
+  const commit = sidecar.turns.at(-1)?.sha ?? sidecar.baseSha
+  if (sidecar.latestTreeSha) return { commit, tree: sidecar.latestTreeSha }
   try {
-    const commit = await runAsync('git', ['rev-parse', '--verify', ref], repoRoot)
     const tree = await runAsync('git', ['rev-parse', `${commit}^{tree}`], repoRoot)
     return { commit, tree }
   } catch {
@@ -126,13 +154,22 @@ export async function snapshotTurn(
   sessionId: string,
   opts: SnapshotOpts = {},
 ): Promise<SnapshotTurnResult | null> {
+  return inSnapshotQueue(repoRoot, () => snapshotTurnQueued(workTree, repoRoot, sessionId, opts))
+}
+
+async function snapshotTurnQueued(
+  workTree: string,
+  repoRoot: string,
+  sessionId: string,
+  opts: SnapshotOpts,
+): Promise<SnapshotTurnResult | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) {
     log.warn(`Cannot snapshot — no base ref for session ${sessionId}`)
     return null
   }
   const turnIndex = sidecar.turns.length
-  const prev = await resolvePrev(repoRoot, sessionId, turnIndex)
+  const prev = await resolvePrev(repoRoot, sidecar)
   if (!prev) {
     log.warn(`Cannot snapshot — previous ref missing for session ${sessionId} turn ${turnIndex}`)
     return null
@@ -144,7 +181,6 @@ export async function snapshotTurn(
   const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
 
   try {
-    const baseSha = await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
     await runAsync('git', [...treeArgs, 'read-tree', prev.tree], repoRoot, { env: indexEnv })
 
     if (opts.sessionChangedFiles) {
@@ -154,6 +190,40 @@ export async function snapshotTurn(
     }
 
     const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
+    if (treeSha === prev.tree) {
+      let sessionChangedFiles: string[] | null = sidecar.sessionChangedFiles ?? null
+      if (!sessionChangedFiles && prev.commit === sidecar.baseSha) {
+        sessionChangedFiles = []
+      } else if (!sessionChangedFiles) {
+        try {
+          sessionChangedFiles = parseChangedFileStats(await runAsync('git', [
+            '-c',
+            'core.quotepath=false',
+            'diff',
+            sidecar.baseSha,
+            prev.commit,
+            '--numstat',
+          ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER })).map((file) => file.path)
+        } catch (err) {
+          log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+        }
+      }
+      const snap: TurnSnapshot = {
+        index: turnIndex,
+        sha: prev.commit,
+        timestamp: Date.now(),
+        partial: !!opts.partial,
+        userMessagePreview: opts.userMessagePreview ?? '',
+        filesChanged: 0,
+        additions: 0,
+        deletions: 0,
+      }
+      sidecar.turns.push(snap)
+      sidecar.latestTreeSha = treeSha
+      if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
+      writeSidecar(repoRoot, sessionId, sidecar)
+      return { snapshot: snap, sessionChangedFiles }
+    }
 
     const commitEnv: NodeJS.ProcessEnv = {
       ...indexEnv,
@@ -182,16 +252,15 @@ export async function snapshotTurn(
       deletions: stats.deletions,
     }
     sidecar.turns.push(snap)
-    writeSidecar(repoRoot, sessionId, sidecar)
     let sessionChangedFiles: string[] | null = null
     try {
-      const sessionStats = baseSha === commitSha
+      const sessionStats = sidecar.baseSha === commitSha
         ? []
         : parseChangedFileStats(await runAsync('git', [
           '-c',
           'core.quotepath=false',
           'diff',
-          baseSha,
+          sidecar.baseSha,
           commitSha,
           '--numstat',
         ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER }))
@@ -199,6 +268,9 @@ export async function snapshotTurn(
     } catch (err) {
       log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
     }
+    sidecar.latestTreeSha = treeSha
+    if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
+    writeSidecar(repoRoot, sessionId, sidecar)
     return { snapshot: snap, sessionChangedFiles }
   } catch (err) {
     log.error(`snapshotTurn failed sid=${sessionId} turn=${turnIndex}: ${err}`)
@@ -211,12 +283,7 @@ export async function snapshotTurn(
 async function resolveScope(repoRoot: string, sessionId: string, scope: DiffScope): Promise<{ from: string; to: string } | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) return null
-  let baseSha: string
-  try {
-    baseSha = await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
-  } catch {
-    return null
-  }
+  const baseSha = sidecar.baseSha
   if (scope.kind === 'session') {
     if (sidecar.turns.length === 0) return { from: baseSha, to: baseSha }
     const latest = sidecar.turns[sidecar.turns.length - 1]

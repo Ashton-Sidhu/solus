@@ -18,7 +18,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
   import SearchField from "../ui/search-field";
@@ -604,7 +604,7 @@
         <Button
           variant="outline"
           size="sm"
-          class="border-(--solus-container-border) bg-transparent text-(--solus-text-secondary) transition-[scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] dark:bg-transparent @max-[20rem]:size-7 @max-[20rem]:px-0 [@media(pointer:coarse)]:h-12 [@media(pointer:coarse)]:px-3"
+          class="border-(--solus-container-border) bg-transparent font-secondary text-(--solus-text-secondary) transition-[scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] dark:bg-transparent @max-[20rem]:size-7 @max-[20rem]:px-0 [@media(pointer:coarse)]:h-12 [@media(pointer:coarse)]:px-3"
           disabled={guideEligible.length === 0}
           onclick={generateGuides}
           aria-label={`Generate ${guideEligible.length} ${guideEligible.length === 1 ? "review guide" : "review guides"} in the background`}
@@ -820,12 +820,18 @@
     {/if}
     <div class="ml-auto flex shrink-0 items-center gap-2">
       {#if effortSummary && centered}
-        <span
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
           class="text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
-          use:tooltip={`${effortSummary.count} ${effortSummary.count === 1 ? "pull request" : "pull requests"} · about ${effortSummary.minutes} min of review${effortSummary.knownCount < effortSummary.count ? ` (estimate covers ${effortSummary.knownCount})` : ""}`}
         >
           ≈ {effortSummary.minutes} min
         </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={`${effortSummary.count} ${effortSummary.count === 1 ? "pull request" : "pull requests"} · about ${effortSummary.minutes} min of review${effortSummary.knownCount < effortSummary.count ? ` (estimate covers ${effortSummary.knownCount})` : ""}`} />
+        </TooltipUI.Root>
       {/if}
       <SortMenu
         bind:value={sortMode}

@@ -14,7 +14,7 @@
     <div class="flex items-center gap-1 text-[0.625rem] font-semibold tracking-wide text-(--solus-accent) uppercase">
       Your comment here <ArrowRightIcon size={10} weight="bold" /> this changed
     </div>
-    <p class="mt-0.5 truncate text-[0.6875rem] text-(--solus-text-secondary)">
+    <p class="mt-0.5 truncate text-[0.6875rem] font-secondary text-(--solus-text-secondary)">
       {reviewCommentPreview(thread)}
     </p>
   </div>

@@ -26,7 +26,7 @@
     ArrowsInLineVerticalIcon,
     ArrowsOutLineVerticalIcon,
   } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { MONO_FONT } from "../../lib/diffTheme";
   import type { TurnSnapshot } from "../../../shared/types";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -210,26 +210,38 @@
     <div class="toolbar-section toolbar-center">
       {#if compactTurns}
         <div class="turn-stepper">
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             type="button"
             class="turn-btn"
             class:is-active={selectedTurnIndex === null}
             onclick={() => onTurnSelect(null)}
-            use:tooltip={"All changes"}
             aria-label="Show all changes"
             aria-pressed={selectedTurnIndex === null}
           >
             <StackIcon size={11} weight="bold" />
           </button>
-          <button
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"All changes"} />
+          </TooltipUI.Root>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             type="button"
             class="turn-step-arrow"
             onclick={() => onStepTurn(-1)}
             aria-label="Previous turn"
-            use:tooltip={"Previous turn (⌥←)"}
           >
             <CaretLeftIcon size={10} weight="bold" />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Previous turn (⌥←)"} />
+          </TooltipUI.Root>
           <button
             type="button"
             bind:this={turnTriggerEl}
@@ -242,15 +254,21 @@
             <span>{selectedTurnLabel}</span>
             <CaretDownIcon size={9} weight="bold" />
           </button>
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             type="button"
             class="turn-step-arrow"
             onclick={() => onStepTurn(1)}
             aria-label="Next turn"
-            use:tooltip={"Next turn (⌥→)"}
           >
             <CaretRightIcon size={10} weight="bold" />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Next turn (⌥→)"} />
+          </TooltipUI.Root>
 
           <DropdownMenu.Root bind:open={turnMenuOpen}>
             <DropdownMenu.Content customAnchor={turnTriggerEl} side="top" align="start" sideOffset={6} class="w-[176px]">
@@ -293,25 +311,33 @@
         </div>
       {:else}
         <div class="turn-pills">
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             type="button"
             class="turn-btn"
             class:is-active={selectedTurnIndex === null}
             onclick={() => onTurnSelect(null)}
-            use:tooltip={"All changes"}
             aria-label="Show all changes"
             aria-pressed={selectedTurnIndex === null}
           >
             <StackIcon size={11} weight="bold" />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"All changes"} />
+          </TooltipUI.Root>
           {#each turns as turn (turn.index)}
-            <button
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
               type="button"
               class="turn-btn"
               class:is-active={selectedTurnIndex === turn.index}
               class:has-changes={turn.filesChanged > 0}
               onclick={() => onTurnSelect(turn.index)}
-              use:tooltip={turnTooltipFor(turn)}
               aria-label={`Show turn ${turn.index + 1}`}
               aria-pressed={selectedTurnIndex === turn.index}
             >
@@ -323,6 +349,10 @@
               />
               <span>{turn.index + 1}</span>
             </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={turnTooltipFor(turn)} />
+            </TooltipUI.Root>
           {/each}
         </div>
       {/if}
@@ -339,7 +369,7 @@
         size="default"
         type="button"
         onclick={onOpenFiles}
-        class="hidden max-md:flex shrink-0 text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
+        class="hidden max-md:flex shrink-0 font-secondary text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"
         aria-label="Browse changed files"
       >
         <SidebarSimpleIcon size={14} weight="bold" />
@@ -347,7 +377,10 @@
       </Button>
     {/if}
 
-    <span class="inline-flex" use:tooltip={"Refresh diff (⌥R)"}>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps} class="inline-flex">
       <Button
         variant="ghost"
         size="icon"
@@ -362,11 +395,17 @@
         </span>
       </Button>
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Refresh diff (⌥R)"} />
+    </TooltipUI.Root>
 
     {#if filesCount > 0}
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="desktop-only"
-        use:tooltip={allCollapsed ? "Expand all files" : "Collapse all files"}
       >
         <Button
           variant="ghost"
@@ -383,14 +422,18 @@
           {/if}
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={allCollapsed ? "Expand all files" : "Collapse all files"} />
+      </TooltipUI.Root>
     {/if}
 
     {#if filesCount > 0}
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="desktop-only"
-        use:tooltip={treeCollapsed
-          ? "Show file tree (⌥T)"
-          : "Hide file tree (⌥T)"}
       >
         <Button
           variant="ghost"
@@ -405,13 +448,19 @@
           <SidebarSimpleIcon size={11} weight="bold" />
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={treeCollapsed
+          ? "Show file tree (⌥T)"
+          : "Hide file tree (⌥T)"} />
+      </TooltipUI.Root>
     {/if}
 
-    <span
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps}
       class="inline-flex"
-      use:tooltip={diffStyle === "split"
-        ? "Unified view (⌥V)"
-        : "Split view (⌥V)"}
     >
       <Button
         variant="ghost"
@@ -431,12 +480,18 @@
         />
       </Button>
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={diffStyle === "split"
+        ? "Unified view (⌥V)"
+        : "Split view (⌥V)"} />
+    </TooltipUI.Root>
 
-    <span
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps}
       class="desktop-only"
-      use:tooltip={tokenHighlight
-        ? "Token highlighting on (⌥H)"
-        : "Token highlighting off (⌥H)"}
     >
       <Button
         variant="ghost"
@@ -457,11 +512,19 @@
         />
       </Button>
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={tokenHighlight
+        ? "Token highlighting on (⌥H)"
+        : "Token highlighting off (⌥H)"} />
+    </TooltipUI.Root>
 
     {#if commentsCount > 0}
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="inline-flex"
-        use:tooltip={commentsOpen ? "Hide comments" : "Show all comments"}
       >
         <Button
           bind:ref={commentsBtn}
@@ -484,12 +547,18 @@
           </span>
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={commentsOpen ? "Hide comments" : "Show all comments"} />
+      </TooltipUI.Root>
     {/if}
 
     {#if onToggleMaximize && !embedded}
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="desktop-only"
-        use:tooltip={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
       >
         <Button
           variant="ghost"
@@ -506,10 +575,17 @@
           {/if}
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"} />
+      </TooltipUI.Root>
     {/if}
 
     {#if !embedded}
-      <span class="desktop-only" use:tooltip={"Close (Esc)"}>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps} class="desktop-only">
         <Button
           variant="ghost"
           size="icon"
@@ -521,6 +597,10 @@
           <XIcon size={12} />
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Close (Esc)"} />
+      </TooltipUI.Root>
     {/if}
   </div>
 </div>

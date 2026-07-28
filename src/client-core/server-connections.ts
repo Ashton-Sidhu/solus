@@ -103,6 +103,23 @@ export class ServerConnections {
     return this.ensure(resolvedId).api
   }
 
+  /**
+   * Borrow a connection for one request without leaving an incidental socket
+   * alive afterwards. Existing connections remain under their current owner.
+   */
+  async withTemporaryConnection<T>(
+    serverId: string,
+    fn: (api: SolusAPI) => Promise<T> | T,
+  ): Promise<T> {
+    const hadConnection = this.connections.has(serverId)
+    const connection = this.ensure(serverId)
+    try {
+      return await fn(connection.api)
+    } finally {
+      if (!hadConnection) this.release(serverId)
+    }
+  }
+
   connectionFor(serverId?: string): ManagedConnection | undefined {
     const resolvedId = serverId ?? this.primaryServerId
     return resolvedId ? this.connections.get(resolvedId) : undefined

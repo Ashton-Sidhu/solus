@@ -10,6 +10,7 @@
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
   import { getWorkspaceContext, getPlanStore, runtime } from "@renderer/contexts";
   import { sessionTitle, getStatusIcon } from "@renderer/lib/sessionUtils";
+  import type { WorktreeEntry } from "@shared/types";
   import WebSidebarDrawer from "./WebSidebarDrawer.svelte";
   import MobilePlusMenu from "./MobilePlusMenu.svelte";
   import MobileModelPicker from "./MobileModelPicker.svelte";
@@ -78,6 +79,16 @@
   function toggleGitMenu() {
     if (!branch) return;
     gitOpen = !gitOpen;
+  }
+
+  function selectBranch(picked: string) {
+    // The branch you are already on means this checkout as it stands,
+    // uncommitted work and all, so it names no base to cut a worktree from.
+    session.setWorktreeBaseBranch(picked === branch ? null : picked);
+  }
+
+  async function selectWorktree(worktree: WorktreeEntry) {
+    await session.switchToWorktree(worktree.path, tab?.id);
   }
 </script>
 
@@ -206,13 +217,12 @@
 {#if branch && tab && sess}
   <GitDropdown
     bind:open={gitOpen}
-    initialView="menu"
     triggerEl={gitTriggerEl}
     displayBranch={branch}
-    worktreePath={sess.gitContext?.worktreePath ?? null}
-    worktreeBaseBranch={sess.worktreeBaseBranch ?? null}
-    tabId={tab.id}
-    dropDown
+    selectedBranch={sess.worktreeBaseBranch ?? branch}
+    workingDirectory={sess.gitContext?.worktreePath ?? sess.workingDirectory}
+    onSelectBranch={selectBranch}
+    onSelectWorktree={selectWorktree}
   />
 {/if}
 

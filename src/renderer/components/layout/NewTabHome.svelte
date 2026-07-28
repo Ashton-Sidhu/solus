@@ -34,7 +34,7 @@
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
-  import { formatBranchDisplayName } from "../../lib/git-context";
+  import { formatBranchDisplayName, homeGitDetails } from "../../lib/git-context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import type {
     Tab,
@@ -50,7 +50,6 @@
   } from "./lib/home-control-hub";
   import {
     hasProjectScrollOverflow,
-    homeGitDetails,
     homePresence,
     homeShortcutTarget,
     launchTargetDetails,
@@ -64,7 +63,7 @@
   } from "./lib/recent-projects";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { isDispatchedSession } from "../servers/run-on";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { relativeTime } from "../automations/lib/automation-format";
   import Kbd from "../ui/Kbd.svelte";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
@@ -94,7 +93,9 @@
   const projectMetadata = projectsStore;
   // Recents come from whichever host is connected, so the host they belong to
   // and the hosts that share the repo both have to be resolved here.
-  const recentsHostId = $derived(serversStore.activeServer?.id ?? LOCAL_SERVER_ID);
+  const recentsHostId = $derived(
+    serversStore.activeServer?.id ?? LOCAL_SERVER_ID,
+  );
   const projects = $derived(
     recentProjectRows({
       recents: projectMetadata.recentProjects,
@@ -126,20 +127,8 @@
   const currentDir = $derived(
     sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
   );
-  const currentServer = $derived(
-    serversStore.servers.find((server) => server.id === sess?.serverId) ??
-      serversStore.activeServer,
-  );
-  const showCurrentServer = $derived(
-    serversStore.servers.length > 1 && !!currentServer,
-  );
   const gitHome = $derived(
-    homeGitDetails(
-      currentDir,
-      sess?.gitContext,
-      session.globalDefaults.gitContext,
-      sess?.worktreeBaseBranch ?? session.globalDefaults.worktreeBaseBranch,
-    ),
+    homeGitDetails(currentDir, sess?.gitContext, session.globalDefaults.gitContext),
   );
   const projectRoot = $derived(gitHome.projectRoot);
   const gitRefs = $derived(environmentStore.refsFor(projectRoot));
@@ -151,7 +140,9 @@
   // A dispatched session always works in its own worktree, so the toggle stays
   // visible but inert rather than silently disagreeing with what will happen.
   const worktreeForced = $derived(isDispatchedSession(sess));
-  const canToggleWorktree = $derived(gitHome.canToggleWorktree || worktreeForced);
+  const canToggleWorktree = $derived(
+    gitHome.canToggleWorktree || worktreeForced,
+  );
   const presence = $derived(
     homePresence(
       tab?.id,
@@ -164,12 +155,6 @@
   const isSplitHome = $derived(presence.isSplit);
   const isActiveHome = $derived(presence.isActive);
   const isFocusedHome = $derived(presence.isFocused);
-
-  function toggleWorktree() {
-    if (!canToggleWorktree || worktreeForced) return;
-    session.toggleWorktreeMode(tab?.id);
-    requestInputFocus(tab ? { tabId: tab.id } : undefined);
-  }
 
   // ── Launch target: the cwd the next session starts in ──
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
@@ -185,10 +170,6 @@
     window.dispatchEvent(
       new CustomEvent("solus:open-project", { detail: { tabId: tab?.id } }),
     );
-  }
-
-  function openServerSwitcher() {
-    serversStore.switcherOpen = true;
   }
 
   function goToWorkspace() {
@@ -421,20 +402,13 @@
         class="inline-flex flex-none w-[clamp(2.25rem,7vw,3rem)] h-[clamp(2.25rem,7vw,3rem)]"
         aria-hidden="true"
       >
-        <svg viewBox="0 0 32 32" fill="none" class="w-full h-full">
-          <circle cx="16" cy="16" r="6.6" fill="#D8AD58" />
-          <g stroke="#D8AD58" stroke-width="2.2" stroke-linecap="round">
-            <path d="M16,5 A11,11 0 0 1 27,16" />
-            <path d="M25.24,23.48 A11,11 0 0 1 12.48,26.56" />
-            <path d="M6.76,23.48 A11,11 0 0 1 5,12.48" />
-          </g>
-        </svg>
+        <WorkspaceMark class="w-full h-full" />
       </span>
       <div class="flex flex-col items-start gap-1 min-w-0">
         <div
           class="flex flex-wrap items-center justify-start gap-[0.4375rem] max-w-full min-w-0 text-[clamp(1.25rem,1rem+1.8vw,1.625rem)] font-light leading-[1.2] tracking-[-0.01em]"
         >
-          <span class="flex-none text-(--solus-text-secondary)"
+          <span class="flex-none font-secondary text-(--solus-text-secondary)"
             >Starting in</span
           >
           <button
@@ -450,24 +424,6 @@
               <CaretDownIcon size={16} weight="bold" />
             </span>
           </button>
-          {#if showCurrentServer}
-            <span class="flex-none text-(--solus-text-secondary)">on</span>
-            <button
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={serversStore.switcherOpen}
-              class="group/host relative inline-flex items-center gap-1.5 max-w-full min-w-0 py-px px-1.5 mx-[-0.125rem] rounded-[0.625rem] bg-transparent border-none cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] font-semibold text-(--solus-text-primary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-full after:min-w-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
-              onclick={openServerSwitcher}
-              title="Switch server"
-            >
-              <span class="truncate min-w-0">{currentServer?.label}</span>
-              <span
-                class="inline-flex flex-none text-(--solus-text-tertiary) transition-[transform,color] duration-150 group-hover/host:text-(--solus-accent) group-hover/host:translate-y-px"
-              >
-                <CaretDownIcon size={16} weight="bold" />
-              </span>
-            </button>
-          {/if}
         </div>
         <div
           class="flex flex-wrap items-center gap-x-2 gap-y-1.5 max-w-full text-xs text-(--solus-text-tertiary)"
@@ -488,7 +444,7 @@
             </span>
           {:else if canToggleWorktree}
             <span
-              class="inline-flex items-center gap-[0.1875rem] flex-none text-(--solus-text-secondary)"
+              class="inline-flex items-center gap-[0.1875rem] flex-none font-secondary text-(--solus-text-secondary)"
             >
               {#if env.isolated}
                 <GitForkIcon size={11} />
@@ -501,8 +457,9 @@
         </div>
       </div>
     </div>
-    {#if isEditorMode || canToggleWorktree || (!isWorkspaceTarget && workspacePath)}
-      <!-- Compact launch dock: target first, then isolation and layout options. -->
+    {#if (isEditorMode && !isSplitHome) || (!isWorkspaceTarget && workspacePath)}
+      <!-- Compact launch dock. Worktree and host live on the input bar's header
+           strip, which is right below this on the same screen. -->
       <div
         class="inline-flex max-w-full items-stretch gap-1 rounded-2xl bg-[color-mix(in_srgb,var(--solus-container-bg)_97%,var(--solus-text-primary)_3%)] p-1 shadow-[0_0_0_1px_rgba(0,0,0,0.045),0_1px_2px_-1px_rgba(0,0,0,0.06),0_4px_12px_-6px_rgba(0,0,0,0.12)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
         role="group"
@@ -515,10 +472,7 @@
             onclick={goToWorkspace}
             title="Back to My Workspace"
           >
-            <span
-              class="inline-flex w-3.5 h-3.5 text-(--solus-brand-gold)"
-              aria-hidden="true"
-            >
+            <span class="inline-flex w-3.5 h-3.5" aria-hidden="true">
               <WorkspaceMark class="w-full h-full" />
             </span>
             <span>My Workspace</span>
@@ -528,41 +482,6 @@
               class="text-(--solus-text-tertiary) transition-transform duration-150 group-hover/workspace:translate-x-px"
               aria-hidden="true"
             />
-          </button>
-        {/if}
-        {#if canToggleWorktree}
-          <button
-            class="group/wt inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border-0 px-2.5 text-[0.6875rem] font-medium transition-[background-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) {worktreeForced
-              ? 'cursor-default bg-(--solus-accent-light) text-(--solus-text-secondary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)]'
-              : env.pending
-                ? 'cursor-pointer bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_color-mix(in_srgb,var(--solus-accent)_18%,transparent)] hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96]'
-                : 'cursor-pointer bg-transparent text-(--solus-text-secondary) hover:bg-(--solus-container-bg) hover:shadow-[0_0_0_1px_rgba(0,0,0,0.045)] active:scale-[0.96]'}"
-            type="button"
-            role="switch"
-            aria-checked={env.pending || worktreeForced}
-            disabled={worktreeForced}
-            onclick={toggleWorktree}
-            title={worktreeForced
-              ? "A session on another host always gets its own worktree — its base checkout is shared with nobody watching it"
-              : `${
-                  env.pending
-                    ? `Next session branches into its own worktree from ${worktreeBaseBranch}`
-                    : `Start the next session in an isolated git worktree (branches from ${worktreeBaseBranch})`
-                } (${comboHint("global.toggle-worktree")})`}
-          >
-            <GitForkIcon size={15} class="text-(--solus-accent)" />
-            <span>Worktree</span>
-            <span
-              class="inline-flex items-center gap-1 text-(--solus-text-tertiary)"
-            >
-              <span
-                class="size-1.5 rounded-full transition-[background-color,scale] duration-150 {env.pending
-                  ? 'scale-100 bg-(--solus-accent)'
-                  : 'scale-75 bg-(--solus-text-tertiary)'}"
-                aria-hidden="true"
-              ></span>
-              <span>{env.pending ? "On" : "Off"}</span>
-            </span>
           </button>
         {/if}
         {#if isEditorMode && !isSplitHome}
@@ -793,7 +712,7 @@
               <Kbd variant="standalone">⌥{i + 1}</Kbd>
             </span>
             <span
-              class="[grid-area:1/1] inline-flex items-center justify-center w-5 h-5 rounded border border-(--solus-accent-border-medium) bg-(--solus-accent-light) text-(--solus-text-secondary) opacity-0 -translate-x-0.5 transition-[opacity,transform] duration-[0.14s] group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0"
+              class="[grid-area:1/1] inline-flex items-center justify-center w-5 h-5 rounded border border-(--solus-accent-border-medium) bg-(--solus-accent-light) font-secondary text-(--solus-text-secondary) opacity-0 -translate-x-0.5 transition-[opacity,transform] duration-[0.14s] group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0"
             >
               <ArrowRightIcon size={11} />
             </span>
@@ -842,9 +761,16 @@
             <span class="shrink-0">{formatTimeAgo(proj.lastOpened)}</span>
             {#if proj.alsoOn.length > 0}
               <span aria-hidden="true">·</span>
-              <span class="truncate" use:tooltip={alsoOnTooltip(proj.alsoOn)}>
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <span {...tooltipProps} class="truncate">
                 {alsoOnLabel(proj.alsoOn)}
               </span>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={alsoOnTooltip(proj.alsoOn)} />
+              </TooltipUI.Root>
             {/if}
           </div>
         </button>
@@ -874,7 +800,7 @@
           Needs your review
         </span>
         <span
-          class="block truncate text-[0.6875rem] tabular-nums text-(--solus-text-secondary)"
+          class="block truncate text-[0.6875rem] tabular-nums font-secondary text-(--solus-text-secondary)"
         >
           {needsReviewCount}
           {needsReviewCount === 1 ? "PR" : "PRs"}{needsReviewMinutes !==
@@ -945,7 +871,9 @@
                   <div
                     class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-(--solus-text-muted)"
                   >
-                    <span class="shrink-0">{formatTimeAgo(proj.lastOpened)}</span>
+                    <span class="shrink-0"
+                      >{formatTimeAgo(proj.lastOpened)}</span
+                    >
                     {#if proj.alsoOn.length > 0}
                       <span aria-hidden="true">·</span>
                       <span class="truncate">{alsoOnLabel(proj.alsoOn)}</span>

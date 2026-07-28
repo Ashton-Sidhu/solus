@@ -2,7 +2,6 @@
   import { slide } from "svelte/transition";
   import {
     ArrowRightIcon,
-    ArrowSquareOutIcon,
     CaretLeftIcon,
     CheckIcon,
     CircleNotchIcon,
@@ -10,141 +9,72 @@
   } from "phosphor-svelte";
   import { serversStore } from "../../contexts";
   import { Button } from "../ui/button";
-  import CopyButton from "../ui/CopyButton.svelte";
+  import GitHostPanel from "./GitHostPanel.svelte";
   import HostPairingPanel from "./HostPairingPanel.svelte";
-  import ProviderChoiceCard from "./ProviderChoiceCard.svelte";
+  import ProviderPanel from "./ProviderPanel.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hostOnboardingStore as store } from "./host-onboarding.store.svelte";
   import {
-    codingProviderRows,
-    gitHostRows,
-    hostCarriedOverFacts,
-    shortFingerprint,
+    onboardingRailModel,
     type OnboardingStep,
   } from "./lib/host-onboarding";
-  import type { SetupAgent } from "../../../shared/types";
 
-  // Local to the stage: which provider the last "Add" was for, so the failure
-  // that follows knows what to retry.
-  let lastProvider = $state<SetupAgent | null>(null);
-  let logOpen = $state(false);
   let carriedOpen = $state(false);
 
+  // The setup act lives on the host, not on this modal — everything the rail
+  // runs or reports is read straight off the host's session.
+  const setup = $derived(store.setup);
   const isPairing = $derived(store.phase === "pairing");
-  const steps = $derived(store.steps);
   const hostName = $derived(store.hostName || store.host?.label || "this host");
-  const facts = $derived(
-    hostCarriedOverFacts({ readiness: store.readiness, hostName }),
+  const rail = $derived(
+    onboardingRailModel({
+      readiness: setup?.readiness ?? null,
+      hostName,
+      hostUrl: serversStore.servers.find((server) => server.id === store.host?.id)?.url,
+      fingerprint: store.host?.fingerprint,
+      stepError: setup?.stepError,
+    }),
   );
-
-  // Two lists, and they are asked for in different ways: the decisions are put
-  // one at a time, and everything else is reported once, folded away.
-  const decisions = $derived(steps.filter((step) => !step.automatic));
-  const automaticSteps = $derived(steps.filter((step) => step.automatic));
-  const carriedTotal = $derived(facts.length + automaticSteps.length);
-  const carriedDone = $derived(
-    facts.filter((fact) => fact.done).length +
-      automaticSteps.filter((step) => step.done).length,
-  );
-
-  // The step being asked about is the first one that is both undone and
-  // unblocked — the credential helper waits behind GitHub rather than being
-  // offered with no token to hand over.
-  const current = $derived(
-    decisions.find((step) => !step.done && !step.blockedBy) ?? null,
-  );
-  const currentNumber = $derived(current ? decisions.indexOf(current) + 1 : 0);
-  const doneDecisions = $derived(decisions.filter((step) => step.done));
-  const upcoming = $derived(
-    decisions.filter((step) => step !== current && !step.done),
-  );
-  // A provider row is reachable from its own step and from the all-clear panel,
-  // so its failure is reported wherever the user set it off. Everything else
-  // belongs to the one step that offers it.
-  const failure = $derived.by(() => {
-    const error = store.stepError;
-    if (!error) return null;
-    if (error.step === "providers") return error;
-    return current && error.step === current.id ? error : null;
-  });
-  // A decision weighs more than a carried fact, because it is the only kind the
-  // user actually spends time on.
-  const percentDone = $derived(
-    Math.round(
-      ((carriedDone + doneDecisions.length * 2) /
-        (carriedTotal + decisions.length * 2)) *
-        100,
-    ),
-  );
+  const decisions = $derived(rail.decisions);
+  const automaticSteps = $derived(rail.automaticSteps);
+  const facts = $derived(rail.facts);
+  const carriedTotal = $derived(rail.carriedTotal);
+  const carriedDone = $derived(rail.carriedDone);
+  const current = $derived(rail.current);
+  const currentNumber = $derived(rail.currentNumber);
+  const doneDecisions = $derived(rail.doneDecisions);
+  const upcoming = $derived(rail.upcoming);
+  const percentDone = $derived(rail.percentDone);
+  const hostMeta = $derived(rail.hostMeta);
 
   const isActiveHost = $derived(
     !!store.host && serversStore.activeServer?.id === store.host.id,
   );
-  const logTail = $derived(store.logLines.slice(-2));
-
   // One primary button carries the whole handshake, so each pairing view names
   // what pressing it does rather than the modal sprouting a button per state.
   const pairingAction = $derived.by(() => {
-    if (store.pairingBusy) return { label: "Connecting", disabled: true, run: () => {} };
+    if (store.pairingBusy) return { label: "Connecting", disabled: true };
     switch (store.pairingView) {
       case "ssh-target":
-        return {
-          label: "Next",
-          disabled: !store.sshTarget.trim(),
-          run: () => store.submitSshTarget(),
-        };
+        return { label: "Next", disabled: !store.sshTarget.trim() };
       case "ssh-password":
-        return {
-          label: "Connect",
-          disabled: !store.sshPassword,
-          run: () => store.submitSshPassword(),
-        };
+        return { label: "Connect", disabled: !store.sshPassword };
       case "fallback":
-        return {
-          label: "Connect",
-          disabled: store.pairCode.trim().length !== 6,
-          run: () => void store.submitPairCode(),
-        };
+        return { label: "Connect", disabled: store.pairCode.trim().length !== 6 };
       case "error":
-        return { label: "Try again", disabled: false, run: () => void store.startSshBootstrap() };
+        return { label: "Try again", disabled: false };
       default:
-        return { label: "Connecting", disabled: true, run: () => {} };
+        return { label: "Connecting", disabled: true };
     }
   });
-
-  // Identity is stated once, in the host's own terms: what it runs, where it
-  // answers, and what it can already do.
-  const hostMeta = $derived(
-    [
-      store.readiness?.platform,
-      serversStore.servers.find((server) => server.id === store.host?.id)?.url,
-      store.readiness?.git?.version,
-      shortFingerprint(store.host?.fingerprint),
-    ]
-      .filter(Boolean)
-      .join(" · "),
-  );
 
   function close() {
     store.close();
     requestInputFocus();
   }
 
-  function addProvider(provider: SetupAgent) {
-    lastProvider = provider;
-    void store.addProvider(provider);
-  }
-
-  function retryFailed() {
-    const step = failure?.step;
-    if (!step) return;
-    if (step === "github") void store.connectGithub();
-    else if (lastProvider) addProvider(lastProvider);
-  }
-
   function retryAutomatic(step: OnboardingStep) {
-    if (step.id === "credential-helper") void store.installCredentialHelper();
-    else if (step.id === "gh-auth") void store.authorizeGhCli();
+    void setup?.runStep(step.id);
   }
 
   function startWorking() {
@@ -153,38 +83,17 @@
   }
 
   function automaticDetail(step: OnboardingStep): string {
-    return step.blockedBy ? "waiting on GitHub" : step.detail;
+    if (!step.blockedBy) return step.detail;
+    return step.blockedBy === "gh-cli"
+      ? "waiting on the GitHub CLI"
+      : "waiting on GitHub";
   }
-
-  // Both cards are the same shape: every provider the host could use, each
-  // saying where it stands and offering the one thing it can do next.
-  const gitRows = $derived(
-    gitHostRows({
-      readiness: store.readiness,
-      connecting: store.runningStep === "github",
-      busy: !!store.runningStep,
-      connect: () => void store.connectGithub(),
-    }),
-  );
-  const providerRows = $derived(
-    codingProviderRows({
-      readiness: store.readiness,
-      inFlight: store.providerInFlight,
-      stage: store.providerStage,
-      busy: !!store.runningStep,
-      add: addProvider,
-    }),
-  );
 </script>
 
 {#if store.isOpen && (store.host || store.pairingTarget)}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[2px] sm:p-6"
     role="presentation"
-    onclick={(event) => {
-      if (event.target === event.currentTarget) close();
-    }}
     onkeydown={(event) => {
       if (event.key === "Escape") close();
     }}
@@ -240,7 +149,7 @@
           <span class="text-[0.65625rem] tabular-nums text-(--solus-text-tertiary)">
             {#if isPairing}
               Step 1 of 2
-            {:else if store.readinessLoading && !store.readiness}
+            {:else if setup?.readinessLoading && !setup.readiness}
               Checking…
             {:else}
               {doneDecisions.length} of {decisions.length} handled
@@ -264,7 +173,7 @@
           <span class="flex-1"></span>
           <button
             type="button"
-            class="-mr-1.5 flex size-7 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+            class="-mr-2 flex size-10 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
             aria-label="Close"
             onclick={close}
           >
@@ -316,34 +225,10 @@
                 </p>
 
                 {#if current.id === "github"}
-                  <ProviderChoiceCard rows={gitRows} label="Git hosts" />
-                  {#if store.deviceCode}
-                    {@render devicePrompt(
-                      store.deviceCode.verificationUri,
-                      store.deviceCode.userCode,
-                      "Confirm this code on GitHub, then come back.",
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      class="mt-2 -ml-2 text-(--solus-text-tertiary)"
-                      onclick={() => void store.cancelGithubConnect()}
-                    >
-                      Cancel
-                    </Button>
-                  {/if}
+                  {#if setup}<GitHostPanel {setup} />{/if}
                 {:else if current.id === "providers"}
-                  <ProviderChoiceCard rows={providerRows} label="Coding providers" />
-                  {#if store.verification}
-                    {@render devicePrompt(
-                      store.verification.url,
-                      store.verification.code,
-                      "Confirm this code in your browser, then come back.",
-                    )}
-                  {/if}
+                  {#if setup}<ProviderPanel {setup} />{/if}
                 {/if}
-
-                {@render failureNote()}
               </div>
             {:else}
               <div class="mt-[1.625rem] max-w-[30rem]">
@@ -364,15 +249,7 @@
                 </p>
                 <!-- The rail is satisfied by one provider, so this is where the
                      other one is added later. -->
-                <ProviderChoiceCard rows={providerRows} label="Coding providers" />
-                {#if store.verification}
-                  {@render devicePrompt(
-                    store.verification.url,
-                    store.verification.code,
-                    "Confirm this code in your browser, then come back.",
-                  )}
-                {/if}
-                {@render failureNote()}
+                {#if setup}<ProviderPanel {setup} />{/if}
               </div>
             {/if}
 
@@ -439,24 +316,24 @@
                     {@render carriedRow(fact.title, fact.detail, fact.done ? "done" : "wait")}
                   {/each}
                   {#each automaticSteps as step (step.id)}
-                    {@const stepRunning = store.runningStep === step.id}
+                    {@const stepRunning = setup?.runningStep === step.id}
                     {@render carriedRow(
                       step.label,
                       automaticDetail(step),
                       step.done ? "done" : stepRunning ? "busy" : "wait",
                     )}
-                    {#if store.stepError?.step === step.id}
+                    {#if setup?.stepError?.step === step.id}
                       <div class="flex items-center gap-2 pb-1 pl-[1.125rem]">
                         <p
                           class="min-w-0 flex-1 text-pretty text-[0.6875rem] leading-relaxed text-(--solus-status-error)"
                         >
-                          {store.stepError.message}
+                          {setup.stepError.message}
                         </p>
                         <Button
                           variant="ghost"
                           size="sm"
                           class="shrink-0 px-1 text-(--solus-accent)"
-                          disabled={!!store.runningStep}
+                          disabled={!!setup?.runningStep}
                           onclick={() => retryAutomatic(step)}
                         >
                           Retry
@@ -490,7 +367,7 @@
             <Button
               class="h-[2.125rem] px-4"
               disabled={pairingAction.disabled}
-              onclick={pairingAction.run}
+              onclick={() => store.submitCurrentPairingView()}
             >
               {#if store.pairingBusy || store.pairingView === "connecting"}
                 <CircleNotchIcon size={12} class="animate-spin" />
@@ -517,54 +394,6 @@
   </div>
 {/if}
 
-{#snippet failureNote()}
-  {#if failure}
-    <div
-      class="mt-3.5 border-l-2 border-[color-mix(in_srgb,var(--solus-status-error)_45%,transparent)] pl-[0.6875rem]"
-    >
-      <p class="text-pretty text-[0.75rem] leading-relaxed text-(--solus-status-error)">
-        {failure.message}
-      </p>
-      {#if store.logLines.length > 0}
-        <div
-          class="mt-1.5 flex flex-col gap-0.5 {logOpen
-            ? 'max-h-[7.5rem] overflow-y-auto'
-            : ''}"
-        >
-          {#each logOpen ? store.logLines : logTail as line, index (index)}
-            <p
-              class="text-[0.65625rem] leading-[1.6] text-(--solus-text-tertiary)/85"
-              style="font-family: 'Geist Mono', ui-monospace, monospace"
-            >
-              › {line}
-            </p>
-          {/each}
-        </div>
-      {/if}
-      <div class="mt-2 flex items-center gap-2">
-        <Button
-          size="sm"
-          class="h-[1.875rem] px-3"
-          disabled={!!store.runningStep}
-          onclick={retryFailed}
-        >
-          Try again
-        </Button>
-        {#if store.logLines.length > logTail.length}
-          <Button
-            variant="ghost"
-            size="sm"
-            class="px-1 text-(--solus-text-tertiary)"
-            onclick={() => (logOpen = !logOpen)}
-          >
-            {logOpen ? "Hide log" : `Full log · ${store.logLines.length} lines`}
-          </Button>
-        {/if}
-      </div>
-    </div>
-  {/if}
-{/snippet}
-
 {#snippet carriedRow(title: string, detail: string, state: "done" | "busy" | "wait")}
   <div class="flex items-baseline gap-2 py-[0.125rem]">
     {#if state === "busy"}
@@ -588,41 +417,3 @@
     </span>
   </div>
 {/snippet}
-
-{#snippet devicePrompt(url: string, code: string, why: string)}
-  <div class="mt-3.5 flex items-baseline gap-3">
-    <span class="min-w-0 flex-1 text-pretty text-[0.75rem] leading-relaxed text-(--solus-text-tertiary)">
-      {why}
-    </span>
-    <code
-      class="shrink-0 font-mono text-[0.875rem] tracking-widest text-(--solus-text-primary)"
-    >
-      {code}
-    </code>
-    <CopyButton text={code} />
-    <button
-      type="button"
-      class="inline-flex shrink-0 items-center gap-1 text-[0.71875rem] text-(--solus-accent) hover:underline"
-      onclick={() => void window.solus.openExternal(url)}
-    >
-      Open
-      <ArrowSquareOutIcon size={11} />
-    </button>
-  </div>
-{/snippet}
-
-<style>
-  .hairline-scroll {
-    scrollbar-width: thin;
-  }
-  .hairline-scroll::-webkit-scrollbar {
-    width: 0.1875rem;
-  }
-  .hairline-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .hairline-scroll::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
-    border-radius: 0.25rem;
-  }
-</style>

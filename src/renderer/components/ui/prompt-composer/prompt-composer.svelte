@@ -2,7 +2,7 @@
   import { onDestroy, untrack, type Snippet } from "svelte";
   import type { PlanReference, WorkReference } from "../../../../shared/types";
   import type { PromptComposerSubmit } from "./index";
-  import { ArrowUpIcon, MicrophoneIcon, SpinnerGapIcon, XIcon, CheckIcon, GitForkIcon, CaretDownIcon, CaretUpIcon } from "phosphor-svelte";
+  import { ArrowUpIcon, GitForkIcon, CaretDownIcon, CaretUpIcon } from "phosphor-svelte";
   import PromptEditor from "../PromptEditor.svelte";
   import SessionChip from "../../pickers/SessionChip.svelte";
   import { Switch } from "../switch";
@@ -10,8 +10,10 @@
   import { getWorkspaceContext, getStatusBarContext, getAgentContext, getVoiceModelStore } from "../../../contexts";
   import { dictation, isDictationTarget } from "../../../lib/dictation.svelte";
   import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
+  import { comboHint } from "../../../lib/keybindings/manifest";
   import WaveformVisualizer from "../../input/WaveformVisualizer.svelte";
-  import { tooltip } from "../../../lib/tooltip";
+  import RecordingControls from "../../input/RecordingControls.svelte";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { uuid } from "../../../../shared/uuid";
 
   interface Props {
@@ -24,9 +26,6 @@
     /** Tab whose session seeds the picker selection; the active tab otherwise. */
     tabId?: string;
     showPicker?: boolean;
-    /** Only when the dispatch target is a new or reset session — the agent
-     *  can't change mid-session. */
-    allowAgentSwitch?: boolean;
     /** Omit to render no send button — the host supplies actions via `trailing`
      *  and reads the composed state with `payload()`. */
     onSubmit?: (payload: PromptComposerSubmit) => void | Promise<void>;
@@ -42,8 +41,7 @@
      *  they put in `trailing` (nothing is unmounted — the editor is hidden, so
      *  the draft and its refs survive a collapse). */
     collapsed?: boolean;
-    /** Show the isolated-worktree toggle in the action row (only meaningful when
-     *  the dispatch target is a new/reset session — i.e. allowAgentSwitch). */
+    /** Show the isolated-worktree toggle in the action row. */
     showWorktree?: boolean;
     /** Bindable worktree choice, applied by the host at dispatch. */
     useWorktree?: boolean;
@@ -61,7 +59,6 @@
     workingDirectory,
     tabId,
     showPicker = true,
-    allowAgentSwitch = false,
     onSubmit,
     canSubmitWhenEmpty = false,
     submitting = false,
@@ -116,9 +113,8 @@
   let workRefs = $state<WorkReference[]>([]);
   let focused = $state(false);
 
-  const canSend = $derived(
-    (!editorEmpty || canSubmitWhenEmpty) && !submitting && !disabled,
-  );
+  const hasContent = $derived(!editorEmpty || canSubmitWhenEmpty);
+  const canSend = $derived(hasContent && !submitting && !disabled);
 
   // ─── Voice dictation ───
   // Reuses the app-wide recorder in conversational mode, but routes the
@@ -201,16 +197,22 @@
 </script>
 
 {#if collapsed}
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     onclick={() => (collapsed = false)}
     aria-label="Expand composer"
     aria-expanded="false"
-    class="pointer-events-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
-    use:tooltip={"Expand"}
+    class="pointer-events-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) font-secondary text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
   >
     <CaretUpIcon size={14} weight="bold" />
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Expand"} />
+  </TooltipUI.Root>
 {/if}
 
 <!-- Hidden rather than unmounted while collapsed: the Tiptap instance, the
@@ -263,26 +265,37 @@
       maxHeight={260}
     />
   </div>
-  <div class="flex items-center gap-1">
+  <!-- Same geometry as the input bar's toolbar row (InputBar.svelte): the
+       controls stay proportional to the composer text preference. -->
+  <div
+    class="flex items-center gap-1 w-full"
+    style="padding-top:0.125rem;zoom:var(--solus-font-scale,1)"
+  >
     {#if collapsible}
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         type="button"
         onclick={() => (collapsed = true)}
         aria-label="Collapse composer"
         aria-expanded="true"
         class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-        use:tooltip={"Collapse"}
       >
         <CaretDownIcon size={16} weight="bold" />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Collapse"} />
+      </TooltipUI.Root>
     {/if}
     {@render leading?.()}
     {#if pickerVisible}
-      <SessionChip bind:selection {allowAgentSwitch} menuSide={menuPlacement === "down" ? "bottom" : "top"} />
+      <SessionChip bind:selection menuSide={menuPlacement === "down" ? "bottom" : "top"} />
     {/if}
     {#if showWorktree}
       <label
-        class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 font-medium transition-colors h-8 text-[0.8125rem] {useWorktree ? 'text-(--solus-accent)' : 'text-(--solus-text-secondary)'}"
+        class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 font-medium transition-colors h-8 text-[0.8125rem] {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
         title={useWorktree ? "Worktree enabled — run in an isolated branch (⌥W)" : "Enable worktree — run in an isolated branch (⌥W)"}
       >
         <GitForkIcon size={15} />
@@ -290,61 +303,46 @@
         <Switch size="sm" bind:checked={useWorktree} data-testid="composer-worktree" aria-label="Run in an isolated worktree" />
       </label>
     {/if}
-    <div class="min-w-0 flex-1"></div>
-
-    {#if voiceState === "recording"}
-      <button
-        type="button"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={() => dictation.cancel()}
-        aria-label="Cancel recording"
-        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-transform duration-150 active:scale-[0.96]"
-        use:tooltip={"Cancel recording"}
-      >
-        <XIcon size={16} weight="bold" />
-      </button>
-      <button
-        type="button"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={() => dictation.stop()}
-        aria-label="Finish recording"
-        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-text-on-accent) transition-transform duration-150 active:scale-[0.96]"
-        use:tooltip={"Confirm recording"}
-      >
-        <CheckIcon size={16} weight="bold" />
-      </button>
-    {:else if voiceState === "transcribing"}
-      <span class="flex size-9 shrink-0 items-center justify-center text-(--solus-mic-color)">
-        <SpinnerGapIcon size={16} class="animate-spin" />
-      </span>
-    {:else}
-      <button
-        type="button"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={toggleVoice}
+    <div
+      class="flex items-center gap-1 shrink-0 ml-auto"
+      style="padding-bottom:0.125rem"
+    >
+      <RecordingControls
+        variant="bar"
+        state={voiceState}
+        rmsRef={dictation.rmsRef}
         disabled={!voiceReady || disabled}
-        aria-label="Voice input"
-        class="flex size-9 shrink-0 items-center justify-center rounded-full text-(--solus-mic-color) transition-[background-color,opacity] duration-150 enabled:cursor-pointer enabled:hover:bg-(--solus-mic-bg) disabled:opacity-40"
-        use:tooltip={voiceReady ? "Voice input" : "Voice model is preparing"}
-      >
-        <MicrophoneIcon size={16} />
-      </button>
-    {/if}
+        progressPct={voiceReady ? null : voiceModel.progressPct}
+        idleTooltip={voiceReady ? `Voice input (${comboHint("voice.toggle-recorder")})` : "Voice model is preparing"}
+        onCancel={() => dictation.cancel()}
+        onConfirm={() => dictation.stop()}
+        onToggle={toggleVoice}
+      />
 
-    {@render trailing?.()}
+      {@render trailing?.()}
 
-    {#if onSubmit}
-      <button
-        type="button"
-        onclick={handleSubmit}
-        disabled={!canSend}
-        aria-label="Send"
-        class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.0625rem_0.1875rem_var(--solus-send-glow)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.125rem_0.375rem_var(--solus-send-glow)] active:scale-[0.96] disabled:active:scale-100"
-        style="opacity:{canSend ? 1 : 0.4};cursor:{canSend ? 'pointer' : 'default'}"
-        use:tooltip={"Send · ⌘↵"}
-      >
-        <ArrowUpIcon size={16} weight="bold" />
-      </button>
-    {/if}
+      <!-- Like the input bar, the send button only exists once there's something
+           to send. It stays mounted while `submitting`/`disabled` so it doesn't
+           vanish under the cursor mid-dispatch. -->
+      {#if onSubmit && hasContent}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          type="button"
+          onclick={handleSubmit}
+          disabled={!canSend}
+          aria-label="Send"
+          class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.94] disabled:active:scale-100"
+          style="opacity:{canSend ? 1 : 0.4};cursor:{canSend ? 'pointer' : 'default'}"
+        >
+          <ArrowUpIcon size={16} weight="bold" />
+        </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Send · ⌘↵"} />
+        </TooltipUI.Root>
+      {/if}
+    </div>
   </div>
 </div>

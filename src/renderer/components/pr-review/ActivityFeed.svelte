@@ -404,7 +404,7 @@
     {#if anyLoadFailed}
       <div class="mx-auto w-full max-w-[90rem] px-8 pt-4">
         <div
-          class="flex items-center gap-2.5 rounded-lg border border-[color:color-mix(in_srgb,var(--solus-art-negative)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-art-negative)_8%,transparent)] px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary)"
+          class="flex items-center gap-2.5 rounded-lg border border-[color:color-mix(in_srgb,var(--solus-art-negative)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-art-negative)_8%,transparent)] px-3 py-2 text-[0.8125rem] font-secondary text-(--solus-text-secondary)"
           role="alert"
         >
           <span class="min-w-0 flex-1 truncate">
@@ -469,10 +469,10 @@
               <span class="flex min-w-0 items-center gap-1.5 font-mono text-[0.75rem]">
                 <GitBranchIcon size={12} class="shrink-0" />
                 {#if headBranch}
-                  <span class="truncate text-(--solus-text-secondary)">{headBranch}</span>
+                  <span class="truncate font-secondary text-(--solus-text-secondary)">{headBranch}</span>
                   <span class="shrink-0" aria-hidden="true">→</span>
                 {/if}
-                <span class="truncate text-(--solus-text-secondary)">{baseRef}</span>
+                <span class="truncate font-secondary text-(--solus-text-secondary)">{baseRef}</span>
               </span>
             {/if}
             {#if stackChain.length > 1}
@@ -486,7 +486,7 @@
                   <span
                     class={number === pr.number
                       ? "font-semibold text-(--solus-accent)"
-                      : "text-(--solus-text-secondary)"}
+                      : "font-secondary text-(--solus-text-secondary)"}
                   >#{number}</span>
                 {/each}
               </span>
@@ -514,7 +514,7 @@
             aria-hidden="true"
           ></div>
           <section
-            class="github-markdown prose-cloud mt-5 text-base leading-relaxed text-pretty text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+            class="github-markdown prose-cloud mt-5 text-base leading-relaxed text-pretty font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400]"
             aria-label="Pull request description"
           >
             <SvelteMarkdown

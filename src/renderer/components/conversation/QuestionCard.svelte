@@ -270,7 +270,7 @@
 
           {#if activeOption?.description}
             <div
-              class="text-[0.75rem] leading-relaxed text-(--solus-text-secondary) mt-1.5"
+              class="text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary) mt-1.5"
             >
               {activeOption.description}
             </div>
@@ -291,7 +291,7 @@
                   disabled={responded}
                   class="text-[0.7188rem] font-medium px-3 py-1.5 rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1 border focus-visible:outline-2 focus-visible:outline focus-visible:outline-(--solus-accent-border-medium) {selected
                     ? 'bg-(--solus-accent-light) text-(--solus-accent) border-(--solus-accent-border)'
-                    : 'bg-(--solus-surface-primary) text-(--solus-text-secondary) border-transparent hover:bg-(--solus-accent-light) hover:text-(--solus-accent) active:bg-(--solus-accent-light) active:text-(--solus-accent)'}"
+                    : 'bg-(--solus-surface-primary) font-secondary text-(--solus-text-secondary) border-transparent hover:bg-(--solus-accent-light) hover:text-(--solus-accent) active:bg-(--solus-accent-light) active:text-(--solus-accent)'}"
                 >
                   {#if currentQuestion.multiSelect && selected}
                     <CheckIcon size={10} class="opacity-70" />
@@ -327,7 +327,7 @@
               {#if previewOpen}
                 <div
                   in:fly={{ y: -2, duration: 140 }}
-                  class="mt-1.5 rounded-lg bg-(--solus-code-bg) border border-(--solus-container-border) px-2.5 py-1.5 text-[0.6563rem] font-mono text-(--solus-text-secondary) leading-relaxed whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:whitespace-pre [&_pre]:overflow-x-auto [&_code]:!bg-transparent [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_strong]:text-(--solus-text-primary)"
+                  class="mt-1.5 rounded-lg bg-(--solus-code-bg) border border-(--solus-container-border) px-2.5 py-1.5 text-[0.6563rem] font-mono font-secondary text-(--solus-text-secondary) leading-relaxed whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:whitespace-pre [&_pre]:overflow-x-auto [&_code]:!bg-transparent [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_strong]:text-(--solus-text-primary)"
                 >
                   <SvelteMarkdown
                     source={activeOption.preview ?? ""}
@@ -349,7 +349,7 @@
                 placeholder="Type your answer…"
                 disabled={responded}
                 rows={1}
-                class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.7813rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
+                class="min-h-0 rounded-none border-0 bg-transparent p-0 text-xs! font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
                 oninput={(e) => {
                   ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
                 }}
@@ -367,7 +367,7 @@
           value={getComment(currentQuestion)}
           placeholder="Add a note…"
           rows={1}
-          class="min-h-0 rounded-none border-0 bg-transparent p-0 text-[0.7813rem] shadow-none focus-visible:ring-0 dark:bg-transparent"
+          class="min-h-0 rounded-none border-0 bg-transparent p-0 text-xs! font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
           oninput={(e) => {
             ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
           }}
@@ -386,7 +386,7 @@
             onclick={goPrev}
             disabled={responded || isFirst}
             title="Previous (←)"
-            class="inline-flex items-center gap-1 px-2 py-1.5 rounded-full text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            class="inline-flex items-center gap-1 px-2 py-1.5 rounded-full font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             <CaretLeftIcon size={12} />
           </button>

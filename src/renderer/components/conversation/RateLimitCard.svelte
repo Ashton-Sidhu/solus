@@ -15,7 +15,7 @@
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
   const rateLimitStrategy = $derived(sess?.rateLimitStrategy)
-  const queuedPrompts = $derived((sess?.serverQueuedPrompts ?? []).filter((prompt) => prompt.reason === 'rate_limit'))
+  const queuedPrompts = $derived((sess?.outboundPrompts ?? []).filter((prompt) => prompt.state === 'queued' && prompt.reason === 'rate_limit'))
   const totalQueuedCount = $derived(queuedPrompts.length)
   const queuedRateLimit = $derived(queuedPrompts[0])
   const rateLimitInfo = $derived(sess?.rateLimitInfo)
@@ -95,7 +95,7 @@
 
       <Card.Content class="flex flex-col gap-2.5 px-3 py-2.5">
         {#if showAskUI}
-          <div class="text-sm sm:text-[0.75rem] text-(--solus-text-secondary)">
+          <div class="text-sm sm:text-[0.75rem] font-secondary text-(--solus-text-secondary)">
             {rateLimitInfo?.prompt ?? "You've been rate limited. What would you like to do?"}
           </div>
           <div class="flex items-center gap-2">
@@ -128,7 +128,7 @@
             </button>
           </div>
         {:else}
-          <div class="text-[0.75rem] text-(--solus-text-secondary)">
+          <div class="text-[0.75rem] font-secondary text-(--solus-text-secondary)">
             {totalQueuedCount === 0
               ? rateLimitInfo?.queuedPrompt ?? 'Waiting to send this message.'
               : totalQueuedCount === 1

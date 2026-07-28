@@ -7,6 +7,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { PassThrough } from 'stream'
 import {
+  hasClaudeAuth,
   parseAgentSignInVerification,
   probeHostReadiness,
   registerSetupHandlers,
@@ -14,9 +15,10 @@ import {
   type SpawnProcess,
 } from '../../src/main/server/handlers/setup-handlers'
 import {
+  agentInstallCompatibilityError,
   applyCloneProtocol,
   buildAgentInstallCommand,
-  buildGitInstallCommand,
+  buildPackageInstallCommand,
   resolveCloneDestination,
   validateCloneUrl,
 } from '../../src/main/server/handlers/setup-commands'
@@ -43,10 +45,10 @@ describe('projects root', () => {
 describe('server setup installer command table', () => {
   test('maps agents to fixed official installer argv without client-controlled fragments', () => {
     expect(buildAgentInstallCommand('claude', { hasCommand: () => true })).toEqual({
-      command: 'npm',
-      args: ['install', '-g', '@anthropic-ai/claude-code'],
-      display: 'npm install -g @anthropic-ai/claude-code',
-      strategy: 'npm',
+      command: 'bash',
+      args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash -s'],
+      display: 'curl -fsSL https://claude.ai/install.sh | bash -s',
+      strategy: 'claude-install-script',
     })
 
     expect(buildAgentInstallCommand('codex', { hasCommand: () => true })).toEqual({
@@ -57,7 +59,27 @@ describe('server setup installer command table', () => {
     })
   })
 
-  test('uses the fixed Claude install-script fallback only when npm is unavailable', () => {
+  test('rejects a KVM CPU profile that cannot run the native Claude binary', () => {
+    // WHY: the downloaded executable otherwise spins indefinitely and every
+    // retry is reported as "install-claude is already running."
+    expect(agentInstallCompatibilityError('claude', {
+      platform: 'linux',
+      arch: 'x64',
+      cpuInfo: 'flags : fpu sse sse2',
+    })).toContain('does not expose it')
+    expect(agentInstallCompatibilityError('claude', {
+      platform: 'linux',
+      arch: 'x64',
+      cpuInfo: 'flags : fpu sse sse2 sse4_2',
+    })).toBeNull()
+    expect(agentInstallCompatibilityError('codex', {
+      platform: 'linux',
+      arch: 'x64',
+      cpuInfo: 'flags : fpu sse sse2',
+    })).toBeNull()
+  })
+
+  test('uses the fixed native Claude installer when npm is unavailable', () => {
     expect(buildAgentInstallCommand('claude', { hasCommand: () => false })).toEqual({
       command: 'bash',
       args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash -s'],
@@ -66,6 +88,24 @@ describe('server setup installer command table', () => {
     })
 
     expect(() => buildAgentInstallCommand('codex', { hasCommand: () => false })).toThrow('npm is required')
+  })
+
+  test('runs different agent installers concurrently', async () => {
+    // WHY: the onboarding card offers both agents independently, so the host
+    // must not reject the second install behind a global setup lock.
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      hasCommand: () => true,
+      spawnProcess: processSequence(calls, [{ code: 0 }, { code: 0 }]),
+    })
+
+    await Promise.all([
+      server.handle('setupInstallAgentCli', [{ agent: 'claude' }], { deviceId: 'test-device' }),
+      server.handle('setupInstallAgentCli', [{ agent: 'codex' }], { deviceId: 'test-device' }),
+    ])
+
+    expect(calls.map((call) => call.command)).toEqual(['bash', 'npm'])
   })
 })
 
@@ -93,38 +133,74 @@ describe('server setup clone URL validation', () => {
   })
 })
 
-describe('git install command per platform', () => {
+describe('package install command per platform', () => {
   test('prefers Homebrew, which needs no elevation on either platform', () => {
-    expect(buildGitInstallCommand({ platform: 'darwin', hasCommand: (c) => c === 'brew', isRoot: false })).toEqual({
+    expect(buildPackageInstallCommand('git', { platform: 'darwin', hasCommand: (c) => c === 'brew', isRoot: false })).toEqual({
       command: 'brew',
       args: ['install', 'git'],
       display: 'brew install git',
       autoRunnable: true,
     })
-    expect(buildGitInstallCommand({ platform: 'linux', hasCommand: (c) => c === 'brew', isRoot: false })?.autoRunnable).toBe(true)
+    expect(buildPackageInstallCommand('git', { platform: 'linux', hasCommand: (c) => c === 'brew', isRoot: false })?.autoRunnable).toBe(true)
   })
 
-  test('distro managers are only auto-runnable as root, and drop sudo when they are', () => {
-    expect(buildGitInstallCommand({ platform: 'linux', hasCommand: (c) => c === 'apt-get', isRoot: false })).toEqual({
+  test('distro managers stay manual when the service account cannot elevate without a prompt', () => {
+    expect(buildPackageInstallCommand('git', {
+      platform: 'linux',
+      hasCommand: (c) => c === 'apt-get',
+      isRoot: false,
+      canElevate: false,
+    })).toEqual({
       command: 'sudo',
       args: ['apt-get', 'install', '-y', 'git'],
       display: 'sudo apt-get install -y git',
       autoRunnable: false,
     })
-    expect(buildGitInstallCommand({ platform: 'linux', hasCommand: (c) => c === 'apt-get', isRoot: true })).toEqual({
+    expect(buildPackageInstallCommand('git', { platform: 'linux', hasCommand: (c) => c === 'apt-get', isRoot: true })).toEqual({
       command: 'apt-get',
       args: ['install', '-y', 'git'],
       display: 'apt-get install -y git',
       autoRunnable: true,
     })
-    expect(buildGitInstallCommand({ platform: 'linux', hasCommand: (c) => c === 'pacman', isRoot: false })?.display)
+    expect(buildPackageInstallCommand('git', {
+      platform: 'linux',
+      hasCommand: (c) => c === 'pacman',
+      isRoot: false,
+      canElevate: false,
+    })?.display)
       .toBe('sudo pacman -S --noconfirm git')
-    expect(buildGitInstallCommand({ platform: 'linux', hasCommand: (c) => c === 'apk', isRoot: false })?.display)
+    expect(buildPackageInstallCommand('git', {
+      platform: 'linux',
+      hasCommand: (c) => c === 'apk',
+      isRoot: false,
+      canElevate: false,
+    })?.display)
       .toBe('sudo apk add git')
   })
 
+  test('runs through non-interactive sudo when the service account can elevate', () => {
+    // WHY: remote Solus servers normally run as an unprivileged user. A host
+    // with passwordless sudo can still install its own missing prerequisites.
+    expect(buildPackageInstallCommand('gh', {
+      platform: 'linux',
+      hasCommand: (c) => c === 'apt-get',
+      isRoot: false,
+      canElevate: true,
+    })).toMatchObject({
+      command: 'sudo',
+      display: 'Install gh from GitHub’s official apt repository',
+      autoRunnable: true,
+    })
+    expect(buildPackageInstallCommand('gh', {
+      platform: 'linux',
+      hasCommand: (c) => c === 'apt-get',
+      isRoot: false,
+      canElevate: true,
+    })?.args.join(' ')).toContain('https://cli.github.com/packages')
+  })
+
   test('macOS falls back to the CLT installer, which Solus cannot drive', () => {
-    expect(buildGitInstallCommand({ platform: 'darwin', hasCommand: () => false, isRoot: false })).toEqual({
+    expect(buildPackageInstallCommand('git', { platform: 'darwin', hasCommand: () => false, isRoot: false })).toEqual({
       command: 'xcode-select',
       args: ['--install'],
       display: 'xcode-select --install',
@@ -133,7 +209,29 @@ describe('git install command per platform', () => {
   })
 
   test('a host with no known installer offers nothing rather than a wrong command', () => {
-    expect(buildGitInstallCommand({ platform: 'linux', hasCommand: () => false, isRoot: false })).toBeNull()
+    expect(buildPackageInstallCommand('git', { platform: 'linux', hasCommand: () => false, isRoot: false })).toBeNull()
+  })
+
+  test('the GitHub CLI installs by the same route, under the name each manager knows it by', () => {
+    // WHY: `gh` is what the agent opens pull requests with, so a host missing it
+    // needs a command that actually resolves — not `pacman -S gh`, which doesn't.
+    expect(buildPackageInstallCommand('gh', { platform: 'darwin', hasCommand: (c) => c === 'brew', isRoot: false })?.display)
+      .toBe('brew install gh')
+    const apt = buildPackageInstallCommand('gh', {
+      platform: 'linux',
+      hasCommand: (c) => c === 'apt-get',
+      isRoot: true,
+    })
+    expect(apt?.command).toBe('sh')
+    expect(apt?.args.join(' ')).toContain('apt-get update')
+    expect(apt?.args.join(' ')).toContain('githubcli-archive-keyring.gpg')
+    expect(apt?.args.join(' ')).toContain('apt-get install -y gh')
+    expect(buildPackageInstallCommand('gh', { platform: 'linux', hasCommand: (c) => c === 'pacman', isRoot: true })?.display)
+      .toBe('pacman -S --noconfirm github-cli')
+  })
+
+  test('the CLT fallback stays git-only, because nothing in it ships gh', () => {
+    expect(buildPackageInstallCommand('gh', { platform: 'darwin', hasCommand: () => false, isRoot: false })).toBeNull()
   })
 })
 
@@ -166,6 +264,17 @@ describe('clone destination resolution', () => {
     const taken = new Set(['/srv/solus/projects/solus', '/srv/solus/projects/solus-2'])
     expect(resolveCloneDestination({ repoName: 'solus', projectsRoot, exists: (p) => taken.has(p) }))
       .toBe('/srv/solus/projects/solus-3')
+  })
+
+  test('returns to the original derived path after its partial checkout is removed', () => {
+    let partialExists = true
+    const exists = (path: string) => partialExists && path === '/srv/solus/projects/solus'
+    expect(resolveCloneDestination({ repoName: 'solus', projectsRoot, exists }))
+      .toBe('/srv/solus/projects/solus-2')
+
+    partialExists = false
+    expect(resolveCloneDestination({ repoName: 'solus', projectsRoot, exists }))
+      .toBe('/srv/solus/projects/solus')
   })
 
   test('an explicit name wins over the repo name', () => {
@@ -308,6 +417,71 @@ describe('server setup clone dispatch', () => {
     expect(result.auth).toBe('ssh')
   })
 
+  test('keeps the process diagnostic with a non-zero exit code', async () => {
+    // WHY: package managers reuse exit codes for many failures. The final
+    // stderr lines identify whether the user must fix a repository, lock,
+    // network, or permissions problem.
+    const root = await temporaryDirectory()
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      loadGithubToken: () => null,
+      spawnProcess: processSequence([], [{
+        code: 128,
+        stderr: 'fatal: the remote end hung up unexpectedly\n',
+      }]),
+    })
+
+    await expect(server.handle('setupCloneProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      destination: join(root, 'solus'),
+      protocol: 'ssh',
+    }], { deviceId: 'test-device' })).rejects.toThrow(
+      'Exited with code 128:\nfatal: the remote end hung up unexpectedly',
+    )
+  })
+
+  test('clean removes the remembered partial before resolving a different retry destination', async () => {
+    const root = await temporaryDirectory()
+    const failedDestination = join(root, 'failed-solus')
+    const retryDestination = join(root, 'retry-solus')
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      loadGithubToken: () => null,
+      registerProject: async (path) => resolveTestProjectKey(path),
+      spawnProcess: processSequence(calls, [
+        {
+          code: 128,
+          beforeClose() {
+            mkdirSync(failedDestination)
+            writeFileSync(join(failedDestination, 'partial'), 'incomplete')
+          },
+        },
+        {
+          code: 0,
+          onSpawn() {
+            expect(existsSync(failedDestination)).toBe(false)
+          },
+        },
+      ]),
+    })
+
+    await expect(server.handle('setupCloneProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      destination: failedDestination,
+      protocol: 'ssh',
+    }], { deviceId: 'test-device' })).rejects.toThrow('Exited with code 128')
+
+    const result = await server.handle('setupCloneProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      destination: retryDestination,
+      protocol: 'ssh',
+      clean: true,
+    }], { deviceId: 'test-device' }) as SetupCloneProjectResult
+
+    expect(result.path).toBe(retryDestination)
+  })
+
   test('never removes an existing folder just to make the HTTPS fallback possible', async () => {
     const root = await temporaryDirectory()
     const destination = join(root, 'chosen')
@@ -353,6 +527,20 @@ ABCD-EFGH
     expect(parseAgentSignInVerification('Waiting for browser confirmation…')).toBeNull()
   })
 
+  test('parses the native Claude login URL as a code-return prompt', () => {
+    // WHY: unlike device auth, Claude sends the browser result back through
+    // stdin, so displaying only the URL leaves onboarding stuck forever.
+    const output = `
+Opening browser to sign in…
+If browser didn't open, visit: https://claude.ai/oauth/authorize?code=true&state=abc
+Paste code here if prompted >
+`
+    expect(parseAgentSignInVerification(output)).toEqual({
+      url: 'https://claude.ai/oauth/authorize?code=true&state=abc',
+      requiresCodeInput: true,
+    })
+  })
+
   test('resolves only after the successful process makes Claude auth observable', async () => {
     let hasAuth = false
     const statuses: SetupStatusEvent[] = []
@@ -364,7 +552,7 @@ ABCD-EFGH
       hasClaudeAuth: () => hasAuth,
       spawnProcess: processSequence(calls, [{
         code: 0,
-        stdout: 'Open https://claude.ai/activate\nVerification code: WXYZ-1234\n',
+        stdout: "If browser didn't open, visit: https://claude.ai/oauth/authorize?code=true\n",
         beforeClose() {
           hasAuth = true
         },
@@ -378,13 +566,50 @@ ABCD-EFGH
     ) as SetupStepResult
 
     expect(calls[0].command).toBe('claude')
-    expect(calls[0].args).toEqual(['setup-token'])
+    expect(calls[0].args).toEqual(['auth', 'login'])
+    expect(calls[0].options.stdio).toEqual(['pipe', 'pipe', 'pipe'])
     expect(result).toEqual({ step: 'signin-claude', status: 'done', error: undefined })
     expect(statuses).toContainEqual({
       step: 'signin-claude',
       status: 'running',
-      verification: { url: 'https://claude.ai/activate', code: 'WXYZ-1234' },
+      verification: {
+        url: 'https://claude.ai/oauth/authorize?code=true',
+        requiresCodeInput: true,
+      },
     })
+  })
+
+  test('returns the browser code to the active Claude login over stdin', async () => {
+    // WHY: the native Claude login cannot persist credentials until the code
+    // shown after browser authorization reaches the waiting host process.
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      resolveAgentBinary: () => '/usr/local/bin/claude',
+      hasClaudeAuth: () => false,
+      spawnProcess: processSequence(calls, [{ code: 0, waitForKill: true }]),
+    })
+
+    const signIn = server.handle(
+      'setupAgentSignIn',
+      [{ agent: 'claude' }],
+      { deviceId: 'test-device' },
+    ).catch((error) => error as Error)
+    await Promise.resolve()
+
+    let submitted = ''
+    calls[0].stdin.on('data', (chunk) => {
+      submitted += chunk.toString()
+    })
+    expect(await server.handle(
+      'setupSubmitAgentSignInCode',
+      [{ agent: 'claude', code: 'browser-returned-code' }],
+      { deviceId: 'test-device' },
+    )).toEqual({ submitted: true })
+    expect(submitted).toBe('browser-returned-code\n')
+
+    await server.handle('setupCancelAgentSignIn', [], { deviceId: 'test-device' })
+    expect((await signIn).message).toBe('Setup step cancelled.')
   })
 
   test('uses Codex device auth and rejects a zero exit that did not persist sign-in', async () => {
@@ -471,6 +696,44 @@ ABCD-EFGH
     expect((await signIn).message).toBe('Setup step cancelled.')
   })
 
+  test('keeps different agent sign-ins alive at the same time', async () => {
+    // WHY: setting up Claude must not replace Codex's device prompt (or vice
+    // versa); each agent owns an independent browser-auth lifecycle.
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      resolveAgentBinary: (agent) => `/usr/local/bin/${agent}`,
+      hasClaudeAuth: () => false,
+      hasCodexAuth: () => false,
+      spawnProcess: processSequence(calls, [
+        { code: 0, waitForKill: true },
+        { code: 0, waitForKill: true },
+      ]),
+    })
+
+    const claudeSignIn = server.handle(
+      'setupAgentSignIn',
+      [{ agent: 'claude' }],
+      { deviceId: 'test-device' },
+    ).catch((error) => error as Error)
+    const codexSignIn = server.handle(
+      'setupAgentSignIn',
+      [{ agent: 'codex' }],
+      { deviceId: 'test-device' },
+    ).catch((error) => error as Error)
+    await Promise.resolve()
+
+    expect(calls.map((call) => call.command)).toEqual(['claude', 'codex'])
+    expect(await server.handle(
+      'setupCancelAgentSignIn',
+      [],
+      { deviceId: 'test-device' },
+    )).toEqual({ cancelled: true })
+    expect((await claudeSignIn).message).toBe('Setup step cancelled.')
+    expect((await codexSignIn).message).toBe('Setup step cancelled.')
+    expect(calls.map((call) => call.killSignals)).toEqual([['SIGTERM'], ['SIGTERM']])
+  })
+
   test('a new sign-in replaces a stale prompt instead of reporting one already in progress', async () => {
     // WHY: clients can crash or disconnect before sending cancel. Retry itself
     // must be a recovery path rather than relying on perfect renderer cleanup.
@@ -512,6 +775,19 @@ ABCD-EFGH
 })
 
 describe('host agent readiness', () => {
+  test('uses Claude auth status instead of treating durable client state as a credential', () => {
+    // WHY: `~/.claude.json` remains present after `claude auth logout`, so file
+    // existence makes Settings claim the host is signed in when it is not.
+    const calls: Array<{ command: string; args: string[] }> = []
+    const authenticated = hasClaudeAuth((command, args) => {
+      calls.push({ command, args })
+      return false
+    })
+
+    expect(authenticated).toBe(false)
+    expect(calls).toEqual([{ command: 'claude', args: ['auth', 'status'] }])
+  })
+
   test('reports both installed agents and their local sign-in state', () => {
     const readiness = probeHostReadiness(() => false, {
       resolveAgentBinary: () => '/usr/local/bin/agent',
@@ -588,6 +864,7 @@ interface SpawnCall {
   args: string[]
   options: Parameters<SpawnProcess>[2]
   killSignals: NodeJS.Signals[]
+  stdin: PassThrough
 }
 
 interface ProcessOutcome {
@@ -601,7 +878,8 @@ interface ProcessOutcome {
 
 function processSequence(calls: SpawnCall[], outcomes: ProcessOutcome[]): SpawnProcess {
   return (command, args, options) => {
-    const call: SpawnCall = { command, args, options, killSignals: [] }
+    const stdin = new PassThrough()
+    const call: SpawnCall = { command, args, options, killSignals: [], stdin }
     calls.push(call)
     const outcome = outcomes[calls.length - 1]
     if (!outcome) throw new Error(`Unexpected process ${command} ${args.join(' ')}`)
@@ -609,6 +887,7 @@ function processSequence(calls: SpawnCall[], outcomes: ProcessOutcome[]): SpawnP
     const child = new EventEmitter() as ChildProcess
     const stdout = new PassThrough()
     const stderr = new PassThrough()
+    child.stdin = stdin
     child.stdout = stdout
     child.stderr = stderr
     let closed = false

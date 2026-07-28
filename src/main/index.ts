@@ -4,11 +4,12 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
   process.env.NODE_EXTRA_CA_CERTS = '/etc/ssl/cert.pem'
 }
 
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join, extname } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { syncBundledPlugins } from './agents/plugins'
+import { getCodexAppServerClient } from './agents/codex/codex-agent'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
@@ -700,25 +701,60 @@ function designModeCaptureRegion(): { x: number; y: number; width: number; heigh
   return display.workArea
 }
 
-/** Native context menu (copy/cut/paste + "Quote in reply"), attached to each window. */
+/** Only http(s) links get a "Copy Link" item — never file:, javascript:, or our own solus-img: scheme. */
+function isSafeExternalUrl(url: string): boolean {
+  if (!url) return false
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/** Native context menu (spellcheck, link/image, clipboard + "Quote in reply"), attached to each window. */
 function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = []
 
-    if (params.selectionText) {
-      menuItems.push({ label: 'Copy', role: 'copy' })
-    }
-    if (params.isEditable) {
-      if (params.selectionText) {
-        menuItems.push({ label: 'Cut', role: 'cut' })
+    // Corrections come first — a right-click on a red-underlined word is asking
+    // for the suggestion, not for the clipboard.
+    if (params.misspelledWord) {
+      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+        menuItems.push({
+          label: suggestion,
+          click: () => win.webContents.replaceMisspelling(suggestion),
+        })
       }
-      menuItems.push({ label: 'Paste', role: 'paste' })
+      if (params.dictionarySuggestions.length === 0) {
+        menuItems.push({ label: 'No suggestions', enabled: false })
+      }
       menuItems.push({ type: 'separator' })
-      menuItems.push({ label: 'Select All', role: 'selectAll' })
-    } else if (params.selectionText) {
-      menuItems.push({ type: 'separator' })
-      menuItems.push({ label: 'Select All', role: 'selectAll' })
     }
+
+    if (isSafeExternalUrl(params.linkURL)) {
+      menuItems.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) })
+      menuItems.push({ type: 'separator' })
+    }
+
+    if (params.mediaType === 'image') {
+      menuItems.push({
+        label: 'Copy Image',
+        click: () => win.webContents.copyImageAt(params.x, params.y),
+      })
+      menuItems.push({ type: 'separator' })
+    }
+
+    // Always present, disabled when they don't apply. Omitting them instead let
+    // the template come out empty — right-clicking the transcript with nothing
+    // selected popped no menu at all, which reads as a broken right-click.
+    menuItems.push(
+      { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
+      { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
+      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+      { type: 'separator' },
+      { label: 'Select All', role: 'selectAll', enabled: params.editFlags.canSelectAll },
+    )
 
     // Conversation output only: let the user pull a selected snippet into the
     // composer as a markdown blockquote to address that specific text.
@@ -731,9 +767,7 @@ function attachContextMenu(win: BrowserWindow): void {
       })
     }
 
-    if (menuItems.length > 0) {
-      Menu.buildFromTemplate(menuItems).popup({ window: win })
-    }
+    Menu.buildFromTemplate(menuItems).popup({ window: win })
   })
 }
 
@@ -794,7 +828,7 @@ function getLocalSessionToken(): string {
     }
   }
 
-  localSessionToken = issueSessionToken(LOCAL_DEVICE_LABEL)
+  localSessionToken = issueSessionToken(LOCAL_DEVICE_LABEL).token
   writePersistedLocalSessionToken(localSessionToken)
   return localSessionToken
 }
@@ -968,9 +1002,11 @@ if (isPairUrl) {
     // the first RPC (agent-binary lookup) needs it instead of paying up to three
     // sequential login-shell probes synchronously on that first call.
     void warmCliPath()
+      .then(() => getCodexAppServerClient().ensureStarted())
+      .catch((err) => log.warn(`Codex app-server warmup failed: ${err instanceof Error ? err.message : String(err)}`))
 
     if (process.platform === 'darwin' && app.dock) {
-      app.dock.hide()
+      app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
     }
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { CaretDownIcon, ShieldCheckIcon, PencilIcon, type IconWeight } from 'phosphor-svelte'
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
-  import { tooltip } from '../../lib/tooltip'
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'
 
@@ -54,17 +54,23 @@
 <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && tabId === undefined) requestInputFocus() }}>
   <DropdownMenu.Trigger disabled={!supportsPermissions}>
     {#snippet child({ props })}
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         {...props}
         type="button"
-        class="flex h-8 items-center gap-1.5 text-[0.8125rem] rounded-full border border-(--solus-container-border) px-3 transition-[background-color,color,scale] text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+        class="flex h-8 items-center gap-1.5 text-[0.8125rem] rounded-full border border-(--solus-container-border) px-3 transition-[background-color,color,scale] font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
-        use:tooltip={open ? null : tooltipLabel}
       >
         {#if isPlan}<PencilIcon size={13} weight="fill" />{:else}<ShieldCheckIcon size={13} weight={isAuto ? 'fill' : 'regular'} />{/if}
         {#if !compact}{modeLabel}{/if}
         <CaretDownIcon size={11} style="opacity:0.6" />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={open ? null : tooltipLabel} />
+      </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
   <DropdownMenu.Content side="bottom" align="start" sideOffset={6} class="w-[176px]">

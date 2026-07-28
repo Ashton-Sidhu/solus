@@ -72,9 +72,9 @@ export class SessionSidebarStore {
       if (tabSess.loadingHistory) continue
 
       const env = this.session.environment.environmentFor(tabId)
-      const projectKey = environmentProjectKey(env)
+      const projectKey = environmentProjectKey(env, tabSess.projectGroupPath)
       const projectLabel = projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
-      const branchKey = environmentBranchKey(env)
+      const branchKey = environmentBranchKey(env, tabSess.projectGroupPath)
       const branchLabel = tabSess.prReview?.title ?? env.name
       const attention = getAttentionState(tabSess, tabEntry, this.planStore.plans)
 
@@ -115,9 +115,15 @@ export class SessionSidebarStore {
     })
   })
 
-  activeBranchKey: string = $derived(environmentBranchKey(this.session.environment.environmentFor(this.session.activeTabId)))
+  activeBranchKey: string = $derived(environmentBranchKey(
+    this.session.environment.environmentFor(this.session.activeTabId),
+    this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
+  ))
 
-  activeProjectKey: string = $derived(environmentProjectKey(this.session.environment.environmentFor(this.session.activeTabId)))
+  activeProjectKey: string = $derived(environmentProjectKey(
+    this.session.environment.environmentFor(this.session.activeTabId),
+    this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
+  ))
 
   constructor(
     private settings: SettingsContext,

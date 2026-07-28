@@ -45,7 +45,7 @@
   // Comment bodies are GitHub markdown — same pipeline as the Activity tab's
   // thread cards, scaled to the inline card's 12px type.
   const bodyProseClass =
-    "github-markdown prose-cloud mt-0.5 text-[0.75rem] leading-relaxed text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+    "github-markdown prose-cloud mt-0.5 text-[0.75rem] leading-relaxed font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
 
   let replying = $state(false);
   let replyText = $state("");

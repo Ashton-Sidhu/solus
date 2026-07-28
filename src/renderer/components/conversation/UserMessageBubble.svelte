@@ -11,7 +11,7 @@
   import { requestFilePreview } from "../../lib/filePreview";
   import { portal } from "../portal";
   import { formatMessageTime } from "../../lib/sessionUtils";
-  import type { Message } from "../../../shared/types";
+  import type { Message, OutboundPromptState } from "../../../shared/types";
   import type { Component } from "svelte";
 
   const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, text: MarkdownText };
@@ -20,17 +20,25 @@
     message?: Message;
     content?: string;
     attachments?: Message['attachments'];
-    queued?: boolean;
+    deliveryState?: 'sent' | OutboundPromptState;
     queueId?: string;
     onCancel?: (queueId: string) => void;
     skipMotion?: boolean;
   }
-  let { message, content, attachments, queued = false, queueId, onCancel, skipMotion = false }: Props = $props();
+  let { message, content, attachments, deliveryState = 'sent', queueId, onCancel, skipMotion = false }: Props = $props();
 
   const theme = getSettingsContext();
   const session = getWorkspaceContext();
 
   const text = $derived(content ?? message?.content ?? "");
+  const isPending = $derived(deliveryState !== 'sent');
+  const deliveryLabel = $derived.by(() => {
+    if (deliveryState === 'steering') return 'Steering…';
+    if (deliveryState === 'queueing') return 'Queueing…';
+    if (deliveryState === 'queued') return 'Queued';
+    if (deliveryState === 'failed') return 'Failed to send';
+    return '';
+  });
   const allAttachments = $derived(attachments ?? message?.attachments);
   const imageAttachments = $derived(
     allAttachments?.filter((a) => a.dataUrl && a.type !== 'file') ?? [],
@@ -113,11 +121,12 @@
     <div class="relative flex items-end gap-2 max-w-[85%]">
       <div class="relative group/queued min-w-0">
         <div
-          class="overflow-hidden px-3 leading-normal {queued
+          data-delivery={deliveryState}
+          class="overflow-hidden px-3 leading-normal {isPending
             ? 'rounded-[0.875rem_0.875rem_0.25rem_0.875rem] border border-dashed border-(--solus-user-bubble-border) bg-(--solus-user-bubble) text-[0.75rem] leading-[1.5] text-(--solus-user-bubble-text) opacity-65'
             : 'rounded-[1rem_1rem_0.375rem_1rem] border border-(--solus-user-bubble-border) bg-(--solus-user-bubble) tracking-[-0.01em] text-(--solus-user-bubble-text) shadow-(--bubble-shadow)'}"
-          class:py-1={!queued}
-          class:py-1.5={queued}
+          class:py-1={!isPending}
+          class:py-1.5={isPending}
           style:--bubble-shadow={theme.isDark
             ? 'inset 0 0.0625rem 0 rgba(255,255,255,0.06), 0 0.0625rem 0.1875rem rgba(0,0,0,0.2)'
             : 'inset 0 0.0625rem 0 rgba(255,255,255,0.8), 0 0.0625rem 0.1875rem rgba(0,0,0,0.06)'}
@@ -126,7 +135,12 @@
             <SvelteMarkdown source={text} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
           </div>
         </div>
-        {#if queued && queueId && onCancel}
+        {#if isPending}
+          <div class="mt-1 text-right text-[0.625rem] font-medium text-(--solus-text-tertiary)">
+            {deliveryLabel}
+          </div>
+        {/if}
+        {#if deliveryState === 'queued' && queueId && onCancel}
           <button
             type="button"
             onclick={() => onCancel!(queueId!)}
@@ -176,7 +190,7 @@
     ? ''
     : 'animate-msg-in-up'}"
 >
-  {#if message?.timestamp && !queued && !runtime.isMobileViewport}
+  {#if message?.timestamp && !isPending && !runtime.isMobileViewport}
     <span
       class="cv-stamp-gutter-right text-[0.625rem] text-(--solus-text-tertiary) tabular-nums select-none transition-opacity duration-100 {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/user:opacity-100'}"
     >
@@ -199,7 +213,7 @@
     {/if}
     {@render bubbleBody()}
   </div>
-  {#if !queued && text && !runtime.isMobileViewport}
+  {#if !isPending && text && !runtime.isMobileViewport}
     <div
       class="absolute top-full right-0 -mt-1 z-10 transition-opacity duration-100 {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/user:opacity-100'}"
     >

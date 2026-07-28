@@ -13,7 +13,7 @@
     formatAbsoluteTimestamp,
     formatTimeAgoFromTimestamp,
   } from "../../lib/sessionUtils";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
   import PrChecksChip from "./PrChecksChip.svelte";
   import { relativeTime, reviewEffortTooltip } from "./lib/pr-utils";
@@ -168,12 +168,18 @@
       <div class="flex shrink-0 items-center gap-1.5">
         {#if pr.effort}
           <!-- Review effort right-aligns as its own scannable column. -->
-          <span
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps}
             class="shrink-0 text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
-            use:tooltip={reviewEffortTooltip(pr) ?? ""}
           >
             ~{pr.effort.minutes} min
           </span>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={reviewEffortTooltip(pr) ?? ""} />
+          </TooltipUI.Root>
         {/if}
       </div>
     </div>
@@ -189,13 +195,19 @@
       <span aria-hidden="true">·</span>
       <span class="shrink-0 tabular-nums">{relativeTime(pr.updatedAt)}</span>
       <span aria-hidden="true">·</span>
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="shrink-0 tabular-nums"
-        use:tooltip={`+${pr.additions} added · −${pr.deletions} removed`}
       >
         <span class="text-(--solus-art-positive)">+{pr.additions}</span>
         <span class="text-(--solus-art-negative)">−{pr.deletions}</span>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={`+${pr.additions} added · −${pr.deletions} removed`} />
+      </TooltipUI.Root>
       {#if stackParent !== null}
         <span aria-hidden="true">·</span>
         <span
@@ -209,14 +221,20 @@
         <span class="shrink-0 font-medium">Draft</span>
       {/if}
       {#if attentionLabel}
-        <span
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
           class="inline-flex shrink-0 items-center rounded-full bg-(--solus-accent-light) px-1.5 py-px text-[0.625rem] font-semibold text-(--solus-accent)"
-          use:tooltip={attentionLabel === "Assigned"
-            ? "You're assigned to this pull request"
-            : "Your review was requested"}
         >
           {attentionLabel}
         </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={attentionLabel === "Assigned"
+            ? "You're assigned to this pull request"
+            : "Your review was requested"} />
+        </TooltipUI.Root>
       {/if}
       <PrChecksChip
         summary={checksSummary}
@@ -225,15 +243,21 @@
         quietWhenPassing
       />
       {#if guideMetadata}
-        <span
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
           class="inline-flex shrink-0 items-center gap-1 font-medium tabular-nums {guideMetadata.current
-            ? 'text-(--solus-text-secondary)'
+            ? 'font-secondary text-(--solus-text-secondary)'
             : 'text-amber-700 dark:text-amber-400'}"
-          use:tooltip={guideTooltip}
         >
           <BookOpenTextIcon size={11} weight="bold" />
           Guide {guideTime}
         </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={guideTooltip} />
+        </TooltipUI.Root>
       {/if}
     </div>
   </div>

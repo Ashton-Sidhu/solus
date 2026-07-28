@@ -20,6 +20,7 @@
   import {
     projectsStore,
     connectionsStore,
+    serversStore,
     runtime,
   } from "../../contexts";
   import { getPopoverLayer } from "../popoverLayer.svelte";
@@ -60,6 +61,8 @@
     api?: typeof window.solus;
     /** Shown as a chip when browsing a host other than the active server. */
     hostLabel?: string;
+    /** Lets remote browsing share the host store's temporary-connection recents cache. */
+    serverId?: string;
   }
 
   let {
@@ -71,6 +74,7 @@
     actionLabel = "Select",
     api = undefined,
     hostLabel = undefined,
+    serverId = undefined,
   }: Props = $props();
 
   const layer = getPopoverLayer();
@@ -205,7 +209,9 @@
 
     const recents = isPrimaryHost
       ? projectsStore.loadRecentProjects().then(() => projectsStore.recentProjects)
-      : browseApi.listRecentProjects();
+      : serverId
+        ? serversStore.recentProjectsFor(serverId)
+        : Promise.resolve([]);
     void Promise.all([
       browseApi.getServerCapabilities().catch(() => null),
       browseApi.listDirectory("~", true).catch(() => null),
@@ -746,21 +752,13 @@
     display: none;
   }
 
-  /* A dialog this small can't afford chrome-width scrollbars on two rails, so
-     both scroll on a hairline thumb over a track that isn't drawn at all. */
-  .hairline-scroll {
-    scrollbar-width: thin;
-  }
-  .hairline-scroll::-webkit-scrollbar,
   .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar) {
     width: 0.1875rem;
     height: 0.1875rem;
   }
-  .hairline-scroll::-webkit-scrollbar-track,
   .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar-track) {
     background: transparent;
   }
-  .hairline-scroll::-webkit-scrollbar-thumb,
   .virtual-scroll :global(.virtual-list-wrapper::-webkit-scrollbar-thumb) {
     background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
     border-radius: 0.25rem;
@@ -776,4 +774,5 @@
       display: none;
     }
   }
+
 </style>

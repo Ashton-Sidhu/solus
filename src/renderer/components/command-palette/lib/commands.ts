@@ -29,6 +29,14 @@ export interface CommandGroup {
   items: Command[]
 }
 
+export type CommandSelectionMove =
+  | 'first'
+  | 'last'
+  | 'next'
+  | 'previous'
+  | 'next-group'
+  | 'previous-group'
+
 const searchTextCache = new WeakMap<Command, string>()
 
 function commandSearchText(command: Command): string {
@@ -76,4 +84,60 @@ export function retainCommandSelection(
   return commands.some((command) => command.id === selectedCommandId)
     ? selectedCommandId
     : commands[0]?.id ?? ''
+}
+
+/**
+ * Resolves keyboard navigation from a stable command id, so inserting commands
+ * into a live list does not turn the current selection into a stale index.
+ */
+export function moveCommandSelection(
+  commands: Command[],
+  selectedCommandId: string,
+  move: CommandSelectionMove,
+  loop = false,
+): string {
+  if (commands.length === 0) return ''
+
+  const selectedIndex = commands.findIndex((command) => command.id === selectedCommandId)
+  const currentIndex = selectedIndex >= 0 ? selectedIndex : 0
+
+  if (move === 'first') return commands[0]!.id
+  if (move === 'last') return commands.at(-1)!.id
+
+  if (move === 'next' || move === 'previous') {
+    const offset = move === 'next' ? 1 : -1
+    const nextIndex = selectedIndex < 0 && move === 'next'
+      ? 0
+      : currentIndex + offset
+    if (nextIndex >= 0 && nextIndex < commands.length) {
+      return commands[nextIndex]!.id
+    }
+    if (!loop) return commands[currentIndex]!.id
+    return move === 'next' ? commands[0]!.id : commands.at(-1)!.id
+  }
+
+  const direction = move === 'next-group' ? 1 : -1
+  const currentGroup = commands[currentIndex]!.group
+  let candidateIndex = currentIndex + direction
+  while (
+    candidateIndex >= 0 &&
+    candidateIndex < commands.length &&
+    commands[candidateIndex]!.group === currentGroup
+  ) {
+    candidateIndex += direction
+  }
+
+  if (candidateIndex < 0 || candidateIndex >= commands.length) {
+    if (!loop) return commands[currentIndex]!.id
+    candidateIndex = move === 'next-group' ? 0 : commands.length - 1
+  }
+
+  const targetGroup = commands[candidateIndex]!.group
+  while (
+    candidateIndex > 0 &&
+    commands[candidateIndex - 1]!.group === targetGroup
+  ) {
+    candidateIndex -= 1
+  }
+  return commands[candidateIndex]!.id
 }

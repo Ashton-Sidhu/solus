@@ -599,7 +599,7 @@
   >
     <div
       bind:this={popoverEl}
-      class="flex flex-col overflow-hidden overscroll-contain border border-[var(--solus-popover-border)] bg-[color-mix(in_srgb,var(--solus-popover-bg)_82%,transparent)] outline-none backdrop-blur-[3rem] backdrop-saturate-[1.15] origin-top animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-[1.125rem] shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none {portalTarget
+      class="flex flex-col overflow-hidden overscroll-contain border border-[var(--solus-popover-border)] outline-none origin-top animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-[1.125rem] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none {portalTarget
         ? 'h-3/4 max-h-[75%] w-3/4'
         : 'h-[75vh] w-[clamp(32rem,58vw,56rem)] md:max-[1100px]:h-[min(78vh,42rem)] md:max-[1100px]:w-[min(80vw,48rem)]'}"
       role="dialog"

@@ -17,7 +17,7 @@
     getStatusIcon,
     projectByline,
   } from "../../lib/sessionUtils";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -93,11 +93,13 @@
   >
     {#if statusIcon}
       {@const StatusIcon = statusIcon.component}
-      <span
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}
         class="flex shrink-0 items-center justify-center"
         style="color:{statusIcon.color}"
         aria-label={statusLabel}
-        use:tooltip={statusLabel}
       >
         <StatusIcon
           size={12}
@@ -105,6 +107,10 @@
           class={statusIcon.spin ? "animate-spin motion-reduce:animate-none" : ""}
         />
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={statusLabel} />
+      </TooltipUI.Root>
     {:else}
       <ChatCircleIcon
         size={13}
@@ -128,7 +134,10 @@
       </span>
     </div>
     {#if onToggleMaximize}
-      <span use:tooltip={panes.maximized ? "Restore" : "Maximize"}>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps}>
         <Button
           variant="ghost"
           size="icon"
@@ -144,6 +153,10 @@
           {/if}
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={panes.maximized ? "Restore" : "Maximize"} />
+      </TooltipUI.Root>
     {/if}
     <DropdownMenu.Root
       bind:open={overflowOpen}
@@ -153,7 +166,10 @@
     >
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <span class="inline-flex" use:tooltip={overflowOpen ? null : "More actions"}>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps} class="inline-flex">
             <Button
               {...props}
               variant="ghost"
@@ -165,6 +181,10 @@
               <DotsThreeIcon size={13} weight="bold" />
             </Button>
           </span>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={overflowOpen ? null : "More actions"} />
+          </TooltipUI.Root>
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[200px]">
@@ -197,7 +217,10 @@
         </DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
-    <span use:tooltip={"Close"}>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps}>
       <Button
         variant="ghost"
         size="icon"
@@ -212,6 +235,10 @@
         <XIcon size={13} weight="bold" />
       </Button>
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Close"} />
+    </TooltipUI.Root>
   </header>
 
   <div class="flex min-h-0 flex-1 flex-col">

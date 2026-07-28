@@ -5,7 +5,7 @@ import { basename } from 'node:path'
 import { getSessionMessages, listProjectRoots, searchIndexedSessions } from '../db/session-indexer'
 import { formatPendingInputReport } from './session-report'
 import { MODEL_PROFILES } from '../../shared/types'
-import type { AgentId, NormalizedEvent, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
+import type { AgentId, NormalizedEvent, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
 import type { SessionLoadMessage } from '../../shared/session-history'
 
 const log = createLogger('sessions', 'session-tools.ts')
@@ -53,7 +53,11 @@ export interface SessionController {
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit: number): Promise<SessionLoadMessage[]>
   liveStatus(agentSessionId: string): SessionStatus | null
   pendingInputEvents(agentSessionId: string): NormalizedEvent[]
-  promptSession(agentSessionId: string, prompt: string): Promise<{ queued: boolean }>
+  promptSession(
+    agentSessionId: string,
+    prompt: string,
+    delivery?: PromptDelivery,
+  ): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
   watchSessionSettled(targetSessionId: string, callerSessionId: string): void
   stopSession(agentSessionId: string): boolean
 }
@@ -164,7 +168,11 @@ const searchSessionsShape = {
 
 const promptSessionShape = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
-  prompt: z.string().describe('Prompt to send into the target session. Queues if that session is busy.'),
+  prompt: z.string().describe('Prompt to send into the target session.'),
+  delivery: z
+    .enum(['queue', 'steer'])
+    .default('queue')
+    .describe("How to deliver the prompt when the target is busy. Use 'steer' when this message should interrupt or redirect the target's current line of work—for example to correct its approach, add a missing constraint, or reprioritize what it is doing now. Use 'queue' (default) for additional or sequential work that should wait until the current turn finishes. Steering is consumed at the provider's next decision point and automatically falls back to queueing if the active turn can no longer accept it."),
   notify_on_completion: z.boolean().default(true).describe("When true, this conversation receives the target session's reply later as a [session report]. Defaults to true."),
 }
 
@@ -185,7 +193,7 @@ const SEARCH_SESSIONS_DESC =
 const READ_SESSION_DESC =
   'Load a Solus session by id: its status plus message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead.'
 const PROMPT_SESSION_DESC =
-  "Send a prompt into another Solus session by session id. If the target is busy, the prompt is queued. By default, its reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
+  "Send a prompt into another Solus session by session id. Choose delivery: 'steer' only when the target's work in progress should change now—for example to correct, interrupt, redirect, constrain, or reprioritize its current approach. Choose 'queue' for independent or sequential follow-up that should begin after the current turn; queue is the default. Steering is consumed at the provider's next decision point rather than cancelling the session, and automatically falls back to queueing if the turn is ending or cannot be steered. By default, the target's reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
 const WAIT_FOR_SESSION_DESC =
   "Watch an already-running Solus session for its next completion or request for human input. Returns immediately with the current status; the reply arrives later in this conversation as a [session report]. Watchers do not survive app restart, so fall back to read_session. Does not register if the target is not currently running/busy. Cannot target your own session."
 const STOP_SESSION_DESC =
@@ -469,12 +477,17 @@ export async function executeSessionTool(
       }
       const prompt = typeof args.prompt === 'string' ? args.prompt : ''
       if (!prompt.trim()) return { ok: false, text: 'prompt_session requires a non-empty prompt.' }
+      const delivery: PromptDelivery = args.delivery === 'steer' ? 'steer' : 'queue'
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
-      const result = await sessionController.promptSession(sessionId, prompt)
+      const result = await sessionController.promptSession(sessionId, prompt, delivery)
       if (notifyOnCompletion) sessionController.watchSessionSettled(sessionId, callerSessionId!)
       deps.onSessionPrompted?.({ agentSessionId: sessionId, promptPreview: truncate(prompt, 80), provider: meta.provider, cwd: meta.cwd })
-      const dispatch = result.queued ? 'Queued prompt for' : 'Prompt dispatched to'
+      const dispatch = result.disposition === 'queued'
+        ? 'Queued prompt for'
+        : result.disposition === 'steered'
+          ? 'Steered the active turn in'
+          : 'Prompt dispatched to'
       const completion = notifyOnCompletion
         ? " You'll receive its reply in this conversation when it finishes (note: pending replies are lost if the app restarts — use read_session to catch up)."
         : ''

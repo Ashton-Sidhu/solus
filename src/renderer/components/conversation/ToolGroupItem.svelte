@@ -253,6 +253,7 @@
                 <span
                   class="text-[0.75rem] leading-[1.4] min-w-0 truncate group-hover/tool:whitespace-normal group-hover/tool:break-words"
                   class:text-(--solus-text-secondary)={isRunning}
+                  class:font-secondary={isRunning}
                   class:text-(--solus-text-tertiary)={!isRunning}
                   >{fullDesc}</span
                 >
@@ -286,7 +287,7 @@
       size={10}
       class="flex-shrink-0 mt-[0.125rem] text-(--solus-text-tertiary)"
     />
-    <span class="text-[0.75rem] leading-[1.4] text-(--solus-text-secondary)"
+    <span class="text-[0.75rem] leading-[1.4] font-secondary text-(--solus-text-secondary)"
       >{toolSummary()}</span
     >
   </div>

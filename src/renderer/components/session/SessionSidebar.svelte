@@ -23,7 +23,7 @@
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     getAttentionIcon,
@@ -85,11 +85,11 @@
     "hover:bg-(--solus-surface-hover) hover:border-[color-mix(in_srgb,var(--solus-container-border)_80%,transparent)]";
   // Top-nav card cluster (Plans / Folio / Automations / …).
   const navCardBase =
-    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)";
+    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left font-secondary text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)";
   const navCardActive =
     "text-(--solus-text-primary) bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]";
   const navCardIcon =
-    "flex items-center flex-shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-accent) group-data-active:text-(--solus-accent)";
+    "flex items-center flex-shrink-0 font-secondary text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-accent) group-data-active:text-(--solus-accent)";
   const navLabel =
     "text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left";
   const navHint =
@@ -406,10 +406,12 @@
         class="flex items-center gap-px flex-shrink-0 max-w-0 pl-0.5 overflow-hidden opacity-0 pointer-events-none transition-[max-width,opacity] duration-150 group-hover:max-w-12 group-hover:opacity-100 group-hover:pointer-events-auto focus-within:max-w-12 focus-within:opacity-100 focus-within:pointer-events-auto"
       >
         {#if showNew}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background] duration-[120ms] hover:text-(--solus-accent) hover:bg-(--solus-surface-hover) focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]"
             aria-label="New session in {label}"
-            use:tooltip={"New session"}
             onclick={(e) => {
               e.stopPropagation();
               void newSessionForGroup(tabIds);
@@ -417,12 +419,18 @@
           >
             <PlusIcon size={12} />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"New session"} />
+          </TooltipUI.Root>
         {/if}
         {#if showSplit && tabIds[0]}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background] duration-[120ms] hover:text-(--solus-accent) hover:bg-(--solus-surface-hover) focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]"
             aria-label="Open {label} in split"
-            use:tooltip={"Open in split"}
             onclick={(event) => {
               event.stopPropagation();
               openTabInSplit(tabIds[0]);
@@ -430,15 +438,19 @@
           >
             <ChatsIcon size={12} />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Open in split"} />
+          </TooltipUI.Root>
         {/if}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background] duration-[120ms] hover:text-(--solus-stop-bg) hover:bg-[color-mix(in_srgb,var(--solus-stop-bg)_14%,transparent)] focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-stop-bg)]"
           aria-label={tabIds.length > 1
             ? `Close ${tabIds.length} sessions in ${label}`
             : `Close ${label}`}
-          use:tooltip={tabIds.length > 1
-            ? `Close ${tabIds.length} sessions`
-            : "Close"}
           onclick={(e) => {
             e.stopPropagation();
             closeTabs(tabIds);
@@ -446,6 +458,12 @@
         >
           <XIcon size={12} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={tabIds.length > 1
+            ? `Close ${tabIds.length} sessions`
+            : "Close"} />
+        </TooltipUI.Root>
       </span>
     {/snippet}
     {#snippet attentionMark(att: AttentionState)}
@@ -517,7 +535,7 @@
                 )}
                 {@const showBranchActive = isActiveBranch && !isExpanded}
                 <div
-                  class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
+                  class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none font-secondary text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
                     ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
                     : `border-transparent bg-transparent ${rowHoverWash}`}"
                   style="--branch-kind-color:{branchKindColor(branch.kind)}"
@@ -603,7 +621,7 @@
                       {@const showChildActive = isActiveBranch && child.active}
                       {@const hostAffinity = serversStore.affinityFor(child.serverId)}
                       <div
-                        class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
+                        class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none font-secondary text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                           ? `${rowActiveWash} text-(--solus-text-primary)`
                           : `border-transparent bg-transparent ${rowHoverWash}`}"
                         role="button"
@@ -634,12 +652,18 @@
                         </span>
                         {#if hostAffinity}
                           {@const HostIcon = hostAffinity.icon}
-                          <span
+                          <TooltipUI.Root>
+                            <TooltipUI.Trigger>
+                              {#snippet child({ props: tooltipProps })}
+                                <span {...tooltipProps}
                             class="flex shrink-0 items-center {hostAffinity.className}"
-                            use:tooltip={hostAffinity.tooltip}
                           >
                             <HostIcon size={11} />
                           </span>
+                              {/snippet}
+                            </TooltipUI.Trigger>
+                            <TooltipUI.Content value={hostAffinity.tooltip} />
+                          </TooltipUI.Root>
                         {/if}
                         {#if child.attention}
                           {@render attentionMark(child.attention)}
@@ -678,7 +702,7 @@
           <span
             class="text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left {session.settingsOpen
               ? 'text-(--solus-text-primary)'
-              : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
+              : 'font-secondary text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
             >Settings</span
           >
           <span

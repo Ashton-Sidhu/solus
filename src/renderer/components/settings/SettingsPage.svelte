@@ -13,7 +13,13 @@
     NotePencilIcon,
     FolderIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext, getWindowContext, runtime } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getWindowContext,
+    runtime,
+    serversStore,
+  } from "../../contexts";
+  import { connectionsNav } from "../connections/connections-nav.svelte";
   import { Button } from "../ui/button";
   import { SearchField } from "../ui/search-field";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
@@ -183,9 +189,20 @@
     }
   }
 
+  // Connections is the one tab with a page under it, so the crumb trail grows a
+  // third step rather than the host page having to draw its own header.
+  const openHostLabel = $derived(
+    session.settingsTab === "api-access" && connectionsNav.hostId
+      ? (serversStore.servers.find(
+          (server) => server.id === connectionsNav.hostId,
+        )?.label ?? null)
+      : null,
+  );
+
   function selectTab(tab: SettingsTab) {
     session.settingsTab = tab;
     searchQuery = "";
+    connectionsNav.back();
   }
 </script>
 
@@ -247,7 +264,7 @@
           class="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[0.8125rem] font-medium [-webkit-tap-highlight-color:transparent] {session.settingsTab ===
           tab.id
             ? 'bg-(--solus-accent-light) text-(--solus-accent)'
-            : 'bg-(--solus-surface-hover) text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary)'}"
+            : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary)'}"
         >
           <Icon size={15} /><span>{tab.label}</span>
         </button>
@@ -351,9 +368,21 @@
         >
           <span>Settings</span>
           <span class="opacity-50">&#8260;</span>
-          <span class="font-medium text-foreground truncate" aria-current="page"
-            >{activeTabMeta.label}</span
-          >
+          {#if openHostLabel}
+            <button
+              type="button"
+              class="truncate transition-colors hover:text-foreground"
+              onclick={() => connectionsNav.back()}>{activeTabMeta.label}</button
+            >
+            <span class="opacity-50">&#8260;</span>
+            <span class="font-medium text-foreground truncate" aria-current="page"
+              >{openHostLabel}</span
+            >
+          {:else}
+            <span class="font-medium text-foreground truncate" aria-current="page"
+              >{activeTabMeta.label}</span
+            >
+          {/if}
         </nav>
         <Button
           variant="ghost"
@@ -374,15 +403,17 @@
         <!-- Fluid reading column: grows with the window between 45rem and 72rem.
              `w-full` keeps it from overflowing narrow panes — max-width only caps. -->
         <div class="mx-auto w-full max-w-[clamp(45rem,66vw,72rem)] pt-8 pb-16">
-          <h1
-            class="text-[clamp(1.25rem,1.15rem+0.35vw,1.5rem)] font-semibold tracking-tight text-foreground"
-          >
-            {activeTabMeta.label}
-          </h1>
-          <p class="mt-1 text-[0.8125rem] text-muted-foreground">
-            {activeTabMeta.description}
-          </p>
-          <div class="mt-8 flex flex-col gap-7">
+          {#if !openHostLabel}
+            <h1
+              class="text-[clamp(1.25rem,1.15rem+0.35vw,1.5rem)] font-semibold tracking-tight text-foreground"
+            >
+              {activeTabMeta.label}
+            </h1>
+            <p class="mt-1 text-[0.8125rem] text-muted-foreground">
+              {activeTabMeta.description}
+            </p>
+          {/if}
+          <div class:mt-8={!openHostLabel} class="flex flex-col gap-7">
             {@render tabContent()}
           </div>
         </div>

@@ -189,9 +189,6 @@
   --solus-accent-border-medium: rgba(217, 119, 87, 0.25);
   /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
   --solus-accent-wash: rgba(217, 119, 87, 0.18);
-  /* Brand gold — the logo/favicon mark, not the accent. Deepened here so the
-     small workspace glyph stays legible against parchment. */
-  --solus-brand-gold: #b8924e;
   /* Paintbrush texture for unread items. Two masks multiplied together: an
      anisotropic "bristle" streak (long in x, thin in y, so it drags like brush
      hairs) and a low-frequency "load" blotch where the paint pools thick and
@@ -252,9 +249,46 @@
   --solus-btn-hover-color: #2a2618;
   --solus-btn-hover-bg: #f1efe7;
   /* Popover */
-  --solus-popover-bg: rgba(252, 251, 248, 0.99);
+  --solus-popover-bg: #fcfbf8;
   --solus-popover-border: #dddad2;
   --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.65), 0 0.0625rem 0.125rem rgba(0,0,0,0.05), 0 0.625rem 1.75rem rgba(60,45,30,0.14);
+  /* Menu — the floating command surface (dropdowns, context menus, selects,
+     the branch/project/model pickers). Deliberately separate from the popover
+     tokens above: a menu draws its edge as a hairline *inside* the shadow
+     stack, where a modal or toast still wants a real border. */
+  /* Fully opaque. A menu floats over whatever the app happens to sit on — in
+     pill mode that's a transparent window, so even a sliver of alpha lets the
+     desktop bleed through and the surface stops reading as a solid object.
+     Derived, not hard-coded, so dark mode needs no second value. */
+  --solus-menu-bg: var(--solus-popover-bg);
+  /* Four layers, no border. The ring is a spread-only hairline, so it adds
+     nothing to the box and doesn't harden the corner radius; being foreground
+     ink rather than --border, it darkens against whatever the panel sits on.
+     Contact is what actually separates the panel from the surface beneath —
+     without it the panel looks pasted on however large the blur. Key sets the
+     light direction; ambient is the wide pool that reads as height. Opacity
+     escalates as blur escalates, which is inverted from intuition but correct:
+     24% spread over a 70px blur lands as a whisper per pixel, where 6% over 4px
+     stays crisp. Negative spread on all three pulls each rect in before blurring
+     so the falloff runs downward instead of haloing sideways into a glow. Pure
+     black, not tinted — a warm shadow on warm parchment goes muddy and stains
+     the panel into the page instead of lifting it off. */
+  --solus-menu-shadow:
+    0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 10%, transparent),
+    0 0.125rem 0.25rem -0.125rem rgba(0, 0, 0, 0.06),
+    0 0.875rem 1.875rem -0.75rem rgba(0, 0, 0, 0.18),
+    0 2.25rem 4.375rem -1.875rem rgba(0, 0, 0, 0.24);
+  /* Dividers are the same technique at lower ink, so nothing in the panel
+     reaches for --border and the whole object stays one tonal family.
+     Mixed in srgb, never oklch: `transparent` is rgb(0 0 0 / 0), whose oklch
+     hue is 0, and a polar space interpolates that hue — so a 2.5% tint of the
+     warm brown text colour comes out pink. srgb has no hue channel, so the
+     mix means what it reads as. */
+  --solus-menu-hairline: color-mix(in srgb, var(--solus-text-primary) 8%, transparent);
+  /* Layered as an inset shadow rather than a background so hovering the
+     current row washes over its state instead of erasing it. */
+  --solus-menu-hover-ink: rgba(42, 38, 24, 0.04);
+  --solus-menu-footer-bg: color-mix(in srgb, var(--solus-text-primary) 2.5%, transparent);
   /* Toast — unlike a popover it isn't anchored to anything, so it needs a
      deeper, wider drop to read as floating plus a tight contact shadow to keep
      its edge crisp over busy content. */
@@ -449,8 +483,6 @@
   --solus-accent-border-medium: rgba(224, 138, 110, 0.28);
   /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
   --solus-accent-wash: rgba(224, 138, 110, 0.20);
-  /* Brand gold — the logo/favicon mark, at its true value on dark ground. */
-  --solus-brand-gold: #d4af6a;
   /* Status */
   --solus-status-idle: #8a8578;
   --solus-status-running: #e08a6e;
@@ -500,9 +532,19 @@
   --solus-btn-hover-color: #bfb9aa;
   --solus-btn-hover-bg: #262520;
   /* Popover */
-  --solus-popover-bg: rgba(30, 29, 26, 0.99);
+  --solus-popover-bg: #1e1d1a;
   --solus-popover-border: rgba(255, 255, 255, 0.10);
   --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.09), 0 0.125rem 0.375rem rgba(0,0,0,0.35), 0 0.875rem 2.25rem rgba(0,0,0,0.45);
+  /* Menu — see the light-mode block. --solus-menu-bg, the ring and the dividers
+     are all derived from tokens this block already redefines, so they re-resolve
+     here on their own. Only the drop layers need dark values: pure black at
+     light-mode alphas disappears against a dark canvas. */
+  --solus-menu-shadow:
+    0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 16%, transparent),
+    0 0.125rem 0.25rem -0.125rem rgba(0, 0, 0, 0.30),
+    0 0.875rem 1.875rem -0.75rem rgba(0, 0, 0, 0.45),
+    0 2.25rem 4.375rem -1.875rem rgba(0, 0, 0, 0.55);
+  --solus-menu-hover-ink: rgba(255, 255, 255, 0.055);
   --solus-toast-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.08), 0 0.0625rem 0.125rem rgba(0,0,0,0.4), 0 0.75rem 1.5rem -0.375rem rgba(0,0,0,0.45), 0 1.75rem 3.5rem -0.75rem rgba(0,0,0,0.55);
   /* Code */
   --solus-code-bg: #252420;
@@ -737,9 +779,12 @@ html.solus-web #root {
   background: var(--solus-edge-bg) !important;
 }
 
-/* Secondary UI labels carry slightly more visual weight than reading text. */
-[class~="text-(--solus-text-secondary)"] {
-  font-weight: var(--solus-font-weight-secondary);
+/* Secondary UI labels carry the typeface's crisp weight (see APP_FONT_FAMILIES
+   in settings.context — 500 for Inter/DM Sans, 400 for System/Geist/Lora, 300
+   for SF Pro Text). `inline` so the utility resolves the live runtime variable
+   applyFontFamily() writes onto <html>, not a build-time snapshot. */
+@theme inline {
+  --font-weight-secondary: var(--solus-font-weight-secondary);
 }
 
 /* ─── Touch scrolling — native-feel on mobile/touch devices ─── */
@@ -1963,6 +2008,21 @@ button.solus-token {
   animation: spin 0.9s linear infinite;
 }
 
+/* Compact rails use a visible but deliberately quiet scrollbar. */
+.hairline-scroll {
+  scrollbar-width: thin;
+}
+.hairline-scroll::-webkit-scrollbar {
+  width: 0.1875rem;
+}
+.hairline-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hairline-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--solus-text-tertiary) 35%, transparent);
+  border-radius: 0.25rem;
+}
+
 /* ─── Top scroll fade — sticky pseudo-element ─── */
 .has-scroll-fade-top {
   position: relative;
@@ -2005,34 +2065,6 @@ html.is-mac-editor {
   -webkit-app-region: no-drag;
 }
 
-/* ─── Fast custom tooltips ─── */
-.solus-tooltip {
-  position: fixed;
-  z-index: 9999;
-  pointer-events: none;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.3125rem;
-  font-size: 0.7188rem;
-  font-family: var(--solus-font-family);
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  background: var(--solus-text-primary);
-  color: var(--solus-container-bg);
-  box-shadow: 0 0.125rem 0.5rem rgba(0,0,0,0.18);
-  animation: solus-tooltip-in 100ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-@keyframes solus-tooltip-in {
-  from { opacity: 0; transform: translateY(0.125rem) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0)   scale(1); }
-}
-.solus-tooltip--above {
-  transform-origin: bottom center;
-}
-.solus-tooltip--below {
-  transform-origin: top center;
-}
-
 /* ─── Dropdown menu item stagger ─── */
 @theme {
   --animate-menu-item-in: menu-item-in 0.18s ease-out backwards;
@@ -2049,6 +2081,78 @@ html.is-mac-editor {
   &:nth-child(5) { animation-delay: 200ms; }
   &:nth-child(n + 6) { animation-delay: 250ms; }
   @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
+/* ─── Menu surface, rows and headings ───────────────────────────────────────
+   One command surface for every menu in the app: dropdowns, context menus,
+   selects, and the branch/project/model pickers all compose from these three.
+   The metrics are deliberate — a 32px row carrying a 13px label reads as an
+   app menu, where the taller/smaller pairing reads as a website's. */
+@theme {
+  --animate-menu-pop-in: menu-pop-in 0.16s ease-out;
+  @keyframes menu-pop-in {
+    from { opacity: 0; transform: translateY(0.3125rem) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* A menu is chrome, not content: plain rem, scaling only with the fluid root
+     font-size, never with --solus-font-scale (that preference belongs to the
+     transcript). 13px label in a 32px row is the pairing that reads as an app
+     menu rather than a web page's. */
+  --text-menu: 0.8125rem;
+  --text-menu-meta: 0.6875rem;
+}
+
+@utility menu-surface {
+  overflow: hidden;
+  border: 0;
+  border-radius: 1rem;
+  /* One row type everywhere: regular. Weight is spent on the current row and
+     the group headings, never on the list at rest. */
+  font-weight: 400;
+  background: var(--solus-menu-bg);
+  /* Set both. Any `ring-*` utility — including the `ring-0` every menu uses to
+     kill the stock ring — re-declares `box-shadow` as Tailwind's composite, and
+     being a utility it lands after this one and wins. Feeding `--tw-shadow` too
+     means the stack survives that composite instead of being blanked by it. */
+  --tw-shadow: var(--solus-menu-shadow);
+  box-shadow: var(--solus-menu-shadow);
+  animation: var(--animate-menu-pop-in);
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
+/* The current row is weight + check — two quiet signals rather than one loud
+   fill. `data-state=checked` covers bits-ui radio/checkbox items;
+   `data-menu-current` is the manual hook for Command rows, whose own
+   `data-selected` means keyboard-highlighted, not chosen. */
+@utility menu-row {
+  /* Anchors the absolutely-positioned check indicator on radio/checkbox rows. */
+  position: relative;
+  transition: box-shadow var(--duration-quick) var(--ease-premium),
+              color var(--duration-quick) var(--ease-premium);
+
+  &:hover:not(:disabled):not([data-disabled]),
+  &[data-highlighted],
+  &[data-selected] {
+    box-shadow: inset 0 0 0 62rem var(--solus-menu-hover-ink);
+    color: var(--solus-text-primary);
+  }
+
+  &[data-state="checked"],
+  &[data-menu-current] {
+    color: var(--solus-text-primary);
+    font-weight: 500;
+  }
+}
+
+@utility menu-heading {
+  padding: 0.5rem 0.625rem 0.3125rem;
+  font-size: 0.59375rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--solus-text-tertiary);
 }
 
 @keyframes backdrop-fade {

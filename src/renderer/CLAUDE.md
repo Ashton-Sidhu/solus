@@ -9,6 +9,15 @@
 - Flag any file > 600 lines in review. Hard-split > 1000 lines.
 - `SvelteMap` / `SvelteSet` for reactive maps/sets. Use `$effect` only when `$derived` genuinely can't — no exceptions.
 
+## When a token "looks wrong", check whether it ever applied
+
+A class can be defined correctly and still never reach the DOM — no build error, no warning, nothing in the markup. Read the compiled class list before re-tuning a value. `bun run test:unit` guards all four; `lib/utils.test.ts` explains each.
+
+- **Custom `@theme` keys are invisible to tailwind-merge.** It guesses the property group of anything outside Tailwind's stock scales — usually colour — and deletes the class against a same-prefix neighbour. `text-menu` was dropped by the `text-(--solus-text-secondary)` beside it on every menu row. Register the key in `twMergeConfig` in `lib/tw.ts`, and import `cn`/`tv` from there — never from `tailwind-merge`/`tailwind-variants`, which shadcn-svelte generates on every `add`.
+- **A breakpoint- or `!`-prefixed class is its own merge group.** A primitive's `md:text-sm` or `text-xs!` survives a call site's `text-[…]` and then wins the cascade, so the call site's size never applies. Write primitive *defaults* unprefixed and un-`!`; where a primitive legitimately re-sizes at a breakpoint (`Popover.Content` has `lg:text-[0.9375rem]`), the call site must restate its own size at that breakpoint too.
+- **`shadow-[var(--x)]` is ambiguous, so it does not override `shadow-md`.** tailwind-merge files it under shadow-*colour*; both classes survive, both set `--tw-shadow`, and compiled sheet order decides. Add the type hint — `shadow-[shadow:var(--x)]`, `text-[color:…]` — which classifies correctly and evicts the stock class. Those hints are load-bearing; don't "simplify" them.
+- **Any stock utility re-declaring a property beats a custom `@utility`.** Custom utilities compile early in the sheet. In v4 *any* `ring-*` — including the `ring-0` every menu passes — re-emits `box-shadow` as Tailwind's composite from a much later byte offset, which blanked `menu-surface` entirely. Feed the `--tw-*` variable (`--tw-shadow`) as well as the property, so the value flows through the composite instead of being replaced by it. Verify with byte offsets in `dist/renderer/assets/*.css`, not by reasoning.
+
 ## `contexts/` — the barrel rule
 
 State stores, foldered by domain. **Public surface = `contexts/index.ts`** (curated barrel); import authoritative stores from it. `workspace/` contents (reducer, transcript, bootstrap, registry, pane-view, …) are private organs — deep-import them only from boot files or for organ-local types.

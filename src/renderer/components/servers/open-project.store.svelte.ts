@@ -3,18 +3,14 @@ import type { SolusAPI } from '../../../preload'
 import type {
   CloneAuth,
   CloneProtocol,
-  DeviceCodePrompt,
-  GitCommitIdentity,
   HostReadiness,
-  IpcContext,
   RecentProject,
   ServerCapabilities,
-  SetupAgent,
   SetupGithubRepo,
-  SetupLogEvent,
   SetupSshAccessResult,
-  SetupStatusEvent,
 } from '../../../shared/types'
+import { serversStore } from '../../contexts'
+import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import {
   classifyCloneInput,
   cloneUrlForIntent,
@@ -29,6 +25,7 @@ import {
   type OpenProjectStep,
   type ProjectSource,
 } from './lib/open-project-flow'
+import { messageFor } from './lib/setup-rpc'
 
 /**
  * The Open project flow: one home screen — a recent project, a folder, GitHub,
@@ -36,16 +33,13 @@ import {
  * header chip rather than from a step of its own.
  *
  * Every call resolves the API for `serverId` — `window.solus` never appears
- * here, because the host being opened on is often not the active one. The store
- * also stays free of toasts and sibling stores so it can be unit-tested for
- * exactly that invariant; callers hand it the host list at the moment they open
- * it, ordered active-machine-first, and the first entry becomes the default.
+ * here, because the host being opened on is often not the active one. Callers
+ * hand it the host list at the moment they open it, ordered
+ * active-machine-first, and the first entry becomes the default.
  */
 
-const LOG_LIMIT = 500
 /** How many recent projects home offers before the three actions take over. */
 const HOME_RECENTS_LIMIT = 3
-const SEEN_HOSTS_KEY = 'solus.newProject.seenHosts'
 
 export type CloneStatus = 'idle' | 'running' | 'done' | 'failed'
 
@@ -61,6 +55,8 @@ export interface OpenProjectOptions {
 }
 
 type ResolveApi = (serverId: string) => SolusAPI
+type SessionFor = (serverId: string) => HostSetupSession
+type RecentProjectsFor = (serverId: string) => Promise<RecentProject[]>
 
 export class OpenProjectStore {
   isOpen = $state(false)
@@ -71,14 +67,9 @@ export class OpenProjectStore {
   hostLabel = $state('')
   hostIsLocal = $state(true)
   tabId = $state<string | null>(null)
-  /** False the first time a host is used, which is when the credentials note matters. */
-  hostSeenBefore = $state(true)
 
-  readiness = $state<HostReadiness | null>(null)
   /** The agent half of readiness: whether this host can actually run a session. */
   capabilities = $state<ServerCapabilities | null>(null)
-  readinessLoading = $state(false)
-  readinessError = $state<string | null>(null)
 
   /** The clone URL for `clone`, or the filter for `github`. */
   query = $state('')
@@ -96,7 +87,6 @@ export class OpenProjectStore {
   reposError = $state<string | null>(null)
   selectedRepoFullName = $state<string | null>(null)
 
-  logLines = $state<string[]>([])
   cloneStatus = $state<CloneStatus>('idle')
   cloneError = $state<string | null>(null)
   clonedPath = $state<string | null>(null)
@@ -106,29 +96,54 @@ export class OpenProjectStore {
   cloneAuth = $state<CloneAuth | null>(null)
   adoptingProject = $state(false)
 
-  installingGit = $state(false)
-  savingIdentity = $state(false)
-  connectingGithub = $state(false)
-  authorizingGhCli = $state(false)
-  installingCredentialHelper = $state(false)
-  installingAgent = $state(false)
-  checkingSshAccess = $state(false)
-
-  deviceCode = $state<DeviceCodePrompt | null>(null)
   sshAccess = $state<SetupSshAccessResult | null>(null)
-  /** The last repair action's failure, shown beside the rail rather than as a toast. */
-  actionError = $state<string | null>(null)
 
   private readonly resolveApi: ResolveApi
-  private unsubscribes: Array<() => void> = []
+  private readonly sessionFor: SessionFor
+  private readonly recentProjectsFor: RecentProjectsFor
+  private retainedSetup: HostSetupSession | null = null
   /** Set by whichever action started a clone, so a retry lands in the same place. */
   private lastCloneDestination: string | undefined = undefined
+  /**
+   * Bumped whenever the host data is dropped — on rebind and on reopen. Every
+   * await compares against it afterwards, so a reply that outlived its binding
+   * is dropped instead of painting one host's answer (or clone!) onto another.
+   * Comparing `serverId` is not enough: a switch away and back, or a close and
+   * reopen, rebinds the same id while every in-flight reply has gone stale.
+   */
+  private hostEpoch = 0
 
-  constructor(resolveApi: ResolveApi = (serverId) => serverConnections.apiFor(serverId)) {
+  constructor(
+    resolveApi: ResolveApi = (serverId) => serverConnections.apiFor(serverId),
+    sessionFor: SessionFor = (serverId) => hostSetupStore.sessionFor(serverId),
+    recentProjectsFor: RecentProjectsFor = (serverId) => serversStore.recentProjectsFor(serverId),
+  ) {
     this.resolveApi = resolveApi
+    this.sessionFor = sessionFor
+    this.recentProjectsFor = recentProjectsFor
   }
 
   // ── What the current step commits to ────────────────────────────────────────
+
+  get setup(): HostSetupSession | null {
+    return this.retainedSetup
+  }
+
+  get readiness(): HostReadiness | null {
+    return this.setup?.readiness ?? null
+  }
+
+  get readinessLoading(): boolean {
+    return this.setup?.readinessLoading ?? false
+  }
+
+  get readinessError(): string | null {
+    return this.setup?.readinessError ?? null
+  }
+
+  get logLines(): string[] {
+    return this.setup?.logLines ?? []
+  }
 
   get platform(): string | null {
     return this.readiness?.platform ?? this.capabilities?.platform ?? null
@@ -210,7 +225,7 @@ export class OpenProjectStore {
 
   /** SSH only works off a key that lives on the host — nothing carries over from the client. */
   get sshKeyMissing(): boolean {
-    return this.protocol === 'ssh' && (this.readiness?.ssh.publicKeys.length ?? 0) === 0
+    return this.protocol === 'ssh' && (this.readiness?.ssh?.publicKeys.length ?? 0) === 0
   }
 
   /** Cloning a private repo over HTTPS needs a token on the host doing the clone. */
@@ -239,7 +254,6 @@ export class OpenProjectStore {
     this.reset()
     this.isOpen = true
     this.tabId = options.tabId ?? null
-    this.query = options.seed ?? ''
     this.step = 'home'
     this.source = null
     this.serverId = null
@@ -271,6 +285,11 @@ export class OpenProjectStore {
     this.step = 'browse'
   }
 
+  /** Records that home opened an existing folder before the caller adopts it. */
+  openRecent(): void {
+    this.source = 'local'
+  }
+
   chooseGithub(): void {
     this.source = 'github'
     this.selectedRepoFullName = null
@@ -290,6 +309,10 @@ export class OpenProjectStore {
     this.step = 'browse'
   }
 
+  selectRepo(fullName: string): void {
+    this.selectedRepoFullName = fullName
+  }
+
   /**
    * Home is the only place to step back to — except from the folder browser a
    * clone opened to choose its destination, which would otherwise throw away
@@ -302,7 +325,7 @@ export class OpenProjectStore {
     }
     if (this.step === 'destination' || this.step === 'cloning') {
       this.cloneError = null
-      this.logLines = []
+      if (this.setup) this.setup.logLines.length = 0
       this.cloneStatus = 'idle'
     }
     this.step = 'home'
@@ -310,88 +333,70 @@ export class OpenProjectStore {
 
   close(): void {
     this.isOpen = false
-    for (const unsubscribe of this.unsubscribes) unsubscribe()
-    this.unsubscribes = []
-    void this.cancelGithubConnect()
+    this.retainedSetup?.release()
+    this.retainedSetup = null
   }
 
   // ── Host data ───────────────────────────────────────────────────────────────
 
   async refreshReadiness(): Promise<void> {
     const api = this.api()
-    if (!api) return
-    const issuedFor = this.serverId
-    this.readinessLoading = true
-    this.readinessError = null
-    try {
-      const [readiness, capabilities] = await Promise.all([
-        api.setupHostReadiness(),
-        api.getServerCapabilities().catch(() => null),
-      ])
-      if (this.serverId !== issuedFor) return
-      this.readiness = readiness
-      this.capabilities = capabilities
-      if (this.reposConnected === null && readiness.github.solusToken) {
-        this.reposConnected = true
-      }
-    } catch (err) {
-      if (this.serverId === issuedFor) this.readinessError = messageFor(err)
-    } finally {
-      if (this.serverId === issuedFor) this.readinessLoading = false
+    const setup = this.setup
+    if (!api || !setup) return
+    const issuedAt = this.hostEpoch
+    const [, capabilities] = await Promise.all([
+      setup.refreshReadiness(),
+      api.getServerCapabilities().catch(() => null),
+    ])
+    if (this.hostEpoch !== issuedAt) return
+    this.capabilities = capabilities
+    if (this.reposConnected === null && setup.readiness?.github?.solusToken) {
+      this.reposConnected = true
     }
   }
 
   /** Home's recents, per host — nothing about them carries across machines. */
   async loadRecents(): Promise<void> {
-    const api = this.api()
-    if (!api) return
-    const issuedFor = this.serverId
+    const serverId = this.serverId
+    if (!serverId) return
+    const issuedAt = this.hostEpoch
     this.recentsLoading = true
     try {
-      const recents = await api.listRecentProjects()
-      if (this.serverId === issuedFor) this.recents = recents
+      const recents = await this.recentProjectsFor(serverId)
+      if (this.hostEpoch === issuedAt) this.recents = recents
     } catch {
       // Home still offers the three actions; an unreachable host just has
       // nothing to list, which the empty state already says.
-      if (this.serverId === issuedFor) this.recents = []
+      if (this.hostEpoch === issuedAt) this.recents = []
     } finally {
-      if (this.serverId === issuedFor) this.recentsLoading = false
+      if (this.hostEpoch === issuedAt) this.recentsLoading = false
     }
   }
 
   async loadRepos(): Promise<void> {
     const api = this.api()
     if (!api || this.reposLoading) return
-    const issuedFor = this.serverId
+    const issuedAt = this.hostEpoch
     this.reposLoading = true
     this.reposError = null
     try {
       const result = await api.setupListGithubRepos()
-      if (this.serverId !== issuedFor) return
+      if (this.hostEpoch !== issuedAt) return
       this.reposConnected = result.connected
       this.repos = result.connected ? result.repos : []
     } catch (err) {
       // A disconnected response is the only evidence that credentials are
       // missing. Network/server failures must not overwrite a known sign-in
       // with the much more alarming "Connect GitHub" state.
-      if (this.serverId !== issuedFor) return
+      if (this.hostEpoch !== issuedAt) return
       this.reposError = messageFor(err)
       this.repos = []
     } finally {
-      if (this.serverId === issuedFor) this.reposLoading = false
+      if (this.hostEpoch === issuedAt) this.reposLoading = false
     }
   }
 
   // ── Committing ──────────────────────────────────────────────────────────────
-
-  /**
-   * The primary action: the project lands under the host's configured projects
-   * root. No destination is sent, so the host resolves the path — and a name
-   * already taken there gets a suffix instead of an error.
-   */
-  async submit(): Promise<string | null> {
-    return this.clone()
-  }
 
   /** The secondary action's follow-through: clone into the folder that was picked. */
   cloneInto(parentDirectory: string): Promise<string | null> {
@@ -405,6 +410,7 @@ export class OpenProjectStore {
     const api = this.api()
     const cloneUrl = this.cloneUrl
     if (!api || !cloneUrl || this.cloneStatus === 'running') return null
+    const issuedAt = this.hostEpoch
 
     const destination = options.destination ?? this.lastCloneDestination
     this.lastCloneDestination = destination
@@ -415,7 +421,7 @@ export class OpenProjectStore {
     this.cloneError = null
     this.clonedPath = null
     this.cloneAuth = null
-    this.logLines.length = 0
+    if (this.setup) this.setup.logLines.length = 0
     try {
       const result = await api.setupCloneProject({
         cloneUrl,
@@ -424,23 +430,22 @@ export class OpenProjectStore {
         protocol: this.protocol,
         clean: options.clean,
       })
+      // The dialog was reopened (and possibly rebound) while this ran; the
+      // result belongs to a binding that no longer exists, so nobody gets it.
+      if (this.hostEpoch !== issuedAt) return null
       this.cloneStatus = 'done'
       this.clonedPath = result.path
       this.cloneAuth = result.auth
       this.partialPath = null
       return result.path
     } catch (err) {
+      if (this.hostEpoch !== issuedAt) return null
       this.cloneStatus = 'failed'
       this.step = 'destination'
       this.cloneError = messageFor(err)
       this.partialPath = destination ?? this.destinationPreview
       return null
     }
-  }
-
-  /** Retries the clone that failed, at the same destination it chose the first time. */
-  retryClone(options: { clean?: boolean } = {}): Promise<string | null> {
-    return this.clone({ destination: this.lastCloneDestination, clean: options.clean })
   }
 
   /**
@@ -452,10 +457,12 @@ export class OpenProjectStore {
     const api = this.api()
     const path = this.partialPath
     if (!api || !path || this.adoptingProject) return null
+    const issuedAt = this.hostEpoch
     this.adoptingProject = true
     this.cloneError = null
     try {
       const result = await api.setupAdoptProject({ path, cloneUrl: this.cloneUrl ?? undefined })
+      if (this.hostEpoch !== issuedAt) return null
       this.cloneStatus = 'done'
       this.clonedPath = result.path
       this.partialPath = null
@@ -464,71 +471,25 @@ export class OpenProjectStore {
       this.cloneAuth = null
       return result.path
     } catch (err) {
+      if (this.hostEpoch !== issuedAt) return null
       this.cloneError = messageFor(err)
       return null
     } finally {
-      this.adoptingProject = false
+      if (this.hostEpoch === issuedAt) this.adoptingProject = false
     }
   }
 
-  // ── Host repairs ────────────────────────────────────────────────────────────
-
-  async installGit(): Promise<void> {
-    await this.runRepair('installingGit', async (api) => {
-      this.logLines.length = 0
-      await api.setupInstallGit()
-    })
-  }
-
-  async setGitIdentity(identity: GitCommitIdentity): Promise<void> {
-    await this.runRepair('savingIdentity', (api) => api.setupSetGitIdentity(identity))
-  }
-
-  async installAgentCli(agent: SetupAgent): Promise<void> {
-    await this.runRepair('installingAgent', async (api) => {
-      this.logLines.length = 0
-      await api.setupInstallAgentCli({ agent })
-    })
-  }
-
-  async connectGithub(): Promise<void> {
-    await this.runRepair('connectingGithub', async (api) => {
-      try {
-        const status = await api.providerConnect(hostProviderContext())
-        if (status.connected) this.reposConnected = true
-      } finally {
-        this.deviceCode = null
-      }
-    })
-    await this.loadRepos()
-  }
-
-  async cancelGithubConnect(): Promise<void> {
-    const api = this.api()
-    if (!api || !this.connectingGithub) return
-    this.deviceCode = null
-    await api.providerCancelConnect(hostProviderContext()).catch(() => {})
-  }
-
-  async authorizeGhCli(): Promise<void> {
-    await this.runRepair('authorizingGhCli', (api) => api.setupAuthorizeGhCli())
-  }
-
-  async installCredentialHelper(): Promise<void> {
-    await this.runRepair('installingCredentialHelper', (api) => api.setupInstallGitCredentialHelper())
-  }
-
-  async checkSshAccess(host?: string): Promise<void> {
+  async checkSshAccess(): Promise<void> {
     const api = this.api()
     if (!api) return
-    this.checkingSshAccess = true
-    this.actionError = null
+    const issuedAt = this.hostEpoch
     try {
-      this.sshAccess = await api.setupCheckSshAccess({ host })
+      const sshAccess = await api.setupCheckSshAccess({})
+      if (this.hostEpoch !== issuedAt) return
+      this.sshAccess = sshAccess
     } catch (err) {
-      this.actionError = messageFor(err)
-    } finally {
-      this.checkingSshAccess = false
+      if (this.hostEpoch !== issuedAt) return
+      this.sshAccess = { host: 'github.com', ok: false, message: messageFor(err) }
     }
   }
 
@@ -539,60 +500,25 @@ export class OpenProjectStore {
     this.serverId = host.id
     this.hostLabel = host.label
     this.hostIsLocal = host.local
-    this.hostSeenBefore = markHostSeen(host.id)
-    this.subscribe(host.id)
+    if (!this.retainedSetup) {
+      this.retainedSetup = this.sessionFor(host.id)
+      this.retainedSetup.retain()
+    }
   }
 
   private api(): SolusAPI | null {
     return this.serverId ? this.resolveApi(this.serverId) : null
   }
 
-  private async runRepair(flag: RepairFlag, action: (api: SolusAPI) => Promise<unknown>): Promise<void> {
-    const api = this.api()
-    if (!api || this[flag]) return
-    this[flag] = true
-    this.actionError = null
-    try {
-      await action(api)
-    } catch (err) {
-      this.actionError = messageFor(err)
-    } finally {
-      this[flag] = false
-      // Every repair exists to change readiness, so re-probe rather than guess.
-      await this.refreshReadiness()
-    }
-  }
-
-  private subscribe(serverId: string): void {
-    for (const unsubscribe of this.unsubscribes) unsubscribe()
-    const api = this.resolveApi(serverId)
-    this.unsubscribes = [
-      // The host runs one setup step at a time, so a single output pane can
-      // carry whichever one the dialog started without interleaving.
-      api.onSetupLog((event: SetupLogEvent) => {
-        this.logLines.push(event.line)
-        if (this.logLines.length > LOG_LIMIT) this.logLines.splice(0, this.logLines.length - LOG_LIMIT)
-      }),
-      api.onSetupStatus((event: SetupStatusEvent) => {
-        if (event.step !== 'clone') return
-        if (event.status === 'running') this.cloneStatus = 'running'
-      }),
-      api.onProviderDeviceCode((prompt: DeviceCodePrompt) => {
-        this.deviceCode = prompt
-      }),
-    ]
-  }
-
   /**
    * Everything that describes one host, dropped when the flow moves to another.
-   * The in-flight flags go with it: the requests they guard are now answering
-   * about the wrong machine, and every loader drops a reply that outlived its
-   * host rather than painting it over the new one.
+   * Every loader drops a reply that outlived its host rather than painting it
+   * over the new one.
    */
   private resetHostData(): void {
-    this.readiness = null
-    this.readinessError = null
-    this.readinessLoading = false
+    this.hostEpoch++
+    this.retainedSetup?.release()
+    this.retainedSetup = null
     this.capabilities = null
     this.recents = []
     this.recentsLoading = false
@@ -601,15 +527,13 @@ export class OpenProjectStore {
     this.reposConnected = null
     this.reposError = null
     this.selectedRepoFullName = null
-    this.deviceCode = null
     this.sshAccess = null
-    this.actionError = null
-    this.logLines = []
     this.cloneStatus = 'idle'
     this.cloneError = null
     this.clonedPath = null
     this.cloneAuth = null
     this.partialPath = null
+    this.adoptingProject = false
     this.lastCloneDestination = undefined
   }
 
@@ -617,42 +541,6 @@ export class OpenProjectStore {
     this.resetHostData()
     this.protocol = 'https'
     this.homeQuery = ''
-    for (const unsubscribe of this.unsubscribes) unsubscribe()
-    this.unsubscribes = []
-  }
-}
-
-type RepairFlag =
-  | 'installingGit'
-  | 'savingIdentity'
-  | 'connectingGithub'
-  | 'authorizingGhCli'
-  | 'installingCredentialHelper'
-  | 'installingAgent'
-
-/**
- * `providerConnect` only reads the session's directory, to pick a provider for
- * that repo's host. There is no session on the host being prepared, so an empty
- * directory is passed deliberately: the handler then falls back to GitHub.
- */
-function hostProviderContext(): IpcContext {
-  return { session: { projectPath: '', workingDirectory: '' } } as unknown as IpcContext
-}
-
-function messageFor(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
-/** Returns whether this host was already known, and records it either way. */
-function markHostSeen(serverId: string): boolean {
-  try {
-    const stored = JSON.parse(localStorage.getItem(SEEN_HOSTS_KEY) ?? '[]') as unknown
-    const seen = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : []
-    if (seen.includes(serverId)) return true
-    localStorage.setItem(SEEN_HOSTS_KEY, JSON.stringify([...seen, serverId]))
-    return false
-  } catch {
-    return true
   }
 }
 

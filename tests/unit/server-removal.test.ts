@@ -65,6 +65,9 @@ describe('server removal', () => {
       writable: true,
       value: {
         location: { reload: () => { reloads++ } },
+        // remove() fires a focus event; the mock must accept it regardless of
+        // which test file initialized the shared runtime singleton first.
+        dispatchEvent: () => true,
         matchMedia: (query: string) => ({
           matches: query === '(pointer: coarse)',
           addEventListener: () => {},
@@ -75,6 +78,10 @@ describe('server removal', () => {
 
     const { serversStore } = await import('../../src/renderer/contexts/connections/servers.store.svelte')
     const { toasts } = await import('../../src/renderer/contexts/app/toast.store.svelte')
+    // The store is a module singleton shared with other test files; align its
+    // in-memory state with this file's fixtures regardless of import order.
+    serversStore.refreshServers()
+    serversStore.activeServerId = 'remote'
     const messages: string[] = []
     const originalError = toasts.error
     toasts.error = (message: string) => { messages.push(message) }

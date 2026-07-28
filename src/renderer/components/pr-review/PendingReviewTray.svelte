@@ -37,7 +37,7 @@
             onclick={() => onJump?.(d.path, d.line, d.side)}
           >
             <span class="block truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)">{d.path}:{d.line}</span>
-            <span class="block truncate text-[0.8125rem] text-(--solus-text-secondary)">{d.body}</span>
+            <span class="block truncate text-[0.8125rem] font-secondary text-(--solus-text-secondary)">{d.body}</span>
           </button>
           <Button
             type="button"

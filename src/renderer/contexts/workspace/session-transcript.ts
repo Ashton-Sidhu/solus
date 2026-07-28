@@ -135,8 +135,8 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
       const target = m.toolResultForId ? toolById.get(m.toolResultForId) : undefined
       if (target) {
         target.toolResult = m.content
-        target.toolResultIsError = false
-        target.toolStatus = 'completed'
+        target.toolResultIsError = m.toolResultIsError ?? false
+        target.toolStatus = m.toolResultIsError ? 'error' : 'completed'
       }
       continue
     }
@@ -180,7 +180,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
       toolName: m.toolName,
       toolId: m.toolId,
       toolInput: m.toolInput,
-      toolStatus: m.toolName ? 'completed' : undefined,
+      toolStatus: m.toolStatus ?? (m.toolName ? 'completed' : undefined),
       planToolUseId: m.planToolUseId,
       timestamp: m.timestamp ?? Date.now(),
     }
@@ -189,7 +189,10 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
     // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a SubagentCard,
     // not a plain tool row. The live reducer sets subMessages via isSubagent; reload
     // has no such flag, so re-seed it here. The tool_result pass above reattaches the answer.
-    if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
+    if (m.role === 'tool' && m.isSubagent) {
+      msg.subMessages = []
+      msg.subagentType = m.subagentType
+    } else if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
       msg.subMessages = []
       msg.subagentType = 'codex'
     } else if (m.role === 'tool' && m.toolName?.slice(m.toolName.lastIndexOf('.') + 1) === 'claude_subagent') {
@@ -325,9 +328,27 @@ export function syncPendingInputFromEvent(ctx: WorkspaceContext, session: Sessio
 }
 
 export function reconcileQueuedPromptsForSession(session: Session, queuedPrompts: QueuedPromptSnapshot[]): void {
-  session.serverQueuedPrompts.splice(
+  const serverClientPromptIds = new Set(
+    queuedPrompts.flatMap((prompt) => prompt.clientPromptId ? [prompt.clientPromptId] : []),
+  )
+  const localPrompts = session.outboundPrompts.filter(
+    (prompt) => prompt.state !== 'queued' && !serverClientPromptIds.has(prompt.clientPromptId),
+  )
+  const serverPrompts = queuedPrompts.map((prompt) => {
+    const existing = prompt.clientPromptId
+      ? session.outboundPrompts.find((outbound) => outbound.clientPromptId === prompt.clientPromptId)
+      : undefined
+    return {
+      ...existing,
+      ...prompt,
+      clientPromptId: prompt.clientPromptId ?? `queued:${prompt.queueId}`,
+      state: 'queued' as const,
+    }
+  })
+  session.outboundPrompts.splice(
     0,
-    session.serverQueuedPrompts.length,
-    ...queuedPrompts.map((prompt) => ({ ...prompt })),
+    session.outboundPrompts.length,
+    ...localPrompts,
+    ...serverPrompts,
   )
 }

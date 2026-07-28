@@ -28,9 +28,7 @@
   // button are never out of step.
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (store.pairingView === "ssh-target") store.submitSshTarget();
-    else if (store.pairingView === "ssh-password") store.submitSshPassword();
-    else if (store.pairingView === "fallback") void store.submitPairCode();
+    store.submitCurrentPairingView();
   }
 </script>
 
@@ -64,7 +62,7 @@
 
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
-    <p class="mt-4 text-pretty text-[0.78125rem] leading-[1.6] text-(--solus-text-secondary)">
+    <p class="mt-4 text-pretty text-[0.78125rem] leading-[1.6] font-secondary text-(--solus-text-secondary)">
       Solus is using your existing SSH access to install and start the agent on
       {target.name}. Nothing is installed on this Mac.
     </p>
@@ -74,7 +72,7 @@
     </p>
   {:else if store.pairingView === "ssh-target"}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.75rem] leading-[1.55] text-(--solus-text-secondary)"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.75rem] leading-[1.55] font-secondary text-(--solus-text-secondary)"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -99,7 +97,7 @@
     </label>
   {:else if store.pairingView === "ssh-password"}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.75rem] leading-[1.55] text-(--solus-text-secondary)"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.75rem] leading-[1.55] font-secondary text-(--solus-text-secondary)"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -127,7 +125,7 @@
     </label>
   {:else}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.75rem] leading-[1.55] text-(--solus-text-secondary)"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.75rem] leading-[1.55] font-secondary text-(--solus-text-secondary)"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>

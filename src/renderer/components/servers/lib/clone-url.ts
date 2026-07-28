@@ -8,8 +8,6 @@ import type { CloneProtocol } from '../../../../shared/types'
 export type CloneIntent =
   /** Nothing typed — show the host's repos and recent folders. */
   | { kind: 'empty' }
-  /** A folder on the host: open it rather than cloning anything. */
-  | { kind: 'path'; path: string }
   /** `owner/repo`, resolved against the code host. */
   | { kind: 'owner-repo'; owner: string; repo: string; cloneUrl: string; repoName: string }
   /** A complete clone URL, pasted. */
@@ -30,14 +28,9 @@ export function repoNameFromPath(repoPath: string): string {
   return last || 'project'
 }
 
-function looksLikePath(value: string): boolean {
-  return value === '~' || value.startsWith('/') || value.startsWith('~/') || value.startsWith('./') || value.startsWith('../')
-}
-
 export function classifyCloneInput(raw: string): CloneIntent {
   const value = raw.trim()
   if (!value) return { kind: 'empty' }
-  if (looksLikePath(value)) return { kind: 'path', path: value }
 
   const scp = SCP_LIKE_RE.exec(value)
   if (scp && scp[3].includes('/')) {
@@ -60,7 +53,7 @@ export function classifyCloneInput(raw: string): CloneIntent {
   }
 
   const ownerRepo = OWNER_REPO_RE.exec(value)
-  if (ownerRepo) {
+  if (ownerRepo && ownerRepo[1] !== '.' && ownerRepo[1] !== '..') {
     const [, owner, repo] = ownerRepo
     return {
       kind: 'owner-repo',

@@ -11,7 +11,7 @@
     XIcon,
   } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import type { IpcContext } from "../../../shared/types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
@@ -313,16 +313,22 @@
   <header
     class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <button
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
       type="button"
       class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) {treeCollapsed ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-primary)'}"
       aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
       aria-pressed={!treeCollapsed}
       onclick={toggleTree}
-      use:tooltip={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"}
     >
       <SidebarSimpleIcon size={13} weight="bold" />
     </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
+    </TooltipUI.Root>
     {#if selectedPath}
       {@const icon = fileTypeIcon(selectedPath)}
       {#if icon}
@@ -399,12 +405,14 @@
         class="relative flex h-full min-h-48 w-full flex-col border-b border-(--solus-container-border) md:min-h-0 md:border-r md:border-b-0"
         aria-hidden={treeCollapsed}
       >
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={toggleTree}
           aria-label="Hide file tree"
           class="tree-collapse-btn absolute top-[0.875rem] left-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
-          use:tooltip={"Hide file tree (⌥T)"}
         >
           <span
             class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
@@ -412,6 +420,10 @@
           ></span>
           <CaretLeftIcon size={12} weight="bold" />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Hide file tree (⌥T)"} />
+        </TooltipUI.Root>
         <div class="min-h-0 flex-1 overflow-hidden">
           {#if loading && files.length === 0}
             <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">Loading files...</div>

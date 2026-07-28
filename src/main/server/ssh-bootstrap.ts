@@ -1,12 +1,14 @@
 import { spawn } from 'child_process'
 import { once } from 'events'
 import { existsSync, readFileSync } from 'fs'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
-import { homedir, tmpdir, userInfo } from 'os'
+import { rm } from 'fs/promises'
+import { homedir, userInfo } from 'os'
 import { join } from 'path'
+import { text } from 'node:stream/consumers'
 import type { DiscoveredServer, SshBootstrapCredential, SshBootstrapResult, SshTargetCandidate } from '../../shared/types'
+import { sshConnectionOptions } from './handlers/lib/ssh-options'
+import { writeTempSecretScript } from './handlers/lib/temp-secret-script'
 
-const SSH_CONNECT_TIMEOUT_SECONDS = 10
 const MAX_AUTH_PROMPTS = 2
 
 const ASKPASS_SCRIPT = `#!/bin/sh
@@ -81,7 +83,12 @@ export async function bootstrapDiscoveredServerOverSsh(
 
   const line = lastNonEmptyLine(result.stdout)
   if (!line) throw new Error('SSH bootstrap did not return a credential.')
-  const credential = JSON.parse(line) as Partial<SshBootstrapCredential>
+  let credential: Partial<SshBootstrapCredential>
+  try {
+    credential = JSON.parse(line) as Partial<SshBootstrapCredential>
+  } catch {
+    throw new Error('SSH bootstrap returned an incomplete credential.')
+  }
   if (
     typeof credential.sessionToken !== 'string' ||
     typeof credential.installationId !== 'string' ||
@@ -159,8 +166,7 @@ export async function runSshCredentialCommand(options: SshRunOptions): Promise<S
   const askpass = options.authSecret ? await createAskpassHelper() : null
   try {
     const args = [
-      '-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT_SECONDS}`,
-      '-o', `BatchMode=${options.batchMode ? 'yes' : 'no'}`,
+      ...sshConnectionOptions(options.batchMode),
       '-o', 'NumberOfPasswordPrompts=1',
       ...(options.target.port ? ['-p', String(options.target.port)] : []),
       options.target.destination,
@@ -188,8 +194,8 @@ export async function runSshCredentialCommand(options: SshRunOptions): Promise<S
       }),
     ])
     const [stdout, stderr, exit] = await Promise.all([
-      streamText(child.stdout),
-      streamText(child.stderr),
+      text(child.stdout),
+      text(child.stderr),
       exitOrError,
     ])
     const [code] = exit
@@ -275,21 +281,7 @@ function readKnownHosts(): string[] {
 }
 
 async function createAskpassHelper(): Promise<{ directory: string; path: string }> {
-  const directory = await mkdtemp(join(tmpdir(), 'solus-ssh-askpass-'))
-  await chmod(directory, 0o700)
-  const path = join(directory, 'ssh-askpass.sh')
-  await writeFile(path, ASKPASS_SCRIPT, { mode: 0o700 })
-  await chmod(path, 0o700)
-  return { directory, path }
-}
-
-function streamText(stream: NodeJS.ReadableStream): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    stream.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))))
-    stream.on('error', reject)
-    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-  })
+  return writeTempSecretScript('solus-ssh-askpass-', 'ssh-askpass.sh', ASKPASS_SCRIPT)
 }
 
 function lastNonEmptyLine(value: string): string | null {

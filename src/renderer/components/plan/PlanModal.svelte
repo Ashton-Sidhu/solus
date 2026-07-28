@@ -424,7 +424,7 @@
               revisionDropdownOpen = true;
             }
           }}
-          class="inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-(--solus-container-border) bg-transparent px-2 py-0.5 text-[0.6875rem] text-(--solus-text-secondary) transition-[background,color,border-color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) max-md:px-[0.3125rem] max-md:text-[0.625rem]"
+          class="inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-(--solus-container-border) bg-transparent px-2 py-0.5 text-[0.6875rem] font-secondary text-(--solus-text-secondary) transition-[background,color,border-color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) max-md:px-[0.3125rem] max-md:text-[0.625rem]"
         >
           v{currentRevisionIndex + 1} of {revisionCount}
           <CaretDownIcon size={10} />

@@ -1,3 +1,23 @@
+import { worktreeProjectRoot, type GitCheckout } from '../../shared/types'
+
+/**
+ * The three facts a pre-session surface needs about a working directory: the
+ * repo it belongs to, the branch a worktree would be cut from, and whether
+ * isolation is still a choice (you can't branch out of a worktree you're in).
+ */
+export function homeGitDetails(
+  currentDir: string,
+  gitContext: GitCheckout | null | undefined,
+  defaultGitContext: GitCheckout | null,
+) {
+  const currentGitContext = gitContext ?? defaultGitContext
+  return {
+    projectRoot: currentDir && currentDir !== '~' ? worktreeProjectRoot(currentDir) : null,
+    baseBranch: currentGitContext?.targetBranch ?? 'main',
+    canToggleWorktree: !!currentGitContext?.targetBranch && !currentGitContext.worktreePath,
+  }
+}
+
 function capitalizeFirst(value: string): string {
   if (!value) return value
   return value.charAt(0).toUpperCase() + value.slice(1)

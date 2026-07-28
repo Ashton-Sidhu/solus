@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PlusIcon, CameraIcon, PencilIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
 
   interface Props {
     onAttachFile: () => void;
@@ -23,15 +23,17 @@
   triggers don't fight sibling groups on the same row.
 -->
 <div
-  class="group/add flex h-8 items-center rounded-full border border-(--solus-container-border) text-(--solus-text-secondary)"
+  class="group/add flex h-8 items-center rounded-full border border-(--solus-container-border) font-secondary text-(--solus-text-secondary)"
 >
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     onclick={onAttachFile}
     {disabled}
     class="flex h-full items-center gap-1 rounded-full pl-2 pr-2 text-[0.8125rem] transition-[background-color,color] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
     style="cursor:{disabled ? 'not-allowed' : 'pointer'}"
-    use:tooltip={"Attach file (⌥⇧A)"}
     aria-label="Add files"
   >
     <PlusIcon size={16} class="flex-shrink-0" />
@@ -40,6 +42,10 @@
       >Add files</span
     >
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Attach file (⌥⇧A)"} />
+  </TooltipUI.Root>
 
   {#if onScreenshot || onDesignMode}
     <div
@@ -49,26 +55,38 @@
         class="mr-1 h-4 w-px flex-shrink-0 bg-(--solus-container-border)"
       ></div>
       {#if onScreenshot}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={onScreenshot}
           {disabled}
           class="flex h-full w-8 flex-shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
-          use:tooltip={"Take screenshot (⌥⇧S)"}
         >
           <CameraIcon size={16} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Take screenshot (⌥⇧S)"} />
+        </TooltipUI.Root>
       {/if}
       {#if onDesignMode}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={onDesignMode}
           {disabled}
           class="flex h-full w-8 flex-shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
-          use:tooltip={"Design mode (⌥⇧I)"}
         >
           <PencilIcon size={16} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Design mode (⌥⇧I)"} />
+        </TooltipUI.Root>
       {/if}
     </div>
   {/if}

@@ -7,7 +7,7 @@
   } from "phosphor-svelte";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
 
   interface Artifact {
@@ -239,12 +239,14 @@
       {#if srcdoc !== null || isRaster}
         <div class="artifact-actions">
           {#if isRaster && artifactUrl}
-            <button
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
               class="artifact-action"
               class:is-copied={copiedImage}
               data-testid="artifact-copy-image"
               onclick={copyImage}
-              use:tooltip={copiedImage ? "Copied image" : "Copy image"}
               aria-label="Copy image"
             >
               <span class="artifact-icon-swap">
@@ -260,12 +262,18 @@
                 />
               </span>
             </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={copiedImage ? "Copied image" : "Copy image"} />
+            </TooltipUI.Root>
           {/if}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="artifact-action"
             data-testid="artifact-expand"
             onclick={toggleExpand}
-            use:tooltip={expanded ? "Collapse · Esc" : "Expand"}
             aria-label={expanded ? "Collapse artifact" : "Expand artifact"}
           >
             {#if expanded}
@@ -274,6 +282,10 @@
               <ArrowsOutIcon size={14} weight="bold" />
             {/if}
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={expanded ? "Collapse · Esc" : "Expand"} />
+          </TooltipUI.Root>
         </div>
       {/if}
     </div>

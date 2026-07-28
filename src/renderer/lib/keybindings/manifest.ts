@@ -45,7 +45,7 @@ export const KEYBINDINGS = {
 
   // ── Voice (global, gated by viewMode + not read-only) ──────────────────────
   'voice.toggle-mode':        { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Toggle voice mode',        group: 'Voice' },
-  'voice.toggle-recorder':    { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Toggle voice recording',   group: 'Voice' },
+  'voice.toggle-recorder':    { combo: { alt: true, shift: true, code: 'Space' },         scope: 'global',             label: 'Start / finish voice recording', group: 'Voice' },
 
   // ── Action orb (global, gated by active tab) ───────────────────────────────
   'orb.toggle':               { combo: { alt: true, shift: true, code: 'KeyQ' },          scope: 'global',             label: 'Toggle quick actions',     group: 'General' },

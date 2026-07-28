@@ -38,7 +38,7 @@
   import ProgressTracker from "./ProgressTracker.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
   import { previewText } from "./lib/minimap";
-  import { assistantMarkdownExtensions } from "./lib/assistant-markdown";
+  import { assistantMarkdownOptions } from "./lib/assistant-markdown";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
@@ -135,10 +135,12 @@
     tabId,
     onDiffToggle,
     forceVisible = false,
+    retainTranscriptRows = true,
   }: {
     tabId: string;
     onDiffToggle?: () => void;
     forceVisible?: boolean;
+    retainTranscriptRows?: boolean;
   } = $props();
 
   // The pool instance is on screen only while its tab is active; the split-pane
@@ -159,7 +161,9 @@
       ? serversStore.statusFor(sess.serverId)
       : "online",
   );
-  const streamingText = $derived(session.streaming.text[tabId] ?? "");
+  const streamingText = $derived(
+    session.streamingTextFor(tabId, isVisible),
+  );
 
   // ── Smooth typewriter reveal ──────────────────────────────────────────────
   // Text arrives in coarse ~300ms batches (control-plane TEXT_FLUSH_INTERVAL_MS).
@@ -279,6 +283,31 @@
   let expandingHistory = $state(false);
   let isNearBottom = true;
   let loadingOlder = false;
+  let savedScrollFromBottom: number | null = null;
+  let previouslyRetainedTranscriptRows = false;
+
+  $effect.pre(() => {
+    const retained = retainTranscriptRows;
+    if (previouslyRetainedTranscriptRows && !retained && scrollEl) {
+      savedScrollFromBottom =
+        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    }
+    previouslyRetainedTranscriptRows = retained;
+  });
+
+  $effect(() => {
+    if (!retainTranscriptRows || savedScrollFromBottom === null) return;
+    const distanceFromBottom = savedScrollFromBottom;
+    void tick().then(() => {
+      requestAnimationFrame(() => {
+        if (!scrollEl || !retainTranscriptRows) return;
+        scrollEl.scrollTop = Math.max(
+          0,
+          scrollEl.scrollHeight - scrollEl.clientHeight - distanceFromBottom,
+        );
+      });
+    });
+  });
 
   // Infinite scroll: reveal older messages as the user nears the top. Pages
   // through already-loaded messages first (instant), then pulls the rest of a
@@ -358,8 +387,8 @@
     const msgCount = sess?.messages.length ?? 0;
     const permLen = sess?.permissionQueue?.length ?? 0;
     const qLen = sess?.questionQueue?.length ?? 0;
-    const queued = sess?.serverQueuedPrompts?.length ?? 0;
-    return `${msgCount}:${permLen}:${qLen}:${queued}`;
+    const outbound = sess?.outboundPrompts?.length ?? 0;
+    return `${msgCount}:${permLen}:${qLen}:${outbound}`;
   });
 
   $effect(() => {
@@ -487,7 +516,7 @@
   // Gate on isEditorShell: without this the derived rebuilds for every mounted
   // tab on every message change even in pill/web mode where it's never rendered.
   const navItems = $derived(
-    isEditorShell
+    isEditorShell && retainTranscriptRows
       ? (sess?.messages ?? [])
           .filter((m) => m.role === "user")
           .map((m) => ({ id: m.id, preview: previewText(m.content) }))
@@ -682,7 +711,7 @@
     <div class="prose-cloud prose-reading min-w-0">
       <SvelteMarkdown
         source={displayContent}
-        extensions={assistantMarkdownExtensions}
+        options={assistantMarkdownOptions}
         renderers={markdownRenderers}
         sanitizeUrl={markdownSanitizeUrl}
       />
@@ -753,12 +782,13 @@
             </div>
           {/if}
 
-          <div
-            bind:this={messagesEl}
-            class="relative messages-list cv-list {runtime.isMobileViewport
-              ? 'space-y-3'
-              : 'space-y-2'}"
-          >
+          {#if retainTranscriptRows}
+            <div
+              bind:this={messagesEl}
+              class="relative messages-list cv-list {runtime.isMobileViewport
+                ? 'space-y-3'
+                : 'space-y-2'}"
+            >
             {#each displayGrouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.kind === "subagent-group" ? `sg-${item.messages[0].id}` : item.kind === "live-assistant" ? item.id : item.message.id)}
               {@const msgIndex = startIndex + idx}
               {@const skipMotion = msgIndex < historicalThreshold}
@@ -780,7 +810,7 @@
                         <SvelteMarkdown
                           source={item.content}
                           streaming
-                          extensions={assistantMarkdownExtensions}
+                          options={assistantMarkdownOptions}
                           renderers={markdownRenderers}
                           sanitizeUrl={markdownSanitizeUrl}
                         />
@@ -942,8 +972,9 @@
               {:else if item.kind === "artifact" && item.message.artifact}
                 <ArtifactView artifact={item.message.artifact} {skipMotion} />
               {/if}
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {/if}
 
           {#if sess.statusCard}
             <StatusCard card={sess.statusCard} />
@@ -968,16 +999,16 @@
           {#if sess.status === "rate_limited" && (sess.rateLimitStrategy === "ask" || sess.rateLimitStrategy === "queue")}
             <RateLimitCard tabId={tab.id} />
           {/if}
-          {#each sess.serverQueuedPrompts as prompt (`server-queued-${prompt.queueId}`)}
+          {#each sess.outboundPrompts as prompt (`outbound-${prompt.clientPromptId}`)}
             <UserMessageBubble
               content={prompt.text}
-              attachments={prompt.images?.map((img) => ({
-                name: "",
-                dataUrl: img.dataUrl,
-                mimeType: img.mimeType,
-                type: "image" as const,
-              }))}
-              queued
+              attachments={prompt.attachments ?? prompt.images?.map((img) => ({
+                  name: "",
+                  dataUrl: img.dataUrl,
+                  mimeType: img.mimeType,
+                  type: "image" as const,
+                }))}
+              deliveryState={prompt.state}
               queueId={prompt.queueId}
               onCancel={(queueId) =>
                 window.solus
@@ -998,7 +1029,7 @@
         </div>
       </div>
 
-      {#if isEditorShell}
+      {#if isEditorShell && retainTranscriptRows}
         <ConversationMinimap
           items={navItems}
           {scrollEl}

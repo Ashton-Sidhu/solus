@@ -155,14 +155,9 @@ export function consumePairToken(tokenOrCode: string, now = Date.now()): boolean
   const key = isCode ? `code:${tokenOrCode}` : tokenOrCode
   const entry = _activePairTokens.get(key)
   if (!entry) return false
-  if (entry.expiresAt < now) {
-    _activePairTokens.delete(entry.token)
-    _activePairTokens.delete(`code:${entry.code}`)
-    return false
-  }
   _activePairTokens.delete(entry.token)
   _activePairTokens.delete(`code:${entry.code}`)
-  return true
+  return entry.expiresAt >= now
 }
 
 export function openClaimWindow(options: { now?: number; ttlMs?: number } = {}): ClaimWindow | null {
@@ -205,17 +200,15 @@ export function claimOwnership(tokenOrCode: string, deviceLabel: string, now = D
   }
 
   _activeClaimWindow = null
-  const sessionToken = issueSessionToken(deviceLabel, now)
-  const session = verifySessionToken(sessionToken, now)
-  if (!session) return { ok: false, reason: 'closed' }
+  const { token: sessionToken, deviceId } = issueSessionToken(deviceLabel, now)
 
-  keys.ownership = { owned: { ownerDeviceId: session.deviceId, claimedAt: now } }
+  keys.ownership = { owned: { ownerDeviceId: deviceId, claimedAt: now } }
   persistKeys()
 
   return {
     ok: true,
     sessionToken,
-    ownerDeviceId: session.deviceId,
+    ownerDeviceId: deviceId,
     claimedAt: now,
     installationId: keys.installationId,
     fingerprint: getServerFingerprint(),
@@ -232,15 +225,13 @@ export interface SshBootstrapCredential {
 
 export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now()): SshBootstrapCredential {
   const keys = loadOrCreateKeys()
-  const sessionToken = issueSessionToken(deviceLabel, now)
-  const session = verifySessionToken(sessionToken, now)
-  if (!session) throw new Error('Failed to issue session credential')
+  const { token: sessionToken, deviceId } = issueSessionToken(deviceLabel, now)
 
   let claimedAt: number | undefined
   let ownerDeviceId: string | undefined
   if (keys.ownership === 'unclaimed') {
     claimedAt = now
-    ownerDeviceId = session.deviceId
+    ownerDeviceId = deviceId
     keys.ownership = { owned: { ownerDeviceId, claimedAt } }
     _activeClaimWindow = null
     persistKeys()
@@ -267,10 +258,10 @@ function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: numbe
  * Signs an opaque session token: `<deviceId>.<issuedAt>.<deviceLabelB64>.<hmac>`.
  * The signing key never leaves the server; clients store the whole opaque blob.
  */
-export function issueSessionToken(deviceLabel: string, now = Date.now()): string {
+export function issueSessionToken(deviceLabel: string, now = Date.now()): { token: string; deviceId: string } {
   const deviceId = randomBytes(12).toString('hex')
   const issuedAt = now
-  return signSessionToken(deviceId, deviceLabel, issuedAt)
+  return { token: signSessionToken(deviceId, deviceLabel, issuedAt), deviceId }
 }
 
 export function verifySessionToken(token: string, now = Date.now()): SessionToken | null {

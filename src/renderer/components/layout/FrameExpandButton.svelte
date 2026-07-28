@@ -1,6 +1,6 @@
 <script lang="ts">
   import { SidebarSimpleIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { frameChrome } from "./frame-chrome.store.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
 
@@ -28,18 +28,24 @@
 </script>
 
 {#if visible}
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     class="no-drag flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent p-0 text-(--solus-text-tertiary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-input-focus-border)"
     onmousedown={(e) => e.stopPropagation()}
     onclick={expand}
-    use:tooltip={variant === "sidebar"
-      ? `Expand sidebar (${comboHint("global.toggle-sidebar")})`
-      : `Expand project panel (${comboHint("global.toggle-project-panel")})`}
     aria-label={variant === "sidebar"
       ? "Expand sidebar"
       : "Expand project panel"}
   >
     <SidebarSimpleIcon size={13} mirrored={variant === "projectPanel"} />
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={variant === "sidebar"
+      ? `Expand sidebar (${comboHint("global.toggle-sidebar")})`
+      : `Expand project panel (${comboHint("global.toggle-project-panel")})`} />
+  </TooltipUI.Root>
 {/if}

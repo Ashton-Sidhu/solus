@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
     const out = join(releaseDir, `solus-server-${targetName}.tar.gz`)
     rmSync(out, { force: true })
-    await run('tar', ['-czf', out, '-C', staging, '.'])
+    await run('tar', ['--no-xattrs', '-czf', out, '-C', staging, '.'])
     writeSha256Sums(releaseDir)
     console.log(`Wrote ${out}`)
   } finally {

@@ -166,8 +166,8 @@
 	<aside class="w-[188px] shrink-0 max-lg:hidden sticky top-28 self-start">
 			<a href="/" class="flex items-center gap-2 no-underline mb-7">
 				<svg width="17" height="17" viewBox="-60 -60 120 120" fill="none" aria-hidden="true">
-					<circle cx="0" cy="0" r="31.2" fill="#D4AF6A" />
-					<g stroke="#D4AF6A" stroke-width="10.4" stroke-linecap="round">
+					<circle cx="0" cy="0" r="31.2" fill="#B45A3C" />
+					<g stroke="#D97757" stroke-width="10.4" stroke-linecap="round">
 						<path d="M 0,-52 A 52,52 0 0 1 52,0" />
 						<path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92" />
 						<path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64" />

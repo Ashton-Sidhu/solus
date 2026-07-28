@@ -328,7 +328,7 @@
     <span class="text-[0.8125rem] text-(--solus-text-primary) min-w-0">{def.label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
       {#if conflict}
-        <span class="inline-flex items-center gap-1 text-[0.6875rem] text-(--solus-text-secondary)">
+        <span class="inline-flex items-center gap-1 text-[0.6875rem] font-secondary text-(--solus-text-secondary)">
           <WarningCircleIcon size={13} class="text-(--solus-art-negative)" />
           Used by "{conflict.otherLabel}"
         </span>
@@ -451,8 +451,8 @@
             {active
               ? 'border-border bg-card text-foreground shadow-xs'
               : searchQuery && item.matchCount === 0
-                ? 'border-transparent bg-transparent text-(--solus-text-secondary) opacity-40'
-                : 'border-transparent bg-transparent text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5'}"
+                ? 'border-transparent bg-transparent font-secondary text-(--solus-text-secondary) opacity-40'
+                : 'border-transparent bg-transparent font-secondary text-(--solus-text-secondary) [@media(hover:hover)]:hover:text-(--solus-text-primary) [@media(hover:hover)]:hover:bg-(--solus-text-primary)/5'}"
           aria-current={active ? "true" : undefined}
           onclick={() => selectScope(item.key)}
         >

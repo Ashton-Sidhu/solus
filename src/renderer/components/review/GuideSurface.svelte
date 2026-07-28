@@ -34,14 +34,14 @@
     <!-- Regenerating over an existing guide: the old guide stays readable below,
          but say so — silence here reads as a dead Regenerate button. -->
     <div
-      class="sticky top-0 z-10 flex items-center gap-2 border-b border-(--solus-art-border) bg-(--solus-container-bg) px-4 py-2 text-[0.75rem] text-(--solus-text-secondary)"
+      class="sticky top-0 z-10 flex items-center gap-2 border-b border-(--solus-art-border) bg-(--solus-container-bg) px-4 py-2 text-[0.75rem] font-secondary text-(--solus-text-secondary)"
     >
       <ArrowsClockwiseIcon size={13} class="animate-spin [animation-duration:1.2s]" />
       Regenerating review guide…
     </div>
   {:else if loader.stale && loader.guide}
     <div
-      class="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[color:color-mix(in_srgb,var(--solus-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-accent)_12%,var(--solus-container-bg))] px-4 py-2 text-[0.75rem] text-(--solus-text-secondary)"
+      class="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[color:color-mix(in_srgb,var(--solus-accent)_40%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-accent)_12%,var(--solus-container-bg))] px-4 py-2 text-[0.75rem] font-secondary text-(--solus-text-secondary)"
       role="status"
     >
       <span class="min-w-0 flex-1 truncate">

@@ -157,7 +157,7 @@
     <div class="relative flex items-center justify-center h-9 mb-3">
       <button
         type="button"
-        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
+        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
         aria-label="Close"
         onclick={close}
       >
@@ -213,7 +213,7 @@
               class="flex items-center gap-3 w-full px-3.5 py-2.5 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
               onclick={() => selectReasoning(level)}
             >
-              <span class="flex-1 min-w-0 text-[0.875rem] text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
+              <span class="flex-1 min-w-0 text-[0.875rem] font-secondary text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
               {#if currentReasoning === level}
                 <CheckIcon size={16} weight="bold" class="shrink-0 text-(--solus-accent)" />
               {/if}
