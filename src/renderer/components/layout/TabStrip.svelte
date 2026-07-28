@@ -70,8 +70,10 @@
   const showSidebarToggle = $derived(
     variant === "editor" && !sidebarOpen && !!onToggleSidebar,
   );
+  // The chrome row spans the project rail now, so this is the rail's only
+  // expand/collapse affordance — it stays put whether the rail is open or shut.
   const showPanelToggle = $derived(
-    variant === "editor" && !projectPanelOpen && !!onToggleProjectPanel,
+    variant === "editor" && !!onToggleProjectPanel,
   );
 
   const session = getWorkspaceContext();
@@ -726,13 +728,15 @@
             requestInputFocus();
           }}
           class="tab-chrome-lead tab-chrome-lead--right"
-          aria-label="Expand project panel"
+          aria-label={projectPanelOpen
+            ? "Collapse project panel"
+            : "Expand project panel"}
         >
           <SidebarSimpleIcon size={13} mirrored />
         </button>
             {/snippet}
           </TooltipUI.Trigger>
-          <TooltipUI.Content value={`Expand project panel (${comboHint("global.toggle-project-panel")})`} />
+          <TooltipUI.Content value={`${projectPanelOpen ? "Collapse" : "Expand"} project panel (${comboHint("global.toggle-project-panel")})`} />
         </TooltipUI.Root>
       {/if}
     </div>

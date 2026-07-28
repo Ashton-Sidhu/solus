@@ -349,11 +349,37 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
   return events
 }
 
+/**
+ * A result that only marks a steered message cutting the in-flight request short.
+ * The SDK reports the abort as an error result and then restarts its agent loop
+ * on the same query, so this is a seam inside the turn, not the turn's outcome —
+ * neither a user-visible error nor a reason to close the turn's input stream.
+ */
+export function isSteerRestartResult(event: ResultEvent): boolean {
+  return event.terminal_reason === 'aborted_streaming'
+}
+
+/**
+ * An error result carries no `result` text — the detail lives in `errors`, with
+ * `subtype`/`terminal_reason` as the only clue when that array is empty. Reading
+ * `result` here is what used to render every failure as a bare "Unknown error".
+ */
+function resultErrorMessage(event: ResultEvent): string {
+  const errors = event.errors?.filter(Boolean).join('\n')
+  if (errors) return errors
+  if (event.result) return event.result
+  return event.terminal_reason
+    ? `${event.subtype} (${event.terminal_reason})`
+    : event.subtype
+}
+
 function normalizeResult(event: ResultEvent): NormalizedEvent[] {
-  if (event.is_error || event.subtype === 'error') {
+  if (isSteerRestartResult(event)) return []
+
+  if (event.is_error || event.subtype !== 'success') {
     return [{
       type: 'error',
-      message: event.result || 'Unknown error',
+      message: resultErrorMessage(event),
       isError: true,
       sessionId: event.session_id,
     }]

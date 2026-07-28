@@ -47,7 +47,7 @@
   let submitting = $state(false);
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
   let useWorktree = $state(false);
-  let collapsed = $state(false);
+  let collapsed = $state(true);
 
   // The "send to new session" path spins up a fresh session, so an isolated
   // worktree is meaningful — offer it whenever the source is a real repo that

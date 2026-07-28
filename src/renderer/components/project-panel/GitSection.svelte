@@ -265,7 +265,7 @@
     }
     defs.push({
       key: "files",
-      label: "File explorer",
+      label: "Files",
       icon: FileIcon,
       phase: "idle",
       disabled: !onOpenFiles,
@@ -275,7 +275,9 @@
     });
     defs.push({
       key: "terminal",
-      label: "Open terminal",
+      label: "Terminal",
+      // 5c trails the row with the terminal configured in Settings.
+      badge: settings.defaultTerminal === "ghostty" ? "Ghostty" : undefined,
       icon: TerminalWindowIcon,
       phase: "idle",
       disabled: !!remoteHost,
@@ -623,20 +625,22 @@
         >{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span
       >
       <span class="branch-row-trail">
-        {#if uncommittedFileCount > 0}
-          <span class="branch-row-stats">
-            <span class="menu-trail"
-              >{uncommittedFileCount}{status?.uncommittedChanges.hasMoreFiles
-                ? "+"
-                : ""}</span
-            >
-            {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
-            {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
-          </span>
-        {/if}
         <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
       </span>
     </button>
+    <!-- Per 5c the diff stats leave the branch row's trailing slot and sit on
+         their own line beneath it, indented to the branch label. -->
+    {#if uncommittedFileCount > 0}
+      <div class="branch-stats-line">
+        <span class="menu-trail"
+          >{uncommittedFileCount}{status?.uncommittedChanges.hasMoreFiles
+            ? "+"
+            : ""} files</span
+        >
+        {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
+        {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
+      </div>
+    {/if}
     {#if currentBranch}
       <GitDropdown
         bind:open={branchPickerOpen}
@@ -649,6 +653,7 @@
         onSelectWorktree={selectWorktree}
       />
     {/if}
+    <div class="branch-divider" aria-hidden="true"></div>
     <div class="menu-list">
       {#each actionGroups as group (group.key)}
         {@render groupRow(group)}
@@ -752,26 +757,26 @@
     white-space: nowrap;
     font-weight: 500;
   }
-  /* Trailing slot: stats sit in the right-hand icon column (aligned with the
-     refresh button above and the Run section's action icons below). The copy
-     glyph overlays in the same spot and cross-fades in on hover, so it never
-     reserves width that would push the stats out of the column. */
+  /* Trailing slot: just the disclosure caret, in the right-hand icon column
+     aligned with the refresh button above. */
   .branch-row-trail {
-    position: relative;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
   }
-  .branch-row-stats {
-    display: inline-flex;
+  /* Stats line beneath the branch, indented past the branch icon (13px glyph +
+     0.5rem gap) so it hangs under the branch name. */
+  .branch-stats-line {
+    display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5625rem;
+    padding: 0.0625rem 0.5rem 0 1.8125rem;
     font-variant-numeric: tabular-nums;
-    transition: opacity 0.15s ease;
   }
-  .branch-row:hover .branch-row-stats,
-  .branch-row:focus-visible .branch-row-stats {
-    opacity: 0;
+  .branch-divider {
+    height: 1px;
+    margin: 0.5rem 0.5rem 0.375rem;
+    background: color-mix(in srgb, var(--solus-container-border) 55%, transparent);
   }
   .stat-add,
   .stat-del {
@@ -784,14 +789,12 @@
   .stat-del {
     color: var(--solus-status-error);
   }
+  /* The branch is a disclosure now that the stats have moved off the row, so
+     the caret stays visible instead of cross-fading in on hover. */
   .branch-row-copy {
-    position: absolute;
-    top: 50%;
-    right: 0;
-    transform: translateY(-50%);
     display: inline-flex;
     color: var(--solus-text-tertiary);
-    opacity: 0;
+    opacity: 0.55;
     transition: opacity 0.15s ease;
   }
   .branch-row:hover .branch-row-copy,

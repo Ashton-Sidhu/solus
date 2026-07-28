@@ -2,7 +2,7 @@
   import { onDestroy, untrack, type Snippet } from "svelte";
   import type { PlanReference, WorkReference } from "../../../../shared/types";
   import type { PromptComposerSubmit } from "./index";
-  import { ArrowUpIcon, GitForkIcon, CaretDownIcon, CaretUpIcon } from "phosphor-svelte";
+  import { ArrowUpIcon, ChatCircleTextIcon, GitForkIcon, CaretDownIcon } from "phosphor-svelte";
   import PromptEditor from "../PromptEditor.svelte";
   import SessionChip from "../../pickers/SessionChip.svelte";
   import { Switch } from "../switch";
@@ -207,7 +207,7 @@
     aria-expanded="false"
     class="pointer-events-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) font-secondary text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
   >
-    <CaretUpIcon size={14} weight="bold" />
+    <ChatCircleTextIcon size={15} weight="bold" />
   </button>
       {/snippet}
     </TooltipUI.Trigger>

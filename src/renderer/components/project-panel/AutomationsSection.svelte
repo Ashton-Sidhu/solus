@@ -85,15 +85,8 @@
   }
 </script>
 
-{#if board.summary}
-  <p
-    class="m-0 mb-1 px-2 text-[0.6875rem] text-(--solus-text-tertiary)"
-    aria-live="polite"
-  >
-    {board.summary}
-  </p>
-{/if}
-
+<!-- The board summary ("2 running · next in 12m") lives in the section header,
+     beside the title, so the card opens straight into its rows. -->
 <ul class="m-0 flex list-none flex-col gap-px p-0">
   {#each board.rows as a (a.id)}
     {@const running = a.lastRunStatus === "running"}
@@ -104,10 +97,12 @@
         class="flex min-h-[2rem] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
         onclick={() => open(a)}
       >
+        <!-- 5c bolts the row with a bare accent lightning — no icon chip — and
+             fades it back for anything that isn't currently scheduled. -->
         <span
-          class="inline-flex shrink-0 transition-colors duration-150 {running
-            ? 'text-(--project-icon-amber)'
-            : 'text-[color-mix(in_srgb,var(--project-icon-amber)_82%,var(--solus-text-tertiary))] group-hover:text-(--project-icon-amber)'}"
+          class="inline-flex shrink-0 text-(--solus-accent) transition-opacity duration-150 {a.enabled
+            ? 'opacity-100'
+            : 'opacity-45'}"
           class:animate-pulse={running}
           aria-hidden="true"
         >

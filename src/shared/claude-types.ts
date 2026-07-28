@@ -110,13 +110,32 @@ export interface RateLimitEvent {
   uuid: string
 }
 
+/**
+ * Why the agent loop stopped. `aborted_streaming` is the one to watch: a message
+ * steered in at `priority: 'now'` cuts the in-flight request short, so the SDK
+ * reports an error result and then *restarts* the loop on the same query.
+ */
+export type TerminalReason =
+  | 'blocking_limit' | 'rapid_refill_breaker' | 'prompt_too_long' | 'image_error'
+  | 'model_error' | 'aborted_streaming' | 'aborted_tools' | 'stop_hook_prevented'
+  | 'hook_stopped' | 'tool_deferred' | 'max_turns' | 'completed'
+
 export interface ResultEvent {
   type: 'result'
-  subtype: 'success' | 'error'
+  subtype:
+    | 'success'
+    | 'error_during_execution'
+    | 'error_max_turns'
+    | 'error_max_budget_usd'
+    | 'error_max_structured_output_retries'
   is_error: boolean
   duration_ms: number
   num_turns: number
-  result: string
+  /** Success results only — the error subtypes carry `errors` instead. */
+  result?: string
+  /** Error results only. */
+  errors?: string[]
+  terminal_reason?: TerminalReason
   total_cost_usd: number
   session_id: string
   usage: ClaudeUsageData & {

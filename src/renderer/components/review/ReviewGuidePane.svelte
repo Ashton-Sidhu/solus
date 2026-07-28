@@ -68,7 +68,7 @@
 
   let composerNote = $state("");
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
-  let composerCollapsed = $state(false);
+  let composerCollapsed = $state(true);
   const sess = $derived(session.sessionFor(session.activeTabId));
   const tab = $derived(session.tabs[session.activeTabId]);
 

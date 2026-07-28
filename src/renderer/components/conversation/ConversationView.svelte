@@ -18,6 +18,7 @@
     runtime,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
@@ -124,6 +125,7 @@
   }
 
   const session = getWorkspaceContext();
+  const outerScrollbar = getOuterScrollbarContext();
   const planStore = getPlanStore();
   const windowCtx = getWindowContext();
   const sourceSessionHistory = createSessionHistoryStore();
@@ -279,6 +281,16 @@
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
   let hovered = $state(false);
+
+  // The conversation now runs flush to the project rail, so its own 2px track
+  // would land exactly on the seam and read as a divider between the thread and
+  // the section cards. Hand scroll position to the workspace-edge scrollbar,
+  // which sits past the rail. Registered only while visible — every tab stays
+  // mounted, and a hidden one would otherwise claim the shared indicator.
+  $effect(() => {
+    if (!outerScrollbar || !scrollEl || !isVisible) return;
+    return outerScrollbar.register(scrollEl);
+  });
   let renderOffset = $state(0);
   let expandingHistory = $state(false);
   let isNearBottom = true;
@@ -748,6 +760,7 @@
     <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
       <div
         bind:this={scrollEl}
+        class:outer-scroll-source={!!outerScrollbar}
         class="overflow-y-auto overflow-x-hidden px-4 pt-1 conversation-selectable {isEditorMode
           ? 'h-full'
           : ''}"

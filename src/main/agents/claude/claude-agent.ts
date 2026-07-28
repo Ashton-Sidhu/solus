@@ -1,11 +1,12 @@
 import { execSync } from 'child_process'
 import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
-import { ClaudeTurnNormalizer } from './claude-event-normalizer'
+import { ClaudeTurnNormalizer, isSteerRestartResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
 import { getCliEnv } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
 import type { AgentSlashCommand, NormalizedEvent, ReasoningEffort } from '../../../shared/types'
+import type { ResultEvent } from '../../../shared/claude-types'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
 
@@ -184,7 +185,12 @@ export class ClaudeAgent {
             if (evt.type === 'background_task_started') backgroundTasks++
             else if (evt.type === 'background_task_settled' && backgroundTasks > 0) backgroundTasks--
           }
-          if (msg.type === 'result') {
+          // A steered message aborts the in-flight request, and the SDK reports
+          // that abort as a result before restarting its loop on the same query.
+          // Closing the input there would pull the stream out from under the
+          // restart, and `canUseTool` rides that same stream — every later
+          // permission request would fail with "AbortError: Stream closed".
+          if (msg.type === 'result' && !isSteerRestartResult(msg as unknown as ResultEvent)) {
             sawResult = true
             if (state.sessionId && opts.onTurnComplete) {
               try {

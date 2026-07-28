@@ -200,6 +200,9 @@
   let sidebarPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
   let projectPanelPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
   let workspaceBodyWidth = $state(0);
+  // The project rail now sizes against the column beside the sidebar, not the
+  // whole body, so its percentage bounds need that column's width.
+  let workspaceColumnWidth = $state(0);
   let conversationAreaEl: HTMLDivElement | undefined = $state();
   let conversationAreaWidth = $state(0);
   // Measured so the floating run dock clears the input bar even as it grows
@@ -225,7 +228,7 @@
     paneBoundsPercent(workspaceBodyWidth, 160, 400),
   );
   const projectPanelBounds = $derived(
-    paneBoundsPercent(workspaceBodyWidth, 240, maxProjectPanelWidth),
+    paneBoundsPercent(workspaceColumnWidth, 240, maxProjectPanelWidth),
   );
   const sidebarDefaultSize = $derived(
     workspaceBodyWidth > 0
@@ -233,8 +236,8 @@
       : 19,
   );
   const projectPanelDefaultSize = $derived(
-    workspaceBodyWidth > 0
-      ? pixelsToPercent(defaultSidebarWidth, workspaceBodyWidth)
+    workspaceColumnWidth > 0
+      ? pixelsToPercent(defaultSidebarWidth, workspaceColumnWidth)
       : 19,
   );
 
@@ -676,6 +679,21 @@
     />
 
     <Resizable.Pane order={2} class="min-w-0">
+      <!-- The chrome row spans the conversation AND the project rail, so the tab
+           scroller can use the full width instead of stopping at the rail edge
+           and fading against a seam that visibly continues past it. The rail is
+           therefore a pane of this column's group, not of the workspace group. -->
+      <div
+        class="workspace-column flex h-full min-h-0 min-w-0 flex-col"
+        bind:clientWidth={workspaceColumnWidth}
+      >
+        {@render dragBar()}
+        <Resizable.PaneGroup
+          direction="horizontal"
+          keyboardResizeBy={2}
+          class="flex min-h-0 flex-1"
+        >
+          <Resizable.Pane order={1} class="min-w-0">
       <div class="content-column flex h-full flex-col min-h-0 min-w-0 relative">
     <div class="conversation-card flex-1 flex flex-col min-h-0">
       <!-- Tagged so modals portaled into the global overlay layer (the directory
@@ -706,7 +724,6 @@
             class="min-w-0"
           >
           <div class="primary-column relative flex h-full flex-col min-w-0">
-            {@render dragBar()}
             <!-- Frame-level session-expand affordance. Rendered once here so
                  full-page views other than settings show it in the identical
                  top-left spot instead of each page placing its own. Self-gates
@@ -843,36 +860,37 @@
       </div>
     </div>
       </div>
-    </Resizable.Pane>
+          </Resizable.Pane>
 
-    {#if enableProjectPanel}
-      <Resizable.Handle
-        aria-label="Resize project panel"
-        disabled={!settings.projectPanelOpen}
-        class={!settings.projectPanelOpen
-          ? "pointer-events-none opacity-0"
-          : ""}
-      />
-      <Resizable.Pane
-        bind:this={projectPanelPane}
-        order={3}
-        defaultSize={settings.projectPanelOpen ? projectPanelDefaultSize : 0}
-        minSize={projectPanelBounds.min}
-        maxSize={projectPanelBounds.max}
-        collapsedSize={0}
-        collapsible
-        onCollapse={closeProjectPanel}
-        onExpand={openProjectPanel}
-        aria-hidden={!settings.projectPanelOpen}
-        class="workspace-rail-pane"
-      >
-        <ProjectPanel
-          open={settings.projectPanelOpen}
-          managedWidth
-          onClose={closeProjectPanel}
-        />
-      </Resizable.Pane>
-    {/if}
+          {#if enableProjectPanel}
+            <Resizable.Handle
+              aria-label="Resize project panel"
+              disabled={!settings.projectPanelOpen}
+              class={!settings.projectPanelOpen
+                ? "pointer-events-none opacity-0"
+                : ""}
+            />
+            <Resizable.Pane
+              bind:this={projectPanelPane}
+              order={2}
+              defaultSize={settings.projectPanelOpen
+                ? projectPanelDefaultSize
+                : 0}
+              minSize={projectPanelBounds.min}
+              maxSize={projectPanelBounds.max}
+              collapsedSize={0}
+              collapsible
+              onCollapse={closeProjectPanel}
+              onExpand={openProjectPanel}
+              aria-hidden={!settings.projectPanelOpen}
+              class="workspace-rail-pane"
+            >
+              <ProjectPanel open={settings.projectPanelOpen} managedWidth />
+            </Resizable.Pane>
+          {/if}
+        </Resizable.PaneGroup>
+      </div>
+    </Resizable.Pane>
   </Resizable.PaneGroup>
 </div>
 
@@ -894,9 +912,10 @@
     flex-shrink: 0;
     position: relative;
   }
-  /* The secondary pane now spans the full card height, so its header sits in
-     the same chrome row as the tab strip. Pane headers consume these vars to
-     match the tab bar's height and continue its bottom seam as one line. */
+  /* The tab strip moved above the whole column (it spans the project rail now),
+     so the secondary pane's header is a second chrome row beneath it rather
+     than a continuation of the strip. It keeps these vars so its height and
+     seam still match the tab bar's, reading as a stacked row of the same kind. */
   :global(.secondary-pane-wrap) {
     --solus-chrome-row-h: 2.5rem;
     --solus-chrome-row-border: color-mix(
@@ -949,6 +968,7 @@
      also holds the right-hand secondary pane) so only the leftmost surface
      reserves the space. The secondary pane provides its own inset when
      maximized. No-op off the mac editor window (the inset var is 0). */
+  .workspace-body.sidebar-collapsed .workspace-column,
   .workspace-body.sidebar-collapsed .primary-column {
     --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
   }

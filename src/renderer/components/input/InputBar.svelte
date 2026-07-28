@@ -327,6 +327,30 @@
     else composerEl?.focus();
   }
 
+  // Recording replaces the editor with the waveform. Once the recorder settles
+  // and the editor is visible again, return keyboard input to the composer.
+  let previousVoiceStateForFocus = untrack(() => voiceState);
+  $effect(() => {
+    const previousState = previousVoiceStateForFocus;
+    const currentState = voiceState;
+    previousVoiceStateForFocus = currentState;
+
+    if (
+      !isActiveMode ||
+      !ownsVoice ||
+      previousState === "idle" ||
+      currentState !== "idle" ||
+      showWaveform
+    )
+      return;
+
+    requestAnimationFrame(() => {
+      if (isActiveMode && ownsVoice && voiceState === "idle" && !showWaveform) {
+        refocusComposer();
+      }
+    });
+  });
+
   let prevFocusable = untrack(() => isActiveMode && !session.sessionPickerOpen);
   $effect(() => {
     if (!isPrimary) return;

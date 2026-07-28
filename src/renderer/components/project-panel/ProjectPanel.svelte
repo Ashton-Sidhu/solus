@@ -27,15 +27,13 @@
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { sessionWorks } from "./lib/session-works";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
-  import { comboHint } from "../../lib/keybindings/manifest";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   interface Props {
     open?: boolean;
     managedWidth?: boolean;
-    onClose: () => void;
   }
-  let { open = true, managedWidth = false, onClose }: Props = $props();
+  let { open = true, managedWidth = false }: Props = $props();
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -62,12 +60,6 @@
   );
   const gitCwd = $derived(panelEnvironment.cwd);
   const isSplitScope = $derived(panelTabId !== session.activeTabId);
-  const projectName = $derived(() => {
-    const dir = cwd?.replace(/\/$/, "");
-    if (!dir || dir === "~") return "~";
-    const parts = dir.split("/");
-    return parts[parts.length - 1] || "~";
-  });
 
   // Works the focused session created or updated — derived from the same messages
   // that drive the conversation, so it's correct live and after a history reload.
@@ -205,6 +197,15 @@
   </span>
 {/snippet}
 
+{#snippet automationsHeaderExtra()}
+  <span
+    class="block max-w-40 truncate text-[0.6875rem] font-normal text-(--solus-text-tertiary)"
+    aria-live="polite"
+  >
+    {automationBoard.summary}
+  </span>
+{/snippet}
+
 {#snippet tasksHeaderExtra()}
   <span class="header-extra">
     <Button
@@ -225,29 +226,23 @@
 {/snippet}
 
 {#snippet panelHeaderActions()}
-  {#if isSplitScope}
-    <span
-      class="inline-flex h-4 items-center rounded-full bg-(--solus-surface-hover) px-1.5 text-[0.5625rem] font-semibold tracking-[0.04em] text-(--solus-text-tertiary) uppercase"
-      aria-label="Project panel scoped to split pane"
-    >
-      Split
-    </span>
-  {/if}
+  <span
+    class="inline-flex h-4 items-center rounded-full bg-(--solus-surface-hover) px-1.5 text-[0.5625rem] font-semibold tracking-[0.04em] text-(--solus-text-tertiary) uppercase"
+    aria-label="Project panel scoped to split pane"
+  >
+    Split
+  </span>
 {/snippet}
 
 <SidePanel
-  title={projectName() ?? "Project"}
   side="right"
   {open}
   {managedWidth}
+  flush
   minWidth={240}
   maxWidth={maxProjectPanelWidth}
-  onAction={onClose}
-  actionTooltip={`Close project panel (${comboHint("global.toggle-project-panel")})`}
-  actionAriaLabel="Close project panel"
-  headerActions={panelHeaderActions}
-  background="color-mix(in srgb, var(--solus-container-bg) 90%, color-mix(in srgb, var(--solus-input-pill-bg) 70%, var(--solus-surface-primary)) 10%)"
-  headerTopPadding="compact"
+  headerActions={isSplitScope ? panelHeaderActions : undefined}
+  background="var(--solus-container-bg)"
 >
   <div
     bind:this={sectionsElement}
@@ -276,6 +271,7 @@
         title="Automations"
         collapsed={settings.projectPanelCollapsed.automations}
         onToggle={() => toggleSection("automations")}
+        headerExtra={automationBoard.summary ? automationsHeaderExtra : undefined}
       >
         <AutomationsSection board={automationBoard} />
       </PanelSection>
@@ -295,11 +291,16 @@
   .project-sections {
     --project-icon-blue: oklch(0.62 0.18 252);
     --project-icon-green: oklch(0.65 0.16 148);
-    --project-icon-amber: oklch(0.74 0.17 75);
     display: flex;
     flex: 1;
     min-height: 0;
     flex-direction: column;
+    background: var(--solus-container-bg);
+    /* The rail is a tray: the section cards sit on it with an even gutter, so
+       a collapsed section reads as a gap instead of a shorter list. The top
+       inset drops the first card clear of the chrome-row seam above. */
+    gap: 0.5rem;
+    padding: 0.5rem;
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
