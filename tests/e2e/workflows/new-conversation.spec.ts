@@ -60,9 +60,9 @@ test.describe('New conversation workflow', () => {
     await expect(page.locator('.mode-shell:not(.mode-hidden) .tab-slot:not(.tab-hidden) [data-testid="assistant-message"]').first()).toBeVisible()
   })
 
-  test('autolinks stop at the URL before following typed text', async ({ page }) => {
-    // WHY: typing after an autolink should not inherit the link mark; otherwise
-    // the input serializes normal prose as part of the URL markdown link.
+  test('plain URL text remains separate from following typed text', async ({ page }) => {
+    // WHY: source-first editing has no inherited link mark; the exact prompt
+    // must survive typing and render as a link only after it is sent.
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const activeShell = page.locator('.mode-shell:not(.mode-hidden)')
@@ -73,8 +73,8 @@ test.describe('New conversation workflow', () => {
 
     await conversation.typeMessage(`${linkText}${trailingText}`)
 
-    const editorLink = activeShell.locator('[data-testid="message-input"] a')
-    await expect(editorLink).toHaveText(linkText)
+    const editor = activeShell.locator('[data-testid="message-input"] .cm-content')
+    await expect(editor).toHaveText(`${linkText}${trailingText}`)
 
     await conversation.sendMessage()
 

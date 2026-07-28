@@ -1,5 +1,5 @@
 <script lang="ts">
-  import MarkdownEditor from "../MarkdownEditor.svelte";
+  import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { CaretDownIcon } from "phosphor-svelte";
   import { getAgentContext, getSettingsContext } from "../../contexts";
@@ -82,7 +82,7 @@
   // px-2.5 (0.625rem) must be added back to line it up with the editor text
   // (0.625rem wrapper pad + 0.25rem ProseMirror pad = 0.875rem).
   const mdFieldClass =
-    "rounded-lg border border-border bg-background px-2.5 transition-colors focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.solus-md-editor_.ProseMirror]:![min-height:4.5rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![left:0.875rem]";
+    "rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]";
 </script>
 
 <SettingsSection label="Global" visible={isVisible("extra-instructions")}>
@@ -91,7 +91,7 @@
     description="Appended to the system prompt for every agent run."
   >
     {#snippet body()}
-      <MarkdownEditor
+      <PlainTextEditor
         value={theme.extraInstructions}
         onValueChange={(md) => theme.update({ extraInstructions: md })}
         onBlur={() => requestInputFocus()}
@@ -148,7 +148,7 @@
       </DropdownMenu.Root>
     {/snippet}
     {#snippet body()}
-      <MarkdownEditor
+      <PlainTextEditor
         value={theme.modelInstructions[selectedModelId] ?? ""}
         onValueChange={(md) => theme.update({ modelInstructions: { ...theme.modelInstructions, [selectedModelId]: md } })}
         onBlur={() => requestInputFocus()}

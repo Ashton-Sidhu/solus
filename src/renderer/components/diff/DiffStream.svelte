@@ -4,6 +4,7 @@
     CodeView,
     type CodeViewDiffItem,
     type DiffLineAnnotation,
+    type FileDiffContentsLoader,
     type FileDiffMetadata,
     type SelectedLineRange,
     type SelectionSide,
@@ -63,6 +64,7 @@
 
   interface Props {
     fileDiffs: FileDiffMetadata[];
+    loadDiffFiles?: FileDiffContentsLoader;
     isBinaryFile: (path: string) => boolean;
     isDark: boolean;
     diffStyle: "unified" | "split";
@@ -97,6 +99,7 @@
 
   let {
     fileDiffs,
+    loadDiffFiles,
     isBinaryFile,
     isDark,
     diffStyle,
@@ -514,17 +517,18 @@
       lineHoverHighlight: "number" as const,
       overflow: "wrap" as const,
       // "line-info-basic" trades the @@-metadata rule for "N unchanged lines"
-      // with up/down/expand-all controls. The buttons only appear on files whose
-      // metadata carries full file contents (see diff-expandable.ts); everything
-      // else keeps a plain, inert separator.
+      // with up/down/expand-all controls. @pierre/diffs requests full contents
+      // through loadDiffFiles only when the reader expands a partial patch.
       hunkSeparators: "line-info-basic" as const,
+      loadDiffFiles,
       // Lines revealed per click (library default 100 — too big a jump to keep
       // your place) and the gap size below which we just render the lines
       // inline instead of asking for a click (default 1).
       expansionLineCount: 20,
       collapsedContextThreshold: 10,
       disableFileHeader: false,
-      disableErrorHandling: true,
+      // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
+      disableErrorHandling: !loadDiffFiles,
       enableLineSelection: true,
       enableGutterUtility: true,
       stickyHeaders: true,
@@ -662,6 +666,7 @@
     void isDark;
     void diffHeaderHeight;
     void tokenHighlight;
+    void loadDiffFiles;
     if (!codeView) return;
     void setDiffWorkerPoolTheme(isDark);
     void setDiffWorkerPoolLineDiffType(tokenHighlight);

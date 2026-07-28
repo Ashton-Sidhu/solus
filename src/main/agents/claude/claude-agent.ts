@@ -288,17 +288,6 @@ export class ClaudeAgent {
     }
   }
 
-  /** Convenience for non-streaming use — returns the final assistant text. */
-  async runOneShot(opts: ClaudeRunOptions): Promise<{ text: string; result: ClaudeRunResult }> {
-    const { events, result } = this.run(opts)
-    let text = ''
-    for await (const evt of events) {
-      if (evt.type === 'text_chunk') text += evt.text
-      else if (evt.type === 'task_complete' && evt.result) text = evt.result
-    }
-    return { text, result: await result }
-  }
-
   async rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {
     const rewindQuery = query({
       prompt: '',

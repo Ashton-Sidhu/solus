@@ -61,14 +61,31 @@ export type DiffScope =
 export type DiffRequest = {
   scope: DiffScope
   livePaths?: string[]
-  /** Context lines per hunk (`git diff --unified`). Omit for the default 3. */
-  contextLines?: number
 }
 
-/** A context so large every hunk swallows the whole file, so the parsed patch's
- *  addition/deletion line arrays are the complete new/old file contents. That is
- *  what lets the diff panel expand the unchanged gaps between hunks. */
-export const FULL_CONTEXT_LINES = 1_000_000
+export interface DiffFileContentsRequest {
+  scope: DiffScope
+  /** Post-image path from the parsed patch. */
+  path: string
+  /** Pre-image path for renamed files; defaults to `path`. */
+  previousPath?: string
+  livePaths?: string[]
+  /** Object ids from the patch, used to reject content loaded after the diff changed. */
+  expectedOldObjectId?: string
+  expectedNewObjectId?: string
+}
+
+export interface DiffFileContent {
+  name: string
+  contents: string
+  /** Stable blob identity used by @pierre/diffs' highlight cache. */
+  cacheKey: string
+}
+
+export interface DiffFileContentsResult {
+  oldFile: DiffFileContent | null
+  newFile: DiffFileContent | null
+}
 
 export interface GitStateOptions {
   /** Include worktree line totals and any existing pull-request URL. These

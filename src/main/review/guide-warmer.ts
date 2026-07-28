@@ -13,12 +13,14 @@ import type { Provider, RepoRef } from '../providers/types'
 import { generateGuide } from './guide-producer'
 import { readGuideByKey } from './ledger'
 import { guideKeyFor } from './review-target'
+import type { AgentDispatcher } from '../agents/agent-runner'
 
 const log = createLogger('review', 'guide-warmer.ts')
 const HEAD_STABLE_MS = 60_000
 const PREFETCH_COUNT = 3
 
 interface GuideWarmerInput {
+  dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
   repo: RepoRef
@@ -46,6 +48,7 @@ let guideTail = Promise.resolve()
 let prefetchTail = Promise.resolve()
 
 export interface PrGuideRequest {
+  dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
   repo: RepoRef
@@ -90,7 +93,7 @@ async function generateRequestedGuide(request: PrGuideRequest, number: number): 
   const checkout = await checkoutForGuide(request.repoRoot, request.isWorktreeInUse, detail)
   if (!checkout) throw new Error(`PR #${number}'s review worktree is busy on a different commit`)
   const ctx = contextForPr(request.ctx, request.repoRoot, detail, checkout)
-  const generated = await generateGuide(ctx, {
+  const generated = await generateGuide(request.dispatcher, ctx, {
     agent: request.ctx.settings.reviewAgent ?? request.ctx.settings.activeAgent,
     model: request.ctx.settings.reviewModel,
     reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
@@ -234,7 +237,7 @@ async function warmGuide(repoRoot: string, number: number, headSha: string): Pro
   }
 
   const ctx = contextForPr(input.ctx, repoRoot, detail, checkout)
-  await generateGuide(ctx, {
+  await generateGuide(input.dispatcher, ctx, {
     agent: input.ctx.settings.reviewAgent ?? input.ctx.settings.activeAgent,
     model: input.ctx.settings.reviewModel,
     reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',

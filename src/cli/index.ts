@@ -184,7 +184,7 @@ async function gitCredential(args: string[]): Promise<void> {
 async function update(opts: UpdateOptions): Promise<void> {
   const paths = runtimePaths()
   if (isBrewManaged(paths.installDir)) {
-    console.log('This Solus install appears to be managed by Homebrew. Run: brew upgrade solus')
+    console.log('This Solus install appears to be managed by Homebrew. Run: brew upgrade solus-server')
     return
   }
   if (!isTarballInstall(paths.installDir)) {
@@ -287,7 +287,7 @@ function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
 }
 
 function isBrewManaged(installDir: string): boolean {
-  return /\/(?:Cellar|homebrew\/Cellar|linuxbrew\/Cellar)\/solus\//.test(installDir)
+  return /\/(?:Cellar|homebrew\/Cellar|linuxbrew\/Cellar)\/solus(?:-server)?\//.test(installDir)
 }
 
 function isTarballInstall(installDir: string): boolean {

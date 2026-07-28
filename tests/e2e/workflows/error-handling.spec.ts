@@ -16,8 +16,9 @@ test.describe('Error handling workflow', () => {
     await conversation.waitForResponse()
 
     // Then: the input is empty and ready for the next message
-    const inputText = await page.locator(`${ACTIVE_SHELL} [data-testid="message-input"] .solus-md-editor`).innerText()
-    expect(inputText.trim()).toBe('')
+    await expect(
+      page.locator(`${ACTIVE_SHELL} [data-testid="message-input"] .cm-placeholder`),
+    ).toBeVisible()
   })
 
   test('empty message does not submit', async ({ page }) => {

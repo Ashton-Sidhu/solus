@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
-const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .solus-md-editor`
+const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-line`
 
 async function setInput(page: import('@playwright/test').Page, text: string) {
   const input = page.locator(INPUT_EDITOR)
@@ -30,13 +30,17 @@ test.describe('Per-tab input state', () => {
 
     // Draft on the first tab.
     await app.switchToTab(0)
-    await expect(page.locator(INPUT_EDITOR)).toHaveText('')
+    await expect(
+      page.locator(`${ACTIVE_SHELL} [data-testid="message-input"] .cm-placeholder`),
+    ).toBeVisible()
     await setInput(page, 'draft for tab one')
     await expect(page.locator(INPUT_EDITOR)).toHaveText('draft for tab one')
 
     // Draft on the second tab — independent, no bleed-through from tab one.
     await app.switchToTab(1)
-    await expect(page.locator(INPUT_EDITOR)).toHaveText('')
+    await expect(
+      page.locator(`${ACTIVE_SHELL} [data-testid="message-input"] .cm-placeholder`),
+    ).toBeVisible()
     await setInput(page, 'draft for tab two')
     await expect(page.locator(INPUT_EDITOR)).toHaveText('draft for tab two')
 

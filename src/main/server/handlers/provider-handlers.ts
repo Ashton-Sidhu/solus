@@ -16,6 +16,7 @@ import type { PrGuideMetadataRequest } from '../../../shared/review'
 import type { IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
 import type { SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
+import type { AgentDispatcher } from '../../agents/agent-runner'
 
 const log = createLogger('main', 'provider-handlers')
 const EFFORT_FETCH_CONCURRENCY = 4
@@ -173,6 +174,7 @@ async function persistReviewCheckpoint(
 
 export interface ProviderHandlerDeps {
   isWorktreeInUse: (path: string) => boolean
+  dispatcher: AgentDispatcher
 }
 
 export function registerProviderHandlers(server: SolusServer, deps: ProviderHandlerDeps): void {
@@ -249,6 +251,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
           server.broadcast('stack-graph-update', repoRoot, graph)
           if (isCompleteOpenList) {
             scheduleGuideWarming({
+              dispatcher: deps.dispatcher,
               ctx,
               repoRoot,
               repo,
@@ -478,6 +481,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const { repo, provider } = await reviewTargetFor(ctx)
     const repoRoot = await repoRootForContext(ctx)
     requestPrGuides({
+      dispatcher: deps.dispatcher,
       ctx,
       repoRoot,
       repo,

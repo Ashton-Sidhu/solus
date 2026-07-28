@@ -172,7 +172,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     registerThemeHandlers(server)
   }
   registerFolioHandlers(server)
-  registerReviewHandlers(server)
+  registerReviewHandlers(server, opts.controlPlane)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
   // were created in (full conversation context), routed through the control plane.
@@ -204,6 +204,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerTasksHandlers(server)
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerProviderHandlers(server, {
+    dispatcher: opts.controlPlane,
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
   })
   registerStackHandlers(server)

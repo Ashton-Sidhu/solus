@@ -1,0 +1,83 @@
+import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
+import { EventEmitter } from 'node:events'
+import type { AgentRunRequest } from '../../src/main/agents/agent-runner'
+import type { RunHandle } from '../../src/main/agents/agent-backend'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
+
+beforeAll(async () => {
+  ;({ ControlPlane } = await import('../../src/main/control-plane'))
+})
+
+function backend() {
+  const emitter = new EventEmitter() as EventEmitter & Record<string, unknown>
+  let handle: RunHandle
+  emitter.id = 'codex'
+  emitter.metadata = { id: 'codex', label: 'Codex', models: [], defaultModel: '' }
+  emitter.permissions = {}
+  emitter.startRun = (request: AgentRunRequest) => {
+    let resolve!: () => void
+    const runPromise = new Promise<void>((res) => { resolve = res })
+    handle = {
+      sessionId: request.sessionId ?? null,
+      persistence: request.persistence,
+      startedAt: Date.now(),
+      toolCallCount: 0,
+      sawPermissionRequest: false,
+      permissionDenials: [],
+      abortController: new AbortController(),
+      runPromise,
+      _resolveRun: resolve,
+      _rejectRun: () => {},
+    }
+    return handle
+  }
+  emitter.getPendingHandles = () => []
+  emitter.shutdown = () => {}
+  return {
+    value: emitter,
+    complete: () => handle._resolveRun(),
+  }
+}
+
+const planes: Array<InstanceType<typeof ControlPlane>> = []
+afterEach(() => {
+  for (const plane of planes.splice(0)) plane.shutdown()
+})
+
+describe('ControlPlane.runAgent', () => {
+  test('registers ephemeral work only for the lifetime of the run', async () => {
+    const fake = backend()
+    const plane = new ControlPlane(new Map([['codex', fake.value as never]]))
+    planes.push(plane)
+    const request: AgentRunRequest = {
+      provider: 'codex',
+      prompt: 'utility work',
+      cwd: '/tmp/project',
+      tools: [],
+      permissionMode: 'plan',
+      persistence: 'ephemeral',
+    }
+
+    const run = plane.runAgent(request)
+    const internals = plane as unknown as {
+      activeAgentRuns: Set<unknown>
+      activeSessions: Map<string, unknown>
+      tabs: Map<string, unknown>
+      requestQueue: Map<string, unknown>
+    }
+
+    expect(internals.activeAgentRuns.size).toBe(1)
+    expect(internals.activeSessions.size).toBe(0)
+    expect(internals.tabs.size).toBe(0)
+    expect(internals.requestQueue.size).toBe(0)
+
+    fake.complete()
+    await run.done
+    await Promise.resolve()
+    expect(internals.activeAgentRuns.size).toBe(0)
+  })
+})

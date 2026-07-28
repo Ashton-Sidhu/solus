@@ -3,16 +3,13 @@
   import {
     FileDiff,
     type DiffLineAnnotation,
+    type FileDiffContentsLoader,
     type SelectedLineRange,
     type SelectionSide,
   } from "@pierre/diffs";
   import type { DiffComment } from "../../../../shared/types";
   import { getSettingsContext } from "../../../contexts";
   import { parsePatchMetadata } from "../../../lib/diff";
-  import {
-    buildExpandableMetadata,
-    type FileVersions,
-  } from "../../../lib/diff-expandable";
   import {
     detectMovedBlocks,
     type DiffMoveAnalysis,
@@ -54,7 +51,7 @@
   let {
     patch,
     filePath,
-    versions,
+    loadDiffFiles,
     comments = [],
     onSaveComment,
     onDeleteComment,
@@ -62,9 +59,7 @@
   }: {
     patch: string;
     filePath: string;
-    /** Both versions of this file. When they line up with `patch`, the card's
-     *  hunk gaps become expandable; otherwise it renders exactly as before. */
-    versions?: FileVersions;
+    loadDiffFiles?: FileDiffContentsLoader;
     comments?: DiffComment[];
     onSaveComment?: (comment: GuideDiffCommentSave) => void;
     onDeleteComment?: (id: string) => void;
@@ -90,17 +85,10 @@
 
   // parsePatchMetadata caches by patch string, so this returns a stable reference
   // across annotation-only re-renders (keeps FileDiff from treating it as a new diff).
-  // Re-parsing against the file's two versions (when the host has them) is what
-  // makes the gaps between this card's hunks expandable — including for the
-  // concern-scoped hunk subsets the guide author picked.
   const fileDiffMeta = $derived(
     profilePrReviewWork(
       "patch-parse",
-      () => {
-        const partial = parsePatchMetadata(patch);
-        if (!partial || !versions) return partial;
-        return buildExpandableMetadata(patch, partial, versions) ?? partial;
-      },
+      () => parsePatchMetadata(patch),
       { filePath, patchCharacters: patch.length },
     ),
   );
@@ -229,10 +217,12 @@
       // lines it skipped and, once the file's contents are loaded, lets the
       // reader pull them in without leaving the card.
       hunkSeparators: "line-info-basic" as const,
+      loadDiffFiles,
       expansionLineCount: 20,
       collapsedContextThreshold: 10,
       disableFileHeader: true,
-      disableErrorHandling: true,
+      // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
+      disableErrorHandling: !loadDiffFiles,
       unsafeCSS: DIFFS_THEME_CSS,
       onPostRender: (node: HTMLElement) => {
         decorateMovedLines(

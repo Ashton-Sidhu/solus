@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
+import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName, TOKEN_ICONS } from './tokenStyle'
 
 export interface WorkRefAttrs {
@@ -44,12 +45,12 @@ export const WorkRefExtension = Node.create({
   },
 
   renderMarkdown(node) {
-    const params = new URLSearchParams({
+    return serializeReferenceToken({
+      kind: 'work',
       workId: node.attrs?.workId,
       type: node.attrs?.type,
+      title: node.attrs?.title ?? '',
     })
-    const safeTitle = (node.attrs?.title ?? '').replace(/[\[\]]/g, '\\$&')
-    return `[${safeTitle}](work://ref?${params})`
   },
 
   addAttributes() {

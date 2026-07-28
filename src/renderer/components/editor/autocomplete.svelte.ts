@@ -2,11 +2,9 @@
 //
 // It owns the six completion channels — slash commands, @-files, #plans,
 // %works, !PRs and &sessions — including their filter state, candidate fetching, keyboard handling
-// and reference insertion. It operates on a Tiptap `Editor` (via the host
-// accessors) rather than a specific component, so the same autocomplete can be
-// mounted around any editor surface (the prompt input today, the document
-// editor later).
-import type { Editor } from "@tiptap/core";
+// and reference insertion. Editor mechanics sit behind AutocompleteEditor so
+// the same state machine can drive the CodeMirror prompt input and the Tiptap
+// document editor without leaking either editor's transaction model.
 import { planKey } from "../../../shared/types";
 import type {
   AgentId,
@@ -20,10 +18,6 @@ import type {
   WorkReference,
 } from "../../../shared/types";
 import type { PullRequestSummary } from "../../../shared/providers";
-import type { PlanRefAttrs } from "./planRefExtension";
-import type { PrRefAttrs } from "./prRefExtension";
-import type { WorkRefAttrs } from "./workRefExtension";
-import type { SessionRefAttrs } from "./sessionRefExtension";
 import {
   SLASH_COMMANDS,
   getFilteredFromCategorized,
@@ -31,7 +25,7 @@ import {
   type CategorizedSlashCommands,
 } from "../input/slash-commands";
 import { type WorkspaceContext, type PlanStore } from "../../contexts";
-import * as refs from "./references";
+import type { AutocompleteEditor } from "./autocomplete-editor";
 
 // Trigger patterns shared by every reference-aware composer. Re-exported by
 // PromptEditor so callers don't re-declare them.
@@ -87,9 +81,7 @@ export interface AutocompleteDeps {
     | undefined;
   session: WorkspaceContext;
   planStore: PlanStore;
-  getEditor: () => Editor | null;
-  focusEditor: () => void;
-  getCursorRect: () => DOMRect | null;
+  getEditor: () => AutocompleteEditor | null;
   getFileMenu: () => FileMenuHandle | null;
 }
 
@@ -306,7 +298,7 @@ export class AutocompleteController {
   // ─── Menu helpers ───
 
   updateCursorAnchor() {
-    this.cursorAnchorRect = this.deps.getCursorRect();
+    this.cursorAnchorRect = this.deps.getEditor()?.cursorRect() ?? null;
   }
 
   #clearFileCompletion() {
@@ -573,32 +565,37 @@ export class AutocompleteController {
     if (this.deps.readOnly()) return;
     const refPath = this.deps.useRelativeFilePaths() ? file.display : file.path;
     const name = refPath.slice(refPath.lastIndexOf("/") + 1);
-    refs.insertFileReference(
-      this.deps.getEditor(),
-      { path: file.isDir ? refPath + "/" : refPath, name },
+    this.deps.getEditor()?.insertReference(
+      {
+        kind: "file",
+        path: file.isDir ? refPath + "/" : refPath,
+        name,
+      },
       FILE_TRIGGER_RE,
     );
     this.clearCompletions();
-    this.deps.focusEditor();
+    this.deps.getEditor()?.focus();
   };
 
   handleFileDrillIn = (file: FileMatch) => {
     if (this.deps.readOnly()) return;
-    refs.updateTriggerText(this.deps.getEditor(), FILE_TRIGGER_RE, `@${file.path}/`);
-    this.deps.focusEditor();
+    this.deps
+      .getEditor()
+      ?.replaceTrigger(FILE_TRIGGER_RE, `@${file.path}/`);
+    this.deps.getEditor()?.focus();
   };
 
   handlePlanSelect = (descriptor: PlanDescriptor) => {
     if (this.deps.readOnly()) return;
     const id = planKey(descriptor.sessionId, descriptor.planToolUseId);
-    const attrs: PlanRefAttrs = {
+    this.deps.getEditor()?.insertReference({
+      kind: "plan",
       planId: id,
       sessionId: descriptor.sessionId,
       planToolUseId: descriptor.planToolUseId,
       title: descriptor.title,
       status: descriptor.status,
-    };
-    refs.insertPlanReference(this.deps.getEditor(), attrs, PLAN_TRIGGER_RE);
+    }, PLAN_TRIGGER_RE);
     this.syncRefs();
     this.clearCompletions();
     void this.deps.planStore.loadFromDisk({
@@ -615,17 +612,17 @@ export class AutocompleteController {
       ctx: this.deps.session.ctx,
       provider: descriptor.provider,
     });
-    this.deps.focusEditor();
+    this.deps.getEditor()?.focus();
   };
 
   handleWorkSelect = (work: Work) => {
     if (this.deps.readOnly()) return;
-    const attrs: WorkRefAttrs = {
+    this.deps.getEditor()?.insertReference({
+      kind: "work",
       workId: work.id,
       title: work.title,
       type: work.type,
-    };
-    refs.insertWorkReference(this.deps.getEditor(), attrs, WORK_TRIGGER_RE);
+    }, WORK_TRIGGER_RE);
     this.syncRefs();
     this.clearCompletions();
     void this.deps.session.worksStore.ensureContent(
@@ -633,36 +630,32 @@ export class AutocompleteController {
       "composer-work-select",
       this.deps.workingDirectory(),
     );
-    this.deps.focusEditor();
+    this.deps.getEditor()?.focus();
   };
 
   handlePrSelect = (pullRequest: PullRequestSummary) => {
     if (this.deps.readOnly()) return;
-    const attrs: PrRefAttrs = {
+    this.deps.getEditor()?.insertReference({
+      kind: "pr",
       number: pullRequest.number,
       title: pullRequest.title,
-    };
-    refs.insertPrReference(this.deps.getEditor(), attrs, PR_TRIGGER_RE);
+    }, PR_TRIGGER_RE);
     this.clearCompletions();
-    this.deps.focusEditor();
+    this.deps.getEditor()?.focus();
   };
 
   handleSessionSelect = (session: SessionMeta) => {
     if (this.deps.readOnly()) return;
-    const attrs: SessionRefAttrs = {
+    this.deps.getEditor()?.insertReference({
+      kind: "session",
       sessionId: session.sessionId,
       provider: session.provider,
       title: sessionRefTitle(session),
       cwd: session.cwd,
-    };
-    refs.insertSessionReference(
-      this.deps.getEditor(),
-      attrs,
-      SESSION_TRIGGER_RE,
-    );
+    }, SESSION_TRIGGER_RE);
     this.syncRefs();
     this.clearCompletions();
-    this.deps.focusEditor();
+    this.deps.getEditor()?.focus();
   };
 
   handleSlashSelect = (cmd: SlashCommand) => {
@@ -675,21 +668,21 @@ export class AutocompleteController {
       this.deps.onSolusCommand()?.(cmd);
       return;
     }
-    refs.insertSlashReference(
-      this.deps.getEditor(),
-      { command: cmd.command },
+    this.deps.getEditor()?.insertReference(
+      { kind: "slash", command: cmd.command },
       SLASH_INLINE_RE,
     );
     this.clearCompletions();
-    this.deps.focusEditor();
+    this.deps.getEditor()?.focus();
   };
 
   syncRefs() {
     const onRefsChange = this.deps.onRefsChange();
     if (!onRefsChange) return;
-    const { planRefs, workRefs, sessionRefs } = refs.extractRefs(
-      this.deps.getEditor(),
-    );
+    const editor = this.deps.getEditor();
+    if (!editor) return;
+    const { planRefs, workRefs, sessionRefs } =
+      editor.extractTrackedReferences();
     onRefsChange(planRefs, workRefs, sessionRefs);
   }
 
@@ -704,12 +697,8 @@ export class AutocompleteController {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
     if (this.deps.readOnly()) return false;
     const editor = this.deps.getEditor();
-    const selection = editor?.state.selection;
-    if (!selection?.empty) return false;
-    const nodeBefore = selection.$from.nodeBefore;
-    if (nodeBefore?.type.name !== "fileReference") return false;
+    if (!editor?.unwrapFileReferenceBeforeCursor()) return false;
     e.preventDefault();
-    refs.unwrapFileReference(editor, selection.from - nodeBefore.nodeSize);
     return true;
   }
 

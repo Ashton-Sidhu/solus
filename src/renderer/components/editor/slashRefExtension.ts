@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
+import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName } from './tokenStyle'
 
 export interface SlashRefAttrs {
@@ -35,6 +36,9 @@ export const SlashRefExtension = Node.create({
   },
 
   renderMarkdown(node) {
-    return node.attrs?.command ?? ''
+    return serializeReferenceToken({
+      kind: 'slash',
+      command: node.attrs?.command ?? '',
+    })
   },
 })

@@ -24,8 +24,15 @@
   let lastInitialValue = $state(untrack(() => initialValue))
   let inputEl: HTMLTextAreaElement | null = $state(null)
 
+  export function focusInput() {
+    if (!inputEl) return
+    inputEl.focus()
+    const end = inputEl.value.length
+    inputEl.setSelectionRange(end, end)
+  }
+
   onMount(() => {
-    setTimeout(() => inputEl?.focus(), 30)
+    setTimeout(focusInput, 30)
   })
 
   $effect(() => {

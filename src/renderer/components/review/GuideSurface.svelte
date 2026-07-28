@@ -64,7 +64,7 @@
       guide={loader.guide}
       ledger={loader.ledger}
       patch={loader.patch}
-      fileVersions={loader.fileVersions}
+      loadDiffFiles={loader.loadDiffFiles}
       {meta}
       guideCurrent={!loader.stale}
       {onFileJump}

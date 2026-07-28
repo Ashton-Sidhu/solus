@@ -7,7 +7,7 @@
     CheckIcon,
     PaperPlaneTiltIcon,
   } from "phosphor-svelte";
-  import MarkdownEditor from "../MarkdownEditor.svelte";
+  import { CommentEditor } from "../ui/comment-editor";
   import type { IpcContext, PrReviewContext } from "../../../shared/types";
   import type { DraftReview, DraftReviewComment } from "../../../shared/providers";
   import type { ReviewDraftComment } from "../../../shared/review";
@@ -85,7 +85,7 @@
 
   // Move focus into the modal on open (keyboard-first: Tab must not land on
   // the surface behind, and the summary is what you came here to write).
-  let bodyEditor: MarkdownEditor | null = $state(null);
+  let bodyEditor: ReturnType<typeof CommentEditor> | null = $state(null);
   $effect(() => {
     bodyEditor?.focus();
   });
@@ -95,7 +95,7 @@
   // left:0.875rem lines the placeholder up with the editor text (the wrapper's
   // px-2.5 plus the ProseMirror's own 0.25rem left padding).
   const mdFieldClass =
-    "rounded-lg border border-(--solus-art-border) bg-transparent px-2.5 transition-colors focus-within:border-(--solus-accent) [&_.solus-md-editor_.ProseMirror]:![min-height:3rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![left:0.875rem]";
+    "rounded-lg border border-(--solus-art-border) bg-transparent px-2.5 transition-colors focus-within:border-(--solus-accent) [&_.cm-content]:![min-height:3rem] [&_.cm-content]:![padding:0.5rem_0] [&_.cm-content]:![font-weight:400]";
 
   async function submit(sendToFixAgent = false) {
     submitting = true;
@@ -240,7 +240,7 @@
 
       <div class="flex flex-col gap-2">
         <span class="text-[0.6875rem] font-semibold tracking-wider text-(--solus-text-tertiary) uppercase">Summary</span>
-        <MarkdownEditor
+        <CommentEditor
           bind:this={bodyEditor}
           value={body}
           onValueChange={(md) => (body = md)}

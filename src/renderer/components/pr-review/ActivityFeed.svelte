@@ -7,7 +7,7 @@
     ArrowUpIcon,
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import MarkdownEditor from "../MarkdownEditor.svelte";
+  import { CommentEditor } from "../ui/comment-editor";
   import type { ChangedFileStat, IpcContext } from "../../../shared/types";
   import type {
     ReviewThread,
@@ -138,7 +138,7 @@
   // Composer styled like the message composer: bare field inside its own pill,
   // forced 400 weight so typed text never reads bold.
   const composerFieldClass =
-    "flex-1 min-w-0 [&_.solus-md-editor_.ProseMirror]:![padding:0.25rem_0] [&_.solus-md-editor_.ProseMirror]:![min-height:1.25rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![top:0.25rem] [&_.solus-md-placeholder]:![left:0]";
+    "flex-1 min-w-0 [&_.cm-content]:![padding:0.25rem_0] [&_.cm-content]:![min-height:1.25rem] [&_.cm-content]:![font-weight:400]";
 
   const openedAt = $derived(detail ? new Date(detail.createdAt).getTime() : null);
   const openedTime = $derived(
@@ -605,7 +605,7 @@
             url={viewerAvatarUrl}
             size="size-6 text-[0.625rem]"
           />
-          <MarkdownEditor
+          <CommentEditor
             value={composer}
             onValueChange={(md) => (composer = md)}
             onKeyDown={onComposerKey}

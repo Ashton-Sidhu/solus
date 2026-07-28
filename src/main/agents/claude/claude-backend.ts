@@ -6,9 +6,7 @@ import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, SAFE_TOOLS } from './claude-agent'
 import { TurnInputChannel } from './claude-turn-input'
-import { createSolusMcpServer } from '../../folio/work-tools'
-import { codexSubagentSdkTool } from '../codex/codex-subagent-tool'
-import { CodexSubagentEventBridge } from '../codex/codex-subagent-event-bridge'
+import { adaptClaudeTools } from './claude-tool-adapter'
 import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
@@ -18,6 +16,7 @@ import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
 import type { AgentBackend, RunHandle } from '../agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER } from '../../../shared/types'
 import type {
   AgentId,
@@ -29,7 +28,6 @@ import type {
   PluginCommandsResult,
   PromptOptions,
   SessionMeta,
-  SessionRunInput,
 } from '../../../shared/types'
 import type { ClaudeRunResult } from './claude-agent'
 import type { SessionLoadMessage, SessionPreviewResult } from '../../../shared/session-history'
@@ -49,8 +47,6 @@ import {
 } from './claude-plan-helpers'
 import { _pluginCmdCache, PLUGIN_CMD_TTL, resolvePluginCommands } from './claude-plugin-helpers'
 import { runBounded } from '../../lib/concurrency'
-import { buildSystemPrompt } from '../system-hint'
-import { isWorkspacePath } from '../../workspace'
 import { listIndexedSessions, sessionIndexReady } from '../../db/session-indexer'
 import { ClaudeCommandDiscovery } from './claude-command-discovery'
 
@@ -148,10 +144,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     return this.commandDiscovery.get({ cwd, model })
   }
 
-  startRun(input: SessionRunInput, options: PromptOptions): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const abortController = new AbortController()
-    const sessionId = input.agentSessionId
-    const uiMode = input.permissionMode
+    const sessionId = request.sessionId ?? null
+    const uiMode = request.permissionMode
     const sessionRef = { current: sessionId }
     const canUseTool = this.permissions.createCanUseTool(sessionRef, uiMode)
 
@@ -161,6 +157,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
     const handle: ClaudeRunHandle = {
       sessionId,
+      persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -170,161 +167,63 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       _resolveRun,
       _rejectRun,
       input: new TurnInputChannel(
-        buildUserMessage(options.prompt, options.imageAttachments),
-        options.prompt,
+        buildUserMessage(request.prompt, request.imageAttachments),
+        request.prompt,
       ),
     }
 
-    const workTree = input.gitContext?.worktreePath ?? input.workingDirectory
-    const baseModel = input.model
-    const model = input.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
-    const codexSubagentEvents = new CodexSubagentEventBridge()
-
-    // In-process MCP server giving the agent list/read/create/update access to
-    // works plus render_artifact. onWorkCreated/onWorkUpdated/onArtifact fire
-    // mid-turn so the streaming card, open viewers, and the gallery live-update.
-    const solusServer = createSolusMcpServer({
-      onWorkCreated: (work) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'work_created',
-          workId: work.workId,
-          title: work.title,
-          docType: work.docType,
-          content: work.content,
-        })
-      },
-      onWorkUpdated: (work) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'work_updated',
-          workId: work.workId,
-          title: work.title,
-          docType: work.docType,
-          content: work.content,
-          updatedAt: work.updatedAt,
-        })
-      },
-      onArtifact: (artifact) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'artifact_created',
-          kind: 'html',
-          html: artifact.html,
-        })
-      },
-      onAutomationSaved: (automation) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'automation_saved',
-          automationId: automation.id,
-          name: automation.name,
-          trigger: automation.trigger,
-          enabled: automation.enabled,
-        })
-      },
-      onSessionCreated: (created) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'session_created',
-          agentSessionId: created.agentSessionId,
-          title: created.title,
-          provider: created.provider,
-          cwd: created.cwd,
-        })
-      },
-      onSessionPrompted: (prompted) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'session_prompted',
-          agentSessionId: prompted.agentSessionId,
-          promptPreview: prompted.promptPreview,
-          provider: prompted.provider,
-          cwd: prompted.cwd,
-        })
-      },
-      onSessionStopped: (stopped) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'session_stopped',
-          agentSessionId: stopped.agentSessionId,
-          provider: stopped.provider,
-          cwd: stopped.cwd,
-        })
-      },
-      onTaskCreated: (task) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'task_created',
-          taskId: task.taskId,
-          title: task.title,
-          url: task.url,
-        })
-      },
-      createCtx: {
-        agentProvider: 'claude-code',
-        cwd: input.workingDirectory,
-        sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
-      },
-      includeAutomationTools: input.toolProfile !== 'automation',
-      // Built here (outside the work-tools import cycle) with the run's worktree cwd
-      // and abort signal, so stopping the session interrupts the Codex turn.
-      codexSubagentTool: codexSubagentSdkTool({
-        cwd: workTree,
-        abortSignal: abortController.signal,
-        claimParentToolUseId: (args) => codexSubagentEvents.claim(args),
-        onEvent: (_parentToolUseId, event) => this.emit('normalized', handle.sessionId, event),
-      }),
-    })
+    const workTree = request.cwd
+    const baseModel = request.model ?? this.metadata.defaultModel
+    const model = request.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
+    const adaptedTools = adaptClaudeTools(request.tools, {
+      provider: 'claude-code',
+      cwd: request.cwd,
+      sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
+      abortSignal: abortController.signal,
+      parentToolUseId: () => undefined,
+      emit: (event) => this.emit('normalized', handle.sessionId, event),
+    }, uiMode)
 
     this.pendingRuns.push(handle)
     void (async () => {
-      const general = isWorkspacePath(input.workingDirectory)
-      const baseSystemPromptAppend = buildSystemPrompt({
-        agent: 'claude',
-        general,
-        extraInstructions: input.extraInstructions,
-        modelInstructions: input.modelInstructions,
-        prReview: input.prReview,
-      })
-      const systemPromptAppend = !input.agentSessionId && input.handoff
-        ? `${baseSystemPromptAppend}\n\n${input.handoff.seedSystemAppend}`
-        : baseSystemPromptAppend
-
       const { events, result } = this.agent.run({
         prompt: handle.input,
-        cwd: input.workingDirectory,
+        cwd: request.cwd,
         sessionId,
-        forkSession: input.forked,
+        forkSession: request.forkSession,
         model,
-        reasoningEffort: input.reasoningEffort,
-        fastMode: input.fastMode,
+        reasoningEffort: request.reasoningEffort,
+        fastMode: request.fastMode,
         permissionMode: uiMode,
-        additionalDirectories: input.additionalDirs,
-        mcpServers: { 'solus': solusServer },
-        // Reads + create + render are pre-approved; update_work falls through to the prompt.
-        // Automation reads are pre-approved; mutating/triggering ones (create/update/delete/set_enabled/run) fall through to the permission prompt.
-        // create_session is pre-approved — spawning a session is a first-class agent action.
-        // codex_subagent is pre-approved like create_session — delegating to a Codex subagent is a first-class agent action.
-        // Session/task reads are pre-approved; writes fall through to the prompt.
-        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__search_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__codex_subagent', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__wait_for_session', 'mcp__solus__search_sessions', 'mcp__solus__read_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
-        systemPromptAppend,
-        maxTurns: options.maxTurns,
-        maxBudgetUsd: options.maxBudgetUsd,
+        additionalDirectories: request.additionalDirectories,
+        mcpServers: { solus: adaptedTools.server },
+        allowedTools: [...SAFE_TOOLS, ...adaptedTools.allowedTools],
+        systemPromptAppend: request.systemPrompt,
+        maxTurns: request.maxTurns,
+        maxBudgetUsd: request.maxBudgetUsd,
         canUseTool,
-        enableFileCheckpointing: true,
+        enableFileCheckpointing: request.persistence === 'session',
+        persistSession: request.persistence === 'session',
         abortController,
-        onSessionInit: async (sid) => {
+        onSessionInit: request.persistence === 'session' ? async (sid) => {
           const repoRoot = await resolveRepoRoot(workTree)
           if (!repoRoot) return
           const head = getHeadCommit(workTree)
           if (!head) return
           await initSessionBase(repoRoot, sid, head)
-        },
-        onTurnComplete: async (sid, snapOpts) => {
+        } : undefined,
+        onTurnComplete: request.persistence === 'session' ? async (sid, snapOpts) => {
           const repoRoot = await resolveRepoRoot(workTree)
           if (!repoRoot) return null
           const result = await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
-            sessionChangedFiles: [...new Set([...input.sessionChangedFiles, ...snapOpts.editedFiles])],
+            sessionChangedFiles: [...new Set([...(sessionState?.changedFiles ?? []), ...snapOpts.editedFiles])],
           })
           return result?.sessionChangedFiles ?? null
-        },
+        } : undefined,
       })
 
-      await this._runLoop(handle, events, result, sessionRef, codexSubagentEvents)
+      await this._runLoop(handle, events, result, sessionRef, adaptedTools.observe)
     })().catch((err: any) => {
       const sessionId = handle.sessionId
       log.error(`Run failed to start [${sessionId ?? 'pending'}]: ${err?.message}`)
@@ -340,11 +239,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     events: AsyncIterable<NormalizedEvent>,
     result: Promise<ClaudeRunResult>,
     sessionRef: { current: string | null },
-    codexSubagentEvents?: CodexSubagentEventBridge,
+    observeToolEvent?: (event: NormalizedEvent) => void,
   ): Promise<void> {
     try {
       for await (const evt of events) {
-        codexSubagentEvents?.observe(evt)
+        observeToolEvent?.(evt)
         if (evt.type === 'session_init') {
           this.promoteToActive(handle, evt.sessionId)
           sessionRef.current = evt.sessionId

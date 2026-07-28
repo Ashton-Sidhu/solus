@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { processFile } from '@pierre/diffs'
 import { spawnSync } from 'child_process'
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { computeGitState, parseStatus } from '../../src/main/git/git-helpers'
-import { getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '../../src/main/git/session-snapshots'
+import { getDiff, getDiffFileContents, getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '../../src/main/git/session-snapshots'
 import type { GitState } from '../../src/shared/types'
 
 let repos: string[] = []
@@ -199,6 +200,65 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 }
 
 describe('diff statistics hot path', () => {
+  test('hydrates only the requested working-tree file and rejects a stale patch id', async () => {
+    const { cwd } = createRepo()
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\nsecond\n')
+    writeFileSync(join(cwd, 'unrelated.txt'), 'not part of this request\n')
+    const patch = await getDiff(cwd, cwd, { kind: 'working-tree' }, null, [])
+    const fileDiff = patch && processFile(patch.patch, { isGitDiff: true })
+    if (!fileDiff) throw new Error('failed to parse working-tree fixture')
+
+    const loaded = await getDiffFileContents(cwd, cwd, null, {
+      scope: { kind: 'working-tree' },
+      path: 'tracked.txt',
+      expectedOldObjectId: fileDiff.prevObjectId,
+      expectedNewObjectId: fileDiff.newObjectId,
+    })
+
+    expect(loaded?.oldFile?.contents).toBe('first\n')
+    expect(loaded?.newFile?.contents).toBe('first\nsecond\n')
+    expect(loaded?.oldFile?.cacheKey).toHaveLength(40)
+    expect(loaded?.newFile?.cacheKey).toHaveLength(40)
+
+    const stale = await getDiffFileContents(cwd, cwd, null, {
+      scope: { kind: 'working-tree' },
+      path: 'tracked.txt',
+      expectedNewObjectId: '0000001',
+    })
+    expect(stale).toBeNull()
+  })
+
+  test('hydrates a live session from its isolated temporary tree', async () => {
+    const { cwd, baseSha } = createRepo()
+    await initSessionBase(cwd, 'session-1', baseSha)
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\nsecond\n')
+    writeFileSync(join(cwd, 'other-session.txt'), 'excluded\n')
+
+    const loaded = await getDiffFileContents(cwd, cwd, 'session-1', {
+      scope: { kind: 'session' },
+      path: 'tracked.txt',
+      livePaths: ['tracked.txt'],
+    })
+
+    expect(loaded?.oldFile?.contents).toBe('first\n')
+    expect(loaded?.newFile?.contents).toBe('first\nsecond\n')
+  })
+
+  test('loads renamed files from their distinct pre-image and post-image paths', async () => {
+    const { cwd } = createRepo()
+    git(cwd, ['mv', 'tracked.txt', 'renamed.txt'])
+    writeFileSync(join(cwd, 'renamed.txt'), 'renamed\n')
+
+    const loaded = await getDiffFileContents(cwd, cwd, null, {
+      scope: { kind: 'working-tree' },
+      path: 'renamed.txt',
+      previousPath: 'tracked.txt',
+    })
+
+    expect(loaded?.oldFile).toMatchObject({ name: 'tracked.txt', contents: 'first\n' })
+    expect(loaded?.newFile).toMatchObject({ name: 'renamed.txt', contents: 'renamed\n' })
+  })
+
   test('snapshot completion reports only paths with a net session change', async () => {
     const { cwd, baseSha } = createRepo()
     await initSessionBase(cwd, 'session-1', baseSha)

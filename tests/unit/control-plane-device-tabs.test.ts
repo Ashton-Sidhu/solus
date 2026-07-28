@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'events'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '../../src/main/agents/agent-runner'
 import type { BuiltHandoff, BuildHandoffDeps } from '../../src/main/agents/session-handoff'
 import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput, SessionStatus } from '../../src/shared/types'
 
@@ -54,8 +55,9 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   readonly metadata: AgentMetadata
   readonly permissions = new FakePermissions()
   running = new Set<string>()
-  lastInput: SessionRunInput | undefined
-  inputs: SessionRunInput[] = []
+  lastInput: AgentRunRequest | undefined
+  lastSessionState: AgentRunSessionState | undefined
+  inputs: AgentRunRequest[] = []
   steeredOptions: Array<Pick<PromptOptions, 'prompt' | 'imageAttachments'>> = []
   steerResult: 'accepted' | 'not-active' = 'accepted'
   onSteer: (() => void) | null = null
@@ -74,10 +76,11 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     }
   }
 
-  startRun(input: SessionRunInput, _options: PromptOptions): RunHandle {
+  startRun(input: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     this.lastInput = input
+    this.lastSessionState = sessionState
     this.inputs.push(input)
-    const sessionId = input.agentSessionId ?? `headless-${this.nextSession++}`
+    const sessionId = input.sessionId ?? `headless-${this.nextSession++}`
     let resolveRun!: () => void
     let rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((resolve, reject) => {
@@ -85,7 +88,8 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       rejectRun = reject
     })
     const handle: RunHandle = {
-      sessionId: input.agentSessionId,
+      sessionId: input.sessionId ?? null,
+      persistence: input.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -109,7 +113,7 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       this.emit('normalized', sessionId, {
         type: 'session_init',
         sessionId,
-        model: input.model,
+        model: input.model ?? '',
         skills: [],
       } satisfies NormalizedEvent)
     })
@@ -334,7 +338,17 @@ describe('ControlPlane headless sessions', () => {
       activeSessions: Map<string, BackendSession>
       tabWatchKeys: Map<string, string>
     }
-    expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toEqual(env.backend.lastInput)
+    expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toMatchObject({
+      provider: 'codex',
+      agentSessionId: result.agentSessionId,
+      workingDirectory: process.cwd(),
+    })
+    expect(env.backend.lastInput).toMatchObject({
+      provider: 'codex',
+      sessionId: null,
+      cwd: process.cwd(),
+      persistence: 'session',
+    })
     expect(internals.tabWatchKeys.size).toBe(0)
   })
 
@@ -364,6 +378,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'cold-session' },
+      tools: [],
       options: {
         prompt: 'Continue in the background',
         displayPrompt: 'Continue in the background',
@@ -373,7 +388,15 @@ describe('ControlPlane headless sessions', () => {
 
     expect(result.agentSessionId).toBe('cold-session')
     expect(lifecycle.disposition).toBe('started')
-    expect(env.backend.lastInput).toEqual(input)
+    expect(env.backend.lastInput).toMatchObject({
+      provider: input.provider,
+      sessionId: input.agentSessionId,
+      cwd: input.workingDirectory,
+      model: input.model,
+      permissionMode: input.permissionMode,
+      persistence: 'session',
+    })
+    expect(env.backend.lastInput?.tools.map((tool) => tool.name)).toEqual(['claude_subagent'])
     const tabWatchKeys = (env.controlPlane as unknown as { tabWatchKeys: Map<string, string> }).tabWatchKeys
     expect(tabWatchKeys.size).toBe(0)
   })
@@ -394,10 +417,56 @@ describe('ControlPlane headless sessions', () => {
 
     expect(lifecycle.agentSessionId).toBe('headless-1')
     expect(env.backend.lastInput?.permissionMode).toBe('auto')
-    expect(env.backend.lastInput?.toolProfile).toBe('automation')
+    const selectedNames = env.backend.lastInput?.tools.map((tool) => tool.name) ?? []
+    expect(selectedNames).toContain('list_works')
+    expect(selectedNames).toContain('create_session')
+    expect(selectedNames).toContain('list_tasks')
+    for (const automationToolName of [
+      'create_automation',
+      'list_automations',
+      'read_automation',
+      'update_automation',
+      'delete_automation',
+      'set_automation_enabled',
+      'run_automation',
+      'list_automation_runs',
+      'read_automation_run',
+    ]) {
+      expect(selectedNames).not.toContain(automationToolName)
+    }
 
     env.backend.complete(lifecycle.agentSessionId, 'Automation finished')
     await expect(lifecycle.done).resolves.toEqual({ output: 'Automation finished' })
+  })
+
+  test('keeps changed-file state in the control plane across session turns', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input = sampleRunInput('codex', 'session-files')
+
+    const first = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'session', sessionId: 'session-files' },
+      tools: [],
+      options: { prompt: 'First turn' },
+    })
+    await first.agentSessionId
+    env.backend.emit('normalized', 'session-files', {
+      type: 'session_changed_files_updated',
+      paths: ['src/changed.ts'],
+    } satisfies NormalizedEvent)
+    env.backend.complete('session-files', 'First complete')
+    await first.done
+
+    await env.controlPlane.runTurn({
+      input: { ...input, sessionChangedFiles: [] },
+      target: { kind: 'session', sessionId: 'session-files' },
+      tools: [],
+      options: { prompt: 'Second turn' },
+    })
+
+    expect(env.backend.lastSessionState).toEqual({ changedFiles: ['src/changed.ts'] })
+    expect('sessionChangedFiles' in (env.backend.lastInput ?? {})).toBe(false)
   })
 
   test('returns the same lifecycle shape for a queued turn and cancels by queue id', async () => {
@@ -427,6 +496,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'busy-session' },
+      tools: [],
       options: { prompt: 'Queue me', delivery: 'queue' },
     })
 
@@ -464,6 +534,7 @@ describe('ControlPlane headless sessions', () => {
     const active = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      tools: [],
       options: { prompt: 'Start working' },
     })
     const { agentSessionId } = await active.agentSessionId
@@ -474,6 +545,7 @@ describe('ControlPlane headless sessions', () => {
     const steered = await env.controlPlane.runTurn({
       input: { ...input, agentSessionId },
       target: { kind: 'session', sessionId: agentSessionId },
+      tools: [],
       sourceTabId: 'tab-a',
       options: { prompt: 'Change direction', imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }] },
     })
@@ -535,6 +607,7 @@ describe('ControlPlane headless sessions', () => {
     const active = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      tools: [],
       options: { prompt: 'Start working' },
     })
     const { agentSessionId } = await active.agentSessionId
@@ -544,6 +617,7 @@ describe('ControlPlane headless sessions', () => {
     const followUp = await env.controlPlane.runTurn({
       input: { ...input, agentSessionId },
       target: { kind: 'session', sessionId: agentSessionId },
+      tools: [],
       options: { prompt: 'Follow up at the boundary' },
     })
 
@@ -577,6 +651,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      tools: [],
       options: { prompt: 'Cancel before init' },
     })
     lifecycle.cancel()
@@ -630,8 +705,8 @@ describe('ControlPlane provider handoff', () => {
 
     const claude = env.backends.find((backend) => backend.id === 'claude-code')!
     expect(buildCalls).toEqual([])
-    expect(claude.lastInput?.agentSessionId).toBeNull()
-    expect(claude.lastInput?.handoff).toBeUndefined()
+    expect(claude.lastInput?.sessionId).toBeNull()
+    expect(claude.lastInput?.systemPrompt).not.toContain('/tmp/solus-handoffs/')
   })
 
   test('switches the tab instantly, without building the handoff, then builds it on the next prompt', async () => {
@@ -676,13 +751,9 @@ describe('ControlPlane provider handoff', () => {
 
     const claude = env.backends.find((backend) => backend.id === 'claude-code')!
     expect(claude.lastInput?.provider).toBe('claude-code')
-    expect(claude.lastInput?.agentSessionId).toBeNull()
-    expect(claude.lastInput?.handoff).toMatchObject({
-      fromProvider: 'codex',
-      fromSessionId: 'old-session',
-    })
-    expect(claude.lastInput?.handoff?.seedSystemAppend).toContain('/tmp/solus-handoffs/old-session-transcript.md')
-    expect(claude.lastInput?.handoff?.seedSystemAppend).toContain('/tmp/solus-handoffs/old-session-reasoning.md')
+    expect(claude.lastInput?.sessionId).toBeNull()
+    expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/old-session-transcript.md')
+    expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/old-session-reasoning.md')
 
     const init = env.events.find(({ event }) =>
       event.type === 'session_init' && event.handoffFrom?.sessionId === 'old-session'

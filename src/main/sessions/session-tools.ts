@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
+import type { AgentTool } from '../agents/tools/agent-tool'
 import { basename } from 'node:path'
 import { getSessionMessages, listProjectRoots, searchIndexedSessions } from '../db/session-indexer'
 import { formatPendingInputReport } from './session-report'
@@ -12,11 +12,8 @@ const log = createLogger('sessions', 'session-tools.ts')
 
 /**
  * Single source of truth for the agent-facing `create_session` tool, which spawns
- * a brand-new Solus chat session running a given prompt. Like work-tools.ts and
- * automation-tools.ts it exports three shapes from one zod schema: a Claude SDK
- * `tool()`, a Codex JSON-schema descriptor, and a shared executor. The tool
- * returns error TEXT (never throws) so a bad call degrades to a recoverable
- * message.
+ * a brand-new Solus chat session running a given prompt. Tools return error
+ * text rather than throwing so a bad call remains recoverable.
  *
  * The session is created via an injected `SessionCreator` (wired to the
  * ControlPlane in the server layer) so this module stays decoupled from the
@@ -575,74 +572,61 @@ export async function executeSessionTool(
   }
 }
 
-// ─── Shape 1: Claude SDK tool (composed into the `solus` MCP server) ───
-
-function toToolResult(r: SessionToolResult) {
+function sessionAgentTool(
+  name: string,
+  description: string,
+  inputShape: z.ZodRawShape,
+  requiresApproval: boolean,
+): AgentTool {
   return {
-    content: [{ type: 'text' as const, text: r.text }],
-    ...(r.ok ? {} : { isError: true as const }),
+    name,
+    description,
+    inputShape,
+    requiresApproval,
+    execute: async (args, context) => executeSessionTool(name, args, {
+      ctx: {
+        agentProvider: context.provider,
+        cwd: context.cwd,
+        sessionId: context.sessionId(),
+      },
+      onSessionCreated: (session) => context.emit({
+        type: 'session_created',
+        agentSessionId: session.agentSessionId,
+        title: session.title,
+        provider: session.provider,
+        cwd: session.cwd,
+      }),
+      onSessionPrompted: (session) => context.emit({
+        type: 'session_prompted',
+        agentSessionId: session.agentSessionId,
+        promptPreview: session.promptPreview,
+        provider: session.provider,
+        cwd: session.cwd,
+      }),
+      onSessionStopped: (session) => context.emit({
+        type: 'session_stopped',
+        agentSessionId: session.agentSessionId,
+        provider: session.provider,
+        cwd: session.cwd,
+      }),
+    }),
   }
 }
 
-/** Origin context for tool calls, resolved lazily (sessionId lands after init). */
-export interface SessionSdkDeps {
-  agentProvider: AgentId
-  cwd: string
-  sessionId: () => string | undefined
-  onSessionCreated?: OnSessionCreated
-  onSessionPrompted?: OnSessionPrompted
-  onSessionStopped?: OnSessionStopped
-}
+export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESSIONS_DESC, listSessionsShape, false)
+export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionShape, false)
+export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, false)
+export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionShape, false)
+export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, true)
+export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionShape, false)
+export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionShape, true)
 
-export function sessionSdkTools(deps: SessionSdkDeps) {
-  const mk = (): SessionToolDeps => ({
-    ctx: { agentProvider: deps.agentProvider, cwd: deps.cwd, sessionId: deps.sessionId() },
-    onSessionCreated: deps.onSessionCreated,
-    onSessionPrompted: deps.onSessionPrompted,
-    onSessionStopped: deps.onSessionStopped,
-  })
-  return [
-    tool('list_sessions', LIST_SESSIONS_DESC, listSessionsShape, async (args) =>
-      toToolResult(await executeSessionTool('list_sessions', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('read_session', READ_SESSION_DESC, readSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('read_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, async (args) =>
-      toToolResult(await executeSessionTool('search_sessions', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('create_session', CREATE_SESSION_DESC, createSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('create_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('prompt_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('wait_for_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('stop_session', STOP_SESSION_DESC, stopSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('stop_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-  ]
-}
-
-// ─── Shape 2: Codex dynamicTools JSON-schema descriptors ───
-
-export interface SessionToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export const SESSION_TOOL_JSON_SCHEMAS: SessionToolDescriptor[] = [
-  { name: 'list_sessions', description: LIST_SESSIONS_DESC, inputSchema: z.toJSONSchema(z.object(listSessionsShape)) as Record<string, unknown> },
-  { name: 'read_session', description: READ_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(readSessionShape)) as Record<string, unknown> },
-  { name: 'search_sessions', description: SEARCH_SESSIONS_DESC, inputSchema: z.toJSONSchema(z.object(searchSessionsShape)) as Record<string, unknown> },
-  { name: 'create_session', description: CREATE_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(createSessionShape)) as Record<string, unknown> },
-  { name: 'prompt_session', description: PROMPT_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(promptSessionShape)) as Record<string, unknown> },
-  { name: 'wait_for_session', description: WAIT_FOR_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(waitForSessionShape)) as Record<string, unknown> },
-  { name: 'stop_session', description: STOP_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(stopSessionShape)) as Record<string, unknown> },
+export const sessionAgentTools: AgentTool[] = [
+  listSessionsAgentTool,
+  readSessionAgentTool,
+  searchSessionsAgentTool,
+  createSessionAgentTool,
+  promptSessionAgentTool,
+  waitForSessionAgentTool,
+  stopSessionAgentTool,
 ]
-
-export const SESSION_TOOL_NAMES = new Set(SESSION_TOOL_JSON_SCHEMAS.map((t) => t.name))
-export const SESSION_MUTATING_TOOLS = new Set(['prompt_session', 'stop_session'])

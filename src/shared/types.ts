@@ -1068,10 +1068,6 @@ export interface SessionRunInput {
   fastMode: boolean
   permissionMode: 'ask' | 'auto' | 'plan'
   rateLimitBehavior: SettingsCtx['rateLimitBehavior']
-  /** Restricts provider tools for unattended automation runs. Interactive is
-   *  the default; automation omits automation CRUD/run tools to prevent recursive
-   *  automation spawning. */
-  toolProfile?: 'interactive' | 'automation'
   /** App-wide instructions appended to every agent system prompt. */
   extraInstructions: string
   /** Extra instructions scoped to the model in use, resolved from settings.modelInstructions at dispatch time. */

@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
 import { resolveRepoRef, resolveRepoRoot } from '../git/git-helpers'
 import { runAsync } from '../git/exec'
@@ -7,6 +6,7 @@ import { writeReviewCheckpoint } from '../review/checkpoints'
 import { providerForRepo } from './registry'
 import { GitHubReauthRequiredError } from './github/octokit'
 import type { DraftReview, DraftReviewComment, PrFilter, RepoRef, ReviewThread } from '../../shared/providers'
+import type { AgentTool } from '../agents/tools/agent-tool'
 
 const log = createLogger('main', 'pr-tools.ts')
 
@@ -255,44 +255,33 @@ export async function executePrTool(
   }
 }
 
-function toToolResult(r: PrToolResult) {
+function prAgentTool(
+  name: string,
+  description: string,
+  inputShape: z.ZodRawShape,
+  requiresApproval: boolean,
+): AgentTool {
   return {
-    content: [{ type: 'text' as const, text: r.text }],
-    ...(r.ok ? {} : { isError: true as const }),
+    name,
+    description,
+    inputShape,
+    requiresApproval,
+    execute: async (args, context) => executePrTool(name, args, { ctx: { cwd: context.cwd } }),
   }
 }
 
-export interface PrSdkDeps {
-  cwd: string
-}
+export const listPrsAgentTool = prAgentTool('list_prs', LIST_PRS_DESC, listPrsShape, false)
+export const readPrAgentTool = prAgentTool('read_pr', READ_PR_DESC, prNumberShape, false)
+export const listPrThreadsAgentTool = prAgentTool('list_pr_threads', LIST_THREADS_DESC, listThreadsShape, false)
+export const replyPrThreadAgentTool = prAgentTool('reply_pr_thread', REPLY_THREAD_DESC, replyThreadShape, true)
+export const resolvePrThreadAgentTool = prAgentTool('resolve_pr_thread', RESOLVE_THREAD_DESC, resolveThreadShape, true)
+export const submitPrReviewAgentTool = prAgentTool('submit_pr_review', SUBMIT_REVIEW_DESC, submitReviewShape, true)
 
-export function prSdkTools(deps: PrSdkDeps) {
-  const run = (n: string) => async (args: unknown) =>
-    toToolResult(await executePrTool(n, (args ?? {}) as Record<string, unknown>, { ctx: { cwd: deps.cwd } }))
-  return [
-    tool('list_prs', LIST_PRS_DESC, listPrsShape, run('list_prs')),
-    tool('read_pr', READ_PR_DESC, prNumberShape, run('read_pr')),
-    tool('list_pr_threads', LIST_THREADS_DESC, listThreadsShape, run('list_pr_threads')),
-    tool('reply_pr_thread', REPLY_THREAD_DESC, replyThreadShape, run('reply_pr_thread')),
-    tool('resolve_pr_thread', RESOLVE_THREAD_DESC, resolveThreadShape, run('resolve_pr_thread')),
-    tool('submit_pr_review', SUBMIT_REVIEW_DESC, submitReviewShape, run('submit_pr_review')),
-  ]
-}
-
-export interface PrToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export const PR_TOOL_JSON_SCHEMAS: PrToolDescriptor[] = [
-  { name: 'list_prs', description: LIST_PRS_DESC, inputSchema: z.toJSONSchema(z.object(listPrsShape)) as Record<string, unknown> },
-  { name: 'read_pr', description: READ_PR_DESC, inputSchema: z.toJSONSchema(z.object(prNumberShape)) as Record<string, unknown> },
-  { name: 'list_pr_threads', description: LIST_THREADS_DESC, inputSchema: z.toJSONSchema(z.object(listThreadsShape)) as Record<string, unknown> },
-  { name: 'reply_pr_thread', description: REPLY_THREAD_DESC, inputSchema: z.toJSONSchema(z.object(replyThreadShape)) as Record<string, unknown> },
-  { name: 'resolve_pr_thread', description: RESOLVE_THREAD_DESC, inputSchema: z.toJSONSchema(z.object(resolveThreadShape)) as Record<string, unknown> },
-  { name: 'submit_pr_review', description: SUBMIT_REVIEW_DESC, inputSchema: z.toJSONSchema(z.object(submitReviewShape)) as Record<string, unknown> },
+export const prAgentTools: AgentTool[] = [
+  listPrsAgentTool,
+  readPrAgentTool,
+  listPrThreadsAgentTool,
+  replyPrThreadAgentTool,
+  resolvePrThreadAgentTool,
+  submitPrReviewAgentTool,
 ]
-
-export const PR_TOOL_NAMES = new Set(PR_TOOL_JSON_SCHEMAS.map((t) => t.name))
-export const PR_MUTATING_TOOLS = new Set(['reply_pr_thread', 'resolve_pr_thread', 'submit_pr_review'])

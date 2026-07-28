@@ -5,8 +5,9 @@ import { readGuideByKey, readLegacyGuide, readLedger, writeLedger, resolveReview
 import { cancelGenerateGuide, generateGuide, type GenerateGuideOptions } from '../../review/guide-producer'
 import { guideKeyFor } from '../../review/review-target'
 import { readReviewState, writeReviewState } from '../../review/review-state'
+import type { AgentDispatcher } from '../../agents/agent-runner'
 
-export function registerReviewHandlers(server: SolusServer): void {
+export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDispatcher): void {
   server.register('readLedger', async (args) => {
     const [ctx] = args as [IpcContext]
     return readLedger(ctx)
@@ -26,7 +27,7 @@ export function registerReviewHandlers(server: SolusServer): void {
 
   server.register('generateGuide', async (args) => {
     const [ctx, opts] = args as [IpcContext, GenerateGuideOptions | undefined]
-    return generateGuide(ctx, opts, (event) => server.broadcast('review-progress', event))
+    return generateGuide(dispatcher, ctx, opts, (event) => server.broadcast('review-progress', event))
   })
 
   server.register('cancelGenerateGuide', async (args) => {

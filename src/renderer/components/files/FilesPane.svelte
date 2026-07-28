@@ -191,7 +191,6 @@
     fileError = null;
     fileLoading = true;
     saveState = "idle";
-    saveMessage = undefined;
     const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd: root || cwd });
     if (selectedPath !== path) return;
     if (result.ok) {

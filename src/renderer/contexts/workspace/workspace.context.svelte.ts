@@ -1780,16 +1780,16 @@ export class WorkspaceContext {
 
   // ─── Diff comments (on Tab — UI-only) ───
 
-  addDiffComment(comment: DiffComment): void { addDiffComment(this, comment) }
-  updateDiffComment(commentId: string, newText: string): void { updateDiffComment(this, commentId, newText) }
-  removeDiffComment(commentId: string): void { removeDiffComment(this, commentId) }
-  restoreDiffComment(comment: DiffComment, index: number): void { restoreDiffComment(this, comment, index) }
-  clearDiffComments(): void { clearDiffComments(this) }
-  setDiffCommentDraft(draft: DiffCommentDraft | null): void { setDiffCommentDraft(this, draft) }
-  updateDiffCommentDraftValue(value: string): void { updateDiffCommentDraftValue(this, value) }
+  addDiffComment(comment: DiffComment, tabId?: string): void { addDiffComment(this, comment, tabId) }
+  updateDiffComment(commentId: string, newText: string, tabId?: string): void { updateDiffComment(this, commentId, newText, tabId) }
+  removeDiffComment(commentId: string, tabId?: string): void { removeDiffComment(this, commentId, tabId) }
+  restoreDiffComment(comment: DiffComment, index: number, tabId?: string): void { restoreDiffComment(this, comment, index, tabId) }
+  clearDiffComments(tabId?: string): void { clearDiffComments(this, tabId) }
+  setDiffCommentDraft(draft: DiffCommentDraft | null, tabId?: string): void { setDiffCommentDraft(this, draft, tabId) }
+  updateDiffCommentDraftValue(value: string, tabId?: string): void { updateDiffCommentDraftValue(this, value, tabId) }
   setDiffGeneralComment(value: string): void { setDiffGeneralComment(this, value) }
   submitDiffFeedback(generalComment: string): boolean { return submitDiffFeedback(this, generalComment) }
-  async submitDiffFeedbackToNewSession(opts: { generalComment: string; filePath: string | null; diffText: string; branchContext?: string }): Promise<boolean> {
+  async submitDiffFeedbackToNewSession(opts: Parameters<typeof submitDiffFeedbackToNewSession>[1]): Promise<boolean> {
     return submitDiffFeedbackToNewSession(this, opts)
   }
 

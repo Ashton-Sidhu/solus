@@ -1,16 +1,15 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
-import { gitCheckoutFromState, type IpcContext, type DiffRequest, type GitCheckoutBranchResult, type GitStateOptions } from '../../../shared/types'
+import { gitCheckoutFromState, type IpcContext, type DiffFileContentsRequest, type DiffRequest, type GitCheckoutBranchResult, type GitStateOptions } from '../../../shared/types'
 import { createPR, commitAndPushChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
-import { getDiff, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
+import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'worktree-handlers')
-const textGenerator = new TextGenerator()
 
 export interface WorktreeDeps {
   controlPlane: ControlPlane
@@ -42,6 +41,7 @@ async function repoRootForCtx(ctx: IpcContext): Promise<string | null> {
 
 export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps): void {
   const { controlPlane } = deps
+  const textGenerator = new TextGenerator(controlPlane)
 
   server.register('worktreeListProject', (args) => {
     const [ctx] = args as [IpcContext]
@@ -58,7 +58,16 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.agentSessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
-    return await getDiff(workTree, repoRoot, request.scope, sid, livePaths, request.contextLines)
+    return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
+  })
+
+  server.register('diffFileContents', async (args) => {
+    const [ctx, request] = args as [IpcContext, DiffFileContentsRequest]
+    const repoRoot = await repoRootForCtx(ctx)
+    if (!repoRoot) return null
+    const workTree = await workTreeForCtx(ctx)
+    const sid = ctx.session.agentSessionId ?? null
+    return getDiffFileContents(workTree, repoRoot, sid, request)
   })
 
   server.register('diffStats', async (args) => {

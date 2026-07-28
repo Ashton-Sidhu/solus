@@ -6,7 +6,7 @@
     ArrowBendUpLeftIcon,
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import MarkdownEditor from "../MarkdownEditor.svelte";
+  import { CommentEditor } from "../ui/comment-editor";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import { Button } from "../ui/button";
@@ -55,7 +55,7 @@
   // Markdown reply input styled like the message composer: forced 400 weight so
   // typed text never reads bold; bordered transparent field.
   const replyFieldClass =
-    "rounded-lg border border-(--solus-art-border) bg-transparent px-2.5 transition-colors focus-within:border-(--solus-accent) [&_.solus-md-editor_.ProseMirror]:![min-height:2.5rem] [&_.solus-md-editor_.ProseMirror]:![font-weight:400] [&_.solus-md-placeholder]:![left:0.875rem]";
+    "rounded-lg border border-(--solus-art-border) bg-transparent px-2.5 transition-colors focus-within:border-(--solus-accent) [&_.cm-content]:![min-height:2.5rem] [&_.cm-content]:![padding:0.5rem_0] [&_.cm-content]:![font-weight:400]";
 
   function cancelReply() {
     replying = false;
@@ -214,7 +214,7 @@
 
       {#if replying}
         <div class="flex flex-col gap-1.5">
-          <MarkdownEditor
+          <CommentEditor
             value={replyText}
             onValueChange={(md) => (replyText = md)}
             onKeyDown={onReplyKey}

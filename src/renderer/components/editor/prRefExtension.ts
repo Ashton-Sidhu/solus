@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
+import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName, TOKEN_ICONS } from './tokenStyle'
 
 export interface PrRefAttrs {
@@ -40,11 +41,11 @@ export const PrRefExtension = Node.create({
   },
 
   renderMarkdown(node) {
-    const params = new URLSearchParams({
-      number: String(node.attrs?.number),
+    return serializeReferenceToken({
+      kind: 'pr',
+      number: node.attrs?.number,
+      title: node.attrs?.title ?? '',
     })
-    const safeTitle = (node.attrs?.title ?? '').replace(/[\[\]]/g, '\\$&')
-    return `[#${node.attrs?.number} ${safeTitle}](pr://ref?${params})`
   },
 
   addAttributes() {

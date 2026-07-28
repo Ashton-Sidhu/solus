@@ -9,8 +9,8 @@
   } from "../../../shared/types";
   import DocumentEditor from "./DocumentEditor.svelte";
   import { referenceExtensions } from "./referenceExtensions";
-  import * as refs from "./references";
   import { AutocompleteController } from "./autocomplete.svelte";
+  import { createTiptapAutocompleteAdapter } from "./tiptap-autocomplete-adapter";
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
   import PlanAutocompleteMenu from "../plan/PlanAutocompleteMenu.svelte";
   import WorkAutocompleteMenu from "../work/WorkAutocompleteMenu.svelte";
@@ -83,6 +83,11 @@
   let docEl: ReturnType<typeof DocumentEditor> | null = $state(null);
   let fileMenuEl: ReturnType<typeof FileAutocompleteMenu> | null = $state(null);
   const ed = () => docEl?.getEditor() ?? null;
+  const autocompleteEditor = createTiptapAutocompleteAdapter(
+    ed,
+    () => docEl?.focus(),
+    () => docEl?.getCursorRect() ?? null,
+  );
 
   // The reference-autocomplete machine, with the `/` channel off — the document
   // editor's own block-command menu owns `/`. Only @ # % ! insert references here.
@@ -99,9 +104,7 @@
     enableSlash: () => false,
     session,
     planStore,
-    getEditor: ed,
-    focusEditor: () => docEl?.focus(),
-    getCursorRect: () => docEl?.getCursorRect() ?? null,
+    getEditor: () => autocompleteEditor,
     getFileMenu: () => fileMenuEl,
   });
 
@@ -125,7 +128,7 @@
 
   function handleInput() {
     onInput?.();
-    ac.handleEditorChange(refs.textBeforeCursor(ed()));
+    ac.handleEditorChange(autocompleteEditor.textBeforeCursor());
   }
 
   function handleKeyDown(e: KeyboardEvent): boolean {

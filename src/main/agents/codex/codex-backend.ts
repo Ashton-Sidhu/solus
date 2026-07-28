@@ -1,5 +1,5 @@
 import { BaseAgentBackend } from '../base-backend'
-import { CodexRpcError, getCodexAppServerClient, isHeadlessCodexThread } from './codex-agent'
+import { CodexRpcError, getCodexAppServerClient } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { loadAllAnnotations } from '../../plans/annotations'
@@ -7,6 +7,7 @@ import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import type {
   AgentId,
   AgentMetadata,
@@ -16,7 +17,6 @@ import type {
   PromptOptions,
   SessionMeta,
   SessionIndexUpdatedEvent,
-  SessionRunInput,
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '../../../shared/types'
@@ -78,22 +78,7 @@ import {
   type CodexTurnHistory,
   type ScannedCodexPlan,
 } from './codex-utils'
-import { buildSystemPrompt } from '../system-hint'
-import { isWorkspacePath } from '../../workspace'
-import {
-  classifyCodexSolusTool,
-  executeCodexSolusTool,
-  codexSolusToolSchemas,
-  bareToolName,
-  type CodexSolusToolCtx,
-  type CodexSolusToolKind,
-} from './codex-solus-tools'
-import { executeCodexReviewGuideTool, SUBMIT_REVIEW_GUIDE_TOOL_NAME } from '../../review/review-guide-tool'
-import {
-  CLAUDE_SUBAGENT_TOOL_NAME,
-  CLAUDE_SUBAGENT_TOOL_SCHEMA,
-  executeClaudeSubagent,
-} from '../claude/claude-subagent-tool'
+import { adaptCodexTools, bareAgentToolName, CodexToolDispatcher } from './codex-tool-adapter'
 
 const log = createLogger('CodexBackend', 'codex-backend.ts')
 
@@ -129,34 +114,6 @@ async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) 
   await Promise.all(workers)
 }
 
-// Per-kind copy for the permission UI when a mutating solus tool gates. Only the
-// mutating kinds (work/automation/task) reach these paths; the rest are covered
-// for exhaustiveness.
-const SOLUS_TOOL_DECLINE_TEXT: Record<CodexSolusToolKind, string> = {
-  work: 'The user declined this update.',
-  automation: 'The user declined this automation action.',
-  task: 'The user declined this task action.',
-  session: 'The user declined this action.',
-  pr: 'The user declined this PR review action.',
-  artifact: 'The user declined this action.',
-}
-const SOLUS_TOOL_PLAN_BLOCK_TEXT: Record<CodexSolusToolKind, string> = {
-  work: 'Cannot modify works in plan mode. Exit plan mode to apply changes.',
-  automation: 'Cannot modify automations in plan mode. Exit plan mode to apply changes.',
-  task: 'Cannot change task status in plan mode. Exit plan mode to apply changes.',
-  session: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
-  pr: 'Cannot modify PR review state in plan mode. Exit plan mode to apply changes.',
-  artifact: 'Cannot do this in plan mode. Exit plan mode to apply changes.',
-}
-const SOLUS_TOOL_GATE_DESC: Record<CodexSolusToolKind, string> = {
-  work: 'Update a work the user has open',
-  automation: 'Create, modify, or run an automation',
-  task: "Update a task's status",
-  session: 'Create a session',
-  pr: 'Modify PR review state',
-  artifact: 'Render an artifact',
-}
-
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
 
 const STATIC_CODEX_METADATA: AgentMetadata = {
@@ -187,6 +144,8 @@ type CodexRunHandle = RunHandle & {
   baseChangedFiles: Set<string>
   turnDiffFiles: Set<string>
   trackedFiles: Set<string>
+  toolDispatcher: CodexToolDispatcher
+  persistent: boolean
 }
 
 interface CodexSkillsListResponse {
@@ -262,17 +221,27 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     })
   }
 
-  startRun(runInput: SessionRunInput, options: PromptOptions): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const abortController = new AbortController()
-    const workTree = runInput.gitContext?.worktreePath ?? runInput.workingDirectory
+    const workTree = request.cwd
+    let handle!: CodexRunHandle
+    const toolDispatcher = new CodexToolDispatcher(request.tools, {
+      provider: 'codex',
+      cwd: request.cwd,
+      sessionId: () => handle?.sessionId ?? undefined,
+      abortSignal: abortController.signal,
+      parentToolUseId: () => undefined,
+      emit: (event) => this.emit('normalized', handle?.sessionId ?? null, event),
+    })
 
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
-    const handle: CodexRunHandle = {
-      sessionId: runInput.agentSessionId,
-      threadId: runInput.agentSessionId,
+    handle = {
+      sessionId: request.sessionId ?? null,
+      persistence: request.persistence,
+      threadId: request.sessionId ?? null,
       turnId: null,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -282,50 +251,41 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       runPromise,
       _resolveRun,
       _rejectRun,
-      permissionMode: runInput.permissionMode,
+      permissionMode: request.permissionMode,
       interrupted: false,
-      normalizer: new CodexTurnNormalizer({ planMode: runInput.permissionMode === 'plan' }),
+      normalizer: new CodexTurnNormalizer({ planMode: request.permissionMode === 'plan' }),
       workTree,
       repoRoot: null as string | null,
-      cwd: runInput.workingDirectory,
-      userMessagePreview: (options.prompt ?? '').slice(0, 80),
-      baseChangedFiles: new Set(runInput.sessionChangedFiles),
+      cwd: request.cwd,
+      userMessagePreview: request.prompt.slice(0, 80),
+      baseChangedFiles: new Set(sessionState?.changedFiles ?? []),
       turnDiffFiles: new Set(),
-      trackedFiles: new Set(runInput.sessionChangedFiles),
+      trackedFiles: new Set(sessionState?.changedFiles ?? []),
+      toolDispatcher,
+      persistent: request.persistence === 'session',
     }
 
     this.pendingRuns.push(handle)
-    void this.run(handle, runInput, options)
+    void this.run(handle, request)
     return handle
   }
 
   private async run(
     handle: CodexRunHandle,
-    runInput: SessionRunInput,
-    options: PromptOptions,
+    request: AgentRunRequest,
   ): Promise<void> {
     try {
       let threadId = handle.threadId
-      const model = this.resolveModel(runInput.model)
-      const general = isWorkspacePath(runInput.workingDirectory)
-      const baseDeveloperInstructions = buildSystemPrompt({
-        agent: 'codex',
-        general,
-        extraInstructions: runInput.extraInstructions,
-        modelInstructions: runInput.modelInstructions,
-        prReview: runInput.prReview,
-      })
-      const developerInstructions = !runInput.agentSessionId && runInput.handoff
-        ? `${baseDeveloperInstructions}\n\n${runInput.handoff.seedSystemAppend}`
-        : baseDeveloperInstructions
+      const model = this.resolveModel(request.model ?? null)
       const threadConfig: CodexThreadStartParams = {
         model,
-        cwd: runInput.workingDirectory,
-        approvalPolicy: approvalPolicyFor(runInput.permissionMode),
-        baseInstructions: options.systemPrompt ?? null,
-        developerInstructions,
+        cwd: request.cwd,
+        approvalPolicy: approvalPolicyFor(request.permissionMode),
+        baseInstructions: request.systemPrompt ?? null,
+        developerInstructions: request.systemPrompt ?? null,
         experimentalRawEvents: false,
-        persistExtendedHistory: true,
+        persistExtendedHistory: request.persistence === 'session',
+        ephemeral: request.persistence === 'ephemeral',
       }
       // Dynamic tools (list/read/update_work) are an experimental app-server
       // capability — include them unless a prior start rejected them.
@@ -334,15 +294,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         : {
             ...threadConfig,
             dynamicTools: [
-              ...codexSolusToolSchemas({ includeAutomationTools: runInput.toolProfile !== 'automation' }),
-              CLAUDE_SUBAGENT_TOOL_SCHEMA,
+              ...adaptCodexTools(request.tools),
             ],
           }
 
-      const reasoningEffort = runInput.reasoningEffort ?? 'high'
+      const reasoningEffort = request.reasoningEffort ?? 'high'
 
       let response: CodexThreadStartResponse
-      if (runInput.forked && threadId) {
+      if (request.forkSession && threadId) {
         response = await this.client.request<CodexThreadStartResponse>('thread/fork', { threadId })
         threadId = response.thread.id
       } else if (!threadId) {
@@ -371,35 +330,28 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       ;(this.permissions as CodexPermissionResponder).setCurrentSessionId(threadId)
       this.emitThreadSessionInit(threadId, threadId, model, response)
 
-      await this.initSnapshots(handle, threadId)
+      if (request.persistence === 'session') await this.initSnapshots(handle, threadId)
 
       if (handle.abortController.signal.aborted) {
         this.emit('exit', threadId, null, 'SIGINT')
         return
       }
 
-      const isPlanMode = runInput.permissionMode === 'plan'
-      const input = await this.buildTurnInput(options.prompt, runInput.workingDirectory, options.imageAttachments)
+      const isPlanMode = request.permissionMode === 'plan'
+      const input = await this.buildTurnInput(request.prompt, request.cwd, request.imageAttachments)
       const turnParams: CodexTurnStartParams = {
         threadId,
         input,
-        cwd: runInput.workingDirectory,
-        approvalPolicy: approvalPolicyFor(runInput.permissionMode),
-        sandboxPolicy: sandboxPolicyFor(runInput.permissionMode),
+        cwd: request.cwd,
+        approvalPolicy: approvalPolicyFor(request.permissionMode),
+        sandboxPolicy: sandboxPolicyFor(request.permissionMode),
         model,
         summary: 'auto',
         reasoning_effort: reasoningEffort,
         collaborationMode: { mode: isPlanMode ? 'plan' : 'default', settings: {
           model,
           reasoning_effort: isPlanMode ? 'medium' : reasoningEffort,
-          developer_instructions: buildSystemPrompt({
-            agent: 'codex',
-            general,
-            extraInstructions: runInput.extraInstructions,
-            modelInstructions: runInput.modelInstructions,
-            planMode: isPlanMode,
-            prReview: runInput.prReview,
-          }),
+          developer_instructions: request.systemPrompt ?? null,
         }}
       }
       const turn = await this.client.request<CodexTurnStartResponse>('turn/start', turnParams)
@@ -774,10 +726,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (msg.method === 'turn/completed') {
       // A turn just created or updated a thread — drop the cached session lists
       // so the next listSessions reflects the new activity.
-      this.sessionListCache.clear()
-      void this.refreshSessionIndex().catch((err) => {
-        log.warn(`Codex session index refresh failed: ${err instanceof Error ? err.message : String(err)}`)
-      })
+      if (handle?.persistent) {
+        this.sessionListCache.clear()
+        void this.refreshSessionIndex().catch((err) => {
+          log.warn(`Codex session index refresh failed: ${err instanceof Error ? err.message : String(err)}`)
+        })
+      }
       const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
       const exitSignal = wasInterrupted ? 'SIGINT' : null
@@ -853,29 +807,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private onServerRequest(msg: JsonRpcRequest): void {
     const params: any = msg.params || {}
 
-    if (msg.method === 'item/tool/call') {
-      const toolName = String(
-        typeof params?.tool === 'string'
-          ? params.tool
-          : params?.tool?.name ?? params?.name ?? params?.toolName ?? '',
-      )
-      if (toolName === SUBMIT_REVIEW_GUIDE_TOOL_NAME || toolName.endsWith(`.${SUBMIT_REVIEW_GUIDE_TOOL_NAME}`)) {
-        const threadId = typeof params?.threadId === 'string' ? params.threadId : ''
-        let rawArgs: unknown = params?.arguments ?? params?.input ?? params?.args ?? {}
-        if (typeof rawArgs === 'string') { try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {} } }
-        const result = threadId
-          ? executeCodexReviewGuideTool(threadId, rawArgs)
-          : { ok: false, text: 'submit_review_guide requires a Codex thread id.' }
-        this.client.respond(msg.id, { success: result.ok, contentItems: [{ type: 'inputText', text: result.text }] })
-        return
-      }
-    }
-
-    // A headless one-shot (automation/review run) owns its own thread's tool
-    // calls and responds to them directly on the shared client — skip so the two
-    // server-request listeners never both respond to the same request.
-    if (isHeadlessCodexThread(params?.threadId)) return
-
     const sessionId = this.sessionIdFor(params)
     this.logRawProviderMessage('server-request', msg, sessionId, params)
     if (!sessionId) {
@@ -887,113 +818,56 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.rememberSessionRouting(params, sessionId)
     this.cacheFileChanges(params)
 
-    // dynamicTools work-tool call (experimental). Reads run immediately;
-    // update_work routes through permissions in ask mode, is denied in plan mode.
     if (msg.method === 'item/tool/call') {
       const toolName = String(
         typeof params?.tool === 'string'
           ? params.tool
           : params?.tool?.name ?? params?.name ?? params?.toolName ?? '',
       )
-      const respondWithWorkToolText = (text: string, success: boolean) => {
+      const respondWithToolText = (text: string, success: boolean) => {
         this.client.respond(msg.id, { success, contentItems: [{ type: 'inputText', text }] })
       }
-
-      const parseToolArgs = (): Record<string, unknown> => {
-        let rawArgs: unknown = params?.arguments ?? params?.input ?? params?.args ?? {}
-        if (typeof rawArgs === 'string') { try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {} } }
-        return (rawArgs && typeof rawArgs === 'object') ? rawArgs as Record<string, unknown> : {}
+      let args: unknown = params?.arguments ?? params?.input ?? params?.args ?? {}
+      if (typeof args === 'string') {
+        try { args = JSON.parse(args) } catch { args = {} }
       }
-
-      if (bareToolName(toolName) === CLAUDE_SUBAGENT_TOOL_NAME) {
+      const selectedTool = handle?.toolDispatcher.get(toolName)
+      if (!selectedTool || !handle) {
+        respondWithToolText(toolName ? `Unsupported dynamic tool: ${bareAgentToolName(toolName)}` : 'Unsupported dynamic tool call.', false)
+        return
+      }
+      const respondWithResult = async (approved: boolean) => {
+        if (!approved) {
+          respondWithToolText(`The user declined ${selectedTool.name}.`, false)
+          return
+        }
         const parentToolUseId = typeof params?.callId === 'string' && params.callId
           ? params.callId
           : String(msg.id)
-        void executeClaudeSubagent(parseToolArgs(), {
-          cwd: handle?.workTree ?? handle?.cwd ?? '~',
-          abortController: handle?.abortController ?? new AbortController(),
-          parentToolUseId,
-          forceReadOnly: handle?.permissionMode === 'plan',
-          onEvent: (_parentToolUseId, event) => this.emit('normalized', sessionId, event),
-        })
-          .then((result) => respondWithWorkToolText(result.text, result.ok))
-          .catch((err) => respondWithWorkToolText(`Claude subagent failed: ${String(err)}`, false))
+        const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
+        respondWithToolText(result.text, result.ok)
+      }
+      if (!selectedTool.requiresApproval) { void respondWithResult(true); return }
+      if (handle.permissionMode === 'plan') {
+        respondWithToolText(`Cannot run ${selectedTool.name} in plan mode. Exit plan mode to apply changes.`, false)
         return
       }
+      if (handle.permissionMode === 'auto') { void respondWithResult(true); return }
 
-      // All solus dynamic tools (works, tasks, automations, sessions, and artifacts)
-      // dispatch through the shared executor. This backend keeps
-      // the interactive concerns: gating mutating tools per permission mode and
-      // emitting cards; the shared module owns the routing + execution.
-      const cls = classifyCodexSolusTool(toolName)
-      if (cls) {
-        const args = parseToolArgs()
-        const ctx: CodexSolusToolCtx = {
-          cwd: handle?.cwd ?? '~',
-          sessionId,
-          agentProvider: 'codex',
-          onWorkCreated: (work) => this.emit('normalized', sessionId, {
-            type: 'work_created', workId: work.workId, title: work.title, docType: work.docType, content: work.content,
-          }),
-          onWorkUpdated: (work) => this.emit('normalized', sessionId, {
-            type: 'work_updated', workId: work.workId, title: work.title, docType: work.docType, content: work.content, updatedAt: work.updatedAt,
-          }),
-          onArtifact: (artifact) => this.emit('normalized', sessionId, {
-            type: 'artifact_created', kind: 'html', html: artifact.html,
-          }),
-          onAutomationSaved: (automation) => this.emit('normalized', sessionId, {
-            type: 'automation_saved', automationId: automation.id, name: automation.name, trigger: automation.trigger, enabled: automation.enabled,
-          }),
-          onSessionCreated: (created) => this.emit('normalized', sessionId, {
-            type: 'session_created', agentSessionId: created.agentSessionId, title: created.title, provider: created.provider, cwd: created.cwd,
-          }),
-          onSessionPrompted: (prompted) => this.emit('normalized', sessionId, {
-            type: 'session_prompted', agentSessionId: prompted.agentSessionId, promptPreview: prompted.promptPreview, provider: prompted.provider, cwd: prompted.cwd,
-          }),
-          onSessionStopped: (stopped) => this.emit('normalized', sessionId, {
-            type: 'session_stopped', agentSessionId: stopped.agentSessionId, provider: stopped.provider, cwd: stopped.cwd,
-          }),
-          onTaskCreated: (task) => this.emit('normalized', sessionId, {
-            type: 'task_created', taskId: task.taskId, title: task.title, url: task.url,
-          }),
-        }
-
-        const respondWithResult = async (approved: boolean) => {
-          if (!approved) {
-            respondWithWorkToolText(SOLUS_TOOL_DECLINE_TEXT[cls.kind], false)
-            return
-          }
-          const result = await executeCodexSolusTool(toolName, args, ctx)
-          respondWithWorkToolText(result.text, result.ok)
-        }
-
-        // Pre-approved (reads, create_work, create_session, artifact, ledger) run
-        // immediately; mutating tools gate on the permission mode.
-        if (!cls.mutating) { void respondWithResult(true); return }
-        if (handle?.permissionMode === 'plan') {
-          respondWithWorkToolText(SOLUS_TOOL_PLAN_BLOCK_TEXT[cls.kind], false)
-          return
-        }
-        if (handle?.permissionMode === 'auto') { void respondWithResult(true); return }
-
-        if (handle) handle.sawPermissionRequest = true
-        const questionId = `codex-${String(msg.id)}`
-        ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
-        this.emit('normalized', sessionId, {
-          type: 'permission_request',
-          questionId,
-          toolName: cls.kind === 'work' ? 'update_work' : bareToolName(toolName),
-          toolDescription: SOLUS_TOOL_GATE_DESC[cls.kind],
-          toolInput: args,
-          options: [
-            { id: 'accept', label: 'Allow', kind: 'allow' },
-            { id: 'decline', label: 'Deny', kind: 'deny' },
-          ],
-        })
-        return
-      }
-
-      respondWithWorkToolText(toolName ? `Unsupported dynamic tool: ${toolName}` : 'Unsupported dynamic tool call.', false)
+      handle.sawPermissionRequest = true
+      const questionId = `codex-${String(msg.id)}`
+      ;(this.permissions as CodexPermissionResponder).add(questionId, { id: msg.id, method: 'item/tool/call', params, sessionId, execute: respondWithResult })
+      this.emit('normalized', sessionId, {
+        type: 'permission_request',
+        questionId,
+        toolName: selectedTool.name,
+        toolDescription: selectedTool.description,
+        toolInput: args && typeof args === 'object' ? args as Record<string, unknown> : {},
+        options: [
+          { id: 'accept', label: 'Allow', kind: 'allow' },
+          { id: 'decline', label: 'Deny', kind: 'deny' },
+        ],
+      })
       return
     }
 
@@ -1105,7 +979,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     turnId: unknown,
   ): Promise<void> {
     const sessionId = handle.sessionId
-    const changedFiles = await this.snapshotOnTurnComplete(handle, partial)
+    const changedFiles = handle.persistent
+      ? await this.snapshotOnTurnComplete(handle, partial)
+      : null
     if (changedFiles) {
       this.emit('normalized', sessionId, { type: 'session_changed_files_updated', paths: changedFiles })
     }

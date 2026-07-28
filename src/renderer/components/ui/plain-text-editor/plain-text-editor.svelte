@@ -1,0 +1,438 @@
+<script lang="ts">
+  import { untrack } from "svelte";
+  import {
+    Compartment,
+    EditorState,
+    Prec,
+    type Extension,
+  } from "@codemirror/state";
+  import {
+    defaultKeymap,
+    history,
+    historyKeymap,
+  } from "@codemirror/commands";
+  import {
+    defaultHighlightStyle,
+    syntaxHighlighting,
+  } from "@codemirror/language";
+  import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+  import {
+    drawSelection,
+    EditorView,
+    keymap,
+    placeholder as placeholderExtension,
+  } from "@codemirror/view";
+  import type {
+    PlanReference,
+    SessionReference,
+    WorkReference,
+  } from "../../../../shared/types";
+  import type { ReferenceToken } from "../../editor/reference-tokens";
+  import {
+    createReferenceDecorations,
+    extractTrackedReferences,
+    insertReferenceAtCursor,
+    replaceTriggerAtCursor,
+    type ReferenceDecorationCallbacks,
+    type ReferenceDecorationConfig,
+  } from "./lib/reference-decorations";
+  import { markdownComposerKeymap } from "./lib/markdown-keymap";
+
+  interface Props extends ReferenceDecorationCallbacks {
+    value: string;
+    onValueChange: (value: string) => void;
+    onInput?: () => void;
+    onEmptyChange?: (empty: boolean) => void;
+    onKeyDown?: (event: KeyboardEvent) => void;
+    onPaste?: (event: ClipboardEvent) => void;
+    onFocus?: () => void;
+    onBlur?: () => void;
+    placeholder?: string;
+    ariaLabel?: string;
+    hidePlaceholderOnFocus?: boolean;
+    disabled?: boolean;
+    maxHeight?: number;
+    enterInsertsNewline?: boolean;
+    referenceChips?: boolean;
+    slashCommands?: string[];
+    class?: string;
+    style?: string;
+  }
+
+  let {
+    value,
+    onValueChange,
+    onInput,
+    onEmptyChange,
+    onKeyDown,
+    onPaste,
+    onFocus,
+    onBlur,
+    onPlanRefClick,
+    onWorkRefClick,
+    onPrRefClick,
+    onFileRefClick,
+    placeholder = "",
+    ariaLabel,
+    hidePlaceholderOnFocus = false,
+    disabled = false,
+    maxHeight = 140,
+    enterInsertsNewline = false,
+    referenceChips = false,
+    slashCommands = [],
+    class: klass = "",
+    style = "",
+  }: Props = $props();
+
+  let wrapper: HTMLDivElement | null = $state(null);
+  let editorHost: HTMLDivElement | null = $state(null);
+  let view: EditorView | null = $state.raw(null);
+  let lastLocalValue: string | null = null;
+  let isApplyingValue = false;
+  let isFocused = $state(false);
+  const editableCompartment = new Compartment();
+  const placeholderCompartment = new Compartment();
+  const attributesCompartment = new Compartment();
+  const keymapCompartment = new Compartment();
+  const referenceCompartment = new Compartment();
+
+  const referenceConfig = $derived<ReferenceDecorationConfig>({
+    slashCommands,
+    onPlanRefClick,
+    onWorkRefClick,
+    onPrRefClick,
+    onFileRefClick,
+  });
+  const references = createReferenceDecorations(() => referenceConfig);
+
+  const editorTheme = EditorView.theme({
+    "&": {
+      width: "100%",
+      color: "var(--solus-text-primary)",
+      backgroundColor: "transparent",
+      fontFamily: "inherit",
+      fontSize: "calc(0.8125rem * var(--solus-font-scale, 1))",
+      fontWeight: "var(--solus-font-weight-body, 400)",
+    },
+    "&.cm-focused": { outline: "none" },
+    ".cm-scroller": {
+      maxHeight: "var(--plain-editor-max-height, 8.75rem)",
+      overflowY: "auto",
+      fontFamily: "inherit",
+      lineHeight: "1.375rem",
+      scrollbarWidth: "thin",
+    },
+    ".cm-content": {
+      minHeight: "1.25rem",
+      padding: "0.75rem 0 0.75rem 0.25rem",
+      caretColor: "var(--solus-accent)",
+      wordBreak: "break-word",
+      whiteSpace: "pre-wrap",
+    },
+    ".cm-line": { padding: "0" },
+    ".cm-placeholder": {
+      color: "var(--solus-placeholder)",
+      fontStyle: "normal",
+    },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "var(--solus-accent)",
+    },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection":
+      {
+        backgroundColor:
+          "color-mix(in srgb, var(--solus-accent) 22%, transparent)",
+      },
+  });
+
+  function isCompositionEvent(event: KeyboardEvent): boolean {
+    return event.isComposing || event.keyCode === 229;
+  }
+
+  function editorExtensions(): Extension[] {
+    return [
+      history(),
+      drawSelection(),
+      EditorView.lineWrapping,
+      markdown({
+        base: markdownLanguage,
+        addKeymap: false,
+        completeHTMLTags: false,
+      }),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      editorTheme,
+      editableCompartment.of(EditorView.editable.of(!disabled)),
+      placeholderCompartment.of(
+        placeholderExtension(
+          hidePlaceholderOnFocus && isFocused ? "" : placeholder,
+        ),
+      ),
+      keymapCompartment.of([
+        Prec.highest(
+          keymap.of(
+            markdownComposerKeymap(
+              enterInsertsNewline,
+              () => referenceConfig,
+            ),
+          ),
+        ),
+        keymap.of([...historyKeymap, ...defaultKeymap]),
+      ]),
+      referenceCompartment.of(referenceChips ? references.extension : []),
+      attributesCompartment.of(
+        EditorView.contentAttributes.of({
+          role: "textbox",
+          "aria-multiline": "true",
+          "aria-label": ariaLabel || placeholder || "Message input",
+          autocorrect: "off",
+          autocapitalize: "off",
+          autocomplete: "off",
+          spellcheck: "false",
+        }),
+      ),
+      Prec.highest(
+        EditorView.domEventHandlers({
+          keydown(event) {
+            if (isCompositionEvent(event)) return false;
+            onKeyDown?.(event);
+            return event.defaultPrevented;
+          },
+          paste(event) {
+            onPaste?.(event);
+            return event.defaultPrevented;
+          },
+          focus() {
+            isFocused = true;
+            onFocus?.();
+            return false;
+          },
+          blur() {
+            isFocused = false;
+            onBlur?.();
+            return false;
+          },
+        }),
+      ),
+      EditorView.updateListener.of((update) => {
+        if (!update.docChanged) return;
+        const nextValue = update.state.doc.toString();
+        if (isApplyingValue) return;
+        lastLocalValue = nextValue;
+        untrack(() => {
+          onInput?.();
+          onEmptyChange?.(nextValue.length === 0);
+          onValueChange(nextValue);
+        });
+      }),
+    ];
+  }
+
+  $effect(() => {
+    if (!editorHost) return;
+    const initialValue = untrack(() => value);
+    const extensions = untrack(() => editorExtensions());
+    const editorView = new EditorView({
+      parent: editorHost,
+      state: EditorState.create({
+        doc: initialValue,
+        selection: { anchor: initialValue.length },
+        extensions,
+      }),
+    });
+    view = editorView;
+    untrack(() => onEmptyChange?.(initialValue.length === 0));
+    return () => {
+      editorView.destroy();
+      if (view === editorView) view = null;
+    };
+  });
+
+  $effect(() => {
+    const externalValue = value;
+    if (!view) return;
+    if (externalValue === lastLocalValue) {
+      lastLocalValue = null;
+      return;
+    }
+    const currentValue = view.state.doc.toString();
+    if (currentValue !== externalValue) {
+      isApplyingValue = true;
+      try {
+        view.dispatch({
+          changes: { from: 0, to: currentValue.length, insert: externalValue },
+          selection: { anchor: externalValue.length },
+        });
+      } finally {
+        isApplyingValue = false;
+      }
+      untrack(() => onEmptyChange?.(externalValue.length === 0));
+    }
+    lastLocalValue = null;
+  });
+
+  $effect(() => {
+    if (!view) return;
+    view.dispatch({
+      effects: editableCompartment.reconfigure(
+        EditorView.editable.of(!disabled),
+      ),
+    });
+  });
+
+  $effect(() => {
+    if (!view) return;
+    const shownPlaceholder =
+      hidePlaceholderOnFocus && isFocused ? "" : placeholder;
+    view.dispatch({
+      effects: [
+        placeholderCompartment.reconfigure(
+          placeholderExtension(shownPlaceholder),
+        ),
+        attributesCompartment.reconfigure(
+          EditorView.contentAttributes.of({
+            role: "textbox",
+            "aria-multiline": "true",
+            "aria-label": ariaLabel || placeholder || "Message input",
+            autocorrect: "off",
+            autocapitalize: "off",
+            autocomplete: "off",
+            spellcheck: "false",
+          }),
+        ),
+      ],
+    });
+  });
+
+  $effect(() => {
+    if (!view) return;
+    view.dispatch({
+      effects: keymapCompartment.reconfigure([
+        Prec.highest(
+          keymap.of(
+            markdownComposerKeymap(
+              enterInsertsNewline,
+              () => referenceConfig,
+            ),
+          ),
+        ),
+        keymap.of([...historyKeymap, ...defaultKeymap]),
+      ]),
+    });
+  });
+
+  $effect(() => {
+    referenceConfig;
+    if (!view) return;
+    view.dispatch({
+      effects: referenceCompartment.reconfigure(
+        referenceChips ? references.extension : [],
+      ),
+    });
+  });
+
+  function editorValue(): string {
+    return view?.state.doc.toString() ?? value;
+  }
+
+  export function focus() {
+    if (!view) return;
+    view.focus();
+    const end = view.state.doc.length;
+    view.dispatch({ selection: { anchor: end }, scrollIntoView: true });
+  }
+
+  export function setValueAndCursor(
+    text: string,
+    autoFocus = true,
+    _ensureTrailingParagraph = false,
+  ) {
+    if (!view) return;
+    const current = view.state.doc.toString();
+    lastLocalValue = null;
+    isApplyingValue = true;
+    try {
+      if (current === text) {
+        view.dispatch({
+          selection: { anchor: text.length },
+          scrollIntoView: autoFocus,
+        });
+      } else {
+        view.dispatch({
+          changes: { from: 0, to: current.length, insert: text },
+          selection: { anchor: text.length },
+          scrollIntoView: autoFocus,
+        });
+      }
+    } finally {
+      isApplyingValue = false;
+    }
+    onEmptyChange?.(text.length === 0);
+    if (autoFocus) view.focus();
+  }
+
+  export function clearEditor() {
+    setValueAndCursor("", false);
+  }
+
+  export function isCaretAtStart(): boolean {
+    return view?.state.selection.main.head === 0;
+  }
+
+  export function textBeforeCursor(): string {
+    if (!view) return "";
+    const head = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(head);
+    return view.state.doc.sliceString(line.from, head);
+  }
+
+  export function getCursorRect(): DOMRect | null {
+    if (!view) return wrapper?.getBoundingClientRect() ?? null;
+    const wrapperRect = wrapper?.getBoundingClientRect() ?? null;
+    const cursor = view.coordsAtPos(view.state.selection.main.head);
+    if (!wrapperRect || !cursor) return wrapperRect;
+    return new DOMRect(
+      wrapperRect.left,
+      cursor.top,
+      wrapperRect.width,
+      cursor.bottom - cursor.top,
+    );
+  }
+
+  export function replaceTrigger(
+    pattern: RegExp,
+    replacement: string,
+  ): boolean {
+    if (!view) return false;
+    const result = replaceTriggerAtCursor(view, pattern, replacement);
+    if (result.changed && replacement.startsWith("@"))
+      references.revealFileBeforeCursor(view);
+    return result.changed;
+  }
+
+  export function insertReference(
+    token: ReferenceToken,
+    pattern: RegExp,
+  ): boolean {
+    return view ? insertReferenceAtCursor(view, token, pattern) : false;
+  }
+
+  export function unwrapFileReferenceBeforeCursor(): boolean {
+    return view ? references.revealFileBeforeCursor(view) : false;
+  }
+
+  export function extractReferences(): {
+    planRefs: PlanReference[];
+    workRefs: WorkReference[];
+    sessionRefs: SessionReference[];
+  } {
+    return extractTrackedReferences(editorValue());
+  }
+</script>
+
+<div
+  bind:this={wrapper}
+  data-testid="message-input"
+  class="relative w-full min-w-0 {klass}"
+  style="--plain-editor-max-height:{maxHeight}px; {style}"
+>
+  <div bind:this={editorHost}></div>
+</div>

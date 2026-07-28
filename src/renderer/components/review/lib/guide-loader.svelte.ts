@@ -1,9 +1,8 @@
-import { processFile } from "@pierre/diffs";
+import type { FileDiffMetadata } from "@pierre/diffs";
 import type { ReviewGuide, ReviewLedger, ReviewProgressStep } from "../../../../shared/review";
-import { FULL_CONTEXT_LINES, type AgentId, type IpcContext, type ReasoningEffort } from "../../../../shared/types";
-import { fileVersionsFromFullContext, type FileVersions } from "../../../lib/diff-expandable";
+import type { AgentId, DiffScope, IpcContext, ReasoningEffort } from "../../../../shared/types";
+import { loadDiffFiles as loadScopedDiffFiles } from "../../../lib/diff-file-loader";
 import { requestInputFocus } from "../../../lib/inputFocus";
-import { splitPatchByFile } from "../../pr-review/guide/lib/guide-data";
 
 export interface GuideLoaderOptions {
   /** The session IPC context to issue calls against. */
@@ -20,18 +19,6 @@ export interface GuideLoaderOptions {
   getAgent: () => { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null };
 }
 
-/** Recover each file's old/new contents from a full-context patch, keyed by the
- *  post-image path the guide's file refs use. */
-function parseFileVersions(patch: string): Map<string, FileVersions> {
-  const out = new Map<string, FileVersions>();
-  for (const [path, chunk] of splitPatchByFile(patch)) {
-    const parsed = processFile(chunk, { isGitDiff: true });
-    const versions = parsed && fileVersionsFromFullContext(parsed);
-    if (versions) out.set(path, versions);
-  }
-  return out;
-}
-
 /**
  * Loads the structured review guide for a key plus its ledger + episode diff, and
  * hands them to the native GuideView. Prefers the cached guide; generates on
@@ -45,10 +32,7 @@ export class GuideLoader {
   guide = $state<ReviewGuide | null>(null);
   ledger = $state<ReviewLedger | null>(null);
   patch = $state("");
-  /** Both versions of each changed file, so the guide's diff cards can expand
-   *  the unchanged gaps between hunks. Empty when the extra fetch failed — the
-   *  cards then render exactly as they do today. */
-  fileVersions = $state(new Map<string, FileVersions>());
+  diffScope = $state<Extract<DiffScope, { kind: "pr" }> | null>(null);
   loading = $state(true);
   progressStep = $state<ReviewProgressStep>("preparing");
   /** A cached guide whose `headSha` no longer matches the checkout's HEAD —
@@ -113,22 +97,15 @@ export class GuideLoader {
       // shows only this session's diff (not the whole branch). Older cached guides
       // predate `baseSha`, so fall back to the branch base.
       const baseSha = this.guide.baseSha ?? reviewCtx?.baseSha ?? null;
-      // The second request asks for the same diff with enough context to swallow
-      // each file whole, which is what makes the cards' hunk gaps expandable.
-      const [patch, fullContext] = baseSha
-        ? await Promise.all([
-            window.solus.diff(ctx, { scope: { kind: "pr", baseSha } }).catch(() => null),
-            window.solus
-              .diff(ctx, { scope: { kind: "pr", baseSha }, contextLines: FULL_CONTEXT_LINES })
-              .catch(() => null),
-          ])
-        : [null, null];
+      this.diffScope = baseSha ? { kind: "pr", baseSha } : null;
+      const patch = this.diffScope
+        ? await window.solus.diff(ctx, { scope: this.diffScope }).catch(() => null)
+        : null;
       this.patch = patch?.patch ?? "";
-      this.fileVersions = parseFileVersions(fullContext?.patch ?? "");
     } else {
       this.ledger = null;
       this.patch = "";
-      this.fileVersions = new Map();
+      this.diffScope = null;
     }
 
     this.loading = false;
@@ -138,4 +115,16 @@ export class GuideLoader {
     void this.load(true);
     requestInputFocus();
   }
+
+  loadDiffFiles = (fileDiff: FileDiffMetadata) => {
+    if (!this.diffScope) {
+      throw new Error("Review comparison is unavailable");
+    }
+    return loadScopedDiffFiles(
+      window.solus,
+      this.#opts.getCtx(),
+      this.diffScope,
+      fileDiff,
+    );
+  };
 }

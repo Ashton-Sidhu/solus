@@ -88,6 +88,7 @@ export const RPC_INVOKE_METHODS = [
   // Worktree / diff / git
   'worktreeListProject',
   'diff',
+  'diffFileContents',
   'diffStats',
   'listTurnSnapshots',
   'worktreePR',

@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
+import type { AgentTool } from '../agents/tools/agent-tool'
 import type { AgentId, Automation, AutomationAction, AutomationTrigger, ReasoningEffort } from '../../shared/types'
 import {
   createAutomation,
@@ -17,10 +17,8 @@ import { hasActiveRun, triggerAutomationRun } from './automation-runner'
 const log = createLogger('automations', 'automation-tools.ts')
 
 /**
- * Single source of truth for the agent-facing automation tools (full CRUD plus
- * run-now and run-result access). Like work-tools.ts it exports three shapes
- * from one set of zod schemas: Claude SDK `tool()` objects, Codex JSON-schema
- * descriptors, and a shared executor used by both. Tools return error TEXT
+ * Provider-neutral automation tools for full CRUD plus run-now and run-result
+ * access. Tools return error text
  * (never throw) so a bad call degrades to a message the agent can recover from.
  *
  * Phase 1: run-now only (no scheduling, no templating). The run executes on the
@@ -356,71 +354,52 @@ export async function executeAutomationTool(
   }
 }
 
-// ─── Shape 1: Claude SDK tools (composed into the `solus` MCP server) ───
-
-function toToolResult(r: AutomationToolResult) {
+function automationAgentTool(
+  name: string,
+  description: string,
+  inputShape: z.ZodRawShape,
+  requiresApproval: boolean,
+): AgentTool {
   return {
-    content: [{ type: 'text' as const, text: r.text }],
-    ...(r.ok ? {} : { isError: true as const }),
+    name,
+    description,
+    inputShape,
+    requiresApproval,
+    execute: async (args, context) => executeAutomationTool(name, args, {
+      ctx: {
+        agentProvider: context.provider,
+        cwd: context.cwd,
+        sessionId: context.sessionId(),
+      },
+      onAutomationSaved: (automation) => context.emit({
+        type: 'automation_saved',
+        automationId: automation.id,
+        name: automation.name,
+        trigger: automation.trigger,
+        enabled: automation.enabled,
+      }),
+    }),
   }
 }
 
-/** Origin context for tool calls, resolved lazily (sessionId lands after init). */
-export interface AutomationSdkDeps {
-  agentProvider: AgentId
-  cwd: string
-  sessionId: () => string | undefined
-  onAutomationSaved?: OnAutomationSaved
-}
+export const createAutomationAgentTool = automationAgentTool('create_automation', CREATE_DESC, createAutomationShape, true)
+export const listAutomationsAgentTool = automationAgentTool('list_automations', LIST_DESC, listAutomationsShape, false)
+export const readAutomationAgentTool = automationAgentTool('read_automation', READ_DESC, idShape, false)
+export const updateAutomationAgentTool = automationAgentTool('update_automation', UPDATE_DESC, updateAutomationShape, true)
+export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, idShape, true)
+export const setAutomationEnabledAgentTool = automationAgentTool('set_automation_enabled', SET_ENABLED_DESC, setEnabledShape, true)
+export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, idShape, true)
+export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, idShape, false)
+export const readAutomationRunAgentTool = automationAgentTool('read_automation_run', READ_RUN_DESC, readRunShape, false)
 
-export function automationSdkTools(deps: AutomationSdkDeps) {
-  const mk = (): AutomationToolDeps => ({
-    ctx: { agentProvider: deps.agentProvider, cwd: deps.cwd, sessionId: deps.sessionId() },
-    onAutomationSaved: deps.onAutomationSaved,
-  })
-  const run = (n: string) => async (args: unknown) =>
-    toToolResult(await executeAutomationTool(n, (args ?? {}) as Record<string, unknown>, mk()))
-  return [
-    tool('create_automation', CREATE_DESC, createAutomationShape, run('create_automation')),
-    tool('list_automations', LIST_DESC, listAutomationsShape, run('list_automations')),
-    tool('read_automation', READ_DESC, idShape, run('read_automation')),
-    tool('update_automation', UPDATE_DESC, updateAutomationShape, run('update_automation')),
-    tool('delete_automation', DELETE_DESC, idShape, run('delete_automation')),
-    tool('set_automation_enabled', SET_ENABLED_DESC, setEnabledShape, run('set_automation_enabled')),
-    tool('run_automation', RUN_DESC, idShape, run('run_automation')),
-    tool('list_automation_runs', LIST_RUNS_DESC, idShape, run('list_automation_runs')),
-    tool('read_automation_run', READ_RUN_DESC, readRunShape, run('read_automation_run')),
-  ]
-}
-
-// ─── Shape 2: Codex dynamicTools JSON-schema descriptors ───
-
-export interface AutomationToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export const AUTOMATION_TOOL_JSON_SCHEMAS: AutomationToolDescriptor[] = [
-  { name: 'create_automation', description: CREATE_DESC, inputSchema: z.toJSONSchema(z.object(createAutomationShape)) as Record<string, unknown> },
-  { name: 'list_automations', description: LIST_DESC, inputSchema: z.toJSONSchema(z.object(listAutomationsShape)) as Record<string, unknown> },
-  { name: 'read_automation', description: READ_DESC, inputSchema: z.toJSONSchema(z.object(idShape)) as Record<string, unknown> },
-  { name: 'update_automation', description: UPDATE_DESC, inputSchema: z.toJSONSchema(z.object(updateAutomationShape)) as Record<string, unknown> },
-  { name: 'delete_automation', description: DELETE_DESC, inputSchema: z.toJSONSchema(z.object(idShape)) as Record<string, unknown> },
-  { name: 'set_automation_enabled', description: SET_ENABLED_DESC, inputSchema: z.toJSONSchema(z.object(setEnabledShape)) as Record<string, unknown> },
-  { name: 'run_automation', description: RUN_DESC, inputSchema: z.toJSONSchema(z.object(idShape)) as Record<string, unknown> },
-  { name: 'list_automation_runs', description: LIST_RUNS_DESC, inputSchema: z.toJSONSchema(z.object(idShape)) as Record<string, unknown> },
-  { name: 'read_automation_run', description: READ_RUN_DESC, inputSchema: z.toJSONSchema(z.object(readRunShape)) as Record<string, unknown> },
+export const automationAgentTools: AgentTool[] = [
+  createAutomationAgentTool,
+  listAutomationsAgentTool,
+  readAutomationAgentTool,
+  updateAutomationAgentTool,
+  deleteAutomationAgentTool,
+  setAutomationEnabledAgentTool,
+  runAutomationAgentTool,
+  listAutomationRunsAgentTool,
+  readAutomationRunAgentTool,
 ]
-
-export const AUTOMATION_TOOL_NAMES = new Set(AUTOMATION_TOOL_JSON_SCHEMAS.map((t) => t.name))
-
-/** Tools that mutate or trigger — these route through permissions on Codex.
- *  Read-only tools (list/read) are pre-approved. */
-export const AUTOMATION_MUTATING_TOOLS = new Set([
-  'create_automation',
-  'update_automation',
-  'delete_automation',
-  'set_automation_enabled',
-  'run_automation',
-])

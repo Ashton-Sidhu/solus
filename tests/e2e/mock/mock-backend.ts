@@ -11,12 +11,11 @@ import type {
   NormalizedEvent,
   PlanDescriptor,
   PluginCommandsResult,
-  PromptOptions,
-  SessionRunInput,
   SessionMeta,
   UsageData,
 } from '../../../src/shared/types'
 import type { SessionLoadMessage } from '../../../src/shared/session-history'
+import type { AgentRunRequest } from '../../../src/main/agents/agent-runner'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
@@ -78,14 +77,14 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
-  startRun(input: SessionRunInput, options: PromptOptions): RunHandle {
+  startRun(request: AgentRunRequest): RunHandle {
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     const handle: RunHandle = {
       sessionId: null,
-      tabId: input.tabId,
+      persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -98,18 +97,18 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this.pendingRuns.push(handle)
 
     // Emit events asynchronously so the caller can register listeners first.
-    setImmediate(() => this._emitConversation(handle, options))
+    setImmediate(() => this._emitConversation(handle, request.prompt))
 
     return handle
   }
 
-  private _emitConversation(handle: RunHandle, options: PromptOptions) {
+  private _emitConversation(handle: RunHandle, rawPrompt: string) {
     if (handle.abortController.signal.aborted) return
 
     // The chat input is a markdown editor that backslash-escapes underscores on
     // serialize (e.g. `__MOCK_DOCUMENT__` → `\__MOCK_DOCUMENT_\_`). Strip the
     // escapes so the literal trigger strings below (and in specs) still match.
-    const prompt = (typeof options.prompt === 'string' ? options.prompt : '').replace(/\\/g, '')
+    const prompt = rawPrompt.replace(/\\/g, '')
     const responseText = this._responseFor(prompt)
 
     this.promoteToActive(handle, MOCK_SESSION_ID)

@@ -7,6 +7,7 @@ import { readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide } fro
 import { runReviewAgent } from './review-agent'
 import { normalizeGuide } from './review-guide-tool'
 import { guideKeyFor } from './review-target'
+import type { AgentDispatcher } from '../agents/agent-runner'
 
 const log = createLogger('review', 'guide-producer.ts')
 
@@ -106,6 +107,7 @@ const inFlight = new Map<string, InFlightGuide>()
  * branch, callers join it instead of starting another.
  */
 export async function generateGuide(
+  dispatcher: AgentDispatcher,
   ctx: IpcContext,
   opts: GenerateGuideOptions = {},
   onProgress?: (event: ReviewProgressEvent) => void,
@@ -131,7 +133,7 @@ export async function generateGuide(
     : undefined
 
   const abortController = new AbortController()
-  const run = produceGuide(ctx, opts, review, target, abortController.signal, emit).finally(() => inFlight.delete(dedupeKey))
+  const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, emit).finally(() => inFlight.delete(dedupeKey))
   inFlight.set(dedupeKey, { promise: run, abortController })
   return run
 }
@@ -152,6 +154,7 @@ export async function cancelGenerateGuide(
 }
 
 async function produceGuide(
+  dispatcher: AgentDispatcher,
   ctx: IpcContext,
   opts: GenerateGuideOptions,
   review: ReviewContext,
@@ -201,7 +204,7 @@ async function produceGuide(
 
   if (patch) emit?.('analyzing')
   const draft = patch
-    ? await runReviewAgent({ workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, inlineDiff, onProgress: emit, abortSignal })
+    ? await runReviewAgent(dispatcher, { workTree, base, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, inlineDiff, onProgress: emit, abortSignal })
     : null
 
   if (abortSignal.aborted) return null

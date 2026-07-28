@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import type { AgentId } from '../../../shared/types'
+import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName, TOKEN_ICONS } from './tokenStyle'
 
 export interface SessionRefAttrs {
@@ -47,13 +48,13 @@ export const SessionRefExtension = Node.create({
   },
 
   renderMarkdown(node) {
-    const params = new URLSearchParams({
+    return serializeReferenceToken({
+      kind: 'session',
       sessionId: node.attrs?.sessionId,
       provider: node.attrs?.provider,
       cwd: node.attrs?.cwd ?? '',
+      title: node.attrs?.title ?? '',
     })
-    const safeTitle = (node.attrs?.title ?? '').replace(/[\[\]]/g, '\\$&')
-    return `[${safeTitle}](session://ref?${params})`
   },
 
   addAttributes() {

@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
-const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .solus-md-editor`
+const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-content`
 
 test('new list: down works immediately (no settle wait)', async ({ page }) => {
   const app = new AppPage(page)

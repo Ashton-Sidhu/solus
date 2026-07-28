@@ -841,12 +841,11 @@ input::placeholder {
 }
 
 /* ─── Shared prose primitives (code, pre, table) ───
-   Every prose context (.prose-cloud, .solus-md-editor, .solus-doc-editor)
+   Every rich prose context (.prose-cloud, .solus-doc-editor)
    inherits these base styles. Override per-context with CSS custom properties
    or by re-declaring the property on a more-specific selector. */
 
 .prose-cloud code,
-.solus-md-editor .ProseMirror code,
 .solus-doc-editor .ProseMirror code {
   background: transparent;
   /* Toned toward the text colour — full-saturation accent on every inline span
@@ -860,7 +859,6 @@ input::placeholder {
 }
 
 .prose-cloud pre,
-.solus-md-editor .ProseMirror pre,
 .solus-doc-editor .ProseMirror pre {
   background: transparent;
   border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 60%, transparent);
@@ -873,7 +871,6 @@ input::placeholder {
 }
 
 .prose-cloud pre code,
-.solus-md-editor .ProseMirror pre code,
 .solus-doc-editor .ProseMirror pre code {
   background: none;
   color: inherit;
@@ -906,7 +903,6 @@ input::placeholder {
 
 /* Shared decorations — identical across every prose context. */
 .prose-cloud blockquote,
-.solus-md-editor .ProseMirror blockquote,
 .solus-doc-editor .ProseMirror blockquote {
   border-left: 0.1875rem solid var(--solus-tool-running-border);
   padding-left: 0.8em;
@@ -915,7 +911,6 @@ input::placeholder {
 }
 
 .prose-cloud hr,
-.solus-md-editor .ProseMirror hr,
 .solus-doc-editor .ProseMirror hr {
   border: none;
   border-top: 0.0625rem solid var(--solus-container-border);
@@ -924,98 +919,13 @@ input::placeholder {
 }
 
 .prose-cloud a,
-.solus-md-editor .ProseMirror a,
 .solus-doc-editor .ProseMirror a {
   color: var(--solus-accent);
   text-decoration: none;
 }
 .prose-cloud a:hover,
-.solus-md-editor .ProseMirror a:hover,
 .solus-doc-editor .ProseMirror a:hover {
   text-decoration: underline;
-}
-
-/* ─── Tiptap markdown editor ─── */
-.solus-md-editor .ProseMirror {
-  outline: none;
-  border: none;
-  background: transparent;
-  width: 100%;
-  resize: none;
-  font-family: inherit;
-  font-weight: var(--solus-font-weight-body);
-  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
-  line-height: 1.375rem;
-  min-height: 1.25rem;
-  color: var(--solus-text-primary);
-  padding: 0.75rem 0 0.75rem 0.25rem;
-  max-height: var(--md-max-h, 8.75rem);
-  overflow-y: auto;
-  cursor: text;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-.solus-md-editor .ProseMirror p {
-  margin: 0;
-}
-.solus-md-editor .ProseMirror p + p {
-  margin-top: 0.3em;
-}
-.solus-md-editor .ProseMirror strong {
-  font-weight: 600;
-}
-.solus-md-editor .ProseMirror em {
-  font-style: italic;
-}
-.solus-md-editor .ProseMirror pre {
-  padding: 0.7rem 0.85rem;
-  font-size: var(--solus-code-font-size);
-  margin: 0.7em 0;
-  background: var(--solus-code-tint);
-  border-color: color-mix(in srgb, var(--solus-container-border) 60%, transparent);
-  border-radius: 0.625rem;
-  line-height: 1.55;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--solus-text-primary) 18%, transparent)
-    transparent;
-}
-.solus-md-editor .ProseMirror pre::-webkit-scrollbar {
-  height: 0.5rem;
-}
-.solus-md-editor .ProseMirror pre::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--solus-text-primary) 18%, transparent);
-  border-radius: 0.5rem;
-}
-.solus-md-editor .ProseMirror h1 { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; margin: 0.25em 0; }
-.solus-md-editor .ProseMirror h2 { font-size: 0.9063rem; font-weight: 600; letter-spacing: -0.015em; margin: 0.25em 0; }
-.solus-md-editor .ProseMirror h3 { font-size: 0.875rem; font-weight: 600; letter-spacing: -0.01em; margin: 0.2em 0; }
-.solus-md-editor .ProseMirror ul {
-  padding-left: 1.3em;
-  margin: 0.3em 0;
-  list-style: disc;
-}
-.solus-md-editor .ProseMirror ol {
-  padding-left: 1.3em;
-  margin: 0.3em 0;
-  list-style: decimal;
-}
-.solus-md-editor .ProseMirror li {
-  margin: 0.15em 0;
-}
-.solus-md-editor .ProseMirror li p { margin: 0; }
-.solus-md-placeholder {
-  position: absolute;
-  top: 0.75rem;
-  left: 0.25rem;
-  right: 0;
-  pointer-events: none;
-  color: var(--solus-placeholder);
-  font-size: 0.8125rem;
-  line-height: 1.375rem;
-  user-select: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /*

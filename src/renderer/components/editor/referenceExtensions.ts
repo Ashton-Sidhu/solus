@@ -7,9 +7,8 @@ import { SlashRefExtension } from "./slashRefExtension";
 import { SessionRefExtension } from "./sessionRefExtension";
 
 // The six inline reference nodes (@file, #plan, %work, !PR, &session, /command)
-// that the reference autocomplete inserts. Shared so any editor host — the
-// lightweight MarkdownEditor or the rich DocumentEditor — registers the same
-// node schema.
+// that the rich DocumentEditor registers in its node schema. Lightweight
+// CodeMirror composers render the canonical markdown tokens as decorations.
 export const referenceExtensions: AnyExtension[] = [
   PlanRefExtension,
   WorkRefExtension,

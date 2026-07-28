@@ -124,13 +124,11 @@
   // The composer text lives on the target tab's input state (the active tab's,
   // the pinned split tab's, or the tab-less one). Switching tabs swaps `input`,
   // so the editor follows along with no manual save/restore — see
-  // MarkdownEditor's reactive `value` sync.
+  // The editor's reactive `value` sync.
   const inputText = $derived(input.text);
 
-  // When this bar is inactive (hidden with display:none) the underlying TipTap
-  // instance is still alive. Without a guard it calls setContent on every
-  // keystroke — parsing markdown and dispatching ProseMirror transactions for
-  // a hidden editor. Freeze the draft at the moment this bar goes inactive;
+  // When this bar is inactive (hidden with display:none) its CodeMirror
+  // instance is still alive. Freeze the draft at the moment this bar goes inactive;
   // switch back to the live reactive value the instant it becomes active again.
   let frozenText = $state(untrack(() => input.text));
   $effect(() => {
@@ -228,7 +226,7 @@
 
   // ─── Derived state ───
 
-  // Editor emptiness, updated synchronously by MarkdownEditor on every
+  // Editor emptiness, updated synchronously by the editor on every
   // keystroke — unlike `inputText`, which only reflects the 200ms-debounced
   // markdown emit. Seeding from `inputText` at mount/tab-switch is safe
   // because PromptEditor immediately reports the true state once its `value`

@@ -949,6 +949,7 @@
         <DiffStream
           bind:this={streamRef}
           fileDiffs={orderedFiles}
+          loadDiffFiles={patchOverride === null ? diffState.loadDiffFiles : undefined}
           isBinaryFile={(path) => diffState.isBinaryFile(path)}
           isDark={theme.isDark}
           diffStyle={effectiveDiffStyle}

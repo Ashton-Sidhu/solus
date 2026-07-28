@@ -5,8 +5,9 @@ pours the prebuilt, per-arch server tarball published to GitHub Releases by
 `scripts/package-server.ts` (via `.github/workflows/release-server.yml`). No
 `node` dependency — the tarball vendors a pinned Node runtime.
 
-`solus.rb` in this directory is the **source of truth**. The tap repo holds a
-copy at `Formula/solus.rb` that the release workflow keeps up to date.
+The files in this directory are the **source of truth**. The tap repo holds
+copies at `Casks/solus.rb` and `Formula/solus-server.rb` that the release
+workflows keep up to date.
 
 ## One-time setup: create the tap repo
 
@@ -14,22 +15,22 @@ copy at `Formula/solus.rb` that the release workflow keeps up to date.
    GitHub org/user (repo name must start with `homebrew-` for
    `brew tap`/`brew install <owner>/tap/<formula>` to resolve). The tap is
    therefore `Ashton-Sidhu/homebrew-tap`.
-2. Add `Formula/solus.rb`:
+2. Add both package definitions:
    ```sh
    git clone git@github.com:Ashton-Sidhu/homebrew-tap.git
-   mkdir -p homebrew-tap/Formula
-   cp packaging/homebrew/solus.rb homebrew-tap/Formula/solus.rb
-   cd homebrew-tap && git add Formula/solus.rb && git commit -m "Add solus formula" && git push
+   mkdir -p homebrew-tap/Casks homebrew-tap/Formula
+   cp packaging/homebrew/solus-server.rb homebrew-tap/Formula/solus-server.rb
+   cp packaging/homebrew/solus.rb homebrew-tap/Casks/solus.rb
+   cd homebrew-tap && git add Formula/solus-server.rb && git commit -m "Add Solus packages" && git push
    ```
-   The initial copy carries `PLACEHOLDER_SHA256_*` values; the first non-
-   prerelease release fills them in automatically (see below). To install before
-   then, replace the placeholders by hand with the real SHA256s from the
-   release's `SHA256SUMS` asset.
+   Both package definitions carry the current release checksums and future
+   stable releases update them automatically.
 
 ## One-time setup: auto-bump secret
 
-The `bump-tap` job in `.github/workflows/release-server.yml` pushes to the tap
-repo. Add a repo (or org) secret on **`Ashton-Sidhu/solus`**:
+The `bump-tap` jobs in `.github/workflows/release-server.yml` and
+`.github/workflows/release.yml` push to the tap repo. Add a repo (or org) secret
+on **`Ashton-Sidhu/solus`**:
 
 - **`TAP_GITHUB_TOKEN`** — a token with `contents: write` on
   `Ashton-Sidhu/homebrew-tap`. Use a fine-grained PAT scoped to that repo, or a
@@ -44,20 +45,21 @@ to a GitHub Release with a `SHA256SUMS` asset, then the `bump-tap` job
 
 1. Reads the three per-target SHA256s out of `SHA256SUMS`.
 2. Clones `Ashton-Sidhu/homebrew-tap` using `TAP_GITHUB_TOKEN`.
-3. `sed`s `Formula/solus.rb`: rewrites `version` and each `sha256` line, matched
-   by its trailing `# target: <platform>-<arch>` anchor comment. This works
-   whether the current value is a `PLACEHOLDER_SHA256_*` string or a real hash
-   from a previous release.
+3. Rewrites `Formula/solus-server.rb`: updates the release URLs and each
+   `sha256` line, matched by its trailing `# target: <platform>-<arch>` anchor
+   comment.
 4. Commits and pushes if anything changed.
 
-Cutting a release therefore updates the tap with no manual edits, and
-`brew upgrade solus` picks it up.
+The desktop release workflow performs the equivalent update for
+`Casks/solus.rb` using the signed DMG's SHA-256. Cutting a release therefore
+updates the tap with no manual edits.
 
 ## End-user flow
 
 ```sh
-brew install Ashton-Sidhu/tap/solus   # installs CLI + vendored server runtime
-brew services start solus             # runs the daemon under brew services (keep_alive)
+brew install --cask Ashton-Sidhu/tap/solus  # installs the macOS desktop app
+brew install Ashton-Sidhu/tap/solus-server  # installs CLI + vendored server runtime
+brew services start solus-server            # runs the daemon under brew services (keep_alive)
 solus claim                           # claim the server from this machine
 ```
 
@@ -65,6 +67,6 @@ Notes:
 - The service and the CLI share the data dir `~/.solus`, so `solus status` /
   `solus claim` see the running daemon.
 - `solus update` detects the Homebrew (Cellar) install and defers to
-  `brew upgrade solus` instead of self-updating.
+  `brew upgrade solus-server` instead of self-updating.
 - Logs: brew service stdout/stderr → `$(brew --prefix)/var/log/solus.log`; the
   daemon's own logs → `~/.solus/logs/`.

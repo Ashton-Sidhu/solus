@@ -39,7 +39,7 @@ test.describe('Input focus behavior', () => {
     const app = new AppPage(page)
     await app.waitForAppReady()
 
-    const editor = page.locator(`${MESSAGE_INPUT} .solus-md-editor`)
+    const editor = page.locator(`${MESSAGE_INPUT} .cm-content`)
     await editor.click()
     await page.keyboard.type('existing draft')
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')

@@ -144,13 +144,12 @@
   const TITLE_INPUT =
     "w-full text-2xl font-[650] tracking-[-0.02em] text-(--solus-text-primary) bg-transparent border-0 rounded-lg px-1 py-0.5 -ml-1 " +
     "[outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 placeholder:text-(--solus-text-tertiary) ";
-  // Wraps the prompt editor as one tall field; the nested ProseMirror gets a
+  // Wraps the prompt editor as one tall field; the nested CodeMirror gets a
   // tall click target.
   const PROMPT_FIELD =
     "flex-1 flex flex-col min-h-0 w-full rounded-[0.625rem] px-2 -ml-2 bg-transparent [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
-    "[&_.solus-md-editor-wrap]:flex-1 [&_.solus-md-editor-wrap]:flex [&_.solus-md-editor-wrap]:flex-col [&_.solus-md-editor-wrap]:min-h-0 " +
-    "[&_.solus-md-editor]:flex-1 [&_.solus-md-editor]:flex [&_.solus-md-editor]:flex-col [&_.solus-md-editor]:min-h-0 " +
-    "[&_.solus-md-editor_.ProseMirror]:flex-1 [&_.solus-md-editor_.ProseMirror]:min-h-0 [&_.solus-md-editor_.ProseMirror]:max-h-none! [&_.solus-md-editor_.ProseMirror]:![font-weight:400]";
+    "[&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:min-h-0 " +
+    "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400]";
   // Soft recessed input well shared by the schedule / max-turns fields. Variant
   // utilities (width, text-right, font-mono) are appended per field.
   const FIELD =

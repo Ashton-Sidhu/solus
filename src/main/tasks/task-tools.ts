@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
+import type { AgentTool } from '../agents/tools/agent-tool'
 import { getTask, updateTask, listTasks, createTask, postTaskComment, linkTaskSessionAndNotify, formatTaskForAgent } from './task-service'
 import type { Task, TaskKind, TaskPriority, TaskStatus } from '../../shared/task-types'
 
@@ -9,9 +9,8 @@ const log = createLogger('main', 'task-tools.ts')
 /**
  * Agent-facing task tools for long-running sessions: re-fetch the bound ticket
  * (`read_task`) and move it (`update_task_status`). Like work-tools.ts and
- * automation-tools.ts, one set of zod shapes is exported in three shapes — Claude
- * SDK `tool()` objects, Codex JSON-schema descriptors, and a shared executor —
- * so both backends call identical logic. The provider is resolved per-cwd by
+ * automation-tools.ts, one set of Zod shapes backs provider-neutral tools so
+ * both backends call identical logic. The provider is resolved per-cwd by
  * task-service, so these are bound to the calling session's working directory.
  * Tools return error TEXT (never throw) so a bad call degrades to a recoverable
  * message rather than killing the turn.
@@ -215,53 +214,41 @@ export async function executeTaskTool(
   }
 }
 
-// ─── Shape 1: Claude SDK tools (composed into the `solus` MCP server) ───
-
-function toToolResult(r: TaskToolResult) {
+function taskAgentTool(
+  name: string,
+  description: string,
+  inputShape: z.ZodRawShape,
+  requiresApproval: boolean,
+): AgentTool {
   return {
-    content: [{ type: 'text' as const, text: r.text }],
-    ...(r.ok ? {} : { isError: true as const }),
+    name,
+    description,
+    inputShape,
+    requiresApproval,
+    execute: async (args, context) => executeTaskTool(name, args, {
+      ctx: { cwd: context.cwd, sessionId: context.sessionId() },
+      onTaskCreated: (task) => context.emit({
+        type: 'task_created',
+        taskId: task.taskId,
+        title: task.title,
+        url: task.url,
+      }),
+    }),
   }
 }
 
-export interface TaskSdkDeps {
-  cwd: string
-  sessionId?: () => string | undefined
-  onTaskCreated?: OnTaskCreated
-}
+export const listTasksAgentTool = taskAgentTool('list_tasks', LIST_TASKS_DESC, listTasksShape, false)
+export const readTaskAgentTool = taskAgentTool('read_task', READ_TASK_DESC, readTaskShape, false)
+export const updateTaskStatusAgentTool = taskAgentTool('update_task_status', UPDATE_DESC, updateStatusShape, true)
+export const createTaskAgentTool = taskAgentTool('create_task', CREATE_TASK_DESC, createTaskShape, true)
+export const commentTaskAgentTool = taskAgentTool('comment_task', COMMENT_TASK_DESC, commentTaskShape, true)
+export const linkTaskSessionAgentTool = taskAgentTool('link_task_session', LINK_TASK_SESSION_DESC, linkTaskSessionShape, true)
 
-export function taskSdkTools(deps: TaskSdkDeps) {
-  const mk = (): TaskToolDeps => ({ ctx: { cwd: deps.cwd, sessionId: deps.sessionId?.() }, onTaskCreated: deps.onTaskCreated })
-  const run = (n: string) => async (args: unknown) =>
-    toToolResult(await executeTaskTool(n, (args ?? {}) as Record<string, unknown>, mk()))
-  return [
-    tool('list_tasks', LIST_TASKS_DESC, listTasksShape, run('list_tasks')),
-    tool('read_task', READ_TASK_DESC, readTaskShape, run('read_task')),
-    tool('update_task_status', UPDATE_DESC, updateStatusShape, run('update_task_status')),
-    tool('create_task', CREATE_TASK_DESC, createTaskShape, run('create_task')),
-    tool('comment_task', COMMENT_TASK_DESC, commentTaskShape, run('comment_task')),
-    tool('link_task_session', LINK_TASK_SESSION_DESC, linkTaskSessionShape, run('link_task_session')),
-  ]
-}
-
-// ─── Shape 2: Codex dynamicTools JSON-schema descriptors ───
-
-export interface TaskToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export const TASK_TOOL_JSON_SCHEMAS: TaskToolDescriptor[] = [
-  { name: 'list_tasks', description: LIST_TASKS_DESC, inputSchema: z.toJSONSchema(z.object(listTasksShape)) as Record<string, unknown> },
-  { name: 'read_task', description: READ_TASK_DESC, inputSchema: z.toJSONSchema(z.object(readTaskShape)) as Record<string, unknown> },
-  { name: 'update_task_status', description: UPDATE_DESC, inputSchema: z.toJSONSchema(z.object(updateStatusShape)) as Record<string, unknown> },
-  { name: 'create_task', description: CREATE_TASK_DESC, inputSchema: z.toJSONSchema(z.object(createTaskShape)) as Record<string, unknown> },
-  { name: 'comment_task', description: COMMENT_TASK_DESC, inputSchema: z.toJSONSchema(z.object(commentTaskShape)) as Record<string, unknown> },
-  { name: 'link_task_session', description: LINK_TASK_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(linkTaskSessionShape)) as Record<string, unknown> },
+export const taskAgentTools: AgentTool[] = [
+  listTasksAgentTool,
+  readTaskAgentTool,
+  updateTaskStatusAgentTool,
+  createTaskAgentTool,
+  commentTaskAgentTool,
+  linkTaskSessionAgentTool,
 ]
-
-export const TASK_TOOL_NAMES = new Set(TASK_TOOL_JSON_SCHEMAS.map((t) => t.name))
-
-/** Write tools gate through permissions; list/get are read-only. */
-export const TASK_MUTATING_TOOLS = new Set(['update_task_status', 'create_task', 'comment_task', 'link_task_session'])

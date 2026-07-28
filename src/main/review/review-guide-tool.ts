@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { GuideSignificance, ReviewGuideDraft } from '../../shared/review'
 import { createLogger } from '../logger'
+import type { AgentTool } from '../agents/tools/agent-tool'
 
 const log = createLogger('review', 'review-guide-tool.ts')
 
@@ -9,9 +9,7 @@ const log = createLogger('review', 'review-guide-tool.ts')
 //
 // Replaces the old `extractHtml()` text-scrape. The review agent calls this tool
 // with the whole guide as its arguments — those args ARE the guide, captured
-// directly (no markup, no parsing of free text). Registered two ways: as an
-// in-process MCP tool for Claude and a dynamicTools JSON-schema descriptor for
-// the Codex one-shot.
+// directly (no markup, no parsing of free text).
 
 const fileRefShape = z.object({
   path: z.string().describe('Repo-relative path EXACTLY as it appears in the diff (the b/ post-image path).'),
@@ -64,7 +62,6 @@ export const submitReviewGuideShape = {
 const submitReviewGuideObject = z.object(submitReviewGuideShape)
 
 export const SUBMIT_REVIEW_GUIDE_TOOL_NAME = 'submit_review_guide'
-export const SUBMIT_REVIEW_GUIDE_MCP_TOOL = `mcp__solus__${SUBMIT_REVIEW_GUIDE_TOOL_NAME}`
 
 const SUBMIT_REVIEW_GUIDE_DESC = [
   'Submit the structured guided-review walkthrough for the change you just inspected.',
@@ -97,53 +94,26 @@ export function parseGuideArgs(args: unknown): ParseGuideResult {
   return { ok: true, guide: parsed.data }
 }
 
-const codexCaptures = new Map<string, (guide: ReviewGuideDraft) => void>()
-
-export function registerCodexReviewGuideCapture(threadId: string, capture: (guide: ReviewGuideDraft) => void): () => void {
-  codexCaptures.set(threadId, capture)
-  return () => {
-    if (codexCaptures.get(threadId) === capture) codexCaptures.delete(threadId)
+export function createReviewGuideAgentTool(
+  capture: (guide: ReviewGuideDraft) => void,
+): AgentTool {
+  return {
+    name: SUBMIT_REVIEW_GUIDE_TOOL_NAME,
+    description: SUBMIT_REVIEW_GUIDE_DESC,
+    inputShape: submitReviewGuideShape,
+    requiresApproval: false,
+    execute: async (args) => {
+      const result = parseGuideArgs(args)
+      if (!result.ok || !result.guide) {
+        return { ok: false, text: result.error ?? 'invalid guide' }
+      }
+      capture(result.guide)
+      return {
+        ok: true,
+        text: `Captured review guide with ${result.guide.sections.length} section(s).`,
+      }
+    },
   }
-}
-
-export function executeCodexReviewGuideTool(threadId: string, args: unknown): { ok: boolean; text: string } {
-  const capture = codexCaptures.get(threadId)
-  if (!capture) return { ok: false, text: `No review guide capture is registered for Codex thread ${threadId}.` }
-
-  const result = parseGuideArgs(args)
-  if (!result.ok || !result.guide) return { ok: false, text: result.error ?? 'invalid guide' }
-
-  capture(result.guide)
-  return { ok: true, text: `Captured review guide with ${result.guide.sections.length} section(s).` }
-}
-
-/** Shape 1: the Claude SDK in-process MCP server hosting just this tool. The
- *  executor captures the validated draft into `capture` and acks; the producer
- *  reads it back after the run completes. */
-export function reviewGuideMcpServer(capture: (guide: ReviewGuideDraft) => void) {
-  return createSdkMcpServer({
-    name: 'solus',
-    version: '1.0.0',
-    tools: [
-      tool(SUBMIT_REVIEW_GUIDE_TOOL_NAME, SUBMIT_REVIEW_GUIDE_DESC, submitReviewGuideShape, async (args) => {
-        const result = parseGuideArgs(args)
-        if (!result.ok || !result.guide) {
-          return { content: [{ type: 'text' as const, text: result.error ?? 'invalid guide' }], isError: true as const }
-        }
-        capture(result.guide)
-        return {
-          content: [{ type: 'text' as const, text: `Captured review guide with ${result.guide.sections.length} section(s).` }],
-        }
-      }),
-    ],
-  })
-}
-
-/** Shape 2: the Codex dynamicTools JSON-schema descriptor (same shape as Claude). */
-export const SUBMIT_REVIEW_GUIDE_TOOL_JSON_SCHEMA = {
-  name: SUBMIT_REVIEW_GUIDE_TOOL_NAME,
-  description: SUBMIT_REVIEW_GUIDE_DESC,
-  inputSchema: z.toJSONSchema(submitReviewGuideObject) as Record<string, unknown>,
 }
 
 // ─── post-capture validation ───

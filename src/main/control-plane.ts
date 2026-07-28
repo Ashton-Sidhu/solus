@@ -8,8 +8,20 @@ import { computeGitState } from './git/git-helpers'
 import { GitWatcher } from './git/git-watcher'
 import { warmFinder } from './server/file-finder'
 import { TextGenerator } from './agents/text-generator'
+import {
+  AgentRunner,
+  type AgentRun,
+  type AgentRunRequest,
+  type AgentRunSessionState,
+} from './agents/agent-runner'
+import type { AgentTool } from './agents/tools/agent-tool'
+import { solusToolbox } from './agents/tools/solus-toolbox'
+import { createClaudeSubagentAgentTool } from './agents/claude/claude-subagent-tool'
+import { createCodexSubagentAgentTool } from './agents/codex/codex-subagent-tool'
 import { runInputFromContext } from './agents/run-input'
 import { buildHandoff, composeHandoffSeed } from './agents/session-handoff'
+import { buildSystemPrompt } from './agents/system-hint'
+import { isWorkspacePath } from './workspace'
 import { RateLimitState } from './rate-limits'
 import { AttentionService, attentionActionForStatus } from './attention/attention-service'
 import type { AttentionKind } from '../shared/attention-types'
@@ -63,11 +75,13 @@ const NEW_SESSION_PROMPTS_CSV_HEADER = 'input_prompt,model,agent_provider,reason
 
 const log = createLogger('ControlPlane', 'control-plane.ts')
 
-const textGenerator = new TextGenerator()
-
 function csvCell(value: string | null | undefined): string {
   const text = value ?? ''
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
+}
+
+function selectAgentTools(...groups: Array<Record<string, AgentTool>>): AgentTool[] {
+  return groups.flatMap((group) => Object.values(group))
 }
 
 interface QueuedRequest {
@@ -108,6 +122,7 @@ export interface SessionRunRequest {
   target: DispatchTarget
   input: SessionRunInput
   options: PromptOptions
+  tools: AgentTool[]
   sourceTabId?: string
 }
 
@@ -156,6 +171,9 @@ export class ControlPlane extends EventEmitter {
   private pendingHandoffs = new Map<string, PendingSessionHandoff>()
   private sessionSettlementWatchers = new Map<string, Set<string>>()
   private backends: Map<AgentId, AgentBackend>
+  private agentRunner: AgentRunner
+  private textGenerator: TextGenerator
+  private activeAgentRuns = new Set<AgentRun>()
 
   /**
    * Per-tab pending buffer of streaming main-thread text (tabId → buffered text;
@@ -204,6 +222,8 @@ export class ControlPlane extends EventEmitter {
   constructor(backends: Map<AgentId, AgentBackend>, opts: ControlPlaneOptions = {}) {
     super()
     this.backends = backends
+    this.agentRunner = new AgentRunner(backends)
+    this.textGenerator = new TextGenerator(this)
     this.tabDisconnectGraceMs = opts.tabDisconnectGraceMs ?? TAB_DISCONNECT_GRACE_MS
     this.now = opts.now ?? (() => Date.now())
     this.setGcTimeout = opts.setTimeout ?? setTimeout
@@ -230,6 +250,8 @@ export class ControlPlane extends EventEmitter {
       // pre-init emissions (e.g. permission events that race ahead) — they'd
       // have nowhere to route.
       if (!sessionId) return
+      const eventHandle = backend.getSessionHandle(sessionId)
+      if (eventHandle?.persistence === 'ephemeral') return
 
       // ─── Session-level state (always runs, even with no watching tab) ───
 
@@ -307,7 +329,11 @@ export class ControlPlane extends EventEmitter {
       if (session) {
         session.lastActivityAt = Date.now()
 
-        if (event.type === 'permission_request' || event.type === 'question_request') {
+        if (event.type === 'session_changed_files_updated') {
+          if (session.runInput) session.runInput.sessionChangedFiles = [...event.paths]
+          const activeRequest = this.activeRunRequests.get(session.sessionId)
+          if (activeRequest) activeRequest.input.sessionChangedFiles = [...event.paths]
+        } else if (event.type === 'permission_request' || event.type === 'question_request') {
           session.hasPendingInput = true
           session.pendingInputEvents.push(event)
           this.questionIdToSession.set(event.questionId, session.sessionId)
@@ -593,6 +619,13 @@ export class ControlPlane extends EventEmitter {
       enriched.message = err.message
       this._broadcastToSession('error', tabId, enriched)
     })
+  }
+
+  runAgent(request: AgentRunRequest, sessionState?: AgentRunSessionState): AgentRun {
+    const run = this.agentRunner.run(request, sessionState)
+    this.activeAgentRuns.add(run)
+    void run.done.finally(() => this.activeAgentRuns.delete(run)).catch(() => {})
+    return run
   }
 
   // ─── Tab Lifecycle ───
@@ -1113,7 +1146,20 @@ export class ControlPlane extends EventEmitter {
     const target: DispatchTarget = !input.forked && sessionId
       ? { kind: 'session', sessionId }
       : { kind: 'new-session' }
-    const lifecycle = await this.runTurn({ input, target, sourceTabId: tabId, options }, deviceId)
+    const lifecycle = await this.runTurn({
+      input,
+      target,
+      sourceTabId: tabId,
+      options,
+      tools: selectAgentTools(
+        solusToolbox.works,
+        solusToolbox.artifact,
+        solusToolbox.automations,
+        solusToolbox.sessions,
+        solusToolbox.tasks,
+        solusToolbox.prs,
+      ),
+    }, deviceId)
     await lifecycle.agentSessionId
     return {
       disposition: lifecycle.disposition,
@@ -1168,6 +1214,14 @@ export class ControlPlane extends EventEmitter {
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'session', sessionId: agentSessionId },
+      tools: selectAgentTools(
+        solusToolbox.works,
+        solusToolbox.artifact,
+        solusToolbox.automations,
+        solusToolbox.sessions,
+        solusToolbox.tasks,
+        solusToolbox.prs,
+      ),
       options: {
         prompt,
         displayPrompt: prompt,
@@ -1219,6 +1273,14 @@ export class ControlPlane extends EventEmitter {
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'session', sessionId: agentSessionId },
+      tools: selectAgentTools(
+        solusToolbox.works,
+        solusToolbox.artifact,
+        solusToolbox.automations,
+        solusToolbox.sessions,
+        solusToolbox.tasks,
+        solusToolbox.prs,
+      ),
       options: { prompt, displayPrompt: prompt, delivery },
     })
     return { disposition: lifecycle.disposition }
@@ -1283,6 +1345,14 @@ export class ControlPlane extends EventEmitter {
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'new-session' },
+      tools: selectAgentTools(
+        solusToolbox.works,
+        solusToolbox.artifact,
+        solusToolbox.automations,
+        solusToolbox.sessions,
+        solusToolbox.tasks,
+        solusToolbox.prs,
+      ),
       options: { prompt: req.prompt, displayPrompt: req.prompt },
     })
     return lifecycle.agentSessionId
@@ -1319,12 +1389,18 @@ export class ControlPlane extends EventEmitter {
       fastMode: false,
       permissionMode: 'auto',
       rateLimitBehavior: 'queue',
-      toolProfile: 'automation',
       extraInstructions: '',
     }
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'new-session' },
+      tools: selectAgentTools(
+        solusToolbox.works,
+        solusToolbox.artifact,
+        solusToolbox.sessions,
+        solusToolbox.tasks,
+        solusToolbox.prs,
+      ),
       options: {
         prompt: req.prompt,
         displayPrompt: req.prompt,
@@ -1625,7 +1701,7 @@ export class ControlPlane extends EventEmitter {
           ? 'gpt-5.4-mini'
           : 'claude-haiku-4-5-20251001'
         const gitContext: GitCheckout = await createWorktree(resolvedProjectPath, options.prompt, worktreeBaseBranch, {
-          generateName: (prompt) => textGenerator.generate({
+          generateName: (prompt) => this.textGenerator.generate({
             provider,
             cwd: resolvedProjectPath,
             prompt: buildBranchNamePrompt(prompt),
@@ -1699,6 +1775,7 @@ export class ControlPlane extends EventEmitter {
       gitContext: effectiveGitCtx,
       agentSessionId,
       forked: pendingHandoff ? false : input.forked,
+      sessionChangedFiles: existingSession?.runInput?.sessionChangedFiles ?? input.sessionChangedFiles,
       ...(handoffPayload ? { handoff: handoffPayload } : {}),
     }
 
@@ -1764,7 +1841,46 @@ export class ControlPlane extends EventEmitter {
       } else {
         await this._logNewSessionPrompt(effectiveInput, options, backend.id)
       }
-      handle = backend.startRun(effectiveInput, options)
+      const baseSystemPrompt = buildSystemPrompt({
+        agent: provider === 'codex' ? 'codex' : 'claude',
+        general: isWorkspacePath(effectiveCwd),
+        extraInstructions: effectiveInput.extraInstructions,
+        modelInstructions: effectiveInput.modelInstructions,
+        planMode: effectiveInput.permissionMode === 'plan',
+        prReview: effectiveInput.prReview,
+      })
+      const systemPrompt = [
+        baseSystemPrompt,
+        options.systemPrompt,
+        handoffPayload?.seedSystemAppend,
+      ].filter(Boolean).join('\n\n')
+      const agentRun = this.runAgent({
+        provider,
+        prompt: options.prompt,
+        cwd: effectiveCwd,
+        tools: [
+          ...request.tools,
+          provider === 'codex'
+            ? createClaudeSubagentAgentTool(this)
+            : createCodexSubagentAgentTool(this),
+        ],
+        model: effectiveInput.model,
+        reasoningEffort: effectiveInput.reasoningEffort,
+        permissionMode: effectiveInput.permissionMode,
+        persistence: 'session',
+        sessionId: effectiveInput.agentSessionId,
+        forkSession: effectiveInput.forked,
+        additionalDirectories: effectiveAdditionalDirs,
+        imageAttachments: options.imageAttachments,
+        contextWindow: effectiveInput.contextWindow,
+        fastMode: effectiveInput.fastMode,
+        systemPrompt,
+        maxTurns: options.maxTurns,
+        maxBudgetUsd: options.maxBudgetUsd,
+      }, {
+        changedFiles: effectiveInput.sessionChangedFiles,
+      })
+      handle = agentRun.handle
       handle.sourceTabId = tabId
     } catch (err) {
       if (dispatchSessionId) this.activeRunRequests.delete(dispatchSessionId)
@@ -2544,6 +2660,9 @@ export class ControlPlane extends EventEmitter {
     for (const timer of this.disconnectedClientTimers.values()) this.clearGcTimeout(timer)
     this.disconnectedClientTimers.clear()
     this.disconnectedClients.clear()
+
+    for (const run of this.activeAgentRuns) run.cancel()
+    this.activeAgentRuns.clear()
 
     for (const [sessionId, session] of this.activeSessions) {
       const backend = this._backendFor(session.backendId)

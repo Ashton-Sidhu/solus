@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { CodexSubagentEventBridge } from '../../src/main/agents/codex/codex-subagent-event-bridge'
+import { AgentToolCallBridge } from '../../src/main/agents/tools/agent-tool-call-bridge'
 
-describe('CodexSubagentEventBridge', () => {
+describe('AgentToolCallBridge', () => {
   test('correlates parallel MCP invocations by their complete input', async () => {
-    const bridge = new CodexSubagentEventBridge()
-    const first = bridge.claim({ prompt: 'Inspect auth', description: 'Auth review' })
-    const second = bridge.claim({ prompt: 'Inspect billing', description: 'Billing review' })
+    const bridge = new AgentToolCallBridge()
+    const first = bridge.claim('codex_subagent', { prompt: 'Inspect auth', description: 'Auth review' })
+    const second = bridge.claim('codex_subagent', { prompt: 'Inspect billing', description: 'Billing review' })
 
     bridge.observe({ type: 'tool_call', toolName: 'mcp__solus__codex_subagent', toolId: 'tool-auth', index: 0 })
     bridge.observe({ type: 'tool_call', toolName: 'mcp__solus__codex_subagent', toolId: 'tool-billing', index: 1 })

@@ -1,9 +1,9 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import type { FileDiffContentsLoader } from "@pierre/diffs";
   import { ClockIcon } from "phosphor-svelte";
   import type { ReviewGuide, ReviewLedger } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
-  import type { FileVersions } from "../../../lib/diff-expandable";
   import {
     formatAbsoluteTimestamp,
     formatTimeAgoFromTimestamp,
@@ -25,7 +25,7 @@
     guide,
     ledger,
     patch,
-    fileVersions,
+    loadDiffFiles,
     meta,
     guideCurrent = true,
     onFileJump,
@@ -36,9 +36,7 @@
     guide: ReviewGuide;
     ledger: ReviewLedger | null;
     patch: string;
-    /** Both versions of each changed file, keyed by path. Present only when the
-     *  host could fetch them; without it the cards' hunk gaps aren't expandable. */
-    fileVersions?: Map<string, FileVersions>;
+    loadDiffFiles?: FileDiffContentsLoader;
     /** PR identity for the intro header's metadata line (`repo#number · base ←
      *  branch`). Absent for standalone local-branch reviews. */
     meta?: { repo?: string; number?: number; baseRef: string; branch: string };
@@ -137,7 +135,7 @@
               {section}
               {records}
               {patchByPath}
-              {fileVersions}
+              {loadDiffFiles}
               {onFileJump}
               {comments}
               {onCommentSave}
@@ -164,7 +162,7 @@
                   {section}
                   {records}
                   {patchByPath}
-                  {fileVersions}
+                  {loadDiffFiles}
                   {onFileJump}
                   {comments}
                   {onCommentSave}

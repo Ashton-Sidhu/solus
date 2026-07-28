@@ -14,6 +14,7 @@ import type {
   ThreadGoalSetRequest,
 } from '../../shared/types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../../shared/session-history'
+import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
 
 export interface PermissionResponder {
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined
@@ -25,6 +26,7 @@ export interface PermissionResponder {
 
 export interface RunHandle {
   sessionId: string | null
+  persistence: 'session' | 'ephemeral'
   /** Attached by ControlPlane for pre-session-init UI routing. */
   sourceTabId?: string
   startedAt: number
@@ -55,7 +57,7 @@ export interface AgentBackend extends EventEmitter {
   readonly id: AgentId
   readonly metadata: AgentMetadata
 
-  startRun(input: SessionRunInput, options: PromptOptions): RunHandle
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle
   /** Append input to the provider's active turn. Expected turn-boundary races
    *  return null; provider failures reject. The accepted run handle anchors the
    *  caller's completion lifecycle to the exact turn that consumed the input. */

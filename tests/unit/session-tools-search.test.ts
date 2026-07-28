@@ -208,12 +208,11 @@ describe('wait_for_session executor', () => {
 
 describe('prompt_session executor', () => {
   test('teaches agents to steer only for an in-progress redirect', () => {
-    const descriptor = tools.SESSION_TOOL_JSON_SCHEMAS.find(({ name }) => name === 'prompt_session')
-    const properties = descriptor?.inputSchema.properties as Record<string, { description?: string }> | undefined
+    const promptTool = tools.promptSessionAgentTool
 
-    expect(descriptor?.description).toContain("work in progress should change now")
-    expect(descriptor?.description).toContain("Choose 'queue' for independent or sequential follow-up")
-    expect(properties?.delivery?.description).toContain("interrupt or redirect the target's current line of work")
+    expect(promptTool.description).toContain("work in progress should change now")
+    expect(promptTool.description).toContain("Choose 'queue' for independent or sequential follow-up")
+    expect(promptTool.inputShape.delivery.description).toContain("interrupt or redirect the target's current line of work")
   })
 
   test('queues by default for agent-to-agent delivery', async () => {
