@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Editor } from "@tiptap/core";
-  import { FileTextIcon } from "phosphor-svelte";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import CommentLayer from "../comments/CommentLayer.svelte";
@@ -8,7 +7,6 @@
   import { removeCommentMark } from "../plan/lib/comments";
   import { getWorkspaceContext } from "../../contexts";
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
 
   interface DocumentModalProps {
@@ -19,8 +17,6 @@
     onDirtyChange?: (dirty: boolean) => void;
     onClose?: () => void;
     inline?: boolean;
-    slot?: PaneSlot;
-    onOpenInSplit?: () => void;
     onOpenChat?: (mode: 'resume' | 'new') => void;
     originalSessionMeta?: SessionMeta | null;
     /** Work kind — gates the Download .md action in the header. */
@@ -38,7 +34,7 @@
     onRename?: (title: string) => void;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, slot = "primary", onOpenInSplit, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onPromoteToProject, promoting = false, onRename }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onPromoteToProject, promoting = false, onRename }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
   const commentExtensions = [CommentMark];
@@ -125,7 +121,6 @@
   content={doc.content}
   onRenameTitle={onRename}
   {inline}
-  iconOnlyHeaderActions={slot === "secondary"}
   editorClass="doc-document-editor"
   rootClass="doc-modal-shell"
   scope="document-modal"
@@ -142,18 +137,11 @@
   scrollAriaLabel="Document"
   placeholder="Start writing…"
 >
-  {#snippet titleIcon()}
-    <FileTextIcon size={14} class="text-(--solus-text-tertiary) shrink-0" />
-  {/snippet}
-
-  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded })}
+  {#snippet documentActions({ copied, copy, googleUpload, uploading, uploaded, startRename })}
     <WorkHeaderActions
-      {inline}
-      paneSlot={slot}
-      {onOpenInSplit}
       {onOpenChat}
+      onStartRename={startRename}
       {originalSessionMeta}
-      iconOnly={slot === "secondary"}
       {copied}
       {copy}
       {workId}
@@ -258,11 +246,13 @@
     }
   }
 
-  /* Tablet / compact — un-cap the toolbar row to align with the editor. */
+  /* Tablet / compact — un-cap the toolbar row to align with the editor. The
+     right gutter still has to clear the pane's floating chrome cluster. */
   @media (max-width: 1100px) and (min-width: 768px) {
     :global(.doc-modal-shell .doc-shell-toolbar-row) {
       max-width: none;
-      padding-inline: 1rem;
+      padding-left: 1rem;
+      padding-right: max(1rem, var(--solus-pane-chrome-inset, 3.25rem));
     }
   }
 
@@ -292,17 +282,7 @@
       line-height: 1.66;
     }
   }
-  /* Split pane / narrow pane: collapse action buttons to icon-only */
-  :global(.doc-modal-shell .wha-actions--icon-only .wha-label) {
-    display: none;
-  }
-  :global(.doc-modal-shell .wha-actions--icon-only .wha-caret) {
-    display: none;
-  }
-  :global(.doc-modal-shell .wha-actions--icon-only .wha-chat-trigger),
-  :global(.doc-modal-shell .wha-actions--icon-only .soft-pill) {
-    padding-inline: 0.3125rem;
-  }
+  /* Narrow pane (split, or a compact window): collapse actions to icon-only. */
   @container doc-shell (max-width: 34rem) {
     :global(.doc-modal-shell .wha-label) {
       display: none;

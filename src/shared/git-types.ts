@@ -120,9 +120,26 @@ export interface GitCommitPushResult {
   error?: string
 }
 
+/** Commit without publishing. `unchanged` means there was nothing to commit,
+ *  which is a success — the working tree already matched HEAD. */
+export interface GitCommitResult {
+  success: boolean
+  outcome: 'committed' | 'unchanged' | 'failed'
+  committed: boolean
+  error?: string
+}
+
 export interface GitSyncResult {
   success: boolean
   outcome: 'synced' | 'conflicted' | 'failed'
+  error?: string
+}
+
+/** Throwing away uncommitted work. `discarded` counts the files that were
+ *  reset or removed, so the caller can report what it cost. */
+export interface GitDiscardResult {
+  success: boolean
+  discarded: number
   error?: string
 }
 

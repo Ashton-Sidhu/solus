@@ -13,10 +13,8 @@
     type Node,
   } from "@xyflow/svelte";
   import "@xyflow/svelte/dist/style.css";
-  import { ChatsCircleIcon, CheckIcon, GraphIcon, XIcon } from "phosphor-svelte";
+  import { ChatsCircleIcon, CheckIcon } from "phosphor-svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
   import { getWorkspaceContext, toasts, getSettingsContext } from "../../contexts";
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
@@ -94,10 +92,7 @@
     /** Fires true when the canvas has unsaved edits, false once they're saved.
         Lets the host decide whether an agent update can safely refresh. */
     onDirtyChange?: (dirty: boolean) => void;
-    /** Shared work-header actions (Chat / split / copy) — same contract as docs. */
-    inline?: boolean;
-    slot?: PaneSlot;
-    onOpenInSplit?: () => void;
+    /** Shared work actions (Chat / copy / overflow) — same contract as docs. */
     onOpenChat?: (mode: "resume" | "new") => void;
     originalSessionMeta?: SessionMeta | null;
     /** Work id — enables the "View changes" revision diff. */
@@ -121,9 +116,6 @@
     onSave,
     onClose,
     onDirtyChange,
-    inline = false,
-    slot = "primary",
-    onOpenInSplit,
     onOpenChat,
     originalSessionMeta,
     workId,
@@ -1906,131 +1898,75 @@
   tabindex="-1"
   onkeydowncapture={handleShellKeydownCapture}
 >
-  <div class="diagram-shell__header">
-      <div class="diagram-shell__header-meta">
-        {#if inline}
-          <FrameExpandButton variant="sidebar" />
-        {/if}
-        <GraphIcon size={14} class="diagram-shell__title-icon" />
-        {#if drillPath.length === 0}
-          {#if renaming}
-            <!-- svelte-ignore a11y_autofocus -->
-            <input
-              class="diagram-shell__title-input"
-              bind:value={renameValue}
-              onblur={commitRename}
-              onkeydown={renameKeydown}
-              autofocus
-              aria-label="Rename diagram"
-              data-testid="rename-work-input"
-            />
-          {:else if onRename}
-            <button
-              type="button"
-              class="diagram-shell__title diagram-shell__title--editable"
-              onclick={startRename}
-              title="Rename"
-              data-testid="rename-work"
-            >{title}</button>
-          {:else}
-            <span class="diagram-shell__title">{title}</span>
-          {/if}
-        {:else}
-          <button
-            type="button"
-            class="diagram-shell__crumb diagram-shell__crumb--root"
-            onclick={() => drillTo(0)}
-            title="Back to {title} (Esc)"
-          >
-            {title}
-          </button>
-          {#each drillPath as crumb, i}
-            <span class="diagram-shell__crumb-sep" aria-hidden="true">›</span>
-            {#if i === drillPath.length - 1}
-              <span class="diagram-shell__title diagram-shell__crumb--current">
-                {crumb.label}
-              </span>
-            {:else}
-              <button
-                type="button"
-                class="diagram-shell__crumb"
-                onclick={() => drillTo(i + 1)}
-                title="Back to {crumb.label}"
-              >
-                {crumb.label}
-              </button>
-            {/if}
-          {/each}
-        {/if}
-        <div class="diagram-shell__save-status">
-        {#if showSaving}
-          <span class="diagram-shell__save-dot" aria-hidden="true"></span>
-          <span>Saving…</span>
-        {:else if saveFailed}
-          <button
-            type="button"
-            class="diagram-shell__save-retry"
-            onclick={retrySave}
-            title="The last save failed — click to retry"
-          >
-            Save failed — retry
-          </button>
-        {:else if lastSavedAt !== null}
-          <CheckIcon size={11} />
-          <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
-        {/if}
-      </div>
-    </div>
-    <div class="diagram-shell__header-actions">
-      {#if workId}
+  <!-- De-chromed control strip: no border, no chrome-row height. Identity (the
+       title) lives in the tab label and the drill crumb on the canvas; the pane's
+       close / split / maximize live in the floating PaneChrome cluster, which
+       this row reserves room for on its right. -->
+  <div class="diagram-shell__toolbar">
+    {#if renaming}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="diagram-shell__title-input"
+        bind:value={renameValue}
+        onblur={commitRename}
+        onkeydown={renameKeydown}
+        autofocus
+        aria-label="Rename diagram"
+        data-testid="rename-work-input"
+      />
+    {/if}
+    <div class="diagram-shell__toolbar-spacer"></div>
+    <div class="diagram-shell__save-status">
+      {#if showSaving}
+        <span class="diagram-shell__save-dot" aria-hidden="true"></span>
+        <span>Saving…</span>
+      {:else if saveFailed}
         <button
           type="button"
-          class="diagram-shell__comments-btn"
-          class:diagram-shell__comments-btn--on={commentsOpen}
-          onclick={toggleComments}
-          title="Comments (⌥C)"
-          aria-label="Toggle comments"
-          aria-pressed={commentsOpen}
+          class="diagram-shell__save-retry"
+          onclick={retrySave}
+          title="The last save failed — click to retry"
         >
-          <ChatsCircleIcon size={13} />
-          {#if comments.length > 0}
-            <span class="diagram-shell__comments-count">{comments.length}</span>
-          {/if}
+          Save failed — retry
         </button>
-      {/if}
-      <WorkHeaderActions
-        {inline}
-        paneSlot={slot}
-        {onOpenInSplit}
-        {onOpenChat}
-        {originalSessionMeta}
-        iconOnly={slot === "secondary"}
-        {copied}
-        copy={copyDiagram}
-        {workId}
-        {title}
-        currentContent={content}
-        docType="diagram"
-        {onRevert}
-        {onDelete}
-        {onDuplicate}
-        {workStorage}
-        {onPromoteToProject}
-        {promoting}
-      />
-      <button
-        type="button"
-        class="diagram-shell__close"
-        data-testid="diagram-shell-close"
-        onclick={onClose}
-        title="Close (Esc)"
-      >
-        <XIcon size={16} />
-      </button>
-      {#if inline}
-        <FrameExpandButton variant="projectPanel" />
+      {:else if lastSavedAt !== null}
+        <CheckIcon size={11} />
+        <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
       {/if}
     </div>
+    {#if workId}
+      <button
+        type="button"
+        class="diagram-shell__comments-btn"
+        class:diagram-shell__comments-btn--on={commentsOpen}
+        onclick={toggleComments}
+        title="Comments (⌥C)"
+        aria-label="Toggle comments"
+        aria-pressed={commentsOpen}
+      >
+        <ChatsCircleIcon size={13} />
+        {#if comments.length > 0}
+          <span class="diagram-shell__comments-count">{comments.length}</span>
+        {/if}
+      </button>
+    {/if}
+    <WorkHeaderActions
+      {onOpenChat}
+      onStartRename={onRename ? startRename : undefined}
+      {originalSessionMeta}
+      {copied}
+      copy={copyDiagram}
+      {workId}
+      {title}
+      currentContent={content}
+      docType="diagram"
+      {onRevert}
+      {onDelete}
+      {onDuplicate}
+      {workStorage}
+      {onPromoteToProject}
+      {promoting}
+    />
   </div>
 
   <div class="diagram-shell__canvas">
@@ -2115,30 +2051,36 @@
         {/if}
 
         {#if drillPath.length > 0}
+          <!-- The only way back out of a sub-diagram, so it floats over the
+               canvas rather than living in chrome. -->
           <Panel position="top-left">
-            <button
-              type="button"
-              class="drill-back-pill"
-              onclick={() => drillTo(drillPath.length - 1)}
-              title="Back to {drillPath.length > 1
-                ? drillPath[drillPath.length - 2].label
-                : title} (Esc)"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                width="12"
-                height="12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
+            <nav class="drill-crumbs" aria-label="Diagram breadcrumb">
+              <button
+                type="button"
+                class="diagram-shell__crumb"
+                onclick={() => drillTo(0)}
+                title="Back to {title} (Esc)"
               >
-                <path d="M10 3L5 8l5 5" />
-              </svg>
-              Back
-            </button>
+                {title}
+              </button>
+              {#each drillPath as crumb, i (crumb.id ?? i)}
+                <span class="diagram-shell__crumb-sep" aria-hidden="true">›</span>
+                {#if i === drillPath.length - 1}
+                  <span class="diagram-shell__crumb diagram-shell__crumb--current" aria-current="page">
+                    {crumb.label}
+                  </span>
+                {:else}
+                  <button
+                    type="button"
+                    class="diagram-shell__crumb"
+                    onclick={() => drillTo(i + 1)}
+                    title="Back to {crumb.label}"
+                  >
+                    {crumb.label}
+                  </button>
+                {/if}
+              {/each}
+            </nav>
           </Panel>
         {/if}
 

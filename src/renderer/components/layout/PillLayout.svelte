@@ -8,6 +8,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
   import NewTabHome from "./NewTabHome.svelte";
+  import PaneChrome from "../ui/PaneChrome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { retainedConversationTabIds } from "./lib/workspace-body";
 
@@ -229,8 +230,15 @@
                 />
               </div>
             {:else}
-              <div style="{showPillDiagram ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
+              <div class="relative" style="{showPillDiagram ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
                 {#if showPillDiagram}
+                  <!-- The diagram renders in the pill body rather than as a
+                       portaled modal, so its close lives in the shared pane
+                       chrome cluster like it does in editor mode. -->
+                  <PaneChrome
+                    onClose={() => { session.closeWorkModal(); requestInputFocus() }}
+                    closeLabel="Close diagram"
+                  />
                   {#await import("../diagram/DiagramShell.svelte")}
                     {@render loadingSurface("Loading diagram…")}
                   {:then diagramModule}

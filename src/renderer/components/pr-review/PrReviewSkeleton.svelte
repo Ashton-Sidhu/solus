@@ -3,17 +3,17 @@
   import { Skeleton } from "../ui/skeleton";
 
   // The placeholder shown while a clicked PR's worktree is being fetched/checked
-  // out, before PrReviewPane can mount. Mirrors that pane's chrome (tabs +
-  // #number · title) and the Activity tab's skeleton body so the real surface
-  // swaps in without a layout jump. Static — no interactions until it's ready.
+  // out, before PrReviewPane can mount. Mirrors that pane's in-content tab line
+  // (tabs + #number · title) and the Activity tab's skeleton body so the real
+  // surface swaps in without a layout jump. Static — no interactions yet.
   let { number, title }: { number: number; title?: string } = $props();
 
   const TABS = ["Activity", "Guide", "Diff"];
 </script>
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
-  <header
-    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+  <div
+    class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <FrameExpandButton variant="sidebar" />
 
@@ -38,7 +38,7 @@
         <span class="truncate">{title}</span>
       {/if}
     </div>
-  </header>
+  </div>
 
   <!-- Mirrors ActivityFeed's loading skeleton (title · meta · description ·
        timeline · right rail) so content fills in without a jump. -->

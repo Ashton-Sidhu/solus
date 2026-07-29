@@ -58,11 +58,16 @@ const ARTIFACT_MIME: Record<string, string> = {
  *  validate it, and stream the bytes; 404/415 otherwise. */
 async function handleArtifactRequest(request: Request): Promise<Response> {
   try {
-    const filePath = new URL(request.url).searchParams.get('p')
+    const url = new URL(request.url)
+    const filePath = url.searchParams.get('p')
     if (!filePath) return new Response('Missing path', { status: 400 })
     const mime = ARTIFACT_MIME[extname(filePath).toLowerCase()]
     if (!mime) return new Response('Unsupported type', { status: 415 })
-    if (!existsSync(filePath)) return new Response('Not found', { status: 404 })
+    if (!existsSync(filePath)) {
+      return url.searchParams.has('optional')
+        ? new Response(null, { status: 204 })
+        : new Response('Not found', { status: 404 })
+    }
     const data = await readFile(filePath)
     return new Response(new Uint8Array(data), {
       status: 200,

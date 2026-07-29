@@ -8,7 +8,6 @@
     FolderIcon,
     SidebarSimpleIcon,
     WarningCircleIcon,
-    XIcon,
   } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
@@ -309,8 +308,11 @@
   class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
   bind:clientWidth={panelWidth}
 >
-  <header
-    class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+  <!-- In-content path line, not a chrome row: the tree/refresh controls sit at
+       its left and the pane's close lives in the floating PaneChrome cluster,
+       which the right gutter reserves room for. -->
+  <div
+    class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -328,6 +330,14 @@
       </TooltipUI.Trigger>
       <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
     </TooltipUI.Root>
+    <button
+      type="button"
+      class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
+      aria-label="Refresh files"
+      onclick={() => void loadFiles()}
+    >
+      <ArrowClockwiseIcon size={13} />
+    </button>
     {#if selectedPath}
       {@const icon = fileTypeIcon(selectedPath)}
       {#if icon}
@@ -364,23 +374,7 @@
         Reload
       </button>
     {/if}
-    <button
-      type="button"
-      class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      aria-label="Refresh files"
-      onclick={() => void loadFiles()}
-    >
-      <ArrowClockwiseIcon size={13} />
-    </button>
-    <button
-      type="button"
-      class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      aria-label="Close files"
-      onclick={closePane}
-    >
-      <XIcon size={13} />
-    </button>
-  </header>
+  </div>
 
   <Resizable.PaneGroup
     direction={runtime.isMobileViewport ? "vertical" : "horizontal"}

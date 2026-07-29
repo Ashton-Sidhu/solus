@@ -1,7 +1,7 @@
 import { writeFile } from 'fs/promises'
 import type { ControlPlane } from '../../control-plane'
 import { gitCheckoutFromState, type IpcContext, type DiffFileContentsRequest, type DiffRequest, type GitCheckoutBranchResult, type GitStateOptions } from '../../../shared/types'
-import { createPR, commitAndPushChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { createPR, commitAndPushChanges, commitChanges, discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildBranchNamePrompt, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runAsync } from '../../git/exec'
 import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
 import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
@@ -42,6 +42,21 @@ async function repoRootForCtx(ctx: IpcContext): Promise<string | null> {
 export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps): void {
   const { controlPlane } = deps
   const textGenerator = new TextGenerator(controlPlane)
+
+  /** Every path that writes a commit — commit, commit & push, open a PR —
+   *  generates its subject the same way, off the session's own provider/model. */
+  const commitMessageOptions = (ctx: IpcContext) => ({
+    generateCommitMessage: async (cwd: string) => textGenerator.generate({
+      provider: ctx.session.provider ?? ctx.settings.activeAgent,
+      model: ctx.statusBar.model,
+      cwd,
+      prompt: await buildCommitMessagePrompt(cwd),
+      systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
+      disableReasoning: true,
+      maxTurns: 1,
+      timeoutMs: 30_000,
+    }),
+  })
 
   server.register('worktreeListProject', (args) => {
     const [ctx] = args as [IpcContext]
@@ -95,16 +110,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (!ctx.session.gitContext) return { success: false, error: 'No active git branch for this tab' }
     const cwd = ctx.session.gitContext.worktreePath || ctx.session.workingDirectory
     return createPR(ctx.session.gitContext, ctx.session.workingDirectory, {
-      generateCommitMessage: async (commitCwd) => textGenerator.generate({
-        provider: ctx.session.provider ?? ctx.settings.activeAgent,
-        model: ctx.statusBar.model,
-        cwd: commitCwd,
-        prompt: await buildCommitMessagePrompt(commitCwd),
-        systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
-        disableReasoning: true,
-        maxTurns: 1,
-        timeoutMs: 30_000,
-      }),
+      ...commitMessageOptions(ctx),
       generatePRText: (prompt) => textGenerator.generate({
         provider: ctx.session.provider ?? ctx.settings.activeAgent,
         model: ctx.statusBar.model,
@@ -117,23 +123,28 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     })
   })
 
+  server.register('gitCommit', async (args) => {
+    const [ctx] = args as [IpcContext]
+    log.info(`RPC gitCommit: tab=${ctx.session.tabId}`)
+    const gitContext = await resolveGitCheckout(ctx)
+    if (!gitContext) return { success: false, outcome: 'failed', committed: false, error: 'No active git branch for this tab' }
+    return commitChanges(gitContext, ctx.session.workingDirectory, commitMessageOptions(ctx))
+  })
+
   server.register('gitCommitPush', async (args) => {
     const [ctx] = args as [IpcContext]
     log.info(`RPC gitCommitPush: tab=${ctx.session.tabId}`)
     const gitContext = await resolveGitCheckout(ctx)
     if (!gitContext) return { success: false, outcome: 'failed', committed: false, pushed: false, error: 'No active git branch for this tab' }
-    return commitAndPushChanges(gitContext, ctx.session.workingDirectory, {
-      generateCommitMessage: async (cwd) => textGenerator.generate({
-        provider: ctx.session.provider ?? ctx.settings.activeAgent,
-        model: ctx.statusBar.model,
-        cwd,
-        prompt: await buildCommitMessagePrompt(cwd),
-        systemPrompt: COMMIT_MESSAGE_SYSTEM_PROMPT,
-        disableReasoning: true,
-        maxTurns: 1,
-        timeoutMs: 30_000,
-      }),
-    })
+    return commitAndPushChanges(gitContext, ctx.session.workingDirectory, commitMessageOptions(ctx))
+  })
+
+  server.register('gitDiscard', async (args) => {
+    const [ctx] = args as [IpcContext]
+    log.info(`RPC gitDiscard: tab=${ctx.session.tabId}`)
+    const gitContext = await resolveGitCheckout(ctx)
+    if (!gitContext) return { success: false, discarded: 0, error: 'No active git branch for this tab' }
+    return discardChanges(gitContext, ctx.session.workingDirectory)
   })
 
   server.register('gitSync', async (args) => {

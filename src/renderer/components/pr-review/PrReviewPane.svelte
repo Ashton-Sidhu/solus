@@ -1,10 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import {
-    XIcon,
     ArrowsClockwiseIcon,
-    ArrowsInSimpleIcon,
-    ArrowsOutSimpleIcon,
     ChatCircleIcon,
     ArrowSquareOutIcon,
   } from "phosphor-svelte";
@@ -30,6 +27,7 @@
   import { interdiffReviewThreads } from "../diff/lib/interdiff-annotations";
   import * as Tabs from "../ui/tabs";
   import { Button } from "../ui/button";
+  import PaneChrome from "../ui/PaneChrome.svelte";
   import PrChecksChip from "../prs/PrChecksChip.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import {
@@ -439,8 +437,18 @@
 
 <section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
   {#if !headless}
-    <header
-      class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    <PaneChrome
+      onClose={exit}
+      onToggleMaximize={onToggleSecondaryMaximize}
+      maximized={panes.maximized}
+      slot="secondary"
+      closeLabel="Exit PR review"
+    />
+
+    <!-- Navigation, not chrome: the sub-tab switcher heads the content column
+         with the PR's identity beside it. No border, no chrome-row height. -->
+    <div
+      class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
     >
     <Tabs.Root
       value={sub}
@@ -490,22 +498,6 @@
     <Button
       type="button"
       variant="ghost"
-      size="icon-sm"
-      class="relative text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] after:absolute after:size-10"
-      onclick={onToggleSecondaryMaximize}
-      aria-label={panes.maximized ? "Restore review split" : "Expand review"}
-      title={panes.maximized ? "Restore review split" : "Expand review"}
-    >
-      {#if panes.maximized}
-        <ArrowsInSimpleIcon size={14} weight="bold" />
-      {:else}
-        <ArrowsOutSimpleIcon size={14} weight="bold" />
-      {/if}
-    </Button>
-
-    <Button
-      type="button"
-      variant="ghost"
       size="xs"
       class={`relative gap-1.5 transition-[background-color,color,scale] active:scale-[0.96] after:absolute after:h-10 after:w-full ${activeChatTabId ? "bg-(--solus-accent-soft) text-(--solus-accent)" : "text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"}`}
       onclick={openChat}
@@ -530,17 +522,7 @@
       </Button>
     {/if}
 
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      class="text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-      aria-label="Exit PR review"
-      onclick={exit}
-    >
-      <XIcon size={15} />
-    </Button>
-    </header>
+    </div>
   {/if}
 
   <div class="relative min-h-0 flex-1">
@@ -610,7 +592,6 @@
             isWorktree
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
-            maximized={panes.maximized}
             onToggleMaximize={onToggleSecondaryMaximize}
             initialScope={diffScope}
             patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : null}

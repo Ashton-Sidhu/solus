@@ -316,7 +316,7 @@
                     data-selected={selectedValue === cmd.id ? '' : undefined}
                     class={cn(
                       menuRowVariants({ stagger: false }),
-                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-xl cursor-pointer text-left bg-transparent font-secondary text-(--solus-text-secondary) data-[selected]:font-medium data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]!',
+                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-xl cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]!',
                     )}
                     onpointermove={() => (selectedValue = cmd.id)}
                     onclick={() => run(cmd)}

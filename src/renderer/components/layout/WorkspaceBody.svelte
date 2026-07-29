@@ -149,19 +149,16 @@
     enableRunDock && runDock.open && !inputDockHidden && dockRuns.length > 0,
   );
 
-  const splitTabId = $derived(
-    panes.chatTabIn("secondary", session.activeTabId),
-  );
   const visibleTabIds = $derived.by(() =>
     visibleWorkspaceTabIds(
       session,
       session.activeTabId,
-      splitTabId,
+      panes.chatTabIn("secondary", session.activeTabId),
       (tabId) =>
         environmentBranchKey(
           session.environment.environmentFor(tabId),
           session.sessionFor(tabId)?.projectGroupPath,
-        ),
+      ),
     ),
   );
 
@@ -313,6 +310,11 @@
   useKeybinding(
     "global.new-split-chat",
     async () => {
+      if (panes.secondaryContent.kind === "conversation") {
+        session.closeSplitChat();
+        requestInputFocus();
+        return;
+      }
       const tabId = await session.createTab(undefined, { activate: false });
       session.openTabInSplit(tabId);
       requestInputFocus({ tabId });
@@ -461,7 +463,11 @@
   let secondaryContentTimer: ReturnType<typeof setTimeout> | null = null;
   let secondaryShellTimer: ReturnType<typeof setTimeout> | null = null;
   function requestSplitFocusAfterRender(content: PaneContent) {
-    const tabId = focusedSplitChatTabId(content, panes.focusedPane, splitTabId);
+    const tabId = focusedSplitChatTabId(
+      content,
+      panes.focusedPane,
+      panes.chatTabIn("secondary", session.activeTabId),
+    );
     if (!tabId) return;
     requestAnimationFrame(() => {
       const currentSplitTabId = panes.chatTabIn("secondary", session.activeTabId);
@@ -912,17 +918,14 @@
     flex-shrink: 0;
     position: relative;
   }
-  /* The tab strip moved above the whole column (it spans the project rail now),
-     so the secondary pane's header is a second chrome row beneath it rather
-     than a continuation of the strip. It keeps these vars so its height and
-     seam still match the tab bar's, reading as a stacked row of the same kind. */
+  /* Horizontal room the pane's floating chrome cluster (PaneChrome) occupies at
+     the top-right. In-content top strips reserve it as padding so their own
+     controls never slide under the cluster. */
+  .primary-column,
   :global(.secondary-pane-wrap) {
-    --solus-chrome-row-h: 2.5rem;
-    --solus-chrome-row-border: color-mix(
-      in srgb,
-      var(--solus-container-border) 50%,
-      transparent
-    );
+    --solus-pane-chrome-inset: 5.5rem;
+  }
+  :global(.secondary-pane-wrap) {
     opacity: 1;
     transform: translateX(0);
     transition:
@@ -946,10 +949,10 @@
     inset: 0;
     z-index: 10040;
     background: var(--solus-container-bg);
-    /* Maximized panes cover the whole window (inset:0), so their header lands at
-       the top-left under the macOS traffic lights. Publish the lead inset so the
-       pane's chrome-row header clears them — this is the "diff fully expanded"
-       and "PR review" case. */
+    /* Maximized panes cover the whole window (inset:0), so their top-left lands
+       under the macOS traffic lights. Publish the lead inset so the surface's
+       leading control strip clears them — this is the "diff fully expanded" and
+       "PR review" case. */
     --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
   }
   :global(.secondary-pane-wrap--framed) {

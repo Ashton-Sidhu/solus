@@ -56,7 +56,6 @@
     targetBranch,
     isWorktree = false,
     onClose,
-    maximized = false,
     onToggleMaximize,
     initialScope = { kind: "session" },
     initialFilePath,
@@ -79,7 +78,6 @@
     targetBranch: string;
     isWorktree?: boolean;
     onClose: () => void;
-    maximized?: boolean;
     onToggleMaximize?: () => void;
     initialScope?: DiffScope;
     initialFilePath?: string;
@@ -887,10 +885,6 @@
     commentsCount={diffComments.length + navigableThreads.length}
     commentsOpen={commentsPopoverOpen}
     onToggleComments={() => (commentsPopoverOpen = !commentsPopoverOpen)}
-    {maximized}
-    onToggleMaximize={onToggleMaximize ?? null}
-    {onClose}
-    {embedded}
     commentsAnchorRef={(el) => (commentsAnchorEl = el)}
     turns={patchOverride === null && !embedded ? turns : []}
     {selectedTurnIndex}

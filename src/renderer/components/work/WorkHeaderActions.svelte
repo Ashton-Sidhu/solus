@@ -3,13 +3,13 @@
     CheckIcon,
     CopyIcon,
     ArrowSquareOutIcon,
-    ArrowsOutSimpleIcon,
     ChatCircleIcon,
     CaretDownIcon,
     ClockCounterClockwiseIcon,
     ArrowCounterClockwiseIcon,
     DownloadSimpleIcon,
     FolderIcon,
+    PencilSimpleIcon,
     TrashIcon,
     XIcon,
     DotsThreeIcon,
@@ -20,19 +20,13 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
 
   interface Props {
-    /** Inline (in a pane) vs floating modal — only inline shows Open-in-split. */
-    inline?: boolean;
-    /** Named `paneSlot` (not `slot`) — `slot` is reserved as a component attribute. */
-    paneSlot?: PaneSlot;
-    /** Hide button labels while preserving titles/aria labels for split-pane density. */
-    iconOnly?: boolean;
-    onOpenInSplit?: () => void;
     onOpenChat?: (mode: "resume" | "new") => void;
+    /** Flips the surface's toolbar row into its rename input. */
+    onStartRename?: () => void;
     originalSessionMeta?: SessionMeta | null;
     copied: boolean;
     copy: () => void;
@@ -58,11 +52,8 @@
   }
 
   let {
-    inline = false,
-    paneSlot = "primary",
-    iconOnly = false,
-    onOpenInSplit,
     onOpenChat,
+    onStartRename,
     originalSessionMeta,
     copied,
     copy,
@@ -91,7 +82,6 @@
 
   const canDownload = $derived(docType === "doc" || docType === "slides");
   const canExportToFile = $derived(canDownload && connectionsStore.desktopHandlersAvailable);
-  const showOpenInSplit = $derived(inline && !!onOpenInSplit);
   const isProjectWork = $derived(workStorage?.kind === "project");
   const canPromote = $derived(!isProjectWork && !!onPromoteToProject);
 
@@ -135,11 +125,11 @@
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
   const hasOverflow = $derived(
-    showOpenInSplit || !!onGoogleUpload || canPromote || isProjectWork || !!onDuplicate || hasChanges || canDownload || !!onDelete,
+    !!onStartRename || !!onGoogleUpload || canPromote || isProjectWork || !!onDuplicate || hasChanges || canDownload || !!onDelete,
   );
 </script>
 
-<div class="wha-actions" class:wha-actions--icon-only={iconOnly}>
+<div class="wha-actions">
 {#if onOpenChat}
   <div class="relative wha-chat-split" bind:this={chatButtonEl}>
     <button
@@ -198,13 +188,9 @@
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="top" align="end" sideOffset={6} class="w-[200px]">
-      {#if showOpenInSplit}
-        <DropdownMenu.Item data-testid="open-in-split" onSelect={() => onOpenInSplit?.()}>
-          {#if paneSlot === "secondary"}
-            <ArrowsOutSimpleIcon size={14} /><span class="flex-1 text-left">Focus</span>
-          {:else}
-            <ArrowSquareOutIcon size={14} /><span class="flex-1 text-left">Open in split</span>
-          {/if}
+      {#if onStartRename}
+        <DropdownMenu.Item data-testid="rename-work" onSelect={() => onStartRename?.()}>
+          <PencilSimpleIcon size={14} /><span class="flex-1 text-left">Rename</span>
         </DropdownMenu.Item>
       {/if}
       {#if onGoogleUpload}
@@ -227,7 +213,7 @@
           <FolderIcon size={14} /><span class="flex-1 text-left">Saved in project</span>
         </DropdownMenu.Item>
       {/if}
-      {#if (showOpenInSplit || onGoogleUpload || canPromote || isProjectWork) && (onDuplicate || hasChanges || canDownload || onDelete)}
+      {#if (onStartRename || onGoogleUpload || canPromote || isProjectWork) && (onDuplicate || hasChanges || canDownload || onDelete)}
         <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
       {/if}
       {#if onDuplicate}
@@ -385,15 +371,6 @@
   .wha-actions :global(.soft-pill) {
     gap: 0.25rem;
     padding: 0.25rem 0.5rem;
-  }
-  .wha-actions--icon-only .wha-label {
-    display: none;
-  }
-  .wha-actions--icon-only .wha-chat-trigger {
-    padding-inline: 0.25rem;
-  }
-  .wha-actions--icon-only :global(.soft-pill) {
-    padding-inline: 0.25rem;
   }
   @media (max-width: 767px) {
     .wha-label {

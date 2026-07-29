@@ -26,7 +26,7 @@
   const faviconUrl = $derived.by(() => {
     const root = projectRoot.replace(/\/+$/, "");
     const path = `${root}/${filenames[candidateIndex]}`;
-    return `solus-artifact://local/?p=${encodeURIComponent(path)}`;
+    return `solus-artifact://local/?p=${encodeURIComponent(path)}&optional=1`;
   });
 
   function tryNextCandidate() {

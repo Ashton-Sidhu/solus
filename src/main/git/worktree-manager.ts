@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
-import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitCommitPushResult, type GitSyncResult, type WorktreeEntry, type WorktreePRResult } from '../../shared/types'
+import { SOLUS_WORKTREE_DIR, isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitCommitPushResult, type GitCommitResult, type GitDiscardResult, type GitSyncResult, type WorktreeEntry, type WorktreePRResult } from '../../shared/types'
 import { createLogger } from '../logger'
 import { git, runAsync } from './exec'
 import { generatePullRequestDraft } from './pr-draft'
@@ -374,6 +374,46 @@ export async function commitAndPushChanges(
     return { success: true, outcome: committed ? 'pushed' : 'unchanged', committed, pushed: true }
   } catch (e: any) {
     return { success: false, outcome: committed ? 'committed-only' : 'failed', committed, pushed: false, error: String(e.message || e) }
+  }
+}
+
+/** Commit without publishing — the spec's default commit action, with push
+ *  demoted to a variant beside it. Shares `commitPendingChanges` with
+ *  `commitAndPushChanges`, so both write the same generated message. */
+export async function commitChanges(
+  gitContext: GitCheckout,
+  workingDirectory: string,
+  options: CommitMessageOptions = {},
+): Promise<GitCommitResult> {
+  const cwd = gitContext.worktreePath || workingDirectory
+
+  try {
+    const committed = await commitPendingChanges(cwd, 'chore: apply agent changes', options)
+    return { success: true, outcome: committed ? 'committed' : 'unchanged', committed }
+  } catch (e: any) {
+    return { success: false, outcome: 'failed', committed: false, error: String(e.message || e) }
+  }
+}
+
+/** Throw away everything uncommitted: tracked files back to HEAD, untracked
+ *  files removed. `clean` stays off `-x` so ignored build output and installed
+ *  dependencies survive — this discards work, not the checkout. */
+export async function discardChanges(
+  gitContext: GitCheckout,
+  workingDirectory: string,
+): Promise<GitDiscardResult> {
+  const cwd = gitContext.worktreePath || workingDirectory
+
+  try {
+    const status = await runAsync('git', ['status', '--porcelain'], cwd)
+    const discarded = status ? status.split('\n').filter(Boolean).length : 0
+    if (discarded === 0) return { success: true, discarded: 0 }
+    await runAsync('git', ['reset', '--hard', 'HEAD'], cwd)
+    await runAsync('git', ['clean', '-fd'], cwd)
+    log.info(`Discarded ${discarded} uncommitted change(s) in ${cwd}`)
+    return { success: true, discarded }
+  } catch (e: any) {
+    return { success: false, discarded: 0, error: String(e.message || e) }
   }
 }
 

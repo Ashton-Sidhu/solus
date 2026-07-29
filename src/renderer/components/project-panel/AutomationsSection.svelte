@@ -1,9 +1,7 @@
 <script lang="ts">
   import {
     LightningIcon,
-    PlayIcon,
-    PauseIcon,
-    StopIcon,
+    CaretRightIcon,
     ChatCircleDotsIcon,
     ArrowRightIcon,
   } from "phosphor-svelte";
@@ -15,7 +13,7 @@
     triggerSummary,
     relativeTime,
   } from "../automations/lib/automation-format";
-  import { Button } from "../ui/button";
+  import * as Popover from "../ui/popover";
 
   interface Props {
     board: AutomationBoard;
@@ -33,25 +31,56 @@
     return () => clearInterval(t);
   });
 
-  function open(a: Automation) {
-    session.openAutomations(a.id);
+  // 5c: a row is a disclosure, not a jump. Its menu flanks left over the
+  // conversation so the section you clicked from stays readable — one shared
+  // popover anchored to whichever row is open (mirrors the Git section).
+  let menuOpen = $state(false);
+  let openId = $state<string | null>(null);
+  let openRowEl = $state<HTMLElement | null>(null);
+  const openAutomation = $derived(
+    board.rows.find((a) => a.id === openId) ?? null,
+  );
+  const openIsRunning = $derived(openAutomation?.lastRunStatus === "running");
+
+  function toggleMenu(a: Automation, el: HTMLElement) {
+    if (menuOpen && openId === a.id) {
+      menuOpen = false;
+      return;
+    }
+    openId = a.id;
+    openRowEl = el.closest(".automation-row") as HTMLElement | null;
+    menuOpen = true;
+  }
+
+  function close() {
+    menuOpen = false;
     requestInputFocus();
+  }
+
+  function open(a: Automation) {
+    close();
+    session.openAutomations(a.id);
+  }
+
+  function edit(a: Automation) {
+    close();
+    session.openAutomationBuilder(a.id);
+  }
+
+  async function run(a: Automation) {
+    close();
+    await (a.lastRunStatus === "running"
+      ? store.cancel(a.id)
+      : store.runNow(a.id));
+  }
+
+  async function toggleEnabled(a: Automation) {
+    close();
+    await store.setEnabled(a.id, !a.enabled);
   }
 
   function viewAll() {
     session.openAutomations();
-    requestInputFocus();
-  }
-
-  async function toggle(a: Automation, e: Event) {
-    e.stopPropagation();
-    await store.setEnabled(a.id, !a.enabled);
-    requestInputFocus();
-  }
-
-  async function stop(a: Automation, e: Event) {
-    e.stopPropagation();
-    await store.cancel(a.id);
     requestInputFocus();
   }
 
@@ -75,15 +104,31 @@
       return "var(--solus-status-error)";
     return "var(--solus-text-tertiary)";
   }
-
-  function toggleButtonClass(a: Automation): string {
-    if (a.enabled) {
-      return "text-[color-mix(in_srgb,var(--solus-status-error)_76%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)";
-    }
-
-    return "text-[color-mix(in_srgb,var(--project-icon-green)_76%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--project-icon-green)_12%,transparent)] hover:text-(--project-icon-green)";
-  }
 </script>
+
+{#snippet menuRow(
+  label: string,
+  trail: string | undefined,
+  onclick: () => void,
+  quiet = false,
+)}
+  <button
+    type="button"
+    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] font-normal hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) {quiet
+      ? 'text-(--solus-text-tertiary)'
+      : 'text-(--solus-text-secondary)'}"
+    {onclick}
+  >
+    <span class="min-w-0 flex-1 truncate">{label}</span>
+    {#if trail}
+      <span
+        class="shrink-0 text-[0.71875rem] tabular-nums text-(--solus-text-tertiary)"
+      >
+        {trail}
+      </span>
+    {/if}
+  </button>
+{/snippet}
 
 <!-- The board summary ("2 running · next in 12m") lives in the section header,
      beside the title, so the card opens straight into its rows. -->
@@ -91,11 +136,16 @@
   {#each board.rows as a (a.id)}
     {@const running = a.lastRunStatus === "running"}
     {@const lightningFilled = running || a.favorite}
-    <li class="group flex items-center gap-0.5">
+    <li class="automation-row group flex items-center">
       <button
         type="button"
-        class="flex min-h-[2rem] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
-        onclick={() => open(a)}
+        class="flex min-h-[2rem] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] {menuOpen &&
+        openId === a.id
+          ? 'bg-(--solus-surface-hover)'
+          : ''}"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen && openId === a.id}
+        onclick={(e) => toggleMenu(a, e.currentTarget)}
       >
         <!-- 5c bolts the row with a bare accent lightning — no icon chip — and
              fades it back for anything that isn't currently scheduled. -->
@@ -122,53 +172,88 @@
             <ChatCircleDotsIcon size={10} />
           </span>
         {/if}
-      </button>
-
-      <!-- Trailing slot: a quiet status word at rest cross-fades to the
-           pause / resume control on hover (mirrors the Git section's
-           stats↔copy reveal). A live run keeps its stop control visible. -->
-      {#if running}
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          type="button"
-          class="text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
-          title="Stop run"
-          aria-label="Stop run"
-          onclick={(e) => stop(a, e)}
+        <!-- Trailing slot: one quiet status word, then the disclosure — the
+             pause/resume control moved into the menu. -->
+        <span
+          class="max-w-28 shrink-0 truncate text-[0.6875rem] tabular-nums whitespace-nowrap"
+          style:color={statusColor(a)}
         >
-          <StopIcon size={12} weight="fill" />
-        </Button>
-      {:else}
-        <span class="relative flex shrink-0 items-center justify-end">
-          <span
-            class="max-w-28 truncate text-[0.6875rem] tabular-nums whitespace-nowrap transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
-            style:color={statusColor(a)}
-          >
-            {statusLabel(a)}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            type="button"
-            class="pointer-events-none absolute right-0 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 {toggleButtonClass(
-              a,
-            )}"
-            title={a.enabled ? "Pause automation" : "Resume automation"}
-            aria-label={a.enabled ? "Pause automation" : "Resume automation"}
-            onclick={(e) => toggle(a, e)}
-          >
-            {#if a.enabled}
-              <PauseIcon size={12} weight="fill" />
-            {:else}
-              <PlayIcon size={12} weight="fill" />
-            {/if}
-          </Button>
+          {statusLabel(a)}
         </span>
-      {/if}
+        <span
+          class="inline-flex shrink-0 text-(--solus-text-tertiary) opacity-55 transition-opacity duration-150 group-hover:opacity-100"
+          aria-hidden="true"
+        >
+          <CaretRightIcon size={11} />
+        </span>
+      </button>
     </li>
   {/each}
 </ul>
+
+<Popover.Root bind:open={menuOpen}>
+  <Popover.Content
+    customAnchor={openRowEl}
+    side="left"
+    align="start"
+    sideOffset={10}
+    alignOffset={-6}
+    collisionPadding={8}
+    onInteractOutside={(event) => {
+      // The row is its own trigger: let its click toggle the menu instead of
+      // closing here and immediately reopening.
+      if ((event.target as Element | null)?.closest?.(".automation-row"))
+        event.preventDefault();
+    }}
+    class="menu-surface z-[10002] w-[264px] gap-0 rounded-lg bg-(--solus-menu-bg) p-1.5 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+  >
+    {#if openAutomation}
+      {@const a = openAutomation}
+      <!-- Title block, then the cadence beneath it: 13px over 11.5px at 1.5, the
+           only two-line text in the popover vocabulary. -->
+      <div class="flex items-center gap-2 px-2 pt-[0.3125rem] pb-1.5">
+        <span class="inline-flex shrink-0 text-(--solus-accent)" aria-hidden="true">
+          <LightningIcon size={12} weight="fill" />
+        </span>
+        <span
+          class="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"
+        >
+          {a.name}
+        </span>
+      </div>
+      <p
+        class="m-0 px-2 pb-[0.4375rem] text-[0.71875rem] leading-[1.5] text-(--solus-text-tertiary)"
+      >
+        {triggerSummary(a.trigger)}
+      </p>
+      <div
+        class="mx-2 mb-[0.3125rem] h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+        aria-hidden="true"
+      ></div>
+      {@render menuRow(
+        openIsRunning ? "Stop run" : "Run now",
+        undefined,
+        () => void run(a),
+      )}
+      {@render menuRow("Last run", relativeTime(a.lastRunAt) || "Never", () =>
+        open(a),
+      )}
+      {@render menuRow("Edit schedule…", undefined, () => edit(a))}
+      <div
+        class="mx-2 my-[0.3125rem] h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+        aria-hidden="true"
+      ></div>
+      <!-- Enable/disable is the menu's quietest action, so it sits below the
+           rule in tertiary rather than competing with Run now. -->
+      {@render menuRow(
+        a.enabled ? "Pause automation" : "Resume automation",
+        undefined,
+        () => void toggleEnabled(a),
+        true,
+      )}
+    {/if}
+  </Popover.Content>
+</Popover.Root>
 
 {#if board.rows.length === 0}
   <p class="m-0 px-2 py-1.5 text-[0.6875rem] text-(--solus-text-tertiary)">

@@ -1,25 +1,16 @@
 <script lang="ts">
-  import {
-    ArrowsInSimpleIcon,
-    ArrowsOutSimpleIcon,
-    RobotIcon,
-    XIcon,
-  } from "phosphor-svelte";
+  import { RobotIcon } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts";
-  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { parseSubagentInput } from "./lib/subagent";
   import SubagentTranscript from "./SubagentTranscript.svelte";
 
   interface Props {
     tabId: string;
     messageId: string;
-    onClose: () => void;
-    onToggleMaximize?: () => void;
   }
-  let { tabId, messageId, onClose, onToggleMaximize }: Props = $props();
+  let { tabId, messageId }: Props = $props();
 
   const session = getWorkspaceContext();
-  const panes = session.panes;
 
   const message = $derived(
     session.sessionFor(tabId)?.messages.find((m) => m.id === messageId),
@@ -38,26 +29,22 @@
   const isError = $derived(
     !!message?.toolResultIsError || message?.toolStatus === "error",
   );
-
-  const headerButton =
-    "flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)";
 </script>
 
 <div
   class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
 >
-  <header
-    class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) px-3"
-  >
-    <span
-      class="shrink-0 text-(--solus-accent)"
-      aria-hidden="true"
+  <div class="min-h-0 flex-1 overflow-y-auto">
+    <!-- Identity reads as the transcript's lead block, so it scrolls away with
+         the run instead of pinning a second chrome row under the top rail. The
+         right gutter clears the pane's floating chrome cluster. -->
+    <div
+      class="flex items-baseline gap-2 pt-3 pb-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
     >
-      <RobotIcon size={15} weight="regular" />
-    </span>
-    <div class="flex min-w-0 flex-1 items-baseline gap-2">
-      <span
-        class="shrink-0 text-[0.6875rem] font-[560] text-(--solus-accent)"
+      <span class="shrink-0 self-center text-(--solus-accent)" aria-hidden="true">
+        <RobotIcon size={15} weight="regular" />
+      </span>
+      <span class="shrink-0 text-[0.6875rem] font-[560] text-(--solus-accent)"
         >{subagentType}</span
       >
       <span
@@ -66,51 +53,12 @@
         {task}
       </span>
       {#if isRunning}
-        <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Running…</span
-        >
+        <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Running…</span>
       {:else if isError}
         <span class="shrink-0 text-xs text-(--solus-art-negative)">Failed</span>
       {/if}
     </div>
-    {#if onToggleMaximize}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps}
-        type="button"
-        class={headerButton}
-        aria-label={panes.maximized ? "Restore panel" : "Maximize panel"}
-        onclick={onToggleMaximize}
-      >
-        {#if panes.maximized}
-          <ArrowsInSimpleIcon size={13} weight="bold" />
-        {:else}
-          <ArrowsOutSimpleIcon size={13} weight="bold" />
-        {/if}
-      </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={panes.maximized ? "Restore" : "Maximize"} />
-      </TooltipUI.Root>
-    {/if}
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <button {...tooltipProps}
-      type="button"
-      class={headerButton}
-      aria-label="Close sub-agent panel"
-      onclick={onClose}
-    >
-      <XIcon size={13} weight="bold" />
-    </button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={"Close"} />
-    </TooltipUI.Root>
-  </header>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
     {#if message}
       <SubagentTranscript {message} />
     {:else}

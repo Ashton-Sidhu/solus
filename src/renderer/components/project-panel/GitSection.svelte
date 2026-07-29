@@ -1,10 +1,8 @@
 <script lang="ts">
   import {
-    ArrowsClockwiseIcon,
-    BinocularsIcon,
     CheckIcon,
-    CaretDownIcon,
-    FileIcon,
+    CaretRightIcon,
+    FolderIcon,
     GitBranchIcon,
     GitCommitIcon,
     GitForkIcon,
@@ -23,7 +21,7 @@
     toasts,
   } from "../../contexts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
-  import { getRecommendedGitActionKey } from "../../lib/git-recommendation";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
@@ -35,6 +33,7 @@
     worktreeProjectRoot,
     type WorktreeEntry,
   } from "../../../shared/types";
+  import type { PullRequestSummary } from "../../../shared/providers";
 
   interface Props {
     tabId: string;
@@ -80,17 +79,6 @@
       status?.repoRoot ??
       worktreeProjectRoot(cwd),
   );
-  const recommendedActionKey = $derived(
-    getRecommendedGitActionKey({
-      status,
-      gitContext: sess?.gitContext,
-      prUrl,
-      commitPushing: actions.commitPushing,
-      syncing: actions.syncing,
-      creatingPR: actions.creatingPR,
-    }),
-  );
-
   $effect(() => {
     if (!active || !cwd) return;
     return environmentStore.watchDetails(cwd);
@@ -105,11 +93,16 @@
     label: string;
     icon: IconComponent;
     phase: Phase;
-    primary?: boolean;
     danger?: boolean;
     disabled?: boolean;
+    /** Quiet tabular metric or qualifier in the trailing slot ("28", "Ghostty"). */
     badge?: string;
+    /** Keyboard hint, set in mono after the badge ("⌥⇧D"). */
+    hint?: string;
     tooltip?: string;
+    /** Set when the row opens a menu instead of running: the row trades its key
+     *  hint for a caret and the click toggles the popover of that name. */
+    disclosure?: MenuKey;
     run: () => void;
   }
 
@@ -122,41 +115,65 @@
           ? "error"
           : "idle",
   );
-  const syncPhase = $derived<Phase>(
-    actions.syncing
-      ? "loading"
-      : actions.synced
-        ? "success"
-        : actions.syncError
-          ? "error"
-          : "idle",
-  );
   const prPhase = $derived<Phase>(
     actions.creatingPR ? "loading" : actions.prError ? "error" : "idle",
   );
 
+  // --- Rows, in the order 5c lays them out. Two of them are disclosures with
+  //     their own popover: Commit (its variants and the destructive escape
+  //     hatch) and Pull requests (open one, or jump to one that exists). ---
   const actionDefs = $derived.by<ActionDef[]>(() => {
     const defs: ActionDef[] = [
       {
         key: "commit",
-        primary: recommendedActionKey === "commit",
+        // The row is "Commit"; publishing is a choice inside it, so the panel's
+        // headline label no longer changes meaning when a push is configured.
         label: actions.commitPushed
-          ? "Pushed"
+          ? "Committed"
           : actions.commitPushing
-            ? "Pushing…"
-            : "Commit & push",
+            ? "Committing…"
+            : "Commit",
         icon: PaperPlaneTiltIcon,
+        // 5c gives every row one trailing metric — for commit that's the size of
+        // what's about to go out.
+        badge:
+          uncommittedFileCount > 0
+            ? `${uncommittedFileCount}${status?.uncommittedChanges.hasMoreFiles ? "+" : ""}`
+            : undefined,
         phase: commitPhase,
-        disabled: !canGit || actions.commitPushing,
+        disclosure: "commit",
+        disabled: !canGit,
+        run: () => {},
+      },
+      {
+        key: "pull-requests",
+        label: actions.creatingPR ? "Opening pull request…" : "Pull requests",
+        icon: GitPullRequestIcon,
+        badge: openPrs.length > 0 ? String(openPrs.length) : undefined,
+        phase: prPhase,
+        disclosure: "pull-requests",
+        disabled: !canViewDiff,
+        run: () => {},
+      },
+      {
+        key: "review",
+        label: reviewing
+          ? "Generating report…"
+          : reviewKey
+            ? "View report"
+            : "Review changes",
+        icon: GitPullRequestIcon,
+        phase: reviewing ? "loading" : reviewKey ? "success" : "idle",
+        disabled: !canGit || reviewing,
         run: () => {
-          void actions.commitPush();
-          requestInputFocus();
+          void handleReview();
         },
       },
       {
         key: "working-tree-diff",
-        label: "View working tree diff",
+        label: "Working tree diff",
         icon: GitCommitIcon,
+        hint: comboHint("global.toggle-diff-panel"),
         phase: "idle",
         disabled: !canViewDiff,
         run: () => {
@@ -174,128 +191,41 @@
         },
       },
       {
-        key: "sync",
-        primary: recommendedActionKey === "sync",
-        label: actions.synced
-          ? "Synced"
-          : actions.syncing
-            ? "Syncing…"
-            : "Sync with remote",
-        icon: ArrowsClockwiseIcon,
-        phase: syncPhase,
-        disabled: !canGit || actions.syncing,
-        run: () => {
-          void actions.sync();
-          requestInputFocus();
-        },
-      },
-      {
-        key: "review",
-        label: reviewing
-          ? "Generating report…"
-          : reviewKey
-            ? "View report"
-            : "Review changes",
-        icon: BinocularsIcon,
-        phase: reviewing ? "loading" : reviewKey ? "success" : "idle",
-        disabled: !canGit || reviewing,
-        run: () => {
-          void handleReview();
-        },
-      },
-      {
-        key: "review-pr",
-        label: "Review a PR",
-        icon: GitPullRequestIcon,
+        key: "files",
+        label: "Files",
+        icon: FolderIcon,
         phase: "idle",
-        disabled: !canViewDiff,
-        // Reuse the command palette's PR list (the "Review PR…" sub-page).
+        disabled: !onOpenFiles,
         run: () => {
-          window.dispatchEvent(
-            new CustomEvent("solus:review-pr", {
-              detail: {
-                tabId: tabId || undefined,
-                cwd: env.cwd,
-                checkout: env.checkout,
-              },
-            }),
-          );
+          onOpenFiles?.();
+        },
+      },
+      {
+        key: "terminal",
+        label: "Terminal",
+        // 5c trails the row with the terminal configured in Settings.
+        badge: settings.defaultTerminal === "ghostty" ? "Ghostty" : undefined,
+        hint: comboHint("orb.open-terminal"),
+        icon: TerminalWindowIcon,
+        phase: "idle",
+        disabled: !!remoteHost,
+        tooltip: remoteHost
+          ? `Runs on ${remoteHost.label} — not available for remote sessions`
+          : undefined,
+        run: () => {
+          actions.openTerminal();
+          requestInputFocus();
         },
       },
     ];
-    if (reviewKey) {
-      defs.push({
-        key: "review-regenerate",
-        label: "Regenerate report",
-        icon: ArrowsClockwiseIcon,
-        phase: "idle",
-        disabled: reviewing,
-        run: () => {
-          void handleReview(true);
-        },
-      });
-    }
-    if (prUrl) {
-      defs.push({
-        key: "pr-view",
-        primary: recommendedActionKey === "pr-view",
-        label: "View pull request",
-        icon: GitPullRequestIcon,
-        phase: "idle",
-        run: () => {
-          window.solus.openExternal(prUrl);
-          requestInputFocus();
-        },
-      });
-    } else {
-      defs.push({
-        key: "pr-create",
-        primary: recommendedActionKey === "pr-create",
-        label: actions.creatingPR
-          ? "Opening pull request…"
-          : "Create pull request",
-        icon: GitPullRequestIcon,
-        phase: prPhase,
-        disabled: !canPr || actions.creatingPR,
-        run: () => {
-          void actions.createPR();
-          requestInputFocus();
-        },
-      });
-    }
-    defs.push({
-      key: "files",
-      label: "Files",
-      icon: FileIcon,
-      phase: "idle",
-      disabled: !onOpenFiles,
-      run: () => {
-        onOpenFiles?.();
-      },
-    });
-    defs.push({
-      key: "terminal",
-      label: "Terminal",
-      // 5c trails the row with the terminal configured in Settings.
-      badge: settings.defaultTerminal === "ghostty" ? "Ghostty" : undefined,
-      icon: TerminalWindowIcon,
-      phase: "idle",
-      disabled: !!remoteHost,
-      tooltip: remoteHost
-        ? `Runs on ${remoteHost.label} — not available for remote sessions`
-        : undefined,
-      run: () => {
-        actions.openTerminal();
-        requestInputFocus();
-      },
-    });
+    // A half-finished merge is an alert, not a menu item — it gets its own row
+    // so it's visible without opening anything.
     if (
       status &&
       (status.uncommittedChanges.mergeInProgress || conflictedFiles.length > 0)
     ) {
       defs.push({
         key: "conflict",
-        primary: recommendedActionKey === "conflict",
         danger: true,
         label:
           conflictedFiles.length > 0
@@ -309,79 +239,67 @@
     return defs;
   });
 
-  // --- Split-button groups: related actions collapse into one row whose primary
-  //     is the most relevant action and whose caret reveals the rest. The
-  //     source-control primary follows `recommendedActionKey` (the `primary`
-  //     flag), so it adapts to context (commit → sync → PR → resolve). Working
-  //     tree diff, file explorer and terminal stay as their own plain rows. ---
-  interface ActionGroup {
-    key: string;
-    primary: ActionDef;
-    secondary: ActionDef[];
-  }
-  const actionGroups = $derived.by<ActionGroup[]>(() => {
-    const byKey = new Map(actionDefs.map((d) => [d.key, d]));
-    const pick = (keys: string[]) =>
-      keys
-        .map((k) => byKey.get(k))
-        .filter((d): d is ActionDef => d !== undefined);
-
-    const groups: ActionGroup[] = [];
-
-    const sourceControl = pick([
-      "commit",
-      "sync",
-      "pr-create",
-      "pr-view",
-      "conflict",
-    ]);
-    if (sourceControl.length) {
-      const primary = sourceControl.find((d) => d.primary) ?? sourceControl[0];
-      groups.push({
-        key: "source-control",
-        primary,
-        secondary: sourceControl.filter((d) => d !== primary),
-      });
-    }
-
-    const review = pick(["review", "review-regenerate", "review-pr"]);
-    if (review.length) {
-      groups.push({
-        key: "review",
-        primary: review[0],
-        secondary: review.slice(1),
-      });
-    }
-
-    for (const def of pick(["working-tree-diff", "files", "terminal"])) {
-      groups.push({ key: def.key, primary: def, secondary: [] });
-    }
-
-    return groups;
-  });
-
-  // Secondary-action menu: one shared dropdown anchored to the caret of the
-  // currently open group (mirrors the branch picker's open/triggerEl pattern).
-  let groupMenuOpen = $state(false);
-  let openGroupKey = $state<string | null>(null);
+  // One shared popover anchored to whichever disclosure row is open (mirrors the
+  // branch picker's open/triggerEl pattern). Its contents branch on the key.
+  type MenuKey = "commit" | "pull-requests";
+  let rowMenuOpen = $state(false);
+  let openMenuKey = $state<MenuKey | null>(null);
   let openRowEl = $state<HTMLElement | null>(null);
-  const openGroup = $derived(
-    actionGroups.find((g) => g.key === openGroupKey) ?? null,
-  );
 
-  function toggleGroup(key: string, el: HTMLButtonElement) {
-    if (groupMenuOpen && openGroupKey === key) {
-      groupMenuOpen = false;
+  function toggleRowMenu(key: MenuKey, el: HTMLButtonElement) {
+    if (rowMenuOpen && openMenuKey === key) {
+      rowMenuOpen = false;
       return;
     }
-    openGroupKey = key;
+    openMenuKey = key;
     openRowEl = el.closest(".row-wrap") as HTMLElement | null;
-    groupMenuOpen = true;
+    // Re-arm the destructive step every time the menu is opened, so a discard
+    // can never be one stray click away from a menu left in the armed state.
+    confirmingDiscard = false;
+    rowMenuOpen = true;
   }
 
-  function runSecondary(def: ActionDef) {
-    groupMenuOpen = false;
-    def.run();
+  function closeRowMenu() {
+    rowMenuOpen = false;
+    requestInputFocus();
+  }
+
+  // Open PRs for the trailing count and the menu's list. Read through the store
+  // (cached) with an explicit filter rather than `loadAll`, which would stomp
+  // the PRs pane's own filter state.
+  let openPrs = $state<PullRequestSummary[]>([]);
+  $effect(() => {
+    if (!active || !canViewDiff || !env.cwd) return;
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
+    let cancelled = false;
+    void session.prsStore
+      .loadFor(ctx, { state: "open" })
+      .then((page) => {
+        if (!cancelled) openPrs = page.items;
+      })
+      .catch(() => {
+        if (!cancelled) openPrs = [];
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // "Discard changes…" arms in place rather than opening a dialog — the menu
+  // swaps to a confirm row, which is what the ellipsis promises.
+  let confirmingDiscard = $state(false);
+
+  function runDiscard() {
+    closeRowMenu();
+    confirmingDiscard = false;
+    void actions.discard();
+  }
+
+  function openPr(pr: PullRequestSummary) {
+    closeRowMenu();
+    void session.enterPrReview(pr.number, pr.title, {
+      ctx: session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+    });
   }
 
   // Review companion: run the producer (review the diff, enriched by the ledger
@@ -405,8 +323,8 @@
     environmentStore.refsFor(branchRepoRoot).worktrees,
   );
 
-  async function handleReview(regenerate = false) {
-    if (reviewKey && !regenerate) {
+  async function handleReview() {
+    if (reviewKey) {
       panes.enterReview(reviewKey);
       requestInputFocus();
       return;
@@ -426,7 +344,7 @@
       const generatedKey = gen?.persisted ? gen.key : null;
       if (generatedKey) {
         reviewKey = generatedKey;
-        toasts.success(regenerate ? "Report regenerated" : "Report ready", {
+        toasts.success("Report ready", {
           action: {
             label: "View",
             onAction: () => {
@@ -532,6 +450,9 @@
   {/if}
 {/snippet}
 
+<!-- A `disclosure` def makes the whole row open its menu rather than run, and
+     trades its key hint for a caret — the shortcut is restated beside the same
+     action inside the menu. -->
 {#snippet menuButton(def: ActionDef, split: boolean)}
   <TooltipUI.Root>
     <TooltipUI.Trigger>
@@ -540,19 +461,28 @@
     type="button"
     class="menu-row"
     class:split-primary={split}
-    class:is-primary={def.primary}
     class:is-danger={def.danger}
     class:is-success={def.phase === "success"}
     class:is-error={def.phase === "error"}
     class:is-loading={def.phase === "loading"}
+    class:is-open={!!def.disclosure && rowMenuOpen && openMenuKey === def.disclosure}
     disabled={def.disabled}
-    onclick={def.run}
+    aria-haspopup={def.disclosure ? "menu" : undefined}
+    aria-expanded={def.disclosure ? rowMenuOpen && openMenuKey === def.disclosure : undefined}
+    onclick={def.disclosure
+      ? (e: MouseEvent & { currentTarget: HTMLButtonElement }) =>
+          toggleRowMenu(def.disclosure!, e.currentTarget)
+      : def.run}
   >
     <span class="menu-left">
       <span class="menu-icon">{@render actionGlyph(def)}</span>
       <span class="menu-label">{def.label}</span>
     </span>
-    {#if def.badge}<span class="menu-trail">{def.badge}</span>{/if}
+    <span class="menu-right">
+      {#if def.badge}<span class="menu-trail">{def.badge}</span>{/if}
+      {#if def.hint && !def.disclosure}<span class="menu-hint">{def.hint}</span>{/if}
+      {#if def.disclosure}<span class="menu-caret"><CaretRightIcon size={11} /></span>{/if}
+    </span>
   </button>
       {/snippet}
     </TooltipUI.Trigger>
@@ -560,11 +490,11 @@
   </TooltipUI.Root>
 {/snippet}
 
-{#snippet groupRow(group: ActionGroup)}
+{#snippet actionRow(def: ActionDef)}
   <div class="row-wrap">
-    {#if group.primary.key === "review" && reviewing}
+    {#if def.key === "review" && reviewing}
       <div class="split-row">
-        {@render menuButton(group.primary, true)}
+        {@render menuButton(def, true)}
         <button
           type="button"
           class="split-caret is-danger"
@@ -575,24 +505,51 @@
           <XIcon size={11} />
         </button>
       </div>
-    {:else if group.secondary.length === 0}
-      {@render menuButton(group.primary, false)}
     {:else}
-      <div class="split-row">
-        {@render menuButton(group.primary, true)}
-        <button
-          type="button"
-          class="split-caret"
-          aria-label="More actions"
-          aria-haspopup="menu"
-          aria-expanded={groupMenuOpen && openGroupKey === group.key}
-          onclick={(e) => toggleGroup(group.key, e.currentTarget)}
-        >
-          <CaretDownIcon size={11} />
-        </button>
-      </div>
+      {@render menuButton(def, false)}
     {/if}
   </div>
+{/snippet}
+
+<!-- 5b's popover vocabulary: 28px rows, 13px labels, no icons — the row you
+     opened from already carried the glyph. -->
+{#snippet popRow(
+  label: string,
+  opts: {
+    onclick: () => void;
+    hint?: string;
+    trail?: string;
+    emphasis?: boolean;
+    danger?: boolean;
+    disabled?: boolean;
+  },
+)}
+  <button
+    type="button"
+    disabled={opts.disabled}
+    onclick={opts.onclick}
+    class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {opts.danger
+      ? 'font-normal text-destructive hover:bg-destructive/10 hover:text-destructive'
+      : opts.emphasis
+        ? 'bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)] font-medium text-(--solus-text-primary) hover:bg-[color-mix(in_srgb,var(--solus-accent)_14%,transparent)]'
+        : 'font-normal text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+  >
+    <span class="min-w-0 flex-1 truncate">{label}</span>
+    {#if opts.trail}
+      <span
+        class="shrink-0 text-[0.71875rem] tabular-nums text-(--solus-text-tertiary)"
+        >{opts.trail}</span
+      >
+    {/if}
+    {#if opts.hint}<span class="menu-hint">{opts.hint}</span>{/if}
+  </button>
+{/snippet}
+
+{#snippet popDivider()}
+  <div
+    class="mx-2 my-[0.3125rem] h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+    aria-hidden="true"
+  ></div>
 {/snippet}
 
 {#if !env.branch && status === undefined}
@@ -624,8 +581,10 @@
       <span class="branch-row-name" title={status?.branch ?? undefined}
         >{env.pending ? env.name : (currentBranch ?? "detached HEAD")}</span
       >
+      <!-- Disclosure, not a dropdown: the picker flanks the column rather than
+           dropping into it, so the row reads like a submenu. -->
       <span class="branch-row-trail">
-        <span class="branch-row-copy"><CaretDownIcon size={11} /></span>
+        <span class="branch-row-copy"><CaretRightIcon size={11} /></span>
       </span>
     </button>
     <!-- Per 5c the diff stats leave the branch row's trailing slot and sit on
@@ -655,37 +614,152 @@
     {/if}
     <div class="branch-divider" aria-hidden="true"></div>
     <div class="menu-list">
-      {#each actionGroups as group (group.key)}
-        {@render groupRow(group)}
+      {#each actionDefs as def (def.key)}
+        {@render actionRow(def)}
       {/each}
     </div>
-    <Popover.Root bind:open={groupMenuOpen}>
+    <Popover.Root bind:open={rowMenuOpen}>
       <Popover.Content
         customAnchor={openRowEl}
         side="left"
         align="start"
-        sideOffset={6}
+        sideOffset={10}
+        alignOffset={-6}
         collisionPadding={8}
         onInteractOutside={(event) => {
-          if ((event.target as Element | null)?.closest?.(".split-caret"))
+          // The row is its own trigger — let its click toggle the menu rather
+          // than closing here and immediately reopening.
+          if ((event.target as Element | null)?.closest?.(".menu-row"))
             event.preventDefault();
         }}
-        class="z-[10002] w-[220px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl"
+        class="menu-surface z-[10002] w-[264px] gap-0 rounded-lg bg-(--solus-menu-bg) p-1.5 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
       >
-        {#each openGroup?.secondary ?? [] as def (def.key)}
-          {@const Icon = def.icon}
-          <button
-            type="button"
-            disabled={def.disabled}
-            onclick={() => runSecondary(def)}
-            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[0.6875rem] lg:text-xs font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-50 {def.danger
-              ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
-              : ''}"
-          >
-            <Icon size={14} />
-            <span>{def.label}</span>
-          </button>
-        {/each}
+        {#if openMenuKey === "commit"}
+          {#if confirmingDiscard}
+            <!-- Armed state: the menu becomes the confirmation, so the
+                 irreversible action still needs a second, deliberate click. -->
+            <p
+              class="m-0 px-2 pt-[0.3125rem] pb-[0.4375rem] text-[0.71875rem] leading-[1.5] text-(--solus-text-tertiary)"
+            >
+              Discards {uncommittedFileCount} uncommitted change{uncommittedFileCount ===
+              1
+                ? ""
+                : "s"}. This can't be undone.
+            </p>
+            {@render popDivider()}
+            {@render popRow("Discard changes", {
+              onclick: runDiscard,
+              danger: true,
+            })}
+            {@render popRow("Keep changes", {
+              onclick: () => (confirmingDiscard = false),
+            })}
+          {:else}
+            {@render popRow("Commit", {
+              onclick: () => {
+                closeRowMenu();
+                void actions.commit();
+              },
+              emphasis: true,
+              disabled: !canGit || actions.commitPushing,
+            })}
+            {@render popRow("Commit and push", {
+              onclick: () => {
+                closeRowMenu();
+                void actions.commitPush();
+              },
+              hint: comboHint("orb.commit-push"),
+              disabled: !canGit || actions.commitPushing,
+            })}
+            {@render popRow(
+              actions.synced
+                ? "Synced"
+                : actions.syncing
+                  ? "Syncing…"
+                  : "Sync with remote",
+              {
+                onclick: () => {
+                  closeRowMenu();
+                  void actions.sync();
+                },
+                hint: comboHint("orb.sync"),
+                disabled: !canGit || actions.syncing,
+              },
+            )}
+            {@render popDivider()}
+            {@render popRow("Discard changes…", {
+              onclick: () => (confirmingDiscard = true),
+              trail:
+                uncommittedFileCount > 0
+                  ? String(uncommittedFileCount)
+                  : undefined,
+              danger: true,
+              disabled: !canGit || uncommittedFileCount === 0,
+            })}
+          {/if}
+        {:else if openMenuKey === "pull-requests"}
+          {#if prUrl}
+            {@render popRow("View pull request", {
+              onclick: () => {
+                closeRowMenu();
+                window.solus.openExternal(prUrl);
+              },
+              emphasis: true,
+            })}
+          {:else}
+            {@render popRow(
+              actions.creatingPR ? "Opening pull request…" : "Open pull request",
+              {
+                onclick: () => {
+                  closeRowMenu();
+                  void actions.createPR();
+                },
+                emphasis: true,
+                disabled: !canPr || actions.creatingPR,
+              },
+            )}
+          {/if}
+          {#if openPrs.length > 0}
+            {@render popDivider()}
+            <!-- Status is a dot, the number is the row's trailing value. Draft
+                 PRs read grey; anything open reads live. -->
+            {#each openPrs.slice(0, 5) as pr (pr.number)}
+              <button
+                type="button"
+                onclick={() => openPr(pr)}
+                class="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] lg:text-[0.8125rem] font-normal text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary)"
+              >
+                <span
+                  class="size-[0.4375rem] shrink-0 rounded-full"
+                  style:background={pr.draft
+                    ? "var(--solus-text-tertiary)"
+                    : "var(--solus-status-complete)"}
+                  aria-hidden="true"
+                ></span>
+                <span class="min-w-0 flex-1 truncate">{pr.title}</span>
+                <span
+                  class="shrink-0 text-[0.71875rem] tabular-nums text-(--solus-text-tertiary)"
+                  >#{pr.number}</span
+                >
+              </button>
+            {/each}
+          {/if}
+          {@render popDivider()}
+          {@render popRow("Review a PR…", {
+            onclick: () => {
+              closeRowMenu();
+              window.dispatchEvent(
+                new CustomEvent("solus:review-pr", {
+                  detail: {
+                    tabId: tabId || undefined,
+                    cwd: env.cwd,
+                    checkout: env.checkout,
+                  },
+                }),
+              );
+            },
+          })}
+        {/if}
       </Popover.Content>
     </Popover.Root>
   </div>
@@ -781,7 +855,7 @@
   .stat-add,
   .stat-del {
     font-size: 0.6875rem;
-    font-weight: 500;
+    font-weight: 400;
   }
   .stat-add {
     color: var(--solus-status-complete);
@@ -913,25 +987,55 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Trailing slot: the row's one metric, then its key hint. */
+  .menu-right {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  /* Regular weight: the row's one metric is quieter than its label, and the
+     tabular figures already give it enough presence to scan down the column. */
   .menu-trail {
     flex-shrink: 0;
     color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
-    font-weight: 500;
+    font-size: 0.71875rem;
+    font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
+  /* Disclosure caret closes the row. It points at where the menu opens — the
+     menus flank the column rather than dropping into it. */
+  .menu-caret {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--solus-text-tertiary);
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+  }
+  .menu-row:hover .menu-caret,
+  .menu-row:focus-visible .menu-caret,
+  .menu-row.is-open .menu-caret {
+    opacity: 1;
+  }
+  /* An open row keeps the hover wash so it stays tied to its menu. */
+  .menu-row.is-open {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .menu-row.is-open .menu-icon {
+    color: var(--solus-text-primary);
+  }
 
-  /* Primary: differentiate with accent ink, not a heavy fill */
-  .menu-row.is-primary {
-    color: var(--solus-text-primary);
-    font-weight: 500;
+  /* Key hints are mono and quieter than the metric, so the two never compete. */
+  .menu-hint {
+    flex-shrink: 0;
+    color: var(--solus-text-tertiary);
+    font-family: var(--solus-code-font-family);
+    font-size: 0.65625rem;
+    opacity: 0.7;
   }
-  .menu-row.is-primary .menu-icon {
-    color: var(--solus-text-primary);
-  }
-  .menu-row.is-primary .menu-trail {
-    color: var(--solus-text-secondary);
-  }
+
   .menu-row.is-danger,
   .menu-row.is-danger .menu-icon {
     color: var(--solus-status-error);

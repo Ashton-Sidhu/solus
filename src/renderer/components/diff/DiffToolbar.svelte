@@ -8,9 +8,6 @@
 
 <script lang="ts">
   import {
-    XIcon,
-    ArrowsOutIcon,
-    ArrowsInIcon,
     GitBranchIcon,
     GitCommitIcon,
     StackIcon,
@@ -53,9 +50,6 @@
     commentsCount: number;
     commentsOpen: boolean;
     onToggleComments: () => void;
-    maximized: boolean;
-    onToggleMaximize: (() => void) | null;
-    onClose: () => void;
     commentsAnchorRef?: (el: HTMLButtonElement | null) => void;
     turns: TurnSnapshot[];
     selectedTurnIndex: number | null;
@@ -63,10 +57,6 @@
     onStepTurn: (dir: 1 | -1) => void;
     turnRunning?: boolean;
     mode?: "session" | "working-tree";
-    /** Hosted as a content tab inside another surface (PR review). That host
-     *  owns close/maximize chrome, so the panel's own would double it up —
-     *  and its X would read as "close the diff" while actually switching tabs. */
-    embedded?: boolean;
   }
 
   let {
@@ -90,9 +80,6 @@
     commentsCount,
     commentsOpen,
     onToggleComments,
-    maximized,
-    onToggleMaximize,
-    onClose,
     commentsAnchorRef,
     turns,
     selectedTurnIndex,
@@ -100,7 +87,6 @@
     onStepTurn,
     turnRunning = false,
     mode = "session",
-    embedded = false,
   }: Props = $props();
 
   const showTurns = $derived(mode === "session" && turns.length > 0);
@@ -134,21 +120,6 @@
 </script>
 
 <div class="diff-toolbar" data-testid="diff-toolbar">
-  <!-- Mobile: back button -->
-  <Button
-    variant="ghost"
-    size="default"
-    type="button"
-    onclick={onClose}
-    aria-label="Close diff panel"
-    class="hidden max-md:flex shrink-0 text-(--solus-accent) [-webkit-tap-highlight-color:transparent]"
-  >
-    <CaretLeftIcon size={16} weight="bold" />
-    <span class="text-[0.8125rem] font-semibold text-(--solus-text-primary)"
-      >Changes</span
-    >
-  </Button>
-
   <!-- Left section -->
   <div class="toolbar-section toolbar-left">
     <div class="flex items-center gap-1 min-w-0 shrink desktop-only">
@@ -553,80 +524,29 @@
       </TooltipUI.Root>
     {/if}
 
-    {#if onToggleMaximize && !embedded}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <span {...tooltipProps}
-        class="desktop-only"
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          type="button"
-          onclick={onToggleMaximize}
-          aria-label={maximized ? "Restore panel size" : "Maximize panel"}
-          class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
-        >
-          {#if maximized}
-            <ArrowsInIcon size={12} />
-          {:else}
-            <ArrowsOutIcon size={12} />
-          {/if}
-        </Button>
-      </span>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"} />
-      </TooltipUI.Root>
-    {/if}
-
-    {#if !embedded}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <span {...tooltipProps} class="desktop-only">
-        <Button
-          variant="ghost"
-          size="icon"
-          type="button"
-          onclick={onClose}
-          aria-label="Close diff panel"
-          class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
-        >
-          <XIcon size={12} />
-        </Button>
-      </span>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={"Close (Esc)"} />
-      </TooltipUI.Root>
-    {/if}
   </div>
 </div>
 
 <style>
+  /* A borderless control strip sitting on the diff surface — not a chrome row.
+     Left padding clears the macOS traffic lights when the strip is the leftmost
+     chrome (maximized diff pane); the right gutter clears the pane's floating
+     chrome cluster. Both collapse to the base 0.75rem otherwise. */
   .diff-toolbar {
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    padding-right: 0.75rem;
-    /* Left padding clears the macOS traffic lights when this toolbar is the
-       leftmost chrome (maximized diff pane); collapses to the normal 0.75rem
-       otherwise and off-mac (lead inset is 0 there). */
+    padding-block: 0.4375rem;
+    padding-right: max(0.75rem, var(--solus-pane-chrome-inset, 0px));
     padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px));
-    /* In the editor's secondary pane the toolbar shares the tab strip's chrome
-       row — match its height and seam so they read as one continuous bar. */
-    height: var(--solus-chrome-row-h, var(--solus-tap-target-lg));
     flex-shrink: 0;
-    border-bottom: 0.0625rem solid var(--solus-chrome-row-border, var(--solus-container-border));
   }
 
   @media (max-width: 767px) {
     .diff-toolbar {
       gap: 0.5rem;
-      padding-inline: 0.5rem;
-      padding-top: max(0, env(safe-area-inset-top, 0));
+      padding-left: 0.5rem;
+      padding-top: max(0.4375rem, env(safe-area-inset-top, 0));
     }
   }
 

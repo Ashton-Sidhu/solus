@@ -40,20 +40,17 @@
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { ArrowSquareOutIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import { ArrowSquareOutIcon } from "phosphor-svelte";
 
   const commentExtensions = [CommentMark];
 
   interface Props {
     plan: Plan;
     inline?: boolean;
-    slot?: PaneSlot;
-    onOpenInSplit?: () => void;
     onClose?: () => void;
   }
 
-  let { plan, inline = false, slot = "primary", onOpenInSplit, onClose }: Props = $props();
+  let { plan, inline = false, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -204,16 +201,10 @@
   }
 
   function closeModal() {
-    if (isPreview) {
-      // A previewed plan opened in split lives in the secondary pane — its X must
-      // close only that pane (R1), not dismiss the whole preview back to the gallery.
-      if (slot === "secondary") {
-        planStore.dismissPreview();
-        onClose?.();
-      } else {
-        session.closePlanPreview();
-      }
-    } else if (onClose) onClose();
+    // When a pane hosts this shell it owns the close policy (including the
+    // preview cases); pill mode has no pane, so resolve the dismissal here.
+    if (onClose) onClose();
+    else if (isPreview) session.closePlanPreview();
     else session.closePlanModal();
   }
 
@@ -389,7 +380,6 @@
   title="Review Plan"
   content={plan.content}
   {inline}
-  iconOnlyHeaderActions={slot === "secondary"}
   editorClass="plan-document-editor"
   rootClass="plan-shell"
   scope="plan-modal"
@@ -408,7 +398,7 @@
   scrollClass={commentsRailInLayout ? "" : "plan-editor-scroll--no-rail"}
   placeholder="Start writing…"
 >
-  {#snippet headerMeta()}
+  {#snippet documentMeta()}
     {#if revisionCount > 1}
       <div class="relative shrink-0">
         <button
@@ -433,7 +423,7 @@
     {/if}
   {/snippet}
 
-  {#snippet headerActions({ copied, copy, googleUpload, uploading, uploaded })}
+  {#snippet documentActions({ copied, copy, googleUpload, uploading, uploaded })}
     <button
       type="button"
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
@@ -455,22 +445,6 @@
     >
       <BookmarkSimpleIcon size={14} weight={isBookmarked ? "fill" : "regular"} class={isBookmarked ? "text-(--solus-accent)" : ""} />
     </button>
-    {#if inline && onOpenInSplit}
-      <button
-        type="button"
-        onclick={() => { onOpenInSplit?.(); }}
-        class="plan-soft-pill plan-soft-pill--icon"
-        data-testid="open-in-split"
-        title={slot === "secondary" ? "Focus" : "Open in split"}
-        aria-label={slot === "secondary" ? "Focus" : "Open in split"}
-      >
-        {#if slot === "secondary"}
-          <ArrowsOutSimpleIcon size={14} />
-        {:else}
-          <ArrowSquareOutIcon size={14} />
-        {/if}
-      </button>
-    {/if}
     <!-- Secondary actions (open session, Google Docs, copy) collapse into one overflow menu. -->
     <DropdownMenu.Root bind:open={overflowOpen}>
       <DropdownMenu.Trigger>

@@ -35,20 +35,18 @@
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import type { Scope } from "../../lib/keybindings/types";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
 
   interface Props {
-    /** Document title shown in the header. */
+    /** Document title. The document's own H1 is the visible title — this drives
+     *  the aria-label, tab labels and rename, not a chrome row. */
     title: string;
-    /** When set, the title becomes click-to-rename (works only, not plans). */
+    /** When set, the title becomes renameable via the document actions menu. */
     onRenameTitle?: (title: string) => void;
     /** Markdown content rendered in the editor (also the source for Copy). */
     content: string;
     placeholder?: string;
     /** Renders full-pane (editor mode) vs floating modal + backdrop (pill mode). */
     inline?: boolean;
-    /** Collapse header action labels when the shell is hosted in the split pane. */
-    iconOnlyHeaderActions?: boolean;
     /** Consumer-specific class on the editor, used to own its content width/typography. */
     editorClass: string;
     extraExtensions?: AnyExtension[];
@@ -86,15 +84,20 @@
     /** Consumers set true around programmatic edits to suppress autosave. */
     suppressSave?: boolean;
 
-    titleIcon?: Snippet;
-    headerMeta?: Snippet;
-    headerActions?: Snippet<[{
+    /** Surface-specific status rendered at the right of the toolbar row (e.g.
+     *  the plan's revision picker). */
+    documentMeta?: Snippet;
+    /** Surface-specific actions rendered at the right end of the toolbar row. */
+    documentActions?: Snippet<[{
       copied: boolean;
       copy: () => void;
       /** Defined only when this shell has a google-upload binding. */
       googleUpload?: () => void;
       uploading: boolean;
       uploaded: boolean;
+      /** Defined only when the title is renameable — flips the toolbar row's
+       *  left slot into the rename input. */
+      startRename?: () => void;
     }]>;
     rail?: Snippet;
     footer?: Snippet;
@@ -107,7 +110,6 @@
     content,
     placeholder = "",
     inline = false,
-    iconOnlyHeaderActions = false,
     editorClass,
     extraExtensions = [],
     scope,
@@ -125,9 +127,8 @@
     tiptapEditor = $bindable(null),
     scrollContainer = $bindable(null),
     suppressSave = $bindable(false),
-    titleIcon,
-    headerMeta,
-    headerActions,
+    documentMeta,
+    documentActions,
     rail,
     footer,
     overlays,
@@ -518,6 +519,51 @@
   }
 </script>
 
+{#snippet renameField()}
+  <!-- svelte-ignore a11y_autofocus -->
+  <input
+    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
+    bind:value={renameValue}
+    onblur={commitRename}
+    onkeydown={renameKeydown}
+    autofocus
+    aria-label="Rename document"
+    data-testid="rename-work-input"
+  />
+{/snippet}
+
+{#snippet saveStatusChip()}
+  <div class="doc-shell-save-status inline-flex min-w-0 shrink-0 items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
+    {#if showSaving}
+      <span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
+      <span>Saving…</span>
+    {:else if saveFailed}
+      <button
+        type="button"
+        class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium transition-[background,color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
+        onclick={() => void flushSave()}
+        title="The last save failed — click to retry"
+      >
+        Retry save
+      </button>
+    {:else if lastSavedAt !== null}
+      <CheckIcon size={11} />
+      <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet toolbarActions()}
+  {@render documentActions?.({
+    copied,
+    copy: handleCopy,
+    googleUpload: bindings.googleUpload ? handleGoogleUpload : undefined,
+    uploading,
+    uploaded,
+    startRename: onRenameTitle ? startRename : undefined,
+  })}
+{/snippet}
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 {#snippet shellInner()}
   <!-- aria-modal is set only for the true (floating) modal. -->
@@ -527,77 +573,26 @@
     role="dialog"
     aria-label={title}
     aria-modal={inline ? undefined : "true"}
-    class="doc-shell-root {rootClass} [container:doc-shell/inline-size] flex flex-col {inline
+    class="doc-shell-root {rootClass} relative [container:doc-shell/inline-size] flex flex-col {inline
       ? 'h-full'
       : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
       ? ''
       : 'border border-(--solus-tool-border)'}"
   >
-    <!-- Header -->
-    <div class="doc-shell-header relative flex h-[var(--solus-chrome-row-h,var(--solus-tap-target-lg))] shrink-0 items-center justify-between gap-1.5 border-b border-b-[var(--solus-chrome-row-border,var(--solus-tool-border))] px-5 pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]">
-      {#if inline}
-        <FrameExpandButton variant="sidebar" />
-      {/if}
-      <div class="doc-shell-header__meta flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-        {@render titleIcon?.()}
-        {#if renaming}
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            class="doc-shell-title-input mx-[-0.25rem] min-w-24 max-w-96 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
-            bind:value={renameValue}
-            onblur={commitRename}
-            onkeydown={renameKeydown}
-            autofocus
-            aria-label="Rename document"
-            data-testid="rename-work-input"
-          />
-        {:else if onRenameTitle}
-          <button
-            type="button"
-            class="doc-shell-title doc-shell-title--editable mx-[-0.25rem] cursor-text truncate rounded-md border-0 bg-transparent px-1 py-0.5 text-left text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] transition-[background] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
-            onclick={startRename}
-            title="Rename"
-            data-testid="rename-work"
-          >{title}</button>
-        {:else}
-          <span class="doc-shell-title text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] truncate">{title}</span>
-        {/if}
-        {@render headerMeta?.()}
-        <div class="doc-shell-save-status inline-flex min-w-0 items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
-          {#if showSaving}
-            <span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
-            <span>Saving…</span>
-          {:else if saveFailed}
-            <button
-              type="button"
-              class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium transition-[background,color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
-              onclick={() => void flushSave()}
-              title="The last save failed — click to retry"
-            >
-              Retry save
-            </button>
-          {:else if lastSavedAt !== null}
-            <CheckIcon size={11} />
-            <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
-          {/if}
-        </div>
-      </div>
-      <div class="doc-shell-header__actions flex shrink-0 items-center gap-1" class:doc-shell-header__actions--icon-only={iconOnlyHeaderActions}>
-        {@render headerActions?.({
-          copied,
-          copy: handleCopy,
-          googleUpload: bindings.googleUpload ? handleGoogleUpload : undefined,
-          uploading,
-          uploaded,
-        })}
-        <button type="button" data-testid={closeTestId} onclick={onClose} class="doc-shell-close" title="Close">
-          <XIcon size={16} />
-        </button>
-        {#if inline}
-          <FrameExpandButton variant="projectPanel" />
-        {/if}
-      </div>
-    </div>
+    <!-- Pane-level chrome lives in the floating PaneChrome cluster; the floating
+         (pill) modal has no pane around it, so it keeps its own corner close. -->
+    {#if !inline}
+      <button
+        type="button"
+        data-testid={closeTestId}
+        onclick={onClose}
+        class="doc-shell-close absolute right-3 top-3 z-30"
+        aria-label="Close"
+        title="Close"
+      >
+        <XIcon size={16} />
+      </button>
+    {/if}
 
     <!-- Content area -->
     <div class="relative flex flex-1 min-h-0">
@@ -628,6 +623,9 @@
         <div class="doc-shell-toolbar sticky top-0 z-10">
           {#if !isMobile}
           <div class="doc-shell-toolbar-row flex items-center gap-1 px-8 pt-3 pb-2">
+            {#if renaming}
+            {@render renameField()}
+            {:else}
             <button type="button" class="doc-shell-toolbar-btn" disabled={!canUndo} onclick={() => cmd(tiptapEditor, (c) => c.undo())} title="Undo (⌘Z)" aria-label="Undo"><ArrowUUpLeftIcon size={15} /></button>
             <button type="button" class="doc-shell-toolbar-btn" disabled={!canRedo} onclick={() => cmd(tiptapEditor, (c) => c.redo())} title="Redo (⌘⇧Z)" aria-label="Redo"><ArrowUUpRightIcon size={15} /></button>
 
@@ -666,21 +664,28 @@
                 <TextAaIcon size={14} /><span>Editor</span>
               {/if}
             </button>
+            {/if}
 
             <div class="min-w-2 flex-auto"></div>
 
+            {@render documentMeta?.()}
             {#if counts.words > 0}
               <span class="doc-shell-count shrink-0 select-none whitespace-nowrap px-1 text-[0.6875rem] text-(--solus-text-tertiary) tabular-nums" title="{counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens">
                 {counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens
               </span>
             {/if}
+            {@render saveStatusChip()}
             {#if bindings.find}
               <button type="button" class="doc-shell-toolbar-btn" class:active={findOpen} aria-pressed={findOpen} onclick={() => (findOpen = !findOpen)} title="Find & replace (⌘F)" aria-label="Find and replace"><MagnifyingGlassIcon size={15} /></button>
             {/if}
+            {@render toolbarActions()}
           </div>
           {:else}
           <!-- Mobile: curated essentials, the rest behind a "⋯" overflow menu. -->
           <div class="doc-shell-toolbar-row flex items-center gap-1">
+            {#if renaming}
+            {@render renameField()}
+            {:else}
             <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} aria-pressed={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBold())} title="Bold" aria-label="Bold"><TextBIcon size={18} weight="bold" /></button>
             <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "italic")} aria-pressed={isActive(tiptapEditor, stateVersion, "italic")} onclick={() => cmd(tiptapEditor, (c) => c.toggleItalic())} title="Italic" aria-label="Italic"><TextItalicIcon size={18} /></button>
             <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "link")} aria-pressed={isActive(tiptapEditor, stateVersion, "link")} onclick={() => editorRef?.openLinkPopover()} title="Link" aria-label="Link"><LinkSimpleIcon size={18} /></button>
@@ -702,6 +707,9 @@
             <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
               {#if editorMode === "rich"}<MarkdownLogoIcon size={17} />{:else}<TextAaIcon size={17} />{/if}
             </button>
+            {/if}
+            {@render documentMeta?.()}
+            {@render toolbarActions()}
           </div>
 
           {#if overflowOpen}
@@ -819,6 +827,10 @@
   .doc-shell-toolbar-row {
     max-width: 65rem;
     margin-inline: auto;
+    /* Reserve the room the pane's floating chrome cluster occupies so the
+       right-hand document actions never slide under it. Falls back to the
+       floating modal's own corner close when there is no pane around us. */
+    padding-right: max(2rem, var(--solus-pane-chrome-inset, 3.25rem));
   }
   .doc-shell-toolbar-btn {
     display: flex;
@@ -863,7 +875,7 @@
   .doc-find-sleeve {
     position: absolute;
     top: 0.75rem;
-    right: 1.25rem;
+    right: max(1.25rem, var(--solus-pane-chrome-inset, 0px));
     z-index: 30;
   }
   .doc-shell-toolbar-text {
@@ -931,14 +943,12 @@
       border-radius: 0 !important;
       border: none !important;
     }
-    .doc-shell-save-status {
-      display: none;
-    }
     /* Scrollable formatting strip with real touch targets (Notion/Docs pattern). */
     .doc-shell-toolbar-row {
       max-width: none;
       gap: 0.125rem;
-      padding: 0.375rem 0.625rem;
+      padding: 0.375rem max(0.625rem, var(--solus-pane-chrome-inset, 3.25rem))
+        0.375rem 0.625rem;
       overflow-x: auto;
       scrollbar-width: none;
       flex-wrap: nowrap;

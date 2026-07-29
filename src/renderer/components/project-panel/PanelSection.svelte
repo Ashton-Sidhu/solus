@@ -35,7 +35,7 @@
     class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0"
   >
     <button
-      class="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent text-[0.625rem] font-semibold tracking-[0.09em] text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+      class="flex min-h-6 min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent text-[0.625rem] font-medium tracking-[0.09em] text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
       type="button"
       aria-expanded={!collapsed}
       onclick={toggle}
@@ -43,7 +43,9 @@
       <span class="inline-flex min-w-0 items-center truncate">{title}</span>
     </button>
     {#if headerExtra}
-      <span class="min-w-0 shrink-0 font-medium text-(--solus-text-tertiary)">
+      <!-- The header's trailing value is a reading, not a label: regular weight,
+           so only the heading itself carries the 500. -->
+      <span class="min-w-0 shrink-0 font-normal text-(--solus-text-tertiary)">
         {@render headerExtra()}
       </span>
     {/if}
@@ -53,7 +55,7 @@
     <button
       class="flex size-4 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0 text-(--solus-text-tertiary) transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
         ? '-rotate-90 opacity-70'
-        : 'opacity-0 group-hover/header:opacity-60'}"
+        : 'opacity-60'}"
       type="button"
       tabindex="-1"
       aria-hidden="true"

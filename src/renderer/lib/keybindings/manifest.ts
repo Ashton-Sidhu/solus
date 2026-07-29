@@ -6,7 +6,7 @@ export const KEYBINDINGS = {
   'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
   'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open project',             group: 'General' },
   'global.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New tab',                  group: 'Tabs' },
-  'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'New chat in split',        group: 'Tabs' },
+  'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
   'global.prev-tab':          { combo: { ctrl: true, shift: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowLeft' }, scope: 'global', label: 'Previous branch / tab', group: 'Tabs' },

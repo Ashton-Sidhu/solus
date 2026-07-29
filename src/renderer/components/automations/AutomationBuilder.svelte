@@ -10,9 +10,6 @@
     ProhibitIcon,
     CaretRightIcon,
     GitBranchIcon,
-    ArrowSquareOutIcon,
-    ArrowsOutSimpleIcon,
-    XIcon,
   } from "phosphor-svelte";
   import type {
     Automation,
@@ -62,26 +59,15 @@
 
   import { untrack } from "svelte";
 
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
-
   interface Props {
     automation: Automation | null;
     onDone: () => void;
-    /** Rendered inside a side-panel pane: show a fixed chrome header (title +
-     *  run + split/focus + close) instead of the full-page breadcrumb bar. */
+    /** Rendered inside a pane: the breadcrumb returns to the automations list
+     *  and Esc closes the slot, instead of the full-page host owning both. */
     inline?: boolean;
-    slot?: PaneSlot;
-    onOpenInSplit?: () => void;
     onClose?: () => void;
   }
-  let {
-    automation,
-    onDone,
-    inline = false,
-    slot = "primary",
-    onOpenInSplit,
-    onClose,
-  }: Props = $props();
+  let { automation, onDone, inline = false, onClose }: Props = $props();
 
   // Sidebar background — also used by the inline pane container. Kept a hair
   // warmer than the page so the rail reads as its own surface.
@@ -128,17 +114,17 @@
     "pointer-coarse:min-h-10 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:px-2";
   const RUN_BTN =
     "shrink-0 inline-flex items-center gap-1.5 px-3 py-[0.4375rem] rounded-lg border-0 text-xs font-semibold " +
-    "text-[var(--solus-accent-contrast,#fff)] bg-(--solus-accent) cursor-pointer transition-[filter,opacity] duration-120 " +
-    "hover:not-disabled:brightness-[1.07] disabled:opacity-60 disabled:cursor-not-allowed " +
+    "text-[var(--solus-accent-contrast,#fff)] bg-(--solus-accent) cursor-pointer transition-[filter,opacity,scale] duration-120 " +
+    "hover:not-disabled:brightness-[1.07] active:not-disabled:scale-[0.96] disabled:opacity-60 disabled:cursor-not-allowed " +
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
     "pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-sm";
   // Stop mirrors Run now but in the error tone — a clear "halt the in-flight run".
   const STOP_BTN =
     "shrink-0 inline-flex items-center gap-1.5 px-3 py-[0.4375rem] rounded-lg text-xs font-semibold cursor-pointer " +
-    "transition-[filter,opacity] duration-120 text-[var(--solus-status-error,#e53e3e)] " +
+    "transition-[filter,opacity,scale] duration-120 text-[var(--solus-status-error,#e53e3e)] " +
     "border border-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_35%,transparent)] " +
     "bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_12%,transparent)] " +
-    "hover:not-disabled:brightness-[1.05] disabled:opacity-60 disabled:cursor-not-allowed " +
+    "hover:not-disabled:brightness-[1.05] active:not-disabled:scale-[0.96] disabled:opacity-60 disabled:cursor-not-allowed " +
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_55%,transparent)] " +
     "pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-sm";
   const TITLE_INPUT =
@@ -168,14 +154,6 @@
     "hover:not-disabled:bg-(--solus-surface-hover) disabled:cursor-default " +
     "focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] " +
     "pointer-coarse:min-h-12 pointer-coarse:px-2.5 pointer-coarse:py-2.5";
-
-  // Square icon button for the inline pane chrome (split / focus / close).
-  const PANE_ICON_BTN =
-    "inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent " +
-    "font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out " +
-    "hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) " +
-    "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent) " +
-    "pointer-coarse:size-11";
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
@@ -322,7 +300,16 @@
   // subsequent run updates arrive over the automations-changed push.
   const runsKey = $derived(current?.id ?? null);
   const runs = $derived(runsKey ? (store.runs.get(runsKey) ?? []) : []);
+  const COLLAPSED_RUN_COUNT = 5;
+  let isRunHistoryExpanded = $state(false);
+  const visibleRuns = $derived(
+    isRunHistoryExpanded ? runs : runs.slice(0, COLLAPSED_RUN_COUNT),
+  );
+  const hiddenRunCount = $derived(
+    Math.max(0, runs.length - COLLAPSED_RUN_COUNT),
+  );
   $effect(() => {
+    isRunHistoryExpanded = false;
     if (runsKey) void store.loadRuns(runsKey);
   });
 
@@ -682,7 +669,10 @@
     >
       <!-- Status -->
       <section id="status" class={SECTION}>
-        <h2 class={SECTION_TITLE}>Status</h2>
+        <div class="flex min-h-8 items-center justify-between gap-3">
+          <h2 class={SECTION_TITLE}>Status</h2>
+          {@render runControls()}
+        </div>
 
         <!-- Live state on the left, a switch to toggle it on the right. The card
              title already says "Status", so the row leads with the state itself. -->
@@ -1033,7 +1023,7 @@
           </p>
         {:else}
           <ul class="flex flex-col gap-1" role="list">
-            {#each runs as r (r.id)}
+            {#each visibleRuns as r (r.id)}
               {@const meta = RUN_STATUS_META[r.status]}
               <li>
                 <button
@@ -1096,116 +1086,86 @@
               </li>
             {/each}
           </ul>
+          {#if hiddenRunCount > 0 || isRunHistoryExpanded}
+            <button
+              type="button"
+              class="inline-flex min-h-10 items-center self-start rounded-lg border-0 bg-transparent px-2 text-[0.6875rem] font-medium text-(--solus-text-tertiary) cursor-pointer transition-[background-color,color] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+              onclick={() => (isRunHistoryExpanded = !isRunHistoryExpanded)}
+              aria-expanded={isRunHistoryExpanded}
+            >
+              <CaretRightIcon
+                size={12}
+                class="mr-1 transition-transform duration-150 {isRunHistoryExpanded
+                  ? '-rotate-90'
+                  : 'rotate-90'}"
+              />
+              {isRunHistoryExpanded
+                ? "Show recent only"
+                : `Show ${hiddenRunCount} older ${hiddenRunCount === 1 ? "run" : "runs"}`}
+            </button>
+          {/if}
         {/if}
       </section>
     </aside>
   </div>
 {/snippet}
 
-{#if inline}
-  <!-- ── Side-panel pane: fixed chrome header + scrolling form ── -->
-  <div class="flex h-full min-h-0 flex-col {SIDEBAR_PANEL_BG}">
-    <header
-      class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between gap-3 border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+<!-- One header for both hosts: it scrolls with the form rather than pinning a
+     chrome row under the top rail. In a pane the close / open-in-split live in
+     the floating PaneChrome cluster, which the right gutter reserves room for. -->
+{#snippet builderHeader()}
+  <header
+    class="flex items-center justify-between gap-4 pr-[var(--solus-pane-chrome-inset,0px)]"
+  >
+    <nav
+      class="flex items-center gap-1.5 min-w-0 text-[0.8125rem]"
+      aria-label="Breadcrumb"
     >
-      <nav
-        class="flex items-center gap-1.5 min-w-0 text-[0.8125rem]"
-        aria-label="Breadcrumb"
+      <button
+        type="button"
+        class={CRUMB_LINK}
+        onclick={inline ? paneBackToList : onDone}>Automations</button
       >
-        <button type="button" class={CRUMB_LINK} onclick={paneBackToList}
-          >Automations</button
-        >
-        <CaretRightIcon
-          size={12}
-          class="text-(--solus-text-tertiary) opacity-60 shrink-0"
-        />
+      <CaretRightIcon
+        size={12}
+        class="text-(--solus-text-tertiary) opacity-60 shrink-0"
+      />
+      <span
+        class="truncate font-[550] text-(--solus-text-primary)"
+        aria-current="page">{name || "Untitled automation"}</span
+      >
+      {#if isSaving || lastSavedAt !== null}
         <span
-          class="truncate font-[550] text-(--solus-text-primary)"
-          aria-current="page">{name || "Untitled automation"}</span
+          class="shrink-0 pl-1.5 border-l border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
         >
-        {#if isSaving || lastSavedAt !== null}
-          <span
-            class="shrink-0 pl-1.5 border-l border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-          >
-            {@render saveStatus()}
-          </span>
-        {/if}
-      </nav>
-      <div class="flex shrink-0 items-center gap-1">
-        {@render runControls()}
-        {#if onOpenInSplit}
-          <button
-            type="button"
-            class={PANE_ICON_BTN}
-            onclick={onOpenInSplit}
-            aria-label={slot === "secondary" ? "Focus" : "Open in split"}
-            title={slot === "secondary" ? "Focus" : "Open in split"}
-          >
-            {#if slot === "secondary"}
-              <ArrowsOutSimpleIcon size={15} />
-            {:else}
-              <ArrowSquareOutIcon size={15} />
-            {/if}
-          </button>
-        {/if}
-        <button
-          type="button"
-          class={PANE_ICON_BTN}
-          onclick={onClose}
-          aria-label="Close"
-          title="Close"
-        >
-          <XIcon size={15} weight="bold" />
-        </button>
-      </div>
-    </header>
-    <div
-      class="flex flex-1 min-h-0 flex-col overflow-y-auto pt-4 px-5 pb-8 [scrollbar-width:thin] overscroll-y-contain @max-[34rem]:px-3.5"
-    >
-      <article
-        class="max-w-[92rem] w-full mx-auto flex flex-1 min-h-0 flex-col gap-5"
-      >
-        {@render formBody()}
-      </article>
-    </div>
-  </div>
-{:else}
-  <!-- ── Full-page (pill / overlay): breadcrumb header scrolls with the form ── -->
+          {@render saveStatus()}
+        </span>
+      {/if}
+    </nav>
+  </header>
+{/snippet}
+
+{#snippet builderColumn()}
   <div
     class="flex flex-1 min-h-0 flex-col overflow-y-auto pt-4 px-5 pb-8 [scrollbar-width:thin] overscroll-y-contain @max-[34rem]:px-3.5"
   >
     <article
-      class="max-w-[92rem] w-full mx-auto flex flex-1 min-h-0 flex-col gap-5 @max-[46rem]:flex-none"
+      class="max-w-[92rem] w-full mx-auto flex flex-1 min-h-0 flex-col gap-5 {inline
+        ? ''
+        : '@max-[46rem]:flex-none'}"
     >
-      <header class="flex items-center justify-between gap-4">
-        <nav
-          class="flex items-center gap-1.5 min-w-0 text-[0.8125rem]"
-          aria-label="Breadcrumb"
-        >
-          <button type="button" class={CRUMB_LINK} onclick={onDone}
-            >Automations</button
-          >
-          <CaretRightIcon
-            size={12}
-            class="text-(--solus-text-tertiary) opacity-60 shrink-0"
-          />
-          <span
-            class="truncate font-[550] text-(--solus-text-primary)"
-            aria-current="page">{name || "Untitled automation"}</span
-          >
-          {#if isSaving || lastSavedAt !== null}
-            <span
-              class="shrink-0 pl-1.5 border-l border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-            >
-              {@render saveStatus()}
-            </span>
-          {/if}
-        </nav>
-        {@render runControls()}
-      </header>
+      {@render builderHeader()}
       {@render formBody()}
     </article>
   </div>
+{/snippet}
+
+{#if inline}
+  <div class="flex h-full min-h-0 flex-col {SIDEBAR_PANEL_BG}">
+    {@render builderColumn()}
+  </div>
+{:else}
+  {@render builderColumn()}
 {/if}
 
 <DirectoryPicker

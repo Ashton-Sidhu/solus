@@ -39,11 +39,6 @@ export class PlanPage {
     await this.page.getByTestId('plan-modal-close').click()
   }
 
-  /** Returns the header title text of the plan modal ("Review Plan"). */
-  async getModalTitle(): Promise<string> {
-    return (await this.page.locator('.doc-shell-title').textContent()) ?? ''
-  }
-
   /** Returns whether the formatting toolbar is visible inside the modal. */
   async isToolbarVisible(): Promise<boolean> {
     return this.page.locator('.doc-shell-toolbar').isVisible()

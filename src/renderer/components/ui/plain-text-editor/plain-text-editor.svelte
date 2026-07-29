@@ -89,7 +89,10 @@
   let view: EditorView | null = $state.raw(null);
   let lastLocalValue: string | null = null;
   let isApplyingValue = false;
-  let isFocused = $state(false);
+  // CodeMirror can synchronously blur while Svelte is reconciling a template.
+  // Keep this imperative editor detail outside Svelte state and reconfigure the
+  // placeholder directly from the focus handlers.
+  let isFocused = false;
   const editableCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
   const attributesCompartment = new Compartment();
@@ -148,6 +151,16 @@
     return event.isComposing || event.keyCode === 229;
   }
 
+  function setFocused(focused: boolean) {
+    isFocused = focused;
+    if (!view || !hidePlaceholderOnFocus) return;
+    view.dispatch({
+      effects: placeholderCompartment.reconfigure(
+        placeholderExtension(focused ? "" : placeholder),
+      ),
+    });
+  }
+
   function editorExtensions(): Extension[] {
     return [
       history(),
@@ -201,12 +214,12 @@
             return event.defaultPrevented;
           },
           focus() {
-            isFocused = true;
+            setFocused(true);
             onFocus?.();
             return false;
           },
           blur() {
-            isFocused = false;
+            setFocused(false);
             onBlur?.();
             return false;
           },

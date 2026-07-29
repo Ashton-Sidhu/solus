@@ -1,16 +1,13 @@
 <script lang="ts">
-  import {
-    XIcon,
-    ArrowsClockwiseIcon,
-    ArrowSquareOutIcon,
-    ArrowsOutSimpleIcon,
-  } from "phosphor-svelte";
+  import { ArrowsClockwiseIcon } from "phosphor-svelte";
   import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import { getWorkspaceContext, getSettingsContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
+  import PaneChrome from "../ui/PaneChrome.svelte";
   import PendingReviewTray from "../pr-review/PendingReviewTray.svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import GuideSurface from "./GuideSurface.svelte";
@@ -18,9 +15,10 @@
   import { ReviewDrafts } from "./lib/review-drafts.svelte";
 
   // The standalone guided-review surface (branch "Review changes" + session
-  // walkthrough): own header + chrome over a GuideView whose draft comments
-  // submit back to the agent as feedback. The PR-review host renders its own
-  // chrome and uses GuideLoader/GuideSurface directly.
+  // walkthrough): a GuideView whose draft comments submit back to the agent as
+  // feedback. Its heading is the guide's own content — the only chrome is the
+  // pane cluster, which carries Regenerate as its trailing action. The PR-review
+  // host uses GuideLoader/GuideSurface directly.
   let {
     guideKey,
     scope = "branch",
@@ -105,65 +103,33 @@
 </script>
 
 <section class="relative flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
-  <header
-    class="flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center justify-between border-b border-[color:var(--solus-chrome-row-border,color-mix(in_srgb,var(--solus-container-border)_50%,transparent))] pr-2 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] [.workspace-body.sidebar-collapsed_&]:pl-[max(2.75rem,calc(var(--solus-chrome-lead-inset,0px)+2rem))]"
+  <PaneChrome
+    {onClose}
+    {onOpenInSplit}
+    {slot}
+    closeLabel="Close review guide"
   >
-    <span class="text-[0.8125rem] font-semibold text-(--solus-text-primary)"
-      >{scope === "session" ? "Session walkthrough" : "Review guide"}</span
-    >
-    <div class="inline-flex gap-1">
-      {#if onOpenInSplit}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
-          onclick={onOpenInSplit}
-          aria-label={slot === "secondary" ? "Move review guide to main pane" : "Open review guide in split"}
-        >
-          {#if slot === "secondary"}
-            <ArrowsOutSimpleIcon size={15} weight="bold" />
-          {:else}
-            <ArrowSquareOutIcon size={15} weight="bold" />
-          {/if}
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={slot === "secondary" ? "Move to main pane" : "Open in split"} />
-        </TooltipUI.Root>
-      {/if}
+    {#snippet trailing()}
       {#if !isDemo}
         <TooltipUI.Root>
           <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
-          onclick={() => loader.refresh()}
-          aria-label="Regenerate review guide"
-        >
-          <ArrowsClockwiseIcon size={15} weight="bold" />
-        </button>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class={PAGE_ICON_BTN}
+                onclick={() => loader.refresh()}
+                aria-label="Regenerate review guide"
+              >
+                <ArrowsClockwiseIcon size={15} />
+              </button>
             {/snippet}
           </TooltipUI.Trigger>
           <TooltipUI.Content value={"Regenerate review"} />
         </TooltipUI.Root>
       {/if}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps}
-        class="inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
-        onclick={onClose}
-        aria-label="Close review guide"
-      >
-        <XIcon size={15} weight="bold" />
-      </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={"Close"} />
-      </TooltipUI.Root>
-    </div>
-  </header>
+    {/snippet}
+  </PaneChrome>
 
   <GuideSurface
     {loader}

@@ -164,6 +164,11 @@
     requestInputFocus();
   }
 
+  function newAutomation() {
+    session.openAutomationBuilder(null);
+    requestInputFocus();
+  }
+
 </script>
 
 {#snippet gitHeaderExtra()}
@@ -198,11 +203,28 @@
 {/snippet}
 
 {#snippet automationsHeaderExtra()}
-  <span
-    class="block max-w-40 truncate text-[0.6875rem] font-normal text-(--solus-text-tertiary)"
-    aria-live="polite"
-  >
-    {automationBoard.summary}
+  <span class="header-extra">
+    {#if automationBoard.summary}
+      <span
+        class="min-w-0 truncate text-[0.6875rem] font-normal text-(--solus-text-tertiary)"
+        aria-live="polite"
+      >
+        {automationBoard.summary}
+      </span>
+    {/if}
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      class="text-(--solus-text-tertiary)"
+      type="button"
+      aria-label="New automation"
+      onclick={(e) => {
+        e.stopPropagation();
+        newAutomation();
+      }}
+    >
+      <PlusIcon size={14} />
+    </Button>
   </span>
 {/snippet}
 
@@ -271,7 +293,7 @@
         title="Automations"
         collapsed={settings.projectPanelCollapsed.automations}
         onToggle={() => toggleSection("automations")}
-        headerExtra={automationBoard.summary ? automationsHeaderExtra : undefined}
+        headerExtra={automationsHeaderExtra}
       >
         <AutomationsSection board={automationBoard} />
       </PanelSection>
@@ -295,10 +317,11 @@
     flex: 1;
     min-height: 0;
     flex-direction: column;
+    /* The rail is the same surface as the conversation view beside it — no tray,
+       no recess — so the section cards separate themselves with a hairline. The
+       even gutter still makes a collapsed section read as a gap, not a shorter
+       list. */
     background: var(--solus-container-bg);
-    /* The rail is a tray: the section cards sit on it with an even gutter, so
-       a collapsed section reads as a gap instead of a shorter list. The top
-       inset drops the first card clear of the chrome-row seam above. */
     gap: 0.5rem;
     padding: 0.5rem;
     overflow-y: auto;
