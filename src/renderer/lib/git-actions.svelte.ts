@@ -59,7 +59,7 @@ export class GitActions {
           this.commitTimer = null
         }, 1800)
       } else {
-        this.commitPushError = result.error || 'Commit & push failed'
+        this.commitPushError = result.error || 'Commit and push failed'
         toasts.error(result.outcome === 'committed-only'
           ? `Committed locally, but couldn't push: ${this.commitPushError}`
           : `Couldn't commit and push: ${this.commitPushError}`)

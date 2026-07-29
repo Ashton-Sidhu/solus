@@ -24,6 +24,9 @@ export default defineConfig({
       '@client-core': resolve(__dirname, '../src/client-core'),
       '@geist-fonts': geistFontsDir,
     },
+    // DecorationSet identity is load-bearing inside ProseMirror. Keep table
+    // resize decorations and the editor view on the same module instance.
+    dedupe: ['prosemirror-view'],
     // Components inside src/renderer use relative imports like '../../shared/types';
     // those resolve correctly from the original file locations because Vite
     // walks the actual file path, not the alias.

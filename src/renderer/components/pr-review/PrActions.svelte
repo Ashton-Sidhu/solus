@@ -4,10 +4,10 @@
     ArrowsClockwiseIcon,
     BookOpenTextIcon,
     ChatCircleIcon,
+    ChatTextIcon,
     CheckIcon,
     CircleNotchIcon,
     DotsThreeIcon,
-    RobotIcon,
   } from "phosphor-svelte";
   import type { PullRequestDetail } from "../../../shared/providers";
   import type { IpcContext } from "../../../shared/types";
@@ -63,9 +63,7 @@
     guideStatus === "queued" || guideStatus === "generating",
   );
   // Every action except ⋯ is gated on the PR still being open, so a merged or
-  // closed PR collapses the row down to the lone ⋯. Right-aligning it there
-  // strands it in the middle of an empty line; left-aligned it reads as part
-  // of the quiet control column alongside "View N checks".
+  // closed PR collapses the footer row down to the overflow menu.
   const showAddressComments = $derived(
     !!onAddressComments &&
       feedbackCount > 0 &&
@@ -76,9 +74,11 @@
   const showGuide = $derived(
     !!onGenerateGuide && detail?.state === "open" && !detail.draft,
   );
-  const overflowAlone = $derived(!showAddressComments && !showGuide);
+  // Guide stays a quiet text action. Feedback is the higher-intent action, so it
+  // gets its own full-width outlined row beneath Merge instead of competing for
+  // horizontal room with Guide and the overflow menu.
   const quietButtonClass =
-    "h-7 cursor-pointer gap-1.5 rounded-lg px-2 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:active:scale-100";
+    "h-auto min-w-0 cursor-pointer gap-1.5 rounded-none border-0 bg-transparent p-0 text-[12.5px] transition-colors hover:bg-transparent";
 
   function runOverflowAction(action: () => void) {
     overflowOpen = false;
@@ -87,7 +87,7 @@
   }
 </script>
 
-<div class="flex w-full flex-col gap-2.5">
+<div class="flex w-full flex-col gap-3">
   {#if detail?.state === "open" && !detail.draft}
     {#if detail.mergeStateStatus === "dirty"}
       <ResolveConflictsButton
@@ -99,42 +99,41 @@
     {/if}
   {/if}
 
-  <!-- Secondary actions read as typography, not chrome: no outlines, no
-       fills — hover reveals the affordance. Text aligns to the section edge
-       (-ml-2 swallows the ghost padding); ⋯ closes the row at the far edge,
-       or leads it when it is the only action left. -->
-  <div class="-ml-2 flex flex-wrap items-center gap-1">
-    {#if showAddressComments}
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={!addressCommentsReady || addressingComments}
-        class="h-7 cursor-pointer gap-1.5 rounded-lg px-2 text-[0.75rem] font-medium text-(--solus-accent) transition-[background-color,scale] duration-150 ease-out hover:bg-(--solus-accent-light) hover:text-(--solus-accent) active:scale-[0.96] disabled:active:scale-100"
-        title={addressingComments
-          ? "Opening fix agent…"
-          : addressCommentsReady
-            ? `Address ${feedbackCount} ${feedbackCount === 1 ? "feedback item" : "feedback items"} with an agent`
-            : "Preparing the PR worktree…"}
-        onclick={onAddressComments}
-      >
-        {#if addressingComments}
-          <CircleNotchIcon
-            size={13}
-            class="shrink-0 animate-spin [animation-duration:0.9s]"
-          />
-        {:else}
-          <RobotIcon size={13} weight="bold" class="shrink-0" />
-        {/if}
-        Address comments
-      </Button>
-    {/if}
+  {#if showAddressComments}
+    <Button
+      variant="ghost"
+      disabled={!addressCommentsReady || addressingComments}
+      class="flex h-[34px] w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-[13px] font-medium text-foreground shadow-[0_1px_1px_rgba(0,0,0,0.02)] transition-[background-color,border-color,scale] hover:border-[color-mix(in_oklab,var(--foreground)_18%,var(--border))] hover:bg-muted active:scale-[0.96]"
+      title={addressingComments
+        ? "Opening fix agent…"
+        : addressCommentsReady
+          ? `Send ${feedbackCount} ${feedbackCount === 1 ? "comment" : "comments"} to an agent`
+          : "Preparing the PR worktree…"}
+      onclick={onAddressComments}
+    >
+      {#if addressingComments}
+        <CircleNotchIcon
+          size={14}
+          class="shrink-0 animate-spin [animation-duration:0.9s]"
+        />
+      {:else}
+        <ChatTextIcon size={14} weight="bold" class="shrink-0" />
+      {/if}
+      <span class="truncate">
+        Send {feedbackCount} {feedbackCount === 1 ? "comment" : "comments"} to agent
+      </span>
+    </Button>
+  {/if}
 
+  <!-- Guide and the overflow menu share the quiet footer row from the
+       reference. They remain visible alongside the full-width agent action. -->
+  <div class="mt-1 flex min-h-6 items-center gap-2">
     {#if showGuide}
       <Button
         variant="ghost"
         size="sm"
         disabled={generatingGuide}
-        class={quietButtonClass}
+        class="{quietButtonClass} font-normal text-muted-foreground hover:text-foreground"
         aria-label="Generate the review guide in the background"
         title={generatingGuide
           ? "Generating the review guide…"
@@ -147,19 +146,27 @@
       >
         {#if generatingGuide}
           <CircleNotchIcon
-            size={13}
+            size={12}
             class="shrink-0 animate-spin [animation-duration:0.9s]"
           />
         {:else if guideStatus === "ready"}
           <CheckIcon
-            size={13}
+            size={12}
             weight="bold"
             class="shrink-0 text-(--solus-art-positive)"
           />
         {:else}
-          <BookOpenTextIcon size={13} weight="bold" class="shrink-0" />
+          <BookOpenTextIcon size={12} class="shrink-0" />
         {/if}
-        {guideStatus === "ready" ? "Guide ready" : "Guide"}
+        <span class="truncate">
+          {guideStatus === "queued"
+            ? "Guide queued"
+            : guideStatus === "generating"
+              ? "Generating guide…"
+              : guideStatus === "ready"
+                ? "Guide ready"
+                : "Guide"}
+        </span>
       </Button>
     {/if}
 
@@ -167,14 +174,14 @@
       bind:ref={overflowTriggerEl}
       variant="ghost"
       size="icon-sm"
-      class={`${overflowAlone ? "" : "ml-auto"} cursor-pointer text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96]`}
+      class="ml-auto size-auto shrink-0 cursor-pointer rounded-none bg-transparent p-0 text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground"
       aria-label="More pull request actions"
       aria-haspopup="menu"
       aria-expanded={overflowOpen}
       title="More actions"
       onclick={() => (overflowOpen = !overflowOpen)}
     >
-      <DotsThreeIcon size={16} weight="bold" />
+      <DotsThreeIcon size={14} weight="bold" />
     </Button>
   </div>
 

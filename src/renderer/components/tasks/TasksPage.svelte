@@ -40,7 +40,6 @@
   } from "./lib/tasks-api";
   import {
     PAGE_PRIMARY_BTN,
-    PAGE_ICON_BTN,
     PAGE_SECONDARY_BTN,
   } from "../../lib/page-chrome";
   import PageEmpty from "../ui/PageEmpty.svelte";
@@ -461,9 +460,17 @@
       {/key}
     {:else}
     {#snippet tasksSubtitle()}
-      {provider === "github"
-        ? "Issues from the project's GitHub remote."
-        : "The project's task board."}
+      <span class="flex items-center gap-1.5">
+        <span
+          class="size-1.5 shrink-0 rounded-full bg-(--solus-art-positive)"
+          aria-hidden="true"
+        ></span>
+        <span class="tabular-nums">{counts.active} active</span>
+      </span>
+      <span class="opacity-40" aria-hidden="true">·</span>
+      <span class="tabular-nums">{counts.in_progress} in progress</span>
+      <span class="opacity-40" aria-hidden="true">·</span>
+      <span class="tabular-nums">{counts.done} done</span>
       {#if store.loaded && !store.error}
         {#if store.fromCache}
           <span
@@ -486,10 +493,15 @@
         {/if}
       {/if}
     {/snippet}
-    <PageShell onClose={close}>
-      <PageHeader title="Tasks" subtitle={tasksSubtitle}>
+    <PageShell>
+      <PageHeader
+        title="Tasks"
+        eyebrow="Project"
+        subtitle={tasksSubtitle}
+        onClose={close}
+      >
         {#snippet icon()}
-          <ListChecksIcon size={18} weight="fill" />
+          <ListChecksIcon size={11} weight="fill" />
         {/snippet}
         {#snippet actions()}
           <!-- List | Board view toggle -->
@@ -527,7 +539,7 @@
           </div>
           <button
             type="button"
-            class={PAGE_ICON_BTN}
+            class="flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             onclick={refresh}
             disabled={!cwd || !configReady || store.loading}
             aria-label="Refresh tasks"
@@ -541,7 +553,7 @@
           {#if canCreate}
             <button
               type="button"
-              class={PAGE_PRIMARY_BTN}
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3 text-[12.5px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
               onclick={() => (composing = { parentId: undefined })}
             >
               <PlusIcon size={13} weight="bold" />

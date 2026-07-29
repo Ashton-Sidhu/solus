@@ -13,6 +13,7 @@
     getVoiceModelStore,
     getWindowContext,
     runtime,
+    savedPrompts,
   } from "../../contexts";
   import type {
     PlanReference,
@@ -20,10 +21,11 @@
     WorkReference,
     SessionReference,
   } from "../../../shared/types";
-  import { isSteerableStatus } from "../../../shared/types";
+  import { isSteerableStatus, worktreeProjectRoot } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import AttachmentChips from "./AttachmentChips.svelte";
+  import SavedPromptsControl from "./SavedPromptsControl.svelte";
   import { SLASH_COMMANDS, type SlashCommand } from "./slash-commands";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
@@ -91,6 +93,14 @@
       sess?.workingDirectory ??
       statusBar.ctxFor(targetTabId).workingDirectory,
   );
+  // Saved prompts file under the project, not the worktree, so a prompt written
+  // in one worktree is there in its siblings and in the main checkout.
+  const composerProjectRoot = $derived(
+    sess?.gitContext?.repoRoot ??
+      (composerCwd && composerCwd !== "~"
+        ? worktreeProjectRoot(composerCwd)
+        : null),
+  );
 
   // ─── Prompt history ───
 
@@ -136,6 +146,8 @@
   });
   const editorValue = $derived(isActiveMode ? input.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
+  /** The composer card — the saved-prompts sheet matches its width. */
+  let composerRootEl = $state<HTMLElement | null>(null);
 
   // Skill commands, used only to strip a mobile-autocorrect duplication on send.
   const providerSkills = $derived(
@@ -671,6 +683,14 @@
     if (mode === "pill") {
       session.isExpanded = true;
     }
+    // A saved prompt that has now been sent has served its purpose. This is the
+    // one composer send funnel, and the draft is already gone by here, so the
+    // paths where sendMessage bails have lost the draft either way.
+    const sentSavedPromptId = input.savedPromptId;
+    input.savedPromptId = null;
+    if (sentSavedPromptId && composerProjectRoot) {
+      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
+    }
     session.sendMessage(
       prompt || "See attached files",
       undefined,
@@ -802,6 +822,7 @@
 </script>
 
 <div
+  bind:this={composerRootEl}
   class="flex flex-col w-full relative"
   style="contain:layout paint"
   onfocusin={() => claimVoice(true)}
@@ -902,6 +923,17 @@
 </div>
 
 {#snippet actionButtons()}
+  {#if !isMobile}
+    <SavedPromptsControl
+      tabId={targetTabId}
+      projectRoot={composerProjectRoot}
+      active={isActiveMode && receivesFocusedInput}
+      {isReadOnly}
+      anchorEl={composerRootEl}
+      onClearEditor={() => composerEl?.clearEditor()}
+      onRefocus={refocusComposer}
+    />
+  {/if}
   {#if isBusy && (isMobile || !isPrimary)}
     {@render stopButton()}
   {/if}
@@ -967,7 +999,7 @@
       onclick={() => handleSend()}
       data-testid="send-button"
       aria-label={canSteer ? "Steer the live turn" : "Send message"}
-      class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform] duration-150 active:scale-[0.96] hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)]"
+      class="flex size-8 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.96]"
     >
       {#if canSteer}
         <ArrowBendDownRightIcon size={16} weight="bold" />

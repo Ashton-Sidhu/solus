@@ -2,14 +2,22 @@
   import { CaretDownIcon } from "phosphor-svelte";
   import * as DropdownMenu from "./dropdown-menu";
   import { PAGE_GHOST_BTN } from "../../lib/page-chrome";
+  import { cn } from "@renderer/lib/utils.js";
 
   /** Borderless sort trigger + listbox dropdown for command bars. */
   interface Props {
     options: { value: T; label: string }[];
     value: T;
     ariaLabel?: string;
+    /** Overrides on the trigger — e.g. the PR bar's filled 32px form. */
+    class?: string;
   }
-  let { options, value = $bindable(), ariaLabel = "Sort" }: Props = $props();
+  let {
+    options,
+    value = $bindable(),
+    ariaLabel = "Sort",
+    class: className,
+  }: Props = $props();
 
   let open = $state(false);
   const label = $derived(options.find((o) => o.value === value)?.label ?? "");
@@ -22,7 +30,11 @@
         <button
           {...props}
           type="button"
-          class="{PAGE_GHOST_BTN} px-2 py-1 [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-2.5"
+          class={cn(
+            PAGE_GHOST_BTN,
+            "px-2 py-1 [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-2.5",
+            className,
+          )}
           aria-label={ariaLabel}
         >
           <span>{label}</span>

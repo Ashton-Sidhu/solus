@@ -248,7 +248,6 @@
           target,
           props: {
             comment: annotation.metadata.comment,
-            variant: "minimal" as const,
             onEdit: handleEditComment,
             onDelete: handleDeleteComment,
           },

@@ -280,7 +280,7 @@
         onclick={() => (collapsed = true)}
         aria-label="Collapse composer"
         aria-expanded="true"
-        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color] duration-150 hover:bg-(--solus-surface-hover)"
       >
         <CaretDownIcon size={16} weight="bold" />
       </button>
@@ -333,7 +333,7 @@
           onclick={handleSubmit}
           disabled={!canSend}
           aria-label="Send"
-          class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.94] disabled:active:scale-100"
+          class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.96] disabled:active:scale-100"
           style="opacity:{canSend ? 1 : 0.4};cursor:{canSend ? 'pointer' : 'default'}"
         >
           <ArrowUpIcon size={16} weight="bold" />

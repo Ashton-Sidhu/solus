@@ -6,7 +6,13 @@
     getSessionEnvironmentStore,
     toasts,
   } from "../../contexts";
-  import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import {
+    isProjectRailOpen,
+    PROJECT_RAIL_MAX_WIDTH,
+    PROJECT_RAIL_MIN_WIDTH,
+    projectRailWidth,
+  } from "./lib/rail-width";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -30,10 +36,23 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   interface Props {
-    open?: boolean;
-    managedWidth?: boolean;
+    /** The conversation this rail describes — it lives inside that view. */
+    tabId: string;
+    /** Which pane hosts this rail. Every piece of the rail's view state — open,
+     *  and which sections are collapsed — is stored per slot, so adjusting the
+     *  split chat's rail never moves the primary's. */
+    slot: PaneSlot;
+    /** Width of the hosting conversation view; the rail scales against it. */
+    containerWidth: number;
+    /** Temporarily minimize without changing the slot's persisted preference. */
+    minimized?: boolean;
   }
-  let { open = true, managedWidth = false }: Props = $props();
+  let {
+    tabId: panelTabId,
+    slot,
+    containerWidth,
+    minimized = false,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -45,11 +64,27 @@
     if (!outerScrollbar || !sectionsElement) return;
     return outerScrollbar.register(sectionsElement);
   });
-  const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
 
-  const panelTabId = $derived(
-    session.focusedChatTabId ?? session.activeTabId,
+  // Both rails render the same component, so every piece of their view state is
+  // stored per slot. Reading it through one pair of deriveds is what keeps a
+  // split chat's rail from moving the primary's when either is adjusted.
+  const isSplit = $derived(slot === "secondary");
+  const preferOpen = $derived(
+    isSplit ? settings.splitProjectPanelOpen : settings.projectPanelOpen,
   );
+  const collapsedSections = $derived(
+    isSplit
+      ? settings.splitProjectPanelCollapsed
+      : settings.projectPanelCollapsed,
+  );
+
+  // The slot owns the preference; this owns whether the current layout can
+  // honour it. Temporary minimization leaves that preference intact, so the
+  // rail returns when the secondary panel closes.
+  const open = $derived(
+    isProjectRailOpen(preferOpen, containerWidth, minimized),
+  );
+
   const panelSession = $derived(session.sessionFor(panelTabId));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelTabId));
   const cwd = $derived(
@@ -59,7 +94,6 @@
     panelEnvironment.checkout,
   );
   const gitCwd = $derived(panelEnvironment.cwd);
-  const isSplitScope = $derived(panelTabId !== session.activeTabId);
 
   // Works the focused session created or updated — derived from the same messages
   // that drive the conversation, so it's correct live and after a history reload.
@@ -107,19 +141,39 @@
     if (cwd) void session.worksStore.loadAll(cwd);
   });
 
+  // A split chat mounts a second rail, so both instances register these ids and
+  // the dispatcher fires only the first enabled handler. Each rail arms its
+  // bindings solely while its own conversation holds focus, so the shortcut acts
+  // on the chat the user is actually in rather than always the primary one.
+  const focused = $derived(
+    (session.focusedChatTabId ?? session.activeTabId) === panelTabId,
+  );
+
   // Registered here (not in GitSection) so the shortcuts keep working while
   // the Git section is collapsed and unmounted.
-  useKeybinding("orb.sync", () => {
-    if (gitCtx) void gitActionsFor(panelTabId, session, environmentStore).sync();
-  });
-  useKeybinding("orb.commit-push", () => {
-    if (gitCtx)
-      void gitActionsFor(panelTabId, session, environmentStore).commitPush();
-  });
+  useKeybinding(
+    "orb.sync",
+    () => {
+      if (gitCtx) void gitActionsFor(panelTabId, session, environmentStore).sync();
+    },
+    { enabled: () => focused },
+  );
+  useKeybinding(
+    "orb.commit-push",
+    () => {
+      if (gitCtx)
+        void gitActionsFor(panelTabId, session, environmentStore).commitPush();
+    },
+    { enabled: () => focused },
+  );
 
   function toggleSection(id: ProjectPanelSectionId) {
-    settings.projectPanelCollapsed[id] = !settings.projectPanelCollapsed[id];
-    settings.update({ projectPanelCollapsed: settings.projectPanelCollapsed });
+    collapsedSections[id] = !collapsedSections[id];
+    settings.update(
+      isSplit
+        ? { splitProjectPanelCollapsed: collapsedSections }
+        : { projectPanelCollapsed: collapsedSections },
+    );
   }
 
   type RefreshState = "idle" | "spinning" | "success" | "error";
@@ -247,23 +301,13 @@
   </span>
 {/snippet}
 
-{#snippet panelHeaderActions()}
-  <span
-    class="inline-flex h-4 items-center rounded-full bg-(--solus-surface-hover) px-1.5 text-[0.5625rem] font-semibold tracking-[0.04em] text-(--solus-text-tertiary) uppercase"
-    aria-label="Project panel scoped to split pane"
-  >
-    Split
-  </span>
-{/snippet}
-
 <SidePanel
   side="right"
   {open}
-  {managedWidth}
   flush
-  minWidth={240}
-  maxWidth={maxProjectPanelWidth}
-  headerActions={isSplitScope ? panelHeaderActions : undefined}
+  width={projectRailWidth(containerWidth)}
+  minWidth={PROJECT_RAIL_MIN_WIDTH}
+  maxWidth={PROJECT_RAIL_MAX_WIDTH}
   background="var(--solus-container-bg)"
 >
   <div
@@ -273,7 +317,7 @@
   >
     <PanelSection
       title="Environment"
-      collapsed={settings.projectPanelCollapsed.git}
+      collapsed={collapsedSections.git}
       onToggle={() => toggleSection("git")}
       headerExtra={gitHeaderExtra}
     >
@@ -282,7 +326,7 @@
     {#if sessionWorkItems.length > 0}
       <PanelSection
         title="Works"
-        collapsed={settings.projectPanelCollapsed.works}
+        collapsed={collapsedSections.works}
         onToggle={() => toggleSection("works")}
       >
         <WorksSection items={sessionWorkItems} />
@@ -291,7 +335,7 @@
     {#if automationBoard.total > 0}
       <PanelSection
         title="Automations"
-        collapsed={settings.projectPanelCollapsed.automations}
+        collapsed={collapsedSections.automations}
         onToggle={() => toggleSection("automations")}
         headerExtra={automationsHeaderExtra}
       >
@@ -300,7 +344,7 @@
     {/if}
     <PanelSection
       title="Tasks"
-      collapsed={settings.projectPanelCollapsed.tasks}
+      collapsed={collapsedSections.tasks}
       onToggle={() => toggleSection("tasks")}
       headerExtra={tasksHeaderExtra}
     >

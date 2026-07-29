@@ -31,10 +31,12 @@ test.describe('Diagram editing — add node', () => {
     const toolbar = shell.locator('[role="toolbar"][aria-label="Canvas controls"]')
     await toolbar.getByRole('button', { name: 'Add node' }).click()
 
-    // Node count grows, the new node is selected, and its details drawer opens
+    // Node count grows immediately (without a type-picker popover), the new node
+    // is selected, and its focused name field is ready for free-form input.
     await expect(nodes).toHaveCount(before + 1)
     await expect(shell.locator('.svelte-flow__node.selected')).toHaveCount(1)
     await expect(shell.locator('.diagram-drawer')).toBeVisible({ timeout: 2_000 })
+    await expect(shell.locator('.inspector-name-input')).toBeFocused()
   })
 })
 

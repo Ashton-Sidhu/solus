@@ -10,9 +10,9 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { Glob } from 'bun'
-import { cn } from './utils'
+import { cn } from '../../src/renderer/lib/utils'
 
-const RENDERER = join(import.meta.dir, '..')
+const RENDERER = join(import.meta.dir, '../../src/renderer')
 const indexCss = await Bun.file(join(RENDERER, 'index.css')).text()
 
 /** Body of every `@theme`/`@utility` block, brace-matched so nested `@keyframes` don't end it early. */

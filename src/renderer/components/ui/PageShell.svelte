@@ -22,9 +22,14 @@
     leading?: Snippet;
     /** Floating chrome pinned to the top-right corner, before the panel expand. */
     trailing?: Snippet;
+    /** Replaces (not merges with) the content column's measure + padding for
+     *  pages whose design specifies its own — the default carries breakpoint
+     *  `max-w-*` variants, which are their own tailwind-merge groups and would
+     *  survive an override. */
+    contentClass?: string;
     children: Snippet;
   }
-  let { onClose, leading, trailing, children }: Props = $props();
+  let { onClose, leading, trailing, contentClass, children }: Props = $props();
   const outerScrollbar = getOuterScrollbarContext();
   let scrollElement = $state<HTMLDivElement | null>(null);
 
@@ -59,7 +64,8 @@
   class:outer-scroll-source={!!outerScrollbar}
 >
   <div
-    class="mx-auto w-full max-w-[72rem] px-8 pb-12 pt-10 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[44rem]:pt-9 @max-[34rem]:px-4"
+    class={contentClass ??
+      "mx-auto w-full max-w-[72rem] px-8 pb-12 pt-10 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[44rem]:pt-9 @max-[34rem]:px-4"}
   >
     {@render children()}
   </div>

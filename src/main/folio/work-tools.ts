@@ -143,18 +143,25 @@ export async function executeWorkTool(
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const work = await loadWork(workId, deps.ctx?.cwd)
       if (!work) return { ok: false, text: `No work found with id "${workId}".` }
-      // Surface the user's comments alongside the content so the agent sees
+      // Surface the user's open threads alongside the content so the agent sees
       // feedback without the user having to paste it into chat. Diagram
       // comments carry the anchored node id; use it to target the revision.
+      // Resolved threads are left out — they have already been dealt with, and
+      // re-serving them reads as a fresh request.
       const annotations = await loadWorkAnnotations(workId)
       let commentsBlock = ''
-      if (annotations?.comments?.length) {
-        const lines = annotations.comments.map((c) =>
-          c.nodeId
+      const openComments = (annotations?.comments ?? []).filter((c) => !c.resolvedAt)
+      if (openComments.length) {
+        const lines = openComments.map((c) => {
+          const head = c.nodeId
             ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
-            : `- On "${c.selectedText}": ${c.comment}`,
-        )
-        commentsBlock = `\n\nUser comments on this work (${lines.length}) — address them when revising:\n${lines.join('\n')}`
+            : `- On "${c.selectedText}": ${c.comment}`
+          const replies = (c.replies ?? []).map(
+            (r) => `  - ${r.author === 'solus' ? 'Solus' : 'User'}: ${r.text}`,
+          )
+          return [head, ...replies].join('\n')
+        })
+        commentsBlock = `\n\nOpen user threads on this work (${lines.length}) — address them when revising:\n${lines.join('\n')}`
       }
       return {
         ok: true,

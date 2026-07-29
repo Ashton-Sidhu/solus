@@ -345,6 +345,20 @@ export interface Attachment {
   designData?: DesignModeSelection
 }
 
+/**
+ * A composer draft parked for later: the prompt text plus its attachments,
+ * scoped to one project. Restoring drops both into the current tab's composer;
+ * sending the restored draft deletes the saved prompt.
+ */
+export interface SavedPrompt {
+  id: string
+  /** Repo root, or the working directory when the composer isn't in a checkout. */
+  projectRoot: string
+  text: string
+  attachments: Attachment[]
+  createdAt: number
+}
+
 export interface DesignAnnotation {
   id: string
   type: 'rectangle' | 'arrow' | 'pin' | 'text'
@@ -396,6 +410,12 @@ export interface InputState {
   planRefs: PlanReference[]
   workRefs: WorkReference[]
   sessionRefs: SessionReference[]
+  /**
+   * Set when this draft was restored from a saved prompt. Sending the draft
+   * deletes that saved prompt; emptying the composer, restoring a different one,
+   * or saving a new draft breaks the link. Editing the text keeps it.
+   */
+  savedPromptId: string | null
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -529,6 +549,18 @@ export interface SessionProgress {
   totalSteps: number
 }
 
+/** Who wrote a thread message. Absent on anything written before threads had
+ *  authors, which is why every read goes through `commentAuthor()`. */
+export type CommentAuthor = 'you' | 'solus'
+
+export interface PlanCommentReply {
+  id: string
+  author: CommentAuthor
+  text: string
+  /** Epoch ms. */
+  createdAt: number
+}
+
 export interface PlanComment {
   id: string
   /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
@@ -537,6 +569,18 @@ export interface PlanComment {
   textOffset?: number
   /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
   nodeId?: string
+  /** For diagram works: id of the edge this comment is anchored to. Mutually exclusive with nodeId. */
+  edgeId?: string
+  /** Absent = 'you' — every comment written before threads had authors. */
+  author?: CommentAuthor
+  /** Epoch ms. Absent on pre-existing comments, which render without a time. */
+  createdAt?: number
+  /** Epoch ms the thread was resolved. Absent = open. */
+  resolvedAt?: number
+  resolvedBy?: CommentAuthor
+  replies?: PlanCommentReply[]
+  /** Epoch ms the thread was last read. A Solus message newer than this is unread. */
+  readAt?: number
 }
 
 export interface DiffComment {

@@ -125,7 +125,7 @@
     <div class="flex items-center gap-1 min-w-0 shrink desktop-only">
       <GitBranchIcon
         size={10}
-        class="text-(--solus-text-tertiary) flex-shrink-0"
+        class="text-(--solus-accent) flex-shrink-0"
         weight="bold"
       />
       {#if mode === "working-tree"}
@@ -160,16 +160,21 @@
 
     {#if headerStats}
       <!-- Stats are passive text. Navigation lives in the dedicated jump
-           controls on the right (the old clickable stats read as plain text). -->
-      <div class="diff-stats" style="font-variant-numeric:tabular-nums">
-        <span class="text-(--solus-text-tertiary)">
-          {headerStats.files}
-          {headerStats.files === 1 ? "file" : "files"}
-        </span>
-        <span style="color:var(--solus-status-complete)" class="font-medium"
+           controls on the right (the old clickable stats read as plain text).
+           The counts use the same sage/red as the diff rows themselves, so the
+           header summary and the stream read as one palette. -->
+      <span
+        class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 py-px text-[0.5625rem] text-(--solus-text-tertiary)"
+        style="font-family:{MONO_FONT}"
+      >
+        {headerStats.files}
+        {headerStats.files === 1 ? "file" : "files"}
+      </span>
+      <div class="diff-stats" style="font-family:{MONO_FONT}">
+        <span style="color:var(--solus-art-3)" class="font-medium"
           >+{headerStats.additions}</span
         >
-        <span style="color:var(--solus-status-error)" class="font-medium"
+        <span style="color:var(--solus-stop-bg)" class="font-medium"
           >−{headerStats.deletions}</span
         >
       </div>
@@ -348,21 +353,68 @@
       </Button>
     {/if}
 
+    <!-- Layout choice leads the control cluster: it is the one setting that
+         changes how the whole stream reads, so it sits ahead of the icon
+         actions. Desktop gets an explicit segmented control so the active
+         layout is legible without hovering for a tooltip. Below 768px the two
+         labels don't fit beside the rest of the strip, so the icon toggle
+         stands in. -->
+    <div class="view-toggle desktop-only" role="group" aria-label="Diff layout">
+      <button
+        type="button"
+        class="view-toggle-btn"
+        class:is-active={diffStyle === "unified"}
+        onclick={() => onSetStyle("unified")}
+        aria-pressed={diffStyle === "unified"}
+      >
+        Unified
+      </button>
+      <button
+        type="button"
+        class="view-toggle-btn"
+        class:is-active={diffStyle === "split"}
+        onclick={() => onSetStyle("split")}
+        aria-pressed={diffStyle === "split"}
+      >
+        Split
+      </button>
+    </div>
+
+    <span class="mobile-only">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        type="button"
+        onclick={() => onSetStyle(diffStyle === "split" ? "unified" : "split")}
+        aria-label={diffStyle === "split"
+          ? "Switch to unified view"
+          : "Switch to split view"}
+        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {diffStyle === 'split'
+          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
+          : 'text-(--solus-text-tertiary)'}"
+      >
+        <ColumnsIcon
+          size={14}
+          weight={diffStyle === "split" ? "fill" : "regular"}
+        />
+      </Button>
+    </span>
+
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <span {...tooltipProps} class="inline-flex">
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         type="button"
         onclick={onRefresh}
         disabled={refreshing}
         aria-label="Refresh diff"
-        class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 text-(--solus-text-tertiary) pointer-coarse:size-10"
       >
         <span class="flex" class:refresh-spin={refreshing}>
-          <ArrowClockwiseIcon size={12} weight="bold" />
+          <ArrowClockwiseIcon size={14} weight="bold" />
         </span>
       </Button>
     </span>
@@ -380,16 +432,16 @@
       >
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           type="button"
           onclick={onToggleCollapseAll}
           aria-label={allCollapsed ? "Expand all files" : "Collapse all files"}
-          class="rounded [&_svg:not([class*='size-'])]:size-3 text-(--solus-text-tertiary) pointer-coarse:size-10"
+          class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 text-(--solus-text-tertiary) pointer-coarse:size-10"
         >
           {#if allCollapsed}
-            <ArrowsOutLineVerticalIcon size={12} weight="bold" />
+            <ArrowsOutLineVerticalIcon size={14} weight="bold" />
           {:else}
-            <ArrowsInLineVerticalIcon size={12} weight="bold" />
+            <ArrowsInLineVerticalIcon size={14} weight="bold" />
           {/if}
         </Button>
       </span>
@@ -408,15 +460,15 @@
       >
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           type="button"
           onclick={onToggleTree}
           aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-          class="rounded [&_svg:not([class*='size-'])]:size-3 pointer-coarse:size-10 {!treeCollapsed
+          class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {!treeCollapsed
             ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
             : 'text-(--solus-text-tertiary)'}"
         >
-          <SidebarSimpleIcon size={11} weight="bold" />
+          <SidebarSimpleIcon size={14} weight="bold" />
         </Button>
       </span>
           {/snippet}
@@ -431,54 +483,23 @@
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <span {...tooltipProps}
-      class="inline-flex"
-    >
-      <Button
-        variant="ghost"
-        size="icon"
-        type="button"
-        onclick={() => onSetStyle(diffStyle === "split" ? "unified" : "split")}
-        aria-label={diffStyle === "split"
-          ? "Switch to unified view"
-          : "Switch to split view"}
-        class="rounded [&_svg:not([class*='size-'])]:size-3 pointer-coarse:size-10 {diffStyle === 'split'
-          ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
-          : 'text-(--solus-text-tertiary)'}"
-      >
-        <ColumnsIcon
-          size={12}
-          weight={diffStyle === "split" ? "fill" : "regular"}
-        />
-      </Button>
-    </span>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={diffStyle === "split"
-        ? "Unified view (⌥V)"
-        : "Split view (⌥V)"} />
-    </TooltipUI.Root>
-
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <span {...tooltipProps}
       class="desktop-only"
     >
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         type="button"
         onclick={onToggleTokenHighlight}
         aria-label={tokenHighlight
           ? "Disable token highlighting"
           : "Enable token highlighting"}
         aria-pressed={tokenHighlight}
-        class="rounded [&_svg:not([class*='size-'])]:size-3 pointer-coarse:size-10 {tokenHighlight
+        class="rounded-lg [&_svg:not([class*='size-'])]:size-3.5 pointer-coarse:size-10 {tokenHighlight
           ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent)'
           : 'text-(--solus-text-tertiary)'}"
       >
         <HighlighterIcon
-          size={12}
+          size={14}
           weight={tokenHighlight ? "fill" : "regular"}
         />
       </Button>
@@ -497,22 +518,22 @@
             <span {...tooltipProps}
         class="inline-flex"
       >
+        <!-- Pending comments are the one piece of unsent work in this pane, so the
+             accent wash is persistent rather than hover/open-only. -->
         <Button
           bind:ref={commentsBtn}
           variant="ghost"
           size="default"
           type="button"
           onclick={onToggleComments}
-          class="rounded [&_svg:not([class*='size-'])]:size-3 gap-1 px-1 text-(--solus-accent) hover:text-(--solus-accent) pointer-coarse:h-10 {commentsOpen
-            ? 'bg-(--solus-accent-light) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light)'
-            : ''}"
+          class="h-7 rounded-lg [&_svg:not([class*='size-'])]:size-3.5 gap-1.5 px-2 bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-light) dark:hover:bg-(--solus-accent-light) hover:text-(--solus-accent) pointer-coarse:h-10"
           aria-haspopup="dialog"
           aria-expanded={commentsOpen}
         >
-          <ChatCircleTextIcon size={12} weight="fill" />
+          <ChatCircleTextIcon size={14} weight="fill" />
           <span
-            style="font-size:var(--solus-font-ui-sm);font-variant-numeric:tabular-nums"
-            class="font-semibold"
+            style="font-family:{MONO_FONT};font-size:var(--solus-font-ui-sm)"
+            class="font-semibold tabular-nums"
           >
             {commentsCount}
           </span>
@@ -528,17 +549,24 @@
 </div>
 
 <style>
-  /* A borderless control strip sitting on the diff surface — not a chrome row.
-     Left padding clears the macOS traffic lights when the strip is the leftmost
-     chrome (maximized diff pane); the right gutter clears the pane's floating
-     chrome cluster. Both collapse to the base 0.75rem otherwise. */
+  /* A control strip sitting on the diff surface. Left padding clears the macOS
+     traffic lights when the strip is the leftmost chrome (maximized diff pane);
+     the right gutter clears the pane's floating chrome cluster. Both collapse to
+     the base 0.75rem otherwise. The hairline underneath separates the strip from
+     the now-flat code surface, which no longer has washes of its own to divide
+     the two. */
+  /* Height is the workspace chrome row, not intrinsic content — the diff pane
+     sits beside the tab strip and the two top rows have to share a baseline.
+     Same token TabStrip.css and SidePanel.svelte use. */
   .diff-toolbar {
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    padding-block: 0.4375rem;
+    min-height: var(--solus-chrome-row-h, 2.5rem);
+    padding-block: 0;
     padding-right: max(0.75rem, var(--solus-pane-chrome-inset, 0px));
     padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px));
+    border-bottom: 0.0625rem solid var(--solus-container-border);
     flex-shrink: 0;
   }
 
@@ -546,7 +574,7 @@
     .diff-toolbar {
       gap: 0.5rem;
       padding-left: 0.5rem;
-      padding-top: max(0.4375rem, env(safe-area-inset-top, 0));
+      padding-top: env(safe-area-inset-top, 0);
     }
   }
 
@@ -576,9 +604,16 @@
     display: flex;
   }
 
+  .mobile-only {
+    display: none;
+  }
+
   @media (max-width: 767px) {
     .desktop-only {
       display: none !important;
+    }
+    .mobile-only {
+      display: inline-flex;
     }
   }
 
@@ -587,7 +622,50 @@
     align-items: baseline;
     gap: 0.375rem;
     font-size: var(--solus-font-ui-sm);
+    font-variant-numeric: tabular-nums;
     flex-shrink: 0;
+  }
+
+  /* Segmented unified/split control. Sized to the icon actions beside it (1.75rem)
+     so the whole right-hand cluster sits on one optical line. */
+  .view-toggle {
+    align-items: center;
+    height: 1.75rem;
+    padding: 0.125rem;
+    border-radius: 0.5rem;
+    background: var(--solus-surface-hover);
+    /* Reads as its own control, not the head of the icon run beside it. */
+    margin-right: 0.375rem;
+    flex-shrink: 0;
+  }
+  .view-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 0.625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    font-size: 0.71875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background-color 120ms ease;
+  }
+  .view-toggle-btn:hover {
+    color: var(--solus-text-secondary);
+  }
+  .view-toggle-btn.is-active {
+    background: var(--solus-container-bg);
+    color: var(--solus-text-primary);
+    box-shadow: 0 0.0625rem 0.125rem rgba(0, 0, 0, 0.07);
+  }
+  .view-toggle-btn:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.0625rem;
   }
 
   .refresh-spin {

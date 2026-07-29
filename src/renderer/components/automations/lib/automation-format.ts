@@ -131,6 +131,50 @@ export function triggerSummary(trigger: AutomationTrigger): string {
   }
 }
 
+/** The compact rhythm mark for the list row's leading tile — the automation's
+ *  cadence at a glance, never its status. `manual` and `expr` have no honest
+ *  short form, so the row draws a glyph for those instead of text. */
+export type CadenceMark =
+  | { kind: 'text'; text: string }
+  | { kind: 'manual' }
+  | { kind: 'expr' }
+
+/** Hour of day as a 2-3 character mark: "9a", "12p", "11p". Minutes are dropped
+ *  on purpose — the exact time is spelled out beside the row. */
+function hourMark(hh: number): string {
+  const h12 = hh % 12 === 0 ? 12 : hh % 12
+  return `${h12}${hh < 12 ? 'a' : 'p'}`
+}
+
+export function cadenceMark(trigger: AutomationTrigger): CadenceMark {
+  switch (trigger.type) {
+    case 'manual':
+      return { kind: 'manual' }
+    case 'once': {
+      const d = new Date(trigger.runAt)
+      // A slash keeps a one-off date from reading as a day-of-month mark.
+      return Number.isNaN(d.getTime())
+        ? { kind: 'expr' }
+        : { kind: 'text', text: `${d.getMonth() + 1}/${d.getDate()}` }
+    }
+    case 'interval': {
+      const { value, unit } = intervalParts(trigger.everyMinutes)
+      return { kind: 'text', text: `${value}${unit[0]}` }
+    }
+    case 'cron': {
+      const f = parseSimpleCron(trigger.expr)
+      if (!f || f.mon !== '*') return { kind: 'expr' }
+      if (f.dom === '*' && f.dow === '*') return { kind: 'text', text: hourMark(f.hh) }
+      if (f.dom === '*' && /^[0-6]$/.test(f.dow)) {
+        const short = WEEKDAYS.find((w) => w.value === Number(f.dow))?.short
+        return short ? { kind: 'text', text: short } : { kind: 'expr' }
+      }
+      if (/^\d+$/.test(f.dom) && f.dow === '*') return { kind: 'text', text: ordinal(Number(f.dom)) }
+      return { kind: 'expr' }
+    }
+  }
+}
+
 /** The next `count` fire instants of a draft trigger, for the builder's schedule
  *  preview. Returns null for an invalid cron expression (doubling as instant
  *  client-side validation), and [] for triggers with nothing to preview
@@ -157,6 +201,14 @@ export function nextOccurrences(trigger: AutomationTrigger, count: number, from 
   }
 }
 
+/** Whole calendar days from today to `d` — 0 today, 1 tomorrow, -1 yesterday. */
+function dayOffset(d: Date, nowMs: number): number {
+  const now = new Date(nowMs)
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  return Math.round((startOfDay - startOfToday) / 86_400_000)
+}
+
 /** Absolute, human-friendly instant for the detail view's Status block, e.g.
  *  "Today at 10:28 PM", "Tomorrow at 9:00 AM", "Friday at 2:27 AM", "Mar 4 at …".
  *  Used where relativeTime reads too vaguely (next/last run timestamps).
@@ -166,15 +218,44 @@ export function absoluteTime(iso: string | undefined, nowMs = Date.now()): strin
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const now = new Date(nowMs)
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-  const dayDiff = Math.round((startOfDay - startOfToday) / 86_400_000)
+  const dayDiff = dayOffset(d, nowMs)
   if (dayDiff === 0) return `Today at ${time}`
   if (dayDiff === 1) return `Tomorrow at ${time}`
   if (dayDiff === -1) return `Yesterday at ${time}`
   if (dayDiff > 1 && dayDiff < 7) return `${d.toLocaleDateString([], { weekday: 'long' })} at ${time}`
   return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${time}`
+}
+
+/** The calendar day of an instant on its own — "Today", "Yesterday", "Friday",
+ *  "Jul 21". For lines that pair a day with an outcome ("Yesterday · finished in
+ *  23s"), where the clock time would crowd the sentence out. */
+export function dayLabel(iso: string | undefined, nowMs = Date.now()): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const dayDiff = dayOffset(d, nowMs)
+  if (dayDiff === 0) return 'Today'
+  if (dayDiff === 1) return 'Tomorrow'
+  if (dayDiff === -1) return 'Yesterday'
+  if (dayDiff < 0 && dayDiff > -7) return d.toLocaleDateString([], { weekday: 'long' })
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+/** Time left until a future instant, as a compact two-unit countdown: "4h 12m",
+ *  "12m", "2d 3h". Empty once the instant has passed — a countdown that has run
+ *  out is not news, the next scheduled time is. */
+export function countdown(iso: string | undefined, nowMs = Date.now()): string {
+  if (!iso) return ''
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const mins = Math.floor((t - nowMs) / 60_000)
+  if (mins < 0) return ''
+  if (mins < 1) return 'under a minute'
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return mins % 60 ? `${hours}h ${mins % 60}m` : `${hours}h`
+  const days = Math.floor(hours / 24)
+  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`
 }
 
 /** Compact calendar date a run started on, e.g. "Jun 25". Empty for a bad date. */
@@ -185,12 +266,19 @@ export function runDate(iso: string | undefined): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+/** Wall-clock milliseconds a finished run took, or null while it's still in
+ *  flight (or its timestamps don't make sense). */
+export function runDurationMs(run: { startedAt: string; finishedAt?: string }): number | null {
+  if (!run.finishedAt) return null
+  const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
+  return Number.isFinite(ms) && ms >= 0 ? ms : null
+}
+
 /** Compact wall-clock duration of a finished run, e.g. "45s", "3m", "1h 2m".
  *  Empty while the run is still in flight (no finishedAt). */
 export function runDuration(run: { startedAt: string; finishedAt?: string }): string {
-  if (!run.finishedAt) return ''
-  const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
-  if (!Number.isFinite(ms) || ms < 0) return ''
+  const ms = runDurationMs(run)
+  if (ms === null) return ''
   const secs = Math.round(ms / 1000)
   if (secs < 60) return `${secs}s`
   const mins = Math.round(secs / 60)
@@ -200,12 +288,13 @@ export function runDuration(run: { startedAt: string; finishedAt?: string }): st
   return rem ? `${hrs}h ${rem}m` : `${hrs}h`
 }
 
-/** Relative time for both past (last run) and future (next run). */
-export function relativeTime(iso: string | undefined): string {
+/** Relative time for both past (last run) and future (next run). `nowMs` is
+ *  injectable so callers on a ticker re-derive as time passes. */
+export function relativeTime(iso: string | undefined, nowMs = Date.now()): string {
   if (!iso) return ''
   const t = new Date(iso).getTime()
   if (Number.isNaN(t)) return ''
-  const diff = t - Date.now()
+  const diff = t - nowMs
   const future = diff > 0
   const mins = Math.round(Math.abs(diff) / 60000)
   let body: string
@@ -240,6 +329,36 @@ export const INTERVAL_UNIT_MINUTES: Record<'minutes' | 'hours' | 'days', number>
   minutes: 1,
   hours: 60,
   days: 1440,
+}
+
+/** One bar of the detail view's health sparkline: how long that run took
+ *  relative to the longest in the window, plus the two states it's coloured by. */
+export type HealthBar = { id: string; heightPct: number; failed: boolean; latest: boolean }
+
+/** How many runs the sparkline looks back over — wide enough to show a rhythm,
+ *  narrow enough that one bad run still reads as one bad run. */
+const HEALTH_WINDOW = 17
+/** A run that did what it was asked. `dispatched` counts: the chat thread it was
+ *  handed to owns the outcome from there. */
+const CLEAN_STATUSES: AutomationRunStatus[] = ['succeeded', 'dispatched']
+
+/** The recent runs as a duration sparkline (oldest → newest) plus how many of
+ *  them came back clean — the automation's reliability at a glance. `runs` is
+ *  newest-first, the order the store keeps them in. */
+export function runHealth(runs: AutomationRun[]): { bars: HealthBar[]; clean: number; total: number } {
+  const recent = runs.slice(0, HEALTH_WINDOW).reverse()
+  const longest = recent.reduce((max, r) => Math.max(max, runDurationMs(r) ?? 0), 0)
+  return {
+    bars: recent.map((r, i) => ({
+      id: r.id,
+      // Floored so a sub-second run still reads as a bar rather than a gap.
+      heightPct: Math.max(18, longest > 0 ? Math.round(((runDurationMs(r) ?? 0) / longest) * 100) : 18),
+      failed: r.status === 'failed',
+      latest: i === recent.length - 1,
+    })),
+    clean: recent.filter((r) => CLEAN_STATUSES.includes(r.status)).length,
+    total: recent.length,
+  }
 }
 
 export const RUN_STATUS_META: Record<

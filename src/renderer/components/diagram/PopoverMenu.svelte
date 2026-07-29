@@ -8,16 +8,13 @@
     minWidth?: string | number;
     // The trigger button's inner icon.
     icon: Snippet;
-    // Menu items. Receives a `close` callback so an item can dismiss the menu.
-    children: Snippet<[() => void]>;
+    // Menu items. Callers compose the shared dropdown primitives directly.
+    children: Snippet;
   }
 
   let { title, ariaLabel, minWidth = "9rem", icon, children }: Props = $props();
 
   let open = $state(false);
-  function close() {
-    open = false;
-  }
 </script>
 
 <div class="popover">
@@ -29,10 +26,8 @@
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content side="bottom" align="start" sideOffset={6} style={`min-width:${typeof minWidth === "number" ? `${minWidth}px` : minWidth}`}>
-    <div class="popover__menu" role="menu">
-      {@render children(close)}
-    </div>
+    <DropdownMenu.Content side="top" align="start" sideOffset={6} collisionPadding={8} class="w-auto" style={`min-width:${typeof minWidth === "number" ? `${minWidth}px` : minWidth}`}>
+      {@render children()}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 </div>
@@ -45,42 +40,5 @@
   .popover__btn--active {
     background: var(--solus-accent-light);
     color: var(--solus-text-primary);
-  }
-
-  .popover__menu {
-    padding: 0.25rem;
-  }
-
-  /* Item + divider primitives — rendered inside slotted menu content, so they're
-     declared :global to be the single source for both menus. */
-  :global(.popover__item) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.375rem 0.5rem;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-secondary);
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-    text-align: left;
-  }
-
-  :global(.popover__item:hover) {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  :global(.popover__divider) {
-    display: block;
-    height: 0.0625rem;
-    margin: 0.1875rem 0.25rem;
-    background: var(--solus-container-border);
   }
 </style>

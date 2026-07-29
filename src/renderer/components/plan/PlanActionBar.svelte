@@ -6,6 +6,7 @@
   import { Button } from '../ui/button'
   import * as DropdownMenu from '../ui/dropdown-menu'
   import { PromptComposer } from '../ui/prompt-composer'
+  import { Switch } from '../ui/switch'
   import PlanApproveButton from './PlanApproveButton.svelte'
   import Kbd from '../ui/Kbd.svelte'
 
@@ -112,6 +113,31 @@
     bind:useWorktree
     placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
   >
+    {#snippet leading()}
+      {#if !compact}
+        <div
+          class="flex h-8 shrink-0 items-center gap-1.5 px-1 text-[0.8125rem] font-medium {startNewSession
+            ? 'text-(--solus-accent)'
+            : 'font-secondary text-(--solus-text-secondary)'}"
+          title={startNewSession
+            ? "Approved work will start in a new session"
+            : "Approved work will continue in this session"}
+        >
+          New session
+          <Switch
+            checked={startNewSession}
+            onCheckedChange={(next) => {
+              startNewSession = next
+              composerRef?.focus()
+            }}
+            size="sm"
+            data-testid="plan-action-new-session"
+            aria-label="Start approved work in a new session"
+          />
+        </div>
+      {/if}
+    {/snippet}
+
     {#snippet trailing()}
       {#if compact}
         <button
@@ -143,6 +169,7 @@
       <PlanApproveButton
         bind:useWorktree
         bind:startNewSession
+        showNewSessionOption={compact}
         showWorktreeToggle={false}
         onApprove={handleApprove}
       />

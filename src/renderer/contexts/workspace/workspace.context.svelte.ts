@@ -465,11 +465,7 @@ export class WorkspaceContext {
     this.lifecycle.recomputeChangedFiles(tabId)
   }
 
-  /**
-   * Replace a tab's windowed transcript with the full history. Startup hydration
-   * only loads the most recent messages (see HISTORY_WINDOW); this pulls in the
-   * rest when the user scrolls back to the top.
-   */
+  /** Replace a tab's windowed transcript with the full history. */
   async expandHistory(tabId: string): Promise<void> {
     return this.lifecycle.expandHistory(tabId)
   }

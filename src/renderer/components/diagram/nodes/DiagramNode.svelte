@@ -7,6 +7,9 @@
   import { EditableLabel } from '../editable-label.svelte'
   import { ensureIconCollections } from '../iconify'
   import { isDecorativeNodeShape, isSimpleShapeNode } from '../diagram-node-shapes'
+  import { cardFields } from '../lib/node-card'
+  import type { PinSummary } from '../lib/comment-threads'
+  import CommentPin from '../CommentPin.svelte'
 
   // Kick off the (code-split, idempotent) brand-icon registration on first node
   // mount, so the ~12MB icon sets stay out of the eager startup bundle.
@@ -16,8 +19,9 @@
     expanded?: boolean
     dimmed?: boolean
     resizable?: boolean
-    /** Number of comments anchored to this node (transient, from the sidecar). */
-    commentCount?: number
+    /** The one pin every thread on this node collapses into (transient, from
+        the sidecar). Absent = no visible threads. */
+    commentPin?: PinSummary
     onLabelChange?: (id: string, label: string) => void
     onAction?: (nodeId: string, action: DiagramAction) => void
     onResize?: (id: string, width: number, height: number) => void
@@ -27,8 +31,8 @@
     // controls that stopPropagation (which would otherwise block xyflow's
     // onnodeclick). Absent in read-only contexts (e.g. thumbnails).
     onSelect?: (id: string) => void
-    /** Open the comments panel filtered to this node. */
-    onOpenComments?: (id: string) => void
+    /** Open this node's thread card on the canvas. */
+    onOpenThread?: (id: string) => void
   }
 
   interface Props {
@@ -41,7 +45,8 @@
   // Presence of `fields` (on a non-group node) makes this a data-model entity:
   // it renders an always-visible field table and defaults to a table glyph.
   const isEntity = $derived(!!data.fields?.length && !data.group)
-  const KEY_GLYPH = { pk: 'PK', fk: 'FK', unique: 'UQ' } as const
+  // The card caps its field list; the inspector's Data tab is the full view.
+  const fields = $derived(cardFields(data.fields))
   const KEY_TITLE = { pk: 'Primary key', fk: 'Foreign key', unique: 'Unique' } as const
 
   const resolved = $derived(resolveIcon(data.icon, isEntity ? 'table' : 'service'))
@@ -55,13 +60,23 @@
     isDecorativeNodeShape(data.shape) && !isSimpleShapeNode(data) ? 'rectangle' : (data.shape ?? 'rectangle')
   )
 
+  // `drilldown` is excluded alongside `openFile`: the drill badge is the only
+  // way into a nested graph, so a node carrying a subgraph stays a plain select
+  // target. Authored docs pair `detail` with a drilldown click action, which
+  // would otherwise swallow every click on the card body.
   const primaryAction = $derived(
-    data.actions?.find((a) => a.on === 'click' && a.action.do !== 'openFile')?.action ?? null
+    data.actions?.find(
+      (a) => a.on === 'click' && a.action.do !== 'openFile' && a.action.do !== 'drilldown'
+    )?.action ?? null
   )
-  // A node carrying a `detail` sub-diagram drills in on click — this takes
-  // precedence over any other primary action.
-  const drillable = $derived(!!(data.detail?.nodes?.length))
+  // A node carrying a `detail` sub-diagram gets a drill badge showing how many
+  // nodes are nested inside it. The badge — not the card — is what drills.
+  const childCount = $derived(data.detail?.nodes?.length ?? 0)
+  const drillable = $derived(childCount > 0)
   const hasExpandable = $derived(!!(data.body || data.html || data.metrics))
+  // Stacked-paper shadow: this card stands for more than itself, either a nested
+  // graph or a record set.
+  const hasDepth = $derived(drillable || isEntity)
 
   const editor = new EditableLabel({
     getLabel: () => data.label,
@@ -83,11 +98,6 @@
     // Any click on the card opens its side menu. This runs even when a
     // primaryAction is present (which still dispatches below).
     data.onSelect?.(data.id)
-    if (drillable) {
-      e.stopPropagation()
-      dispatch({ do: 'drilldown' })
-      return
-    }
     if (primaryAction) {
       e.stopPropagation()
       dispatch(primaryAction)
@@ -99,9 +109,15 @@
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       data.onSelect?.(data.id)
-      if (drillable) { dispatch({ do: 'drilldown' }); return }
       if (primaryAction) dispatch(primaryAction)
     }
+  }
+
+  // The drill badge stops propagation so it drills instead of selecting — the
+  // card body stays a plain select target even on a node with a nested graph.
+  function handleDrillClick(e: MouseEvent) {
+    e.stopPropagation()
+    dispatch({ do: 'drilldown' })
   }
 
   function handleExpandClick(e: MouseEvent) {
@@ -138,7 +154,7 @@
 
 {#if data.resizable !== false}
   <NodeResizer
-    minWidth={192}
+    minWidth={200}
     maxWidth={288}
     minHeight={48}
     isVisible={true}
@@ -160,12 +176,24 @@
 <Handle type="target" position={Position.Top} id="t-target" />
 <Handle type="source" position={Position.Top} id="t-source" />
 
+<!-- Outside the card, not inside it: an entity card clips its field list to its
+     own radius, and the pin is meant to overlap the corner anyway. -->
+{#if data.commentPin}
+  <CommentPin
+    pin={data.commentPin}
+    anchorLabel={data.label}
+    onOpen={() => data.onOpenThread?.(data.id)}
+  />
+{/if}
+
 <div
   class="diagram-node diagram-node--{shape}"
   class:diagram-node--selected={selected}
   class:diagram-node--dimmed={data.dimmed}
-  class:diagram-node--clickable={(!!primaryAction || drillable) && !editor.editing}
-  class:diagram-node--drillable={drillable}
+  class:diagram-node--clickable={!!primaryAction && !editor.editing}
+  class:diagram-node--entity={isEntity}
+  class:diagram-node--depth={hasDepth}
+  class:diagram-node--tinted={!!data.color}
   class:diagram-node--expanded={data.expanded}
   style={data.color ? `--node-accent:${data.color}` : undefined}
   role="button"
@@ -185,13 +213,16 @@
     </svg>
   {/if}
 
-  <!-- Header row: icon + title/subtitle + contextual actions -->
-  <div class="diagram-node__head">
+  <!-- Kind row: glyph + kind word, then the contextual actions. The label is a
+       separate line below, so it always gets the card's full width. -->
+  <div class="diagram-node__kind">
     <span class="diagram-node__icon" aria-hidden="true">
       {#if iconifyName}
-        <Icon icon={iconifyName} width="16" height="16" />
+        <!-- Brand logos are pictorial, not stroke glyphs — they need the extra
+             two pixels to stay legible at card scale. -->
+        <Icon icon={iconifyName} width="14" height="14" />
       {:else if iconSvg}
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           {@html iconSvg}
         </svg>
       {:else}
@@ -199,51 +230,26 @@
       {/if}
     </span>
 
-    <div class="diagram-node__title-group">
-      {#if data.subtitle}
-        <span class="diagram-node__subtitle">{data.subtitle}</span>
-      {/if}
-      {#if editor.editing}
-        <input
-          bind:this={editor.inputEl}
-          bind:value={editor.value}
-          class="diagram-node__input"
-          onblur={editor.commit}
-          onkeydown={editor.onInputKeydown}
-          onclick={(e) => e.stopPropagation()}
-        />
-      {:else}
-        <span class="diagram-node__label">{data.label}</span>
-      {/if}
-    </div>
-
-    {#if data.commentCount}
-      <button
-        type="button"
-        class="diagram-node__comments"
-        onclick={(e) => { e.stopPropagation(); data.onOpenComments?.(data.id) }}
-        title="{data.commentCount} {data.commentCount === 1 ? 'comment' : 'comments'} — click to view"
-        aria-label="View {data.commentCount} {data.commentCount === 1 ? 'comment' : 'comments'}"
-      >
-        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M13.5 7.5a5.5 5.5 0 01-7.9 5L2.5 13.5l1-3.1a5.5 5.5 0 1110-2.9z" />
-        </svg>
-        {data.commentCount}
-      </button>
+    {#if data.subtitle}
+      <span class="diagram-node__subtitle">{data.subtitle}</span>
     {/if}
 
+    <span class="diagram-node__kind-spacer"></span>
+
     {#if drillable}
-      <span
+      <button
+        type="button"
         class="diagram-node__drill"
-        title="Click to open detail"
-        aria-hidden="true"
+        onclick={handleDrillClick}
+        title="Open detail diagram ({childCount} {childCount === 1 ? 'node' : 'nodes'})"
+        aria-label="Open detail diagram, {childCount} {childCount === 1 ? 'node' : 'nodes'}"
       >
-        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="2.5" width="7" height="5" rx="1" />
-          <rect x="7" y="8.5" width="7" height="5" rx="1" />
-          <path d="M5.5 7.5v1.5a1 1 0 001 1h1" />
+        <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <rect x="2" y="5" width="9" height="9" rx="2" />
+          <path d="M5 5V3.5A1.5 1.5 0 0 1 6.5 2h6A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H11" />
         </svg>
-      </span>
+        {childCount}
+      </button>
     {/if}
 
     {#if hasExpandable}
@@ -264,47 +270,60 @@
     {/if}
   </div>
 
-  <!-- Badges row (always visible) -->
+  <!-- Label — always the last text line before the fields. -->
+  {#if editor.editing}
+    <input
+      bind:this={editor.inputEl}
+      bind:value={editor.value}
+      class="diagram-node__input"
+      onblur={editor.commit}
+      onkeydown={editor.onInputKeydown}
+      onclick={(e) => e.stopPropagation()}
+    />
+  {:else}
+    <span class="diagram-node__label">{data.label}</span>
+  {/if}
+
+  <!-- Meta chips (always visible), capped at two so they stay a footnote. -->
   {#if data.badges?.length}
     <div class="diagram-node__badges">
-      {#each data.badges as badge}
+      {#each data.badges.slice(0, 2) as badge}
         <span class="diagram-node__badge">{badge}</span>
       {/each}
     </div>
   {/if}
 
-  <!-- Entity field table (always visible, like badges) -->
+  <!-- Entity field table. Bleeds to the card edge on a muted wash so it reads as
+       a distinct register from the card's own copy. -->
   {#if isEntity}
-    <div
-      class="flex flex-col gap-px mt-0.5 pt-[0.3125rem] border-t"
-      style="border-top-color:color-mix(in srgb,var(--solus-text-tertiary) 14%,transparent)"
-    >
-      {#each data.fields ?? [] as field}
-        <div class="flex items-baseline gap-1.5 text-[0.625rem] leading-[1.5] min-w-0 overflow-hidden">
-          {#if field.key}
-            <span
-              class="shrink-0 w-[1.375rem] text-center text-[0.5rem] font-bold tracking-[0.02em] rounded-[0.1875rem] py-[0.03125rem] tabular-nums"
-              title={KEY_TITLE[field.key]}
-              style={
-                field.key === 'pk'
-                  ? 'color:var(--node-accent);background:color-mix(in srgb,var(--node-accent) 16%,transparent)'
-                  : field.key === 'fk'
-                  ? 'color:var(--solus-text-secondary);background:color-mix(in srgb,var(--solus-text-tertiary) 16%,transparent)'
-                  : 'color:var(--solus-text-secondary);border:0.0625rem solid color-mix(in srgb,var(--solus-text-tertiary) 30%,transparent)'
-              }
-            >{KEY_GLYPH[field.key]}</span>
+    <div class="diagram-node__fields">
+      {#each fields.shown as field}
+        <div class="diagram-node__field">
+          {#if field.key === 'pk'}
+            <svg class="diagram-node__field-key" viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="var(--solus-accent)" stroke-width="1.7" aria-hidden="true">
+              <title>{KEY_TITLE.pk}</title>
+              <circle cx="5.5" cy="5.5" r="3" />
+              <path d="M8 8l5 5M11 11l-1.5 1.5" />
+            </svg>
+          {:else if field.key}
+            <span class="diagram-node__field-key diagram-node__field-key--letters" title={KEY_TITLE[field.key]}>
+              {field.key === 'fk' ? 'FK' : 'UQ'}
+            </span>
           {:else}
-            <span class="shrink-0 w-[1.375rem]" aria-hidden="true"></span>
+            <span class="diagram-node__field-key" aria-hidden="true"></span>
           {/if}
-          <span class="flex-1 min-w-0 font-medium overflow-hidden text-ellipsis whitespace-nowrap {field.nullable ? 'text-[var(--solus-text-secondary)] italic' : 'text-[var(--solus-text-primary)]'}">{field.name}</span>
+          <span class="diagram-node__field-name" class:diagram-node__field-name--nullable={field.nullable}>{field.name}</span>
           {#if field.ref}
-            <span class="shrink-0 text-[var(--solus-text-tertiary)] text-[0.5625rem] whitespace-nowrap" title="References {field.ref}">→ {field.ref}</span>
+            <span class="diagram-node__field-type" title="References {field.ref}">→ {field.ref}</span>
           {/if}
           {#if field.type}
-            <span class="shrink min-w-0 text-[var(--solus-text-tertiary)] font-normal tabular-nums whitespace-nowrap overflow-hidden text-ellipsis" title={field.type}>{field.type}</span>
+            <span class="diagram-node__field-type" title={field.type}>{field.type}</span>
           {/if}
         </div>
       {/each}
+      {#if fields.overflow > 0}
+        <div class="diagram-node__field-more">+{fields.overflow} more</div>
+      {/if}
     </div>
   {/if}
 
@@ -358,12 +377,18 @@
 <style>
   .diagram-node {
     --node-accent: var(--solus-accent);
-    --node-radius: 0.75rem;
-    --node-pad: 0.625rem;
+    --node-radius: 0.625rem;
+    /* The card's three shadow roles are separate layers so they compose instead
+       of overwriting each other: a selection ring, the stacked-paper depth mark,
+       and the ambient lift. Transparent placeholders keep the list valid when a
+       role is off. */
+    --node-ring: 0 0 #0000;
+    --node-depth: 0 0 #0000;
+    --node-ambient: 0 0.0625rem 0.125rem rgba(60, 40, 25, 0.05);
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.09375rem;
     /* Fill the xyflow node wrapper so resizing in either axis is reflected by
        the card, and so the connection handles (anchored to the wrapper's
        mid-sides) line up with the card's edges instead of drifting to its
@@ -371,14 +396,14 @@
     box-sizing: border-box;
     width: 100%;
     height: 100%;
-    min-width: 12rem;
+    min-width: 12.5rem;
     max-width: 18rem;
-    padding: var(--node-pad) 0.75rem;
+    padding: 0.5625rem 0.6875rem 0.625rem;
     border-radius: var(--node-radius);
     border: 0.0625rem solid var(--solus-tool-border);
     background: var(--solus-container-bg);
     color: var(--solus-text-primary);
-    box-shadow: none;
+    box-shadow: var(--node-ring), var(--node-depth), var(--node-ambient);
     cursor: grab;
     user-select: none;
     transition: transform var(--duration-base) var(--ease-premium), box-shadow var(--duration-base) var(--ease-premium), border-color var(--duration-base) var(--ease-premium), opacity var(--duration-modal) var(--ease-premium);
@@ -386,15 +411,31 @@
 
   .diagram-node:hover {
     transform: translateY(-0.0625rem);
-    box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.06);
+    --node-ambient: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.06);
     border-color: color-mix(in srgb, var(--solus-text-tertiary) 32%, transparent);
   }
 
   .diagram-node:active { cursor: grabbing; }
 
+  /* Stacked paper — this card stands for a nested graph or a record set. */
+  .diagram-node--depth {
+    --node-depth:
+      0.25rem 0.25rem 0 -0.0625rem var(--solus-container-bg),
+      0.3125rem 0.3125rem 0 -0.0625rem var(--solus-tool-border);
+  }
+
+  /* The field wash bleeds to the card edge, so it needs the radius to clip it. */
+  .diagram-node--entity { overflow: hidden; }
+
+  /* Selection ring: a gap, a 1.5px accent stroke, then a soft halo. Drawn as
+     spreads rather than a pseudo-element so it survives the entity card's
+     overflow clip, grows the radius 10 → 14 on its own, and can never take a
+     pointer event. */
   .diagram-node--selected {
-    border-color: var(--solus-accent);
-    box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);
+    --node-ring:
+      0 0 0 0.15625rem var(--solus-container-bg),
+      0 0 0 0.25rem var(--solus-accent),
+      0 0 0 0.5rem color-mix(in srgb, var(--solus-accent) 12%, transparent);
   }
 
   /* Dimmed cards stay clickable: in focus mode a click on one moves the focus
@@ -423,16 +464,19 @@
     text-align: center;
     gap: 0.25rem;
   }
-  .diagram-node--circle .diagram-node__head,
-  .diagram-node--diamond .diagram-node__head {
+  .diagram-node--circle .diagram-node__kind,
+  .diagram-node--diamond .diagram-node__kind {
     flex-direction: column;
     align-items: center;
     gap: 0.25rem;
   }
-  .diagram-node--circle .diagram-node__title-group,
-  .diagram-node--diamond .diagram-node__title-group {
-    flex: 0 1 auto;
-    align-items: center;
+  /* The spacer only earns its keep in the horizontal kind row. */
+  .diagram-node--circle .diagram-node__kind-spacer,
+  .diagram-node--diamond .diagram-node__kind-spacer {
+    display: none;
+  }
+  .diagram-node--circle .diagram-node__label,
+  .diagram-node--diamond .diagram-node__label {
     text-align: center;
   }
 
@@ -490,35 +534,41 @@
     stroke-width: 1.75px;
   }
 
-  /* Header */
-  .diagram-node__head {
+  /* Kind row — what the node IS, in one line of small caps. */
+  .diagram-node__kind {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.375rem;
+    min-height: 0.875rem;
+  }
+
+  .diagram-node__kind-spacer {
+    flex: 1;
+    min-width: 0;
   }
 
   .diagram-node__icon {
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    width: 1.5rem;
-    height: 1.5rem;
-    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+    font-size: 0.75rem;
     line-height: 1;
-    color: var(--solus-text-secondary);
+    /* Neutral by default: a canvas of tinted glyphs is noise. A node the user
+       deliberately coloured keeps its tint here, so colour-coding still reads. */
+    color: var(--diagram-glyph, var(--solus-text-tertiary));
   }
 
-  .diagram-node__title-group {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
+  .diagram-node--tinted .diagram-node__icon {
+    color: var(--node-accent);
   }
 
   .diagram-node__label {
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: 0.84375rem;
+    font-weight: 650;
+    letter-spacing: -0.014em;
+    line-height: 1.15;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
@@ -526,36 +576,32 @@
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
-    line-height: 1.3;
     word-break: break-word;
   }
 
   .diagram-node__subtitle {
-    font-size: 0.5625rem;
+    font-size: 0.53125rem;
     color: var(--solus-text-tertiary);
-    font-weight: 600;
+    font-weight: 650;
     line-height: 1.2;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.13em;
     text-transform: uppercase;
+    opacity: 0.8;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .diagram-node--selected .diagram-node__subtitle {
-    color: var(--node-accent);
-  }
-
   .diagram-node__input {
-    flex: 1;
     min-width: 0;
     background: transparent;
     border: none;
     border-bottom: 0.09375rem solid var(--solus-accent-border);
     outline: none;
     color: var(--solus-text-primary);
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: 0.84375rem;
+    font-weight: 650;
+    letter-spacing: -0.014em;
     padding: 0;
   }
 
@@ -600,75 +646,35 @@
     transform: rotate(180deg);
   }
 
-  /* Comment count keeps its information but loses the persistent accent chip. */
-  .diagram-node__comments {
+  /* Drill badge — the node's child count, and the only thing on the card that
+     enters the nested graph. Always visible: it carries information, so unlike
+     the hover-revealed actions it belongs in the resting silhouette. */
+  .diagram-node__drill {
     display: inline-flex;
     align-items: center;
     gap: 0.1875rem;
     flex-shrink: 0;
-    height: 1.25rem;
-    padding: 0 0.3125rem;
+    padding: 0.0625rem 0.3125rem;
     border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    font-size: 0.5625rem;
-    font-weight: 600;
+    border-radius: 0.25rem;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.59375rem;
     font-variant-numeric: tabular-nums;
+    color: var(--solus-accent);
+    background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
     cursor: pointer;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(0.1875rem);
-    transition:
-      opacity var(--duration-quick) var(--ease-premium),
-      background var(--duration-base) var(--ease-premium),
-      color var(--duration-base) var(--ease-premium),
-      transform var(--duration-base) var(--ease-premium),
-      scale var(--duration-quick) var(--ease-premium);
+    transition: background var(--duration-base) var(--ease-premium);
   }
-  .diagram-node__comments:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
+  .diagram-node__drill:hover {
+    background: color-mix(in srgb, var(--solus-accent) 20%, transparent);
   }
-  .diagram-node__comments:active {
-    scale: 0.96;
-  }
-  .diagram-node__comments:focus-visible {
+  .diagram-node__drill:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;
   }
 
-  /* Drill affordance — signals the node opens a nested detail diagram. */
-  .diagram-node__drill {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 1.25rem;
-    height: 1.25rem;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    opacity: 0;
-    transform: translateX(0.1875rem);
-    transition:
-      opacity var(--duration-quick) var(--ease-premium),
-      background var(--duration-base) var(--ease-premium),
-      color var(--duration-base) var(--ease-premium),
-      transform var(--duration-base) var(--ease-premium);
-  }
-  .diagram-node--drillable:hover .diagram-node__drill {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  .diagram-node:hover .diagram-node__comments,
-  .diagram-node:hover .diagram-node__drill,
   .diagram-node:hover .diagram-node__expand-btn,
-  .diagram-node:focus-within .diagram-node__comments,
-  .diagram-node:focus-within .diagram-node__drill,
   .diagram-node:focus-within .diagram-node__expand-btn,
-  .diagram-node--selected .diagram-node__comments,
-  .diagram-node--selected .diagram-node__drill,
   .diagram-node--selected .diagram-node__expand-btn,
   .diagram-node--expanded .diagram-node__expand-btn {
     opacity: 1;
@@ -676,26 +682,95 @@
     transform: translateX(0);
   }
 
-  /* Badges */
+  /* Meta chips */
   .diagram-node__badges {
     display: flex;
     flex-wrap: wrap;
     gap: 0.25rem;
-    padding-left: 1.9rem;
+    margin-top: 0.125rem;
   }
 
   .diagram-node__badge {
     display: inline-flex;
     align-items: center;
-    padding: 0.0625rem 0.375rem;
-    border-radius: 0.375rem;
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.25rem;
     background: transparent;
     border: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
     color: var(--solus-text-secondary);
-    font-size: 0.5625rem;
+    font-size: 0.625rem;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+  }
+
+  /* Entity field table. Negative margins pull it out to the card's edges — the
+     card's own padding is 9/11/10, so these mirror it exactly. */
+  .diagram-node__fields {
+    display: flex;
+    flex-direction: column;
+    margin: 0.1875rem -0.6875rem -0.625rem;
+    border-top: 0.0625rem solid var(--solus-tool-border);
+    background: color-mix(in srgb, var(--solus-surface-hover) 55%, transparent);
+  }
+
+  .diagram-node__field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0.21875rem 0.6875rem;
+  }
+
+  .diagram-node__field-key {
+    flex: none;
+    width: 0.5625rem;
+    height: 0.5625rem;
+  }
+
+  .diagram-node__field-key--letters {
+    font-size: 0.46875rem;
+    font-weight: 700;
+    line-height: 0.5625rem;
+    letter-spacing: 0.02em;
+    color: var(--solus-text-tertiary);
+  }
+
+  .diagram-node__field-name {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.625rem;
+    letter-spacing: -0.01em;
+    color: var(--solus-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .diagram-node__field-name--nullable {
+    color: var(--solus-text-secondary);
+    font-style: italic;
+  }
+
+  .diagram-node__field-type {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.59375rem;
+    color: var(--solus-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .diagram-node__field-more {
+    font-family: var(--solus-code-font-family);
+    font-size: 0.59375rem;
+    color: var(--solus-text-tertiary);
+    opacity: 0.8;
+    padding: 0.1875rem 0.6875rem 0.3125rem 1.6875rem;
   }
 
   /* Legacy meta */
@@ -827,7 +902,6 @@
   @media (prefers-reduced-motion: reduce) {
     .diagram-node { transition: none; }
     .diagram-node--dimmed { transition: none; }
-    .diagram-node__comments,
     .diagram-node__drill,
     .diagram-node__expand-btn,
     .diagram-node__expand-icon { transition: none; }

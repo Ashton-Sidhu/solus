@@ -17,13 +17,13 @@
 </script>
 
 <!--
-  One bordered pill that expands on hover/focus: the `+` grows an "Add files"
+  One bordered button group that expands on hover/focus: the `+` grows an "Add files"
   label, then the screenshot/design-mode actions slide out inside the same
   outline as a segmented button group. `group/add` scopes the reveal so nested
   triggers don't fight sibling groups on the same row.
 -->
 <div
-  class="group/add flex h-8 items-center rounded-full border border-(--solus-container-border) font-secondary text-(--solus-text-secondary)"
+  class="group/add flex h-8 items-center rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) font-secondary text-(--solus-text-secondary) shadow-xs"
 >
   <TooltipUI.Root>
     <TooltipUI.Trigger>
@@ -32,13 +32,13 @@
     type="button"
     onclick={onAttachFile}
     {disabled}
-    class="flex h-full items-center gap-1 rounded-full pl-2 pr-2 text-[0.8125rem] transition-[background-color,color] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
+    class="flex h-full min-w-[30px] items-center justify-center rounded-lg text-[0.8125rem] transition-[background-color] hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
     style="cursor:{disabled ? 'not-allowed' : 'pointer'}"
     aria-label="Add files"
   >
     <PlusIcon size={16} class="flex-shrink-0" />
     <span
-      class="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover/add:max-w-[4.5rem] group-hover/add:opacity-100 group-focus-within/add:max-w-[4.5rem] group-focus-within/add:opacity-100"
+      class="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,margin-left,opacity] duration-200 ease-out group-hover/add:ml-1 group-hover/add:max-w-[4.5rem] group-hover/add:opacity-100 group-focus-within/add:ml-1 group-focus-within/add:max-w-[4.5rem] group-focus-within/add:opacity-100"
       >Add files</span
     >
   </button>
@@ -62,7 +62,7 @@
           type="button"
           onclick={onScreenshot}
           {disabled}
-          class="flex h-full w-8 flex-shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
+          class="flex h-full w-8 flex-shrink-0 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color] hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
         >
           <CameraIcon size={16} />
         </button>
@@ -79,7 +79,7 @@
           type="button"
           onclick={onDesignMode}
           {disabled}
-          class="flex h-full w-8 flex-shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
+          class="flex h-full w-8 flex-shrink-0 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color] hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
         >
           <PencilIcon size={16} />
         </button>

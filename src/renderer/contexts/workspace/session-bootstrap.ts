@@ -1,17 +1,10 @@
-import type { AgentId } from '../../../shared/types'
+import { isSessionBusyStatus, type AgentId } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makeInputState, makeSession, makeTab } from './session.factories'
 import { buildHandoffDividerMessage, loadSessionTranscript } from './session-transcript'
 import { hasConversation, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
-
-/**
- * How many recent messages to hydrate per tab on startup. Older messages stay on
- * disk and are pulled in on demand when the user scrolls to the top. Matches the
- * conversation's initial render cap so the windowed load fills the first screen.
- */
-const HISTORY_WINDOW = 100
 
 interface DeferredHydrationState {
   pending: Map<string, PersistedTab>
@@ -246,6 +239,29 @@ async function _attachRuntimeTabs(
     void ctx.apiFor(tabId).createTab(tabId).catch(() => null)
   }
 
+  // Transcript hydration for inactive tabs is intentionally deferred, but their
+  // tab-strip status must still reflect live work immediately after refresh.
+  // getSessionInfo is side-effect free, unlike bindRuntimeSession, which may
+  // replay in-flight events before the persisted transcript has loaded.
+  for (const snapTab of persistedTabs) {
+    if (!snapTab.agentSessionId) continue
+    void ctx.apiFor(snapTab.tabId)
+      .getSessionInfo(snapTab.agentSessionId)
+      .then((meta) => {
+        const tab = ctx.tabs[snapTab.tabId]
+        const session = tab ? ctx.sessions[tab.sessionId] : undefined
+        if (
+          session?.agentSessionId === snapTab.agentSessionId
+          && session.status === 'idle'
+          && meta?.status
+          && isSessionBusyStatus(meta.status)
+        ) {
+          session.status = meta.status
+        }
+      })
+      .catch(() => null)
+  }
+
   if (!ctx.tabs[ctx.activeTabId]) {
     ctx.activeTabId = ctx.tabOrder.find((id) => ctx.tabs[id]) ?? ''
   }
@@ -312,7 +328,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
               displayCwd,
               provider: handoffFrom.provider,
               ctx: ctx.ctxFor(tabId),
-              limit: HISTORY_WINDOW,
               shouldApply,
             })
           : null
@@ -323,7 +338,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
               displayCwd,
               provider,
               ctx: ctx.ctxFor(tabId),
-              limit: HISTORY_WINDOW,
               shouldApply,
             })
           : { messages: [], planIds: [], progress: null, truncated: false }
@@ -372,6 +386,11 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.rateLimitInfo = info.rateLimitInfo
       if (info.handoffFrom) session.handoffFrom = info.handoffFrom
       ctx.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
+    } else if (info === null && isSessionBusyStatus(session.status)) {
+      // An optimistic status probe may race the session settling before its
+      // deferred bind. Reconcile that stale busy state when no runtime remains.
+      session.status = 'idle'
+      session.rateLimitInfo = null
     }
   }
 

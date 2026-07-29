@@ -1,4 +1,4 @@
-import type { AgentId, PlanComment, Work, WorkAnnotations, WorkMeta, WorkPrevious } from '../../../shared/types'
+import type { AgentId, CommentAuthor, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkMeta, WorkPrevious } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
 import { workPreview } from '../../../shared/work-preview'
 
@@ -127,6 +127,36 @@ export class WorksStore {
     const index = comments.findIndex((x) => x.id === commentId)
     if (index === -1) return
     comments.splice(index, 1)
+    this.annotations[workId].updatedAt = Date.now()
+  }
+
+  addAnnotationReply(workId: string, commentId: string, reply: PlanCommentReply): void {
+    const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
+    if (!comment) return
+    // Mutate in place — the replies array is inside a $state proxy, so pushing
+    // notifies the one card rather than invalidating every thread in the rail.
+    if (comment.replies) comment.replies.push(reply)
+    else comment.replies = [reply]
+    this.annotations[workId].updatedAt = Date.now()
+  }
+
+  setAnnotationResolved(workId: string, commentId: string, by: CommentAuthor | null): void {
+    const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
+    if (!comment) return
+    if (by) {
+      comment.resolvedAt = Date.now()
+      comment.resolvedBy = by
+    } else {
+      delete comment.resolvedAt
+      delete comment.resolvedBy
+    }
+    this.annotations[workId].updatedAt = Date.now()
+  }
+
+  markAnnotationRead(workId: string, commentId: string): void {
+    const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
+    if (!comment) return
+    comment.readAt = Date.now()
     this.annotations[workId].updatedAt = Date.now()
   }
 

@@ -19,8 +19,12 @@
   const copyText = $derived(text ?? raw.replace(/^`+|`+$/g, ""));
 
   const FILE_PATH_RE = /^(?!@)(?:\.{0,2}\/)?(?:[\w.@~-]+\/)+[\w.@~-]+(?::(\d+))?$/;
+  // A bare abbreviated-or-full hex hash — an address rather than a literal you
+  // would retype. Only surfaces that opt in style it (see .prose-pr-description).
+  const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
   const fileMatch = $derived(copyText.match(FILE_PATH_RE));
+  const isSha = $derived(SHA_RE.test(copyText));
   const isFilePath = $derived(!!fileMatch);
   const filePath = $derived(isFilePath ? (fileMatch![1] ? copyText.replace(/:(\d+)$/, '') : copyText) : '');
   const fileLine = $derived(fileMatch?.[1] ? Number(fileMatch[1]) : undefined);
@@ -62,5 +66,5 @@
     <span>{basename(filePath)}{fileLine ? `:${fileLine}` : ''}</span>
   </button>
 {:else}
-  <code>{copyText}</code>
+  <code class:markdown-sha={isSha}>{copyText}</code>
 {/if}

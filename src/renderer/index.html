@@ -42,16 +42,22 @@
         with the connecting card. Background lives on the shell (not html/body) so
         the transparent pill window keeps its transparency.
       */
+      /*
+        Background and mark geometry are the handoff contract with boot-scene.ts:
+        it re-renders this exact field, at this exact size and centre, so the
+        splash gains detail instead of repainting. --solus-edge-bg literals,
+        because index.css has not loaded yet.
+      */
       #solus-boot-shell {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
-        background: #18181b;
+        background: #1c1b18;
         z-index: 2147483647;
       }
       html.light #solus-boot-shell {
-        background: #fafafa;
+        background: #fbfaf6;
       }
       #solus-boot-shell svg {
         width: 4.5rem;

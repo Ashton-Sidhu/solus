@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from "bun:test";
-import { modelPickerNavigationTarget } from "./picker-selection";
+import { modelPickerNavigationTarget } from "../../src/renderer/components/pickers/lib/picker-selection";
 
 describe("model picker keyboard navigation", () => {
   test("vertical movement stays in its visual column", () => {

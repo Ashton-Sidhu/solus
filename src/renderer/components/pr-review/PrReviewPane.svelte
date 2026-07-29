@@ -2,8 +2,10 @@
   import { onMount, tick, untrack } from "svelte";
   import {
     ArrowsClockwiseIcon,
+    ArrowsInIcon,
+    ArrowsOutIcon,
     ChatCircleIcon,
-    ArrowSquareOutIcon,
+    XIcon,
   } from "phosphor-svelte";
   import type { PrReviewContext, DiffScope, PrInterdiffResult } from "../../../shared/types";
   import { worktreeProjectRoot } from "../../../shared/types";
@@ -11,7 +13,12 @@
   import { reviewGuideKeyForBase } from "../../../shared/review";
   import type { DraftReview, ReviewThread } from "../../../shared/providers";
   import type { GuideDiffCommentSave } from "./guide/lib/guide-data";
-  import { getWorkspaceContext, getSettingsContext, getAgentContext } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getSettingsContext,
+    getAgentContext,
+    toasts,
+  } from "../../contexts";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
@@ -26,8 +33,9 @@
   import { matchedReviewComments } from "./lib/since-review";
   import { interdiffReviewThreads } from "../diff/lib/interdiff-annotations";
   import * as Tabs from "../ui/tabs";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
-  import PaneChrome from "../ui/PaneChrome.svelte";
+  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import PrChecksChip from "../prs/PrChecksChip.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import {
@@ -135,23 +143,90 @@
     getOwnDeltaBase: () => ownDeltaBase,
     getAgent: () => resolveReviewAgent(settings, agentContext),
   });
+  const guideStatus = $derived(session.prsStore.guideStatusFor(pr.number));
   $effect(() => {
     void effectiveGuideKey;
     if (!guideEnabled || !stackReady || showingFullDiff) return;
+    const backgroundStatus = untrack(() =>
+      session.prsStore.guideStatusFor(pr.number),
+    );
+    if (backgroundStatus === "queued" || backgroundStatus === "generating") return;
     const generateIfMissing = settings.generatePrGuidesOnOpen;
     void untrack(() => guideLoader.load(false, generateIfMissing));
   });
 
   // A background "Generate guide" (Activity header / PRs page) finishing while
   // this pane sits on the empty or stale Guide state: pick up the cached guide.
+  // Remember the ready transition we consumed so an old ready status plus a
+  // stale cached guide cannot create a reload loop after the PR head moves.
+  let handledReadyKey: string | null = null;
+  $effect(() => {
+    const readyKey =
+      guideStatus === "ready"
+        ? `${pr.number}:${pr.headSha}:${effectiveGuideKey}`
+        : null;
+    if (!readyKey) {
+      handledReadyKey = null;
+      return;
+    }
+    if (
+      handledReadyKey === readyKey ||
+      !stackReady ||
+      showingFullDiff ||
+      guideLoader.loading ||
+      (guideLoader.guide && !guideLoader.stale)
+    ) {
+      return;
+    }
+    handledReadyKey = readyKey;
+    void untrack(() => guideLoader.load(false, false));
+  });
+
+  // Size of the change, for the Guide empty state's "what will this cost me"
+  // line. `loadChangedFiles` is the same cached call the Activity tab makes, so
+  // opening on Guide doesn't add a request.
+  let changedFileCount = $state<number | null>(null);
   $effect(() => {
     const number = pr.number;
-    return window.solus.onPrGuideStatus((event) => {
-      if (event.number !== number || event.status !== "ready") return;
-      if (guideLoader.loading || (guideLoader.guide && !guideLoader.stale)) return;
-      void guideLoader.load(false, false);
-    });
+    changedFileCount = null;
+    const ctx = untrack(prCtx);
+    void session.prsStore
+      .loadChangedFiles(ctx, number)
+      .then((files) => {
+        if (pr.number === number) changedFileCount = files.length;
+      })
+      .catch(() => {});
   });
+  const guideEmptyHint = $derived.by(() => {
+    const count = changedFileCount;
+    if (count === null) return undefined;
+    const files = `${count} ${count === 1 ? "file" : "files"} changed`;
+    return count > 20
+      ? `${files} · a minute or two for a change this size`
+      : `${files} · usually under a minute`;
+  });
+  function generateGuide() {
+    void session.prsStore
+      .requestGuides(prCtx(), [pr.number], {
+        onSettled: ({ failed }) => {
+          if (failed > 0) {
+            toasts.error(
+              `Review guide generation failed for PR #${pr.number}. Try again from Activity or Guide.`,
+            );
+          } else {
+            toasts.success(
+              `Review guide for PR #${pr.number} is ready in the Guide tab.`,
+            );
+          }
+        },
+      })
+      .catch((error) => {
+        toasts.error(
+          `Couldn't queue the review guide: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    requestInputFocus();
+  }
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrsStore.prReviewTab).
@@ -435,93 +510,137 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<section class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)">
+<section class="flex h-full min-h-0 flex-col bg-card">
   {#if !headless}
-    <PaneChrome
-      onClose={exit}
-      onToggleMaximize={onToggleSecondaryMaximize}
-      maximized={panes.maximized}
-      slot="secondary"
-      closeLabel="Exit PR review"
-    />
-
-    <!-- Navigation, not chrome: the sub-tab switcher heads the content column
-         with the PR's identity beside it. No border, no chrome-row height. -->
-    <div
-      class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
-    >
-    <Tabs.Root
-      value={sub}
-      onValueChange={(value) => select(value as ContentTab)}
-      class="contents"
-    >
-      <Tabs.List
-        aria-label="PR review tabs"
-        class="h-auto gap-0.5 rounded-lg bg-(--solus-accent-light) p-0.5"
+    <!-- One 56px bar: navigation, the PR's identity, and the pane controls that
+         PaneChrome floats for every other surface. Consolidated here (rather
+         than in PaneChrome) so this review reads as a single header row while
+         every other pane keeps the shared floating cluster.
+         No rule beneath it: the bar shares the content's own measure and
+         gutters, so it reads as the top of the column rather than a band
+         stapled across the pane. -->
+    <div class="@container h-[56px] shrink-0 overflow-hidden">
+      <div
+        class="mx-auto flex h-full w-full max-w-[min(1384px,100%)] items-center justify-between gap-4 pr-[clamp(20px,2.6vw,56px)] pl-[max(clamp(20px,2.6vw,56px),var(--solus-chrome-lead-inset,0px))]"
       >
-        {#each TABS as t (t.id)}
-          <Tabs.Trigger
-            value={t.id}
-            disabled={t.id === "guide" && showingFullDiff}
-            title={t.id === "guide" && showingFullDiff ? "Guides cover the stacked view" : undefined}
-            class="h-auto flex-none rounded-md border-0 px-2.5 py-1 text-xs font-medium text-(--solus-text-tertiary) hover:text-(--solus-text-secondary) data-active:bg-(--solus-container-bg) data-active:text-(--solus-text-primary) data-active:shadow-sm"
-            onclick={requestInputFocus}
+        <div class="flex min-w-0 flex-1 items-center gap-3">
+          <Tabs.Root
+            value={sub}
+            onValueChange={(value) => select(value as ContentTab)}
+            class="contents"
           >
-            {t.label}
-          </Tabs.Trigger>
-        {/each}
-      </Tabs.List>
-    </Tabs.Root>
+            <Tabs.List
+              aria-label="PR review tabs"
+              class="h-7 shrink-0 gap-0.5 rounded-lg border-0 bg-muted p-0.5"
+            >
+              {#each TABS as t (t.id)}
+                <Tabs.Trigger
+                  value={t.id}
+                  disabled={t.id === "guide" && showingFullDiff}
+                  title={t.id === "guide" && showingFullDiff ? "Guides cover the stacked view" : undefined}
+                  class="h-full flex-none rounded-md border-0 px-2.5 text-[12px] font-normal text-muted-foreground hover:text-foreground data-active:bg-card data-active:font-medium data-active:text-foreground data-active:shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:data-active:shadow-none dark:data-active:ring-1 dark:data-active:ring-white/10"
+                  onclick={requestInputFocus}
+                >
+                  {t.label}
+                </Tabs.Trigger>
+              {/each}
+            </Tabs.List>
+          </Tabs.Root>
 
-    <div class="flex min-w-0 flex-1 items-center text-xs text-(--solus-text-tertiary)">
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
-        class="-ml-1 font-semibold text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-accent)"
-        onclick={openPr}
-        title={"Open PR on " + pr.host}
-      >
-        #{pr.number}
-        <ArrowSquareOutIcon size={12} weight="bold" />
-      </Button>
-      <span class="px-1">·</span>
-      <span class="truncate">{pr.title}</span>
-    </div>
+          <!-- Below the comp's breakpoint the controls need the whole row, so
+               the title steps aside — the Activity tab states it at full size
+               anyway. It stays a button (opening the PR on its host is
+               reachable from every tab) but rests as the design's plain
+               `#28 · title` line. -->
+          <div
+            class="flex min-w-0 flex-1 items-center gap-1 text-[12px] text-muted-foreground @max-[1100px]:hidden"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              class="h-auto shrink-0 rounded-none bg-transparent p-0 font-mono text-[12px] font-normal text-foreground transition-colors hover:bg-transparent hover:text-primary"
+              onclick={openPr}
+              title={"Open PR on " + pr.host}
+            >
+              #{pr.number}
+            </Button>
+            <span class="shrink-0 opacity-40" aria-hidden="true">·</span>
+            <span class="truncate">{pr.title}</span>
+          </div>
+        </div>
 
-    <PrChecksChip
-      summary={session.prsStore.checksFor(pr.number)}
-      headSha={pr.headSha}
-      loadFailed={session.prsStore.checksLoadFailed}
-    />
+        <div class="flex shrink-0 items-center gap-1.5">
+          <PrChecksChip
+            summary={session.prsStore.checksFor(pr.number)}
+            headSha={pr.headSha}
+            loadFailed={session.prsStore.checksLoadFailed}
+            pill
+          />
 
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
-      class={`relative gap-1.5 transition-[background-color,color,scale] active:scale-[0.96] after:absolute after:h-10 after:w-full ${activeChatTabId ? "bg-(--solus-accent-soft) text-(--solus-accent)" : "text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"}`}
-      onclick={openChat}
-      disabled={openingChat}
-      title={activeChatTabId ? "Focus agent chat" : "Open agent chat"}
-    >
-      <ChatCircleIcon size={14} weight="bold" />
-      Chat
-    </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            class={`relative h-[28px] gap-1.5 rounded-lg border border-transparent px-2 text-[12px] font-normal transition-colors after:absolute after:h-10 after:w-full ${activeChatTabId ? "bg-secondary text-secondary-foreground" : "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+            onclick={openChat}
+            disabled={openingChat}
+            title={activeChatTabId ? "Focus agent chat" : "Open agent chat"}
+          >
+            <ChatCircleIcon size={13} />
+            Chat
+          </Button>
 
-    {#if sub === "guide" && !showingFullDiff}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        class="text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-        aria-label="Regenerate review guide"
-        title="Regenerate review"
-        onclick={() => guideLoader.refresh()}
-      >
-        <ArrowsClockwiseIcon size={15} />
-      </Button>
-    {/if}
+          {#if sub === "guide" && !showingFullDiff}
+            <Button
+              type="button"
+              variant="ghost"
+              class="flex size-[28px] shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Regenerate review guide"
+              title="Regenerate review"
+              onclick={() => guideLoader.refresh()}
+            >
+              <ArrowsClockwiseIcon size={13} />
+            </Button>
+          {/if}
 
+          <FrameExpandButton variant="projectPanel" size="header" />
+
+          {#if onToggleSecondaryMaximize}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props })}
+                  <button
+                    {...props}
+                    type="button"
+                    class="flex size-[28px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    onclick={onToggleSecondaryMaximize}
+                    aria-label={panes.maximized ? "Restore panel size" : "Maximize panel"}
+                  >
+                    {#if panes.maximized}
+                      <ArrowsInIcon size={13} />
+                    {:else}
+                      <ArrowsOutIcon size={13} />
+                    {/if}
+                  </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content
+                value={panes.maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
+              />
+            </TooltipUI.Root>
+          {/if}
+
+          <button
+            type="button"
+            class="flex size-[28px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onclick={exit}
+            aria-label="Exit PR review"
+          >
+            <XIcon size={13} />
+          </button>
+        </div>
+      </div>
     </div>
   {/if}
 
@@ -534,8 +653,8 @@
         {#if !guideEnabled}
           <div class="grid h-full place-items-center px-8 text-center">
             <div class="max-w-sm">
-              <p class="text-sm font-semibold text-(--solus-text-primary)">Guide skipped for this quick review</p>
-              <p class="mt-1 text-pretty text-xs leading-relaxed text-(--solus-text-tertiary)">
+              <p class="text-[13px] font-medium">Guide skipped for this quick review</p>
+              <p class="mt-1.5 text-pretty text-[12.5px] leading-[1.6] text-muted-foreground">
                 The complete diff is ready in view 3. Activity and Diff remain fully available.
               </p>
             </div>
@@ -556,6 +675,15 @@
             onCommentSave={saveDiffComment}
             onCommentDelete={removeDraft}
             meta={{ repo: pr.repo, number: pr.number, baseRef: pr.baseRef, branch: pr.headRef }}
+            emptyHint={guideEmptyHint}
+            generationStatus={guideStatus}
+            onGenerate={generateGuide}
+            onAlwaysGenerate={settings.generatePrGuidesOnOpen
+              ? undefined
+              : () => {
+                  settings.update({ generatePrGuidesOnOpen: true });
+                  generateGuide();
+                }}
           />
         {/if}
       </div>

@@ -100,7 +100,11 @@ export default defineConfig(({ mode }) => {
         '@client-core': resolve(__dirname, 'src/client-core'),
         '@renderer': resolve(__dirname, 'src/renderer'),
         '@geist-fonts': geistFontsDir
-      }
+      },
+      // prosemirror-tables can resolve its own prosemirror-view copy. Its
+      // DecorationSet then fails the editor view's instanceof check when a
+      // resizable table is hovered, corrupting DecorationGroup.
+      dedupe: ['prosemirror-view']
     },
     server: {
       watch: {

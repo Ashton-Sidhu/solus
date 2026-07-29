@@ -68,7 +68,11 @@ export const DEFAULT_PANEL_WIDTH = 560
 export const DEFAULT_SECONDARY_RATIO = 0.5
 /** Diff opens wider than the default split so the changes have room to breathe. */
 export const DIFF_SECONDARY_RATIO = 0.6
-/** Popped-out PR review keeps the bulk of the width; chat takes the ~30% sliver. */
+/**
+ * Popped-out PR review keeps the bulk of the width; chat takes the ~30% sliver.
+ * Docking beside the PR *inbox* ignores this: that primary is a list sidebar,
+ * so WorkspaceBody sizes it from `listSidebarPrimaryWidth` instead.
+ */
 export const PR_REVIEW_SECONDARY_RATIO = 0.7
 export const MIN_SECONDARY_RATIO = 0.25
 export const MAX_SECONDARY_RATIO = 0.75

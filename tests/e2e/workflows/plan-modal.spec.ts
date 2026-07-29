@@ -71,7 +71,7 @@ test.describe('Plan modal workflow', () => {
     }
   })
 
-  test('starting a new session is optional and enabled by default', async ({ page }) => {
+  test('starting a new session is optional in desktop and compact layouts', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const planPage = new PlanPage(page)
@@ -83,12 +83,19 @@ test.describe('Plan modal workflow', () => {
     await page.getByRole('button', { name: 'Review', exact: true }).click()
     await planPage.waitForModal()
 
-    await page.getByRole('button', { name: 'More approve options' }).click()
     const newSessionOption = page.getByTestId('plan-action-new-session')
     await expect(newSessionOption).toHaveAttribute('aria-checked', 'true')
 
     await newSessionOption.click()
     await expect(newSessionOption).toHaveAttribute('aria-checked', 'false')
+
+    await page.setViewportSize({ width: 390, height: 780 })
+    await page.getByRole('button', { name: 'More approve options' }).click()
+    await expect(newSessionOption).toBeVisible()
+    await expect(newSessionOption).toHaveAttribute('aria-checked', 'false')
+
+    await newSessionOption.click()
+    await expect(newSessionOption).toHaveAttribute('aria-checked', 'true')
   })
 
   test('toolbar link popover inserts a link from keyboard submission', async ({ page }) => {

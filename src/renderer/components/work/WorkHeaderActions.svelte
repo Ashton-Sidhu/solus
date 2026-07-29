@@ -3,18 +3,16 @@
     CheckIcon,
     CopyIcon,
     ArrowSquareOutIcon,
-    ChatCircleIcon,
     CaretDownIcon,
-    ClockCounterClockwiseIcon,
     ArrowCounterClockwiseIcon,
     DownloadSimpleIcon,
     FolderIcon,
     PencilSimpleIcon,
+    SparkleIcon,
     TrashIcon,
     XIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import SoftPill from "../ui/SoftPill.svelte";
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import Diff from "../diff/Diff.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -125,57 +123,25 @@
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
   const hasOverflow = $derived(
-    !!onStartRename || !!onGoogleUpload || canPromote || isProjectWork || !!onDuplicate || hasChanges || canDownload || !!onDelete,
+    !!onStartRename || !!onGoogleUpload || canPromote || isProjectWork || !!onDuplicate || canDownload || !!onDelete,
   );
 </script>
 
+<!-- The header's own verbs are unfilled type. The only filled surface in the
+     cluster is the way to reach Solus, so the eye finds it first. -->
 <div class="wha-actions">
-{#if onOpenChat}
-  <div class="relative wha-chat-split" bind:this={chatButtonEl}>
-    <button
-      type="button"
-      onclick={() => onOpenChat("resume")}
-      class="wha-chat-trigger"
-      data-testid="open-chat"
-      title="Resume chat"
-      aria-label="Resume chat"
-    >
-      <ChatCircleIcon size={13} />
-      <span class="wha-label">Chat</span>
-    </button>
-    <button
-      type="button"
-      onclick={() => (chatMenuOpen = !chatMenuOpen)}
-      class="wha-chat-caret"
-      class:wha-chat-caret--open={chatMenuOpen}
-      data-testid="open-chat-menu"
-      title="Choose chat mode"
-      aria-label="Choose chat mode"
-      aria-haspopup="menu"
-      aria-expanded={chatMenuOpen}
-    >
-      <CaretDownIcon size={10} weight="bold" />
-    </button>
-    <WorkChatMenu
-      bind:open={chatMenuOpen}
-      triggerEl={chatButtonEl}
-      onResume={() => onOpenChat("resume")}
-      onNew={() => onOpenChat("new")}
-      {originalSessionMeta}
-    />
-  </div>
+<!-- History: the document's previous version, persistent rather than buried in
+     the overflow — it is one of the four things the header always keeps. -->
+{#if hasChanges}
+  <button type="button" class="wha-verb" data-testid="view-changes" onclick={() => (showDiff = true)} title="See what the agent changed">
+    History
+  </button>
 {/if}
 
 <!-- Copy stays inline: the most-used action. -->
-<SoftPill onclick={copy} variant={copied ? "active" : "default"} title="Copy to clipboard" ariaLabel="Copy to clipboard">
-  {#if copied}
-    <CheckIcon size={13} />
-    <span class="wha-label">Copied!</span>
-  {:else}
-    <CopyIcon size={13} />
-    <span class="wha-label">Copy</span>
-  {/if}
-</SoftPill>
+<button type="button" class="wha-verb" onclick={copy} title="Copy to clipboard" aria-label="Copy to clipboard">
+  {copied ? "Copied!" : "Copy"}
+</button>
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
 {#if hasOverflow}
@@ -187,7 +153,8 @@
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content side="top" align="end" sideOffset={6} class="w-[200px]">
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={6} collisionPadding={8} class="w-auto min-w-56 whitespace-nowrap">
+      <DropdownMenu.Label>Document actions</DropdownMenu.Label>
       {#if onStartRename}
         <DropdownMenu.Item data-testid="rename-work" onSelect={() => onStartRename?.()}>
           <PencilSimpleIcon size={14} /><span class="flex-1 text-left">Rename</span>
@@ -213,17 +180,12 @@
           <FolderIcon size={14} /><span class="flex-1 text-left">Saved in project</span>
         </DropdownMenu.Item>
       {/if}
-      {#if (onStartRename || onGoogleUpload || canPromote || isProjectWork) && (onDuplicate || hasChanges || canDownload || onDelete)}
-        <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
+      {#if (onStartRename || onGoogleUpload || canPromote || isProjectWork) && (onDuplicate || canDownload || onDelete)}
+        <DropdownMenu.Separator />
       {/if}
       {#if onDuplicate}
         <DropdownMenu.Item data-testid="duplicate-work" onSelect={() => onDuplicate?.()}>
           <CopyIcon size={14} /><span class="flex-1 text-left">Duplicate</span>
-        </DropdownMenu.Item>
-      {/if}
-      {#if hasChanges}
-        <DropdownMenu.Item data-testid="view-changes" onSelect={() => { showDiff = true; }}>
-          <ClockCounterClockwiseIcon size={14} /><span class="flex-1 text-left">View changes</span>
         </DropdownMenu.Item>
       {/if}
       {#if canDownload}
@@ -238,7 +200,7 @@
       {/if}
       {#if onDelete}
         {#if onDuplicate || hasChanges || canDownload}
-          <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
+          <DropdownMenu.Separator />
         {/if}
         <DropdownMenu.Item data-testid="delete-work" variant="destructive" onSelect={() => onDelete?.()}>
           <TrashIcon size={14} /><span class="flex-1 text-left">Delete</span>
@@ -246,6 +208,44 @@
       {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
+{/if}
+
+<!-- How to reach Solus — the one filled surface in the header, and a pill so it
+     is the only rounded-full thing on the page. -->
+{#if onOpenChat}
+  <div class="relative wha-solus" bind:this={chatButtonEl}>
+    <button
+      type="button"
+      onclick={() => onOpenChat("resume")}
+      class="wha-solus-trigger"
+      data-testid="open-chat"
+      title="Ask Solus about this document"
+      aria-label="Ask Solus"
+    >
+      <SparkleIcon size={12} weight="fill" />
+      <span class="wha-label">Ask Solus</span>
+    </button>
+    <button
+      type="button"
+      onclick={() => (chatMenuOpen = !chatMenuOpen)}
+      class="wha-solus-caret"
+      class:wha-solus-caret--open={chatMenuOpen}
+      data-testid="open-chat-menu"
+      title="Choose chat mode"
+      aria-label="Choose chat mode"
+      aria-haspopup="menu"
+      aria-expanded={chatMenuOpen}
+    >
+      <CaretDownIcon size={10} weight="bold" />
+    </button>
+    <WorkChatMenu
+      bind:open={chatMenuOpen}
+      triggerEl={chatButtonEl}
+      onResume={() => onOpenChat("resume")}
+      onNew={() => onOpenChat("new")}
+      {originalSessionMeta}
+    />
+  </div>
 {/if}
 </div>
 
@@ -284,65 +284,97 @@
 {/if}
 
 <style>
-  .wha-chat-split {
-    display: inline-flex;
-    align-items: stretch;
+  /* A header verb: unfilled type at the same metrics as the shell's own
+     (Markdown/Editor) buttons, so the whole cluster reads as one row of words
+     with a single filled pill at the end of it. */
+  .wha-verb {
+    flex-shrink: 0;
+    height: 1.75rem;
+    padding: 0 0.625rem;
     border-radius: 0.4375rem;
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-secondary);
-    overflow: hidden;
+    font-family: inherit;
+    font-size: 0.78125rem;
+    font-weight: 400;
+    color: var(--solus-text-tertiary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
     transition:
       background var(--duration-quick) var(--ease-premium),
       color var(--duration-quick) var(--ease-premium);
   }
-  .wha-chat-split:hover,
-  .wha-chat-split:has(.wha-chat-caret--open) {
+  .wha-verb:hover {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
-  .wha-chat-trigger {
+  .wha-verb:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  /* Reaching Solus is the surface's primary action, so it carries the only
+     filled surface in the cluster — and the only pill. */
+  .wha-solus {
+    display: inline-flex;
+    align-items: stretch;
+    height: 1.75rem;
+    margin-left: 0.3125rem;
+    border-radius: 999px;
+    background: var(--solus-accent);
+    color: var(--solus-text-on-accent);
+    overflow: hidden;
+    transition: background var(--duration-quick) var(--ease-premium);
+  }
+  .wha-solus:hover,
+  .wha-solus:has(.wha-solus-caret--open) {
+    background: color-mix(in srgb, var(--solus-accent) 88%, black);
+  }
+  .wha-solus-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.25rem 0.375rem 0.25rem 0.5rem;
-    font-size: 0.6875rem;
+    gap: 0.4375rem;
+    padding: 0 0.4375rem 0 0.6875rem;
+    font-family: inherit;
+    font-size: 0.78125rem;
     font-weight: 500;
     background: transparent;
     color: inherit;
     border: none;
     cursor: pointer;
+    white-space: nowrap;
   }
-  .wha-chat-caret {
+  .wha-solus-caret {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 1.125rem;
     padding: 0;
     background: transparent;
-    color: var(--solus-text-tertiary);
+    color: inherit;
     border: none;
-    border-left: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 18%, transparent);
+    border-left: 0.0625rem solid color-mix(in srgb, var(--solus-text-on-accent) 28%, transparent);
     cursor: pointer;
     transition: transform var(--duration-quick) var(--ease-premium);
   }
-  .wha-chat-caret--open {
+  .wha-solus-caret--open {
     transform: rotate(180deg);
   }
-  .wha-chat-trigger:focus-visible,
-  .wha-chat-caret:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: -0.0625rem;
+  .wha-solus-trigger:focus-visible,
+  .wha-solus-caret:focus-visible {
+    outline: 0.125rem solid var(--solus-text-on-accent);
+    outline-offset: -0.125rem;
   }
-  /* [ui.sh picker] Overflow (⋯) trigger — same surface language as the soft pills. */
+  /* Overflow (⋯) trigger — a verb like the rest, so it stays unfilled until hover. */
   .wha-overflow {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.625rem;
-    height: 1.625rem;
+    width: 1.75rem;
+    height: 1.75rem;
     border-radius: 0.4375rem;
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-secondary);
+    background: transparent;
+    color: var(--solus-text-tertiary);
     border: none;
     cursor: pointer;
     transition:
@@ -350,16 +382,13 @@
       color var(--duration-quick) var(--ease-premium),
       transform 80ms var(--ease-premium);
   }
-  :global(.dark) .wha-overflow {
-    background: color-mix(in srgb, var(--solus-surface-hover) 80%, transparent);
-  }
   .wha-overflow:hover,
   .wha-overflow--open {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .wha-overflow:active {
-    transform: scale(0.95);
+    transform: scale(0.96);
   }
   .wha-overflow:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border);
@@ -368,13 +397,12 @@
   .wha-actions {
     display: contents;
   }
-  .wha-actions :global(.soft-pill) {
-    gap: 0.25rem;
-    padding: 0.25rem 0.5rem;
-  }
   @media (max-width: 767px) {
     .wha-label {
       display: none;
+    }
+    .wha-solus-trigger {
+      padding: 0 0.4375rem 0 0.5rem;
     }
   }
 

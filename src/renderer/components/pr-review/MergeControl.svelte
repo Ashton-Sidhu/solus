@@ -80,40 +80,40 @@
 
 {#if merged}
   <div
-    class="flex h-7 items-center gap-1.5 text-[0.75rem] font-medium text-(--solus-art-positive)"
+    class="flex h-[34px] items-center gap-1.5 text-[13px] font-medium text-(--solus-art-positive)"
   >
-    <CheckCircleIcon size={13} weight="fill" class="shrink-0" />
+    <CheckCircleIcon size={14} weight="fill" class="shrink-0" />
     Merged
   </div>
 {:else}
   <div
-    class="flex h-8 w-full items-stretch overflow-hidden rounded-lg bg-(--solus-accent) shadow-[0_1px_2px_color-mix(in_srgb,var(--solus-accent)_22%,transparent)]"
+    class="flex h-[34px] w-full items-stretch overflow-hidden rounded-lg bg-primary"
   >
     <Button
       type="button"
-      class="inline-flex h-full min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 border-0 bg-transparent pr-3 pl-3.5 text-[0.8125rem] font-semibold text-(--solus-on-accent,#fff) transition-[background-color,scale] duration-150 hover:bg-white/10 active:scale-[0.98] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white/60 disabled:cursor-not-allowed disabled:opacity-60"
+      class="inline-flex h-full min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 border-0 bg-transparent px-3.5 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
       disabled={merging}
       onclick={merge}
     >
       {#if merging}
         <CircleNotchIcon size={13} class="shrink-0 animate-spin [animation-duration:0.9s]" />
       {:else}
-        <GitMergeIcon size={13} weight="bold" class="shrink-0" />
+        <GitMergeIcon size={13} class="shrink-0" />
       {/if}
       <span class="truncate">
         {merging ? "Merging…" : actionLabel}
       </span>
     </Button>
-    <span class="my-1 w-px shrink-0 bg-white/30" aria-hidden="true"></span>
+    <span class="my-1 w-px shrink-0 bg-primary-foreground/25" aria-hidden="true"></span>
     <Button
       type="button"
       bind:ref={triggerEl}
-      class="inline-flex cursor-pointer items-center border-0 bg-transparent px-2 text-(--solus-on-accent,#fff) transition-[background-color,scale] duration-100 hover:bg-white/10 active:scale-[0.96] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white/60 disabled:cursor-not-allowed disabled:opacity-60"
+      class="inline-flex w-[30px] shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent px-0 text-primary-foreground transition-colors hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
       disabled={merging}
       aria-label="Merge method"
       onclick={() => (menuOpen = !menuOpen)}
     >
-      <CaretDownIcon size={11} weight="bold" class="shrink-0" />
+      <CaretDownIcon size={11} class="shrink-0" />
     </Button>
   </div>
   <DropdownMenu.Root bind:open={menuOpen}>
@@ -121,17 +121,17 @@
     <div class="py-1" role="listbox" aria-label="Merge method">
       {#each METHOD_OPTIONS as opt (opt.value)}
         <DropdownMenu.Item
-          class={method === opt.value ? "font-semibold" : undefined}
+          class={method === opt.value ? "font-medium" : undefined}
           onSelect={() => {
             method = opt.value;
             menuOpen = false;
           }}
         >
           <div class="flex min-w-0 flex-col gap-0.5 py-0.5">
-            <div class="text-[0.6875rem] text-(--solus-text-primary)">
+            <div class="text-[12px] font-medium">
               {opt.label}
             </div>
-            <div class="text-[0.625rem] leading-3.5 text-(--solus-text-tertiary)">
+            <div class="text-[11px] leading-[1.5] text-muted-foreground">
               {opt.hint}
             </div>
           </div>

@@ -3,7 +3,6 @@
     CheckIcon,
     CaretDownIcon,
     GitForkIcon,
-    PlusIcon,
     RobotIcon,
   } from "phosphor-svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -18,6 +17,7 @@
   interface Props {
     useWorktree?: boolean;
     startNewSession?: boolean;
+    showNewSessionOption?: boolean;
     showWorktreeToggle?: boolean;
     onApprove: (mode: "ask" | "auto") => void;
   }
@@ -25,6 +25,7 @@
   let {
     useWorktree = $bindable(false),
     startNewSession = $bindable(true),
+    showNewSessionOption = true,
     showWorktreeToggle = false,
     onApprove,
   }: Props = $props();
@@ -81,16 +82,17 @@
             ><Kbd variant="inline">⌥Y</Kbd></span
           >{/if}
       </DropdownMenu.Item>
-      <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
-      <DropdownMenu.CheckboxItem
-        data-testid="plan-action-new-session"
-        bind:checked={startNewSession}
-        closeOnSelect={false}
-        class="gap-2 px-3 py-1.5 text-[0.6875rem] font-secondary text-(--solus-text-secondary) lg:text-xs"
-      >
-        <PlusIcon size={14} />
-        <span class="flex-1 text-left">Start new session</span>
-      </DropdownMenu.CheckboxItem>
+      {#if showNewSessionOption}
+        <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
+        <DropdownMenu.CheckboxItem
+          data-testid="plan-action-new-session"
+          bind:checked={startNewSession}
+          closeOnSelect={false}
+          class="px-3 py-1.5 text-[0.6875rem] font-secondary text-(--solus-text-secondary) lg:text-xs"
+        >
+          <span class="flex-1 text-left">Start new session</span>
+        </DropdownMenu.CheckboxItem>
+      {/if}
       {#if showWorktreeToggle}
         <DropdownMenu.Item
           data-testid="plan-action-worktree"

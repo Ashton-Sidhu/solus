@@ -1,8 +1,5 @@
 <script lang="ts">
-  import {
-    CaretUpDownIcon,
-    CheckIcon,
-  } from "phosphor-svelte";
+  import { CaretUpDownIcon } from "phosphor-svelte";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
@@ -39,9 +36,9 @@
 <Button
   type="button"
   bind:ref={triggerEl}
-  class="flex min-w-0 cursor-pointer items-center rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) transition-colors duration-100 hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {compact
-    ? '-ml-1.5 gap-1.5 px-1.5 py-0.5 text-[0.75rem]'
-    : '-ml-2 gap-2 px-2 py-1 text-[0.9375rem] tracking-[-0.01em]'}"
+  class="flex min-w-0 shrink-0 cursor-pointer items-center rounded-lg border-0 bg-muted font-medium text-foreground transition-colors duration-100 hover:bg-(--solus-surface-active) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {compact
+    ? 'h-8 gap-1.5 px-2 text-[11.5px]'
+    : 'h-8 gap-2 px-2.5 text-[12.5px]'}"
   aria-label="Project"
   aria-haspopup="menu"
   aria-expanded={menuOpen}
@@ -53,7 +50,7 @@
   <span class="min-w-0 truncate">{activeName}</span>
   <CaretUpDownIcon
     size={compact ? 10 : 12}
-    class="shrink-0 text-(--solus-text-tertiary)"
+    class="shrink-0 text-muted-foreground"
   />
 </Button>
 <DropdownMenu.Root bind:open={menuOpen}>
@@ -62,45 +59,39 @@
     side="bottom"
     align="start"
     sideOffset={6}
-    class="w-[272px]"
+    class="w-[288px]"
   >
-    <div class="py-1">
+    <!-- A one-of-N pick, so it is a radio group rather than a list of plain
+         items: the shared menu row then supplies the 32px metric, the 13px
+         label, the weight bump on the chosen row, and the accent check in its
+         reserved trailing slot — none of it restated here. The full path rides
+         on the row's tooltip; project labels are already unique (they key the
+         session sidebar's groups), so spending a second line on it would only
+         break the row rhythm. -->
+    <DropdownMenu.RadioGroup
+      value={activePath}
+      onValueChange={(path) => {
+        menuOpen = false;
+        onSelect(path);
+      }}
+    >
       {#each options as option (option.path)}
-        <DropdownMenu.Item
-          onSelect={() => {
-            menuOpen = false;
-            onSelect(option.path);
-          }}
+        <DropdownMenu.RadioItem
+          value={option.path}
+          title={displayProjectPath(option.path)}
         >
-          <div class="flex min-w-0 flex-1 items-center gap-2">
-            <ProjectFavicon projectRoot={option.path} />
-            <div class="min-w-0 flex-1">
-              <p
-                class="flex items-center gap-1.5 text-[0.75rem] font-medium text-(--solus-text-primary)"
-              >
-                <span class="min-w-0 truncate">{option.name}</span>
-                {#if option.path === currentPath}
-                  <span
-                    class="shrink-0 rounded-full bg-(--solus-accent-light) px-1.5 py-px text-[0.5625rem] font-semibold text-(--solus-accent)"
-                  >
-                    Current
-                  </span>
-                {/if}
-              </p>
-              <p class="truncate text-[0.625rem] text-(--solus-text-tertiary)">
-                {displayProjectPath(option.path)}
-              </p>
-            </div>
-            {#if option.path === activePath}
-              <CheckIcon
-                size={12}
-                weight="bold"
-                class="shrink-0 text-(--solus-accent)"
-              />
-            {/if}
-          </div>
-        </DropdownMenu.Item>
+          <ProjectFavicon projectRoot={option.path} />
+          <span class="min-w-0 flex-1 truncate">{option.name}</span>
+          <!-- The check says "the inbox is showing this"; this says "and it is
+               the project you are working in" — two different facts, so it
+               stays quiet meta text rather than a second tinted marker. -->
+          {#if option.path === currentPath}
+            <span class="text-menu-meta shrink-0 text-(--solus-text-tertiary)">
+              Current
+            </span>
+          {/if}
+        </DropdownMenu.RadioItem>
       {/each}
-    </div>
+    </DropdownMenu.RadioGroup>
   </DropdownMenu.Content>
 </DropdownMenu.Root>

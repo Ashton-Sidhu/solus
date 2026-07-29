@@ -16,10 +16,13 @@
     CheckSquareIcon,
     FolderIcon,
     FolderOpenIcon,
+    BookmarkSimpleIcon,
+    BookmarksIcon,
     ListChecksIcon,
     PlugsIcon,
   } from "phosphor-svelte";
-  import OfflineBanner from "./components/servers/OfflineBanner.svelte";
+  import ConnectionStatusOverlay from "./components/servers/ConnectionStatusOverlay.svelte";
+  import FatalErrorScene from "./components/servers/FatalErrorScene.svelte";
   import { openProjectStore } from "./components/servers/open-project.store.svelte";
   import { hostOnboardingStore } from "./components/servers/host-onboarding.store.svelte";
   import type { HostOption } from "./components/servers/lib/open-project-flow";
@@ -74,6 +77,7 @@
   import { comboHint, KEYBINDINGS } from "./lib/keybindings/manifest";
   import { defaultCombo, eventMatches } from "./lib/keybindings/match";
   import { requestInputFocus } from "./lib/inputFocus";
+  import { requestSavedPrompts } from "./lib/savedPromptsRequest";
   import { initRootScaling } from "./lib/uiScale";
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
@@ -1095,6 +1099,24 @@
       run: () => session.createTab(),
     },
     {
+      id: "save-prompt",
+      label: "Save prompt",
+      group: "Compose",
+      icon: BookmarkSimpleIcon,
+      hint: comboHint("global.save-prompt"),
+      keywords: ["stash", "draft", "park", "later", "composer"],
+      run: () => requestSavedPrompts({ action: "save" }),
+    },
+    {
+      id: "saved-prompts",
+      label: "Saved prompts…",
+      group: "Compose",
+      icon: BookmarksIcon,
+      hint: comboHint("global.saved-prompts"),
+      keywords: ["stash", "draft", "park", "restore", "composer"],
+      run: () => requestSavedPrompts({ action: "open" }),
+    },
+    {
       id: "view-working-tree-diff",
       label: "View working tree diff",
       group: "Git",
@@ -1911,6 +1933,12 @@
 
 <svelte:window onkeydowncapture={toasts.handleKeydown} />
 
+<!--
+  Without this, a thrown render leaves an empty window with nothing to act on.
+  The boundary keeps the failure inside the app, where the user still has a way
+  back to a working host.
+-->
+<svelte:boundary onerror={(error) => console.error("renderer crashed", error)}>
 <Tooltip.Provider
   delayDuration={700}
   skipDelayDuration={300}
@@ -2051,7 +2079,7 @@
   {/await}
 {/if}
 
-<OfflineBanner />
+<ConnectionStatusOverlay dimBackdrop={isEditorMode} />
 
 {#if hasMountedAddServer}
   {#await import("./components/servers/AddServerModal.svelte")}
@@ -2142,6 +2170,11 @@
   </div>
 {/if}
 </Tooltip.Provider>
+
+{#snippet failed(error)}
+  <FatalErrorScene {error} />
+{/snippet}
+</svelte:boundary>
 
 <style>
   .mode-hidden {

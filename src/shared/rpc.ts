@@ -122,6 +122,11 @@ export const RPC_INVOKE_METHODS = [
   'pinnedSessionsList',
   'togglePinnedSession',
 
+  // Saved prompts (per-project composer drafts in ~/.solus/solus.db)
+  'savedPromptsList',
+  'savedPromptsCreate',
+  'savedPromptsDelete',
+
   // Design mode
   'enterDesignMode',
   'designModeReady',

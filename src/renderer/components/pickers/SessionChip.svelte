@@ -239,13 +239,13 @@
   });
 </script>
 
-<DropdownMenu.Root bind:open onOpenChange={(next) => { hoveredModelId = null; hoveredLevel = null; if (!next && !detached && tabId === undefined) requestInputFocus() }}>
+<DropdownMenu.Root bind:open onOpenChange={(next) => { hoveredModelId = null; hoveredLevel = null; if (!next && !detached) requestInputFocus({ tabId }) }}>
   <DropdownMenu.Trigger disabled={isBusy || handoffInProgress} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps} {...props} type="button" class="flex items-center min-w-0 rounded-full transition-[background-color,color,scale] font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {dense ? 'h-6 gap-1 pl-0.5 pr-1.5 text-[0.75rem]' : 'h-8 gap-1.5 pl-1 pr-2 text-[0.8125rem]'}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+            <button {...tooltipProps} {...props} type="button" class="flex items-center min-w-0 rounded-full transition-[background-color,scale] font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {dense ? 'h-6 gap-1 pl-0.5 pr-1.5 text-[0.75rem]' : 'h-8 gap-1.5 pl-1 pr-2 text-[0.8125rem]'}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
         <span
           class={`flex flex-shrink-0 items-center justify-center rounded-full ${dense ? "h-5 w-5" : "h-6 w-6"} ${isCodex ? "bg-white" : "bg-(--solus-accent-light) text-(--solus-accent)"}`}
         >
@@ -265,7 +265,7 @@
         {:else}
           <span class="truncate max-w-28 font-medium text-(--solus-text-primary)">{modelLabel}</span>
           <span class="flex-shrink-0 text-(--solus-text-tertiary)">{reasoningLabel}</span>
-          <CaretDownIcon size={dense ? 10 : 11} style="opacity:0.6" />
+          <CaretDownIcon size={9} class="text-(--solus-text-tertiary)" />
         {/if}
       </button>
           {/snippet}

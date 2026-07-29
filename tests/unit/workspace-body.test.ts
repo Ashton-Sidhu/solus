@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  listSidebarPrimaryWidth,
   retainedConversationTabIds,
   visibleWorkspaceTabIds,
 } from '../../src/renderer/components/layout/lib/workspace-body'
@@ -141,5 +142,13 @@ describe('conversation transcript retention', () => {
         ['active-tab', 'recent-tab'],
       ),
     ).toEqual(['active-tab', 'recent-tab'])
+  })
+})
+
+describe('docked list sidebar sizing', () => {
+  test('keeps the PR inbox compact while leaving the review the remaining width', () => {
+    expect(listSidebarPrimaryWidth(1000)).toBe(228)
+    expect(listSidebarPrimaryWidth(1440)).toBe(274)
+    expect(listSidebarPrimaryWidth(2400)).toBe(340)
   })
 })

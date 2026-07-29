@@ -4,7 +4,7 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import { LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 
 export function makeInputState(overrides?: Partial<InputState>): InputState {
-  return { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [], ...overrides }
+  return { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [], savedPromptId: null, ...overrides }
 }
 
 export function makeSession(settings: SettingsContext, overrides?: Partial<Session>): Session {

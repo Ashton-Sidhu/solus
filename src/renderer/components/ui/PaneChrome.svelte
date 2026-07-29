@@ -44,7 +44,14 @@
   }: Props = $props();
 </script>
 
-<div class="no-drag absolute right-2.5 top-2.5 z-30 flex items-center gap-1">
+<!-- Pinned to the chrome row and centred inside it, not offset by a fixed inset:
+     the cluster has to sit on the same optical line as whatever in-content top
+     strip reserves room for it (the diff toolbar, the tab strip), and those are
+     all --solus-chrome-row-h tall. A fixed top-2.5 put the 26px buttons' centre
+     at 23px against the row's 20px. -->
+<div
+  class="no-drag absolute right-2.5 top-0 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1"
+>
   {#if trailing}{@render trailing()}{/if}
 
   {#if onOpenInSplit}

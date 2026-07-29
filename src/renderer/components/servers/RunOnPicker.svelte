@@ -391,9 +391,12 @@
 {/snippet}
 
 <!-- The header chip is the only control for worktree mode, so it shows even on
-     a machine that has never seen another host; the pill-mode chip is purely
-     about hosts and stays hidden until there is one to choose. -->
-{#if variant === "header" || serversStore.remotes.length > 0}
+     a machine that has never seen another host. The pill-mode chip stays hidden
+     until there is a host to choose, unless this session already belongs to a
+     remote host that has since been forgotten. -->
+{#if variant === "header" ||
+  serversStore.remotes.length > 0 ||
+  (!!selectedHostId && selectedHostId !== LOCAL_SERVER_ID)}
   {#if locked}
     <TooltipUI.Root>
       <TooltipUI.Trigger>

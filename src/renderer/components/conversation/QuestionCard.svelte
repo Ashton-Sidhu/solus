@@ -349,7 +349,7 @@
                 placeholder="Type your answer…"
                 disabled={responded}
                 rows={1}
-                class="min-h-0 rounded-none border-0 bg-transparent p-0 text-xs! font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+                class="min-h-0 rounded-none border-0 bg-transparent p-0 font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
                 oninput={(e) => {
                   ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
                 }}
@@ -367,7 +367,7 @@
           value={getComment(currentQuestion)}
           placeholder="Add a note…"
           rows={1}
-          class="min-h-0 rounded-none border-0 bg-transparent p-0 text-xs! font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+          class="min-h-0 rounded-none border-0 bg-transparent p-0 font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
           oninput={(e) => {
             ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
           }}

@@ -1,5 +1,5 @@
 import { createContext } from 'svelte'
-import type { AgentId, IpcContext, Plan, PlanComment, PlanAnnotations, PlanDescriptor, PermissionOption } from '../../../shared/types'
+import type { AgentId, CommentAuthor, IpcContext, Plan, PlanComment, PlanCommentReply, PlanAnnotations, PlanDescriptor, PermissionOption } from '../../../shared/types'
 import { planKey } from '../../../shared/types'
 import { MemoryCache } from '../../../shared/cache'
 
@@ -241,6 +241,36 @@ export class PlanStore {
     this.scheduleSave(planId)
   }
 
+  addReply(planId: string, commentId: string, reply: PlanCommentReply): void {
+    const comment = this.plans[planId]?.comments.find((c) => c.id === commentId)
+    if (!comment) return
+    // In place: the replies array lives inside a $state proxy, so pushing
+    // notifies the one card instead of invalidating the whole rail.
+    if (comment.replies) comment.replies.push(reply)
+    else comment.replies = [reply]
+    this.scheduleSave(planId)
+  }
+
+  setCommentResolved(planId: string, commentId: string, by: CommentAuthor | null): void {
+    const comment = this.plans[planId]?.comments.find((c) => c.id === commentId)
+    if (!comment) return
+    if (by) {
+      comment.resolvedAt = Date.now()
+      comment.resolvedBy = by
+    } else {
+      delete comment.resolvedAt
+      delete comment.resolvedBy
+    }
+    this.scheduleSave(planId)
+  }
+
+  markCommentRead(planId: string, commentId: string): void {
+    const comment = this.plans[planId]?.comments.find((c) => c.id === commentId)
+    if (!comment) return
+    comment.readAt = Date.now()
+    this.scheduleSave(planId)
+  }
+
   updateContent(planId: string, newContent: string): void {
     const plan = this.plans[planId]
     if (plan) {
@@ -298,6 +328,11 @@ export class PlanStore {
     this.descriptorCacheLoading = this._descriptorLoads.size > 0
   }
 
+  isDescriptorLoading(key: string): boolean {
+    this.descriptorCacheLoading
+    return this._descriptorLoads.has(key)
+  }
+
   private resetVisibleDescriptorsForKey(key: string): void {
     if (this.cachedDescriptorKey === key) return
     this.cachedDescriptorKey = key
@@ -346,25 +381,38 @@ export class PlanStore {
 
   async getDescriptors(projectPath: string | undefined, allProjects: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]> {
     const key = this.descriptorCacheKey(projectPath, allProjects)
-    if (!allProjects) this.resetVisibleDescriptorsForKey(key)
+    this.resetVisibleDescriptorsForKey(key)
     const cached = this._descriptorCache.getEntry(key, { allowStale: true })
     if (cached && !cached.isStale) {
       const synced = this.syncCachedDescriptors(cached.value)
-      if (!allProjects) this.setVisibleDescriptorsForKey(key, synced)
+      this.setVisibleDescriptorsForKey(key, synced)
       return synced
     }
     if (cached) {
       const synced = this.syncCachedDescriptors(cached.value)
-      if (!allProjects) this.setVisibleDescriptorsForKey(key, synced)
+      this.setVisibleDescriptorsForKey(key, synced)
+      void this.refreshDescriptors(key, projectPath, allProjects, ctx, cached.value).catch(() => {})
+      return synced
     }
+
+    return this.refreshDescriptors(key, projectPath, allProjects, ctx)
+  }
+
+  private async refreshDescriptors(
+    key: string,
+    projectPath: string | undefined,
+    allProjects: boolean,
+    ctx?: IpcContext,
+    cached?: PlanDescriptor[],
+  ): Promise<PlanDescriptor[]> {
     this.setDescriptorLoading(key, true)
     try {
       const fresh = await this._descriptorCache.getOrLoad(key, () => (
         window.solus.listPlans(projectPath, allProjects, ctx)
       ))
-      const merged = this.mergeWithCached(fresh, cached?.value)
+      const merged = this.mergeWithCached(fresh, cached)
       this._descriptorCache.set(key, merged)
-      if (!allProjects && this.cachedDescriptorKey === key) this.cachedDescriptors = merged
+      if (this.cachedDescriptorKey === key) this.cachedDescriptors = merged
       return merged
     } finally {
       this.setDescriptorLoading(key, false)
@@ -393,10 +441,12 @@ export class PlanStore {
     })
   }
 
-  invalidateDescriptorCache(): void {
-    this._descriptorCache.clear()
-    this.cachedDescriptors = []
-    this.cachedDescriptorKey = null
+  preloadAllDescriptors(ctx?: IpcContext): void {
+    const key = this.descriptorCacheKey(undefined, true)
+    const cached = this._descriptorCache.getEntry(key, { allowStale: true })
+    if (cached && !cached.isStale) return
+    if (this._descriptorLoads.has(key)) return
+    void this.refreshDescriptors(key, undefined, true, ctx, cached?.value).catch(() => {})
   }
 
   // ─── Persistence ───

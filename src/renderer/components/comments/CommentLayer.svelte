@@ -1,9 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
-  import { ChatCircleTextIcon, XIcon, ArrowUpIcon } from "phosphor-svelte";
+  import { XIcon, ArrowUpIcon } from "phosphor-svelte";
   import type { Editor } from "@tiptap/core";
-  import type { PlanComment } from "../../../shared/types";
+  import type { PlanComment, PlanCommentReply } from "../../../shared/types";
   import { uuid } from "../../../shared/uuid";
   import { portal } from "../portal";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
@@ -12,6 +12,8 @@
   import { toasts } from "../../contexts";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
   import PlanCommentPopover from "../plan/PlanCommentPopover.svelte";
+  import { commentMarkPositions, measureAnchors, type MeasuredAnchor } from "./lib/anchors";
+  import { openThreads } from "./lib/thread";
   import {
     addCommentMark,
     removeCommentMark,
@@ -19,7 +21,6 @@
     prosePosToTextOffset,
     findMarkElement,
     scrollAndFlashMark,
-    flashMark,
     resolveHoveredComment,
     isUserSelection,
   } from "../plan/lib/comments";
@@ -31,11 +32,28 @@
     onAdd: (comment: PlanComment) => void;
     onEdit: (commentId: string, text: string) => void;
     onDelete: (commentId: string) => void;
+    onReply: (commentId: string, reply: PlanCommentReply) => void;
+    onResolve: (commentId: string, resolved: boolean) => void;
+    onRead: (commentId: string) => void;
     onSendToAgent: () => void | Promise<void>;
     /** Persist content edits before a comment mark is added (avoids mark leak). */
     flushSave?: () => Promise<void>;
     /** Bound to the shell so mark mutations never trigger an autosave. */
     suppressSave?: boolean;
+    /** True while the live selection can anchor a comment. Read by the host so
+     *  the selection bubble only offers Comment when it would actually work —
+     *  the affordance moved to the bubble, the rules stayed here. */
+    canComment?: boolean;
+    /** Whether the margin threads are shown. Bindable so the host can put the
+     *  toggle in the document header, where the design keeps it. */
+    railOpen?: boolean;
+    /** True once the pane is too narrow to hold a margin without eating the
+     *  measure. The rail folds away and threads open as a popover on the run
+     *  instead — the measure is protected before the margin is. */
+    railFolded?: boolean;
+    /** Document position of each thread's mark, published so the outline can
+     *  say how many threads a section holds. */
+    threadAnchors?: { id: string; pos: number }[];
   }
 
   let {
@@ -45,9 +63,16 @@
     onAdd,
     onEdit,
     onDelete,
+    onReply,
+    onResolve,
+    onRead,
     onSendToAgent,
     flushSave,
     suppressSave = $bindable(false),
+    canComment = $bindable(false),
+    railOpen = $bindable(true),
+    railFolded = false,
+    threadAnchors = $bindable([]),
   }: Props = $props();
 
   let selectionRange = $state<{
@@ -63,28 +88,109 @@
   let commentFormAnchor = $state<{ left: number; top: number; width: number } | null>(null);
   let commentInputEl: HTMLTextAreaElement | null = $state(null);
 
-  let hoveredComment = $state<PlanComment | null>(null);
-  let hoveredAnchor = $state<{ x: number; y: number }>({ x: 0, y: 0 });
-  let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Published to the host, which owns the selection bubble the Comment action
+  // now lives on. The rules for what can carry a comment stay here.
+  $effect(() => {
+    canComment = !!selectionRange && !commentFormAnchor;
+  });
 
-  // A clicked mark pins the popover open until dismissed (hover alone is fleeting
-  // and easy to miss); pinned takes precedence over a transient hover.
-  let pinnedComment = $state<PlanComment | null>(null);
-  let pinnedAnchor = $state<{ x: number; y: number }>({ x: 0, y: 0 });
-  const popoverComment = $derived(pinnedComment ?? hoveredComment);
-  const popoverAnchor = $derived(pinnedComment ? pinnedAnchor : hoveredAnchor);
+  // Only ever open in the folded layout, where there is no margin to focus a
+  // card in. With the rail up, clicking a highlight focuses its card — one
+  // thread must never have two places it can be read.
+  let popoverComment = $state<PlanComment | null>(null);
+  let popoverAnchor = $state<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  let railClosed = $state(false);
   let activeRailCommentId = $state<string | null>(null);
+  let hoveredRailCommentId = $state<string | null>(null);
   let editingCommentId = $state<string | null>(null);
 
-  const railOpen = $derived(!railClosed && comments.length > 0);
+  const railVisible = $derived(railOpen && comments.length > 0 && !railFolded);
+
+  /**
+   * Focus is mutual: the focused thread's highlight is deepened in the text, so
+   * the conversation the margin is showing is findable in the prose without
+   * reading the margin. Hovering a card previews the same thing — hover is not
+   * a state, so it never survives the pointer leaving.
+   */
+  const highlightedCommentId = $derived(hoveredRailCommentId ?? activeRailCommentId);
+  $effect(() => {
+    const el = scrollContainer;
+    // Marks are re-created whenever the doc or the comment set changes, so the
+    // class has to be re-applied on both.
+    comments;
+    editor?.state.doc;
+    const id = highlightedCommentId;
+    if (!el) return;
+    void tick().then(() => {
+      el.querySelectorAll("mark.plan-comment-active").forEach((m) =>
+        m.classList.remove("plan-comment-active"),
+      );
+      if (id) findMarkElement(el, id)?.classList.add("plan-comment-active");
+    });
+  });
+
+  // Where each highlight sits, in the scroll container's own box. Re-measured
+  // on scroll, on resize, and whenever the comment set or the document
+  // changes — the three things that can move a mark.
+  let anchors = $state<MeasuredAnchor[]>([]);
+  // False while the rail is moving: cards keep following their anchors, but
+  // connectors are suppressed so nothing flickers across the margin.
+  let settled = $state(true);
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function remeasure() {
+    anchors = measureAnchors(scrollContainer, comments);
+    threadAnchors = commentMarkPositions(editor);
+  }
+
+  function markMoving() {
+    settled = false;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => (settled = true), 140);
+  }
+
+  $effect(() => {
+    // Re-read on every change that can move a mark. `comments` and the editor's
+    // doc are both tracked so a rewrite re-anchors without a scroll.
+    comments;
+    editor?.state.doc;
+    scrollContainer;
+    void tick().then(remeasure);
+  });
+
+  $effect(() => {
+    const el = scrollContainer;
+    if (!el) return;
+    // One rAF per frame — a fast scroll must not run a layout read per event.
+    let pending = false;
+    const onScroll = () => {
+      markMoving();
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        remeasure();
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new ResizeObserver(() => {
+      markMoving();
+      remeasure();
+    });
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+      if (settleTimer) clearTimeout(settleTimer);
+    };
+  });
 
   // Mirror the standard submit-to-agent flow (InputBar / diff feedback): guard
   // against double-sends while the chat tab is being opened.
   let submitting = $state(false);
+  const openCount = $derived(openThreads(comments).length);
   async function handleSend() {
-    if (submitting || comments.length === 0) return;
+    if (submitting || openCount === 0) return;
     submitting = true;
     try {
       await onSendToAgent();
@@ -143,15 +249,16 @@
     suppressSave = false;
   });
 
-  // Hover popover lives on the shell's scroll region (bound from the host).
+  // Both listeners ride the shell's scroll region (bound from the host), which
+  // is also the gate: they only ever fire for this document's own text.
   $effect(() => {
     const el = scrollContainer;
     if (!el) return;
-    el.addEventListener("pointerover", handleCommentHover);
     el.addEventListener("click", handleCommentClick);
+    el.addEventListener("keydown", handleThreadKeys);
     return () => {
-      el.removeEventListener("pointerover", handleCommentHover);
       el.removeEventListener("click", handleCommentClick);
+      el.removeEventListener("keydown", handleThreadKeys);
     };
   });
 
@@ -166,7 +273,8 @@
     commentInput = "";
   }
 
-  function handleStartComment() {
+  /** Called by the host when the selection bubble's Comment action is used. */
+  export function startComment() {
     if (!selectionRange) return;
     commentFormAnchor = {
       left: selectionRange.left,
@@ -189,6 +297,9 @@
       selectedText: selectionRange.selectedText,
       comment: commentInput.trim(),
       textOffset,
+      author: "you",
+      createdAt: Date.now(),
+      readAt: Date.now(),
     };
     onAdd(newComment);
 
@@ -198,7 +309,7 @@
     suppressSave = false;
 
     clearCommentDraft();
-    railClosed = false;
+    railOpen = true;
 
     await tick();
     if (container) {
@@ -209,52 +320,82 @@
     }
   }
 
-  function handleCommentHover(e: MouseEvent) {
+  /**
+   * Clicking a highlight focuses its thread — and does *not* scroll, because
+   * the reader is already looking at the right line. Clicking bare prose lets
+   * the thread go. Folded, where there is no margin, the thread opens on the
+   * run instead.
+   */
+  function handleCommentClick(e: MouseEvent) {
+    // The margin is a layer inside the same scroller, so a click on a card
+    // reaches this handler too — and must not read as "clicked bare prose",
+    // which would unfocus the thread the reader has just opened.
+    if ((e.target as HTMLElement).closest(".plan-comments-rail")) return;
     const resolved = resolveHoveredComment(e, comments);
     if (!resolved) {
-      if (hoverTimeout) clearTimeout(hoverTimeout);
-      hoverTimeout = setTimeout(() => (hoveredComment = null), 350);
+      popoverComment = null;
+      activeRailCommentId = null;
       return;
     }
-    if (hoverTimeout) clearTimeout(hoverTimeout);
-    hoveredComment = resolved.comment;
-    hoveredAnchor = resolved.anchor;
+    railOpen = true;
+    activeRailCommentId = resolved.comment.id;
+    onRead(resolved.comment.id);
+    popoverComment = railFolded ? resolved.comment : null;
+    popoverAnchor = clampPopoverAnchor(resolved.anchor);
   }
 
-  // Clicking a highlighted span pins its popover; clicking bare text dismisses.
-  function handleCommentClick(e: MouseEvent) {
-    const resolved = resolveHoveredComment(e, comments);
-    if (!resolved) {
-      pinnedComment = null;
+  /**
+   * ⌥↑ / ⌥↓ walk the threads in document order and bring each anchor into view;
+   * Esc lets the current one go and returns nothing. Document order comes off
+   * the measured anchors, so it is the order the reader sees rather than the
+   * order the threads were written in.
+   */
+  const orderedThreadIds = $derived(
+    [...anchors].sort((a, b) => a.anchorTop - b.anchorTop).map((a) => a.id),
+  );
+
+  function handleThreadKeys(e: KeyboardEvent) {
+    if (e.key === "Escape" && activeRailCommentId) {
+      e.preventDefault();
+      e.stopPropagation();
+      activeRailCommentId = null;
+      popoverComment = null;
       return;
     }
-    if (hoverTimeout) clearTimeout(hoverTimeout);
-    hoveredComment = null;
-    pinnedComment = resolved.comment;
-    pinnedAnchor = resolved.anchor;
-    activeRailCommentId = resolved.comment.id;
-    railClosed = false;
-    // Pulse the clicked mark for the same feedback as the plan modal.
-    const mark = findMarkElement(scrollContainer, resolved.comment.id);
-    if (mark) flashMark(mark);
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const ids = orderedThreadIds;
+    if (ids.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const current = activeRailCommentId ? ids.indexOf(activeRailCommentId) : -1;
+    const next =
+      e.key === "ArrowDown"
+        ? Math.min(ids.length - 1, current + 1)
+        : Math.max(0, (current === -1 ? 0 : current) - 1);
+    railOpen = true;
+    handleScrollToComment(ids[next]);
+  }
+
+  /** Keep the folded popover 12px clear of the window's right edge. */
+  function clampPopoverAnchor(anchor: { x: number; y: number }) {
+    const halfWidth = 134;
+    return { x: Math.min(anchor.x, window.innerWidth - 12 - halfWidth), y: anchor.y };
   }
 
   function closePopover() {
-    hoveredComment = null;
-    pinnedComment = null;
+    popoverComment = null;
   }
 
   function handleEditComment(comment: PlanComment) {
-    hoveredComment = null;
-    pinnedComment = null;
-    railClosed = false;
+    popoverComment = null;
+    railOpen = true;
     editingCommentId = comment.id;
     activeRailCommentId = comment.id;
   }
 
   function handleDeleteComment(commentId: string) {
-    hoveredComment = null;
-    pinnedComment = null;
+    popoverComment = null;
     const deleted = comments.find((c) => c.id === commentId);
     onDelete(commentId);
     if (editingCommentId === commentId) editingCommentId = null;
@@ -267,55 +408,32 @@
     if (deleted) {
       toasts.undo("Comment deleted", () => {
         onAdd(deleted);
-        railClosed = false;
+        railOpen = true;
       });
     }
   }
 
   function handleScrollToComment(commentId: string) {
     activeRailCommentId = commentId;
+    // Focus is mutual: opening a thread marks it read, so its unread dot goes
+    // out the moment the reader has actually looked at it.
+    onRead(commentId);
     const mark = findMarkElement(scrollContainer, commentId);
     if (!mark || !scrollContainer) return;
     scrollAndFlashMark(scrollContainer, mark);
   }
 
-  function handleHoverRailComment(commentId: string | null) {
-    if (!scrollContainer) return;
-    if (commentId) {
-      findMarkElement(scrollContainer, commentId)?.classList.add("plan-comment-active");
-    } else {
-      scrollContainer
-        .querySelectorAll("mark.plan-comment-active")
-        .forEach((m) => m.classList.remove("plan-comment-active"));
-    }
+  function handleReply(commentId: string, text: string) {
+    onReply(commentId, { id: uuid(), author: "you", text, createdAt: Date.now() });
+    activeRailCommentId = commentId;
   }
-</script>
 
-<!-- Floating "Comment" button at the selection -->
-{#if selectionRange && !commentFormAnchor}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    use:portal={document.body}
-    data-floating-comment
-    data-solus-ui
-    class="fixed"
-    style="left:{(selectionRange.left + selectionRange.right) / 2}px;top:{selectionRange.top}px;z-index:10001;transform:translate(-50%, calc(-100% - 0.375rem))"
-    transition:fly={{ y: 4, duration: 120, opacity: 0 }}
-  >
-    <Button
-      variant="outline"
-      size="sm"
-      onmousedown={(e) => e.preventDefault()}
-      onclick={handleStartComment}
-      class="border-(--solus-popover-border) bg-(--solus-popover-bg) text-(--solus-accent) shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] hover:-translate-y-[0.0625rem] hover:border-(--solus-accent) hover:bg-(--solus-accent) hover:text-(--solus-text-on-accent)"
-      data-testid="add-comment"
-      title="Add comment"
-    >
-      <ChatCircleTextIcon size={13} />
-      Comment
-    </Button>
-  </div>
-{/if}
+  function handleResolve(commentId: string, resolved: boolean) {
+    onResolve(commentId, resolved);
+    if (resolved && activeRailCommentId === commentId) activeRailCommentId = null;
+  }
+
+</script>
 
 <!-- Inline comment form -->
 {#if commentFormAnchor}
@@ -362,28 +480,33 @@
   </div>
 {/if}
 
-<!-- Comment popover (opens on hover, pins open on click) -->
+<!-- Folded only: with no margin to hold the thread, it opens on the run it
+     annotates. Dismissed by Escape or by clicking anywhere else in the text. -->
 {#if popoverComment}
   <PlanCommentPopover
     comment={popoverComment}
     anchor={popoverAnchor}
-    pinned={!!pinnedComment}
+    pinned
     onEdit={handleEditComment}
     onDelete={(c) => handleDeleteComment(c.id)}
     onClose={closePopover}
-    onHoverEnter={() => { if (hoverTimeout) clearTimeout(hoverTimeout); }}
   />
 {/if}
 
 <!-- Comments rail (floating panel anchored to the right of the document) -->
-{#if railOpen}
+{#if railVisible}
   <div class="cl-rail-sleeve" transition:fly={{ x: 264, duration: 200, opacity: 0 }}>
     <PlanCommentsRail
       {comments}
-      activeCommentId={hoveredComment?.id ?? activeRailCommentId}
+      activeCommentId={activeRailCommentId}
       {editingCommentId}
+      placement="anchored"
+      {anchors}
+      {settled}
       onScrollTo={handleScrollToComment}
-      onHover={handleHoverRailComment}
+      onHover={(commentId) => (hoveredRailCommentId = commentId)}
+      onResolve={handleResolve}
+      onReply={handleReply}
       onStartEdit={(commentId) => {
         editingCommentId = commentId;
         activeRailCommentId = commentId;
@@ -394,12 +517,12 @@
       }}
       onCancelEdit={() => (editingCommentId = null)}
       onDelete={handleDeleteComment}
-      onClose={() => (railClosed = true)}
+      onClose={() => (railOpen = false)}
     >
       {#snippet footer()}
         <div class="cl-send-bar">
           <span class="cl-send-bar__hint">
-            {comments.length} comment{comments.length === 1 ? "" : "s"}
+            {openCount} open thread{openCount === 1 ? "" : "s"}
           </span>
           <TooltipUI.Root>
             <TooltipUI.Trigger>
@@ -409,7 +532,7 @@
               size="icon"
               class="rounded-full"
               data-testid="send-comments"
-              disabled={submitting}
+              disabled={submitting || openCount === 0}
               onclick={handleSend}
               aria-label="Send comments to agent"
             >
@@ -432,14 +555,17 @@
     top: var(--cf-top);
     width: var(--cf-width);
   }
+  /* Composing: dashed terracotta until it is posted. Dashed because the thread
+     does not exist yet — the moment it does it becomes a solid amber card, and
+     amber is what human annotation looks like everywhere else in the page. */
   .cl-form {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
     padding: 0.5rem 0.625rem;
     border-radius: 0.625rem;
-    border: 0.0625rem solid var(--solus-accent-border);
-    background: var(--solus-popover-bg);
+    border: 0.0625rem dashed color-mix(in srgb, var(--solus-accent) 45%, transparent);
+    background: color-mix(in srgb, var(--solus-accent) 5%, var(--solus-popover-bg));
     box-shadow: var(--solus-popover-shadow);
     backdrop-filter: blur(1.25rem);
     -webkit-backdrop-filter: blur(1.25rem);
@@ -450,17 +576,24 @@
     align-items: center;
     gap: 0.375rem;
   }
-  /* The rail renders a self-framed floating card, so the sleeve stays a
-     transparent track — no extra border/fill to double-frame it. */
+  /* Threads live in the margin of the same page, so the sleeve is a plain
+     track — no frame, no fill, and no rule between it and the text column. */
+  /* The margin of the page, not a panel beside it: the sleeve is a column of
+     the page block, and it sticks to the top of the reading viewport so cards
+     can hold their anchors' lines while the text scrolls under them. */
   .cl-rail-sleeve {
-    /* Container-relative (cqi) so the rail scales with the document shell width
-       rather than the viewport — a narrow split pane gets a narrow rail instead
-       of one sized off the full screen, keeping the editor usable. */
-    width: clamp(12rem, 24cqi, 16.5rem);
+    width: var(--solus-doc-rail-w);
     flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: var(--doc-viewport-h, 100%);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    /* The page's right gutter. The scrollbar rides outside it, on the
+       viewport's edge, so nothing is drawn between the prose and its margin. */
+    padding-right: 1.5rem;
     background: transparent;
   }
   /* Submit lives at the bottom of the comments rail and uses the canonical accent
@@ -471,7 +604,10 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.5rem 0.625rem;
+    /* A hairline, not a footer bar — the margin has no second surface in it. */
+    margin-top: 0.5rem;
+    padding: 0.625rem 0.125rem 0;
+    border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
   }
   .cl-send-bar__hint {
     font-size: 0.6875rem;

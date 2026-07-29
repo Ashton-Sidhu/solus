@@ -2,6 +2,7 @@
   import {
     CheckIcon,
     CaretRightIcon,
+    EyeglassesIcon,
     FolderIcon,
     GitBranchIcon,
     GitCommitIcon,
@@ -134,12 +135,9 @@
             ? "Committing…"
             : "Commit",
         icon: PaperPlaneTiltIcon,
-        // 5c gives every row one trailing metric — for commit that's the size of
-        // what's about to go out.
-        badge:
-          uncommittedFileCount > 0
-            ? `${uncommittedFileCount}${status?.uncommittedChanges.hasMoreFiles ? "+" : ""}`
-            : undefined,
+        // No trailing count: the changed-file total already sits on the stats
+        // line under the branch, and repeating it here reads as a second,
+        // different number.
         phase: commitPhase,
         disclosure: "commit",
         disabled: !canGit,
@@ -149,7 +147,6 @@
         key: "pull-requests",
         label: actions.creatingPR ? "Opening pull request…" : "Pull requests",
         icon: GitPullRequestIcon,
-        badge: openPrs.length > 0 ? String(openPrs.length) : undefined,
         phase: prPhase,
         disclosure: "pull-requests",
         disabled: !canViewDiff,
@@ -162,7 +159,7 @@
           : reviewKey
             ? "View report"
             : "Review changes",
-        icon: GitPullRequestIcon,
+        icon: EyeglassesIcon,
         phase: reviewing ? "loading" : reviewKey ? "success" : "idle",
         disabled: !canGit || reviewing,
         run: () => {
@@ -257,6 +254,7 @@
     // can never be one stray click away from a menu left in the armed state.
     confirmingDiscard = false;
     rowMenuOpen = true;
+    if (key === "pull-requests") void loadOpenPrs();
   }
 
   function closeRowMenu() {
@@ -264,26 +262,20 @@
     requestInputFocus();
   }
 
-  // Open PRs for the trailing count and the menu's list. Read through the store
-  // (cached) with an explicit filter rather than `loadAll`, which would stomp
-  // the PRs pane's own filter state.
+  // The menu's PR list, fetched when that menu opens — nothing on the row itself
+  // depends on it, so the panel doesn't pay for a host round-trip on every
+  // mount. Read through the store (cached) with an explicit filter rather than
+  // `loadAll`, which would stomp the PRs pane's own filter state.
   let openPrs = $state<PullRequestSummary[]>([]);
-  $effect(() => {
-    if (!active || !canViewDiff || !env.cwd) return;
+  async function loadOpenPrs() {
+    if (!canViewDiff || !env.cwd) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
-    let cancelled = false;
-    void session.prsStore
-      .loadFor(ctx, { state: "open" })
-      .then((page) => {
-        if (!cancelled) openPrs = page.items;
-      })
-      .catch(() => {
-        if (!cancelled) openPrs = [];
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
+    try {
+      openPrs = (await session.prsStore.loadFor(ctx, { state: "open" })).items;
+    } catch {
+      openPrs = [];
+    }
+  }
 
   // "Discard changes…" arms in place rather than opening a dialog — the menu
   // swaps to a confirm row, which is what the ellipsis promises.

@@ -113,16 +113,38 @@ export function flashMark(mark: HTMLElement): void {
   setTimeout(() => mark.classList.remove("plan-comment-flash"), 800);
 }
 
+/** The document's own scroll curve: 240ms of ease-out, short enough to read as
+ *  a jump and long enough to say which way the page went. `behavior: "smooth"`
+ *  is the browser's duration, which is neither. */
+const SCROLL_MS = 240;
+
+function animateScrollBy(el: HTMLElement, delta: number): void {
+  if (Math.abs(delta) < 1) return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    el.scrollTop += delta;
+    return;
+  }
+  const from = el.scrollTop;
+  const start = performance.now();
+  const step = (at: number) => {
+    const t = Math.min(1, (at - start) / SCROLL_MS);
+    el.scrollTop = from + delta * (1 - Math.pow(1 - t, 3));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/**
+ * Bring a mark to a third of the reading viewport — not to the top, where the
+ * line you were sent to has nothing above it to read it in context.
+ */
 export function scrollAndFlashMark(
   scrollContainer: HTMLDivElement,
   mark: HTMLElement,
 ): void {
-  const containerTop = scrollContainer.getBoundingClientRect().top;
+  const container = scrollContainer.getBoundingClientRect();
   const markTop = mark.getBoundingClientRect().top;
-  scrollContainer.scrollBy({
-    top: markTop - containerTop - 80,
-    behavior: "smooth",
-  });
+  animateScrollBy(scrollContainer, markTop - container.top - container.height / 3);
   flashMark(mark);
 }
 
@@ -142,6 +164,18 @@ export function resolveHoveredComment(
     comment,
     anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
   };
+}
+
+/**
+ * The mark state a thread should be wearing. Every annotation state has to
+ * stay legible with the rail hidden, so the mark carries the thread's state
+ * rather than merely its existence: a resolved thread keeps a dotted sage
+ * trace, one Solus wrote is dashed terracotta.
+ */
+export function markTypeFor(comment: PlanComment): string {
+  if (comment.resolvedAt) return "resolved";
+  if (comment.author === "solus") return "solus";
+  return "saved";
 }
 
 export function restoreCommentMarks(
@@ -165,10 +199,13 @@ export function restoreCommentMarks(
     const to = textBetweenIdxToPos(doc, idx + c.selectedText.length);
 
     if (from !== -1 && to !== -1) {
+      // addMark replaces any existing planComment mark over the range, so a
+      // thread that has just been resolved re-renders in its new state here
+      // rather than needing a separate mark mutation.
       tr.addMark(
         from,
         to,
-        markType.create({ commentId: c.id, type: "saved" }),
+        markType.create({ commentId: c.id, type: markTypeFor(c) }),
       );
     }
   }

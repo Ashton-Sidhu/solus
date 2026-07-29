@@ -685,7 +685,8 @@ export class ControlPlane extends EventEmitter {
     const hasQueuedRateLimitRequest = (this.requestQueue.get(sessionId) ?? []).some(
       (request) => request.rateLimitSessionId === sessionId,
     )
-    if (!backend.isSessionRunning(sessionId) && !pendingRateLimitEvent && !hasQueuedRateLimitRequest) {
+    const isRuntimeRunning = backend.isSessionRunning(sessionId)
+    if (!isRuntimeRunning && !pendingRateLimitEvent && !hasQueuedRateLimitRequest) {
       this.activeSessions.delete(sessionId)
       return null
     }
@@ -704,6 +705,13 @@ export class ControlPlane extends EventEmitter {
       }
     }
 
+    const status = pendingRateLimitEvent
+      ? 'rate_limited'
+      : isRuntimeRunning && session.status === 'completed'
+        ? 'running'
+        : session.status
+    // Keep the stored turn status intact. `completed` can arrive just before the
+    // runtime exits; only the reattaching client needs the live-runtime override.
     this._setStatus({ tabId }, pendingRateLimitEvent ? 'rate_limited' : session.status)
     log.info(`Tab ${tabId} attached to running session ${sessionId}`)
 
@@ -716,7 +724,7 @@ export class ControlPlane extends EventEmitter {
     return {
       modelConfig: { modelId: input.preferredModel, reasoningEffort: input.reasoningEffort, contextWindow: input.contextWindow, fastMode: input.fastMode },
       permissionMode: input.permissionMode,
-      status: pendingRateLimitEvent ? 'rate_limited' : session.status,
+      status,
       queuedPrompts: this._queuedPromptsForSession(sessionId),
       rateLimitInfo,
       handoffFrom: tab.handoffFrom,
@@ -768,6 +776,12 @@ export class ControlPlane extends EventEmitter {
     return plans
   }
 
+  invalidatePlanCaches(sessionId: string): void {
+    for (const agentId of this.getBackendIds()) {
+      this._backendFor(agentId).invalidatePlanCache?.(sessionId)
+    }
+  }
+
   loadSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     return this._backendFor(agentId).loadSession(sessionId, projectPath, limit)
   }
@@ -813,7 +827,13 @@ export class ControlPlane extends EventEmitter {
     const active = this.activeSessions.get(sessionId)
     if (active) {
       meta.provider = active.backendId
-      meta.status = this._currentRateLimitEvent(sessionId) ? 'rate_limited' : active.status
+      const pendingRateLimit = this._currentRateLimitEvent(sessionId)
+      meta.status = pendingRateLimit
+        ? 'rate_limited'
+        : active.status === 'completed'
+          && this._backendFor(active.backendId).isSessionRunning(sessionId)
+          ? 'running'
+          : active.status
       meta.lastTimestamp = new Date(active.lastActivityAt).toISOString()
     }
     return meta

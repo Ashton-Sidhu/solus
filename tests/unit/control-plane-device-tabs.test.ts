@@ -822,6 +822,24 @@ describe('ControlPlane idle-tab Git environments', () => {
 })
 
 describe('ControlPlane device-scoped tab watches', () => {
+  test('reattaching reports running while a completed event still has a live runtime', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', {
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'session-1'),
+    })
+    env.controlPlane.createTab('tab-a', { clientId: 'ws:new', deviceId: 'device-1' })
+
+    const info = env.controlPlane.bindRuntimeSession(
+      'tab-a',
+      'session-1',
+      { clientId: 'ws:new', deviceId: 'device-1' },
+    )
+
+    expect(info?.status).toBe('running')
+  })
+
   test('keeps a deferred Codex account limit hidden after the active turn settles', () => {
     const env = setup()
     planes.push(env.controlPlane)

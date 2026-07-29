@@ -7,8 +7,12 @@ export const MONO_FONT = 'var(--solus-code-font-family)'
  */
 export const DIFFS_THEME_CSS = `
   :host {
-    --diffs-light-bg: var(--solus-container-bg);
-    --diffs-dark-bg: var(--solus-container-bg);
+    /* Keep Pierre's color-mix base opaque, but do not paint it on the normal
+       code surface below. The tree and code then reveal the same shared parent
+       background while changed rows still get stable add/remove tints. */
+    --diffs-bg: var(--solus-diff-surface) !important;
+    --diffs-light-bg: var(--solus-diff-surface) !important;
+    --diffs-dark-bg: var(--solus-diff-surface) !important;
 
     --diffs-fg-number-override: var(--solus-diff-gutter-text-vivid);
 
@@ -24,14 +28,17 @@ export const DIFFS_THEME_CSS = `
     --diffs-bg-deletion-hover-override: var(--solus-diff-removed-number-vivid);
     --diffs-bg-deletion-emphasis-override: var(--solus-diff-removed-emphasis-vivid);
 
-    --diffs-bg-separator-override: var(--solus-diff-hunk-bg);
+    /* Flat code surface: unchanged lines and the "N unmodified lines" gaps carry
+       no wash of their own, so the only fills in the stream are the add/remove
+       rows. Hunk gaps still read as gaps via their chevrons and label colour. */
+    --diffs-bg-separator-override: transparent;
 
     --diffs-bg-context-override: transparent;
     --diffs-bg-hover-override: var(--solus-surface-hover);
     --diffs-bg-buffer-override: var(--solus-surface-hover);
 
-    --diffs-bg-selection-override: var(--solus-diff-selection-bg);
-    --diffs-bg-selection-number-override: var(--solus-diff-selection-bg);
+    --diffs-bg-selection-override: var(--solus-diff-line-selection-bg);
+    --diffs-bg-selection-number-override: var(--solus-diff-line-selection-bg);
 
     /* The editable-file tokenizer writes --diffs-editor-selection-bg via its
        own unlayered style tag, falling back to the (unset at :host)
@@ -45,6 +52,35 @@ export const DIFFS_THEME_CSS = `
     --diffs-gap-inline: 1px;
     --diffs-gap-block: 8px;
     --diffs-gap-style: none;
+  }
+  /* The library paints its base on several nested wrappers. Keep those wrappers
+     transparent so the pane remains the single surface layer. [data-line] is
+     deliberately absent: it resolves --diffs-line-bg, which carries add/remove
+     and selection tints. */
+  :host,
+  pre,
+  code,
+  [data-gutter],
+  [data-content],
+  [data-separator],
+  [data-separator-wrapper] {
+    background-color: transparent !important;
+  }
+  /* Context rows otherwise repaint --diffs-bg over the item surface. That is
+     visibly lighter in the light theme and double-composites the translucent
+     container colour in dark mode. Only changed/selected/hovered rows should
+     paint a fill of their own. */
+  [data-line-type='context']:not([data-selected-line]):not([data-hovered]) {
+    background-color: transparent !important;
+  }
+  /* Annotation rows are layout space for comment cards, not diff lines. Pierre
+     carries the anchor line's add/remove tint into these wrappers; blank it so
+     only the card itself has a surface. */
+  [data-line-annotation],
+  [data-gutter-buffer='annotation'],
+  [data-annotation-content],
+  [data-annotation-slot] {
+    background-color: transparent !important;
   }
   :host diffs-component pre {
     border-radius: 0 !important;
@@ -138,9 +174,19 @@ export const DIFFS_THEME_CSS = `
   [data-column-number] {
     padding-left: 1.5ch;
   }
-  /* Hairline separating the line-number gutter from the code column. */
-  [data-gutter] [data-column-number] {
-    border-right: 1px solid var(--solus-file-slot-divider);
+  /* No hairline between the gutter and the code column — the design separates
+     them with whitespace alone, so the only vertical strokes in the stream are
+     the change rails below.
+     A 2px rail at the leading edge of every changed line. The row wash is
+     deliberately faint (see the -vivid tokens in index.css), so the rail — not
+     the fill — is what makes added/removed scannable down the gutter. Drawn as
+     an inset shadow rather than a border so it costs no layout width. The 1.5ch
+     padding above keeps the line numbers clear of it. */
+  [data-column-number][data-line-type='change-addition'] {
+    box-shadow: inset 2px 0 0 0 var(--solus-art-3);
+  }
+  [data-column-number][data-line-type='change-deletion'] {
+    box-shadow: inset 2px 0 0 0 var(--solus-stop-bg);
   }
   [data-utility-button] {
     width: 14px;
@@ -167,21 +213,25 @@ export const DIFFS_THEME_CSS = `
     align-items: center;
     padding-right: 2px;
   }
+  /* Unpinned, the header is part of the flat surface and paints nothing. */
   [data-diffs-header='default'] {
     min-height: 32px;
     height: 32px;
     padding-inline: 11px;
-    background-color: var(--solus-container-bg);
+    background-color: transparent;
     font-size: 11.5px;
     transition: background-color 160ms ease;
   }
-  /* Solid (not frosted) sticky background. backdrop-filter: blur() forces the
+  /* Pinned is the one place an opaque fill is required — otherwise the code
+     scrolls visibly through the header. --solus-diff-surface is the opaque twin
+     of the shared pane background. backdrop-filter: blur() would be the
+     alternative, but it forces the
      browser to re-raster the scrolling code behind every pinned header on each
-     frame, which is the single biggest cause of stutter on fast scroll — so we
-     use an opaque fill instead. No border/shadow: the header sits flush with the
-     code, separated only by the inter-file gap. */
+     frame — the single biggest cause of stutter on fast scroll. No
+     border/shadow: the header sits flush with the code, separated only by the
+     inter-file gap. */
   [data-diffs-header='default'][data-sticky] {
-    background: var(--solus-container-bg);
+    background: var(--solus-diff-surface);
     z-index: 2;
   }
   [data-diffs-header='default']:hover {
@@ -189,7 +239,7 @@ export const DIFFS_THEME_CSS = `
   }
   [data-diffs-header='default'][data-sticky]:hover {
     background: linear-gradient(var(--solus-surface-hover), var(--solus-surface-hover)),
-      var(--solus-container-bg);
+      var(--solus-diff-surface);
   }
   [data-header-content] {
     gap: 6px;

@@ -301,19 +301,33 @@
     aria-label="Folio gallery"
     tabindex="-1"
   >
-    <PageShell onClose={close}>
+    {#snippet folioStats()}
+      <span class="flex items-center gap-1.5">
+        <span
+          class="size-1.5 shrink-0 rounded-full bg-primary"
+          aria-hidden="true"
+        ></span>
+        <span class="tabular-nums">{typeCounts.all} items</span>
+      </span>
+      <span class="opacity-40" aria-hidden="true">·</span>
+      <span class="tabular-nums">{typeCounts.doc} documents</span>
+      <span class="opacity-40" aria-hidden="true">·</span>
+      <span class="tabular-nums">{typeCounts.diagram} diagrams</span>
+    {/snippet}
+    <PageShell>
       <PageHeader
         title="Folio"
-        subtitle="Documents and diagrams from your sessions."
+        subtitle={folioStats}
+        onClose={close}
       >
         {#snippet icon()}
-          <BooksIcon size={18} weight="fill" />
+          <BooksIcon size={11} weight="fill" />
         {/snippet}
         {#snippet actions()}
           <div class="new-menu-wrap">
             <button
               type="button"
-              class={PAGE_PRIMARY_BTN}
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3 text-[12.5px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
               onclick={() => (newMenuOpen = !newMenuOpen)}
               aria-haspopup="menu"
               aria-expanded={newMenuOpen}
@@ -341,13 +355,15 @@
       </PageHeader>
 
       <!-- ── Command bar: search + type segments + sort ── -->
-      <div class="flex flex-wrap items-center gap-2 pb-4">
+      <div class="flex min-w-0 flex-wrap items-center gap-2.5 pt-1 pb-4">
         <SearchField
           bind:ref={searchEl}
           bind:value={query}
           placeholder="Search documents…"
+          class="h-8 min-w-0 flex-1 basis-0 rounded-lg border-0 bg-muted px-3 py-0 @max-[44rem]:basis-0"
         />
         <SegmentedControl
+          variant="bar"
           options={typeSegments}
           isActive={(v) => typeFilter === v}
           onSelect={(v) => (typeFilter = v)}
@@ -358,6 +374,7 @@
             bind:value={sortMode}
             options={SORT_OPTIONS}
             ariaLabel="Sort works"
+            class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground"
           />
         </div>
       </div>

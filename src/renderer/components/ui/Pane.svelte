@@ -298,10 +298,12 @@
           {@render loadingSurface('Loading diagram…')}
         {:then diagramModule}
           {@const DiagramShell = diagramModule.default}
+          <!-- See the note on the document branch below: workId is read from
+               DOM handlers that can outlive `activeWork` by a tick. -->
           <DiagramShell
             content={activeWork.content ?? ''}
             title={activeWork.title}
-            workId={activeWork.id}
+            workId={activeWork?.id}
             onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
             onDirtyChange={(d) => { shellDirty = d }}
             onClose={() => panes.closeSlot(slot)}
@@ -340,9 +342,15 @@
           {@render loadingSurface('Loading document…')}
         {:then documentModule}
           {@const DocumentModal = documentModule.default}
+          <!-- workId is optional-chained on purpose: props compile to lazy
+               getters, so a DOM handler still attached during teardown (the
+               comment layer's pointerover) can re-read it after `activeWork`
+               has gone null. Consumers already treat a missing workId as "no
+               comments". `document` stays eager — resolving it to empty
+               mid-teardown would push a blank doc into the editor. -->
           <DocumentModal
             document={{ title: activeWork.title, content: activeWork.content }}
-            workId={activeWork.id}
+            workId={activeWork?.id}
             docType={activeWork.type}
             onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
             onDirtyChange={(d) => { shellDirty = d }}

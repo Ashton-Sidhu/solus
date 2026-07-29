@@ -36,6 +36,10 @@ interface ServerConnectionState {
   probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
   attempt: number
   hasConnected: boolean
+  /** When this host last stopped being connected, for the reconnect counter. */
+  offlineSince: number | null
+  /** When this host last came back after a drop — null on a first connect. */
+  lastReconnectAt: number | null
 }
 
 export interface ServerItem {
@@ -66,7 +70,6 @@ class ServersStore {
   activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
-  switcherOpen = $state(false)
   pendingRunOnTabId = $state<string | null>(null)
   justPairedServerId = $state<string | null>(null)
   discoveryBusy = $state(false)
@@ -126,6 +129,16 @@ class ServersStore {
   get hasConnected(): boolean {
     return this.connectionStatesByServer[this.activeServerId]?.hasConnected
       ?? connectionState.status === 'connected'
+  }
+
+  /** Null while the active host is connected. */
+  get offlineSince(): number | null {
+    return this.connectionStatesByServer[this.activeServerId]?.offlineSince ?? null
+  }
+
+  /** Null until the active host has recovered from at least one drop. */
+  get lastReconnectAt(): number | null {
+    return this.connectionStatesByServer[this.activeServerId]?.lastReconnectAt ?? null
   }
 
   get nearbyHosts(): NearbyHost[] {
@@ -262,8 +275,19 @@ class ServersStore {
     void this.scanForServers()
   }
 
+  /**
+   * Dials the active host again without discarding the window. Reloading was
+   * the old retry, and it threw away every mounted pane to recover from what is
+   * usually a few seconds of missing network.
+   */
   retryActive(): void {
-    location.reload()
+    serverConnections.connectionFor(this.activeServerId)?.transport.reconnectNow()
+    requestInputFocus()
+  }
+
+  /** Falls back to the local host when a remote one cannot be recovered. */
+  useLocalHost(): void {
+    this.switchTo(LOCAL_SERVER_ID)
   }
 
   /**
@@ -365,7 +389,18 @@ class ServersStore {
     const state = this.connectionStateFor(serverId)
     state.transportStatus = status
     state.attempt = attempt
-    if (status === 'connected') state.hasConnected = true
+    if (status === 'connected') {
+      // Only a host that had already been up can have *re*connected. A first
+      // connect must not announce a recovery that never happened.
+      if (state.hasConnected) state.lastReconnectAt = Date.now()
+      state.hasConnected = true
+      state.offlineSince = null
+      // A host that just answered has plainly not stayed offline, and the stale
+      // probe would otherwise keep the picker showing it as unreachable.
+      state.probeStatus = 'online'
+    } else if (state.offlineSince === null) {
+      state.offlineSince = Date.now()
+    }
   }
 
   private connectionStateFor(serverId: string): ServerConnectionState {
@@ -375,6 +410,8 @@ class ServersStore {
         transportStatus: 'disconnected',
         attempt: 0,
         hasConnected: false,
+        offlineSince: null,
+        lastReconnectAt: null,
       }
       this.connectionStatesByServer[serverId] = state
     }

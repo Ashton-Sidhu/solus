@@ -551,6 +551,12 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     }
   }
 
+  invalidatePlanCache(sessionId: string): void {
+    _planListCache.invalidateWhere(
+      (_key, descriptors) => descriptors.some((descriptor) => descriptor.sessionId === sessionId),
+    )
+  }
+
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
     const folderName = projectPath.startsWith('-') ? projectPath : encodePathAsFolder(projectPath)
     const filePath = join(homedir(), '.claude', 'projects', folderName, `${sessionId}.jsonl`)

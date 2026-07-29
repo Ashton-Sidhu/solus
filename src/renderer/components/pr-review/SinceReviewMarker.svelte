@@ -11,10 +11,10 @@
 >
   <ChatCircleIcon size={13} weight="fill" class="mt-0.5 shrink-0 text-(--solus-accent)" />
   <div class="min-w-0 flex-1">
-    <div class="flex items-center gap-1 text-[0.625rem] font-semibold tracking-wide text-(--solus-accent) uppercase">
+    <div class="flex items-center gap-1 text-[9.5px] font-medium tracking-wider text-primary uppercase">
       Your comment here <ArrowRightIcon size={10} weight="bold" /> this changed
     </div>
-    <p class="mt-0.5 truncate text-[0.6875rem] font-secondary text-(--solus-text-secondary)">
+    <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
       {reviewCommentPreview(thread)}
     </p>
   </div>

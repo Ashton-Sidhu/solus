@@ -95,7 +95,7 @@ A node carrying `fields` renders as an **entity** (a table of typed columns) ins
 | `group` | `true` makes this node a container that other nodes nest inside. |
 | `collapsed` | `true` on a group starts it folded to just its header. |
 | `parentId` | `"<group-id>"` on a child node nests it inside a group. One level only. |
-| `detail` | `{ "nodes": [...], "edges": [...] }` — a one-level nested sub-diagram revealed when the node is clicked (pair with the `drilldown` action). |
+| `detail` | `{ "nodes": [...], "edges": [...] }` — a one-level nested sub-diagram. The card grows a drill badge on its own; do **not** pair it with a `drilldown` action, which would make the whole card body drill instead of select. |
 
 ## DiagramAction vocabulary
 
@@ -104,7 +104,7 @@ A node carrying `fields` renders as an **entity** (a table of typed columns) ins
 | `{ "do": "expand" }` | Toggle inline expanded body. |
 | `{ "do": "details" }` | Open the side details drawer. |
 | `{ "do": "focus" }` | Spotlight the node and its neighbours. |
-| `{ "do": "drilldown" }` | Open the node's `detail` sub-diagram. |
+| `{ "do": "drilldown" }` | Open the node's `detail` sub-diagram. Only for a `data-action` control inside custom `html` — as a click action it is ignored, because the card body always selects. |
 | `{ "do": "openUrl", "url": "https://..." }` | Open an external link. |
 | `{ "do": "openFile", "path": "src/..." }` | Ask the agent to open a file. |
 
@@ -113,8 +113,10 @@ A node carrying `fields` renders as an **entity** (a table of typed columns) ins
 | Field | Meaning |
 |---|---|
 | `label` | Text shown on the edge. |
-| `kind` | `"sync" \| "async" \| "data"` — async is animated/dashed, data is a thicker stroke. |
+| `body` | Prose describing what crosses the edge. Shown in the inspector only — never drawn on the canvas, so use it to document a connection without adding a chip to the graph. |
+| `kind` | `"sync" \| "async" \| "data"` — async is dashed by default, data is a thicker stroke. |
 | `width` | Stroke width in px. |
+| `dash` | `"solid" \| "dashed" \| "dotted"` — overrides the dashing `kind` implies, so a solid async or a dashed sync edge is expressible. Omit to follow `kind`. |
 | `shape` | `"smooth" \| "step" \| "straight"` routing. |
 | `arrows` | `"none" \| "start" \| "end" \| "both"`. |
 | `cardinality` | `"1-1" \| "1-n" \| "n-1" \| "n-n"`, ordered source→target. Draws per-end crow's-foot relationship markers and replaces the arrowhead. |

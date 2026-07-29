@@ -43,6 +43,45 @@ test.describe('Two-pane layout', () => {
     await editorPage.getByTitle('New split chat (⌥⇧/)').click()
     await pane.waitForSecondaryPane()
 
+    // Removing the split chat's titled header must not collapse its chrome row
+    // or bottom gutter. Both panes share one visual grid, so their conversation
+    // starts and input-card baselines stay aligned.
+    const primaryChrome = editorPage.locator(
+      `${ACTIVE_SHELL} .editor-variant .tab-bar-row`,
+    )
+    const secondaryChrome = editorPage.locator(
+      `${ACTIVE_SHELL} .secondary-pane-wrap .split-chat-chrome`,
+    )
+    const primaryInputDock = editorPage.locator(
+      `${ACTIVE_SHELL} .input-dock:not(.mode-hidden)`,
+    )
+    const secondaryInputDock = editorPage.locator(
+      `${ACTIVE_SHELL} .secondary-pane-wrap .split-input-dock`,
+    )
+    await expect(async () => {
+      const [
+        primaryChromeBox,
+        secondaryChromeBox,
+        primaryInputBox,
+        secondaryInputBox,
+      ] = await Promise.all([
+        primaryChrome.boundingBox(),
+        secondaryChrome.boundingBox(),
+        primaryInputDock.boundingBox(),
+        secondaryInputDock.boundingBox(),
+      ])
+      expect(primaryChromeBox).not.toBeNull()
+      expect(secondaryChromeBox).not.toBeNull()
+      expect(primaryInputBox).not.toBeNull()
+      expect(secondaryInputBox).not.toBeNull()
+      expect(secondaryChromeBox!.y).toBeCloseTo(primaryChromeBox!.y, 0)
+      expect(secondaryChromeBox!.height).toBeCloseTo(primaryChromeBox!.height, 0)
+      expect(secondaryInputBox!.y + secondaryInputBox!.height).toBeCloseTo(
+        primaryInputBox!.y + primaryInputBox!.height,
+        0,
+      )
+    }).toPass()
+
     await editorPage.keyboard.press('Alt+Shift+Slash')
     await expect(
       editorPage.locator(`${ACTIVE_SHELL} .secondary-pane-wrap`),

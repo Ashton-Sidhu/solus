@@ -21,7 +21,7 @@
     "make": "NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv electron-forge make",
     "build-native": "cd node_modules/macos-alias && node-gyp rebuild && cd ../fs-xattr && node-gyp rebuild && cd ../..",
     "test": "bun run build:test && bun run playwright test",
-    "test:unit": "bun test tests/unit src/renderer",
+    "test:unit": "bun test tests/unit",
     "test:ui": "bun run playwright test --ui",
     "test:headed": "bun run playwright test --headed",
     "test:bg": "bun run playwright test --workers=1",

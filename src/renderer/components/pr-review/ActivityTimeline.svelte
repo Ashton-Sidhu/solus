@@ -66,7 +66,7 @@
   // Comment/review bodies are GitHub markdown — same pipeline as the PR
   // description, scaled to the timeline's 13px type with edge margins trimmed.
   const bodyProseClass =
-    "github-markdown prose-cloud mt-1.5 text-[0.8125rem] leading-relaxed font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+    "github-markdown prose-cloud mt-1.5 text-[12.5px] leading-[1.6] text-foreground [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
@@ -83,35 +83,31 @@
   }
 </script>
 
-<!-- Sparse timelines (a fresh PR: opened + one commit run) tighten up so the
-     page doesn't read as a few rows adrift in whitespace; the airy gap is
-     reserved for feeds long enough to need the breathing room. -->
-<ol
-  class="relative flex flex-col {loading || events.length > 3
-    ? 'gap-8'
-    : 'gap-6'}"
-  role="list"
->
+<!-- The spine: a 1px rail under 22px nodes, so every row's content column
+     starts 30px in (node + gap) and the rail runs through the node centers. -->
+<ol class="relative flex flex-col gap-5" role="list">
   <span
-    class="absolute top-3 bottom-3 left-3.5 w-px bg-[linear-gradient(to_bottom,var(--solus-art-border),var(--solus-art-border)_85%,transparent)]"
+    class="absolute top-2 bottom-2 left-[11px] w-px bg-border"
     aria-hidden="true"
   ></span>
 
-  <!-- Opened event: fixed first row, never filtered out. -->
-  <li class="relative flex gap-4 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+  <!-- Opened event: fixed first row, never filtered out. Nodes are neutral
+       discs throughout — the glyph's tint carries the state, so the spine
+       reads as one material instead of a column of coloured badges. -->
+  <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
     <span
-      class="relative z-10 mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-(--solus-container-bg) text-(--solus-art-positive) shadow-[0_0_0_1px_var(--solus-art-border)]"
+      class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-primary"
     >
       <GitPullRequestIcon size={13} weight="bold" />
     </span>
     <div class="min-w-0 flex-1 pt-1">
-      <p class="text-[0.8125rem] font-secondary text-(--solus-text-secondary)">
-        <span class="font-semibold text-(--solus-text-primary)">{authorName}</span>
+      <p class="text-[13px] text-muted-foreground">
+        <span class="font-medium text-foreground">{authorName}</span>
         opened this pull request{#if openedAt}<TooltipUI.Root>
           <TooltipUI.Trigger>
             {#snippet child({ props: tooltipProps })}
               <span {...tooltipProps}
-            class="text-(--solus-text-tertiary)"
+            class="text-muted-foreground"
           >
             · {formatTimeAgoFromTimestamp(openedAt)}</span
           >
@@ -126,14 +122,14 @@
   {#if loading}
     <!-- Ghost rows share the spine so loading reads as the timeline filling in. -->
     {#each [0, 1, 2] as ghost (ghost)}
-      <li class="relative flex gap-4" aria-hidden="true">
+      <li class="relative flex gap-2" aria-hidden="true">
         <Skeleton
-          class="relative z-10 mt-0.5 size-7 shrink-0 rounded-full bg-(--solus-art-border)"
+          class="relative z-10 mt-0.5 size-[22px] shrink-0 rounded-full bg-muted"
         />
         <div class="flex min-w-0 flex-1 flex-col gap-2 pt-1.5">
-          <Skeleton class="h-3 w-52 rounded bg-(--solus-art-border)" />
+          <Skeleton class="h-3 w-52 rounded bg-muted" />
           {#if ghost !== 2}
-            <Skeleton class="h-3 w-80 max-w-full rounded bg-(--solus-art-border)" />
+            <Skeleton class="h-3 w-80 max-w-full rounded bg-muted" />
           {/if}
         </div>
       </li>
@@ -145,18 +141,17 @@
           event.commits,
           expandedRuns[activityEventKey(event)] ?? false,
         )}
-        <!-- Commit runs are low-signal: a small tertiary node (mx-1 keeps its
-             center on the left-3.5 spine and the content column aligned) and
-             12px meta type; long runs collapse behind a quiet expander. -->
-        <li class="relative flex gap-4 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+        <!-- Commit runs keep the spine's node size and type; the muted colour
+             alone demotes them. Long runs collapse behind a quiet expander. -->
+        <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
           <span
-            class="relative z-10 mx-1 mt-1 grid size-5 shrink-0 place-items-center rounded-full bg-(--solus-container-bg) text-(--solus-text-tertiary) shadow-[0_0_0_1px_var(--solus-art-border)]"
+            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"
           >
-            <GitCommitIcon size={11} weight="bold" />
+            <GitCommitIcon size={12} weight="bold" />
           </span>
           <div class="min-w-0 flex-1 pt-1">
-            <p class="text-[0.75rem] text-(--solus-text-tertiary)">
-              <span class="font-medium text-(--solus-text-secondary)"
+            <p class="text-[13px] text-muted-foreground">
+              <span class="font-medium text-foreground"
                 >{commitRunAuthorLabel(event.commits, authorName)}</span
               >
               added {event.commits.length}
@@ -173,16 +168,19 @@
               </TooltipUI.Root>
             </p>
             <!-- Sha + message only — the run header already credits the author,
-                 and repeating the name at the row's far edge reads orphaned. -->
-            <ul class="mt-2 flex flex-col gap-1" role="list">
+                 and repeating the name at the row's far edge reads orphaned.
+                 Each commit sits on its own washed chip: shas are literals, and
+                 a bare column of them disappears into the surrounding prose. -->
+            <ul class="mt-2 flex flex-col gap-1.5" role="list">
               {#each preview.visible as commit (commit.sha)}
-                <li class="flex items-baseline gap-2.5">
-                  <code
-                    class="shrink-0 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+                <li
+                  class="flex items-center gap-3 rounded-lg bg-[color:color-mix(in_oklab,var(--muted)_62%,transparent)] px-3 py-2"
+                >
+                  <code class="shrink-0 font-mono text-[11px] text-primary"
                     >{commit.sha.slice(0, 7)}</code
                   >
                   <span
-                    class="min-w-0 flex-1 truncate text-[0.75rem] font-secondary text-(--solus-text-secondary)"
+                    class="min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground"
                     >{commit.message}</span
                   >
                 </li>
@@ -192,7 +190,7 @@
               <Button
                 type="button"
                 variant="ghost"
-                class="-mx-2 mt-1 justify-start cursor-pointer rounded-lg px-2 py-1 text-[0.75rem] font-medium text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)"
+                class="-mx-2 mt-1.5 h-[24px] cursor-pointer justify-start rounded-md border-0 bg-transparent px-2 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 onclick={() => expandRun(activityEventKey(event))}
               >
                 Show {preview.hidden} more commit{preview.hidden === 1 ? "" : "s"}
@@ -201,11 +199,11 @@
           </div>
         </li>
       {:else if event.kind === "thread"}
-        <li class="relative flex gap-4 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+        <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
           <span
             class={event.thread.isResolved
-              ? "relative z-10 mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-(--solus-container-bg) text-(--solus-art-positive) shadow-[0_0_0_1px_var(--solus-art-border)]"
-              : "relative z-10 mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-(--solus-container-bg) text-(--solus-accent) shadow-[0_0_0_1px_var(--solus-art-border)]"}
+              ? "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-(--solus-art-positive)"
+              : "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-primary"}
           >
             {#if event.thread.isResolved}
               <CheckCircleIcon size={13} weight="fill" />
@@ -230,11 +228,11 @@
           <!-- Milestone verdict: the single most important event in a PR's
                life — tinted node + bold headline, no badge (the headline IS
                the verdict). Same icons as PrReviewStateBadge. -->
-          <li class="relative flex gap-4 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+          <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
             <span
               class={milestone.tone === "positive"
-                ? "relative z-10 mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-(--solus-container-bg) text-(--solus-art-positive) shadow-[0_0_0_1px_var(--solus-art-border)]"
-                : "relative z-10 mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-(--solus-container-bg) text-(--solus-art-negative) shadow-[0_0_0_1px_var(--solus-art-border)]"}
+                ? "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-(--solus-art-positive)"
+                : "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-(--solus-art-negative)"}
             >
               {#if milestone.tone === "positive"}
                 <CheckCircleIcon size={13} weight="fill" />
@@ -243,13 +241,13 @@
               {/if}
             </span>
             <div class="min-w-0 flex-1 pt-1">
-              <p class="text-[0.8125rem] font-semibold text-(--solus-text-primary)">
+              <p class="text-[13px] font-medium">
                 {event.comment.author}
                 {milestone.headline}<TooltipUI.Root>
                   <TooltipUI.Trigger>
                     {#snippet child({ props: tooltipProps })}
-                {milestone.headline}      <span {...tooltipProps}
-                  class="font-normal text-(--solus-text-tertiary)"
+                      <span {...tooltipProps}
+                  class="font-normal text-muted-foreground"
                 >
                   · {formatTimeAgoFromTimestamp(ts)}</span
                 >
@@ -271,25 +269,25 @@
             </div>
           </li>
         {:else}
-          <li class="relative flex gap-4 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+          <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
             <span
-              class="relative z-10 mt-0.5 shrink-0 rounded-full shadow-[0_0_0_3px_var(--solus-container-bg)]"
+              class="relative z-10 mt-0.5 shrink-0 rounded-full shadow-[0_0_0_3px_var(--card)]"
             >
               <PrAvatar
                 name={event.comment.author}
-                size="size-7 text-[0.625rem]"
+                size="size-[22px] text-[9.5px]"
               />
             </span>
             <div class="min-w-0 flex-1 pt-0.5">
-              <div class="text-[0.8125rem]">
-                <span class="font-medium text-(--solus-text-primary)"
+              <div class="text-[13px]">
+                <span class="font-medium text-foreground"
                   >{event.comment.author}</span
                 >
                 <TooltipUI.Root>
                   <TooltipUI.Trigger>
                     {#snippet child({ props: tooltipProps })}
                       <span {...tooltipProps}
-                  class="text-(--solus-text-tertiary)"
+                  class="text-muted-foreground"
                 >
                   · {formatTimeAgoFromTimestamp(ts)}</span
                 >
@@ -319,9 +317,9 @@
       {/if}
     {/each}
     {#if filtered && events.length === 0}
-      <li class="relative flex gap-4 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-        <span class="size-7 shrink-0" aria-hidden="true"></span>
-        <p class="min-w-0 flex-1 pt-1 text-[0.8125rem] text-(--solus-text-tertiary)">
+      <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+        <span class="size-[22px] shrink-0" aria-hidden="true"></span>
+        <p class="min-w-0 flex-1 pt-1 text-[13px] text-muted-foreground">
           Nothing matches this filter.
         </p>
       </li>

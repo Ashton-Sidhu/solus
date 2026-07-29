@@ -32,6 +32,7 @@ import { registerStackHandlers } from './handlers/stack-handlers'
 import { registerChecksHandlers } from './handlers/checks-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
+import { registerSavedPromptsHandlers } from './handlers/saved-prompts-handlers'
 import { registerRunHandlers } from './handlers/run-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
@@ -211,6 +212,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerChecksHandlers(server)
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
+  registerSavedPromptsHandlers(server)
   registerSetupHandlers(server)
 
   server.register('getServerCapabilities', () => probeServerCapabilities({

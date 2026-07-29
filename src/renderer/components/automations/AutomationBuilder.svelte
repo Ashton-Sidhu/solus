@@ -4,12 +4,8 @@
     StopIcon,
     CircleNotchIcon,
     CheckIcon,
-    CheckCircleIcon,
     ChatCircleDotsIcon,
-    WarningCircleIcon,
-    ProhibitIcon,
-    CaretRightIcon,
-    GitBranchIcon,
+    PencilSimpleIcon,
   } from "phosphor-svelte";
   import type {
     Automation,
@@ -29,35 +25,29 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { agentLabel } from "../../lib/agentAvailability";
-  import * as Select from "../ui/select";
+  import { Button } from "../ui/button";
   import { Input } from "../ui/input";
+  import { Switch } from "../ui/switch";
   import PromptEditor from "../ui/PromptEditor.svelte";
-  import DateTimePicker from "../ui/DateTimePicker.svelte";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import {
-    type BuilderTriggerKind,
-    builderKindFor,
-    dailyCron,
-    weeklyCron,
-    monthlyCron,
-    cronHHMM,
-    cronWeekday,
-    cronMonthDay,
-    intervalParts,
-    INTERVAL_UNIT_MINUTES,
-    toLocalInputValue,
     absoluteTime,
-    nextOccurrences,
+    countdown,
+    dayLabel,
     relativeTime,
-    runDate,
     runDuration,
-    WEEKDAYS,
-    RUN_STATUS_META,
+    runHealth,
     automationRunCwd,
   } from "./lib/automation-format";
+  import { ScheduleDraft } from "./lib/schedule-draft.svelte";
+  import { ROW, EYEBROW, VALUE, MONO_VALUE, VALUE_TRIGGER } from "./lib/rail-styles";
+  import AutomationInstructions from "./AutomationInstructions.svelte";
+  import AutomationRailSelect from "./AutomationRailSelect.svelte";
+  import AutomationRunHistory from "./AutomationRunHistory.svelte";
+  import AutomationScheduleFields from "./AutomationScheduleFields.svelte";
   import { formatSavedAgo } from "../document-shell/saveStatus";
 
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
 
   interface Props {
     automation: Automation | null;
@@ -69,91 +59,48 @@
   }
   let { automation, onDone, inline = false, onClose }: Props = $props();
 
+  // ── Page shape ──
+  // One page, two voices: a reading column of author-written instructions set
+  // like prose, and a rail of machine facts set like data. Whitespace and the
+  // single card edge do the dividing — no vertical rules, no card around the
+  // steps. Below 65rem the rail unstacks under the prose as a row of blocks.
+  const BODY =
+    "flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 [scrollbar-width:thin] overscroll-y-contain " +
+    "@max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 " +
+    "@max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9";
+  const MAIN_COLUMN =
+    "flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none";
+  const RAIL_BLOCK =
+    "flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
+  const STAT_LABEL =
+    "text-[0.65625rem] font-semibold tracking-[0.09em] text-muted-foreground uppercase";
+  const STAT_VALUE = "text-[0.84375rem] font-[550] tracking-[-0.01em]";
+  // Pill actions in the title row. Both sit at 2.0625rem so they read as one
+  // pair; only "Run now" carries fill.
+  const PILL = "h-[2.0625rem] shrink-0 rounded-full text-xs";
   // Sidebar background — also used by the inline pane container. Kept a hair
-  // warmer than the page so the rail reads as its own surface.
+  // warmer than the page so the pane reads as its own surface.
   const SIDEBAR_PANEL_BG =
     "bg-[color:color-mix(in_srgb,var(--solus-container-bg)_90%,color-mix(in_srgb,var(--solus-input-pill-bg)_70%,var(--solus-surface-primary))_10%)]";
-  // Flat, card-less rail (mirrors PrActivityRail's Activity sidebar): sections
-  // are separated by a hairline art rule rather than boxed in card chrome. The
-  // first section carries no top border; SECTION_DIVIDED adds one. Titles are
-  // quiet uppercase micro-caps.
-  const SECTION = "flex flex-col gap-3";
-  const SECTION_DIVIDED =
-    "flex flex-col gap-3 border-t border-(--solus-art-border) pt-5";
-  const SECTION_TITLE =
-    "text-[0.6875rem] font-semibold uppercase tracking-wider text-(--solus-text-tertiary)";
-
-  // Metadata rows: a muted label / prominent value hierarchy with whitespace
-  // separation (no dividers), so the content reads aligned but uncluttered.
-  // ROW lays out one label↔value line; META_VALUE styles text values.
-  const META =
-    "flex flex-col gap-0.5 " +
-    "[&_dt]:shrink-0 [&_dt]:text-xs [&_dt]:text-(--solus-text-tertiary) " +
-    "[&_dd]:m-0 [&_dd]:min-w-0";
-  const ROW = "flex items-center justify-between gap-3 min-h-[1.875rem]";
-  // Ghost select trigger: borderless, compact, lifts on hover. `sel-ghost` is
-  // an inert marker the trigger column uses to retarget the hover tint.
-  const GHOST_TRIGGER =
-    "sel-ghost data-[size=default]:h-auto gap-1 border-0 bg-transparent px-1.5 py-1 text-xs " +
-    "hover:bg-(--solus-surface-hover) dark:bg-transparent dark:hover:bg-(--solus-surface-hover) [&_svg]:size-[11px] [&_svg]:opacity-60";
-  const TIME_FIELD =
-    "sel-ghost scheme-light dark:scheme-dark h-6 w-[4.75rem] min-w-0 appearance-none rounded-md border-0 bg-transparent px-1.5 py-0.5 text-[0.6875rem] tabular-nums " +
-    "text-(--solus-text-primary) transition-[background-color,outline-color] duration-120 hover:bg-(--solus-surface-hover) " +
-    "focus-visible:border-transparent focus-visible:bg-(--solus-accent-light) focus-visible:ring-0 " +
-    "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
-    "pointer-coarse:h-10 pointer-coarse:w-24 pointer-coarse:rounded-lg pointer-coarse:px-2 pointer-coarse:text-xs " +
-    "[&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none [&::-webkit-datetime-edit]:p-0";
-  const META_VALUE =
-    "block text-xs font-normal text-right text-(--solus-text-primary) truncate";
-
-  // Borderless breadcrumb link / accent run button in the top bar.
   const CRUMB_LINK =
-    "border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer px-1 py-0.5 rounded-md " +
-    "transition-[color,background-color] duration-100 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) " +
+    "border-0 bg-transparent text-muted-foreground cursor-pointer px-1 py-0.5 rounded-md " +
+    "transition-[color,background-color] duration-100 hover:text-foreground hover:bg-muted " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] " +
     "pointer-coarse:min-h-10 pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:px-2";
-  const RUN_BTN =
-    "shrink-0 inline-flex items-center gap-1.5 px-3 py-[0.4375rem] rounded-lg border-0 text-xs font-semibold " +
-    "text-[var(--solus-accent-contrast,#fff)] bg-(--solus-accent) cursor-pointer transition-[filter,opacity,scale] duration-120 " +
-    "hover:not-disabled:brightness-[1.07] active:not-disabled:scale-[0.96] disabled:opacity-60 disabled:cursor-not-allowed " +
-    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
-    "pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-sm";
-  // Stop mirrors Run now but in the error tone — a clear "halt the in-flight run".
-  const STOP_BTN =
-    "shrink-0 inline-flex items-center gap-1.5 px-3 py-[0.4375rem] rounded-lg text-xs font-semibold cursor-pointer " +
-    "transition-[filter,opacity,scale] duration-120 text-[var(--solus-status-error,#e53e3e)] " +
-    "border border-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_35%,transparent)] " +
-    "bg-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_12%,transparent)] " +
-    "hover:not-disabled:brightness-[1.05] active:not-disabled:scale-[0.96] disabled:opacity-60 disabled:cursor-not-allowed " +
-    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-status-error,#e53e3e)_55%,transparent)] " +
-    "pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-sm";
+  // The title, editable in place: same 2.125rem type as the h1 it replaces, so
+  // entering edit mode doesn't reflow the page.
   const TITLE_INPUT =
-    "w-full text-2xl font-[650] tracking-[-0.02em] text-(--solus-text-primary) bg-transparent border-0 rounded-lg px-1 py-0.5 -ml-1 " +
-    "[outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 placeholder:text-(--solus-text-tertiary) ";
-  // Wraps the prompt editor as one tall field; the nested CodeMirror gets a
-  // tall click target.
+    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-[2.125rem] max-md:text-[2.125rem] font-[620] leading-[1.1] tracking-[-0.03em] " +
+    "text-foreground shadow-none [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
+    "placeholder:text-muted-foreground hover:bg-muted focus-visible:bg-transparent focus-visible:ring-0 " +
+    "focus-visible:[outline-color:color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
+  // Wraps the prompt editor as one tall field at the prose column's own measure,
+  // so the writing view and the reading view sit on the same grid.
   const PROMPT_FIELD =
-    "flex-1 flex flex-col min-h-0 w-full rounded-[0.625rem] px-2 -ml-2 bg-transparent [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
-    "[&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:min-h-0 " +
-    "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400]";
-  // Soft recessed input well shared by the schedule / max-turns fields. Variant
-  // utilities (width, text-right, font-mono) are appended per field.
-  const FIELD =
-    "text-md text-(--solus-text-primary) bg-(--solus-surface-hover) rounded-lg px-2 py-[0.3125rem] border-0 " +
-    "[outline:0.0625rem_solid_transparent] [color-scheme:light] [.dark_&]:[color-scheme:dark] transition-[background-color,outline-color] duration-120 " +
-    "hover:bg-(--solus-surface-hover) focus-visible:bg-[var(--solus-input-bg-soft,var(--solus-container-bg))] " +
-    "focus-visible:[outline:0.125rem_solid_color-mix(in_srgb,var(--solus-accent)_55%,transparent)] " +
-    "[&::-webkit-calendar-picker-indicator]:opacity-45 [&::-webkit-calendar-picker-indicator]:cursor-pointer hover:[&::-webkit-calendar-picker-indicator]:opacity-80 " +
-    "pointer-coarse:min-h-11 pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-base";
-  // Number field chrome: textfield appearance, spinner buttons removed (width set per use).
-  const FIELD_NUM =
-    "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
-  const SUB_LABEL = "text-[0.6875rem] text-(--solus-text-tertiary) shrink-0";
-  const RUN_ROW =
-    "w-full flex items-center gap-2 px-2 py-[0.4375rem] rounded-lg border-0 bg-transparent cursor-pointer text-left transition-[background-color] duration-100 " +
-    "hover:not-disabled:bg-(--solus-surface-hover) disabled:cursor-default " +
-    "focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] " +
-    "pointer-coarse:min-h-12 pointer-coarse:px-2.5 pointer-coarse:py-2.5";
+    "-ml-2 flex w-full min-h-[16rem] flex-col rounded-[0.625rem] bg-transparent px-2 [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
+    "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:min-h-0 " +
+    "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400] " +
+    "[&_.cm-content]:![font-size:0.9375rem] [&_.cm-content]:![line-height:1.75]";
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
@@ -230,24 +177,14 @@
   let useWorktree = $state(initial?.action.useWorktree ?? false);
   let enabled = $state(initial?.enabled ?? true);
 
-  // ── Trigger drafts (mirror the stored trigger; "Repeats" drives `kind`) ──
-  const t0 = initial?.trigger;
-  let kind = $state<BuilderTriggerKind>(
-    initial ? builderKindFor(initial.trigger) : "manual",
-  );
-  let timeStr = $state(t0?.type === "cron" ? cronHHMM(t0.expr) : "09:00");
-  let weekday = $state(t0?.type === "cron" ? cronWeekday(t0.expr) : 1);
-  let monthDay = $state(t0?.type === "cron" ? cronMonthDay(t0.expr) : 1);
-  let intervalValue = $state(
-    t0?.type === "interval" ? intervalParts(t0.everyMinutes).value : 1,
-  );
-  let intervalUnit = $state<"minutes" | "hours" | "days">(
-    t0?.type === "interval" ? intervalParts(t0.everyMinutes).unit : "hours",
-  );
-  let cronExpr = $state(t0?.type === "cron" ? t0.expr : "0 9 * * *");
-  let onceLocal = $state(
-    toLocalInputValue(t0?.type === "once" ? t0.runAt : undefined),
-  );
+  // Read by default: the instructions are prose to be read, not a form to be
+  // filled. A brand-new automation has nothing to read, so it opens writing.
+  let isEditing = $state(untrack(() => automation === null));
+  let titleEl = $state<HTMLInputElement | null>(null);
+
+  // Mirrors the stored trigger; the rail's "Repeats" row drives which of its
+  // fields are live, and `build()` compiles them back to a trigger.
+  const schedule = new ScheduleDraft(initial?.trigger);
 
   // ── Select option lists ──
   const models = $derived(agentContext.metadata[agentProvider]?.models ?? []);
@@ -260,7 +197,7 @@
       : [{ value: "claude-code" as AgentId, label: "Claude" }],
   );
   const modelSelectOptions = $derived(
-    models.map((m) => ({ value: m.id as string | null, label: m.label })),
+    models.map((m) => ({ value: m.id, label: m.label })),
   );
   // `modelId: null` means "the provider's default model" — display it as the
   // first model without writing it back. Pinning + saving here used to fire on
@@ -270,25 +207,6 @@
     value: r,
     label: REASONING_EFFORT_LABELS[r] ?? r,
   }));
-  const repeatOptions: { value: BuilderTriggerKind; label: string }[] = [
-    { value: "manual", label: "Manual" },
-    { value: "interval", label: "On an interval" },
-    { value: "daily", label: "Daily" },
-    { value: "weekly", label: "Weekly" },
-    { value: "monthly", label: "Monthly" },
-    { value: "once", label: "Once" },
-    { value: "cron", label: "Custom (cron)" },
-  ];
-  const intervalUnitOptions = [
-    { value: "minutes" as const, label: "minutes" },
-    { value: "hours" as const, label: "hours" },
-    { value: "days" as const, label: "days" },
-  ];
-  const weekdayOptions = WEEKDAYS.map((d) => ({
-    value: d.value,
-    label: d.label,
-  }));
-
   const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
   // In-session ("heartbeat") automations run inside the chat thread they were
   // created in. The builder can't create them (agent-only), but it must show
@@ -300,80 +218,59 @@
   // subsequent run updates arrive over the automations-changed push.
   const runsKey = $derived(current?.id ?? null);
   const runs = $derived(runsKey ? (store.runs.get(runsKey) ?? []) : []);
-  const COLLAPSED_RUN_COUNT = 5;
   let isRunHistoryExpanded = $state(false);
-  const visibleRuns = $derived(
-    isRunHistoryExpanded ? runs : runs.slice(0, COLLAPSED_RUN_COUNT),
-  );
-  const hiddenRunCount = $derived(
-    Math.max(0, runs.length - COLLAPSED_RUN_COUNT),
-  );
   $effect(() => {
     isRunHistoryExpanded = false;
     if (runsKey) void store.loadRuns(runsKey);
   });
 
   // Minute-ish ticker so "Next run" / "Last ran" stay truthful while the
-  // builder sits open (a fired schedule also pushes a fresh nextRunAt).
+  // detail sits open (a fired schedule also pushes a fresh nextRunAt).
   let nowTick = $state(Date.now());
   $effect(() => {
     const t = setInterval(() => (nowTick = Date.now()), 30_000);
     return () => clearInterval(t);
   });
 
-  // ── Trigger / action assembly ──
-  function parseHHMM(s: string): { hh: number; mm: number } {
-    const [h, m] = s.split(":").map(Number);
-    return { hh: Number.isFinite(h) ? h : 9, mm: Number.isFinite(m) ? m : 0 };
-  }
+  // ── The strip of machine facts under the title ──
+  const health = $derived(runHealth(runs));
+  const lastRun = $derived(runs[0] ?? null);
 
-  // "Once" run-at, edited via the reusable DateTimePicker (datetime-local format).
-  function setOnceAt(v: string) {
-    onceLocal = v;
-    commitTrigger();
-  }
+  const nextRunLabel = $derived(
+    enabled && current?.nextRunAt
+      ? absoluteTime(current.nextRunAt, nowTick)
+      : schedule.kind === "manual"
+        ? "Manual only"
+        : "Not scheduled",
+  );
 
-  function buildTrigger(): AutomationTrigger | { error: string } {
-    const { hh, mm } = parseHHMM(timeStr);
-    switch (kind) {
-      case "manual":
-        return { type: "manual" };
-      case "once": {
-        const ms = Date.parse(onceLocal);
-        if (!Number.isFinite(ms))
-          return { error: "Pick a valid date and time." };
-        return { type: "once", runAt: new Date(ms).toISOString() };
-      }
-      case "interval": {
-        const everyMinutes =
-          Math.round(intervalValue) * INTERVAL_UNIT_MINUTES[intervalUnit];
-        if (!Number.isFinite(everyMinutes) || everyMinutes < 1)
-          return { error: "Interval must be at least 1 minute." };
-        return { type: "interval", everyMinutes };
-      }
-      case "daily":
-        return { type: "cron", expr: dailyCron(hh, mm) };
-      case "weekly":
-        return { type: "cron", expr: weeklyCron(hh, mm, weekday) };
-      case "monthly":
-        return { type: "cron", expr: monthlyCron(hh, mm, monthDay) };
-      case "cron": {
-        const expr = cronExpr.trim();
-        if (!expr) return { error: "Enter a cron expression." };
-        if (nextOccurrences({ type: "cron", expr }, 1) === null)
-          return { error: `Invalid cron expression: "${expr}".` };
-        return { type: "cron", expr };
-      }
-    }
-  }
+  /** The "· next run in 4h 12m" tail on the state line. Times are human here,
+   *  never ISO — the exact instant is one line down in the Next stat. */
+  const scheduleNote = $derived.by(() => {
+    if (!enabled) return "";
+    if (schedule.kind === "manual") return "runs on demand";
+    const left = countdown(current?.nextRunAt, nowTick);
+    return left ? `next run in ${left}` : "";
+  });
 
-  // Upcoming fires of the draft schedule, shown under the fields so the user
-  // can confirm the schedule means what they think before it ever fires.
-  // Reads the same drafts buildTrigger does, so it tracks every edit.
-  const cronInvalid = $derived(
-    kind === "cron" &&
-      cronExpr.trim() !== "" &&
-      nextOccurrences({ type: "cron", expr: cronExpr.trim() }, 1) === null,
+  const lastRunLabel = $derived.by(() => {
+    if (!current?.lastRunAt) return "Never run";
+    const day = dayLabel(current.lastRunAt, nowTick);
+    const status = lastRun?.status ?? current.lastRunStatus;
+    const duration = lastRun ? runDuration(lastRun) : "";
+    if (status === "running") return `${day} · still running`;
+    if (status === "cancelled") return `${day} · cancelled`;
+    if (status === "dispatched") return `${day} · sent to chat`;
+    if (status === "failed") return duration ? `${day} · failed after ${duration}` : `${day} · failed`;
+    return duration ? `${day} · finished in ${duration}` : day;
+  });
+
+  const metaBits = $derived(
+    [
+      current?.updatedAt ? `Edited ${relativeTime(current.updatedAt, nowTick)}` : "",
+      inSession ? "Runs in chat thread" : useWorktree ? "Isolated worktree" : "Runs in place",
+      `${REASONING_EFFORT_LABELS[reasoningEffort] ?? reasoningEffort} reasoning`,
+    ].filter(Boolean),
   );
 
   function currentAction(): AutomationAction {
@@ -446,7 +343,7 @@
    *  update. Returns the id, or null on failure. */
   async function ensureCreated(): Promise<string | null> {
     if (current) return current.id;
-    const trigger = buildTrigger();
+    const trigger = schedule.build();
     const created = await store.create(
       name.trim() || "Untitled automation",
       currentAction(),
@@ -493,7 +390,7 @@
     void persist({ action: currentAction() });
   }
   function commitTrigger() {
-    const t = buildTrigger();
+    const t = schedule.build();
     if ("error" in t) {
       toasts.error(t.error);
       return;
@@ -507,9 +404,24 @@
     commitAction();
   }
 
-  function toggleEnabled() {
-    enabled = !enabled;
+  function setEnabled(next: boolean) {
+    enabled = next;
     void persist({ enabled });
+  }
+
+  function beginEdit() {
+    isEditing = true;
+    // Land focus where writing starts — the title, with the prompt editor one
+    // Tab away.
+    void tick().then(() => titleEl?.focus());
+  }
+
+  /** Leave writing mode. Field blur already auto-saves, so only commit what the
+   *  click-through actually left dirty. */
+  function endEdit() {
+    isEditing = false;
+    if (name.trim() !== (current?.name ?? "")) commitName();
+    if (prompt.trim() !== (current?.action.prompt ?? "")) commitAction();
   }
 
   // ── Run now ──
@@ -573,7 +485,7 @@
       cwd: automationRunCwd(run, automationCwd, session.staticInfo?.homePath),
       projectPath: "",
     });
-    // Leave the builder: close the pane (editor) or the full-page list (pill).
+    // Leave the detail: close the pane (editor) or the full-page list (pill).
     if (inline) onClose?.();
     else session.automationsOpen = false;
   }
@@ -581,13 +493,13 @@
 
 {#snippet saveStatus()}
   <span
-    class="inline-flex items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) select-none"
+    class="inline-flex shrink-0 items-center gap-[0.3125rem] text-[0.6875rem] whitespace-nowrap text-muted-foreground select-none"
     aria-live="polite"
     role="status"
   >
     {#if isSaving}
       <span
-        class="size-1.5 shrink-0 rounded-full bg-(--solus-accent) animate-pulse"
+        class="size-1.5 shrink-0 animate-pulse rounded-full bg-(--solus-accent)"
         aria-hidden="true"
       ></span>
       <span>Saving…</span>
@@ -598,46 +510,175 @@
   </span>
 {/snippet}
 
-{#snippet runControls()}
-  {#if isRunning}
-    <button
-      type="button"
-      class={STOP_BTN}
-      onclick={cancelRun}
-      disabled={cancelling}
-      aria-label="Stop run"
-    >
-      {#if cancelling}
-        <CircleNotchIcon size={14} weight="bold" class="animate-spin" />
-        <span>Stopping…</span>
-      {:else}
-        <StopIcon size={13} weight="fill" />
-        <span>Stop</span>
-      {/if}
-    </button>
-  {:else}
-    <button type="button" class={RUN_BTN} onclick={runNow} aria-label="Run now">
-      <PlayIcon size={13} weight="fill" />
-      <span>Run now</span>
-    </button>
-  {/if}
+<!-- ── Chrome: breadcrumb back to the list, plus the save indicator. In a pane
+     the close / open-in-split live in the floating PaneChrome cluster, which the
+     right inset reserves room for. -->
+{#snippet chromeBar()}
+  <div
+    class="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-5"
+  >
+    <nav class="flex min-w-0 items-center gap-[0.4375rem] text-xs" aria-label="Breadcrumb">
+      <button
+        type="button"
+        class={CRUMB_LINK}
+        onclick={inline ? paneBackToList : onDone}>Automations</button
+      >
+      <span class="text-muted-foreground/45" aria-hidden="true">/</span>
+      <span
+        class="truncate font-[550] tracking-[-0.01em] text-[color:color-mix(in_oklab,var(--foreground)_80%,var(--muted-foreground))]"
+        aria-current="page">{name || "Untitled automation"}</span
+      >
+    </nav>
+    {@render saveStatus()}
+  </div>
 {/snippet}
 
-{#snippet formBody()}
+<!-- ── State line + title + the two actions ── -->
+{#snippet titleBlock()}
   <div
-    class="grid grid-cols-[minmax(0,1fr)_minmax(15rem,19rem)] grid-rows-[minmax(0,1fr)] gap-8 items-stretch flex-1 min-h-0 @max-[56rem]:gap-6 @max-[46rem]:grid-cols-1 @max-[46rem]:grid-rows-[auto_minmax(0,1fr)] @max-[46rem]:gap-5"
+    class="flex items-start justify-between gap-7 @max-[43.75rem]:flex-col @max-[43.75rem]:items-start @max-[43.75rem]:gap-3.5"
   >
-    <!-- ── Main: name + prompt ── -->
-    <section id="overview" class="flex flex-col gap-3.5 min-w-0 h-full min-h-0">
-      <Input
-        class={TITLE_INPUT}
-        type="text"
-        bind:value={name}
-        onblur={commitName}
-        placeholder="Untitled automation"
-        aria-label="Automation name"
-        autocomplete="off"
-      />
+    <div class="flex min-w-0 flex-1 flex-col gap-2.5">
+      <div class="flex items-center gap-2">
+        <span
+          class="size-1.5 shrink-0 rounded-full {enabled
+            ? 'bg-chart-3'
+            : 'bg-muted-foreground/60'} {isRunning ? 'animate-pulse' : ''}"
+          aria-hidden="true"
+        ></span>
+        <span
+          class="text-[0.6875rem] font-semibold tracking-[0.1em] uppercase {enabled
+            ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
+            : 'text-muted-foreground'}">{enabled ? "Active" : "Paused"}</span
+        >
+        {#if scheduleNote}
+          <span class="truncate text-[0.6875rem] text-muted-foreground"
+            >· {scheduleNote}</span
+          >
+        {/if}
+      </div>
+      {#if isEditing}
+        <Input
+          bind:ref={titleEl}
+          class={TITLE_INPUT}
+          type="text"
+          bind:value={name}
+          onblur={commitName}
+          placeholder="Untitled automation"
+          aria-label="Automation name"
+          autocomplete="off"
+        />
+      {:else}
+        <h1
+          class="m-0 text-[2.125rem] font-[620] leading-[1.1] tracking-[-0.03em] text-foreground"
+        >
+          {name || "Untitled automation"}
+        </h1>
+      {/if}
+    </div>
+
+    <div class="flex shrink-0 items-center gap-1.5 pt-4 @max-[43.75rem]:pt-0">
+      {#if isEditing}
+        <Button
+          variant="outline"
+          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-[550] text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
+          onclick={endEdit}
+        >
+          <CheckIcon size={12} weight="bold" />
+          Done
+        </Button>
+      {:else}
+        <Button
+          variant="outline"
+          class="{PILL} gap-1.5 border-border/85 bg-transparent px-3 font-[550] text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
+          onclick={beginEdit}
+        >
+          <PencilSimpleIcon size={12} />
+          Edit
+        </Button>
+      {/if}
+
+      {#if isRunning}
+        <Button
+          variant="destructive"
+          class="{PILL} gap-1.5 px-3.5 font-semibold"
+          onclick={cancelRun}
+          disabled={cancelling}
+          aria-label="Stop run"
+        >
+          {#if cancelling}
+            <CircleNotchIcon size={12} weight="bold" class="animate-spin" />
+            Stopping…
+          {:else}
+            <StopIcon size={11} weight="fill" />
+            Stop
+          {/if}
+        </Button>
+      {:else}
+        <Button
+          class="{PILL} gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-semibold tracking-[-0.005em] hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
+          onclick={runNow}
+          aria-label="Run now"
+        >
+          <PlayIcon size={11} weight="fill" />
+          Run now
+        </Button>
+      {/if}
+    </div>
+  </div>
+{/snippet}
+
+<!-- ── Next / Last / Health: the three facts worth reading before the prose ── -->
+{#snippet statStrip()}
+  <div
+    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+  >
+    <div class="flex min-w-0 flex-col gap-1">
+      <span class={STAT_LABEL}>Next</span>
+      <span class={STAT_VALUE}>{nextRunLabel}</span>
+    </div>
+    <div class="flex min-w-0 flex-col gap-1">
+      <span class={STAT_LABEL}>Last</span>
+      <span class={STAT_VALUE}>{lastRunLabel}</span>
+    </div>
+    {#if health.total > 0}
+      <div
+        class="flex min-w-0 flex-col gap-1.5 justify-self-end @max-[43.75rem]:justify-self-start"
+      >
+        <span class={STAT_LABEL}>Health</span>
+        <div class="flex items-center gap-2.5">
+          <div class="flex h-3.5 w-26 items-end gap-[0.15625rem]">
+            {#each health.bars as bar (bar.id)}
+              <span
+                class="min-w-0 flex-1 rounded-[0.09375rem] {bar.failed
+                  ? 'bg-[var(--solus-status-error,#e53e3e)]'
+                  : bar.latest
+                    ? 'bg-chart-3/80'
+                    : 'bg-chart-3/38'}"
+                style="height: {bar.heightPct}%"
+              ></span>
+            {/each}
+          </div>
+          <span class="text-[0.75rem] whitespace-nowrap text-muted-foreground">
+            {health.clean} of {health.total} clean
+          </span>
+        </div>
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
+<!-- ── The reading column: what the agent is told, every run ── -->
+{#snippet instructionsBlock()}
+  <div class="mt-8.5 flex flex-col gap-4.5">
+    <div class="flex items-baseline gap-2.5">
+      <span class={EYEBROW}>Instructions</span>
+      <span class="text-[0.71875rem] text-muted-foreground/80"
+        >given to the agent on every run</span
+      >
+    </div>
+
+    {#if isEditing}
       <div class={PROMPT_FIELD}>
         <PromptEditor
           value={prompt}
@@ -659,514 +700,160 @@
           placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs, ! for PRs."
         />
       </div>
-    </section>
+    {:else if prompt.trim()}
+      <AutomationInstructions markdown={prompt} />
+    {:else}
+      <button
+        type="button"
+        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-[0.9375rem] text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        onclick={beginEdit}>Write what the agent should do each run…</button
+      >
+    {/if}
 
-    <!-- ── Sidebar ── -->
-    <!-- Retarget the shared ghost-select hover to the brand accent wash within
-           these cards (overrides Select.svelte's neutral hover via specificity). -->
-    <aside
-      class="flex flex-col gap-5 min-w-0 @max-[46rem]:order-first [&_.sel-ghost:hover]:bg-(--solus-surface-hover)"
+    <div
+      class="mt-1.5 flex flex-wrap items-center gap-3 text-[0.71875rem] text-muted-foreground/88"
     >
-      <!-- Status -->
-      <section id="status" class={SECTION}>
-        <div class="flex min-h-8 items-center justify-between gap-3">
-          <h2 class={SECTION_TITLE}>Status</h2>
-          {@render runControls()}
-        </div>
+      {#each metaBits as bit, i (i)}
+        {#if i > 0}<span class="opacity-40" aria-hidden="true">·</span>{/if}
+        <span>{bit}</span>
+      {/each}
+    </div>
+  </div>
+{/snippet}
 
-        <!-- Live state on the left, a switch to toggle it on the right. The card
-             title already says "Status", so the row leads with the state itself. -->
-        <div class="flex items-center justify-between gap-3">
-          <span
-            class="inline-flex items-center gap-2 text-[0.8125rem] font-normal {enabled
-              ? 'text-(--solus-text-primary)'
-              : 'text-(--solus-text-tertiary)'}"
-          >
-            <span
-              class="size-2 shrink-0 rounded-full {enabled
-                ? 'bg-[var(--solus-art-3,#5a9e6f)]'
-                : 'border border-(--solus-text-tertiary)'}"
-            ></span>
-            {enabled ? "Active" : "Paused"}
-          </span>
+<!-- ── The rail: machine facts, set like data ── -->
+{#snippet railCard()}
+  <div
+    class="flex flex-col gap-6.5 rounded-[0.875rem] border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+  >
+    <!-- Schedule -->
+    <div class={RAIL_BLOCK}>
+      <AutomationScheduleFields
+        {schedule}
+        {enabled}
+        onEnabledChange={setEnabled}
+        onCommit={commitTrigger}
+      />
+    </div>
+
+    <!-- Setup -->
+    <div class={RAIL_BLOCK}>
+      <span class={EYEBROW}>Setup</span>
+      <div class="flex flex-col">
+        <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Project</span>
+          <!-- Same chip as the menu-backed values, minus the caret: this one
+               opens the directory picker, and a caret would promise a menu. -->
           <button
+            bind:this={pickerTriggerEl}
             type="button"
-            role="switch"
-            aria-checked={enabled}
-            onclick={toggleEnabled}
-            aria-label={enabled ? "Pause automation" : "Resume automation"}
-            class="relative h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-6 pointer-coarse:w-11 {enabled
-              ? 'bg-[var(--solus-art-3,#5a9e6f)]'
-              : 'bg-(--solus-container-border)'}"
+            class={VALUE_TRIGGER}
+            onclick={() => (pickerOpen = true)}
+            title={cwd}
           >
-            <span
-              class="absolute left-0.5 top-1/2 size-3 -translate-y-1/2 rounded-full bg-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.25)] transition-transform duration-150 pointer-coarse:size-[1.125rem] {enabled
-                ? 'translate-x-3 pointer-coarse:translate-x-5'
-                : ''}"
-            ></span>
+            <span class={MONO_VALUE}>{projectName}</span>
           </button>
         </div>
 
-        <!-- Next run + Last ran as quiet property rows -->
-        <dl class="flex flex-col">
+        <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Agent</span>
+          <AutomationRailSelect
+            label="Agent"
+            value={agentProvider}
+            options={agentSelectOptions}
+            onSelect={onAgentChange}
+            menuClass="w-[200px]"
+          />
+        </div>
+
+        <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Model</span>
+          <AutomationRailSelect
+            label="Model"
+            value={effectiveModelId ?? ""}
+            options={modelSelectOptions}
+            onSelect={(v) => {
+              modelId = v;
+              commitAction();
+            }}
+            menuClass="w-[216px]"
+          />
+        </div>
+
+        <div class={ROW}>
+          <span class="shrink-0 text-muted-foreground">Reasoning</span>
+          <AutomationRailSelect
+            label="Reasoning"
+            value={reasoningEffort}
+            options={reasoningSelectOptions}
+            onSelect={(v) => {
+              reasoningEffort = v;
+              commitAction();
+            }}
+          />
+        </div>
+
+        {#if inSession}
+          <!-- Agent-created heartbeat automation: runs resume its chat thread
+               (full context) instead of spawning isolated background runs.
+               Worktree doesn't apply — the thread runs where it runs. -->
           <div class={ROW}>
-            <dt class="text-xs text-(--solus-text-tertiary)">Next run</dt>
-            <dd class={META_VALUE}>
-              {#if enabled && current?.nextRunAt}
-                {absoluteTime(current.nextRunAt, nowTick)}
-              {:else if kind === "manual"}
-                Manual only
-              {:else}
-                Not scheduled
-              {/if}
-            </dd>
-          </div>
-          <div class={ROW}>
-            <dt class="text-xs text-(--solus-text-tertiary)">Last ran</dt>
-            <dd class={META_VALUE}>
-              {current?.lastRunAt
-                ? absoluteTime(current.lastRunAt, nowTick)
-                : "Never"}
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      <!-- Details -->
-      <section id="details" class={SECTION_DIVIDED}>
-        <h2 class={SECTION_TITLE}>Details</h2>
-        <dl class={META}>
-          <div class={ROW}>
-            <dt>Repeats</dt>
-            <dd>
-              <Select.Root
-                type="single"
-                value={kind}
-                onValueChange={(v) => {
-                  kind = v as BuilderTriggerKind;
-                  commitTrigger();
-                }}
-              >
-                <Select.Trigger class={GHOST_TRIGGER} aria-label="Repeats">
-                  {repeatOptions.find((o) => o.value === kind)?.label}
-                </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-                  {#each repeatOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-            </dd>
-          </div>
-
-          {#if kind === "once"}
-            <div class="flex pb-1.5">
-              <DateTimePicker value={onceLocal} onChange={setOnceAt} />
-            </div>
-          {:else if kind === "interval"}
-            <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
-              <span class={SUB_LABEL}>Every</span>
-              <Input
-                class="{FIELD} {FIELD_NUM} w-16 pointer-coarse:w-[4.5rem]"
-                type="number"
-                min="1"
-                bind:value={intervalValue}
-                onchange={commitTrigger}
-                aria-label="Interval amount"
-              />
-              <Select.Root
-                type="single"
-                value={intervalUnit}
-                onValueChange={(v) => {
-                  intervalUnit = v as "minutes" | "hours" | "days";
-                  commitTrigger();
-                }}
-              >
-                <Select.Trigger class={GHOST_TRIGGER} aria-label="Interval unit">
-                  {intervalUnit}
-                </Select.Trigger>
-                <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-                  {#each intervalUnitOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-            </div>
-          {:else if kind === "daily"}
-            <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
-              <span class={SUB_LABEL}>At</span>
-              <Input
-                type="time"
-                value={timeStr}
-                onchange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (!value) return;
-                  timeStr = value;
-                  commitTrigger();
-                }}
-                class={TIME_FIELD}
-                aria-label="Time"
-              />
-            </div>
-          {:else if kind === "weekly"}
-            <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
-              <Select.Root
-                type="single"
-                value={String(weekday)}
-                onValueChange={(v) => {
-                  weekday = Number(v);
-                  commitTrigger();
-                }}
-              >
-                <Select.Trigger class={GHOST_TRIGGER} aria-label="Day of week">
-                  {weekdayOptions.find((o) => o.value === weekday)?.label}
-                </Select.Trigger>
-                <Select.Content class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-                  {#each weekdayOptions as opt (opt.value)}
-                    <Select.Item value={String(opt.value)} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-              <span class={SUB_LABEL}>at</span>
-              <Input
-                type="time"
-                value={timeStr}
-                onchange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (!value) return;
-                  timeStr = value;
-                  commitTrigger();
-                }}
-                class={TIME_FIELD}
-                aria-label="Time"
-              />
-            </div>
-          {:else if kind === "monthly"}
-            <div class="flex items-center gap-1.5 flex-wrap pb-1.5">
-              <span class={SUB_LABEL}>Day</span>
-              <Input
-                class="{FIELD} {FIELD_NUM} w-16 pointer-coarse:w-[4.5rem]"
-                type="number"
-                min="1"
-                max="31"
-                bind:value={monthDay}
-                onchange={commitTrigger}
-                aria-label="Day of month"
-              />
-              <span class={SUB_LABEL}>at</span>
-              <Input
-                type="time"
-                value={timeStr}
-                onchange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (!value) return;
-                  timeStr = value;
-                  commitTrigger();
-                }}
-                class={TIME_FIELD}
-                aria-label="Time"
-              />
-            </div>
-          {:else if kind === "cron"}
-            <div class="flex flex-col gap-1 pb-1.5">
-              <Input
-                class="{FIELD} w-full font-mono"
-                type="text"
-                bind:value={cronExpr}
-                onchange={commitTrigger}
-                placeholder="0 9 * * 1-5"
-                aria-label="Cron expression"
-                aria-invalid={cronInvalid}
-                autocomplete="off"
-              />
-              {#if cronInvalid}
-                <p
-                  class="m-0 text-[0.6875rem] text-[var(--solus-status-error,#e53e3e)]"
-                >
-                  Invalid cron expression.
-                </p>
-              {/if}
-            </div>
-          {/if}
-
-          <div class={ROW}>
-            <dt>Project</dt>
-            <dd>
-              <button
-                bind:this={pickerTriggerEl}
-                type="button"
-                class="inline-flex items-center justify-end w-auto max-w-[11rem] gap-1 px-1.5 py-1 text-xs rounded-lg border-0 bg-transparent text-(--solus-text-primary) cursor-pointer transition-[background-color] duration-100 hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:min-h-11 pointer-coarse:max-w-[14rem] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[0.9375rem]"
-                onclick={() => (pickerOpen = true)}
-                title={cwd}
-              >
-                <span class="truncate">{projectName}</span>
-              </button>
-            </dd>
-          </div>
-
-          <div class={ROW}>
-            <dt>Agent</dt>
-            <dd>
-              <Select.Root
-                type="single"
-                value={agentProvider}
-                onValueChange={(v) => onAgentChange(v as AgentId)}
-              >
-                <Select.Trigger class={GHOST_TRIGGER} aria-label="Agent">
-                  {agentSelectOptions.find((o) => o.value === agentProvider)?.label}
-                </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-                  {#each agentSelectOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-            </dd>
-          </div>
-
-          <div class={ROW}>
-            <dt>Model</dt>
-            <dd>
-              <Select.Root
-                type="single"
-                value={effectiveModelId ?? ""}
-                onValueChange={(v) => {
-                  modelId = v;
-                  commitAction();
-                }}
-              >
-                <Select.Trigger class={GHOST_TRIGGER} aria-label="Model">
-                  {modelSelectOptions.find((o) => o.value === effectiveModelId)?.label}
-                </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-                  {#each modelSelectOptions as opt (opt.value)}
-                    <Select.Item value={opt.value ?? ""} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-            </dd>
-          </div>
-
-          <div class={ROW}>
-            <dt>Reasoning</dt>
-            <dd>
-              <Select.Root
-                type="single"
-                value={reasoningEffort}
-                onValueChange={(v) => {
-                  reasoningEffort = v as ReasoningEffort;
-                  commitAction();
-                }}
-              >
-                <Select.Trigger class={GHOST_TRIGGER} aria-label="Reasoning">
-                  {reasoningSelectOptions.find((o) => o.value === reasoningEffort)?.label}
-                </Select.Trigger>
-                <Select.Content align="end" class="z-[10002] overflow-hidden rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-                  {#each reasoningSelectOptions as opt (opt.value)}
-                    <Select.Item value={opt.value} label={opt.label} class="gap-2 rounded-md px-3 py-1.5 pr-8 text-[0.6875rem] font-secondary text-(--solus-text-secondary) data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary)" />
-                  {/each}
-                </Select.Content>
-              </Select.Root>
-            </dd>
-          </div>
-
-          {#if inSession}
-            <!-- Agent-created heartbeat automation: runs resume its chat thread
-                 (full context) instead of spawning isolated background runs.
-                 Worktree doesn't apply — the thread runs where it runs. -->
-            <div class={ROW}>
-              <dt>Runs in</dt>
-              <dd>
-                <span
-                  class="{META_VALUE} inline-flex items-center gap-1.5"
-                  title="Each run resumes the chat thread this automation was created in, with full conversation context"
-                >
-                  <ChatCircleDotsIcon size={13} class="shrink-0" />
-                  Chat thread
-                </span>
-              </dd>
-            </div>
-          {:else}
-            <div class={ROW}>
-              <dt>Worktree</dt>
-              <dd>
-                <label
-                  class="group inline-flex items-center cursor-pointer pointer-coarse:min-h-11 pointer-coarse:px-1.5"
-                  title="Run each fire on an isolated git branch"
-                >
-                  <input
-                    type="checkbox"
-                    class="sr-only"
-                    bind:checked={useWorktree}
-                    onchange={commitAction}
-                  />
-                  <span
-                    class="relative w-7 h-4 shrink-0 rounded-full bg-(--solus-container-border) transition-colors duration-150 group-has-[:checked]:bg-(--solus-accent) group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:w-11 pointer-coarse:h-6"
-                  >
-                    <span
-                      class="absolute left-0.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.25)] transition-transform duration-150 group-has-[:checked]:translate-x-3 pointer-coarse:w-[1.125rem] pointer-coarse:h-[1.125rem] pointer-coarse:group-has-[:checked]:translate-x-5"
-                    ></span>
-                  </span>
-                </label>
-              </dd>
-            </div>
-          {/if}
-        </dl>
-      </section>
-
-      <!-- Previous runs -->
-      <section id="previous-runs" class={SECTION_DIVIDED}>
-        <h2 class={SECTION_TITLE}>Previous runs</h2>
-        {#if runs.length === 0}
-          <p class="text-xs text-(--solus-text-tertiary) leading-normal">
-            No runs yet. Use Run now to test it.
-          </p>
-        {:else}
-          <ul class="flex flex-col gap-1" role="list">
-            {#each visibleRuns as r (r.id)}
-              {@const meta = RUN_STATUS_META[r.status]}
-              <li>
-                <button
-                  type="button"
-                  class={RUN_ROW}
-                  onclick={() => openRunSession(r)}
-                  disabled={!r.agentSessionId}
-                >
-                  <span
-                    class="shrink-0 inline-flex {meta.tone === 'success'
-                      ? 'text-[var(--solus-art-3,#5a9e6f)]'
-                      : meta.tone === 'error'
-                        ? 'text-[var(--solus-status-error,#e53e3e)]'
-                        : meta.tone === 'cancelled'
-                          ? 'text-(--solus-text-tertiary)'
-                          : 'text-(--solus-accent)'}"
-                  >
-                    {#if meta.tone === "success"}
-                      <CheckCircleIcon size={14} weight="fill" />
-                    {:else if meta.tone === "error"}
-                      <WarningCircleIcon size={14} weight="fill" />
-                    {:else if meta.tone === "cancelled"}
-                      <ProhibitIcon size={14} weight="bold" />
-                    {:else}
-                      <CircleNotchIcon size={14} class="animate-spin" />
-                    {/if}
-                  </span>
-                  <span class="flex-1 min-w-0 flex flex-col gap-px">
-                    <span class="text-xs text-(--solus-text-primary) truncate"
-                      >{name || "Automation run"}</span
-                    >
-                    {#if r.status === "failed" && r.error}
-                      <!-- Failed runs often have no session to open, so this line
-                           is the only diagnostic the user gets — show it here. -->
-                      <span
-                        class="text-[0.6875rem] leading-snug text-[var(--solus-status-error,#e53e3e)] line-clamp-2"
-                        title={r.error}>{r.error}</span
-                      >
-                    {:else if r.branch}
-                      <span
-                        class="inline-flex items-center gap-1 text-[0.6875rem] text-(--solus-text-tertiary)"
-                        title="Changes from this run live on branch {r.branch}"
-                      >
-                        <GitBranchIcon size={10} class="shrink-0" />
-                        <span class="truncate">{r.branch}</span>
-                      </span>
-                    {:else}
-                      <span
-                        class="text-[0.6875rem] text-(--solus-text-tertiary)"
-                        >{projectName}</span
-                      >
-                    {/if}
-                  </span>
-                  <span
-                    class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)"
-                    >{runDate(r.startedAt)} · {runDuration(r) ||
-                      relativeTime(r.startedAt)}</span
-                  >
-                </button>
-              </li>
-            {/each}
-          </ul>
-          {#if hiddenRunCount > 0 || isRunHistoryExpanded}
-            <button
-              type="button"
-              class="inline-flex min-h-10 items-center self-start rounded-lg border-0 bg-transparent px-2 text-[0.6875rem] font-medium text-(--solus-text-tertiary) cursor-pointer transition-[background-color,color] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-              onclick={() => (isRunHistoryExpanded = !isRunHistoryExpanded)}
-              aria-expanded={isRunHistoryExpanded}
+            <span class="shrink-0 text-muted-foreground">Runs in</span>
+            <span
+              class="{VALUE} inline-flex items-center gap-1.5"
+              title="Each run resumes the chat thread this automation was created in, with full conversation context"
             >
-              <CaretRightIcon
-                size={12}
-                class="mr-1 transition-transform duration-150 {isRunHistoryExpanded
-                  ? '-rotate-90'
-                  : 'rotate-90'}"
-              />
-              {isRunHistoryExpanded
-                ? "Show recent only"
-                : `Show ${hiddenRunCount} older ${hiddenRunCount === 1 ? "run" : "runs"}`}
-            </button>
-          {/if}
+              <ChatCircleDotsIcon size={13} class="shrink-0" />
+              Chat thread
+            </span>
+          </div>
+        {:else}
+          <div class={ROW}>
+            <span class="shrink-0 text-muted-foreground">Worktree</span>
+            <Switch
+              checked={useWorktree}
+              onCheckedChange={(v) => {
+                useWorktree = v;
+                commitAction();
+              }}
+              size="default"
+              aria-label="Run each fire on an isolated git branch"
+              title="Run each fire on an isolated git branch"
+            />
+          </div>
         {/if}
-      </section>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class={RAIL_BLOCK}>
+      <AutomationRunHistory
+        {runs}
+        expanded={isRunHistoryExpanded}
+        onToggle={() => (isRunHistoryExpanded = !isRunHistoryExpanded)}
+        onOpen={openRunSession}
+      />
+    </div>
+  </div>
+{/snippet}
+
+<div
+  class="@container flex min-h-0 flex-1 flex-col {inline
+    ? `h-full ${SIDEBAR_PANEL_BG}`
+    : ''}"
+>
+  {@render chromeBar()}
+  <div class={BODY}>
+    <main class={MAIN_COLUMN}>
+      {@render titleBlock()}
+      {@render statStrip()}
+      {@render instructionsBlock()}
+    </main>
+    <aside class="w-[21.25rem] shrink-0 @max-[65rem]:w-auto">
+      {@render railCard()}
     </aside>
   </div>
-{/snippet}
-
-<!-- One header for both hosts: it scrolls with the form rather than pinning a
-     chrome row under the top rail. In a pane the close / open-in-split live in
-     the floating PaneChrome cluster, which the right gutter reserves room for. -->
-{#snippet builderHeader()}
-  <header
-    class="flex items-center justify-between gap-4 pr-[var(--solus-pane-chrome-inset,0px)]"
-  >
-    <nav
-      class="flex items-center gap-1.5 min-w-0 text-[0.8125rem]"
-      aria-label="Breadcrumb"
-    >
-      <button
-        type="button"
-        class={CRUMB_LINK}
-        onclick={inline ? paneBackToList : onDone}>Automations</button
-      >
-      <CaretRightIcon
-        size={12}
-        class="text-(--solus-text-tertiary) opacity-60 shrink-0"
-      />
-      <span
-        class="truncate font-[550] text-(--solus-text-primary)"
-        aria-current="page">{name || "Untitled automation"}</span
-      >
-      {#if isSaving || lastSavedAt !== null}
-        <span
-          class="shrink-0 pl-1.5 border-l border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-        >
-          {@render saveStatus()}
-        </span>
-      {/if}
-    </nav>
-  </header>
-{/snippet}
-
-{#snippet builderColumn()}
-  <div
-    class="flex flex-1 min-h-0 flex-col overflow-y-auto pt-4 px-5 pb-8 [scrollbar-width:thin] overscroll-y-contain @max-[34rem]:px-3.5"
-  >
-    <article
-      class="max-w-[92rem] w-full mx-auto flex flex-1 min-h-0 flex-col gap-5 {inline
-        ? ''
-        : '@max-[46rem]:flex-none'}"
-    >
-      {@render builderHeader()}
-      {@render formBody()}
-    </article>
-  </div>
-{/snippet}
-
-{#if inline}
-  <div class="flex h-full min-h-0 flex-col {SIDEBAR_PANEL_BG}">
-    {@render builderColumn()}
-  </div>
-{:else}
-  {@render builderColumn()}
-{/if}
+</div>
 
 <DirectoryPicker
   bind:open={pickerOpen}

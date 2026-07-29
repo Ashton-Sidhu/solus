@@ -2,6 +2,11 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
+// The edge panel labels itself with both endpoints ("Edit edge: A to B"), so
+// match on the prefix rather than the whole string.
+const EDGE_INSPECTOR = '.diagram-inspector[aria-label^="Edit edge"]'
+const CLOSE_INSPECTOR = '[aria-label="Close inspector"]'
+
 async function openDiagramShell(page: any) {
   const app = new AppPage(page)
   const conversation = new ConversationPage(page)
@@ -13,6 +18,21 @@ async function openDiagramShell(page: any) {
   const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
   const diagramCard = page.locator(`${ACTIVE_TAB} [data-testid="diagram-card"]`)
   await diagramCard.waitFor({ state: 'visible', timeout: 10_000 })
+  await diagramCard.locator('.plan-card-header').first().click()
+
+  const diagramShell = page.locator('.mode-shell:not(.mode-hidden) .diagram-shell')
+  await diagramShell.waitFor({ state: 'visible', timeout: 5_000 })
+  return diagramShell
+}
+
+// Close the pane and open the same diagram card again. The remounted shell
+// parses the persisted content from scratch, so anything that survives this is
+// genuinely saved rather than merely live in the canvas graph.
+async function reopenDiagramShell(page: any) {
+  await page.getByRole('button', { name: 'Close diagram' }).click()
+
+  const ACTIVE_TAB = '.mode-shell:not(.mode-hidden) .tab-slot:not(.tab-hidden)'
+  const diagramCard = page.locator(`${ACTIVE_TAB} [data-testid="diagram-card"]`)
   await diagramCard.locator('.plan-card-header').first().click()
 
   const diagramShell = page.locator('.mode-shell:not(.mode-hidden) .diagram-shell')
@@ -273,11 +293,11 @@ test.describe('Diagram edge reconnection', () => {
     const shell = await openDiagramShell(page)
 
     // Select e1 (Web Client → API Server) so its endpoint anchors render, then
-    // close the drawer via its button so it can't cover the drop zone (Escape
+    // close the inspector via its button so it can't cover the drop zone (Escape
     // would also clear the edge selection and hide the anchors).
     const edge = shell.locator('[data-id="e1"]')
     await clickEdgePath(page, edge)
-    await shell.locator('.diagram-drawer__close').click()
+    await shell.locator(CLOSE_INSPECTOR).click()
 
     const anchor = shell.locator('.svelte-flow__edgeupdater-target')
     const aBox = (await anchor.boundingBox())!
@@ -297,14 +317,14 @@ test.describe('Diagram edge reconnection', () => {
 
     // Rewired, not duplicated or dropped...
     await expect(shell.locator('.svelte-flow__edge')).toHaveCount(2)
-    // ...and e1 now ends at Database — the drawer's connection row proves the
+    // ...and e1 now ends at Database — the Route tab's endpoint row proves the
     // retarget reached the model, not just the rendered path.
     await clickEdgePath(page, edge)
-    const drawer = shell.locator('.diagram-drawer[aria-label="Edit edge"]')
-    await expect(drawer.locator('.diagram-edge-conn__node').last()).toHaveText(
-      'Database',
-      { timeout: 3_000 },
-    )
+    const inspector = shell.locator(EDGE_INSPECTOR)
+    await inspector.locator('.diagram-inspector__tab', { hasText: 'Route' }).click()
+    await expect(inspector.locator('.endpoint__node').last()).toHaveText('Database', {
+      timeout: 3_000,
+    })
   })
 
   test('dragging from a handle and dropping on a node body creates an edge to it', async ({
@@ -347,8 +367,8 @@ test.describe('Diagram edge reconnection', () => {
 
     const edge = shell.locator('[data-id="e1"]')
     await clickEdgePath(page, edge)
-    // Close the drawer via its button — Escape would clear the selection too.
-    await shell.locator('.diagram-drawer__close').click()
+    // Close the inspector via its button — Escape would clear the selection too.
+    await shell.locator(CLOSE_INSPECTOR).click()
     const pathLoc = edge.locator('.svelte-flow__edge-path')
     const before = await pathLoc.getAttribute('d')
     const edgeCountBefore = await shell.locator('.svelte-flow__edge').count()
@@ -406,7 +426,7 @@ test.describe('Diagram edge reconnection', () => {
     const pathLoc = edge.locator('.svelte-flow__edge-path')
     const before = await pathLoc.getAttribute('d')
 
-    const bendHandle = shell.locator('.edge-bend-handle')
+    const bendHandle = shell.locator('.edge-bend-hit')
     await expect(bendHandle).toBeVisible({ timeout: 3_000 })
     const box = (await bendHandle.boundingBox())!
 
@@ -524,74 +544,79 @@ test.describe('Diagram context menu', () => {
   })
 })
 
-test.describe('Diagram edge details drawer', () => {
-  // Right-click an edge and choose "Edit edge" to open the right-side drawer.
-  async function openEdgeDrawer(page: any, shell: any) {
+test.describe('Diagram edge inspector', () => {
+  // Right-click an edge and choose "Edit edge" to open the right-side inspector.
+  async function openEdgeInspector(page: any, shell: any) {
     const edge = shell.locator('.svelte-flow__edge').first()
     await clickEdgePath(page, edge, 'right')
     const ctxMenu = page.locator('.ctx-menu')
     await ctxMenu.locator('[role="menuitem"]', { hasText: 'Edit edge' }).click()
-    const drawer = shell.locator('.diagram-drawer[aria-label="Edit edge"]')
-    await drawer.waitFor({ state: 'visible', timeout: 3_000 })
-    return drawer
+    const inspector = shell.locator(EDGE_INSPECTOR)
+    await inspector.waitFor({ state: 'visible', timeout: 3_000 })
+    return inspector
   }
 
-  test('opens the edge drawer from the context menu', async ({ page }) => {
-    const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+  // Appearance lives on the Style tab, prose and relationship on Identity.
+  async function openTab(inspector: any, name: string) {
+    await inspector.locator('.diagram-inspector__tab', { hasText: name }).click()
+  }
 
-    await expect(drawer).toContainText('Edit edge')
+  test('opens the edge inspector from the context menu', async ({ page }) => {
+    const shell = await openDiagramShell(page)
+    const inspector = await openEdgeInspector(page, shell)
+
+    await expect(inspector).toContainText('Identity')
     // The label input is focused on open so the edge is immediately editable.
-    await expect(drawer.locator('.diagram-drawer__name-input')).toBeFocused()
+    await expect(inspector.locator('.inspector-name-input')).toBeFocused()
   })
 
-  test('selecting an edge opens the edge drawer without grabbing focus', async ({ page }) => {
+  test('selecting an edge opens the inspector without grabbing focus', async ({ page }) => {
     const shell = await openDiagramShell(page)
 
     await clickEdgePath(page, shell.locator('.svelte-flow__edge').first())
 
-    const drawer = shell.locator('.diagram-drawer[aria-label="Edit edge"]')
-    await expect(drawer).toBeVisible({ timeout: 2_000 })
+    const inspector = shell.locator(EDGE_INSPECTOR)
+    await expect(inspector).toBeVisible({ timeout: 2_000 })
     // Plain selection (vs. an explicit "Edit edge") leaves focus on the canvas.
-    await expect(drawer.locator('.diagram-drawer__name-input')).not.toBeFocused()
+    await expect(inspector.locator('.inspector-name-input')).not.toBeFocused()
   })
 
-  test('editing the label in the drawer updates the edge on canvas', async ({ page }) => {
+  test('editing the label in the inspector updates the edge on canvas', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
 
-    const input = drawer.locator('.diagram-drawer__name-input')
-    await input.fill('Drawer Label')
+    await inspector.locator('.inspector-name-input').fill('Inspector Label')
 
-    const updatedLabel = shell.locator('.edge-label-display', { hasText: 'Drawer Label' })
+    const updatedLabel = shell.locator('.edge-label-display', { hasText: 'Inspector Label' })
     await expect(updatedLabel.first()).toBeVisible({ timeout: 3_000 })
   })
 
-  test('changing the type updates the active segment', async ({ page }) => {
+  test('changing the relationship updates the active segment', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
 
-    const asyncBtn = drawer.locator('.diagram-edge-seg__btn', { hasText: 'Async' })
+    const asyncBtn = inspector.locator('.inspector-segment', { hasText: 'Async' })
     await asyncBtn.click()
     await expect(asyncBtn).toHaveAttribute('aria-pressed', 'true')
   })
 
-  test('each type segment previews how its edge renders', async ({ page }) => {
+  test('each relationship segment previews how its edge renders', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
 
     // The swatch is what lets a user recognise the edge style without reading
     // the name — so each kind must render its own variant, not just a label.
-    await expect(drawer.locator('.diagram-edge-seg__preview--sync')).toBeVisible()
-    await expect(drawer.locator('.diagram-edge-seg__preview--async')).toBeVisible()
-    await expect(drawer.locator('.diagram-edge-seg__preview--data')).toBeVisible()
+    await expect(inspector.locator('.kind-preview--sync')).toBeVisible()
+    await expect(inspector.locator('.kind-preview--async')).toBeVisible()
+    await expect(inspector.locator('.kind-preview--data')).toBeVisible()
   })
 
   test('choosing a colour recolours the edge on canvas', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
+    await openTab(inspector, 'Style')
 
-    const green = drawer.locator('.diagram-edge-color__swatch[aria-label="Green"]')
+    const green = inspector.locator('.inspector-swatch[aria-label="Green"]')
     await green.click()
 
     // The picker reflects the selection...
@@ -606,11 +631,12 @@ test.describe('Diagram edge details drawer', () => {
 
   test('picking a custom colour recolours the edge', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
+    await openTab(inspector, 'Style')
 
     // The OS colour dialog can't be driven, so set the native input directly and
     // fire `input` — the same event the picker emits on selection.
-    const customInput = drawer.locator('.diagram-edge-color__custom-input')
+    const customInput = inspector.locator('.inspector-swatch__input')
     await customInput.evaluate((el: HTMLInputElement, value: string) => {
       el.value = value
       el.dispatchEvent(new Event('input', { bubbles: true }))
@@ -621,26 +647,27 @@ test.describe('Diagram edge details drawer', () => {
       shell.locator('.svelte-flow__edge').first().locator('.svelte-flow__edge-path'),
     ).toHaveCSS('stroke', 'rgb(18, 52, 86)', { timeout: 3_000 })
     // The custom swatch claims the active ring once an off-palette colour is set.
-    await expect(
-      drawer.locator('.diagram-edge-color__swatch--custom'),
-    ).toHaveClass(/diagram-edge-color__swatch--active/)
+    await expect(inspector.locator('.inspector-swatch--custom')).toHaveClass(
+      /inspector-swatch--active/,
+    )
   })
 
   test('adjusting the weight slider re-weights the edge on canvas', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
+    await openTab(inspector, 'Style')
 
     // Drive the range input directly and fire `input` — the same event a drag
     // emits. A heavier weight matters because it lets a user signal that one
     // connection carries more importance than the others.
-    const slider = drawer.locator('.diagram-edge-weight__slider')
+    const slider = inspector.locator('.weight__slider')
     await slider.evaluate((el: HTMLInputElement, value: string) => {
       el.value = value
       el.dispatchEvent(new Event('input', { bubbles: true }))
     }, '3')
 
     // The readout reflects the choice...
-    await expect(drawer.locator('.diagram-edge-weight__value')).toHaveText('3px')
+    await expect(inspector.locator('.weight__value')).toHaveText('3px')
     // ...and the weight is actually painted on the edge stroke (proves the
     // choice reaches the canvas, not just the control state).
     await expect(
@@ -648,11 +675,50 @@ test.describe('Diagram edge details drawer', () => {
     ).toHaveCSS('stroke-width', '3px', { timeout: 3_000 })
   })
 
-  test('Escape closes the edge drawer', async ({ page }) => {
+  test('choosing Dotted paints the dash pattern on the edge', async ({ page }) => {
     const shell = await openDiagramShell(page)
-    const drawer = await openEdgeDrawer(page, shell)
+    const inspector = await openEdgeInspector(page, shell)
+    await openTab(inspector, 'Style')
+
+    const dotted = inspector.locator('.inspector-segment', { hasText: 'Dotted' })
+    await dotted.click()
+
+    await expect(dotted).toHaveAttribute('aria-pressed', 'true')
+    // The dashing must reach the canvas: line style is derived from `kind`
+    // unless an explicit dash overrides it, and only the inline style can
+    // outrank the kind's CSS rule.
+    await expect(
+      shell.locator('.svelte-flow__edge').first().locator('.svelte-flow__edge-path'),
+    ).toHaveCSS('stroke-dasharray', '0.1px 4px', { timeout: 3_000 })
+  })
+
+  test('edge body text survives reopening the diagram', async ({ page }) => {
+    const shell = await openDiagramShell(page)
+    const inspector = await openEdgeInspector(page, shell)
+
+    // Body is the edge's only prose — a label would paint on the canvas — so it
+    // is worth nothing unless it persists. The flow → diagram mapping is a
+    // hand-written field list, and a field missing there vanishes on save with
+    // no error anywhere.
+    await inspector.locator('.inspector-textarea').fill('Order events, at-least-once')
+    await expect(inspector.locator('.diagram-inspector__save')).toHaveText('saved', {
+      timeout: 5_000,
+    })
+
+    const reopened = await reopenDiagramShell(page)
+    const reopenedInspector = await openEdgeInspector(page, reopened)
+
+    await expect(reopenedInspector.locator('.inspector-textarea')).toHaveValue(
+      'Order events, at-least-once',
+      { timeout: 3_000 },
+    )
+  })
+
+  test('Escape closes the edge inspector', async ({ page }) => {
+    const shell = await openDiagramShell(page)
+    const inspector = await openEdgeInspector(page, shell)
 
     await page.keyboard.press('Escape')
-    await expect(drawer).toBeHidden({ timeout: 2_000 })
+    await expect(inspector).toBeHidden({ timeout: 2_000 })
   })
 })

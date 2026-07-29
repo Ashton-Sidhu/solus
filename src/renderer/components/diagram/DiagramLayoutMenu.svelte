@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { LayoutDirection } from '../../../shared/diagram-layout'
   import PopoverMenu from './PopoverMenu.svelte'
+  import * as DropdownMenu from '../ui/dropdown-menu'
 
   interface Props {
     onLayout: (direction: LayoutDirection) => void
@@ -29,29 +30,17 @@
     </svg>
   {/snippet}
 
-  {#snippet children(close)}
-    {#each OPTIONS as opt (opt.dir)}
-      <button
-        type="button"
-        class="popover__item"
-        class:text-(--solus-text-primary)={current === opt.dir}
-        role="menuitemradio"
-        aria-checked={current === opt.dir}
-        onclick={() => {
-          onLayout(opt.dir)
-          close()
-        }}
-      >
-        <svg class="shrink-0 fill-none stroke-current stroke-[1.5] [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <path d={opt.arrow} />
-        </svg>
-        <span class="flex-1">{opt.label}</span>
-        {#if current === opt.dir}
-          <svg class="shrink-0 fill-none stroke-(--solus-accent) stroke-[1.8] [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-            <path d="M3.5 8.5l3 3 6-7" />
+  {#snippet children()}
+    <DropdownMenu.Label>Flow direction</DropdownMenu.Label>
+    <DropdownMenu.RadioGroup value={current ?? undefined}>
+      {#each OPTIONS as opt (opt.dir)}
+        <DropdownMenu.RadioItem value={opt.dir} onSelect={() => onLayout(opt.dir)}>
+          <svg class="shrink-0 fill-none stroke-current stroke-[1.5] [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d={opt.arrow} />
           </svg>
-        {/if}
-      </button>
-    {/each}
+          <span class="flex-1">{opt.label}</span>
+        </DropdownMenu.RadioItem>
+      {/each}
+    </DropdownMenu.RadioGroup>
   {/snippet}
 </PopoverMenu>

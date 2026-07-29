@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { XIcon } from 'phosphor-svelte'
   import { MONO_FONT } from '../../lib/diffTheme'
   import { MarkdownTextarea } from '../ui/markdown-field'
   import { Button } from '../ui/button'
@@ -61,10 +60,15 @@
   }
 </script>
 
-<div class="diff-comment-form flex flex-col gap-1.5 rounded-[0.625rem] border border-(--solus-accent-border) bg-(--solus-popover-bg) px-2.5 py-2 font-(family-name:--solus-font-family) shadow-(--solus-popover-shadow) backdrop-blur-xl">
+<!-- Defined by an accent ring rather than a border, so the composer reads as a
+     card floating over the code rather than another row in it. -->
+<div
+  class="diff-comment-form flex flex-col gap-1.5 rounded-xl bg-(--solus-popover-bg) px-3 py-2.5 font-(family-name:--solus-font-family)"
+  style="box-shadow:0 0 0 0.0625rem color-mix(in oklab, var(--solus-accent) 30%, transparent), 0 1rem 2.25rem -1.375rem rgba(0, 0, 0, 0.5)"
+>
   {#if rangeLabel}
     <span
-      class="text-[0.625rem] font-medium tracking-wider text-(--solus-text-tertiary) uppercase inline-block"
+      class="inline-block text-[0.625rem] text-(--solus-text-tertiary) tabular-nums"
       style="font-family:{MONO_FONT}"
     >
       {rangeLabel}
@@ -75,7 +79,7 @@
     bind:value
     bare
     mic
-    placeholder="Add a comment… ⌘↵"
+    placeholder="What should change here?"
     rows={1}
     oninput={handleInput}
     onkeydown={handleKeyDown}
@@ -83,11 +87,17 @@
     class="min-h-8 max-h-30 overflow-y-auto"
   />
   <div class="flex items-center justify-end gap-1.5">
-    <Button variant="ghost" size="icon-sm" onclick={onCancel} class="text-(--solus-text-tertiary)">
-      <XIcon size={13} />
+    <span
+      class="mr-auto text-[0.625rem] text-(--solus-text-tertiary)"
+      style="font-family:{MONO_FONT}"
+    >
+      ⌘↵ to save
+    </span>
+    <Button variant="ghost" size="xs" onclick={onCancel} class="text-(--solus-text-tertiary)">
+      Cancel
     </Button>
-    <Button size="sm" disabled={!canSave} onclick={handleSave}>
-      Comment
+    <Button size="xs" disabled={!canSave} onclick={handleSave}>
+      Add comment
     </Button>
   </div>
 </div>

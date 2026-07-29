@@ -189,6 +189,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
   private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000 })
+  private planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: 60_000 })
   /** Per-cwd hot cache over the persistent session index. Codex has no files to
    *  stat, so refresh with a TTL and clear on turn completion, which is when a
    *  thread is created or its activity changes. */
@@ -617,26 +618,33 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
-    const threads = await this.listAllThreads()
-    const projectRoot = projectPath?.replace(/\/$/, '')
-    const annotations = await loadAllAnnotations()
-    const scanned: ScannedCodexPlan[] = []
+    const cacheKey = allProjects ? 'all' : projectPath || process.cwd()
+    return this.planListCache.getOrLoad(cacheKey, async () => {
+      const threads = await this.listAllThreads()
+      const projectRoot = projectPath?.replace(/\/$/, '')
+      const annotations = await loadAllAnnotations()
+      const scanned: ScannedCodexPlan[] = []
 
-    await Promise.all(
-      threads
-        .filter((thread) => {
-          if (!thread.id) return false
-          if (allProjects || !projectRoot) return true
-          return thread.cwd?.replace(/\/$/, '') === projectRoot
-        })
-        .map(async (thread) => {
-          scanned.push(...await scanCodexPlans(thread, annotations))
-        }),
+      await Promise.all(
+        threads
+          .filter((thread) => {
+            if (!thread.id) return false
+            if (allProjects || !projectRoot) return true
+            return thread.cwd?.replace(/\/$/, '') === projectRoot
+          })
+          .map(async (thread) => {
+            scanned.push(...await scanCodexPlans(thread, annotations))
+          }),
+      )
+
+      return groupCodexPlansBySession(scanned)
+    })
+  }
+
+  invalidatePlanCache(sessionId: string): void {
+    this.planListCache.invalidateWhere(
+      (_key, descriptors) => descriptors.some((descriptor) => descriptor.sessionId === sessionId),
     )
-
-    const groupedPlans = groupCodexPlansBySession(scanned)
-
-    return groupedPlans
   }
 
   async loadPlanContent(sessionId: string, _projectPath: string, planToolUseId: string): Promise<string | null> {

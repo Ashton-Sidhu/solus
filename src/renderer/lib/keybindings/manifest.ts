@@ -17,6 +17,8 @@ export const KEYBINDINGS = {
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
   'global.design-mode':       { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Design mode',              group: 'Compose' },
+  'global.save-prompt':       { combo: { mod: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Save prompt',              group: 'Compose' },
+  'global.saved-prompts':     { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Saved prompts',            group: 'Compose' },
   'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
@@ -117,6 +119,7 @@ export const KEYBINDINGS = {
   'plan-modal.toggle-comments':   { combo: { alt: true, code: 'KeyM' },                    scope: 'plan-modal',         label: 'Toggle comments',          group: 'Modal' },
   'plan-modal.resume':            { combo: { alt: true, code: 'KeyO' },                    scope: 'plan-modal',         label: 'Resume session',           group: 'Modal' },
   'plan-modal.find':              { combo: { mod: true, code: 'KeyF' },                    scope: 'plan-modal',         label: 'Find & replace',           group: 'Modal' },
+  'plan-modal.pin-outline':       { combo: { mod: true, alt: true, code: 'Backslash' },    scope: 'plan-modal',         label: 'Pin table of contents',    group: 'Modal' },
   'plan-modal.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'plan-modal', label: 'New tab',         group: 'Modal' },
 
   // ── Document modal ─────────────────────────────────────────────────────────
@@ -124,6 +127,7 @@ export const KEYBINDINGS = {
   'document-modal.save':          { combo: { alt: true, code: 'KeyS' },                    scope: 'document-modal',     label: 'Save',                     group: 'Modal' },
   'document-modal.copy':          { combo: { alt: true, code: 'KeyC' },                    scope: 'document-modal',     label: 'Copy to clipboard',        group: 'Modal' },
   'document-modal.find':          { combo: { mod: true, code: 'KeyF' },                    scope: 'document-modal',     label: 'Find & replace',           group: 'Modal' },
+  'document-modal.pin-outline':   { combo: { mod: true, alt: true, code: 'Backslash' },    scope: 'document-modal',     label: 'Pin table of contents',    group: 'Modal' },
   'document-modal.google-upload': { combo: { alt: true, code: 'KeyG' },                    scope: 'document-modal',     label: 'Open in Google Docs',      group: 'Modal' },
   'plan-modal.google-upload':     { combo: { alt: true, code: 'KeyG' },                    scope: 'plan-modal',         label: 'Open in Google Docs',      group: 'Modal' },
 
@@ -175,6 +179,7 @@ export const KEYBINDINGS = {
   'diagram.bring-to-front':       { combo: { mod: true, shift: true, code: 'BracketRight' }, scope: 'diagram',           label: 'Bring to front',           group: 'Canvas' },
   'diagram.search':               { combo: { mod: true, code: 'KeyF' },                     scope: 'diagram',            label: 'Search nodes',             group: 'Canvas' },
   'diagram.comments':             { combo: { alt: true, code: 'KeyC' },                     scope: 'diagram',            label: 'Toggle comments',          group: 'Canvas' },
+  'diagram.toggle-inspector':     { combo: { mod: true, code: 'Backslash' },                scope: 'diagram',            label: 'Toggle inspector',         group: 'Canvas' },
   'diagram.dismiss':              { combo: { code: 'Escape' },                              scope: 'diagram',            label: 'Close search / drawer / focus', group: 'Canvas' },
   'diagram.zoom-in':              { combo: { code: 'PageUp' },                              scope: 'diagram',            label: 'Zoom in',                  group: 'Canvas' },
   'diagram.zoom-out':             { combo: { code: 'PageDown' },                            scope: 'diagram',            label: 'Zoom out',                 group: 'Canvas' },
@@ -189,6 +194,10 @@ export const KEYBINDINGS = {
 
   // ── Attachment preview ─────────────────────────────────────────────────────
   'attachment.close-preview':     { combo: { code: 'Escape' },                             scope: 'attachment-preview', label: 'Close preview',            group: 'General' },
+
+  // ── Saved prompts (sheet open; ⌫ is gated on an empty search field so it
+  //    still backspaces while you type) ───────────────────────────────────────
+  'saved-prompts.delete':         { combo: { code: 'Backspace' },                          scope: 'saved-prompts',      label: 'Delete saved prompt',      group: 'Saved prompts' },
 
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },

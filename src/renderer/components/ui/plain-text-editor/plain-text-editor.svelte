@@ -17,7 +17,6 @@
   } from "@codemirror/language";
   import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
   import {
-    drawSelection,
     EditorView,
     keymap,
     placeholder as placeholderExtension,
@@ -123,12 +122,32 @@
       overflowY: "auto",
       fontFamily: "inherit",
       lineHeight: "1.375rem",
-      scrollbarWidth: "thin",
+      scrollbarWidth: "auto",
+    },
+    ".cm-scroller::-webkit-scrollbar": {
+      width: "0.1875rem",
+    },
+    ".cm-scroller::-webkit-scrollbar-track": {
+      background: "transparent",
+    },
+    ".cm-scroller::-webkit-scrollbar-thumb": {
+      background:
+        "color-mix(in srgb, var(--solus-text-tertiary) 24%, transparent)",
+      borderRadius: "999px",
+    },
+    "&:hover .cm-scroller::-webkit-scrollbar-thumb, &.cm-focused .cm-scroller::-webkit-scrollbar-thumb":
+      {
+        background:
+          "color-mix(in srgb, var(--solus-text-tertiary) 44%, transparent)",
+      },
+    ".cm-scroller::-webkit-scrollbar-thumb:hover": {
+      background:
+        "color-mix(in srgb, var(--solus-text-secondary) 58%, transparent)",
     },
     ".cm-content": {
       minHeight: "1.25rem",
       padding: "0.75rem 0 0.75rem 0.25rem",
-      caretColor: "var(--solus-accent)",
+      caretColor: "currentColor",
       wordBreak: "break-word",
       whiteSpace: "pre-wrap",
     },
@@ -138,13 +157,8 @@
       fontStyle: "normal",
     },
     ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: "var(--solus-accent)",
+      borderLeftColor: "currentColor",
     },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection":
-      {
-        backgroundColor:
-          "color-mix(in srgb, var(--solus-accent) 22%, transparent)",
-      },
   });
 
   function isCompositionEvent(event: KeyboardEvent): boolean {
@@ -164,7 +178,6 @@
   function editorExtensions(): Extension[] {
     return [
       history(),
-      drawSelection(),
       EditorView.lineWrapping,
       markdown({
         base: markdownLanguage,

@@ -48,7 +48,7 @@
     onkeydown={handleKeydown}
     onSubmit={handleSubmit}
     submitOn="enter"
-    class="plan-comment-editor__field min-h-16 max-h-56 overflow-y-auto"
+    class="min-h-16 max-h-56 overflow-y-auto"
   />
   <div class="flex items-center justify-end gap-1.5">
     <Button variant="outline" size="sm" onclick={onCancel} class="text-(--solus-text-tertiary)">Cancel</Button>

@@ -11,7 +11,18 @@
   //
   // The button renders inline so page headers can align it with their content
   // gutters and keep the adjacent title/actions in the same visual column.
-  let { variant }: { variant: "sidebar" | "projectPanel" } = $props();
+  //
+  // `size` is the box it has to sit in, not a style preference: dense chrome
+  // strips run 20px boxes, a header action row runs 28px. A 20px button in a
+  // 28px row reads as misaligned even though both are centred, so the host
+  // states which row this instance belongs to.
+  let {
+    variant,
+    size = "strip",
+  }: {
+    variant: "sidebar" | "projectPanel";
+    size?: "strip" | "header";
+  } = $props();
 
   const visible = $derived(
     variant === "sidebar"
@@ -33,7 +44,10 @@
       {#snippet child({ props: tooltipProps })}
         <button {...tooltipProps}
     type="button"
-    class="no-drag flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] border-0 bg-transparent p-0 text-(--solus-text-tertiary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-input-focus-border)"
+    class="no-drag flex shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-(--solus-text-tertiary) transition-[color,background-color] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-input-focus-border) {size ===
+    'header'
+      ? 'size-[28px] rounded-lg'
+      : 'size-5 rounded-[0.4375rem]'}"
     onmousedown={(e) => e.stopPropagation()}
     onclick={expand}
     aria-label={variant === "sidebar"

@@ -9,6 +9,8 @@
     PencilSimpleIcon,
     StarIcon,
     LightningIcon,
+    CursorClickIcon,
+    AsteriskIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import { getWorkspaceContext, getWindowContext, runtime, toasts } from "../../contexts";
@@ -24,7 +26,7 @@
     PAGE_SECONDARY_BTN,
   } from "../../lib/page-chrome";
   import PageEmpty from "../ui/PageEmpty.svelte";
-  import { triggerSummary, relativeTime } from "./lib/automation-format";
+  import { triggerSummary, relativeTime, cadenceMark } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import PageShell from "../ui/PageShell.svelte";
   import PageHeader from "../ui/PageHeader.svelte";
@@ -275,19 +277,33 @@
       <!-- ── Full-page automation detail / editor ── -->
       <AutomationBuilder automation={view.automation} onDone={backToList} />
     {:else}
-      <PageShell onClose={close}>
+      {#snippet automationStats()}
+        <span class="flex items-center gap-1.5">
+          <span
+            class="size-1.5 shrink-0 rounded-full bg-(--solus-art-positive)"
+            aria-hidden="true"
+          ></span>
+          <span class="tabular-nums">{counts.active} active</span>
+        </span>
+        <span class="opacity-40" aria-hidden="true">·</span>
+        <span class="tabular-nums">{counts.paused} paused</span>
+        <span class="opacity-40" aria-hidden="true">·</span>
+        <span class="tabular-nums">{counts.all} total</span>
+      {/snippet}
+      <PageShell>
         <PageHeader
           title="Automations"
-          subtitle="Saved prompts that run on a schedule."
+          subtitle={automationStats}
+          onClose={close}
         >
           {#snippet icon()}
-            <LightningIcon size={18} weight="fill" />
+            <LightningIcon size={11} weight="fill" />
           {/snippet}
           {#snippet actions()}
             {#if !showEmpty}
               <button
                 type="button"
-                class={PAGE_PRIMARY_BTN}
+                class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3 text-[12.5px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
                 onclick={startCreate}
                 data-testid="automation-new"
               >
@@ -300,13 +316,15 @@
 
         <!-- ── Command bar: search + status segments + starred + sort ── -->
         {#if !showEmpty}
-          <div class="flex flex-wrap items-center gap-2 pb-4">
+          <div class="flex min-w-0 flex-wrap items-center gap-2.5 pt-1 pb-4">
             <SearchField
               bind:ref={searchEl}
               bind:value={query}
               placeholder="Search automations…"
+              class="h-8 min-w-0 flex-1 basis-0 rounded-lg border-0 bg-muted px-3 py-0 @max-[44rem]:basis-0"
             />
             <SegmentedControl
+              variant="bar"
               options={statusSegments}
               isActive={(v) => statusFilter === v}
               onSelect={(v) => (statusFilter = v)}
@@ -315,9 +333,9 @@
             <div class="ml-auto flex shrink-0 items-center gap-1">
               <button
                 type="button"
-                class="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 transition-[background-color,color] duration-100 ease-in-out focus-visible:bg-(--solus-accent-light) focus-visible:outline-none [@media(pointer:coarse)]:size-10 {showStarred
-                  ? 'bg-[color-mix(in_srgb,var(--solus-art-2,#c9883f)_14%,transparent)] text-[var(--solus-art-2,#c9883f)]'
-                  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                class="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {showStarred
+                  ? 'bg-secondary text-secondary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground'}"
                 onclick={() => (showStarred = !showStarred)}
                 aria-pressed={showStarred}
                 aria-label="Starred automations"
@@ -329,6 +347,7 @@
                 bind:value={sortMode}
                 options={SORT_OPTIONS}
                 ariaLabel="Sort automations"
+                class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground"
               />
             </div>
           </div>
@@ -343,7 +362,7 @@
           >
             {#each [28, 38, 22, 32] as width, i (i)}
               <div class="flex items-center gap-3 rounded-[0.625rem] px-3 py-3" aria-hidden="true">
-                <Skeleton class="size-2 shrink-0 rounded-full bg-(--solus-surface-hover)" style="animation-delay: {i * 120}ms" />
+                <Skeleton class="size-7 shrink-0 rounded-[0.5rem] bg-(--solus-surface-hover)" style="animation-delay: {i * 120}ms" />
                 <span class="flex min-w-0 flex-1 flex-col gap-1.5">
                   <Skeleton class="h-2.5 rounded-full bg-(--solus-surface-hover)" style="width: {width}%; animation-delay: {i * 120}ms" />
                   <Skeleton class="h-2 rounded-full bg-(--solus-surface-hover) opacity-60" style="width: {Math.round(width * 0.6)}%; animation-delay: {i * 120}ms" />
@@ -391,13 +410,23 @@
                 aria-label={section.label}
               >
                 {#each section.items as a (a.id)}
-                  {@const dotTone = !a.enabled
+                  {@const tone = !a.enabled
                     ? "paused"
                     : a.lastRunStatus === "failed"
                       ? "error"
                       : a.lastRunStatus === "running"
                         ? "running"
                         : "on"}
+                  {@const toneLabel =
+                    tone === "running"
+                      ? "Running"
+                      : tone === "error"
+                        ? "Last run failed"
+                        : tone === "paused"
+                          ? "Paused"
+                          : "Active"}
+                  {@const mark = cadenceMark(a.trigger)}
+                  {@const schedule = triggerSummary(a.trigger)}
                   {@const lastRunLabel =
                     a.lastRunStatus === "running"
                       ? "Running now"
@@ -423,35 +452,37 @@
                         }
                       }}
                     >
-                      <!-- Status dot — pure indicator (state is changed via the
-                           explicit pause/resume control on the right). -->
+                      <!-- Cadence tile — the automation's rhythm as a mark ("9a",
+                           "MON", "30m"). Status rides on the tile's material, not
+                           a separate indicator: accent + breathing halo while
+                           running, error tint when the last run failed, dashed
+                           when paused. -->
                       <span
-                        class="flex-shrink-0 grid place-items-center w-3.5 h-3.5"
+                        class="relative grid size-7 shrink-0 place-items-center rounded-[0.5rem] text-[0.5625rem] font-semibold uppercase tabular-nums tracking-[-0.01em] transition-colors duration-150 {tone ===
+                        'running'
+                          ? 'bg-(--solus-accent-light) text-(--solus-accent) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]'
+                          : tone === 'error'
+                            ? 'bg-(--solus-status-error-bg) text-(--solus-status-error) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-status-error)_28%,transparent)]'
+                            : tone === 'paused'
+                              ? 'border border-dashed border-(--solus-container-border) text-(--solus-text-tertiary)'
+                              : 'bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] text-(--solus-text-secondary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-text-primary)_9%,transparent)]'}"
                         role="img"
-                        aria-label={dotTone === "running"
-                          ? "Running"
-                          : dotTone === "error"
-                            ? "Last run failed"
-                            : dotTone === "paused"
-                              ? "Paused"
-                              : "Active"}
-                        title={dotTone === "running"
-                          ? "Running"
-                          : dotTone === "error"
-                            ? "Last run failed"
-                            : dotTone === "paused"
-                              ? "Paused"
-                              : "Active"}
+                        aria-label="{schedule} — {toneLabel}"
+                        title="{schedule} — {toneLabel}"
                       >
-                        <span
-                          class="block w-2 h-2 rounded-full {dotTone === 'paused'
-                            ? 'border border-(--solus-text-tertiary)'
-                            : dotTone === 'error'
-                              ? 'bg-(--solus-status-error)'
-                              : dotTone === 'running'
-                                ? 'bg-(--solus-accent) animate-pulse'
-                                : 'bg-(--solus-text-secondary)'}"
-                        ></span>
+                        {#if tone === "running"}
+                          <span
+                            class="animate-breathing pointer-events-none absolute inset-0 rounded-[0.5rem] shadow-[0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
+                            aria-hidden="true"
+                          ></span>
+                        {/if}
+                        {#if mark.kind === "manual"}
+                          <CursorClickIcon size={12} />
+                        {:else if mark.kind === "expr"}
+                          <AsteriskIcon size={11} weight="bold" />
+                        {:else}
+                          {mark.text}
+                        {/if}
                       </span>
 
                       <!-- Name + agent badge, with folder and last-run state
@@ -494,7 +525,7 @@
                           <span
                             class="text-[0.75rem] text-(--solus-text-tertiary) whitespace-nowrap transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
                           >
-                            {triggerSummary(a.trigger)}
+                            {schedule}
                           </span>
                           <div
                             class="absolute right-0 flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"

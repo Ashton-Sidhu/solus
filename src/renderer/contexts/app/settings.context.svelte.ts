@@ -59,7 +59,9 @@ export type SettingsFields = {
   keybindings: Record<string, KeyCombo>
   analyticsEnabled: boolean
   projectPanelOpen: boolean
+  splitProjectPanelOpen: boolean
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
+  splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   runDockOpen: boolean
   runDockHeight: number
   tabGroupMode: TabGroupMode
@@ -246,14 +248,17 @@ function loadSettings(): SettingsFields {
         worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
         fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : 'inter',
         fontSize: typeof parsed.fontSize === 'number' && parsed.fontSize >= 8 ? parsed.fontSize : DEFAULT_FONT_SIZE,
-        codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'sf-mono',
+        codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
         codeFontSize: typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 8 ? parsed.codeFontSize : DEFAULT_CODE_FONT_SIZE,
         extraInstructions: typeof parsed.extraInstructions === 'string' ? parsed.extraInstructions : '',
         modelInstructions: loadModelInstructions(parsed.modelInstructions),
         keybindings: sanitizeKeybindings(parsed.keybindings),
         analyticsEnabled: typeof parsed.analyticsEnabled === 'boolean' ? parsed.analyticsEnabled : true,
         projectPanelOpen: typeof parsed.projectPanelOpen === 'boolean' ? parsed.projectPanelOpen : false,
+        splitProjectPanelOpen:
+          typeof parsed.splitProjectPanelOpen === 'boolean' ? parsed.splitProjectPanelOpen : false,
         projectPanelCollapsed: loadProjectPanelCollapsed(parsed.projectPanelCollapsed),
+        splitProjectPanelCollapsed: loadProjectPanelCollapsed(parsed.splitProjectPanelCollapsed),
         runDockOpen: typeof parsed.runDockOpen === 'boolean' ? parsed.runDockOpen : false,
         runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
@@ -279,14 +284,16 @@ function loadSettings(): SettingsFields {
     worktreeEnabled: false,
     fontFamily: 'inter',
     fontSize: DEFAULT_FONT_SIZE,
-    codeFontFamily: 'sf-mono',
+    codeFontFamily: 'jetbrains-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
     extraInstructions: '',
     modelInstructions: {},
     keybindings: {},
     analyticsEnabled: true,
     projectPanelOpen: false,
+    splitProjectPanelOpen: false,
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
+    splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     runDockOpen: false,
     runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
@@ -312,14 +319,16 @@ export class SettingsContext {
   worktreeEnabled = $state(false)
   fontFamily = $state<AppFontFamily>('inter')
   fontSize = $state(13)
-  codeFontFamily = $state<AppCodeFontFamily>('sf-mono')
+  codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
   extraInstructions = $state('')
   modelInstructions = $state<Record<string, string>>({})
   keybindings = $state<Record<string, KeyCombo>>({})
   analyticsEnabled = $state(true)
   projectPanelOpen = $state(false)
+  splitProjectPanelOpen = $state(false)
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
+  splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   runDockOpen = $state(false)
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
@@ -354,7 +363,9 @@ export class SettingsContext {
     this.keybindings = saved.keybindings
     this.analyticsEnabled = saved.analyticsEnabled
     this.projectPanelOpen = saved.projectPanelOpen
+    this.splitProjectPanelOpen = saved.splitProjectPanelOpen
     this.projectPanelCollapsed = saved.projectPanelCollapsed
+    this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.runDockOpen = saved.runDockOpen
     this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
@@ -458,7 +469,11 @@ export class SettingsContext {
       setAnalyticsEnabled(patch.analyticsEnabled!)
     }
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
+    if (patch.splitProjectPanelOpen !== undefined)
+      this.splitProjectPanelOpen = patch.splitProjectPanelOpen
     if (patch.projectPanelCollapsed !== undefined) this.projectPanelCollapsed = patch.projectPanelCollapsed
+    if (patch.splitProjectPanelCollapsed !== undefined)
+      this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
     if (patch.runDockOpen !== undefined) this.runDockOpen = patch.runDockOpen
     if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
@@ -501,7 +516,9 @@ export class SettingsContext {
         keybindings: this.keybindings,
         analyticsEnabled: this.analyticsEnabled,
         projectPanelOpen: this.projectPanelOpen,
+        splitProjectPanelOpen: this.splitProjectPanelOpen,
         projectPanelCollapsed: this.projectPanelCollapsed,
+        splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         runDockOpen: this.runDockOpen,
         runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,

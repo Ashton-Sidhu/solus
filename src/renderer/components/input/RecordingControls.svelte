@@ -5,7 +5,7 @@
   import type { VoiceState } from '../../lib/voice-recorder.svelte'
 
   interface Props {
-    /** 'bar' = 36px pill cluster beside the editor (InputBar); 'field' = 24px in-field overlay (Input). */
+    /** 'bar' = 32px controls beside the editor (InputBar); 'field' = 24px in-field overlay (Input). */
     variant: 'bar' | 'field'
     state: VoiceState
     rmsRef: { current: number }
@@ -51,7 +51,7 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={onCancel}
         aria-label="Cancel recording"
-        class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
+        class="flex size-8 items-center justify-center rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
       ><XIcon size={15} weight="bold" /></button>
           {/snippet}
         </TooltipUI.Trigger>
@@ -65,7 +65,7 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={onConfirm}
         aria-label="Finish recording"
-        class="w-9 h-9 rounded-full flex items-center justify-center transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] bg-(--solus-accent) text-(--solus-text-on-accent)"
+        class="flex size-8 items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-text-on-accent) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
       ><CheckIcon size={15} weight="bold" /></button>
           {/snippet}
         </TooltipUI.Trigger>
@@ -77,7 +77,7 @@
       type="button"
       disabled
       aria-label="Finishing transcription"
-      class="w-9 h-9 rounded-full border border-(--solus-container-border) flex items-center justify-center text-(--solus-mic-color)"
+      class="flex size-8 items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) text-(--solus-mic-color) shadow-xs"
     ><SpinnerGapIcon size={16} class="animate-spin" /></button>
   {:else}
     <TooltipUI.Root>
@@ -89,7 +89,7 @@
       onclick={onToggle}
       {disabled}
       aria-label="Voice input"
-      class="w-9 h-9 rounded-full border border-(--solus-container-border) flex items-center justify-center transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
+      class="flex size-8 items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) shadow-xs transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
       style="{waiting
         ? 'background:var(--solus-accent);'
         : progressPct !== null
@@ -99,7 +99,7 @@
         : waiting
           ? 'var(--solus-text-on-accent)'
           : 'var(--solus-mic-color)'};opacity:{disabled ? 0.4 : 1}"
-    >{#if progressPct !== null}<span class="flex h-7 w-7 items-center justify-center rounded-full bg-(--solus-input-pill-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
+    >{#if progressPct !== null}<span class="flex size-7 items-center justify-center rounded-full bg-(--solus-input-pill-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content value={idleTooltip} />

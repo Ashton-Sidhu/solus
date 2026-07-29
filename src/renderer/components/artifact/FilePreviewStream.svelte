@@ -150,7 +150,6 @@
           target,
           props: {
             comment: annotation.metadata.comment,
-            variant: "minimal",
             onEdit: editComment,
             onDelete: deleteComment,
           },

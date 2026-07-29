@@ -251,6 +251,44 @@ describe('parseDiagram — entity fields & cardinality', () => {
     const parsed = parseDiagram(JSON.stringify(doc))
     expect(parsed.edges[0].cardinality).toBeUndefined()
   })
+
+  test('round-trips edge body and dash', () => {
+    const doc = {
+      nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+      edges: [
+        {
+          id: 'e1',
+          source: 'a',
+          target: 'b',
+          body: 'Order events, at-least-once',
+          dash: 'dotted' as const,
+        },
+      ],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc))
+    expect(parsed.edges[0].body).toBe('Order events, at-least-once')
+    expect(parsed.edges[0].dash).toBe('dotted')
+  })
+
+  test('keeps an explicit solid dash — it overrides the kind default, it does not restate it', () => {
+    // Unlike node shape's 'rectangle', dropping this would silently re-dash
+    // every async edge an author deliberately made solid.
+    const doc = {
+      nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+      edges: [{ id: 'e1', source: 'a', target: 'b', kind: 'async' as const, dash: 'solid' as const }],
+    }
+    const parsed = parseDiagram(serializeDiagram(doc))
+    expect(parsed.edges[0].dash).toBe('solid')
+  })
+
+  test('strips a dash outside the supported set', () => {
+    const doc = {
+      nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+      edges: [{ id: 'e1', source: 'a', target: 'b', dash: 'squiggly' }],
+    }
+    const parsed = parseDiagram(JSON.stringify(doc))
+    expect(parsed.edges[0].dash).toBeUndefined()
+  })
 })
 
 describe('parentId cycle breaking', () => {

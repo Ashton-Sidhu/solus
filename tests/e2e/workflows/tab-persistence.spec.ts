@@ -129,6 +129,35 @@ test.describe('Tab persistence across reload', () => {
     })
   })
 
+  // Regression: inactive tabs defer transcript hydration until browser idle time.
+  // Their lightweight live-status lookup must not wait behind that queue, or the
+  // tab strip falsely reports idle work after a client refresh.
+  test('inactive running session restores its status before deferred hydration', async ({ page }) => {
+    const app = new AppPage(page)
+    const conversation = new ConversationPage(page)
+    await app.waitForAppReady()
+
+    await conversation.typeAndSend('Run a background command __MOCK_PERMISSION__')
+    await page.waitForSelector(`${ACTIVE_TAB} [data-testid="permission-card"]`, { timeout: 8000 })
+    await expect(page.locator(VISIBLE_TAB_ITEM).first()).toHaveAttribute('data-status', 'awaiting_input')
+
+    await app.openNewTab()
+    await expect(page.locator(VISIBLE_TAB_ITEM)).toHaveCount(2)
+
+    // Keep the inactive tab's transcript/bind hydration queued across reload.
+    // Status recovery must therefore come from the side-effect-free status probe.
+    await page.addInitScript(() => {
+      window.requestIdleCallback = () => 1
+    })
+    await page.reload()
+    await app.waitForAppReady()
+
+    await expect(page.locator(VISIBLE_TAB_ITEM)).toHaveCount(2)
+    await expect(page.locator(VISIBLE_TAB_ITEM).first()).toHaveAttribute('data-status', 'awaiting_input', {
+      timeout: 3000,
+    })
+  })
+
   // Regression: a rate-limited session moves the blocked run into the server
   // queue, so the backend process is no longer "running". Rebind must still
   // restore the rate-limited status and queued UI; otherwise the refreshed

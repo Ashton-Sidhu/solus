@@ -7,7 +7,6 @@
   import { uuid } from "../../../shared/uuid";
   import {
     XIcon,
-    ChatCircleTextIcon,
     CheckIcon,
     CopyIcon,
     BookmarkSimpleIcon,
@@ -22,6 +21,7 @@
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import { CommentMark } from "../editor/commentMark";
   import PlanCommentsRail from "./PlanCommentsRail.svelte";
+  import { commentMarkPositions, measureAnchors, type MeasuredAnchor } from "../comments/lib/anchors";
   import type { Plan, PlanComment } from "../../../shared/types";
   import { portal } from "../portal";
   import {
@@ -65,8 +65,6 @@
     planRevisions.findIndex((p) => p.id === plan.id),
   );
   let revisionDropdownOpen = $state(false);
-  let revisionTriggerEl = $state<HTMLButtonElement | null>(null);
-  let revisionPanelPos = $state<{ top: number; left: number } | null>(null);
 
   // Overflow (⋯) menu holding the secondary header actions (Copy, Bookmark).
   let overflowOpen = $state(false);
@@ -97,7 +95,6 @@
 
   // Comments rail
   let commentsRailOpen = $state(false);
-  let commentsRailInLayout = $state(false);
   let composerCollapsed = $state(false);
   let commentsRailPlanId = $state<string | null>(null);
   let activeRailCommentId = $state<string | null>(null);
@@ -152,6 +149,56 @@
     suppressSave = false;
   });
 
+  // Where each highlight sits, so the rail can put a thread on its own line.
+  let anchors = $state<MeasuredAnchor[]>([]);
+  // False while the rail is moving — connectors are suppressed until it settles
+  // so nothing flickers across the margin.
+  let anchorsSettled = $state(true);
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // On mobile the rail is a full-screen overlay, so there is no margin to
+  // anchor into — the threads stack the way a list should.
+  const railPlacement = $derived(isMobile ? "stacked" : "anchored");
+
+  // Document position of each thread's mark, for the outline's section counts.
+  let threadAnchors = $state<{ id: string; pos: number }[]>([]);
+
+  $effect(() => {
+    comments;
+    tiptapEditor?.state.doc;
+    scrollContainer;
+    void tick().then(() => {
+      anchors = measureAnchors(scrollContainer, comments);
+      threadAnchors = commentMarkPositions(tiptapEditor);
+    });
+  });
+
+  $effect(() => {
+    const el = scrollContainer;
+    if (!el) return;
+    // One rAF per frame: a fast scroll must not run a layout read per event.
+    let pending = false;
+    const remeasure = () => {
+      anchorsSettled = false;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => (anchorsSettled = true), 140);
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        anchors = measureAnchors(el, comments);
+      });
+    };
+    el.addEventListener("scroll", remeasure, { passive: true });
+    const observer = new ResizeObserver(remeasure);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", remeasure);
+      observer.disconnect();
+      if (settleTimer) clearTimeout(settleTimer);
+    };
+  });
+
   $effect(() => {
     const previousPlanId = commentsRailPlanId;
     if (previousPlanId === plan.id) return;
@@ -160,10 +207,6 @@
     commentsRailOpen = !isMobile && comments.length > 0;
     activeRailCommentId = null;
     editingCommentId = null;
-  });
-
-  $effect(() => {
-    if (commentsRailOpen) commentsRailInLayout = true;
   });
 
   // Dismiss floating comment / revision dropdown on outside click.
@@ -175,15 +218,6 @@
         !t.closest("[data-inline-comment-form]")
       ) {
         clearCommentDraft();
-      }
-      if (
-        revisionDropdownOpen &&
-        !t.closest("[data-revision-panel]") &&
-        t !== revisionTriggerEl &&
-        !revisionTriggerEl?.contains(t)
-      ) {
-        revisionDropdownOpen = false;
-        revisionPanelPos = null;
       }
     };
     document.addEventListener("mousedown", handler);
@@ -308,6 +342,9 @@
       selectedText: selectionRange.selectedText,
       comment: commentInput.trim(),
       textOffset,
+      author: "you",
+      createdAt: Date.now(),
+      readAt: Date.now(),
     };
     planStore.addComment(plan.id, newComment);
 
@@ -357,9 +394,26 @@
 
   function handleScrollToComment(commentId: string) {
     activeRailCommentId = commentId;
+    // Focus is mutual, and opening a thread is what reading it means.
+    planStore.markCommentRead(plan.id, commentId);
     const mark = findMarkElement(scrollContainer, commentId);
     if (!mark || !scrollContainer) return;
     scrollAndFlashMark(scrollContainer, mark);
+  }
+
+  function handleReplyToComment(commentId: string, text: string) {
+    planStore.addReply(plan.id, commentId, {
+      id: uuid(),
+      author: "you",
+      text,
+      createdAt: Date.now(),
+    });
+    activeRailCommentId = commentId;
+  }
+
+  function handleResolveComment(commentId: string, resolved: boolean) {
+    planStore.setCommentResolved(plan.id, commentId, resolved ? "you" : null);
+    if (resolved && activeRailCommentId === commentId) activeRailCommentId = null;
   }
 
   function handleHoverRailComment(commentId: string | null) {
@@ -383,43 +437,68 @@
   editorClass="plan-document-editor"
   rootClass="plan-shell"
   scope="plan-modal"
-  bindings={{ close: "plan-modal.close", save: "plan-modal.save", copy: "plan-modal.copy", googleUpload: "plan-modal.google-upload", find: "plan-modal.find" }}
+  bindings={{ close: "plan-modal.close", save: "plan-modal.save", copy: "plan-modal.copy", googleUpload: "plan-modal.google-upload", find: "plan-modal.find", pinOutline: "plan-modal.pin-outline" }}
   extraExtensions={commentExtensions}
   onSave={handleSave}
   onClose={closeModal}
   onEscape={handleEscape}
   onEditorReady={handleEditorReady}
+  onCommentSelection={handleStartComment}
+  canCommentSelection={!!selectionRange && !commentFormAnchor}
+  {threadAnchors}
+  railWidth="clamp(13.5rem, 26cqi, 18rem)"
   bind:tiptapEditor
   bind:scrollContainer
   bind:suppressSave
   rootTestId="plan-modal"
   closeTestId="plan-modal-close"
   scrollAriaLabel="Plan document"
-  scrollClass={commentsRailInLayout ? "" : "plan-editor-scroll--no-rail"}
   placeholder="Start writing…"
 >
   {#snippet documentMeta()}
     {#if revisionCount > 1}
-      <div class="relative shrink-0">
-        <button
-          bind:this={revisionTriggerEl}
-          type="button"
-          onclick={() => {
-            if (revisionDropdownOpen) {
-              revisionDropdownOpen = false;
-              revisionPanelPos = null;
-            } else {
-              const rect = revisionTriggerEl?.getBoundingClientRect();
-              if (rect) revisionPanelPos = { top: rect.bottom + 6, left: rect.left };
-              revisionDropdownOpen = true;
-            }
-          }}
-          class="inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-(--solus-container-border) bg-transparent px-2 py-0.5 text-[0.6875rem] font-secondary text-(--solus-text-secondary) transition-[background,color,border-color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) max-md:px-[0.3125rem] max-md:text-[0.625rem]"
-        >
-          v{currentRevisionIndex + 1} of {revisionCount}
-          <CaretDownIcon size={10} />
-        </button>
-      </div>
+      <DropdownMenu.Root bind:open={revisionDropdownOpen}>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              class="group inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border-0 px-2 text-[0.78125rem] font-normal tracking-[-0.006em] transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none {revisionDropdownOpen
+                ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+                : 'bg-transparent text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
+            >
+              <span class="tabular-nums">v{currentRevisionIndex + 1} of {revisionCount}</span>
+              <CaretDownIcon
+                size={10}
+                class="shrink-0 opacity-60 transition-transform duration-(--duration-quick) ease-(--ease-premium) group-aria-expanded:rotate-180"
+              />
+            </button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="start" sideOffset={6} collisionPadding={8} class="w-[14rem]">
+          <DropdownMenu.Label>Plan revisions</DropdownMenu.Label>
+          <DropdownMenu.RadioGroup value={plan.id}>
+            {#each planRevisions as rev, i (rev.id)}
+              <DropdownMenu.RadioItem value={rev.id} onSelect={() => session.openPlanModal(rev.id)}>
+                <span class="shrink-0 font-medium tabular-nums">v{i + 1}</span>
+                <span class="min-w-0 flex-1 truncate text-menu-meta text-(--solus-text-tertiary)">
+                  {new Date(rev.timestamp).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                {#if rev.status === "accepted"}
+                  <CheckCircleIcon size={11} weight="fill" class="text-(--solus-status-complete)" />
+                {:else if rev.status === "rejected"}
+                  <XCircleIcon size={11} weight="fill" class="text-(--solus-text-tertiary)" />
+                {/if}
+              </DropdownMenu.RadioItem>
+            {/each}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     {/if}
   {/snippet}
 
@@ -432,7 +511,7 @@
       title={commentsRailOpen ? "Hide comments (⌥M)" : "Show comments (⌥M)"}
       aria-label={commentsRailOpen ? "Hide comments" : "Show comments"}
     >
-      <ChatCircleTextIcon size={13} />
+      <span class="plan-soft-pill__swatch" aria-hidden="true"></span>
       <span class="plan-soft-pill__label">Comments{comments.length > 0 ? ` (${comments.length})` : ""}</span>
     </button>
     <button
@@ -454,12 +533,13 @@
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="top" align="end" sideOffset={6} class="w-[190px]">
+      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} collisionPadding={8} class="w-auto min-w-56 whitespace-nowrap">
+        <DropdownMenu.Label>Plan actions</DropdownMenu.Label>
         {#if isPreview}
           <DropdownMenu.Item onSelect={() => { const d = planStore.previewDescriptor; if (d) session.resumeSessionFromDescriptor(d); }}>
             <ArrowUpRightIcon size={14} /><span class="flex-1 text-left">Open session</span>{#if !isMobile}<span class="ml-auto"><Kbd variant="inline">⌥O</Kbd></span>{/if}
           </DropdownMenu.Item>
-          <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
+          <DropdownMenu.Separator />
         {/if}
         {#if googleUpload}
           <!-- Keep the menu open so the upload state stays visible. -->
@@ -473,7 +553,7 @@
           </DropdownMenu.Item>
         {/if}
         {#if googleUpload}
-          <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
+          <DropdownMenu.Separator />
         {/if}
         <DropdownMenu.Item onSelect={copy}>
           {#if copied}<CheckIcon size={14} /><span class="flex-1 text-left">Copied!</span>{:else}<CopyIcon size={14} /><span class="flex-1 text-left">Copy plan</span>{/if}
@@ -488,17 +568,19 @@
       <div
         class="plan-comments-rail-sleeve"
         transition:fly={{ x: 264, duration: 200, opacity: 0 }}
-        onoutroend={() => {
-          if (!commentsRailOpen) commentsRailInLayout = false;
-        }}
       >
         <PlanCommentsRail
           {comments}
           activeCommentId={hoveredMarkId ?? activeRailCommentId}
           {editingCommentId}
           emptyHint="Select text or press ⌘M to add one."
+          placement={railPlacement}
+          {anchors}
+          settled={anchorsSettled}
           onScrollTo={handleScrollToComment}
           onHover={handleHoverRailComment}
+          onResolve={handleResolveComment}
+          onReply={handleReplyToComment}
           onStartEdit={(commentId) => {
             editingCommentId = commentId;
             activeRailCommentId = commentId;
@@ -515,7 +597,6 @@
   {#snippet footer()}
     <div
       class="plan-action-bar-sleeve shrink-0 px-5 pt-2 pb-3 max-md:px-3 max-md:pb-2"
-      class:plan-action-bar-sleeve--no-rail={!commentsRailInLayout && !composerCollapsed}
       class:absolute={composerCollapsed}
       class:inset-x-0={composerCollapsed}
       class:bottom-3={composerCollapsed}
@@ -535,33 +616,6 @@
   {/snippet}
 
   {#snippet overlays()}
-    <!-- Floating comment button at selection -->
-    {#if selectionRange && !commentFormAnchor}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        use:portal={document.body}
-        data-floating-comment
-        data-solus-ui
-        class="fixed"
-        style="left:{(selectionRange.left + selectionRange.right) /
-          2}px;top:{selectionRange.top}px;z-index:10001;transform:translate(-50%, calc(-100% - 0.375rem))"
-        transition:fly={{ y: 4, duration: 120, opacity: 0 }}
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          onmousedown={(e) => e.preventDefault()}
-          onclick={handleStartComment}
-          class="border-(--solus-popover-border) bg-(--solus-popover-bg) text-(--solus-accent) shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] hover:-translate-y-[0.0625rem] hover:border-(--solus-accent) hover:bg-(--solus-accent) hover:text-(--solus-text-on-accent) active:translate-y-0 active:scale-[0.97] motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100"
-          title="Add comment (⌘M)"
-        >
-          <ChatCircleTextIcon size={13} />
-          Comment
-          <Kbd variant="inline" class="ml-[0.1875rem] opacity-45 max-md:hidden">⌘M</Kbd>
-        </Button>
-      </div>
-    {/if}
-
     <!-- Inline comment form -->
     {#if commentFormAnchor}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -609,52 +663,6 @@ placeholder="Add comment…"
               Comment
             </Button>
           </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Revision dropdown panel -->
-    {#if revisionDropdownOpen && revisionPanelPos}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        use:portal={document.body}
-        data-solus-ui
-        class="fixed"
-        style="top:{revisionPanelPos.top}px;left:{revisionPanelPos.left}px;z-index:10002"
-        data-revision-panel
-        transition:fly={{ y: -4, duration: 140, opacity: 0 }}
-      >
-        <div class="min-w-[12.5rem] overflow-hidden rounded-[0.625rem] border border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] backdrop-saturate-[1.1]">
-          {#each planRevisions as rev, i (rev.id)}
-            <button
-              type="button"
-              onclick={() => {
-                session.openPlanModal(rev.id);
-                revisionDropdownOpen = false;
-                revisionPanelPos = null;
-              }}
-              class="flex w-full cursor-pointer items-center gap-2 rounded-md px-[0.5625rem] py-1.5 text-left text-xs transition-[background] duration-(--duration-quick) ease-(--ease-premium) {rev.id === plan.id
-                ? 'bg-(--solus-accent-light) text-(--solus-accent) hover:bg-(--solus-accent-soft)'
-                : 'bg-transparent text-(--solus-text-primary) hover:bg-(--solus-surface-hover)'}"
-            >
-              <span class="font-semibold tabular-nums">v{i + 1}</span>
-              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] {rev.id === plan.id
-                ? 'text-[color-mix(in_srgb,var(--solus-accent)_70%,var(--solus-text-secondary))]'
-                : 'text-(--solus-text-tertiary)'}">
-                {new Date(rev.timestamp).toLocaleString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-              {#if rev.status === "accepted"}
-                <CheckCircleIcon size={11} weight="fill" class="text-(--solus-status-complete)" />
-              {:else if rev.status === "rejected"}
-                <XCircleIcon size={11} weight="fill" class="text-(--solus-text-tertiary)" />
-              {/if}
-            </button>
-          {/each}
         </div>
       </div>
     {/if}

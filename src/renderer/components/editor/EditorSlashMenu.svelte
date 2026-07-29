@@ -43,8 +43,8 @@
   >
     <div
       bind:this={listEl}
-      class="slash-block-menu overflow-y-auto rounded-[14px] py-1.5 px-1 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
-      style="max-height:17.5rem;min-width:13.75rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
+      class="slash-block-menu overflow-y-auto rounded-[0.625rem] p-1.5 bg-(--solus-popover-bg) border border-(--solus-popover-border)"
+      style="max-height:17.5rem;min-width:15.75rem;backdrop-filter:blur(1.25rem) saturate(1.1);-webkit-backdrop-filter:blur(1.25rem) saturate(1.1);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
     >
       {#each commands as cmd, i (cmd.id)}
         {#if i > 0 && cmd.group !== commands[i - 1].group}
@@ -57,6 +57,7 @@
           onmouseenter={() => onHover(i)}
           class="slash-block-menu__item"
           class:slash-block-menu__item--selected={isSelected}
+          class:slash-block-menu__item--accent={cmd.accent}
         >
           <span class="slash-block-menu__icon">
             <Comp size={14} />
@@ -90,7 +91,7 @@
     align-items: center;
     gap: 0.625rem;
     padding: 0.375rem 0.5625rem;
-    border-radius: 0.375rem;
+    border-radius: 0.4375rem;
     text-align: left;
     background: transparent;
     border: none;
@@ -101,9 +102,11 @@
   .slash-block-menu__item:hover {
     background: var(--solus-surface-hover);
   }
+  /* Selection is the neutral hover wash, never the brand accent: terracotta in
+     this document only ever means "Solus", which is what the last row is. */
   .slash-block-menu__item--selected,
   .slash-block-menu__item--selected:hover {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-hover);
   }
   .slash-block-menu__icon {
     flex-shrink: 0;
@@ -113,16 +116,22 @@
     transition: color var(--duration-quick, 120ms) var(--ease-premium, cubic-bezier(0.16, 1, 0.3, 1));
   }
   .slash-block-menu__item--selected .slash-block-menu__icon {
-    color: var(--solus-accent);
+    color: var(--solus-text-secondary);
   }
   .slash-block-menu__label {
-    font-size: 0.75rem;
+    font-size: 0.78125rem;
     font-weight: 500;
     line-height: 1.25;
     color: var(--solus-text-primary);
     transition: color var(--duration-quick, 120ms) var(--ease-premium, cubic-bezier(0.16, 1, 0.3, 1));
   }
   .slash-block-menu__item--selected .slash-block-menu__label {
+    color: var(--solus-text-primary);
+  }
+  /* The one entry that reaches the agent rather than inserting a block reads
+     accent even when it isn't the selected row. */
+  .slash-block-menu__item--accent .slash-block-menu__label,
+  .slash-block-menu__item--accent .slash-block-menu__icon {
     color: var(--solus-accent);
   }
 

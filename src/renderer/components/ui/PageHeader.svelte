@@ -1,42 +1,66 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { XIcon } from "phosphor-svelte";
 
-  /** Page identity block for library surfaces: an accent icon tile, title,
-   *  quiet subtitle, and the page's actions on the right. */
+  /** Page identity block for library surfaces, matching the pull request
+   *  masthead: quiet eyebrow, large title, supporting facts, and actions
+   *  bottom-aligned on the right. */
   interface Props {
     title: string;
+    eyebrow?: string;
     subtitle?: string | Snippet;
-    /** Glyph rendered inside the accent tile (size 18 reads best). */
+    /** Small accent glyph rendered beside the eyebrow (size 11 reads best). */
     icon: Snippet;
     actions?: Snippet;
+    onClose?: () => void;
   }
-  let { title, subtitle, icon, actions }: Props = $props();
+  let {
+    title,
+    eyebrow = "Workspace",
+    subtitle,
+    icon,
+    actions,
+    onClose,
+  }: Props = $props();
 </script>
 
-<header class="flex items-center justify-between gap-4 pb-5">
-  <div class="flex min-w-0 items-center gap-3">
-    <span
-      class="grid size-9 shrink-0 place-items-center rounded-[0.75rem] bg-(--solus-accent-light) text-(--solus-accent)"
-      aria-hidden="true"
+<header class="flex items-end justify-between gap-4 pb-[clamp(16px,2vw,28px)]">
+  <div class="flex min-w-0 flex-col gap-2">
+    <div
+      class="flex min-w-0 items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
     >
-      {@render icon()}
-    </span>
-    <div class="min-w-0">
-      <h1
-        class="truncate text-[1.0625rem] font-semibold tracking-[-0.02em] text-(--solus-text-primary)"
-      >
-        {title}
-      </h1>
-      {#if typeof subtitle === "string"}
-        <p class="truncate text-xs text-(--solus-text-tertiary)">{subtitle}</p>
-      {:else if subtitle}
-        <p class="truncate text-xs text-(--solus-text-tertiary)">
-          {@render subtitle()}
-        </p>
-      {/if}
+      <span class="shrink-0 text-primary" aria-hidden="true">{@render icon()}</span>
+      <span class="min-w-0 truncate">{eyebrow}</span>
     </div>
+
+    <h1 class="text-[26px] font-semibold tracking-[-0.02em] text-foreground">
+      {title}
+    </h1>
+
+    {#if typeof subtitle === "string"}
+      <p class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-muted-foreground">
+        {subtitle}
+      </p>
+    {:else if subtitle}
+      <p class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-muted-foreground">
+        {@render subtitle()}
+      </p>
+    {/if}
   </div>
-  {#if actions}
-    <div class="flex shrink-0 items-center gap-1.5">{@render actions()}</div>
-  {/if}
+
+  <div class="mb-0.5 flex shrink-0 items-center gap-1.5">
+    {#if actions}
+      {@render actions()}
+    {/if}
+    {#if onClose}
+      <button
+        type="button"
+        class="flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        onclick={onClose}
+        aria-label="Close"
+      >
+        <XIcon size={14} />
+      </button>
+    {/if}
+  </div>
 </header>

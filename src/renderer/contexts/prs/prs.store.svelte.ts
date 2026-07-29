@@ -31,6 +31,9 @@ export class PrsStore {
   loading = $state(false)
   loadingMore = $state(false)
   loaded = $state(false)
+  /** When the current `items` fetch landed (ms; 0 before the first load). Feeds
+   *  the inbox masthead's "Synced 2m ago" fact. */
+  listLoadedAt = $state(0)
   hasMore = $state(false)
   nextPage = $state(1)
   filter = $state<PrFilter>({ state: 'open' })
@@ -162,6 +165,7 @@ export class PrsStore {
       this.hasMore = result.hasMore
       this.nextPage = result.page + 1
       this.loaded = true
+      this.listLoadedAt = Date.now()
       void this.loadChecks(ctx, result.items.map((item) => item.number)).catch(() => { this.checksLoadFailed = true })
       void this.loadGuideMetadata(ctx, result.items).catch(() => {})
     } finally {

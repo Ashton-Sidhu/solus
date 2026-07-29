@@ -30,6 +30,9 @@ export { getRunDockStore } from './run/run-dock.store.svelte'
 export { projectsStore } from './projects/projects.store.svelte'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
 
+/** Composer drafts parked for later, scoped per project. */
+export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'
+
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'

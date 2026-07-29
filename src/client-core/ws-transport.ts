@@ -338,7 +338,12 @@ export class WsTransport {
     this.opts.onAuthFailed?.()
   }
 
-  private forceReconnect(): void {
+  /**
+   * Abandons the current backoff and dials immediately. A user who just fixed
+   * the network should not wait out a 30s timer they cannot see. No-op while
+   * blocked: an auth failure needs re-pairing, not another dial.
+   */
+  reconnectNow(): void {
     if (this.destroyed || this.blocked) return
     this.socket.disconnect()
     this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
@@ -374,7 +379,7 @@ export class WsTransport {
     if (typeof window === 'undefined') return
     const onOnline = () => {
       if (this.status === 'connected') void this.probeConnectedSocket()
-      else this.forceReconnect()
+      else this.reconnectNow()
     }
     const onVisibilityChange = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible' && this.status === 'connected') {
@@ -393,14 +398,14 @@ export class WsTransport {
   private async probeConnectedSocket(): Promise<void> {
     if (this.destroyed || this.blocked || this.wakeProbeInFlight) return
     if (!this.socket.connected) {
-      this.forceReconnect()
+      this.reconnectNow()
       return
     }
     this.wakeProbeInFlight = true
     try {
       await withTimeout(this.invoke(WAKE_PROBE_METHOD, []), WAKE_PROBE_TIMEOUT_MS)
     } catch {
-      this.forceReconnect()
+      this.reconnectNow()
     } finally {
       this.wakeProbeInFlight = false
     }

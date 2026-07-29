@@ -60,12 +60,12 @@
             <button {...tooltipProps}
         {...props}
         type="button"
-        class="flex h-8 items-center gap-1.5 text-[0.8125rem] rounded-full border border-(--solus-container-border) px-3 transition-[background-color,color,scale] font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+        class="flex h-8 items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-2.5 font-secondary text-[0.8125rem] text-(--solus-text-secondary) shadow-xs transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
-        {#if isPlan}<PencilIcon size={13} weight="fill" />{:else}<ShieldCheckIcon size={13} weight={isAuto ? 'fill' : 'regular'} />{/if}
+        {#if isPlan}<PencilIcon size={13} weight="fill" class="text-(--solus-accent)" />{:else}<ShieldCheckIcon size={13} weight={isAuto ? 'fill' : 'regular'} class="text-(--solus-accent)" />{/if}
         {#if !compact}{modeLabel}{/if}
-        <CaretDownIcon size={11} style="opacity:0.6" />
+        <CaretDownIcon size={9} class="text-(--solus-text-tertiary)" />
       </button>
           {/snippet}
         </TooltipUI.Trigger>

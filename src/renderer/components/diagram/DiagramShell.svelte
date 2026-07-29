@@ -13,7 +13,7 @@
     type Node,
   } from "@xyflow/svelte";
   import "@xyflow/svelte/dist/style.css";
-  import { ChatsCircleIcon, CheckIcon } from "phosphor-svelte";
+  import { CheckIcon } from "phosphor-svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
   import { getWorkspaceContext, toasts, getSettingsContext } from "../../contexts";
@@ -23,9 +23,12 @@
   import DiagramNodeComponent from "./nodes/DiagramNode.svelte";
   import DiagramGroupNode from "./nodes/DiagramGroupNode.svelte";
   import DiagramEdgeComponent from "./edges/DiagramEdge.svelte";
-  import DiagramDetailsDrawer from "./DiagramDetailsDrawer.svelte";
-  import DiagramEdgeDrawer from "./DiagramEdgeDrawer.svelte";
+  import DiagramNodeInspector from "./inspector/DiagramNodeInspector.svelte";
+  import DiagramNodeRail from "./inspector/DiagramNodeRail.svelte";
+  import DiagramInspectorRail from "./inspector/DiagramInspectorRail.svelte";
+  import DiagramEdgeInspector from "./inspector/DiagramEdgeInspector.svelte";
   import DiagramCommentsPanel from "./DiagramCommentsPanel.svelte";
+  import DiagramThreadCard from "./DiagramThreadCard.svelte";
   import DiagramSearch from "./DiagramSearch.svelte";
   import CanvasToolbar from "./CanvasToolbar.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -68,11 +71,25 @@
     setDiagramClipboard,
   } from "./lib/clipboard.svelte";
   import {
-    DEFAULT_EDGE_COLOR,
+    DEFAULT_ARROW_COLOR,
     edgeRenderProps,
     toFlowEdges,
     toFlowNodes,
   } from "./lib/flow-builders";
+  import {
+    anchorNodeId,
+    EDGE_INSPECTOR_TABS,
+    nodeLinks,
+    type EdgeInspectorTab,
+    type InspectorTab,
+  } from "./lib/inspector-model";
+  import {
+    firstUnreadThread,
+    pinSummary,
+    threadCounts,
+    threadsByAnchor,
+  } from "./lib/comment-threads";
+  import { isResolved, isUnread } from "../comments/lib/thread";
   import {
     applyLayout,
     reapplyLayout,
@@ -201,6 +218,7 @@
   function openComments(nodeId: string | null, autoFocus: boolean) {
     activeDrawerNodeId = null;
     activeDrawerEdgeId = null;
+    closeThreadCard();
     commentDraftNodeId = nodeId;
     commentsAutoFocus = autoFocus;
     commentsOpen = true;
@@ -246,6 +264,89 @@
     persistComments();
     applyTransientState();
   }
+
+  // ── Threads ───────────────────────────────────────────────────────────────
+  // A thread is attached to a node or an edge, never to a coordinate. Opening
+  // one also selects its anchor, so the inspector always agrees with the card.
+  function openThreadCard(commentId: string) {
+    const comment = comments.find((c) => c.id === commentId);
+    if (!comment) return;
+    openThreadId = commentId;
+    editingThreadId = null;
+    if (workId) {
+      session.worksStore.markAnnotationRead(workId, commentId);
+      persistComments();
+      applyTransientState();
+    }
+    if (comment.nodeId) {
+      openNodeDrawer(comment.nodeId, false);
+      scrollToComment(commentId);
+    } else if (comment.edgeId) {
+      openEdgeDrawer(comment.edgeId, false);
+    }
+  }
+
+  function closeThreadCard() {
+    openThreadId = null;
+    editingThreadId = null;
+  }
+
+  function addThreadOn(anchor: { nodeId?: string; edgeId?: string }, text: string) {
+    if (!workId) return;
+    const id = uuid();
+    session.worksStore.addAnnotationComment(workId, {
+      id,
+      selectedText: anchorLabelFor(anchor) ?? title,
+      comment: text,
+      author: "you",
+      createdAt: Date.now(),
+      ...anchor,
+    });
+    persistComments();
+    applyTransientState();
+    openThreadId = id;
+  }
+
+  function anchorLabelFor(anchor: { nodeId?: string; edgeId?: string }): string | null {
+    if (anchor.nodeId) return nodeLabelFor(anchor.nodeId);
+    if (!anchor.edgeId) return null;
+    const edge = edges.find((e) => e.id === anchor.edgeId);
+    if (!edge) return null;
+    const label = typeof edge.label === "string" ? edge.label : "";
+    return label || `${nodeLabelFor(edge.source) ?? edge.source} → ${nodeLabelFor(edge.target) ?? edge.target}`;
+  }
+
+  function replyToThread(commentId: string, text: string) {
+    if (!workId) return;
+    session.worksStore.addAnnotationReply(workId, commentId, {
+      id: uuid(),
+      author: "you",
+      text,
+      createdAt: Date.now(),
+    });
+    persistComments();
+  }
+
+  // Resolve flips the tint to sage, collapses the card and drops the pin.
+  function resolveThread(commentId: string, resolved: boolean) {
+    if (!workId) return;
+    session.worksStore.setAnnotationResolved(workId, commentId, resolved ? "you" : null);
+    persistComments();
+    applyTransientState();
+    if (resolved && openThreadId === commentId) closeThreadCard();
+  }
+
+  // The threads pill scopes the canvas to the first thread Solus has spoken in.
+  function scopeToFirstUnread() {
+    const unread = firstUnreadThread(comments);
+    if (unread) openThreadCard(unread.id);
+    else openComments(null, false);
+  }
+
+  $effect(() => {
+    const timer = setInterval(() => (threadClockNow = Date.now()), 30_000);
+    return () => clearInterval(timer);
+  });
 
   // Center the canvas on a comment's node (keeping the current zoom — xyflow's
   // setCenter would otherwise jump to max zoom) and select it.
@@ -306,6 +407,9 @@
       }
     | null = null;
 
+  const NEW_NODE_ZOOM_STEP = 0.3;
+  const NEW_NODE_ZOOM_CAP = 1.5;
+
   const nodeTypes = { default: DiagramNodeComponent, group: DiagramGroupNode };
   const edgeTypes = { default: DiagramEdgeComponent };
 
@@ -342,6 +446,15 @@
   // details) — drives whether the drawer auto-focuses its label input. Plain
   // selection leaves it false so canvas keyboard shortcuts keep working.
   let drawerAutoFocus = $state(false);
+  // Inspector chrome. Collapsing to the rail keeps the selection and the active
+  // tab — it frees canvas, it doesn't dismiss. The tab deliberately persists
+  // across selection changes: inspecting five nodes in a row on Data shouldn't
+  // snap back to Identity each time.
+  let inspectorOpen = $state(true);
+  let inspectorTab = $state<InspectorTab>("identity");
+  // The edge panel keeps its own tab: its five names aren't the node's five, so
+  // one shared value would land on a tab the other kind doesn't have.
+  let edgeInspectorTab = $state<EdgeInspectorTab>("identity");
   // Node-anchored comments, persisted to the work-annotations sidecar (same
   // store DocumentModal uses for docs) and surfaced to the agent via read_work.
   const comments = $derived(workId ? session.worksStore.annotationComments(workId) : []);
@@ -350,6 +463,18 @@
   let commentDraftNodeId = $state<string | null>(null);
   let commentsAutoFocus = $state(false);
   let commentsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  // At most one thread card is open at a time; opening a second closes the
+  // first. Closes on Resolve, on outside click, and on a level change.
+  let openThreadId = $state<string | null>(null);
+  let editingThreadId = $state<string | null>(null);
+  // Off by default: resolved work should not add dots to the graph. Resolved
+  // threads keep their collapsed row in the Comments tab either way.
+  let showResolvedThreads = $state(false);
+  // One clock for every thread surface rather than a timer per card.
+  let threadClockNow = $state(Date.now());
+  // The board's own box, so a thread card can be clamped inside it.
+  let boardWidth = $state(0);
+  let boardHeight = $state(0);
   let loadedAnnotationsFor: string | null = null;
   let contextMenu = $state<{
     x: number;
@@ -400,6 +525,92 @@
     };
   });
 
+  // Every edge touching the inspected node, for the Links tab and the degree
+  // chip. Both read the same list so they can never disagree.
+  const activeNodeLinks = $derived(
+    activeDrawerNodeId === null
+      ? []
+      : nodeLinks(
+          activeDrawerNodeId,
+          edges,
+          (id) =>
+            (nodes.find((n) => n.id === id)?.data.label as string | undefined) ??
+            id,
+        ),
+  );
+
+  // Threads keyed by the node or edge they ride. Every thread surface — pin,
+  // card, Comments tab, rail badge — reads this one map, so they cannot
+  // disagree about what is attached to what.
+  const threadsByAnchorId = $derived(threadsByAnchor(comments));
+  const inspectedNodeThreads = $derived(
+    activeDrawerNodeId === null ? [] : (threadsByAnchorId.get(activeDrawerNodeId) ?? []),
+  );
+  const inspectedEdgeThreads = $derived(
+    activeDrawerEdgeId === null ? [] : (threadsByAnchorId.get(activeDrawerEdgeId) ?? []),
+  );
+  const diagramThreads = $derived(threadCounts(comments));
+
+  // Siblings leaving the same source share one vertical trunk, so three edges
+  // read as one branch rather than three curves.
+  const edgeTrunkSiblings = $derived(
+    activeDrawerEdge === null
+      ? 0
+      : edges.filter((e) => e.source === activeDrawerEdge.source).length,
+  );
+
+  const openThread = $derived(
+    openThreadId === null ? null : (comments.find((c) => c.id === openThreadId) ?? null),
+  );
+
+  // The card floats in pane space but tracks a rect in graph space, so it needs
+  // the anchor's box. An edge has no box of its own — its thread rides the
+  // midpoint of the segment between its endpoints.
+  const openThreadAnchor = $derived.by(() => {
+    if (!openThread) return null;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    if (openThread.nodeId) {
+      const node = byId.get(openThread.nodeId);
+      if (!node) return null;
+      const box = absoluteBox(node, byId);
+      return { label: openThread.selectedText, rect: { x: box.x, y: box.y, width: box.w } };
+    }
+    const edge = edges.find((e) => e.id === openThread.edgeId);
+    if (!edge) return null;
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (!source || !target) return null;
+    const a = absoluteBox(source, byId);
+    const b = absoluteBox(target, byId);
+    return {
+      label: openThread.selectedText,
+      rect: {
+        x: (a.x + a.w / 2 + b.x + b.w / 2) / 2,
+        y: (a.y + a.h / 2 + b.y + b.h / 2) / 2,
+        width: 0,
+      },
+    };
+  });
+
+  // Every floating overlay's offset is derived from one value — the inspector's
+  // footprint (its width plus the inset it keeps from the board edge). The
+  // centred toolbar biases by half of that so it optically centres on the
+  // *visible* canvas rather than on the pane.
+  // Node and edge inspectors are mutually exclusive, so one selection produces
+  // one footprint whichever kind is up.
+  const inspectorFootprint = $derived(
+    activeDrawerNode === null && activeDrawerEdge === null
+      ? 0
+      : inspectorOpen
+        ? 408
+        : 84,
+  );
+  const chromeOffsets = $derived(
+    `--chrome-inset-right:${inspectorFootprint}px;--chrome-centre-bias:${
+      inspectorFootprint === 0 ? 0 : (inspectorFootprint - 16) / 2
+    }px`,
+  );
+
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
 
   // Save-state surfacing, mirroring DocumentShell: a debounce-armed pending
@@ -411,6 +622,17 @@
   let lastSavedAt = $state<number | null>(null);
   let savedStatusNow = $state(Date.now());
   const showSaving = $derived(hasPendingSave || isSaving);
+  // One-word read-out for the inspector footer — edits are live, so this is the
+  // only save feedback that surface offers.
+  const inspectorSaveState = $derived(
+    showSaving
+      ? "saving…"
+      : saveFailed
+        ? "save failed"
+        : lastSavedAt !== null
+          ? "saved"
+          : "",
+  );
 
   $effect(() => {
     if (lastSavedAt === null) return;
@@ -432,7 +654,32 @@
     onContextMenu: handleContextMenuOpen,
     onSelect: handleNodeClick,
     onToggleCollapse: handleToggleCollapse,
-    onOpenComments: (id: string) => openComments(id, false),
+    onOpenThread: openFirstThreadOn,
+  };
+
+  // The pin carries every thread on the node, so clicking it opens the one that
+  // still wants something: an unread thread first, else the newest the pin
+  // counted — which is never a resolved one unless the reader asked to see them.
+  function openFirstThreadOn(nodeId: string) {
+    const threads = (threadsByAnchorId.get(nodeId) ?? []).filter(
+      (t) => showResolvedThreads || !isResolved(t),
+    );
+    const target = threads.find(isUnread) ?? threads.at(-1);
+    if (target) openThreadCard(target.id);
+  }
+
+  // One handler per editable edge property, so the edge tabs take one prop
+  // instead of seven. Hoisted function declarations, so this is safe here.
+  const EDGE_UPDATES = {
+    label: handleEdgeLabelChange,
+    body: handleEdgeBodyChange,
+    kind: handleEdgeKindChange,
+    color: handleEdgeColorChange,
+    width: handleEdgeWidthChange,
+    dash: handleEdgeDashChange,
+    arrows: handleEdgeArrowsChange,
+    shape: handleEdgeShapeChange,
+    cardinality: handleEdgeCardinalityChange,
   };
 
   const EDGE_HANDLERS = {
@@ -445,11 +692,16 @@
   const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fefefc");
   const defaultEdgeOptions = {
     type: "default",
+    // Hit area: a transparent stroke wider than the 1.3px line, but narrow
+    // enough that two edges sharing a trunk stay separately grabbable. Painted
+    // on hover (see DiagramShell.css) — the line itself never thickens.
+    interactionWidth: 13,
     markerEnd: {
-      type: MarkerType.ArrowClosed,
+      type: MarkerType.Arrow,
       width: 16,
       height: 16,
-      color: DEFAULT_EDGE_COLOR,
+      strokeWidth: 1.3,
+      color: DEFAULT_ARROW_COLOR,
     },
   };
 
@@ -511,10 +763,7 @@
       }
     }
 
-    const commentCountByNode = new Map<string, number>();
-    for (const c of comments) {
-      if (c.nodeId) commentCountByNode.set(c.nodeId, (commentCountByNode.get(c.nodeId) ?? 0) + 1);
-    }
+    const threads = threadsByAnchor(comments);
 
     // Only reallocate nodes whose transient flags actually changed. Returning the
     // same reference for unchanged nodes keeps xyflow (and every DiagramNode's
@@ -529,15 +778,18 @@
         !neighborIds.has(n.id);
       const searchDimmed = matchedNodeIds !== null && !matchedNodeIds.has(n.id);
       const dimmed = focusDimmed || searchDimmed;
-      const commentCount = commentCountByNode.get(n.id) ?? 0;
+      const pin = pinSummary(threads.get(n.id) ?? [], showResolvedThreads);
+      const current = n.data.commentPin as ReturnType<typeof pinSummary>;
       if (
         n.data.expanded === expanded &&
         n.data.dimmed === dimmed &&
-        (n.data.commentCount ?? 0) === commentCount
+        current?.tone === pin?.tone &&
+        current?.count === pin?.count &&
+        current?.unread === pin?.unread
       ) {
         return n;
       }
-      return { ...n, data: { ...n.data, expanded, dimmed, commentCount } };
+      return { ...n, data: { ...n.data, expanded, dimmed, commentPin: pin } };
     });
   }
 
@@ -687,7 +939,9 @@
 
   // Swap the canvas to a different view, resetting view-local transient state
   // (selection, focus, search, open drawers) and re-fitting once laid out.
-  function loadView(view: DiagramDoc) {
+  // `selectId` is the node the level mounts with selected — a level you
+  // deliberately entered never lands on an empty inspector.
+  function loadView(view: DiagramDoc, selectId?: string | null) {
     expandedNodeIds = new Set();
     focusedNodeId = null;
     matchedNodeIds = null;
@@ -695,9 +949,18 @@
     activeDrawerNodeId = null;
     activeDrawerEdgeId = null;
     contextMenu = null;
+    // Pins belong to a level, so a card left open over the level we just left
+    // would point at a node that is no longer mounted.
+    closeThreadCard();
     nodes = buildFlowNodes(view.nodes);
     edges = buildFlowEdges(view.edges);
     recomputeHidden();
+    if (selectId && nodes.some((n) => n.id === selectId)) {
+      nodes = nodes.map((n) =>
+        n.id === selectId ? { ...n, selected: true } : n,
+      );
+      openNodeDrawer(selectId, false);
+    }
     resetHistory();
     requestAnimationFrame(
       () => void flowControls?.fitView({ duration: 300, padding: 0.2 }),
@@ -719,7 +982,7 @@
       ...drillPath,
       { id: nodeId, label: (node.data.label as string) || "Detail" },
     ];
-    loadView(laid);
+    loadView(laid, anchorNodeId(laid));
     scheduleSave(); // persist any freshly assigned detail positions
   }
 
@@ -730,6 +993,9 @@
     // Don't leave behind an empty detail husk the user opened but never filled.
     const leaving = rootDoc.nodes.find((n) => n.id === drillPath[0].id);
     if (leaving?.detail && !leaving.detail.nodes.length) delete leaving.detail;
+    // The crumb you clicked lands you back on the node you drilled from, with it
+    // reselected — the level you return to keeps its place in the inspector.
+    const drilledFrom = drillPath[depth].id;
     drillPath = drillPath.slice(0, depth);
     const view =
       drillPath.length === 0
@@ -738,7 +1004,7 @@
             nodes: [],
             edges: [],
           });
-    loadView(view);
+    loadView(view, drilledFrom);
   }
 
   function scheduleSave() {
@@ -1186,6 +1452,52 @@
     commentsOpen = false;
     drawerAutoFocus = autoFocus;
     activeDrawerNodeId = id;
+    // An explicit edit intent needs the full panel on the tab that owns the
+    // label — silently editing behind a collapsed rail, or landing on Data with
+    // nothing to focus, would both look like nothing happened.
+    if (autoFocus) {
+      inspectorOpen = true;
+      inspectorTab = "identity";
+    }
+  }
+
+  // ── Inspector chrome ──────────────────────────────────────────────────────
+  // Collapse keeps the selection and the active tab; close drops the selection.
+  function collapseInspector() {
+    inspectorOpen = false;
+    shellEl?.focus();
+  }
+
+  function expandInspector(tab?: InspectorTab) {
+    if (tab) inspectorTab = tab;
+    inspectorOpen = true;
+  }
+
+  function closeInspector() {
+    // Close deselects (collapse is what keeps the selection), so the ring has to
+    // come off the card too — otherwise the toolbar's delete stays armed on a
+    // node the user believes they dismissed.
+    nodes = nodes.map(deselect);
+    activeDrawerNodeId = null;
+    // Reopen next time rather than stranding the user in a rail they didn't
+    // choose — collapse is the only way to reach the rail.
+    inspectorOpen = true;
+    // Hand focus back to the canvas so shortcuts keep working — after an
+    // Escape/✕ close it would otherwise fall to <body>.
+    shellEl?.focus();
+  }
+
+  // ⌘\ — collapse whichever inspector is up, or reopen it.
+  function toggleInspector() {
+    if (activeDrawerNodeId === null && activeDrawerEdgeId === null) return;
+    if (inspectorOpen) collapseInspector();
+    else inspectorOpen = true;
+  }
+
+  function deleteInspectedNode() {
+    if (activeDrawerNodeId === null) return;
+    removeNodesAndEdges(new Set([activeDrawerNodeId]), new Set());
+    shellEl?.focus();
   }
 
   function openEdgeDrawer(id: string | null, autoFocus: boolean) {
@@ -1193,6 +1505,42 @@
     commentsOpen = false;
     drawerAutoFocus = autoFocus;
     activeDrawerEdgeId = id;
+    if (autoFocus) {
+      inspectorOpen = true;
+      edgeInspectorTab = "identity";
+    }
+  }
+
+  // Close deselects back to nothing; collapse keeps the edge selected and its
+  // handles drawn.
+  function closeEdgeInspector() {
+    edges = edges.map((e) => (e.selected ? { ...e, selected: false } : e));
+    activeDrawerEdgeId = null;
+    inspectorOpen = true;
+    shellEl?.focus();
+  }
+
+  function deleteInspectedEdge() {
+    if (activeDrawerEdgeId === null) return;
+    removeNodesAndEdges(new Set(), new Set([activeDrawerEdgeId]));
+    shellEl?.focus();
+  }
+
+  // Swap the ends. The handle overrides go with them, so an edge that was
+  // pinned to a specific side keeps entering and leaving on the same sides.
+  function reverseEdge(edgeId: string) {
+    edges = edges.map((e) =>
+      e.id === edgeId
+        ? {
+            ...e,
+            source: e.target,
+            target: e.source,
+            sourceHandle: e.targetHandle,
+            targetHandle: e.sourceHandle,
+          }
+        : e,
+    );
+    scheduleSave();
   }
 
   // Selecting a node/edge opens its editor drawer so the side menu tracks the
@@ -1205,10 +1553,14 @@
       focusedNodeId = nodeId;
       applyTransientState();
     }
+    // Selecting something else is an outside click as far as the thread card is
+    // concerned. The pin stops propagation, so opening a thread never lands here.
+    closeThreadCard();
     openNodeDrawer(nodeId, false);
   }
 
   function handleEdgeClick(edgeId: string) {
+    closeThreadCard();
     openEdgeDrawer(edgeId, false);
   }
 
@@ -1216,6 +1568,7 @@
   function handlePaneClick() {
     activeDrawerNodeId = null;
     activeDrawerEdgeId = null;
+    closeThreadCard();
   }
 
   // Remove a set of nodes and edges together: nodes drop with their incident
@@ -1391,15 +1744,17 @@
     scheduleSave();
   }
 
-  // Re-derive an edge's inline render props (stroke colour, width, arrowheads)
-  // after one of them changes, preserving the untouched two from its data. The
-  // patch carries exactly the changed key; clearing it to undefined restores the
-  // kind-based CSS default (no inline stroke/width, neutral arrowhead).
+  // Re-derive an edge's inline render props (stroke colour, width, dash,
+  // arrowheads) after one of them changes, preserving the untouched ones from
+  // its data. The patch carries exactly the changed key; clearing it to
+  // undefined restores the kind-based CSS default (no inline stroke/width,
+  // neutral arrowhead, kind-derived dashing).
   function patchEdgeRender(
     id: string,
     patch: {
       color?: string | undefined;
       width?: number | undefined;
+      dash?: DiagramEdge["dash"];
       arrows?: DiagramEdge["arrows"];
     },
   ) {
@@ -1409,13 +1764,15 @@
         "color" in patch ? patch.color : (e.data?.color as string | undefined);
       const width =
         "width" in patch ? patch.width : (e.data?.width as number | undefined);
+      const dash =
+        "dash" in patch ? patch.dash : (e.data?.dash as DiagramEdge["dash"]);
       const arrows =
         "arrows" in patch
           ? patch.arrows
           : (e.data?.arrows as DiagramEdge["arrows"]);
       return {
         ...e,
-        ...edgeRenderProps(color, width, arrows),
+        ...edgeRenderProps(color, width, arrows, dash),
         data: { ...e.data, ...patch },
       };
     });
@@ -1435,6 +1792,21 @@
     arrows: NonNullable<DiagramEdge["arrows"]>,
   ) {
     patchEdgeRender(id, { arrows });
+  }
+
+  // Clearing the dash to undefined hands the line back to the kind-derived CSS
+  // (`.edge--async` dashes, everything else solid).
+  function handleEdgeDashChange(id: string, dash: DiagramEdge["dash"]) {
+    patchEdgeRender(id, { dash });
+  }
+
+  // Edge prose. Inspector-only — nothing on the canvas paints it, so no render
+  // props are re-derived.
+  function handleEdgeBodyChange(id: string, body: string | undefined) {
+    edges = edges.map((e) =>
+      e.id === id ? { ...e, data: { ...e.data, body } } : e,
+    );
+    scheduleSave();
   }
 
   // Set an edge's routing style (smooth / step / straight). Purely a path-shape
@@ -1460,10 +1832,13 @@
       if (e.id !== id) return e;
       const color = e.data?.color as string | undefined;
       const width = e.data?.width as number | undefined;
+      const dash = e.data?.dash as DiagramEdge["dash"];
       const arrows = e.data?.arrows as DiagramEdge["arrows"];
       return {
         ...e,
-        ...edgeRenderProps(color, width, cardinality ? "none" : arrows),
+        // The render props are rebuilt from scratch here, so `dash` has to be
+        // read back too or setting a cardinality would clear the override.
+        ...edgeRenderProps(color, width, cardinality ? "none" : arrows, dash),
         data: { ...e.data, cardinality },
       };
     });
@@ -1504,7 +1879,7 @@
       selected: true,
       data: {
         id,
-        label: "New Service",
+        label: "New Node",
         icon: "service",
         ...(parent ? { parentId: parent.id } : {}),
         expanded: false,
@@ -1513,9 +1888,25 @@
       },
     };
     // Deselect everything else, select the new node, and open its drawer so its
-    // details are immediately settable. Keep parents ahead of children.
+    // details are immediately settable. Keep parents ahead of children, then
+    // gently centre and enlarge the new node without disturbing input focus.
     nodes = orderParentsFirst([...nodes.map(deselect), newNode]);
     openNodeDrawer(id, true);
+    const controls = flowControls;
+    if (controls) {
+      const box = absoluteBox(newNode, new Map(nodes.map((node) => [node.id, node])));
+      const currentZoom = controls.getViewport().zoom;
+      const zoom =
+        currentZoom >= NEW_NODE_ZOOM_CAP
+          ? currentZoom
+          : Math.min(currentZoom + NEW_NODE_ZOOM_STEP, NEW_NODE_ZOOM_CAP);
+      requestAnimationFrame(() => {
+        void controls.setCenter(box.x + box.w / 2, box.y + box.h / 2, {
+          zoom,
+          duration: 300,
+        });
+      });
+    }
     scheduleSave();
   }
 
@@ -1608,6 +1999,8 @@
   // useSvelteFlow hook here — hence the manual AABB centre-in-box test.)
   function handleNodeDragStop(node: Node) {
     clearDropHints();
+    // A hand-placed node means the auto-layout no longer describes the graph.
+    layoutPristine = false;
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const dragged = byId.get(node.id);
     if (!dragged) return;
@@ -1777,14 +2170,26 @@
   // positions had no direction applied, so no option should read as "current".
   // A positionless diagram was auto-laid out with the LR default, so reflect that.
   let layoutDirection = $state<LayoutDirection | null>(hadNoPositions ? "LR" : null);
+  // Cleared as soon as a node is dragged: the graph is then part auto, part
+  // hand-placed, and the status pill should say so rather than claim the layout
+  // still describes the picture.
+  let layoutPristine = $state(hadNoPositions);
 
   function relayout(direction: LayoutDirection = layoutDirection ?? "LR") {
     layoutDirection = direction;
+    layoutPristine = true;
     const laid = reapplyLayout(currentDoc(), direction);
     nodes = buildFlowNodes(laid.nodes);
     applyTransientState();
     scheduleSave();
   }
+
+  // Status, not a control — the layout menu in the toolbar is where you act.
+  const layoutStatus = $derived(
+    layoutDirection === null
+      ? null
+      : `Auto-layout · ${layoutPristine ? layoutDirection : "edited"}`,
+  );
 
   function deleteSelected() {
     removeNodesAndEdges(
@@ -1807,16 +2212,24 @@
       paneMenu = null;
       return;
     }
+    // The thread card goes before the inspector is touched at all.
+    if (openThreadId !== null) {
+      closeThreadCard();
+      return;
+    }
     if (commentsOpen) {
       commentsOpen = false;
       return;
     }
+    // Both inspectors peel back a step at a time: full panel → rail → gone.
     if (activeDrawerEdgeId !== null) {
-      activeDrawerEdgeId = null;
+      if (inspectorOpen) collapseInspector();
+      else closeEdgeInspector();
       return;
     }
     if (activeDrawerNodeId !== null) {
-      activeDrawerNodeId = null;
+      if (inspectorOpen) collapseInspector();
+      else closeInspector();
       return;
     }
     if (focusedNodeId !== null) {
@@ -1875,6 +2288,7 @@
   useKeybinding("diagram.bring-to-front", () => sendSelectionToBack(false), guard);
   useKeybinding("diagram.search", () => (searchOpen = true), guard);
   useKeybinding("diagram.comments", toggleComments, guard);
+  useKeybinding("diagram.toggle-inspector", toggleInspector, guard);
   useKeybinding("diagram.dismiss", dismiss, guard);
   useKeybinding("diagram.zoom-in", () => flowControls?.zoomIn({ duration: 150 }), guard);
   useKeybinding("diagram.zoom-out", () => flowControls?.zoomOut({ duration: 150 }), guard);
@@ -1934,22 +2348,6 @@
         <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
       {/if}
     </div>
-    {#if workId}
-      <button
-        type="button"
-        class="diagram-shell__comments-btn"
-        class:diagram-shell__comments-btn--on={commentsOpen}
-        onclick={toggleComments}
-        title="Comments (⌥C)"
-        aria-label="Toggle comments"
-        aria-pressed={commentsOpen}
-      >
-        <ChatsCircleIcon size={13} />
-        {#if comments.length > 0}
-          <span class="diagram-shell__comments-count">{comments.length}</span>
-        {/if}
-      </button>
-    {/if}
     <WorkHeaderActions
       {onOpenChat}
       onStartRename={onRename ? startRename : undefined}
@@ -1976,6 +2374,9 @@
       class:diagram-shell__board--connecting={connectingFrom !== null}
       class:diagram-shell__board--from-source={connectingFrom === "source"}
       class:diagram-shell__board--from-target={connectingFrom === "target"}
+      style={chromeOffsets}
+      bind:clientWidth={boardWidth}
+      bind:clientHeight={boardHeight}
       oncontextmenu={handleBoardContextMenu}
     >
       <SvelteFlow
@@ -2025,7 +2426,7 @@
             : "rgba(42,38,24,0.10)"}
         />
         <CanvasToolbar
-          onAddNode={addNode}
+          onAddNode={() => addNode()}
           onAddGroup={addGroup}
           onRelayout={relayout}
           {layoutDirection}
@@ -2069,6 +2470,9 @@
                   <span class="diagram-shell__crumb diagram-shell__crumb--current" aria-current="page">
                     {crumb.label}
                   </span>
+                  <!-- Says what kind of level you are standing on, so a nested
+                       graph never reads as the diagram itself. -->
+                  <span class="diagram-shell__crumb-tag">detail</span>
                 {:else}
                   <button
                     type="button"
@@ -2084,30 +2488,90 @@
           </Panel>
         {/if}
 
-        {#if focusedNodeId !== null}
+        {#if focusedNodeId !== null || layoutStatus || diagramThreads.total > 0}
           <Panel position="top-right">
-            <button
-              type="button"
-              class="clear-focus-pill"
-              onclick={clearFocus}
-              title="Clear focus (Esc)"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                width="11"
-                height="11"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                aria-hidden="true"
-              >
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </svg>
-              Clear focus
-            </button>
+            <div class="canvas-status">
+              {#if diagramThreads.total > 0}
+                <!-- Left of the layout pill: what is still open on this diagram,
+                     and a way straight to the thread Solus has spoken in. -->
+                <button
+                  type="button"
+                  class="threads-pill"
+                  onclick={scopeToFirstUnread}
+                  title={diagramThreads.unread > 0
+                    ? "Go to the first unread thread"
+                    : "Show every thread on this diagram"}
+                >
+                  <span class="threads-pill__dot" aria-hidden="true"></span>
+                  {diagramThreads.total}
+                  {diagramThreads.total === 1 ? "thread" : "threads"}
+                  {#if diagramThreads.unread > 0}
+                    <span class="threads-pill__unread">{diagramThreads.unread} unread</span>
+                  {/if}
+                </button>
+              {/if}
+              {#if focusedNodeId !== null}
+                <button
+                  type="button"
+                  class="clear-focus-pill"
+                  onclick={clearFocus}
+                  title="Clear focus (Esc)"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="11"
+                    height="11"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 4l8 8M12 4l-8 8" />
+                  </svg>
+                  Clear focus
+                </button>
+              {/if}
+              {#if layoutStatus}
+                <!-- Reports the layout; the toolbar's layout menu changes it. -->
+                <span
+                  class="layout-status"
+                  title={layoutPristine
+                    ? "Nodes are positioned by auto-layout"
+                    : "A node has been moved by hand since the last auto-layout"}
+                >
+                  {layoutStatus}
+                </span>
+              {/if}
+            </div>
           </Panel>
         {/if}
+        {#if openThread}
+          <!-- Mounted inside the flow so it can read the viewport and ride its
+               anchor through a pan, without scaling with the zoom. -->
+          <DiagramThreadCard
+            comment={openThread}
+            anchorLabel={openThreadAnchor?.label ?? openThread.selectedText}
+            anchorRect={openThreadAnchor?.rect ?? null}
+            pane={{ width: boardWidth, height: boardHeight }}
+            {inspectorFootprint}
+            now={threadClockNow}
+            editing={editingThreadId === openThread.id}
+            onResolve={(resolved) => resolveThread(openThread.id, resolved)}
+            onReply={(text) => replyToThread(openThread.id, text)}
+            onStartEdit={() => (editingThreadId = openThread.id)}
+            onSaveEdit={(text) => {
+              editComment(openThread.id, text);
+              editingThreadId = null;
+            }}
+            onCancelEdit={() => (editingThreadId = null)}
+            onDelete={() => {
+              deleteComment(openThread.id);
+              closeThreadCard();
+            }}
+          />
+        {/if}
+
         {#if minimapVisible}
           <MiniMap
             class="diagram-minimap"
@@ -2163,7 +2627,17 @@
           type={contextMenu.type}
           onAddComment={workId
             ? () => {
-                if (contextMenu) openComments(contextMenu.targetId, true);
+                if (!contextMenu) return;
+                // A thread rides the thing you right-clicked, so this opens
+                // that thing's Comments tab rather than the diagram-wide list.
+                if (contextMenu.type === "edge") {
+                  openEdgeDrawer(contextMenu.targetId, false);
+                  edgeInspectorTab = "comments";
+                } else {
+                  openNodeDrawer(contextMenu.targetId, false);
+                  inspectorTab = "comments";
+                }
+                inspectorOpen = true;
               }
             : undefined}
           showRemoveFromGroup={contextTargetHasParent}
@@ -2207,9 +2681,13 @@
         />
       {/if}
 
-      {#if activeDrawerNode}
-        <DiagramDetailsDrawer
+      {#if activeDrawerNode && inspectorOpen}
+        <DiagramNodeInspector
           node={activeDrawerNode}
+          links={activeNodeLinks}
+          tab={inspectorTab}
+          onTabChange={(tab) => (inspectorTab = tab)}
+          saveState={inspectorSaveState}
           autoFocus={drawerAutoFocus}
           canDetail={drillPath.length === 0 && !activeDrawerNode.group}
           hasDetail={!!activeDrawerNode.detail?.nodes?.length}
@@ -2219,34 +2697,87 @@
           onRemoveDetail={() => {
             if (activeDrawerNodeId) removeDetail(activeDrawerNodeId);
           }}
-          onClose={() => {
-            activeDrawerNodeId = null;
-            // Hand focus back to the canvas so shortcuts keep working — after
-            // an Escape/✕ close it would otherwise fall to <body>.
-            shellEl?.focus();
-          }}
+          onOpenEdge={(edgeId) => openEdgeDrawer(edgeId, false)}
+          onCollapse={collapseInspector}
+          onClose={closeInspector}
+          onDelete={deleteInspectedNode}
           onUpdateNode={handleUpdateNode}
+          threads={inspectedNodeThreads}
+          diagramThreadCount={diagramThreads.total}
+          showResolved={showResolvedThreads}
+          onShowResolvedChange={(show) => {
+            showResolvedThreads = show;
+            applyTransientState();
+          }}
+          onOpenThread={openThreadCard}
+          onAddThread={(text) => {
+            if (activeDrawerNodeId) addThreadOn({ nodeId: activeDrawerNodeId }, text);
+          }}
+          onShowAllThreads={() => openComments(null, false)}
+          now={threadClockNow}
+        />
+      {:else if activeDrawerNode}
+        <DiagramNodeRail
+          node={activeDrawerNode}
+          tab={inspectorTab}
+          hasUnreadThreads={inspectedNodeThreads.some(isUnread)}
+          onExpand={expandInspector}
         />
       {/if}
 
-      {#if activeDrawerEdge}
-        <DiagramEdgeDrawer
+      {#if activeDrawerEdge && inspectorOpen}
+        <DiagramEdgeInspector
           edge={activeDrawerEdge}
-          autoFocus={drawerAutoFocus}
           sourceLabel={activeDrawerEdge.sourceLabel}
           targetLabel={activeDrawerEdge.targetLabel}
-          onClose={() => {
-            activeDrawerEdgeId = null;
-            shellEl?.focus();
+          tab={edgeInspectorTab}
+          onTabChange={(tab) => (edgeInspectorTab = tab)}
+          trunkSiblings={edgeTrunkSiblings}
+          saveState={inspectorSaveState}
+          autoFocus={drawerAutoFocus}
+          update={EDGE_UPDATES}
+          onOpenEndpoint={(nodeId) => openNodeDrawer(nodeId, false)}
+          onReverse={() => {
+            if (activeDrawerEdgeId) reverseEdge(activeDrawerEdgeId);
           }}
-          onUpdateLabel={handleEdgeLabelChange}
-          onUpdateKind={handleEdgeKindChange}
-          onUpdateColor={handleEdgeColorChange}
-          onUpdateWidth={handleEdgeWidthChange}
-          onUpdateArrows={handleEdgeArrowsChange}
-          onUpdateShape={handleEdgeShapeChange}
-          onUpdateCardinality={handleEdgeCardinalityChange}
+          onCollapse={collapseInspector}
+          onClose={closeEdgeInspector}
+          onDelete={deleteInspectedEdge}
+          threads={inspectedEdgeThreads}
+          diagramThreadCount={diagramThreads.total}
+          showResolved={showResolvedThreads}
+          onShowResolvedChange={(show) => {
+            showResolvedThreads = show;
+            applyTransientState();
+          }}
+          onOpenThread={openThreadCard}
+          onAddThread={(text) => {
+            if (activeDrawerEdgeId) addThreadOn({ edgeId: activeDrawerEdgeId }, text);
+          }}
+          onShowAllThreads={() => openComments(null, false)}
+          now={threadClockNow}
         />
+      {:else if activeDrawerEdge}
+        <DiagramInspectorRail
+          kindWord="Edge"
+          label={activeDrawerEdge.label ||
+            `${activeDrawerEdge.sourceLabel} → ${activeDrawerEdge.targetLabel}`}
+          tint={activeDrawerEdge.color ?? "var(--solus-accent)"}
+          tabs={EDGE_INSPECTOR_TABS}
+          tab={edgeInspectorTab}
+          hasUnreadThreads={inspectedEdgeThreads.some(isUnread)}
+          onExpand={(name) => {
+            if (name) edgeInspectorTab = name as EdgeInspectorTab;
+            inspectorOpen = true;
+          }}
+        >
+          {#snippet tile()}
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3.6 4h4a2 2 0 0 1 2 2v5.4M7.6 9.4l2 2 2-2" />
+              <circle cx="3.6" cy="4" r="1.4" />
+            </svg>
+          {/snippet}
+        </DiagramInspectorRail>
       {/if}
 
       {#if commentsOpen}

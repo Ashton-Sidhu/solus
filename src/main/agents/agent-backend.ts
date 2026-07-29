@@ -76,6 +76,7 @@ export interface AgentBackend extends EventEmitter {
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>
   listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
+  invalidatePlanCache?(sessionId: string): void
   loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   getThreadGoal?(threadId: string): Promise<ThreadGoal | null>
   setThreadGoal?(request: ThreadGoalSetRequest): Promise<ThreadGoal>

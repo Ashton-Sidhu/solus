@@ -5,7 +5,6 @@ import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
-import { _planListCache } from '../../agents/claude/claude-plan-helpers'
 import { searchIndexedSessions } from '../../db/session-indexer'
 import { takeSessionScanBatch } from '../session-scan'
 
@@ -14,12 +13,6 @@ const log = createLogger('main', 'history-handlers')
 export interface HistoryDeps {
   controlPlane: ControlPlane
   agentIdFromContext(ctx?: IpcContext): AgentId
-}
-
-/** Drop only the cached plan lists that could contain `sessionId`, instead of
- *  wiping every project's cached list on a single bookmark/comment edit. */
-function invalidatePlanListCacheForSession(sessionId: string): void {
-  _planListCache.invalidateWhere((_key, descriptors) => descriptors.some((d) => d.sessionId === sessionId))
 }
 
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
@@ -189,7 +182,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [annotations] = args as [PlanAnnotations]
     try {
       await saveAnnotations(annotations)
-      invalidatePlanListCacheForSession(annotations.sessionId)
+      controlPlane.invalidatePlanCaches(annotations.sessionId)
       return { ok: true }
     } catch (err) {
       log.error(`savePlanAnnotations error: ${err}`)
@@ -200,7 +193,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('toggleBookmarkPlan', async (args) => {
     const [sessionId, projectPath, cwd, planToolUseId, title] = args as [string, string, string, string, string]
     const merged = await toggleBookmarkAnnotations(sessionId, projectPath, cwd, planToolUseId, title)
-    invalidatePlanListCacheForSession(sessionId)
+    controlPlane.invalidatePlanCaches(sessionId)
     return merged
   })
 }

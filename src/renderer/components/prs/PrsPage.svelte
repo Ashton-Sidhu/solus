@@ -4,6 +4,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import {
     XIcon,
+    ArrowLeftIcon,
     GitPullRequestIcon,
     ArrowsClockwiseIcon,
     BookOpenTextIcon,
@@ -20,24 +21,18 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import PageShell from "../ui/PageShell.svelte";
-  import PageHeader from "../ui/PageHeader.svelte";
   import SearchField from "../ui/search-field";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import { Skeleton } from "../ui/skeleton";
   import { Button } from "../ui/button";
-  import * as ButtonGroup from "../ui/button-group";
-  import {
-    PAGE_GHOST_BTN,
-    PAGE_ICON_BTN,
-    PAGE_SECONDARY_BTN,
-  } from "../../lib/page-chrome";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import PrListRow from "./PrListRow.svelte";
   import PrProjectSwitcher from "./PrProjectSwitcher.svelte";
   import {
     filterPrs,
     sortPrs,
+    prInboxFacts,
     reviewEffortSummary,
     type PrStateFilter,
     type PrSortMode,
@@ -142,6 +137,23 @@
     ),
   );
   const effortSummary = $derived(reviewEffortSummary(filtered));
+  // The masthead's three facts. Open count comes from the whole fetch (so the
+  // Closed tab doesn't restate closed PRs as open); the effort clause and the
+  // sync stamp are omitted entirely when they'd be a guess — see prInboxFacts.
+  const facts = $derived(
+    prInboxFacts({
+      items: store.items,
+      filtered,
+      listLoadedAt: store.listLoadedAt,
+    }),
+  );
+  // The repo the inbox is reading. `baseRepo` is per-item and optional, so fall
+  // back to the project folder's own name rather than rendering a blank eyebrow.
+  const repoLabel = $derived.by(() => {
+    const repo = store.items.find((pr) => pr.baseRepo)?.baseRepo;
+    if (repo) return `${repo.owner} / ${repo.repo}`;
+    return activeProjectPath.split("/").filter(Boolean).pop() ?? "";
+  });
 
   const stackGraph = $derived(stacksReady ? stacks.graphFor() : null);
   const groupedRows = $derived(groupStackedPrRows(filtered, stackGraph));
@@ -152,6 +164,9 @@
       ? (store.items.find((p) => p.number === selectedNumber) ?? null)
       : null,
   );
+  // With a review open the inbox is a narrow sidebar beside it, so its rows
+  // drop to the compact density.
+  const dockedInbox = $derived(!!(selectedNumber && selectedPr));
 
   // ── Data loading ──
 
@@ -383,7 +398,9 @@
             return;
           }
           toasts.success(
-            total === 1 ? "Review guide ready" : `${total} review guides ready`,
+            total === 1
+              ? `Review guide for PR #${numbers[0]} is ready.`
+              : `${total} review guides are ready. Open a pull request to start reviewing.`,
             toastOptions,
           );
         },
@@ -522,22 +539,25 @@
     checksSummary={store.checksFor(pr.number)}
     checksLoadFailed={store.checksLoadFailed}
     guideMetadata={store.guideMetadataFor(pr.number)}
+    guideStatus={store.guideStatusFor(pr.number)}
     selectable
     reviewSelected={reviewSelection.has(pr.number)}
     selectionActive={reviewSelection.size > 0}
+    compact={dockedInbox}
     onToggleReviewSelect={() => toggleReviewSelect(pr)}
     onSelect={() => selectPr(pr)}
   />
 {/snippet}
 
 {#snippet listBody()}
-  <div class="flex flex-col px-2 py-1.5">
+  <div class="flex flex-col {dockedInbox ? 'px-2.5 pb-4' : 'py-1'}">
     {#if filtered.length > 0}
       <ul class="flex flex-col" role="list" aria-label="Pull requests">
         {#each groupedRows as row (row.pr.number)}
           <li
-            class="relative [content-visibility:auto] [contain-intrinsic-size:auto_62px] {row.depth >
-            0
+            class="relative [content-visibility:auto] {dockedInbox
+              ? '[contain-intrinsic-size:auto_58px]'
+              : '[contain-intrinsic-size:auto_70px]'} {row.depth > 0
               ? 'pl-(--stack-indent)'
               : ''}"
             style="--stack-indent: {row.depth * 1.25}rem"
@@ -545,11 +565,13 @@
           >
             {#if row.depth > 0}
               <span
-                class="pointer-events-none absolute top-0 bottom-1 left-[calc(var(--stack-indent)-0.625rem)] w-px bg-(--solus-art-border)"
+                class="pointer-events-none absolute top-0 bottom-1 left-[calc(var(--stack-indent)-0.625rem)] w-px bg-border"
                 aria-hidden="true"
               ></span>
               <span
-                class="pointer-events-none absolute top-5 left-[calc(var(--stack-indent)-0.625rem)] h-px w-3 bg-(--solus-art-border)"
+                class="pointer-events-none absolute left-[calc(var(--stack-indent)-0.625rem)] h-px w-3 bg-border {dockedInbox
+                  ? 'top-5'
+                  : 'top-7'}"
                 aria-hidden="true"
               ></span>
             {/if}
@@ -562,7 +584,7 @@
         <div class="flex items-center justify-center px-3 py-3">
           <Button
             type="button"
-            class="{PAGE_GHOST_BTN} px-2.5 py-1.5"
+            class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             disabled={store.loadingMore}
             onclick={() => void store.loadMore(prsCtx())}
           >
@@ -580,73 +602,52 @@
       class="flex items-center gap-1.5"
       transition:fly={{ y: -4, duration: 160 }}
     >
-      <div
-        class="flex items-center gap-0.5 text-(--solus-text-tertiary) @max-[28rem]:hidden"
-      >
-        <p class="whitespace-nowrap text-[0.6875rem] font-medium tabular-nums">
-          {selected.length} selected
-        </p>
-        <Button
-          type="button"
-          class={PAGE_ICON_BTN}
-          onclick={clearReviewSelection}
-          aria-label={`Clear ${selected.length} selected pull requests`}
-          title="Clear selection"
-        >
-          <XIcon size={12} />
-        </Button>
-      </div>
       <span
-        class="h-4 w-px shrink-0 bg-(--solus-container-border) @max-[28rem]:hidden"
-        aria-hidden="true"
-      ></span>
-      <ButtonGroup.Root aria-label="Selected pull request actions">
-        <Button
-          variant="outline"
-          size="sm"
-          class="border-(--solus-container-border) bg-transparent font-secondary text-(--solus-text-secondary) transition-[scale] duration-150 ease-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] dark:bg-transparent @max-[20rem]:size-7 @max-[20rem]:px-0 [@media(pointer:coarse)]:h-12 [@media(pointer:coarse)]:px-3"
-          disabled={guideEligible.length === 0}
-          onclick={generateGuides}
-          aria-label={`Generate ${guideEligible.length} ${guideEligible.length === 1 ? "review guide" : "review guides"} in the background`}
-          title={guideEligible.length === 0
-            ? "No selected pull requests are eligible for guides"
-            : `Generate ${guideEligible.length} ${guideEligible.length === 1 ? "review guide" : "review guides"}`}
-        >
-          <span class="relative size-3.5 shrink-0" aria-hidden="true">
-            <CircleNotchIcon
-              class="absolute inset-0 size-3.5 transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] {guidesInFlight >
-              0
-                ? 'animate-spin scale-100 opacity-100 blur-0 [animation-duration:0.9s]'
-                : 'scale-[0.25] opacity-0 blur-[4px]'}"
-            />
-            <BookOpenTextIcon
-              class="absolute inset-0 size-3.5 transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] {guidesInFlight >
-              0
-                ? 'scale-[0.25] opacity-0 blur-[4px]'
-                : 'scale-100 opacity-100 blur-0'}"
-            />
-          </span>
-          <span class="@max-[20rem]:sr-only">Guides</span>
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={openReviewMode}
-          class="border-[color-mix(in_srgb,var(--solus-accent)_16%,var(--solus-container-border))] bg-(--solus-accent-light) text-(--solus-accent) transition-[scale] duration-150 ease-out hover:bg-[color-mix(in_srgb,var(--solus-accent-light)_100%,var(--solus-accent)_8%)] hover:text-(--solus-accent) active:scale-[0.96] dark:bg-(--solus-accent-light) @max-[20rem]:size-7 @max-[20rem]:px-0 [@media(pointer:coarse)]:h-12 [@media(pointer:coarse)]:px-3"
-        >
-          <PlayIcon
-            data-icon="inline-start"
-            weight="fill"
-            class="translate-x-px"
+        class="font-mono text-[10px] tabular-nums whitespace-nowrap text-muted-foreground @max-[28rem]:hidden"
+      >
+        {selected.length} selected
+      </span>
+      <Button
+        type="button"
+        class="inline-flex h-[30px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground @max-[28rem]:hidden"
+        onclick={clearReviewSelection}
+        aria-label={`Clear ${selected.length} selected pull requests`}
+      >
+        Clear
+      </Button>
+      <Button
+        type="button"
+        class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={guideEligible.length === 0}
+        onclick={generateGuides}
+        aria-label={`Generate ${guideEligible.length} ${guideEligible.length === 1 ? "review guide" : "review guides"} in the background`}
+        title={guideEligible.length === 0
+          ? "No selected pull requests are eligible for guides"
+          : `Generate ${guideEligible.length} ${guideEligible.length === 1 ? "review guide" : "review guides"}`}
+      >
+        {#if guidesInFlight > 0}
+          <CircleNotchIcon
+            size={12}
+            class="shrink-0 animate-spin [animation-duration:0.9s]"
           />
-          <span class="@max-[20rem]:sr-only">Review</span>
-        </Button>
-      </ButtonGroup.Root>
+        {:else}
+          <BookOpenTextIcon size={12} class="shrink-0" />
+        {/if}
+        <span class="@max-[20rem]:sr-only">Guides</span>
+      </Button>
+      <Button
+        type="button"
+        onclick={openReviewMode}
+        class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3 text-[12.5px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+      >
+        <PlayIcon size={12} weight="fill" class="shrink-0" />
+        <span class="@max-[20rem]:sr-only">Review</span>
+      </Button>
     </div>
   {/if}
   <Button
     type="button"
-    class={PAGE_ICON_BTN}
+    class="flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     onclick={refreshList}
     aria-label="Refresh"
     title="Refresh"
@@ -660,13 +661,12 @@
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <!-- THE INBOX                                                                  -->
-<!-- With nothing selected it renders as a standard library page (PageShell +   -->
-<!-- PageHeader, like Tasks / Automations / Plans / Folio); with a PR open it   -->
-<!-- docks left as this resizable list pane.                                    -->
+<!-- With nothing selected it renders as a centered page (PageShell + its own    -->
+<!-- masthead); with a PR open it docks left as this resizable list pane.       -->
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 {#snippet inboxPane()}
   <div
-    class="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+    class="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-sidebar"
   >
     <!-- Header -->
     <!-- This header sits in the macOS titlebar band (the page reserves no drag
@@ -678,34 +678,64 @@
            same approach PageShell takes. Open (sidebar covers the band) or off-mac
            collapses back to the tight top gutter. -->
     <div
-      class="@container shrink-0 border-b border-(--solus-popover-border) px-3 pt-3 pb-3 [.workspace-body.sidebar-collapsed_&]:pt-[calc(var(--solus-titlebar-height,0px)+0.75rem)]"
+      class="@container shrink-0 px-4 pt-4 pb-3 [.workspace-body.sidebar-collapsed_&]:pt-[calc(var(--solus-titlebar-height,0px)+1rem)]"
     >
-      <!-- The project name is the title: everything on this page is scoped by
-             it, so it gets the type weight and a real switch affordance instead
-             of hiding as a 9px eyebrow over a static "Pull Requests" heading
-             (the nav already says where you are). -->
-      <div class="flex items-center justify-between gap-3 pb-2.5">
-        <PrProjectSwitcher
-          options={projectOptions}
-          activePath={activeProjectPath}
-          currentPath={currentProjectPath}
-          compact
-          onSelect={selectProject}
-        />
-        <div class="flex shrink-0 items-center gap-1">
+      <!-- With a review open, the sidebar's job is getting back out of it: the
+             title row becomes the way up, with the visible row count as the
+             only other fact. -->
+      <div class="flex items-center justify-between gap-2">
+        <Button
+          type="button"
+          class="-ml-1.5 inline-flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border-0 bg-transparent px-1.5 py-1 text-[12.5px] font-medium text-foreground transition-colors hover:bg-muted"
+          onclick={deselectPr}
+          aria-label="Back to all pull requests"
+        >
+          <ArrowLeftIcon
+            size={12}
+            weight="bold"
+            class="shrink-0 text-muted-foreground"
+          />
+          <span class="truncate">All pull requests</span>
+        </Button>
+        <div class="flex shrink-0 items-center gap-1.5">
+          <span
+            class="font-mono text-[10px] tabular-nums text-muted-foreground"
+          >
+            {filtered.length}
+          </span>
           {@render reviewActions()}
           <Button
             type="button"
-            class={PAGE_ICON_BTN}
+            class="flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onclick={close}
             aria-label="Close"
           >
-            <XIcon size={16} />
+            <XIcon size={14} />
           </Button>
         </div>
       </div>
 
-      {@render filterBar(false)}
+      <div class="mt-3 flex flex-col gap-2">
+        <!-- basis-* is restated at the field's own breakpoint: its
+             `@max-[44rem]:basis-full` is a separate merge group, and in this
+             column flex-basis would set the height. -->
+        <SearchField
+          bind:ref={searchEl}
+          bind:value={query}
+          placeholder="Search"
+          class="h-[30px] w-full flex-none basis-auto rounded-lg border-0 bg-muted px-2.5 py-0 @max-[44rem]:basis-auto"
+        />
+        <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+          <PrProjectSwitcher
+            options={projectOptions}
+            activePath={activeProjectPath}
+            currentPath={currentProjectPath}
+            compact
+            onSelect={selectProject}
+          />
+          {@render filterControls()}
+        </div>
+      </div>
     </div>
 
     <!-- PR list body -->
@@ -724,21 +754,28 @@
 <!-- Loading / empty / list states, shared by both homes of the inbox. -->
 {#snippet inboxBody()}
       {#if store.loading && filtered.length === 0}
-        <div class="flex flex-col px-2 py-1.5" aria-hidden="true">
+        <div
+          class="flex flex-col {dockedInbox ? 'px-2.5 pb-4' : 'py-1'}"
+          aria-hidden="true"
+        >
           {#each SKELETON_ROWS as width, i (i)}
             <div
-              class="flex items-start gap-2.5 px-3 py-3 opacity-(--row-fade)"
+              class="flex items-start opacity-(--row-fade) {dockedInbox
+                ? 'gap-2.5 px-2.5 py-2.5'
+                : 'gap-3.5 px-4 py-3.5'}"
               style="--row-fade: {100 - i * 12}%"
             >
               <Skeleton
-                class="size-5 shrink-0 rounded-full bg-(--solus-art-border)"
+                class="mt-px shrink-0 rounded-full bg-muted {dockedInbox
+                  ? 'size-5'
+                  : 'size-7'}"
               />
-              <div class="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-2.5 py-0.5">
                 <Skeleton
-                  class="h-3 rounded bg-(--solus-art-border) w-(--line-w)"
+                  class="h-3 rounded bg-muted w-(--line-w)"
                   style="--line-w: {width}%"
                 />
-                <Skeleton class="h-2.5 w-24 rounded bg-(--solus-art-border)" />
+                <Skeleton class="h-2.5 w-28 rounded bg-muted" />
               </div>
             </div>
           {/each}
@@ -747,104 +784,144 @@
         <PageEmpty icon={GitPullRequestIcon} title="No pull requests yet.">
           Open pull requests from this project's remote will show up here.
           {#snippet actions()}
-            <Button type="button" class={PAGE_SECONDARY_BTN} onclick={refreshList}>
+            <Button
+              type="button"
+              class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              onclick={refreshList}
+            >
               <ArrowsClockwiseIcon size={13} class="shrink-0" />
               Refresh
             </Button>
           {/snippet}
         </PageEmpty>
       {:else if filtered.length === 0}
-        <PageEmpty title="No pull requests match.">
-          Try a different search or filter.
-          {#snippet actions()}
-            <Button
-              type="button"
-              class={PAGE_SECONDARY_BTN}
-              onclick={() => {
-                query = "";
-                stateFilter = "open";
-              }}
-            >
-              Clear filters
-            </Button>
-          {/snippet}
-        </PageEmpty>
+        <!-- Filter-miss: the design's washed panel rather than a bare column,
+             so the miss reads as a state of the list, not an empty page. -->
+        <div
+          class="rounded-2xl bg-[color-mix(in_oklab,var(--muted)_50%,transparent)]"
+        >
+          <PageEmpty title="No pull requests match.">
+            Try a different search or switch to All.
+            {#snippet actions()}
+              <Button
+                type="button"
+                class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                onclick={() => {
+                  query = "";
+                  stateFilter = "open";
+                }}
+              >
+                Clear filters
+              </Button>
+            {/snippet}
+          </PageEmpty>
+        </div>
       {:else}
         {@render listBody()}
       {/if}
 {/snippet}
 
-<!-- Search, state filter, effort, and sort share one band; in the docked pane
-     the filter cluster wraps under the search field. On the centered page the
-     project switcher leads the band — the page title above it is the surface
-     name, matching the other library pages. -->
-{#snippet filterBar(centered: boolean)}
-  <div
-    class="flex min-w-0 flex-wrap items-center gap-2 {centered ? 'pb-4' : ''}"
-  >
-    {#if centered}
-      <PrProjectSwitcher
-        options={projectOptions}
-        activePath={activeProjectPath}
-        currentPath={currentProjectPath}
-        compact
-        onSelect={selectProject}
-      />
-    {/if}
-    <SearchField
-      bind:ref={searchEl}
-      bind:value={query}
-      placeholder="Search pull requests…"
+<!-- State filter, the needs-review pin, and sort — the cluster both homes of
+     the inbox share, after each has placed its own search field. -->
+{#snippet filterControls()}
+  <SegmentedControl
+    variant="bar"
+    options={STATE_TABS.map((t) => ({
+      ...t,
+      // Items are fetched per state filter, so only the active tab's
+      // count reflects reality — the others would read as zero.
+      count: stateFilter === t.value ? counts[t.value] : undefined,
+    }))}
+    isActive={(v) => stateFilter === v}
+    onSelect={onStateFilterChange}
+    ariaLabel="Filter by state"
+  />
+  {#if store.needsReviewOnly}
+    <Button
+      type="button"
+      class="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-secondary px-3 text-[12.5px] font-medium text-secondary-foreground transition-colors hover:brightness-[1.05]"
+      onclick={() => (store.needsReviewOnly = false)}
+      aria-label="Clear the needs-your-review filter"
+    >
+      Needs your review
+      <XIcon size={11} />
+    </Button>
+  {/if}
+  <div class="ml-auto flex shrink-0 items-center gap-2.5">
+    <SortMenu
+      bind:value={sortMode}
+      options={SORT_OPTIONS}
+      ariaLabel="Sort pull requests"
+      class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]"
     />
-    <SegmentedControl
-      options={STATE_TABS.map((t) => ({
-        ...t,
-        // Items are fetched per state filter, so only the active tab's
-        // count reflects reality — the others would read as zero.
-        count: stateFilter === t.value ? counts[t.value] : undefined,
-      }))}
-      isActive={(v) => stateFilter === v}
-      onSelect={onStateFilterChange}
-      ariaLabel="Filter by state"
-    />
-    {#if store.needsReviewOnly}
+  </div>
+{/snippet}
+
+<!-- The centered page's masthead: the repo the inbox is reading, the surface
+     name, and three facts that are all true of the data on screen. The action
+     cluster sits bottom-aligned against the block so it lands on the facts
+     line rather than floating beside the title. -->
+{#snippet masthead()}
+  <div class="flex items-end justify-between gap-4 pb-[clamp(16px,2vw,28px)]">
+    <div class="flex min-w-0 flex-col gap-2">
+      <div
+        class="flex min-w-0 items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
+      >
+        <GitPullRequestIcon size={11} class="shrink-0 text-primary" />
+        <span class="min-w-0 truncate">{repoLabel}</span>
+      </div>
+
+      <h1 class="text-[26px] font-semibold tracking-[-0.02em]">
+        Pull Requests
+      </h1>
+
+      <p
+        class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-muted-foreground"
+      >
+        <span class="flex items-center gap-1.5">
+          <span
+            class="size-1.5 shrink-0 rounded-full bg-(--solus-art-positive)"
+            aria-hidden="true"
+          ></span>
+          <span class="tabular-nums">{facts.openCount} open</span>
+        </span>
+        {#if facts.effortMinutes !== null && effortSummary}
+          <span class="opacity-40" aria-hidden="true">·</span>
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span {...tooltipProps} class="tabular-nums">
+                  ≈ {facts.effortMinutes} min to review
+                </span>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={`${effortSummary.count} ${effortSummary.count === 1 ? "pull request" : "pull requests"} · about ${effortSummary.minutes} min of review${effortSummary.knownCount < effortSummary.count ? ` (estimate covers ${effortSummary.knownCount})` : ""}`} />
+          </TooltipUI.Root>
+        {/if}
+        {#if facts.syncedLabel}
+          <span class="opacity-40" aria-hidden="true">·</span>
+          <span class="tabular-nums">{facts.syncedLabel}</span>
+        {/if}
+      </p>
+    </div>
+
+    <div class="mb-0.5 flex shrink-0 items-center gap-1.5">
+      {@render reviewActions()}
       <Button
         type="button"
-        class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) px-2 py-0.5 text-[0.6875rem] font-medium text-(--solus-accent) hover:bg-(--solus-accent-soft) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-        onclick={() => (store.needsReviewOnly = false)}
-        aria-label="Clear the needs-your-review filter"
+        class="flex size-[30px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        onclick={close}
+        aria-label="Close"
       >
-        Needs your review
-        <XIcon size={11} />
+        <XIcon size={14} />
       </Button>
-    {/if}
-    <div class="ml-auto flex shrink-0 items-center gap-2">
-      {#if effortSummary && centered}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <span {...tooltipProps}
-          class="text-[0.6875rem] tabular-nums text-(--solus-text-tertiary)"
-        >
-          ≈ {effortSummary.minutes} min
-        </span>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={`${effortSummary.count} ${effortSummary.count === 1 ? "pull request" : "pull requests"} · about ${effortSummary.minutes} min of review${effortSummary.knownCount < effortSummary.count ? ` (estimate covers ${effortSummary.knownCount})` : ""}`} />
-        </TooltipUI.Root>
-      {/if}
-      <SortMenu
-        bind:value={sortMode}
-        options={SORT_OPTIONS}
-        ariaLabel="Sort pull requests"
-      />
     </div>
   </div>
 {/snippet}
 
 {#if open}
   <div
-    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-(--solus-container-bg) focus:outline-none"
+    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-card focus:outline-none"
     role="dialog"
     aria-label="Pull Requests"
     tabindex="-1"
@@ -857,23 +934,36 @@
     {:else}
       <!-- No selection: the inbox is the standard library page. -->
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <PageShell onClose={close}>
-          <PageHeader
-            title="Pull Requests"
-            subtitle="Review and merge the project's pull requests."
-          >
-            {#snippet icon()}
-              <GitPullRequestIcon size={18} weight="fill" />
-            {/snippet}
-            {#snippet actions()}
-              {@render reviewActions()}
-            {/snippet}
-          </PageHeader>
+        <!-- No PageShell close: the masthead owns the action cluster, so the
+             page would otherwise carry two close buttons. -->
+        <!-- Use the same responsive content measure as the other library pages. -->
+        <PageShell>
+          {@render masthead()}
 
-          {@render filterBar(true)}
+          <div class="flex min-w-0 flex-wrap items-center gap-2.5 pt-1 pb-4">
+            <PrProjectSwitcher
+              options={projectOptions}
+              activePath={activeProjectPath}
+              currentPath={currentProjectPath}
+              onSelect={selectProject}
+            />
+            <SearchField
+              bind:ref={searchEl}
+              bind:value={query}
+              placeholder="Search pull requests, authors, branches…"
+              class="h-8 min-w-0 flex-1 basis-0 rounded-lg border-0 bg-muted px-3 py-0 @max-[44rem]:basis-0"
+            />
+            {@render filterControls()}
+          </div>
 
+          <!-- Rows sit in a slightly narrower gutter than the masthead, so
+               each row's hover fill reads as an inset surface rather than a
+               full-bleed band. -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="-mx-3" onkeydown={onListKeydown}>
+          <div
+            class="-mx-[clamp(6px,0.4vw,8px)]"
+            onkeydown={onListKeydown}
+          >
             {@render inboxBody()}
           </div>
         </PageShell>

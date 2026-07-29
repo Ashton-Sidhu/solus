@@ -67,6 +67,17 @@ export function mountDiffFileTree({
   });
   tree.render({ containerWrapper: node });
 
+  // @pierre/trees hardcodes "Search…" with no option to override it. Here the
+  // box narrows the already-visible list rather than searching the repo, so it
+  // says so. render() is synchronous, and Preact leaves the attribute alone on
+  // subsequent renders because its own vnode value never changes.
+  const searchInput = node
+    .querySelector("file-tree-container")
+    ?.shadowRoot?.querySelector("[data-file-tree-search-input]");
+  if (searchInput instanceof HTMLInputElement) {
+    searchInput.placeholder = "Filter files…";
+  }
+
   function handleIconClick(event: MouseEvent) {
     const elements = event.composedPath().filter(
       (target): target is HTMLElement => target instanceof HTMLElement,

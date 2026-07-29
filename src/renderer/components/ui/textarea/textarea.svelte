@@ -1,11 +1,11 @@
 <!-- DIVERGED FROM STOCK: Solus field dictation and submit behavior lives here.
      The size default `text-xs` deliberately carries no important marker, so a
      call site's own `text-[…]` wins the merge instead of losing to a marked
-     default. But neither one reaches the DOM unaided: `textarea { font-size:
-     inherit }` in index.css is UNLAYERED, and unlayered normal declarations beat
-     anything in `@layer utilities` no matter the specificity — so every textarea
-     silently inherits its parent's size. A call site that needs a specific size
-     must mark it (`text-xs!`); see QuestionCard. -->
+     default. Both reach the DOM: the `textarea { font-size: inherit }` reset in
+     index.css lives in `@layer base`, so it only supplies a default for a bare
+     <textarea> and never outranks these utilities. If a field ever renders at
+     its parent's size again, check that reset is still layered before reaching
+     for an `!` marker. -->
 
 <script lang="ts">
 	import type { HTMLTextareaAttributes } from "svelte/elements";

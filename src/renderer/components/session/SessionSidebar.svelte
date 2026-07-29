@@ -286,6 +286,7 @@
   side="left"
   {open}
   {managedWidth}
+  isElevated={false}
   minWidth={160}
   maxWidth={400}
   onAction={onToggleCollapse}

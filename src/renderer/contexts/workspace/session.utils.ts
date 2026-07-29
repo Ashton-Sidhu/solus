@@ -173,13 +173,24 @@ export function removeAssistantPlanDuplicate(messages: Message[], planContent: s
   }
 }
 
+/**
+ * A thread as the agent reads it. Resolved threads are dropped — they have
+ * been dealt with, and re-sending them reads as a fresh request. Replies come
+ * through indented, so a conversation the agent is joining mid-way still has
+ * its shape.
+ */
 export function formatInlineComments(comments: PlanComment[]): string {
   return comments
-    .map((c) =>
-      c.nodeId
+    .filter((c) => !c.resolvedAt)
+    .map((c) => {
+      const head = c.nodeId
         ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
-        : `- On "${c.selectedText}": ${c.comment}`,
-    )
+        : `- On "${c.selectedText}": ${c.comment}`
+      const replies = (c.replies ?? []).map(
+        (r) => `  - ${r.author === 'solus' ? 'Solus' : 'User'}: ${r.text}`,
+      )
+      return [head, ...replies].join('\n')
+    })
     .join('\n')
 }
 

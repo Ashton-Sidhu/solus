@@ -12,14 +12,12 @@
     getSessionEnvironmentStore,
     runtime,
   } from "../../contexts";
-  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { displayDirName } from "../../lib/paths";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { WorktreeEntry } from "../../../shared/types";
   import ContextMeter from "../ContextMeter.svelte";
   import SettingsPopover from "../SettingsPopover.svelte";
   import GitDropdown from "../GitDropdown.svelte";
-  import ServerSwitcher from "../servers/ServerSwitcher.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -48,10 +46,6 @@
     displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
   );
   const dirTooltip = $derived(ctx.workingDirectory);
-  // The directory below belongs to another host whenever the session was
-  // dispatched, and nothing else on this row says so.
-  const hostAffinity = $derived(serversStore.affinityFor(sess?.serverId));
-
   const projectDir = $derived(sess?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~");
   const defaultGitContext = $derived(session.tabCtx.gitContext);
   const worktreePath = $derived(sess?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
@@ -142,7 +136,7 @@
 </script>
 
 <!--
-  The dir/branch + usage + server/settings cluster. Rendered inline on the
+  The dir/branch + usage + destination/settings cluster. Rendered inline on the
   input toolbar row (right of the mode/model pills), so it stays compact rather
   than spanning a full-width status bar.
 -->
@@ -174,7 +168,6 @@
   {/if}
   {#if mode === "pill" && !isPinned}
     <RunOnPicker tabId={targetTabId} />
-    <ServerSwitcher />
   {/if}
   {#if !runtime.isMobileViewport && mode !== "editor"}
     <SettingsPopover />
@@ -199,21 +192,6 @@
   <div
     class="flex items-center gap-2.5 min-w-0 overflow-hidden text-(--solus-text-tertiary)"
   >
-    {#if hostAffinity}
-      {@const HostIcon = hostAffinity.icon}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <span {...tooltipProps}
-        class="flex shrink-0 items-center {hostAffinity.className}"
-      >
-        <HostIcon size={13} />
-      </span>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={hostAffinity.tooltip} />
-      </TooltipUI.Root>
-    {/if}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}

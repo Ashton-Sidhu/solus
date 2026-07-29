@@ -2,8 +2,8 @@
   import { tick, untrack } from "svelte";
   import {
     ArrowsClockwiseIcon,
-    GitBranchIcon,
     GitPullRequestIcon,
+    ArrowRightIcon,
     ArrowUpIcon,
   } from "phosphor-svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -360,11 +360,25 @@
   /** Queue this PR's review guide in the background (guides are opt-in now);
    *  progress lands back in the shared store's guide-status map. */
   function generateGuide() {
-    void session.prsStore.requestGuides(feedCtx(), [pr.number]).catch((err) => {
-      toasts.error(
-        `Couldn't queue the review guide: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    });
+    void session.prsStore
+      .requestGuides(feedCtx(), [pr.number], {
+        onSettled: ({ failed }) => {
+          if (failed > 0) {
+            toasts.error(
+              `Review guide generation failed for PR #${pr.number}. Try again from Activity or Guide.`,
+            );
+          } else {
+            toasts.success(
+              `Review guide for PR #${pr.number} is ready in the Guide tab.`,
+            );
+          }
+        },
+      })
+      .catch((err) => {
+        toasts.error(
+          `Couldn't queue the review guide: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     requestInputFocus();
   }
 
@@ -400,11 +414,13 @@
   }
 </script>
 
-<div class="h-full min-h-0 overflow-y-auto bg-(--solus-container-bg)">
+<div class="h-full min-h-0 overflow-y-auto bg-card">
     {#if anyLoadFailed}
-      <div class="mx-auto w-full max-w-[90rem] px-8 pt-4">
+      <div
+        class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-4"
+      >
         <div
-          class="flex items-center gap-2.5 rounded-lg border border-[color:color-mix(in_srgb,var(--solus-art-negative)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--solus-art-negative)_8%,transparent)] px-3 py-2 text-[0.8125rem] font-secondary text-(--solus-text-secondary)"
+          class="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-3 text-[12.5px]"
           role="alert"
         >
           <span class="min-w-0 flex-1 truncate">
@@ -413,108 +429,112 @@
           <Button
             type="button"
             variant="ghost"
-            class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-xs font-medium text-(--solus-text-primary) transition-colors hover:bg-(--solus-surface-hover)"
+            class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             onclick={refresh}
           >
-            <ArrowsClockwiseIcon size={12} weight="bold" class="shrink-0" />
+            <ArrowsClockwiseIcon size={12} class="shrink-0" />
             Retry
           </Button>
         </div>
       </div>
     {/if}
     <!-- Capped measure: on wide windows the column centers instead of the
-         title and a sparse timeline stretching toward a distant rail. -->
-    <div class="mx-auto flex w-full max-w-[90rem] gap-8 px-6 py-7 xl:gap-10 xl:px-8 xl:py-9">
+         title and a sparse timeline stretching toward a distant rail. The row
+         is the size container the rail queries, so the rail folds under the
+         main column on narrow panes instead of disappearing. -->
+    <div
+      class="@container mx-auto flex w-full max-w-[min(1384px,100%)] flex-wrap gap-[clamp(24px,3vw,64px)] px-[clamp(20px,2.6vw,56px)] pt-[clamp(20px,1.8vw,32px)] pb-[clamp(32px,3vw,56px)]"
+    >
       <!-- ── Main column: title, meta, description, activity, composer ── -->
-      <main class="flex min-w-0 flex-1 flex-col">
+      <main class="flex min-w-0 max-w-[1000px] flex-[1_1_520px] flex-col">
         <!-- Masthead, Linear-style: no chrome in the header at all — a quiet
              mono eyebrow, the title at full measure, one line of plain-text
              facts. Actions live with the merge-readiness status in the right
-             rail (prActions below); a compact copy appears under the meta only
-             when the rail is hidden. -->
+             rail (prActions below), which folds under this column rather than
+             hiding, so they are reachable at every width. -->
         <header>
           <p
-            class="flex items-center gap-1.5 font-mono text-[0.6875rem] text-(--solus-text-tertiary)"
+            class="flex items-center gap-2 font-mono text-[9.5px] tracking-widest text-muted-foreground uppercase"
           >
-            <GitPullRequestIcon size={12} weight="bold" class="shrink-0" />
-            {pr.repo ? `${pr.repo} ` : ""}#{pr.number}
+            <GitPullRequestIcon size={10} class="shrink-0 text-primary" />
+            <span class="min-w-0 truncate"
+              >{pr.repo ? `${pr.repo} ` : ""}#{pr.number}</span
+            >
           </p>
 
           <h1
-            class="mt-2 text-[1.4375rem] leading-8 font-semibold tracking-[-0.02em] text-balance text-(--solus-text-primary)"
+            class="mt-3 text-[27px] leading-[1.25] font-semibold tracking-[-0.02em] text-pretty"
           >
             {pr.title}
           </h1>
 
-          <!-- One visual grammar for every fact — plain text separated by
-               whitespace, no dots or outlined chips competing for attention. -->
           <div
-            class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[0.8125rem] text-(--solus-text-tertiary)"
+            class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[12.5px] text-muted-foreground"
           >
             <span class="flex min-w-0 items-center gap-2">
               <PrAvatar
                 name={authorName}
                 url={authorAvatarUrl}
-                size="size-5 text-[0.5625rem]"
+                size="size-5 text-[9.5px]"
               />
-              <span class="truncate font-medium text-(--solus-text-secondary)"
-                >{authorName}</span
-              >
+              <span class="truncate font-medium text-foreground">{authorName}</span>
               {#if openedTime}
                 <span class="shrink-0">opened {openedTime}</span>
               {/if}
             </span>
             {#if baseRef}
-              <!-- head → base, reading in merge direction ("move-func into main"). -->
-              <span class="flex min-w-0 items-center gap-1.5 font-mono text-[0.75rem]">
-                <GitBranchIcon size={12} class="shrink-0" />
+              <span class="opacity-40" aria-hidden="true">·</span>
+              <!-- head → base, reading in merge direction ("move-func into main").
+                   A filled mono pill: the refs are literals you might type, so
+                   they get a surface of their own rather than sitting in prose. -->
+              <span
+                class="flex min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-[10.5px] text-muted-foreground"
+              >
                 {#if headBranch}
-                  <span class="truncate font-secondary text-(--solus-text-secondary)">{headBranch}</span>
-                  <span class="shrink-0" aria-hidden="true">→</span>
+                  <span class="truncate">{headBranch}</span>
+                  <ArrowRightIcon size={10} class="shrink-0" aria-hidden="true" />
                 {/if}
-                <span class="truncate font-secondary text-(--solus-text-secondary)">{baseRef}</span>
+                <span class="truncate text-foreground">{baseRef}</span>
               </span>
             {/if}
             {#if stackChain.length > 1}
+              <span class="opacity-40" aria-hidden="true">·</span>
               <span
                 class="flex items-center gap-1.5 tabular-nums"
                 aria-label={`Stack containing PR #${pr.number}`}
               >
                 <span class="font-medium">Stack</span>
                 {#each stackChain as number, i (number)}
-                  {#if i > 0}<span aria-hidden="true">→</span>{/if}
+                  {#if i > 0}<span class="opacity-40" aria-hidden="true">→</span
+                    >{/if}
                   <span
                     class={number === pr.number
-                      ? "font-semibold text-(--solus-accent)"
-                      : "font-secondary text-(--solus-text-secondary)"}
+                      ? "font-medium text-primary"
+                      : "text-foreground"}
                   >#{number}</span>
                 {/each}
               </span>
             {/if}
           </div>
-
-          <!-- The rail owns the actions on wide windows; when it's hidden the
-               same cluster docks here at rail width so nothing is lost. -->
-          <div class="mt-6 w-full max-w-[19rem] lg:hidden">
-            {@render prActions()}
-          </div>
         </header>
 
         <!-- PR description belongs to the PR header, not the activity stream. -->
         {#if detailLoading}
-          <div class="mt-6 flex flex-col gap-2.5">
-            <Skeleton class="h-3 w-full rounded bg-(--solus-art-border)" />
-            <Skeleton class="h-3 w-11/12 rounded bg-(--solus-art-border)" />
-            <Skeleton class="h-3 w-3/4 rounded bg-(--solus-art-border)" />
+          <div class="mt-8 flex flex-col gap-2.5">
+            <Skeleton class="h-3 w-full rounded bg-muted" />
+            <Skeleton class="h-3 w-11/12 rounded bg-muted" />
+            <Skeleton class="h-3 w-3/4 rounded bg-muted" />
           </div>
         {:else if detail?.body?.trim()}
-          <!-- Masthead rule: closes the title/meta block before the body copy. -->
-          <div
-            class="mt-5 h-px w-full bg-[linear-gradient(to_right,var(--solus-art-border),transparent)]"
-            aria-hidden="true"
-          ></div>
+          <!-- No rule under the masthead: the spacing steps (4 → 8) already
+               close the title block, and a hairline here would be the only one
+               above the timeline's spine. -->
+          <!-- Typography lives in `.prose-pr-description` (index.css), not in
+               utilities here: the `.prose-cloud` rules are unlayered, so a
+               utility override of any property they set — size, leading,
+               colour, heading margins — loses the cascade regardless of order. -->
           <section
-            class="github-markdown prose-cloud mt-5 text-base leading-relaxed text-pretty font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+            class="github-markdown prose-cloud prose-pr-description mt-8"
             aria-label="Pull request description"
           >
             <SvelteMarkdown
@@ -531,50 +551,51 @@
              with airy spacing. Commits, review threads, and the durable
              conversation interleave by time (see buildActivityTimeline); the
              opened event always leads. -->
-        <div class="mt-9 mb-6 flex items-center gap-3">
+        <div class="mt-10 mb-4 flex items-center gap-2">
           <h2
-            class="text-[0.6875rem] font-semibold tracking-[0.14em] text-(--solus-text-tertiary) uppercase"
+            class="text-[9.5px] font-medium tracking-widest text-muted-foreground uppercase"
           >
             Activity
           </h2>
-          <span
-            class="h-px flex-1 bg-[linear-gradient(to_right,var(--solus-art-border),transparent)]"
-            aria-hidden="true"
-          ></span>
+          <span class="flex-1"></span>
           <!-- Quiet focus chips: filter the timeline without leaving the tab.
                A couple of events don't need filtering, so the chips only appear
                once the timeline is long enough for them to earn their spot; the
-               unresolved toggle is a real signal and always shows. The active
-               chip gets a hairline ring so it reads pressed, not hovered. -->
+               unresolved toggle is a real signal and always shows. The
+               mutually-exclusive set shares a recessed track (the page's
+               segmented form) so the selected chip lifts onto the canvas; the
+               unresolved toggle stands outside it as its own state. -->
           <div
-            class="flex items-center gap-1"
+            class="flex items-center gap-1.5"
             role="group"
             aria-label="Filter activity"
           >
             {#if timeline.length > 3}
-              {#each filterChips as chip (chip.value)}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-pressed={!unresolvedOnly && filter === chip.value}
-                  class="cursor-pointer rounded-md px-2 py-1 text-[0.6875rem] font-medium transition-colors {!unresolvedOnly &&
-                  filter === chip.value
-                    ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-art-border)]'
-                    : 'text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
-                  onclick={() => setFilter(chip.value)}
-                >
-                  {chip.label}
-                </Button>
-              {/each}
+              <div class="flex h-7 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+                {#each filterChips as chip (chip.value)}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-pressed={!unresolvedOnly && filter === chip.value}
+                    class="h-full cursor-pointer rounded-md border-0 px-2.5 text-[12px] transition-colors {!unresolvedOnly &&
+                    filter === chip.value
+                      ? 'bg-card font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-none dark:ring-1 dark:ring-white/10'
+                      : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
+                    onclick={() => setFilter(chip.value)}
+                  >
+                    {chip.label}
+                  </Button>
+                {/each}
+              </div>
             {/if}
             {#if unresolvedCount > 0}
               <Button
                 type="button"
                 variant="ghost"
                 aria-pressed={unresolvedOnly}
-                class="cursor-pointer rounded-md px-2 py-1 text-[0.6875rem] font-medium tabular-nums transition-colors {unresolvedOnly
-                  ? 'bg-(--solus-accent-light) text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-art-border)]'
-                  : 'text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                class="h-7 cursor-pointer rounded-lg border-0 px-2.5 text-[12px] font-medium tabular-nums transition-colors {unresolvedOnly
+                  ? 'bg-secondary text-secondary-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'}"
                 onclick={toggleUnresolved}
               >
                 {unresolvedCount} unresolved
@@ -594,16 +615,20 @@
           onResolve={resolveThread}
         />
 
-        <!-- Composer: aligned with the timeline's content column and
-             hairline-ringed like the thread panels so it reads as part of the
-             editorial system. -->
+        <!-- Composer: full measure of the main column, flush with the title and
+             description rather than indented to the timeline's content column —
+             it addresses the PR, not the last event. A flat muted pill rather
+             than a ringed panel; the timeline already carries the page's only
+             hairlines, so a second outline here reads as chrome. The send
+             button is a tinted accent square, not a solid fill: at this size a
+             saturated block outweighs everything above it. -->
         <div
-          class="mt-6 ml-11 flex items-center gap-2.5 rounded-xl bg-white/60 p-2.5 pr-3 shadow-[0_0_0_1px_var(--solus-art-border)] transition-[box-shadow] duration-150 ease-out focus-within:shadow-[0_0_0_1px_var(--solus-accent)] dark:bg-white/2"
+          class="mt-8 flex items-center gap-3 rounded-xl bg-muted px-3.5 py-2.5 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
         >
           <PrAvatar
             name={viewerLogin || "?"}
             url={viewerAvatarUrl}
-            size="size-6 text-[0.625rem]"
+            size="size-6 text-[10.5px]"
           />
           <CommentEditor
             value={composer}
@@ -618,12 +643,12 @@
           <Button
             type="button"
             disabled={!composer.trim() || posting}
-            class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--solus-accent) text-(--solus-on-accent,#fff) transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+            class="flex size-[28px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Post comment"
             title="Comment · ⌘↵"
             onclick={postComment}
           >
-            <ArrowUpIcon size={15} weight="bold" />
+            <ArrowUpIcon size={13} weight="bold" />
           </Button>
         </div>
       </main>

@@ -28,7 +28,10 @@
   const TREE_MIN_WIDTH = 192;
   const DIFF_CONTENT_MIN_WIDTH = 360;
   const TREE_WIDTH_KEY = "solus-diff-tree-width";
-  let treeWidth = $state(Number(localStorage.getItem(TREE_WIDTH_KEY)) || 272);
+  const TREE_DEFAULT_WIDTH = 290;
+  let treeWidth = $state(
+    Number(localStorage.getItem(TREE_WIDTH_KEY)) || TREE_DEFAULT_WIDTH,
+  );
   let isTreeResizing = $state(false);
 
   const treeMaxWidth = $derived(

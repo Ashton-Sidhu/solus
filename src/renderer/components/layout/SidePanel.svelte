@@ -17,6 +17,7 @@
      *  neighbouring view reads as running under it. The panel's content
      *  supplies whatever shape it needs (the project rail floats cards on it). */
     flush?: boolean;
+    isElevated?: boolean;
     minWidth?: number;
     maxWidth?: number;
     onAction?: () => void;
@@ -35,6 +36,7 @@
     width,
     managedWidth = false,
     flush = false,
+    isElevated = true,
     minWidth = 160,
     maxWidth = 400,
     onAction,
@@ -74,7 +76,11 @@
   <div
     class="side-panel-root no-drag flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
       ? ''
-      : 'rounded-2xl border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none'}"
+      : 'rounded-2xl'} {flush
+      ? ''
+      : isElevated
+        ? 'border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none'
+        : 'border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none'}"
     style:--side-panel-bg={panelBg}
   >
     <Sidebar.Provider {open}>

@@ -6,6 +6,7 @@
   import type { DiagramDoc } from '../../../shared/diagram-types'
   import PopoverMenu from './PopoverMenu.svelte'
   import { toasts } from '../../contexts'
+  import * as DropdownMenu from '../ui/dropdown-menu'
 
   interface Props {
     getDoc: () => DiagramDoc
@@ -134,12 +135,14 @@
     </svg>
   {/snippet}
 
-  {#snippet children(close)}
-    <button type="button" class="popover__item" role="menuitem" onclick={() => { savePng(); close() }}>Save as PNG</button>
-    <button type="button" class="popover__item" role="menuitem" onclick={() => { saveSvg(); close() }}>Save as SVG</button>
-    <button type="button" class="popover__item" role="menuitem" onclick={() => { copyImage(); close() }}>Copy image</button>
-    <span class="popover__divider" aria-hidden="true"></span>
-    <button type="button" class="popover__item" role="menuitem" onclick={() => { copyJson(); close() }}>Copy as JSON</button>
-    <button type="button" class="popover__item" role="menuitem" onclick={() => { copyMermaid(); close() }}>Copy as Mermaid</button>
+  {#snippet children()}
+    <DropdownMenu.Label>Image</DropdownMenu.Label>
+    <DropdownMenu.Item onSelect={() => void savePng()}>Save as PNG</DropdownMenu.Item>
+    <DropdownMenu.Item onSelect={() => void saveSvg()}>Save as SVG</DropdownMenu.Item>
+    <DropdownMenu.Item onSelect={() => void copyImage()}>Copy image</DropdownMenu.Item>
+    <DropdownMenu.Separator />
+    <DropdownMenu.Label>Source</DropdownMenu.Label>
+    <DropdownMenu.Item onSelect={() => void copyJson()}>Copy as JSON</DropdownMenu.Item>
+    <DropdownMenu.Item onSelect={() => void copyMermaid()}>Copy as Mermaid</DropdownMenu.Item>
   {/snippet}
 </PopoverMenu>
