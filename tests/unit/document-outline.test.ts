@@ -3,6 +3,7 @@ import {
   afterDwell,
   holdsWithoutDwell,
   isOutlineOpen,
+  isOutlineVisible,
   sectionJumpIndex,
   type OutlineReason,
 } from '../../src/renderer/components/document-shell/lib/outline'
@@ -18,6 +19,13 @@ describe('outline lifecycle', () => {
   test('opens at the top and closes only when every hold is gone', () => {
     expect(isOutlineOpen(reasons('top'))).toBe(true)
     expect(isOutlineOpen(reasons())).toBe(false)
+  })
+
+  test('does not flash the initial top hold in a split pane', () => {
+    expect(isOutlineVisible(reasons('top'), false)).toBe(false)
+    expect(isOutlineVisible(reasons('top'), true)).toBe(true)
+    // Split mode still allows deliberate hover expansion.
+    expect(isOutlineVisible(reasons('top', 'hover'), false)).toBe(true)
   })
 
   test('a pin survives the pointer leaving', () => {

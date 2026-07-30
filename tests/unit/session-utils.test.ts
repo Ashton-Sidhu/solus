@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { DiffComment } from '../../src/shared/types'
-import { formatDiffInlineComments } from '../../src/renderer/contexts/workspace/session.utils'
+import type { DiffComment, Session, SessionStatus } from '../../src/shared/types'
+import {
+  computeCurrentActivity,
+  formatDiffInlineComments,
+} from '../../src/renderer/contexts/workspace/session.utils'
 import { findOpenTabForSession } from '../../src/renderer/lib/sessionUtils'
 
 function diffComment(selectedCode: string): DiffComment {
@@ -15,6 +18,36 @@ function diffComment(selectedCode: string): DiffComment {
     createdAt: 1,
   }
 }
+
+function activitySession(status: SessionStatus, agentSessionId: string | null): Session {
+  return {
+    status,
+    agentSessionId,
+    messages: [],
+    currentActivity: '',
+    permissionQueue: [],
+    questionQueue: [],
+    isStreamingText: false,
+    isReconnecting: false,
+  } as Session
+}
+
+describe('computeCurrentActivity', () => {
+  test('reports the session startup lifecycle before falling back to thinking', () => {
+    expect(computeCurrentActivity(activitySession('connecting', null))).toBe('Starting session...')
+    expect(computeCurrentActivity(activitySession('connecting', 'session-1'))).toBe('Resuming...')
+    expect(computeCurrentActivity(activitySession('running', 'session-1'))).toBe('Thinking...')
+  })
+
+  test('keeps an explicit startup phase after the transport reports running', () => {
+    const session = activitySession('running', 'session-1')
+    session.currentActivity = 'Connecting...'
+
+    // WHY: session_init marks the transport running before the provider has
+    // actually begun reasoning. The row must not jump to "Thinking" early.
+    expect(computeCurrentActivity(session)).toBe('Connecting...')
+  })
+})
 
 describe('formatDiffInlineComments', () => {
   test('does not add blank lines between selected code lines', () => {

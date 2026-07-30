@@ -8,6 +8,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'getLocalConnection',
   'setQuoteContext',
   'onQuoteSelection',
+  'onAskSelectionInNewSession',
   'setIgnoreMouseEvents',
   'rendererReady',
   'rendererMounted',

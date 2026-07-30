@@ -205,6 +205,6 @@ export class GitHubAuth implements ProviderAuth {
 
   disconnect(): void {
     clearToken()
-    log.info('GitHub disconnected')
+    log.info('github_disconnected')
   }
 }

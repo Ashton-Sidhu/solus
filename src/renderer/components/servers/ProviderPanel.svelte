@@ -17,7 +17,7 @@
     codingProviderRows({
       readiness: setup.readiness,
       stages: setup.providerStages,
-      add: (provider) => void setup.runStep("providers", provider),
+      add: (provider, opts) => void setup.addProvider(provider, opts),
     }),
   );
 

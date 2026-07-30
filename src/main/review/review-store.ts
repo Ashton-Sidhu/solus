@@ -36,7 +36,7 @@ export async function writeJsonAtomic(path: string, data: unknown, label: string
     await rename(tmp, path)
     return true
   } catch (err) {
-    log.error(`write ${label} failed: ${String(err)}`)
+    log.error('review_artifact_write_failed', { label, error: String(err) })
     return false
   }
 }

@@ -148,7 +148,6 @@
       extensions: [
         StarterKit.configure({
           codeBlock: false,
-          hardBreak: false,
           trailingNode: false,
           undoRedo: { depth: 100 },
           link: { openOnClick: false, autolink: true },

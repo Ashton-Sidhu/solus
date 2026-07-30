@@ -110,7 +110,7 @@ async function downloadAndInstall(): Promise<string> {
     aggregateReceivedBytes = 0
     aggregateTotalBytes = 0
     setStatus({ state: 'downloading', receivedBytes: 0, totalBytes: 0 }, { immediate: true })
-    log.info(`Downloading ${MODEL_NAME} ${MODEL_VERSION}`)
+    log.info('model_download_started', { model: MODEL_NAME, version: MODEL_VERSION })
     for (const file of MODEL_FILES) {
       await downloadFile(`${MODEL_BASE_URL}/${file.name}`, join(tempDir, file.name), file.sha256)
     }
@@ -118,7 +118,7 @@ async function downloadAndInstall(): Promise<string> {
     await writeFile(join(tempDir, INSTALL_MARKER), MODEL_VERSION, 'utf8')
     await rm(PARAKEET_MODEL_DIR, { recursive: true, force: true })
     await rename(tempDir, PARAKEET_MODEL_DIR)
-    log.info(`Installed ${MODEL_NAME} ${MODEL_VERSION}`)
+    log.info('model_installed', { model: MODEL_NAME, version: MODEL_VERSION })
     setStatus({ state: 'ready' }, { immediate: true })
     return PARAKEET_MODEL_DIR
   } catch (err) {

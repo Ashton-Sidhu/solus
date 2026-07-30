@@ -2,7 +2,6 @@
   import {
     ArrowsClockwiseIcon,
     BookOpenTextIcon,
-    CircleNotchIcon,
     ClockIcon,
     SparkleIcon,
   } from "phosphor-svelte";
@@ -58,16 +57,7 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-  {#if loader.loading && loader.guide !== null}
-    <!-- Regenerating over an existing guide: the old guide stays readable below,
-         but say so — silence here reads as a dead Regenerate button. -->
-    <div
-      class="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-4 py-2 text-[11.5px] text-muted-foreground"
-    >
-      <ArrowsClockwiseIcon size={13} class="animate-spin [animation-duration:1.2s]" />
-      Regenerating review guide…
-    </div>
-  {:else if loader.stale && loader.guide}
+  {#if loader.stale && loader.guide && !loader.loading}
     <div
       class="sticky top-0 z-10 flex items-center gap-2.5 border-b border-primary bg-secondary px-4 py-2 text-[11.5px] text-secondary-foreground"
       role="status"
@@ -85,30 +75,7 @@
       </button>
     </div>
   {/if}
-  {#if generationInProgress && loader.guide === null}
-    <div class="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-      <div class="flex max-w-[360px] flex-col items-center text-center">
-        <span
-          class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground"
-          aria-hidden="true"
-        >
-          <CircleNotchIcon
-            size={20}
-            class="animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
-          />
-        </span>
-        <h2 class="mt-4 text-[18px] font-semibold tracking-[-0.01em]">
-          {generationStatus === "queued"
-            ? "Review guide queued"
-            : "Generating review guide"}
-        </h2>
-        <p class="mt-2 text-pretty text-[13.5px] leading-[1.7] text-muted-foreground">
-          You can keep reviewing while the companion reads the diff and prepares the guide.
-          We’ll let you know when it’s ready.
-        </p>
-      </div>
-    </div>
-  {:else if loader.loading && loader.guide === null}
+  {#if loader.loading && loader.guide === null}
     <ReviewProgress step={loader.progressStep} />
   {:else if loader.guide && loader.guide.sections.length > 0}
     <GuideView
@@ -153,10 +120,19 @@
           <Button
             type="button"
             class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5 text-[13px] font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+            disabled={generationInProgress}
             onclick={() => (onGenerate ? onGenerate() : loader.refresh())}
           >
-            <SparkleIcon size={13} weight="fill" class="shrink-0" />
-            Generate guide
+            {#if generationInProgress}
+              <ArrowsClockwiseIcon
+                size={13}
+                class="shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
+              />
+              Generating…
+            {:else}
+              <SparkleIcon size={13} weight="fill" class="shrink-0" />
+              Generate guide
+            {/if}
           </Button>
           {#if onAlwaysGenerate}
             <Button

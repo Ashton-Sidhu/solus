@@ -29,11 +29,17 @@ export const RPC_INVOKE_METHODS = [
   'resetTabSession',
   'switchSessionAgent',
 
+  // Peer sessions (relay cards drive sessions that have no bound tab)
+  'createHeadlessSession',
+  'promptSession',
+  'stopSession',
+
   // Permission / interaction
   'respondPermission',
   'respondQuestion',
   'rateLimitDecision',
   'cancelQueuedPrompt',
+  'editQueuedPrompt',
   'writePlanFile',
   'rewindFiles',
 
@@ -299,6 +305,7 @@ export const RPC_TOPICS = [
   'tasks-changed',
   'prs-changed',
   'attention-changed',
+  'session-status-changed',
   'stack-graph-update',
   'pr-checks-update',
   'pr-guide-status',

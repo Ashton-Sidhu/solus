@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ArrowsClockwiseIcon,
     CheckIcon,
     CaretRightIcon,
     EyeglassesIcon,
@@ -155,7 +156,9 @@
       {
         key: "review",
         label: reviewing
-          ? "Generating report…"
+          ? reviewKey
+            ? "Regenerating report…"
+            : "Generating report…"
           : reviewKey
             ? "View report"
             : "Review changes",
@@ -315,13 +318,18 @@
     environmentStore.refsFor(branchRepoRoot).worktrees,
   );
 
-  async function handleReview() {
+  function handleReview() {
     if (reviewKey) {
       panes.enterReview(reviewKey);
       requestInputFocus();
       return;
     }
+    void generateReport();
+  }
+
+  async function generateReport() {
     if (reviewing) return;
+    const isRegeneration = !!reviewKey;
     const runId = ++reviewRunId;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
     reviewing = true;
@@ -336,7 +344,7 @@
       const generatedKey = gen?.persisted ? gen.key : null;
       if (generatedKey) {
         reviewKey = generatedKey;
-        toasts.success("Report ready", {
+        toasts.success(isRegeneration ? "Report updated" : "Report ready", {
           action: {
             label: "View",
             onAction: () => {
@@ -360,6 +368,10 @@
         requestInputFocus();
       }
     }
+  }
+
+  function regenerateReport() {
+    void generateReport();
   }
 
   function cancelReview() {
@@ -484,18 +496,37 @@
 
 {#snippet actionRow(def: ActionDef)}
   <div class="row-wrap">
-    {#if def.key === "review" && reviewing}
+    {#if def.key === "review" && (reviewing || reviewKey)}
       <div class="split-row">
         {@render menuButton(def, true)}
-        <button
-          type="button"
-          class="split-caret is-danger"
-          aria-label="Cancel report generation"
-          title="Cancel report generation"
-          onclick={cancelReview}
-        >
-          <XIcon size={11} />
-        </button>
+        {#if reviewing}
+          <button
+            type="button"
+            class="split-caret is-danger"
+            aria-label="Cancel report generation"
+            title="Cancel report generation"
+            onclick={cancelReview}
+          >
+            <XIcon size={11} />
+          </button>
+        {:else}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class="split-caret"
+                  aria-label="Regenerate report"
+                  onclick={regenerateReport}
+                >
+                  <ArrowsClockwiseIcon size={12} />
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Regenerate report"} />
+          </TooltipUI.Root>
+        {/if}
       </div>
     {:else}
       {@render menuButton(def, false)}

@@ -59,6 +59,8 @@ export const KEYBINDINGS = {
   // ── Conversation (global, gated by active tab) ─────────────────────────────
   'conversation.scroll-top':      { combo: { alt: true, code: 'KeyH' },                   scope: 'global',             label: 'Scroll to first message',  group: 'Conversation' },
   'conversation.scroll-bottom':   { combo: { alt: true, code: 'KeyE' },                   scope: 'global',             label: 'Scroll to bottom',         group: 'Conversation' },
+  'conversation.find':            { combo: { mod: true, code: 'KeyF' },                   scope: 'global',             label: 'Find in conversation',     group: 'Conversation' },
+  'conversation.close-find':      { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close conversation find',  group: 'Conversation' },
   'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' },      scope: 'global',             label: 'Open changed files',       group: 'Conversation' },
   'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' },                  scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
 

@@ -11,6 +11,10 @@
     subtitle?: string | Snippet;
     /** Small accent glyph rendered beside the eyebrow (size 11 reads best). */
     icon: Snippet;
+    /** `large` gives the title the display setting the Automations landing page
+     *  uses, where the masthead carries the page rather than sharing it with a
+     *  dense table. */
+    size?: "default" | "large";
     actions?: Snippet;
     onClose?: () => void;
   }
@@ -19,6 +23,7 @@
     eyebrow = "Workspace",
     subtitle,
     icon,
+    size = "default",
     actions,
     onClose,
   }: Props = $props();
@@ -33,7 +38,11 @@
       <span class="min-w-0 truncate">{eyebrow}</span>
     </div>
 
-    <h1 class="text-[26px] font-semibold tracking-[-0.02em] text-foreground">
+    <h1
+      class="text-foreground {size === 'large'
+        ? 'text-[2.375rem] leading-none font-[620] tracking-[-0.035em]'
+        : 'text-[26px] font-semibold tracking-[-0.02em]'}"
+    >
       {title}
     </h1>
 

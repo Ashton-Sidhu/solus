@@ -149,7 +149,8 @@ export function attachWebSocketTransport(
         ;(timer as unknown as { unref?: () => void }).unref?.()
         cleanupTimers.set(clientId, timer)
       }
-      log.info(`ws session ${id} closed`, {
+      log.info('ws_session_closed', {
+        id,
         clientId,
         deviceLabel,
         reason,
@@ -158,7 +159,7 @@ export function attachWebSocketTransport(
       })
     })
 
-    log.info(`ws session ${id} opened`, { clientId, deviceLabel, deviceId, recovered: socket.recovered })
+    log.info('ws_session_opened', { id, clientId, deviceLabel, deviceId, recovered: socket.recovered })
   })
 
   return {

@@ -1,6 +1,7 @@
 <script lang="ts" module>
   import { tokenClassName } from "../editor/tokenStyle";
   import { FILE_ICON_VIEWBOX, getFileIconPath, FOLDER_ICON_PATH } from "../editor/fileIcons";
+  import { decodeHtmlEntities } from "./lib/html-entities";
 
   type Segment =
     | { type: "text"; value: string }
@@ -17,9 +18,6 @@
   const FILE_RE = /(?:^|(?<=\s))@[^\s]+/g;
   const SLASH_RE = /(?:^|(?<=\s))\/[a-zA-Z][a-zA-Z0-9_-]*(?![\w./])/g;
 
-  const HTML_ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
-  const decodeHtml = (s: string) => s.replace(/&(?:amp|lt|gt|quot|#39);/g, m => HTML_ENTITIES[m]);
-
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
     const idx = stripped.lastIndexOf("/");
@@ -27,7 +25,7 @@
   }
 
   export function tokenize(text: string): Segment[] {
-    text = decodeHtml(text);
+    text = decodeHtmlEntities(text);
     type Hit = { start: number; end: number; seg: Segment };
     const hits: Hit[] = [];
 

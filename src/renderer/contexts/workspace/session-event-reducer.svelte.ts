@@ -8,7 +8,8 @@ import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { findLastUserIndex, normalizeTodoStatus, nextMsgId, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { RelayTracker } from './relay-tracker.svelte'
+import { AGENT_INTERRUPT_NOTICE, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 
 const FINISHED_STATUSES = new Set(['completed', 'failed', 'dead', 'interrupted'])
@@ -39,8 +40,31 @@ export class SessionEventReducer {
   // concurrent background sessions avoid copying an ever-growing string on every
   // transport flush; materialize once when the tab becomes visible or commits.
   private hiddenTextChunks = new Map<string, string[]>()
+  // Extended thinking is never a message: only its duration survives, carried
+  // onto the next tool call so the activity block can say "Thought for 6s".
+  // Transport state, not domain state, so it lives here rather than on Session.
+  private thinkingSpans = new WeakMap<Session, { startedAt?: number; pendingMs: number }>()
+  /** One relay card per peer session per turn; exchanges keyed for late settles. */
+  private relays = new RelayTracker()
 
   constructor(private deps: SessionEventReducerDeps) {}
+
+  private thinkingSpan(session: Session): { startedAt?: number; pendingMs: number } {
+    let span = this.thinkingSpans.get(session)
+    if (!span) {
+      span = { pendingMs: 0 }
+      this.thinkingSpans.set(session, span)
+    }
+    return span
+  }
+
+  /** Hand the accumulated thinking time to the tool call it preceded. */
+  private takeThinkingMs(session: Session): number | undefined {
+    const span = this.thinkingSpan(session)
+    const ms = span.pendingMs
+    span.pendingMs = 0
+    return ms > 0 ? ms : undefined
+  }
 
   apply(tabId: string, event: NormalizedEvent): void {
     const tab = this.deps.registry.tabs[tabId]
@@ -65,6 +89,22 @@ export class SessionEventReducer {
     // Divert them into that parent tool's nested transcript instead of the main
     // thread, so they render inside the sub-agent card.
     const parentToolUseId = 'parentToolUseId' in event ? event.parentToolUseId : undefined
+
+    if (event.type === 'thinking') {
+      // A sub-agent card carries no duration rail, so its thinking is dropped
+      // rather than folded into the parent's summary.
+      if (parentToolUseId) return
+      const span = this.thinkingSpan(session)
+      if (event.state === 'start') {
+        session.currentActivity = 'Thinking...'
+        span.startedAt = Date.now()
+      } else if (span.startedAt !== undefined) {
+        span.pendingMs += Date.now() - span.startedAt
+        span.startedAt = undefined
+      }
+      return
+    }
+
     if (parentToolUseId) {
       this.applyChildEvent(session, parentToolUseId, event)
       return
@@ -85,6 +125,9 @@ export class SessionEventReducer {
       case 'session_init':
         session.provider = session.provider ?? this.deps.settings.activeAgent
         session.agentSessionId = event.sessionId
+        session.currentActivity = session.currentTurnStart === 'fresh'
+          ? 'Connecting...'
+          : 'Resuming...'
         session.sessionModel = event.model
         session.sessionSkills = event.skills
         if (event.handoffFrom) session.handoffFrom = event.handoffFrom
@@ -100,6 +143,7 @@ export class SessionEventReducer {
         break
 
       case 'tool_call': {
+        session.currentActivity = ''
         session.messages.push({
           id: nextMsgId(),
           role: 'tool',
@@ -111,6 +155,7 @@ export class SessionEventReducer {
           toolStatus: 'running',
           subMessages: event.isSubagent ? [] : undefined,
           subagentType: event.subagentType,
+          thinkingMs: this.takeThinkingMs(session),
           timestamp: Date.now(),
         })
         this.deps.workStreamTracker.beginToolArtifacts(
@@ -158,7 +203,10 @@ export class SessionEventReducer {
             // This marks the end of the *call*, which for a sub-agent is only the
             // moment its prompt finished streaming — the agent itself runs for
             // minutes yet. Its card settles on the agent's own result instead.
-            if (!m.subMessages) m.toolStatus = 'completed'
+            if (!m.subMessages) {
+              m.toolStatus = 'completed'
+              m.toolCompletedAt = Date.now()
+            }
             if (m.toolName === 'Write' || m.toolName === 'Edit' || m.toolName === 'exec_command') {
               completedFileMsg = m
             }
@@ -171,6 +219,7 @@ export class SessionEventReducer {
           this.deps.addChangedFilesFromMessage(tabId, completedFileMsg)
           this.deps.onTurnSettled(tabId, session.workingDirectory)
         }
+        session.currentActivity = 'Thinking...'
         break
       }
 
@@ -231,6 +280,19 @@ export class SessionEventReducer {
         break
       }
 
+      case 'background_task_progress': {
+        const msg = this.findBackgroundTaskMsg(session, event.taskId, event.toolUseId)
+        if (!msg) break
+        msg.backgroundTaskId = event.taskId
+        const progress = msg.backgroundTaskProgress ??= {}
+        if (event.description !== undefined) progress.description = event.description
+        if (event.toolUses !== undefined) progress.toolUses = event.toolUses
+        if (event.totalTokens !== undefined) progress.totalTokens = event.totalTokens
+        if (event.durationMs !== undefined) progress.durationMs = event.durationMs
+        if (event.lastToolName !== undefined) progress.lastToolName = event.lastToolName
+        break
+      }
+
       case 'background_task_settled': {
         const msg = this.findBackgroundTaskMsg(session, event.taskId, event.toolUseId)
         // Only a card still awaiting its agent settles here; a blocking sub-agent
@@ -287,22 +349,28 @@ export class SessionEventReducer {
         if (session.status === 'interrupted') break
         this.resetSessionRunState(session)
         this.deps.workStreamTracker.sweep(tabId, session)
+        session.terminalFailure = {
+          content: `Error: ${event.message}`,
+          timestamp: Date.now(),
+        }
         session.messages.push({
           id: nextMsgId(),
           role: 'system',
-          content: `Error: ${event.message}`,
-          timestamp: Date.now(),
+          ...session.terminalFailure,
         })
         break
 
       case 'session_dead':
         this.resetSessionRunState(session)
         this.deps.workStreamTracker.sweep(tabId, session)
+        session.terminalFailure = {
+          content: `Session ended unexpectedly (exit ${event.exitCode})`,
+          timestamp: Date.now(),
+        }
         session.messages.push({
           id: nextMsgId(),
           role: 'system',
-          content: `Session ended unexpectedly (exit ${event.exitCode})`,
-          timestamp: Date.now(),
+          ...session.terminalFailure,
         })
         break
 
@@ -417,7 +485,34 @@ export class SessionEventReducer {
         break
 
       case 'user_message': {
+        // A peer session's report is turn input for the model, never a bubble —
+        // the relay card already carries the reply via its `settled` update.
+        if (event.via === 'session-report') break
+        // The provider persists an interrupt as a user turn so its transcript
+        // remains well-formed. The renderer has already inserted the divider
+        // optimistically on Ctrl-C, so only retain a provider notice when it
+        // is not confirming the divider already at the transcript tail.
+        if (isAgentNotice(event.text)) {
+          const lastMessage = session.messages[session.messages.length - 1]
+          if (!lastMessage || !isAgentNotice(lastMessage.content)) {
+            session.messages.push({
+              id: event.clientPromptId ?? nextMsgId(),
+              role: 'system',
+              content: event.text,
+              timestamp: Date.now(),
+            })
+          }
+          break
+        }
         const outbound = this.takeOutboundPrompt(session, event.clientPromptId)
+        if (event.delivery === 'steer') {
+          session.currentTurnStart = 'steer'
+          session.currentActivity = 'Steering...'
+        }
+        // A real user turn starts a new attempt, including provider-originated
+        // prompts such as in-thread automations that have no optimistic bubble.
+        session.terminalFailure = null
+        this.relays.closeTurn(session)
         session.messages.push({
           id: event.clientPromptId ?? nextMsgId(),
           role: 'user' as const,
@@ -425,6 +520,11 @@ export class SessionEventReducer {
           timestamp: Date.now(),
           clientPromptId: event.clientPromptId,
           delivery: event.delivery,
+          // A prompt the limit held states its wait once it lands, so the bubble
+          // that was dashed a moment ago closes the loop instead of vanishing.
+          ...(outbound?.reason === 'rate_limit' && outbound.enqueuedAt
+            ? { queuedWaitMs: Date.now() - outbound.enqueuedAt }
+            : {}),
           ...(outbound?.attachments?.length
             ? { attachments: outbound.attachments }
             : event.imageAttachments?.length
@@ -439,6 +539,8 @@ export class SessionEventReducer {
       }
 
       case 'prompt_queued': {
+        // A queued session report is invisible plumbing — no outbound chip.
+        if (event.via === 'session-report') break
         const existing = event.clientPromptId
           ? session.outboundPrompts.find((prompt) => prompt.clientPromptId === event.clientPromptId)
           : session.outboundPrompts.find((prompt) => prompt.queueId === event.queueId)
@@ -469,6 +571,12 @@ export class SessionEventReducer {
       case 'prompt_dequeued': {
         const idx = session.outboundPrompts.findIndex((prompt) => prompt.queueId === event.queueId)
         if (idx !== -1) session.outboundPrompts.splice(idx, 1)
+        break
+      }
+
+      case 'prompt_queue_updated': {
+        const prompt = session.outboundPrompts.find((outbound) => outbound.queueId === event.queueId)
+        if (prompt) prompt.text = event.text
         break
       }
 
@@ -572,57 +680,9 @@ export class SessionEventReducer {
         break
       }
 
-      case 'session_created': {
-        session.messages.push({
-          id: nextMsgId(),
-          role: 'assistant',
-          content: '',
-          sessionRef: {
-            agentSessionId: event.agentSessionId,
-            title: event.title,
-            provider: event.provider,
-            cwd: event.cwd,
-            verb: 'Started',
-          },
-          timestamp: Date.now(),
-        })
-        this.deps.playNotificationIfHidden()
-        break
-      }
-
-      case 'session_prompted': {
-        session.messages.push({
-          id: nextMsgId(),
-          role: 'assistant',
-          content: '',
-          sessionRef: {
-            agentSessionId: event.agentSessionId,
-            title: event.promptPreview,
-            provider: event.provider,
-            cwd: event.cwd,
-            verb: 'Prompted',
-          },
-          timestamp: Date.now(),
-        })
-        this.deps.playNotificationIfHidden()
-        break
-      }
-
-      case 'session_stopped': {
-        session.messages.push({
-          id: nextMsgId(),
-          role: 'assistant',
-          content: '',
-          sessionRef: {
-            agentSessionId: event.agentSessionId,
-            title: event.agentSessionId,
-            provider: event.provider,
-            cwd: event.cwd,
-            verb: 'Stopped',
-          },
-          timestamp: Date.now(),
-        })
-        this.deps.playNotificationIfHidden()
+      case 'session_relay': {
+        const { newCard, needsAttention } = this.relays.apply(session, event.update)
+        if (newCard || needsAttention) this.deps.playNotificationIfHidden()
         break
       }
     }
@@ -637,7 +697,20 @@ export class SessionEventReducer {
     this.commitPendingStream(tabId)
     this.deps.workStreamTracker.sweep(tabId, session)
     session.status = 'interrupted'
+    // Setup cards represent live work, not transcript history. Remove one
+    // optimistically so Ctrl-C never leaves a stale setup step on screen while
+    // the stop RPC cancels any pre-session work still in flight.
+    session.statusCard = null
     this.resetSessionRunState(session)
+    const lastMessage = session.messages[session.messages.length - 1]
+    if (!lastMessage || !isAgentNotice(lastMessage.content)) {
+      session.messages.push({
+        id: nextMsgId(),
+        role: 'system',
+        content: AGENT_INTERRUPT_NOTICE,
+        timestamp: Date.now(),
+      })
+    }
     session.outboundPrompts.splice(0, session.outboundPrompts.length)
     this.deps.closePlanModal()
     this.deps.registry.forEachSiblingTab(tabId, (siblingId) => {
@@ -672,12 +745,20 @@ export class SessionEventReducer {
       return
     }
     if (!alreadyHasError) {
+      session.terminalFailure = {
+        content: `Error: ${error.message}${error.stderrTail.length > 0 ? '\n\n' + error.stderrTail.slice(-5).join('\n') : ''}`,
+        timestamp: Date.now(),
+      }
       session.messages.push({
         id: nextMsgId(),
         role: 'system' as const,
-        content: `Error: ${error.message}${error.stderrTail.length > 0 ? '\n\n' + error.stderrTail.slice(-5).join('\n') : ''}`,
-        timestamp: Date.now(),
+        ...session.terminalFailure,
       })
+    } else if (lastMsg) {
+      session.terminalFailure = {
+        content: lastMsg.content,
+        timestamp: lastMsg.timestamp,
+      }
     }
     this.deps.log(tab, 'error', session)
   }
@@ -704,12 +785,16 @@ export class SessionEventReducer {
   private applyToolResult(session: Session, event: Extract<NormalizedEvent, { type: 'tool_result' }>): void {
     const parent = event.parentToolUseId ? this.findToolMsg(session.messages, event.parentToolUseId) : undefined
     const list = parent?.subMessages ?? session.messages
-    const target = this.findToolMsg(list, event.toolUseId)
+    const target = event.parentToolUseId === event.toolUseId
+      ? parent
+      : this.findToolMsg(list, event.toolUseId)
     if (!target) return
     if (event.isAsyncLaunch && !event.isError) return
     target.toolResult = event.content
     target.toolResultIsError = event.isError ?? false
     target.toolStatus = event.isError ? 'error' : 'completed'
+    target.toolCompletedAt = Date.now()
+    if (!event.parentToolUseId) session.currentActivity = 'Thinking...'
   }
 
   /**
@@ -790,6 +875,19 @@ export class SessionEventReducer {
         }
         break
 
+      // The sub-agent's own plan, kept on its card. Each write replaces the whole
+      // list, spliced in place so the card re-reads without invalidating the
+      // parent message's other derivations.
+      case 'progress': {
+        const todos = event.todos.map((todo) => ({
+          content: todo.content,
+          status: normalizeTodoStatus(todo.status),
+        }))
+        if (parent.subTodos) parent.subTodos.splice(0, parent.subTodos.length, ...todos)
+        else parent.subTodos = todos
+        break
+      }
+
       case 'tool_call_complete':
         for (let i = subs.length - 1; i >= 0; i--) {
           const m = subs[i]
@@ -869,7 +967,7 @@ export class SessionEventReducer {
       !lastMsg.artifact &&
       !lastMsg.workRef &&
       !lastMsg.automationRef &&
-      !lastMsg.sessionRef
+      !lastMsg.relayRef
     ) {
       lastMsg.content += pendingText
     } else {
@@ -883,11 +981,20 @@ export class SessionEventReducer {
   }
 
   resetSessionRunState(session: Session): void {
+    session.currentActivity = ''
+    session.currentTurnStart = null
     session.isStreamingText = false
     session.isReconnecting = false
     session.permissionQueue = []
     session.questionQueue = []
     session.permissionDenied = null
+    // Thinking that never reached a tool call has nowhere to be printed; drop it
+    // at the turn boundary so it can't attach to the next turn's first tool.
+    const span = this.thinkingSpans.get(session)
+    if (span) {
+      span.startedAt = undefined
+      span.pendingMs = 0
+    }
   }
 
   private takeOutboundPrompt(session: Session, clientPromptId?: string) {

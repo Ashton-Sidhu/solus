@@ -5,6 +5,7 @@ import {
   serializeReferenceToken,
   type ReferenceToken,
 } from "../../src/renderer/components/editor/reference-tokens";
+import { referenceTokenClassName } from "../../src/renderer/components/ui/plain-text-editor/lib/reference-decorations";
 
 const tokens: ReferenceToken[] = [
   { kind: "file", path: "src/renderer/App.svelte", name: "App.svelte" },
@@ -34,6 +35,19 @@ const tokens: ReferenceToken[] = [
 ];
 
 describe("reference token markdown", () => {
+  test("every input reference except a skill uses the message chip shell", () => {
+    // WHY: references must not change visual language between the composer and
+    // transcript; only the skill chip represents an action rather than an object.
+    for (const token of tokens.filter((token) => token.kind !== "slash")) {
+      expect(referenceTokenClassName(token)).toContain(
+        "solus-token--link-chip",
+      );
+    }
+    expect(referenceTokenClassName(tokens[4])).not.toContain(
+      "solus-token--link-chip",
+    );
+  });
+
   test("round-trips every composer reference through one canonical format", () => {
     const source = tokens.map(serializeReferenceToken).join(" ");
     const parsed = parseReferenceTokens(source, {

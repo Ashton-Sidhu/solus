@@ -14,6 +14,7 @@ export class TurnInputChannel {
   private buffered: SDKUserMessage[] = []
   private waiting: ((result: IteratorResult<SDKUserMessage>) => void) | null = null
   private isClosed = false
+  private isSealed = false
 
   /** @param previewText the opening message's text, for the git turn snapshot. */
   constructor(opening: SDKUserMessage, readonly previewText: string) {
@@ -24,8 +25,20 @@ export class TurnInputChannel {
     return this.isClosed
   }
 
-  push(message: SDKUserMessage): void {
-    if (this.isClosed) return
+  /**
+   * Stop accepting steered messages, without ending the stream — the turn has
+   * produced its result and is settling, so anything pushed from here on would
+   * never be read. Separate from `close()`, which can lag the result by the
+   * length of a git snapshot and by any backgrounded sub-agent.
+   */
+  seal(): void {
+    this.isSealed = true
+  }
+
+  /** @returns false when the message was refused because the turn is already
+   *  settling or over, so the caller can queue it for the next run instead. */
+  push(message: SDKUserMessage): boolean {
+    if (this.isSealed || this.isClosed) return false
     const waiting = this.waiting
     if (waiting) {
       this.waiting = null
@@ -33,6 +46,7 @@ export class TurnInputChannel {
     } else {
       this.buffered.push(message)
     }
+    return true
   }
 
   close(): void {

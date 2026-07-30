@@ -2,6 +2,7 @@ import type { NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/typ
 import { findResetTimestamp } from '../../rate-limits'
 import {
   codexImageArtifactPath,
+  codexSpawnedThreadLinks,
   codexSubagentActivityInput,
   codexToolNameForItem,
   isInterruptedTurnStatus,
@@ -70,10 +71,15 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
       return threadId ? [{ type: 'goal_cleared', threadId }] : []
     }
 
-    case 'item/agentMessage/delta':
-      return typeof params?.delta === 'string' && params.delta && !codexParentToolUseId(params)
-        ? [{ type: 'text_chunk', text: params.delta }]
-        : []
+    case 'item/agentMessage/delta': {
+      if (typeof params?.delta !== 'string' || !params.delta) return []
+      const parentToolUseId = codexParentToolUseId(params)
+      return [{
+        type: 'text_chunk',
+        text: params.delta,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
+      }]
+    }
 
     case 'item/started':
       return normalizeItemStarted(params)
@@ -95,7 +101,11 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
           status: normalizePlanItemStatus(p.status),
         }))
         .filter((p: { content: string }) => p.content)
-      return todos.length > 0 ? [{ type: 'progress', todos }] : []
+      // A sub-agent's plan belongs to its own card. Untagged it would overwrite
+      // the main agent's tracker, since the reducer routes on this id alone.
+      return todos.length > 0
+        ? [{ type: 'progress', todos, parentToolUseId: codexParentToolUseId(params) }]
+        : []
     }
 
     case 'turn/completed':
@@ -113,6 +123,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   private streamedPlanId: string | null = null
   private turnId: string | null = null
   private readonly subagentParentByThreadId = new Map<string, string>()
+  private readonly seenSubagentActivity = new Set<string>()
   private readonly planMode: boolean
   private readonly assembledAgentMessages: boolean
   private readonly turnSummary: TurnSummary = {
@@ -135,8 +146,11 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
     const { method } = raw
     const params = this.withSubagentParent(raw.params)
     this.captureTurnId(params)
-    if (isInterruptedTurnStatus(params?.turn?.status)) this.interrupted = true
+    if (isInterruptedTurnStatus(params?.turn?.status) && !codexParentToolUseId(params)) {
+      this.interrupted = true
+    }
     if (this.interrupted) return []
+    if (this.isDuplicateSubagentActivity(method, params)) return []
 
     const events: NormalizedEvent[] = []
     if (this.planMode) {
@@ -193,26 +207,28 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   }
 
   private withSubagentParent(params: any): any {
-    const item = params?.item
-    if (item?.type === 'collabAgentToolCall' && typeof item.id === 'string') {
-      for (const threadId of item.receiverThreadIds ?? []) {
-        if (typeof threadId === 'string' && threadId) {
-          this.subagentParentByThreadId.set(threadId, item.id)
-        }
-      }
-    }
-    if (
-      item?.type === 'subAgentActivity' &&
-      item.kind === 'started' &&
-      typeof item.id === 'string' &&
-      typeof item.agentThreadId === 'string'
-    ) {
-      this.subagentParentByThreadId.set(item.agentThreadId, item.id)
+    for (const link of codexSpawnedThreadLinks(params?.item)) {
+      this.subagentParentByThreadId.set(link.threadId, link.toolId)
     }
 
     if (codexParentToolUseId(params)) return params
     const parentToolUseId = this.subagentParentByThreadId.get(params?.threadId)
     return parentToolUseId ? { ...params, parentToolUseId } : params
+  }
+
+  private isDuplicateSubagentActivity(method: string, params: any): boolean {
+    const item = params?.item
+    if (
+      (method !== 'item/started' && method !== 'item/completed') ||
+      item?.type !== 'subAgentActivity' ||
+      typeof item.id !== 'string'
+    ) {
+      return false
+    }
+    const key = `${item.id}:${String(item.kind ?? '')}`
+    if (this.seenSubagentActivity.has(key)) return true
+    this.seenSubagentActivity.add(key)
+    return false
   }
 
   interrupt(): void {
@@ -441,6 +457,11 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id || !item?.type) return []
 
+  // The transcript prints how long the agent thought, never the thought itself.
+  if (item.type === 'reasoning') {
+    return [{ type: 'thinking', state: 'start', parentToolUseId: codexParentToolUseId(params) }]
+  }
+
   if (item.type === 'subAgentActivity') {
     if (item.kind === 'started') {
       return [{
@@ -502,9 +523,14 @@ function normalizeToolUpdate(params: any): NormalizedEvent[] {
 function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: boolean }): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id) return []
-  // A subAgentActivity item completes as soon as Codex records the lifecycle
-  // notification. The child agent is still running, so its card must not settle.
-  if (item.type === 'subAgentActivity') return []
+  // Codex emits sub-agent lifecycle records as completed items without a
+  // preceding item/started notification. Treat the record itself as the
+  // lifecycle event: "started" opens the still-running card, while
+  // "interrupted" settles it through the same normalization used above.
+  if (item.type === 'subAgentActivity') return normalizeItemStarted(params)
+  if (item.type === 'reasoning') {
+    return [{ type: 'thinking', state: 'stop', parentToolUseId: codexParentToolUseId(params) }]
+  }
   const parentToolUseId = codexParentToolUseId(params)
   const toolName = codexToolNameForItem(item)
   const isClaudeSubagent = item.type === 'dynamicToolCall' &&
@@ -685,6 +711,34 @@ function codexParentToolUseId(params: any): string | undefined {
 
 function normalizeTurnCompleted(params: any): NormalizedEvent[] {
   const turn = params?.turn || {}
+  const parentToolUseId = codexParentToolUseId(params)
+  if (parentToolUseId) {
+    if (turn.status === 'failed') {
+      const message = typeof turn.error === 'string' ? turn.error : turn.error?.message
+      return [{
+        type: 'tool_result',
+        toolUseId: parentToolUseId,
+        content: message || 'Codex subagent failed',
+        isError: true,
+        parentToolUseId,
+      }]
+    }
+    if (
+      turn.status === 'interrupted' ||
+      turn.status === 'cancelled' ||
+      turn.status === 'canceled' ||
+      turn.status === 'aborted'
+    ) {
+      return [{
+        type: 'tool_result',
+        toolUseId: parentToolUseId,
+        content: 'Interrupted',
+        isError: true,
+        parentToolUseId,
+      }]
+    }
+    return []
+  }
   if (turn.status === 'interrupted' || turn.status === 'cancelled' || turn.status === 'canceled' || turn.status === 'aborted') return []
   if (turn.status === 'failed') {
     const events: NormalizedEvent[] = []

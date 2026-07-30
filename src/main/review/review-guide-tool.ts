@@ -142,14 +142,14 @@ export function normalizeGuide(draft: ReviewGuideDraft, ctx: NormalizeGuideConte
   const sections = draft.sections.map((s) => {
     const refs = s.ledgerRefs.filter((r) => ledgerSet.has(r))
     const dropped = s.ledgerRefs.length - refs.length
-    if (dropped > 0) log.warn(`section "${s.id}" cited ${dropped} unknown ledger id(s) — dropped`)
+    if (dropped > 0) log.warn('guide_section_unknown_ledger_refs_dropped', { sectionId: s.id, dropped })
     return { ...s, ledgerRefs: refs }
   })
 
   const covered = new Set(sections.flatMap((s) => s.files.map((f) => f.path)))
   const missing = ctx.changedFiles.filter((f) => !covered.has(f))
   if (missing.length > 0) {
-    log.warn(`guide omitted ${missing.length} changed file(s) — appending a low-signal catch-all`)
+    log.warn('guide_omitted_changed_files', { count: missing.length })
     sections.push({
       id: 'remaining-changes',
       title: 'Remaining changes',

@@ -7,7 +7,6 @@ import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from '../app/toast.store.svelte'
 import { isDispatchedSession } from '../../components/servers/run-on'
-import { buildHandoffDividerMessage } from './session-transcript'
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
@@ -97,7 +96,7 @@ export class SessionConfigController {
     }
 
     const newModelConfig = this.defaultModelConfigFor(agentId)
-    if (!session?.agentSessionId) {
+    if (!session?.agentSessionId && !session?.handoffFrom) {
       analytics.agentSwitched({ from: this.deps.settings.activeAgent, to: agentId })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
@@ -124,19 +123,17 @@ export class SessionConfigController {
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
       session.provider = agentId
-      session.agentSessionId = null
+      session.agentSessionId = result.restoredSessionId ?? null
       session.modelConfig = { ...newModelConfig }
       session.sessionModel = null
       session.sessionSkills = []
       session.pluginCommands = { global: [], project: [] }
-      session.handoffFrom = {
-        provider: result.fromProvider,
-        sessionId: result.fromSessionId,
-      }
-      session.messages.push(buildHandoffDividerMessage({
-        fromProvider: result.fromProvider,
-        toProvider: agentId,
-      }))
+      session.handoffFrom = result.restoredSessionId
+        ? result.handoffFrom
+        : {
+            provider: result.fromProvider,
+            sessionId: result.fromSessionId,
+          }
       this.deps.refreshPluginCommands(session.workingDirectory, targetTabId)
     } catch (error) {
       toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)

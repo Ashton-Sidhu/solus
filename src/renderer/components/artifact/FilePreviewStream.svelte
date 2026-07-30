@@ -22,6 +22,7 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import DiffCommentForm from "../diff/DiffCommentForm.svelte";
   import DiffInlineComment from "../diff/DiffInlineComment.svelte";
+  import DiffActionBar from "../diff/DiffActionBar.svelte";
   import { InlineCommentDraft } from "../diff/diff-comment-draft.store.svelte";
   import {
     fileContentVersion,
@@ -560,6 +561,7 @@
     {/if}
   </div>
 
+  <DiffActionBar tabId={targetTabId} filePath={commentPath} />
 </div>
 
 <style>

@@ -192,12 +192,15 @@ export class HostSetupSession {
    * Installs the provider's CLI when the host lacks it and signs it in, as one
    * action. Retrying re-reads readiness, so a failed sign-in retries only the
    * sign-in rather than reinstalling what already landed.
+   *
+   * `force` re-runs the sign-in on a provider that already reads as signed in,
+   * for a token that has gone stale since the host last answered.
    */
-  async addProvider(provider: SetupAgent): Promise<void> {
+  async addProvider(provider: SetupAgent, opts?: { force?: boolean }): Promise<void> {
     if (this.providerStages[provider]) return
     try {
       const state = this.readiness?.agents?.[provider] ?? { installed: false, signedIn: false }
-      for (const action of providerSetupActions(state)) {
+      for (const action of providerSetupActions(state, opts)) {
         this.providerStages[provider] = action
         const succeeded =
           action === 'install'
@@ -239,8 +242,12 @@ export class HostSetupSession {
     await this.store.resolveApi(this.serverId).setupCancelAgentSignIn().catch(() => {})
   }
 
-  /** The only step-id dispatcher, shared by the rail's retry and automatic run. */
-  async runStep(id: OnboardingStepId, provider?: SetupAgent): Promise<void> {
+  /**
+   * The only step-id dispatcher, shared by the rail's retry and automatic run.
+   * `providers` isn't here: which provider to add is a choice, so the card that
+   * offers it calls `addProvider` with the one the user pressed.
+   */
+  async runStep(id: OnboardingStepId): Promise<void> {
     switch (id) {
       case 'github':
         await this.connectGithub()
@@ -253,9 +260,6 @@ export class HostSetupSession {
         return
       case 'gh-auth':
         await this.authorizeGhCli()
-        return
-      case 'providers':
-        if (provider) await this.addProvider(provider)
     }
   }
 

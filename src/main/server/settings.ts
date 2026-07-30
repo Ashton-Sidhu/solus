@@ -38,7 +38,7 @@ export function getServerSettings(): ServerSettings {
       }
       return _settings
     } catch (err) {
-      log.warn(`failed to load server settings: ${err}`)
+      log.warn('server_settings_load_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 

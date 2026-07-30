@@ -7,13 +7,24 @@
     GitBranchIcon,
   } from "phosphor-svelte";
   import InputBar from "@renderer/components/input/InputBar.svelte";
+  import InputBarHeader from "@renderer/components/input/InputBarHeader.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
-  import { getWorkspaceContext, getPlanStore, runtime } from "@renderer/contexts";
-  import { sessionTitle, getStatusIcon } from "@renderer/lib/sessionUtils";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    runtime,
+    serversStore,
+  } from "@renderer/contexts";
+  import {
+    sessionTitle,
+    getStatusIcon,
+    hasSessionStarted,
+  } from "@renderer/lib/sessionUtils";
   import type { WorktreeEntry } from "@shared/types";
   import WebSidebarDrawer from "./WebSidebarDrawer.svelte";
   import MobilePlusMenu from "./MobilePlusMenu.svelte";
   import MobileModelPicker from "./MobileModelPicker.svelte";
+  import MobileServerSheet from "./MobileServerSheet.svelte";
   import { virtualKeyboard } from "../lib/virtual-keyboard.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
 
@@ -51,9 +62,20 @@
     (tab && sess) ? getStatusIcon(sess.status) : null,
   );
   const branch = $derived(sess?.gitContext?.branch);
+  // The destination strip (project · start-in · branch) is editable exactly
+  // until the session starts — the same lifetime it has on desktop.
+  const sessionStarted = $derived(hasSessionStarted(sess));
+  // A started session that runs on another host names it in the navbar, since
+  // the strip that would have said so is gone by then.
+  const hostGlyph = $derived(serversStore.affinityFor(sess?.serverId));
+  const hostName = $derived.by(() => {
+    const host = serversStore.hostFor(sess?.serverId);
+    return host && !host.local ? host.label : null;
+  });
 
   let plusMenuOpen = $state(false);
   let sidebarDrawerOpen = $state(false);
+  let serverSheetOpen = $state(false);
   let gitOpen = $state(false);
   let gitTriggerEl: HTMLButtonElement | null = $state(null);
   let inputFocused = $state(false);
@@ -63,6 +85,7 @@
   registerBackOverlay("mobile-session-picker", () => runtime.isMobileViewport && session.sessionPickerOpen, () => (session.sessionPickerOpen = false));
   registerBackOverlay("mobile-drawer", () => sidebarDrawerOpen, () => (sidebarDrawerOpen = false));
   registerBackOverlay("mobile-plus-menu", () => plusMenuOpen, () => (plusMenuOpen = false));
+  registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));
 
   const kbHeight = $derived(virtualKeyboard.keyboardHeight);
 
@@ -75,6 +98,29 @@
       );
     }
   });
+
+  // iOS convention: a swipe in from the left screen edge opens the drawer.
+  // Only a clearly horizontal drag that started at the edge counts, so code
+  // blocks and the conversation keep their own horizontal scrolling.
+  let edgeTouch: { x: number; y: number } | null = null;
+
+  function onShellTouchStart(e: TouchEvent) {
+    const touch = e.touches[0];
+    edgeTouch = touch.clientX <= 20 && !sidebarDrawerOpen
+      ? { x: touch.clientX, y: touch.clientY }
+      : null;
+  }
+
+  function onShellTouchMove(e: TouchEvent) {
+    if (!edgeTouch) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - edgeTouch.x;
+    const dy = Math.abs(touch.clientY - edgeTouch.y);
+    if (dx > 24 && dx > dy * 1.5) {
+      sidebarDrawerOpen = true;
+      edgeTouch = null;
+    }
+  }
 
   function toggleGitMenu() {
     if (!branch) return;
@@ -92,7 +138,14 @@
   }
 </script>
 
-<div data-solus-ui class="mobile-shell">
+<!-- Passive edge-swipe gesture listeners, not interactive semantics. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  data-solus-ui
+  class="mobile-shell"
+  ontouchstart={onShellTouchStart}
+  ontouchmove={onShellTouchMove}
+>
   <header
     class="mh-navbar"
     class:mode-hidden={(diffPanelOpen && canShowDiffPanel) ||
@@ -136,16 +189,25 @@
       </button>
     </div>
 
-    {#if branch}
+    {#if branch || (sessionStarted && hostGlyph)}
       <div class="mh-navbar-strip">
-        <button
-          bind:this={gitTriggerEl}
-          class="mh-navbar-chip"
-          onclick={toggleGitMenu}
-        >
-          <GitBranchIcon size={12} />
-          <span>{branch}</span>
-        </button>
+        {#if sessionStarted && hostGlyph && hostName}
+          {@const HostIcon = hostGlyph.icon}
+          <span class="mh-navbar-chip mh-navbar-chip--inert" title={hostGlyph.tooltip}>
+            <HostIcon size={12} class={hostGlyph.className} />
+            <span>{hostName}</span>
+          </span>
+        {/if}
+        {#if branch}
+          <button
+            bind:this={gitTriggerEl}
+            class="mh-navbar-chip"
+            onclick={toggleGitMenu}
+          >
+            <GitBranchIcon size={12} />
+            <span>{branch}</span>
+          </button>
+        {/if}
       </div>
     {/if}
   </header>
@@ -172,6 +234,11 @@
       (diffPanelOpen && canShowDiffPanel)}
     style={kbHeight > 0 ? `padding-bottom:${Math.max(10, kbHeight)}px` : ""}
   >
+    {#if !sessionStarted}
+      <div class="mobile-destination-strip">
+        <InputBarHeader />
+      </div>
+    {/if}
     <div
       class="mobile-pill"
       class:mobile-pill--focused={inputFocused}
@@ -207,11 +274,18 @@
   {canShowDiffPanel}
   {diffPanelOpen}
   {changedFilesCount}
+  onOpenServers={() => (serverSheetOpen = true)}
 />
 
 <WebSidebarDrawer
   open={sidebarDrawerOpen}
   onClose={() => (sidebarDrawerOpen = false)}
+  onOpenServers={() => (serverSheetOpen = true)}
+/>
+
+<MobileServerSheet
+  open={serverSheetOpen}
+  onClose={() => (serverSheetOpen = false)}
 />
 
 {#if branch && tab && sess}
@@ -250,6 +324,9 @@
     padding-left: max(0.5rem, env(safe-area-inset-left, 0));
     padding-right: max(0.5rem, env(safe-area-inset-right, 0));
     z-index: 4;
+    /* App chrome is not copy — long-press must never start a text selection. */
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .mh-navbar-top {
@@ -268,6 +345,7 @@
   }
 
   .mh-navbar-chip {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 0.25rem;
@@ -279,11 +357,36 @@
     font-size: 0.6875rem;
     color: var(--solus-text-tertiary);
     -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease;
+  }
+
+  /* The visible chip is ~24px tall; stretch the touch target to ~40px. */
+  .mh-navbar-chip::before {
+    content: "";
+    position: absolute;
+    inset: -0.5rem -0.25rem;
   }
 
   .mh-navbar-chip:active {
     background: var(--solus-surface-hover);
     color: var(--solus-text-secondary);
+  }
+
+  .mh-navbar-chip--inert {
+    cursor: default;
+  }
+
+  .mh-navbar-chip--inert:active {
+    background: transparent;
+    color: var(--solus-text-tertiary);
+  }
+
+  /* The destination strip carries its own horizontal padding (px-3.5), which
+     would stack with the dock's — pull it back so chips align with the pill. */
+  .mobile-destination-strip {
+    margin: 0 -0.375rem 0.125rem;
   }
 
   .mh-navbar-side-btn {
@@ -299,11 +402,16 @@
     cursor: pointer;
     flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 0.12s ease,
+      color 0.12s ease,
+      transform 0.12s ease;
   }
 
   .mh-navbar-side-btn:active {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
+    transform: scale(0.96);
   }
 
   .mh-navbar-side-btn--accent {
@@ -329,6 +437,7 @@
     padding: 0.25rem 0.5rem;
     border-radius: 0.625rem;
     -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.12s ease;
   }
 
   .mh-navbar-center:active {
@@ -396,6 +505,9 @@
     padding-right: max(0.75rem, env(safe-area-inset-right, 0));
     z-index: 5;
     contain: layout paint;
+    /* visualViewport reports the keyboard in coarse steps; a short ease turns
+       those steps into one motion that tracks the iOS keyboard slide. */
+    transition: padding-bottom 0.15s ease-out;
   }
 
   .mobile-pill {
@@ -458,16 +570,33 @@
     pointer-events: none;
   }
 
-  .mobile-shell :global(.ProseMirror) {
+  /* The composer is CodeMirror now; 16px keeps iOS Safari from zooming the
+     viewport when the input gains focus. */
+  .mobile-shell :global(.cm-editor) {
     font-size: 1rem;
     line-height: 1.5;
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
   }
 
-  .mobile-shell :global(.solus-md-placeholder) {
-    top: 0.5rem;
+  .ws-diff {
+    flex-shrink: 0;
+    /* Full-screen surfaces arrive like an iOS sheet, not a cut. */
+    animation: mobile-surface-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   }
 
-  .ws-diff { flex-shrink: 0; }
+  @keyframes mobile-surface-in {
+    from {
+      opacity: 0;
+      transform: translateY(1.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ws-diff {
+      animation: none;
+    }
+  }
 </style>

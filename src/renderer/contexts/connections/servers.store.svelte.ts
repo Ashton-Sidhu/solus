@@ -87,27 +87,61 @@ class ServersStore {
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
   get servers(): ServerItem[] {
-    const local = this.local
-      ? [{
+    const local: ServerItem[] = []
+    if (this.local) {
+      local.push({
+        id: LOCAL_SERVER_ID,
+        label: 'This Mac',
+        url: `http://127.0.0.1:${this.local.port}`,
+        installationId: this.local.installationId,
+        local: true,
+        status: this.statusFor(LOCAL_SERVER_ID),
+      })
+    } else if (this.isWebClient) {
+      // A web client has no machine of its own: the host it is connected to
+      // plays the local role, so it heads the list as the unmarked case.
+      const active = this.remotes.find((server) => server.id === this.activeServerId)
+      if (active) {
+        local.push({
           id: LOCAL_SERVER_ID,
-          label: 'This Mac',
-          url: `http://127.0.0.1:${this.local.port}`,
-          installationId: this.local.installationId,
+          label: active.label,
+          url: active.url,
+          installationId: active.installationId,
           local: true,
           status: this.statusFor(LOCAL_SERVER_ID),
-        } satisfies ServerItem]
-      : []
+        })
+      }
+    }
     return [
       ...local,
-      ...this.remotes.map((server) => ({
-        id: server.id,
-        label: server.label,
-        url: server.url,
-        installationId: server.installationId,
-        local: false,
-        status: this.statusFor(server.id),
-      })),
+      ...this.remotes
+        .filter((server) => !this.isWebClient || server.id !== this.activeServerId)
+        .map((server) => ({
+          id: server.id,
+          label: server.label,
+          url: server.url,
+          installationId: server.installationId,
+          local: false,
+          status: this.statusFor(server.id),
+        })),
     ]
+  }
+
+  /** On web the primary connection plays the local role; see `servers`.
+   *  `typeof` guard: unit tests read this store without a `window` at all. */
+  private get isWebClient(): boolean {
+    return typeof window !== 'undefined' && window.solus?.getPlatform?.() === 'web'
+  }
+
+  /**
+   * The two names the web primary answers to, folded onto the one that has
+   * state: transport status lives under the real server id, while the host
+   * list shows that server as the local row.
+   */
+  private resolveHostId(serverId: string): string {
+    if (this.local || !this.isWebClient) return serverId
+    if (serverId === LOCAL_SERVER_ID) return this.activeServerId
+    return serverId
   }
 
   get activeServer(): ServerItem | null {
@@ -160,10 +194,14 @@ class ServersStore {
     document.addEventListener('visibilitychange', updateAutoDiscovery)
     updateAutoDiscovery()
 
-    void window.solusNative.getLocalConnection().then((local) => {
-      this.local = local
-      this.updateAutoDiscovery()
-    })
+    // The browser client has no native bridge and therefore no "This Mac".
+    const nativeApi = (window as { solusNative?: typeof window.solusNative }).solusNative
+    if (nativeApi) {
+      void nativeApi.getLocalConnection().then((local) => {
+        this.local = local
+        this.updateAutoDiscovery()
+      })
+    }
 
     subscribe(({ status, attempt, target }) => {
       if (target) {
@@ -219,11 +257,18 @@ class ServersStore {
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
-      const discovered = await serverConnections.apiFor(LOCAL_SERVER_ID).discoverServers()
+      // Discovery runs where a network can be scanned: the local app on
+      // desktop, and the connected server's own network on web — so a phone
+      // still sees the hosts sitting next to the machine it is paired with.
+      const discoveryApi = this.local
+        ? serverConnections.apiFor(LOCAL_SERVER_ID)
+        : window.solus
+      const discovered = await discoveryApi.discoverServers()
       const filtered = filterUnsavedDiscoveredServers({
         discovered,
         savedServers: loadServers(),
-        selfInstallationId: this.local?.installationId,
+        selfInstallationId: this.local?.installationId
+          ?? this.activeServer?.installationId,
       })
       const merged = mergeNearbyHosts(this.nearby, filtered, Date.now())
       const mergedInstallationIds = new Set<string>()
@@ -246,6 +291,7 @@ class ServersStore {
   }
 
   switchTo(serverId: string): void {
+    serverId = this.resolveHostId(serverId)
     if (serverId === this.activeServerId) {
       requestInputFocus()
       return
@@ -295,6 +341,7 @@ class ServersStore {
    * list and the host page can never disagree about whether a host is up.
    */
   async checkReachable(serverId: string): Promise<boolean> {
+    serverId = this.resolveHostId(serverId)
     let health = null
     try {
       health = await serverConnections.probeHealth(serverId, true)
@@ -364,6 +411,11 @@ class ServersStore {
 
   hostFor(serverId: string | null | undefined): ServerItem | UnknownRemoteHost | null {
     if (!serverId) return null
+    // On web the active server is listed as the local row, so its real id
+    // resolves to that row rather than reading as a forgotten host.
+    if (!this.local && this.isWebClient && serverId === this.activeServerId) {
+      serverId = LOCAL_SERVER_ID
+    }
     const host = this.servers.find((server) => server.id === serverId)
     if (host) return host
     if (serverId === LOCAL_SERVER_ID) return null
@@ -371,6 +423,7 @@ class ServersStore {
   }
 
   statusFor(serverId: string): ServerItemStatus {
+    serverId = this.resolveHostId(serverId)
     const state = this.connectionStatesByServer[serverId]
     if (state?.transportStatus === 'connected') return 'online'
     // A socket retries for as long as a saved host is unavailable. Once the
@@ -441,8 +494,7 @@ class ServersStore {
   }
 
   private shouldAutoDiscover(): boolean {
-    if (document.hidden || !document.hasFocus()) return false
-    return window.solus.getPlatform?.() !== 'web'
+    return !document.hidden && document.hasFocus()
   }
 
   private showDiscoveryToast(servers: DiscoveredServer[]): void {

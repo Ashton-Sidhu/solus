@@ -40,6 +40,7 @@
   const isDemo = document.documentElement.classList.contains("solus-demo");
 
   const loader = new GuideLoader({
+    getApi: () => session.apiFor(session.activeTabId),
     getCtx: () => session.ctx,
     getKey: () => guideKey,
     getScope: () => scope,
@@ -56,6 +57,7 @@
   // surface (drafts → GitHub review), these submit back to the agent as
   // feedback on the change, closing the review → fix loop.
   const reviewDrafts = new ReviewDrafts({
+    getApi: () => session.apiFor(session.activeTabId),
     getCtx: () => session.ctx,
     getKey: () => guideKey,
   });

@@ -107,15 +107,15 @@ export class CodexAppServerClient extends EventEmitter {
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (chunk) => {
       const text = String(chunk).trim()
-      if (text) log.warn(text)
+      if (text) log.warn('app_server_stderr', { text })
     })
     proc.on('error', (err) => {
-      log.error(`Failed to start Codex app-server: ${err.message}`)
+      log.error('app_server_start_failed', { error: err.message })
       this.rejectAll(err)
       this.emit('error', err)
     })
     proc.on('exit', (code, signal) => {
-      log.warn(`Codex app-server exited code=${code} signal=${signal}`)
+      log.warn('app_server_exited', { code, signal })
       this.proc = null
       const err = new Error(`Codex app-server exited code=${code} signal=${signal}`)
       this.rejectAll(err)
@@ -144,7 +144,7 @@ export class CodexAppServerClient extends EventEmitter {
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       }, 15_000)
     } catch (err) {
-      log.warn(`Codex app-server initialize failed: ${(err as Error).message}`)
+      log.warn('app_server_initialize_failed', { error: (err as Error).message })
     }
 
     // Point Codex at the app-bundled skills via the live API rather than config,
@@ -154,7 +154,7 @@ export class CodexAppServerClient extends EventEmitter {
         extraRoots: [join(SOLUS_PLUGINS_DIR, 'skills')],
       }, 15_000)
     } catch (err) {
-      log.warn(`Codex skills/extraRoots/set failed: ${(err as Error).message}`)
+      log.warn('skills_extra_roots_set_failed', { error: (err as Error).message })
     }
   }
 
@@ -169,7 +169,7 @@ export class CodexAppServerClient extends EventEmitter {
       try {
         this.onMessage(JSON.parse(line) as JsonRpcMessage)
       } catch {
-        log.warn(`Ignoring non-JSON app-server stdout: ${line.slice(0, 300)}`)
+        log.warn('non_json_stdout_ignored', { line })
       }
     }
   }

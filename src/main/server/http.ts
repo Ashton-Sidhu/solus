@@ -16,6 +16,8 @@ import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
 import { completeGoogleOAuthCallback } from '../google/oauth'
 import { listProjects } from '../project-config/projects-manifest'
+import { readWav } from '../transcription/wav'
+import { MAX_VOICE_WAV_BYTES } from '../../shared/voice-audio'
 
 const log = createLogger('main', 'http')
 
@@ -30,6 +32,8 @@ export interface HttpServerOptions {
   port?: number
   /** Path to the prebuilt web client `dist/` directory; if present, mounted at /. */
   staticDir?: string
+  /** Long-form voice transcription implementation supplied by the host. */
+  transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
 
 /** The Node req/res the @hono/node-server adapter exposes as `c.env`. */
@@ -72,13 +76,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   app.use('/pair', publicCors)
   app.use('/claim', publicCors)
   app.use('/upload', publicCors)
+  app.use('/voice/transcribe', publicCors)
   app.use('/artifact', publicCors)
   app.use('/auth/refresh', publicCors)
   app.use('/auth/pair-token', publicCors)
   app.use('/auth/revoke', publicCors)
 
   app.onError((err, c) => {
-    log.error(`http handler error: ${err}`)
+    log.error('http_handler_error', { error: err instanceof Error ? err.message : String(err) })
     return c.json({ error: 'internal' }, 500)
   })
   app.notFound((c) => c.json({ error: 'not found' }, 404))
@@ -110,7 +115,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
       return c.json({ error: 'Invalid or expired pair token' }, 401)
     }
     const { token: sessionToken } = issueSessionToken(deviceLabel)
-    log.info(`pair: issued session for "${deviceLabel}"`)
+    log.info('pair_session_issued', { deviceLabel })
     return c.json({ sessionToken, installationId: getInstallationId() })
   })
 
@@ -129,7 +134,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
       return c.json({ error: result.reason === 'owned' ? 'Server already claimed' : 'Invalid or expired claim code' }, 403)
     }
 
-    log.info(`claim: owner device "${deviceLabel}" claimed server`)
+    log.info('server_claimed', { deviceLabel })
     return c.json(result)
   })
 
@@ -137,7 +142,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     if (!verifyClaimOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
     const claimWindow = openClaimWindow()
     if (!claimWindow) return c.json({ error: 'Server already claimed' }, 403)
-    log.info('claim: reopened local admin claim window')
+    log.info('claim_window_reopened')
     return c.json({
       code: claimWindow.code,
       expiresAt: claimWindow.expiresAt,
@@ -153,8 +158,32 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
       const filePaths = await receiveMultipart(c.env.incoming)
       return c.json({ attachments: filePathsToAttachments(filePaths) })
     } catch (err) {
-      log.error(`upload error: ${err}`)
+      log.error('upload_failed', { error: err instanceof Error ? err.message : String(err) })
       return c.json({ error: 'upload failed' }, 500)
+    }
+  })
+
+  app.post('/voice/transcribe', async (c) => {
+    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized', transcript: null }, 401)
+    if (!opts.transcribeAudio) return c.json({ error: 'Voice transcription is unavailable', transcript: null }, 503)
+
+    const declaredLength = Number(c.req.header('content-length') ?? 0)
+    if (declaredLength > MAX_VOICE_WAV_BYTES) {
+      return c.json({ error: 'Voice recording exceeds the 60 minute limit', transcript: null }, 413)
+    }
+
+    try {
+      const wav = await readLimitedBody(c.env.incoming, MAX_VOICE_WAV_BYTES)
+      const samples = readWav(wav)
+      return c.json(await opts.transcribeAudio(samples))
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        return c.json({ error: 'Voice recording exceeds the 60 minute limit', transcript: null }, 413)
+      }
+      return c.json({
+        error: err instanceof Error ? err.message : 'Invalid voice recording',
+        transcript: null,
+      }, 400)
     }
   })
 
@@ -241,7 +270,7 @@ async function resolveKnownProjectFile(rawPath: string): Promise<string | null> 
   }
 
   const projects = await listProjects().catch((err) => {
-    log.warn(`artifact project-root lookup failed: ${err}`)
+    log.warn('artifact_project_lookup_failed', { error: err instanceof Error ? err.message : String(err) })
     return []
   })
 
@@ -264,6 +293,20 @@ function isInsideRoot(root: string, target: string): boolean {
 // so we bound files/size rather than trusting the client to be well-behaved.
 const MAX_UPLOAD_FILES = 20
 const MAX_UPLOAD_FILE_BYTES = 100 * 1024 * 1024
+
+class BodyTooLargeError extends Error {}
+
+async function readLimitedBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    totalBytes += buffer.length
+    if (totalBytes > maxBytes) throw new BodyTooLargeError()
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks, totalBytes)
+}
 
 async function receiveMultipart(req: IncomingMessage): Promise<string[]> {
   const form = formidable({

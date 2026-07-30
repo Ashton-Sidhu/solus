@@ -119,12 +119,16 @@ test.describe('Two-pane layout', () => {
     await conversation.typeAndSend('__MOCK_PLAN__ create a migration plan')
     await planPage.openFromCard()
 
+    // The full-app reader opens its contents at the top of the plan.
+    await expect(page.getByLabel('On this page')).toHaveClass(/doc-outline--open/)
+
     // Move to secondary via the "Open in split" button
     await pane.openInSplit()
     await pane.waitForSecondaryPane()
 
     // Plan is still visible (in secondary), conversation tab is now visible (in primary)
     await expect(page.getByTestId('plan-modal')).toBeVisible()
+    await expect(page.getByLabel('On this page')).not.toHaveClass(/doc-outline--open/)
     await expect(pane.isConversationVisible()).resolves.toBe(true)
 
     // Input dock must be visible so the user can actually chat
@@ -135,6 +139,7 @@ test.describe('Two-pane layout', () => {
     await pane.openInSplit()
     await expect(page.locator(`${ACTIVE_SHELL} .secondary-pane-wrap`)).toBeHidden({ timeout: 3_000 })
     await expect(page.getByTestId('plan-modal')).toBeVisible()
+    await expect(page.getByLabel('On this page')).toHaveClass(/doc-outline--open/)
     await expect(page.locator(`${ACTIVE_TAB}`).first()).toBeHidden({ timeout: 3_000 })
   })
 

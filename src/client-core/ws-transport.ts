@@ -1,6 +1,11 @@
 import { io, type Socket } from 'socket.io-client'
 import { RPC_INVOKE_METHODS, RPC_TOPICS } from '../shared/rpc'
 import type { RpcInvokeMethod, RpcTopic } from '../shared/rpc'
+import {
+  encodePcm16Wav,
+  MAX_VOICE_RECORDING_MINUTES,
+  MAX_VOICE_SAMPLES,
+} from '../shared/voice-audio'
 
 /** WebSocket transport shared by the browser client and Electron renderer. */
 
@@ -123,15 +128,27 @@ export class WsTransport {
       getPathForFile: () => '',
       setQuoteContext: () => {},
       onQuoteSelection: () => () => {},
+      onAskSelectionInNewSession: () => () => {},
     }
 
     for (const method of RPC_INVOKE_METHODS) {
       api[method] = (...args: unknown[]) => this.invoke(method, args)
     }
 
-    // Float32Array does not survive JSON serialization as an array.
+    // Voice recordings are intentionally kept off the RPC socket. Serializing
+    // Float32 PCM as JSON expands long recordings enough to exceed Socket.IO's
+    // frame limit, then reconnect replays the same undeliverable request.
     api.transcribeAudio = (audio: Float32Array | string, ...args: unknown[]) =>
-      this.invoke('transcribeAudio', [audio instanceof Float32Array ? Array.from(audio) : audio, ...args])
+      audio instanceof Float32Array
+        ? this.transcribeAudio(audio)
+        : this.invoke('transcribeAudio', [audio, ...args])
+
+    // A link must open on the device the user is holding — the RPC would open
+    // a browser on the host instead (e.g. provider sign-in verification URLs).
+    api.openExternal = (url: string): Promise<boolean> => {
+      window.open(url, '_blank', 'noopener')
+      return Promise.resolve(true)
+    }
 
     api['attachFiles'] = (): Promise<unknown> => {
       return new Promise((resolve) => {
@@ -169,6 +186,7 @@ export class WsTransport {
     api.onTasksChanged = (cb: Listener) => this.subscribe('tasks-changed', cb)
     api.onPrsChanged = (cb: Listener) => this.subscribe('prs-changed', cb)
     api.onAttentionChanged = (cb: Listener) => this.subscribe('attention-changed', cb)
+    api.onSessionStatusChanged = (cb: Listener) => this.subscribe('session-status-changed', cb)
     api.onStackGraphUpdate = (cb: Listener) => this.subscribe('stack-graph-update', cb)
     api.onPrChecksUpdate = (cb: Listener) => this.subscribe('pr-checks-update', cb)
     api.onPrGuideStatus = (cb: Listener) => this.subscribe('pr-guide-status', cb)
@@ -252,6 +270,42 @@ export class WsTransport {
     } catch {
       return null
     }
+  }
+
+  private async transcribeAudio(samples: Float32Array): Promise<{ error: string | null; transcript: string | null }> {
+    if (samples.length > MAX_VOICE_SAMPLES) {
+      return {
+        error: `Voice recordings can be up to ${MAX_VOICE_RECORDING_MINUTES} minutes long.`,
+        transcript: null,
+      }
+    }
+
+    const wav = encodePcm16Wav(samples)
+    let response = await this.postVoiceRecording(wav)
+    if (response.status === 401 && await this.refreshToken() === 'refreshed') {
+      response = await this.postVoiceRecording(wav)
+    }
+
+    let body: { error?: string | null; transcript?: string | null } = {}
+    try { body = await response.json() as typeof body } catch {}
+    if (!response.ok) {
+      return { error: body.error || `Voice upload failed (${response.status})`, transcript: null }
+    }
+    return {
+      error: body.error ?? null,
+      transcript: body.transcript ?? null,
+    }
+  }
+
+  private postVoiceRecording(wav: ArrayBuffer): Promise<Response> {
+    return fetch(`${this.opts.serverUrl}/voice/transcribe`, {
+      method: 'POST',
+      headers: {
+        ...(this.opts.sessionToken ? { authorization: `Bearer ${this.opts.sessionToken}` } : {}),
+        'content-type': 'audio/wav',
+      },
+      body: wav,
+    })
   }
 
   private invoke(method: RpcInvokeMethod, args: unknown[]): Promise<unknown> {

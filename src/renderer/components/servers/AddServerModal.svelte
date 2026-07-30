@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { CheckCircleIcon, LinkSimpleIcon, XIcon } from "phosphor-svelte";
-  import { desktopDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
+  import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
   import type { SavedServer } from "@client-core/server-registry";
   import { serversStore, toasts } from "../../contexts";
   import * as Tabs from "../ui/tabs";
@@ -81,7 +81,7 @@
       const result = await pairServer({
         url,
         pairToken,
-        deviceLabel: desktopDeviceLabel(),
+        deviceLabel: defaultDeviceLabel(),
         serverLabel: label.trim() || urlHost(url),
       });
       serversStore.savePairedServer(result.server);

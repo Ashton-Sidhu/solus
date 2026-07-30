@@ -64,9 +64,11 @@
   // like prose, and a rail of machine facts set like data. Whitespace and the
   // single card edge do the dividing — no vertical rules, no card around the
   // steps. Below 65rem the rail unstacks under the prose as a row of blocks.
+  // `justify-center` centers the two columns horizontally while they're a row;
+  // once stacked it would center them *vertically*, so it's reset to start.
   const BODY =
     "flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 [scrollbar-width:thin] overscroll-y-contain " +
-    "@max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 " +
+    "@max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 " +
     "@max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9";
   const MAIN_COLUMN =
     "flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none";
@@ -515,7 +517,7 @@
      right inset reserves room for. -->
 {#snippet chromeBar()}
   <div
-    class="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-5"
+    class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-5"
   >
     <nav class="flex min-w-0 items-center gap-[0.4375rem] text-xs" aria-label="Breadcrumb">
       <button

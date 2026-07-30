@@ -40,7 +40,7 @@ export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
   const rest = new Octokit({ auth: token, userAgent: 'Solus' })
   rest.hook.error('request', (error) => {
     if ((error as { status?: number }).status === 401) {
-      log.warn('GitHub returned 401; clearing stored token')
+      log.warn('github_unauthorized_token_cleared')
       clearToken()
       // Drop the now-invalid client so the next call rebuilds against a fresh token.
       cachedClient = null

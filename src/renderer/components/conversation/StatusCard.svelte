@@ -1,14 +1,8 @@
 <script lang="ts">
-  import {
-    GitBranchIcon,
-    CheckCircleIcon,
-    CircleNotchIcon,
-    CircleIcon,
-    DesktopTowerIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+  import { CaretDownIcon } from "phosphor-svelte";
   import type { StatusCardState } from "../../../shared/types";
-  import * as Card from "../ui/card";
+  import TranscriptChip from "./TranscriptChip.svelte";
+  import { SetupStepTiming, formatStepDuration } from "./lib/setup-timing.svelte";
 
   interface Props {
     card: StatusCardState;
@@ -17,260 +11,275 @@
 
   let { card, skipMotion = false }: Props = $props();
 
+  const timing = new SetupStepTiming();
+  // Transitions can only be observed as they arrive; nothing about "how long did
+  // the user wait" is derivable from the current payload alone.
+  $effect(() => timing.observe(card, Date.now()));
+
   const doneCount = $derived(card.steps.filter((s) => s.status === "done").length);
   const total = $derived(card.steps.length);
-  const progressPercent = $derived(total > 0 ? Math.round((doneCount / total) * 100) : 0);
-  const statusLabel = $derived(
-    card.status === "error"
-      ? "Failed"
-      : card.status === "done"
-        ? "Complete"
-        : `${doneCount} / ${total} steps complete`,
+  const activeStep = $derived(card.steps.find((s) => s.status === "active"));
+  const isDone = $derived(card.status === "done");
+  const isError = $derived(card.status === "error");
+
+  // Once everything has finished the card collapses to its header.
+  let expandedAfterDone = $state(false);
+  const collapsed = $derived(isDone && !expandedAfterDone);
+
+  const meta = $derived.by(() => {
+    if (isError) return card.steps.find((s) => s.status === "error")?.detail || "Setup failed";
+    if (isDone) {
+      const elapsed = formatStepDuration(timing.totalMs);
+      return [`${total} step${total === 1 ? "" : "s"}`, elapsed].filter(Boolean).join(" · ");
+    }
+    return [activeStep?.label ?? "Preparing the environment", `step ${Math.min(doneCount + 1, total)} of ${total}`]
+      .filter(Boolean)
+      .join(" · ");
+  });
+
+  const chip = $derived(
+    isError
+      ? { label: "Failed", state: "destructive" as const }
+      : isDone
+        ? { label: "Ready", state: "positive" as const }
+        : { label: "Setting up", state: "active" as const },
   );
+
+  const progressPercent = $derived(total > 0 ? Math.round((doneCount / total) * 100) : 0);
 </script>
 
+{#snippet check()}
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="color-mix(in oklch, var(--chart-3) 62%, var(--foreground))"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    class="shrink-0"
+    aria-hidden="true"
+  >
+    <path d="M2 6.3l2.7 2.7L10 3.4" />
+  </svg>
+{/snippet}
+
 <div class="mx-auto w-[88%] py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
-  <Card.Root
-    class="status-card w-full gap-0 overflow-hidden rounded-xl bg-(--solus-container-bg) py-0 {card.status === 'error' ? 'is-error' : ''} {skipMotion ? 'no-motion' : ''}"
+  <div
+    class="setup-card overflow-hidden rounded-xl"
+    class:is-error={isError}
     role="status"
     aria-live="polite"
     data-testid="status-card"
-    style={`--status-progress:${progressPercent}%`}
   >
-    <Card.Header class="flex grid-cols-none grid-rows-none items-center gap-2.5 px-3.5 py-3">
-      <span
-        class="icon-chip relative grid size-8 shrink-0 place-items-center rounded-lg bg-(--solus-accent-light)"
-        class:is-active={card.status === "active"}
-        aria-hidden="true"
-      >
-        {#if card.icon === "git-branch"}
-          <GitBranchIcon
-            size={16}
-            weight="regular"
-            class="relative z-[1]"
-            style="color:var(--solus-accent)"
-          />
-        {:else if card.icon === "server"}
-          <DesktopTowerIcon
-            size={16}
-            weight="regular"
-            class="relative z-[1]"
-            style="color:var(--solus-accent)"
-          />
-        {/if}
-      </span>
-
+    <div class="flex items-center gap-3 px-[1.0625rem] pt-[0.9375rem] pb-3">
       <div class="min-w-0 flex-1">
-        <h3 class="truncate text-[0.8125rem] font-semibold leading-tight text-(--solus-text-primary)">
+        <div class="setup-kicker">Setup</div>
+        <div class="truncate text-[0.875rem] leading-tight font-semibold tracking-[-0.012em]">
           {card.title}
-        </h3>
-        <p class="mt-0.5 text-[0.6875rem] leading-none text-(--solus-text-tertiary)">
-          {statusLabel}
-        </p>
+        </div>
+        <div class="mt-0.5 truncate text-[0.71875rem] text-(--muted-foreground)">{meta}</div>
       </div>
-
-      <div class="hidden w-20 shrink-0 items-center gap-2 sm:flex" aria-hidden="true">
-        <span class="status-progress-track">
-          <span class="status-progress-fill"></span>
-        </span>
-      </div>
-    </Card.Header>
-
-    <ul class="status-steps flex flex-col" role="list">
-      {#each card.steps as step, i (step.id)}
-        {@const isActive = step.status === "active"}
-        {@const isDone = step.status === "done"}
-        {@const isError = step.status === "error"}
-        <li
-          class="status-step flex min-h-11 items-center gap-2.5 px-3.5"
-          class:is-active={isActive}
-          class:is-done={isDone}
-          class:is-error={isError}
-          style={skipMotion ? "" : `animation-delay:${60 + i * 55}ms`}
+      <TranscriptChip state={chip.state}>{chip.label}</TranscriptChip>
+      {#if isDone}
+        <button
+          type="button"
+          class="setup-disclosure"
+          aria-expanded={expandedAfterDone}
+          aria-label={expandedAfterDone ? "Hide setup steps" : "Show setup steps"}
+          onclick={() => (expandedAfterDone = !expandedAfterDone)}
         >
-          <span
-            class="status-step-icon relative grid size-6 shrink-0 place-items-center"
-            aria-hidden="true"
-          >
-            {#if isDone}
-              <CheckCircleIcon
-                size={18}
-                weight="fill"
-                class="relative z-[1]"
-                style="color:var(--solus-status-complete)"
-              />
-            {:else if isActive}
-              <CircleNotchIcon
-                size={20}
-                weight="bold"
-                class="relative z-[1] animate-spin motion-reduce:animate-none"
-                style="color:var(--solus-accent)"
-              />
-            {:else if isError}
-              <WarningCircleIcon
-                size={18}
-                weight="fill"
-                class="relative z-[1]"
-                style="color:var(--solus-status-error)"
-              />
-            {:else}
-              <CircleIcon
-                size={18}
-                weight="regular"
-                class="relative z-[1]"
-                style="color:var(--solus-text-tertiary)"
-              />
-            {/if}
-          </span>
+          <CaretDownIcon size={10} weight="bold" class={expandedAfterDone ? "rotate-180" : ""} />
+        </button>
+      {/if}
+    </div>
 
-          <div
-            class="min-w-0 flex-1 py-2.5 text-[0.7813rem] leading-tight transition-colors duration-300 ease-(--ease-premium)"
-            class:font-medium={isActive}
-            style:color={isError
-              ? "var(--solus-status-error)"
-              : isActive
-                ? "var(--solus-text-primary)"
-                : isDone
-                  ? "var(--solus-text-secondary)"
-                  : "var(--solus-text-tertiary)"}
+    {#if !collapsed}
+      <!-- The progress bar reads as the card's own state, so it sits as a rule
+           directly under the header rather than floating in it. -->
+      <div class="mx-3.5 h-[0.1875rem] overflow-hidden rounded-full setup-track">
+        <div class="h-full rounded-full setup-track-fill" style="width:{progressPercent}%"></div>
+      </div>
+
+      <!-- 28px rows on an 8px inset; no dividers, no filled discs. -->
+      <ul class="flex flex-col px-2 py-2.5" role="list">
+        {#each card.steps as step (step.id)}
+          {@const stepMs = timing.msFor(step.id)}
+          <li
+            class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
+            class:is-active={step.status === "active"}
           >
-            <span class="block truncate">{step.label}</span>
-            {#if step.detail}
-              <p
-                class="mt-1 line-clamp-3 text-pretty break-words text-[0.6875rem] font-normal leading-relaxed text-(--solus-text-secondary)"
-                title={step.detail}
-              >
-                {step.detail}
-              </p>
+            {#if step.status === "done"}
+              {@render check()}
+            {:else if step.status === "error"}
+              <span class="setup-dot setup-dot--error" aria-hidden="true"></span>
+            {:else if step.status === "active"}
+              <!-- The same indeterminate hairline used everywhere else, not a
+                   spinner. -->
+              <span class="setup-indet shrink-0" aria-hidden="true"><span></span></span>
+            {:else}
+              <span class="setup-dot" aria-hidden="true"></span>
             {/if}
-          </div>
-        </li>
-      {/each}
-    </ul>
-  </Card.Root>
+
+            <span
+              class="min-w-0 flex-1 truncate text-[0.78125rem]"
+              class:setup-label--done={step.status === "done"}
+              class:setup-label--active={step.status === "active"}
+              class:setup-label--pending={step.status === "pending"}
+              class:setup-label--error={step.status === "error"}
+            >
+              {step.label}
+            </span>
+
+            {#if step.status === "active"}
+              <span class="setup-elapsed font-mono shrink-0">running</span>
+            {:else if stepMs}
+              <span class="setup-elapsed font-mono shrink-0">{formatStepDuration(stepMs)}</span>
+            {/if}
+          </li>
+          {#if step.detail && step.status === "error"}
+            <li class="setup-detail px-2 pb-1.5">{step.detail}</li>
+          {/if}
+        {/each}
+      </ul>
+    {/if}
+  </div>
 </div>
 
 <style>
-  :global(.status-card) {
-    box-shadow:
-      0 0 0 0.0625rem color-mix(in srgb, var(--solus-tool-border) 92%, transparent),
-      0 0.5rem 1.25rem color-mix(in srgb, #000 12%, transparent),
-      0 0.0625rem 0.25rem color-mix(in srgb, #000 8%, transparent),
-      inset 0 0.0625rem 0 color-mix(in srgb, #fff 14%, transparent);
-  }
-  :global(.status-card.is-error) {
-    box-shadow:
-      0 0 0 0.0625rem color-mix(in srgb, var(--solus-status-error) 48%, transparent),
-      0 0.5rem 1.25rem color-mix(in srgb, #000 12%, transparent),
-      0 0.0625rem 0.25rem color-mix(in srgb, #000 8%, transparent);
+  .setup-card {
+    background: var(--card);
+    box-shadow: var(--solus-tx-card-shadow);
   }
 
-  .status-progress-track {
-    position: relative;
-    height: 0.3125rem;
-    width: 100%;
-    overflow: hidden;
-    border-radius: 9999px;
-    background: color-mix(in srgb, var(--solus-text-primary) 14%, transparent);
-  }
-  .status-progress-fill {
-    display: block;
-    height: 100%;
-    width: var(--status-progress);
-    min-width: 0.375rem;
-    border-radius: inherit;
-    background: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--solus-accent) 74%, #fff),
-      var(--solus-accent)
-    );
-    box-shadow: 0 0 0.75rem color-mix(in srgb, var(--solus-accent) 45%, transparent);
-    transition: width 0.35s var(--ease-premium);
-  }
-  :global(.status-card.is-error) .status-progress-fill {
-    background: var(--solus-status-error);
-    box-shadow: 0 0 0.75rem color-mix(in srgb, var(--solus-status-error) 28%, transparent);
+  .setup-card.is-error {
+    box-shadow: 0 0 0 0.03125rem
+      color-mix(in oklch, var(--destructive) 26%, transparent);
   }
 
-  .status-steps {
-    border-top: 0.0625rem solid color-mix(in srgb, var(--solus-tool-border) 90%, transparent);
+  .setup-kicker {
+    margin-bottom: 0.3125rem;
+    font-size: 0.59375rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    opacity: 0.7;
   }
-  .status-step + .status-step {
-    border-top: 0.0625rem solid color-mix(in srgb, var(--solus-tool-border) 68%, transparent);
+
+  .setup-disclosure {
+    display: inline-flex;
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    opacity: 0.5;
+    transition: background var(--duration-quick) var(--ease-premium);
   }
-  .status-step.is-active {
-    background: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--solus-accent-light) 100%, transparent),
-      transparent 72%
-    );
-  }
-  .status-step-icon {
-    color: var(--solus-text-tertiary);
-  }
-  .status-step-icon :global(svg) {
-    opacity: 0.72;
-  }
-  .status-step.is-done .status-step-icon :global(svg),
-  .status-step.is-active .status-step-icon :global(svg),
-  .status-step.is-error .status-step-icon :global(svg) {
+  .setup-disclosure:hover {
+    background: color-mix(in oklch, var(--foreground) 7%, transparent);
     opacity: 1;
   }
 
-  /* Breathing accent halo behind the header icon while setup runs */
-  .icon-chip.is-active::before {
-    content: "";
-    position: absolute;
-    inset: -0.1875rem;
-    border-radius: 0.75rem;
-    background: var(--solus-accent-soft);
-    filter: blur(0.375rem);
-    z-index: 0;
-    animation: breathing-glow 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  .setup-track {
+    background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  }
+  .setup-track-fill {
+    background: var(--primary);
+    transition: width 0.35s var(--ease-premium);
+  }
+  .setup-card.is-error .setup-track-fill {
+    background: var(--destructive);
   }
 
-  /* Soft pulse behind the active step's spinner */
-  .status-step.is-active .status-step-icon::before {
-    content: "";
-    position: absolute;
-    inset: -0.1875rem;
-    border-radius: 9999px;
-    background: var(--solus-accent-soft);
-    filter: blur(0.375rem);
-    z-index: 0;
-    animation: breathing-glow 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  .setup-step.is-active {
+    background: color-mix(in oklch, var(--primary) 7%, transparent);
   }
 
-  /* Staggered entrance for each step */
-  .status-step {
-    animation: status-step-in 0.42s var(--ease-premium) both;
+  /* Pending is a ring, not an empty circle. */
+  .setup-dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 0.09375rem
+      color-mix(in oklch, var(--foreground) 14%, transparent);
   }
-  @keyframes status-step-in {
-    from {
-      opacity: 0;
-      transform: translateY(0.25rem);
-      filter: blur(0.125rem);
+  .setup-dot--error {
+    box-shadow: inset 0 0 0 0.09375rem
+      color-mix(in oklch, var(--destructive) 55%, transparent);
+  }
+
+  .setup-indet {
+    display: inline-flex;
+    align-items: center;
+    width: 0.75rem;
+    height: 0.125rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--primary) 25%, transparent);
+  }
+  .setup-indet > span {
+    display: block;
+    width: 0.375rem;
+    height: 0.125rem;
+    border-radius: 999px;
+    background: var(--primary);
+    animation: setup-indet 1.3s ease-in-out infinite;
+  }
+
+  /* Step labels are present participles while running and stay in that tense
+     once done — only the collapsed summary speaks in the past. */
+  .setup-label--active {
+    font-weight: 500;
+    color: var(--solus-text-primary);
+  }
+  .setup-label--done {
+    color: var(--solus-text-primary);
+    opacity: 0.6;
+  }
+  .setup-label--pending {
+    color: var(--muted-foreground);
+  }
+  .setup-label--error {
+    color: var(--destructive);
+  }
+
+  .setup-elapsed {
+    font-size: 0.65625rem;
+    color: var(--muted-foreground);
+    opacity: 0.7;
+  }
+
+  .setup-detail {
+    font-size: 0.71875rem;
+    line-height: 1.5;
+    color: var(--muted-foreground);
+    text-wrap: pretty;
+  }
+
+  @keyframes setup-indet {
+    0% {
+      transform: translateX(-40%);
     }
-    to {
-      opacity: 1;
-      transform: none;
-      filter: none;
+    100% {
+      transform: translateX(240%);
     }
-  }
-
-  :global(.no-motion) .status-step {
-    animation: none;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .status-step {
+    .setup-indet > span {
       animation: none;
+      width: 100%;
     }
-    .icon-chip.is-active::before,
-    .status-step.is-active .status-step-icon::before {
-      animation: none;
-    }
-    .status-progress-fill {
+    .setup-track-fill {
       transition: none;
     }
   }

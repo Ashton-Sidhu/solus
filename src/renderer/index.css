@@ -210,7 +210,6 @@
   --solus-status-error-bg: rgba(196, 112, 96, 0.06);
   --solus-status-dead: #c47060;
   --solus-status-permission: #d97757;
-  --solus-status-permission-glow: rgba(217, 119, 87, 0.3);
   /* Tab */
   --solus-tab-active: #f1efe7;
   --solus-tab-active-border: #dddad2;
@@ -223,7 +222,6 @@
   --solus-unread-ink: var(--solus-accent);
   /* User bubble */
   --solus-user-bubble: var(--solus-surface-primary);
-  --solus-user-bubble-border: #e2d4b8;
   --solus-user-bubble-text: #2a2618;
   /* Tool card */
   --solus-tool-bg: #f1efe7;
@@ -329,17 +327,6 @@
   --solus-text-on-accent: #ffffff;
   /* Permissions */
   --solus-permission-border: rgba(245, 158, 11, 0.3);
-  --solus-permission-shadow: 0 0.125rem 0.75rem rgba(245, 158, 11, 0.08);
-  --solus-permission-header-bg: rgba(245, 158, 11, 0.06);
-  --solus-permission-header-border: rgba(245, 158, 11, 0.12);
-  --solus-permission-allow-bg: rgba(34, 197, 94, 0.1);
-  --solus-permission-allow-hover-bg: rgba(34, 197, 94, 0.22);
-  --solus-permission-allow-border: rgba(34, 197, 94, 0.25);
-  --solus-permission-deny-bg: rgba(239, 68, 68, 0.08);
-  --solus-permission-deny-hover-bg: rgba(239, 68, 68, 0.18);
-  --solus-permission-deny-border: rgba(239, 68, 68, 0.22);
-  --solus-permission-denied-border: rgba(196, 112, 96, 0.3);
-  --solus-permission-denied-header-border: rgba(196, 112, 96, 0.12);
   /* Diff */
   --solus-diff-added-text: #3f704f;
   --solus-diff-added-bg: rgba(63, 112, 79, 0.18);
@@ -393,7 +380,6 @@
   --solus-file-header-bg: #f4f2eb;
   --solus-file-header-name: #8a7a5a;
   /* Polish */
-  --solus-assistant-left-border: rgba(217, 119, 87, 0.08);
   --solus-tool-result-badge-bg: rgba(0, 0, 0, 0.05);
   --solus-empty-state-bg: rgba(217, 119, 87, 0.06);
   --solus-activity-strip-bg-from: rgba(250, 249, 246, 0);
@@ -401,11 +387,6 @@
   /* Soft input background — used by textareas / inline forms */
   --solus-input-bg-soft: rgba(0, 0, 0, 0.025);
   /* File token */
-  --solus-file-token: #1e3a5f;
-  --solus-file-token-bg: rgba(30, 58, 95, 0.08);
-  --solus-file-token-bg-hover: rgba(30, 58, 95, 0.14);
-  --solus-file-token-border: rgba(30, 58, 95, 0.2);
-  --solus-file-token-border-hover: rgba(30, 58, 95, 0.35);
   /* Work token */
   --solus-work-token: #8b5e83;
   /* Plan modal scrim */
@@ -513,7 +494,6 @@
   --solus-status-error-bg: rgba(224, 96, 96, 0.08);
   --solus-status-dead: #e06060;
   --solus-status-permission: #e08a6e;
-  --solus-status-permission-glow: rgba(224, 138, 110, 0.4);
   /* Tab */
   --solus-tab-active: #2e2c27;
   --solus-tab-active-border: rgba(255, 255, 255, 0.10);
@@ -523,7 +503,6 @@
   --solus-unread-ink: var(--solus-accent);
   /* User bubble */
   --solus-user-bubble: var(--solus-surface-primary);
-  --solus-user-bubble-border: rgba(238, 217, 196, 0.15);
   --solus-user-bubble-text: #f0ece3;
   /* Tool card */
   --solus-tool-bg: #2e2c27;
@@ -595,17 +574,6 @@
   --solus-text-on-accent: #ffffff;
   /* Permissions */
   --solus-permission-border: rgba(245, 158, 11, 0.3);
-  --solus-permission-shadow: 0 0 0 0.0625rem rgba(245,158,11,0.10), 0 0.25rem 1.25rem rgba(245,158,11,0.10), 0 0.0625rem 0.375rem rgba(0,0,0,0.35);
-  --solus-permission-header-bg: rgba(245, 158, 11, 0.06);
-  --solus-permission-header-border: rgba(245, 158, 11, 0.12);
-  --solus-permission-allow-bg: rgba(34, 197, 94, 0.1);
-  --solus-permission-allow-hover-bg: rgba(34, 197, 94, 0.22);
-  --solus-permission-allow-border: rgba(34, 197, 94, 0.25);
-  --solus-permission-deny-bg: rgba(239, 68, 68, 0.08);
-  --solus-permission-deny-hover-bg: rgba(239, 68, 68, 0.18);
-  --solus-permission-deny-border: rgba(239, 68, 68, 0.22);
-  --solus-permission-denied-border: rgba(196, 112, 96, 0.3);
-  --solus-permission-denied-header-border: rgba(196, 112, 96, 0.12);
   /* Diff */
   --solus-diff-added-text: #8cbf9a;
   --solus-diff-added-bg: rgba(140, 191, 154, 0.16);
@@ -637,7 +605,6 @@
   --solus-file-header-bg: #252420;
   --solus-file-header-name: #c8b889;
   /* Polish */
-  --solus-assistant-left-border: rgba(224, 138, 110, 0.1);
   --solus-tool-result-badge-bg: rgba(255, 255, 255, 0.06);
   --solus-empty-state-bg: rgba(224, 138, 110, 0.07);
   --solus-activity-strip-bg-from: rgba(30, 29, 26, 0);
@@ -645,11 +612,6 @@
   /* Soft input background — used by textareas / inline forms */
   --solus-input-bg-soft: rgba(255, 255, 255, 0.04);
   /* File token */
-  --solus-file-token: #4a7ab5;
-  --solus-file-token-bg: rgba(40, 70, 120, 0.15);
-  --solus-file-token-bg-hover: rgba(40, 70, 120, 0.22);
-  --solus-file-token-border: rgba(40, 70, 120, 0.25);
-  --solus-file-token-border-hover: rgba(40, 70, 120, 0.4);
   /* Work token */
   --solus-work-token: #c58cb9;
   /* Plan modal scrim */
@@ -720,6 +682,19 @@
   --sidebar-border: var(--solus-container-border);
   --sidebar-ring: var(--solus-input-focus-border);
   --radius: 0.5rem;
+
+  /* Transcript chrome (see the "Conversation assets" spec). Cards sit flush
+     with the transcript and use a hairline for separation rather than a drop
+     shadow.
+     Consume with the type hint — `shadow-[shadow:var(--solus-tx-card-shadow)]` —
+     or tailwind-merge files it under shadow-*colour* and `shadow-md` wins. */
+  --solus-tx-hairline: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 11%, transparent);
+  --solus-tx-card-shadow: var(--solus-tx-hairline);
+  --solus-tx-rule: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --solus-tx-rule-strong: color-mix(in oklch, var(--foreground) 8%, transparent);
+  /* Arrow-out-of-box, masked so it takes the link's own colour. */
+  --solus-external-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.4 2.4h5.2v5.2M9.6 2.4L4 8'/%3E%3Cpath d='M8 9.6H2.4V4'/%3E%3C/svg%3E");
 }
 
 @theme inline {
@@ -949,25 +924,34 @@ input::placeholder {
 }
 
 /*
- * ─── Inline reference tokens ───
- * Shared shape for the plan / file / slash-command inline atoms inserted
- * into the input editor. Each variant sets `--solus-token-color`; the
- * label and icon inherit it, and the soft wash is derived from it.
+ * ─── Inline reference tokens (spec §7) ───
+ * Shared shape for the plan / file / pr / work / session / slash atoms — both
+ * the ones composed into the input editor and the ones rendered into a
+ * transcript.
+ *
+ * A chip is a *reference*, not a button, so every type shares one glyph colour
+ * (`currentColor` at 55%) and one neutral wash: a line with four chips still
+ * reads as a line of prose, and the icon shape alone carries the type. Height
+ * comes from the line box — no fixed height, no vertical margin — so a chip
+ * never makes a paragraph's leading uneven.
+ *
+ * `--solus-token-color` survives for the one thing that is genuinely a state
+ * and not a type: the ProseMirror selected-node outline.
  */
 .solus-token {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.0625rem 0.375rem;
-  border-radius: 0.3125rem;
+  gap: 0.375rem;
+  padding: 0.0625rem 0.375rem 0.0625rem 0.3125rem;
+  border-radius: 0.25rem;
   font-size: calc(0.8125rem * var(--solus-font-scale, 1));
-  font-weight: 500;
+  font-weight: 400;
   line-height: inherit;
-  vertical-align: middle;
+  vertical-align: baseline;
   white-space: nowrap;
   cursor: pointer;
-  color: var(--solus-token-color, var(--solus-text-secondary));
-  background: color-mix(in srgb, var(--solus-token-color, var(--solus-text-secondary)) 10%, transparent);
+  color: inherit;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   transition: background 120ms ease;
 }
 button.solus-token {
@@ -978,16 +962,17 @@ button.solus-token {
 }
 .solus-token--slash { cursor: default; }
 .solus-token:hover {
-  background: color-mix(in srgb, var(--solus-token-color, var(--solus-text-secondary)) 16%, transparent);
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
 }
 .solus-token__icon {
-  width: 0.8125rem;
-  height: 0.8125rem;
+  width: 0.6875rem;
+  height: 0.6875rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--solus-token-color, var(--solus-text-secondary));
+  color: currentColor;
+  opacity: 0.55;
 }
 .solus-token__icon svg {
   width: 100%;
@@ -997,57 +982,21 @@ button.solus-token {
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
 }
-.solus-token--plan-pending  { --solus-token-color: var(--solus-accent); }
+/* Per-type rules carry shape only — size, tracking, whether it's mono. Colour
+   is deliberately absent: the glyph shape is the type cue. */
 .solus-token--plan-accepted {
-  --solus-token-color: var(--solus-status-complete);
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
-  font-weight: 400;
 }
-.solus-token--plan-accepted .solus-token__icon { width: 0.75rem; height: 0.75rem; }
-.solus-token--plan-rejected { --solus-token-color: var(--solus-text-tertiary); }
-.solus-token--session {
-  --solus-token-color: var(--solus-accent);
-  font-size: calc(0.75rem * var(--solus-font-scale, 1));
-  font-weight: 500;
-  gap: 0.1875rem;
-  padding: 0 0.3125rem 0 0.25rem;
-  border-radius: 0.25rem;
-}
-.solus-token--session .solus-token__icon { width: 0.75rem; height: 0.75rem; }
-.solus-token--work {
-  --solus-token-color: var(--solus-work-token);
-  font-size: calc(0.75rem * var(--solus-font-scale, 1));
-  font-weight: 500;
-  gap: 0.1875rem;
-  padding: 0 0.3125rem 0 0.25rem;
-  border-radius: 0.25rem;
-}
-.solus-token--work .solus-token__icon { width: 0.75rem; height: 0.75rem; }
+.solus-token--session,
+.solus-token--work,
 .solus-token--pr {
-  --solus-token-color: var(--solus-pr-token, var(--solus-accent));
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
-  font-weight: 500;
-  gap: 0.1875rem;
-  padding: 0 0.3125rem 0 0.25rem;
-  border-radius: 0.25rem;
 }
-.solus-token--pr .solus-token__icon { width: 0.75rem; height: 0.75rem; }
+/* A file chip is the only mono one, and it carries the line number. */
 .solus-token--file {
-  --solus-token-color: var(--solus-file-token);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
-  font-weight: 500;
-  gap: 0.1875rem;
-  padding: 0 0.3125rem 0 0.25rem;
-  border-radius: 0.25rem;
-  background: transparent;
-  border: 0.0625rem solid var(--solus-file-token-border);
-  transition: background 120ms ease, border-color 120ms ease;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
 }
-.solus-token--file:hover {
-  background: transparent;
-  border-color: var(--solus-file-token-border-hover);
-}
-.solus-token--file .solus-token__icon { width: 0.875rem; height: 0.875rem; }
 .solus-token--input-file-ref {
   margin-inline: 0.0625rem;
   padding: 0.0625rem;
@@ -1060,16 +1009,13 @@ button.solus-token {
   width: 0.9rem;
   height: 0.9rem;
 }
+/* Rendered into a transcript rather than composed: the base shape already
+   matches, so this only drops the 1px optical lift the composer needs. */
 .solus-token--output-link {
-  position: relative;
-  top: -0.0625rem;
+  font-size: calc(0.78125rem * var(--solus-font-scale, 1));
 }
 .solus-token--output-file-link {
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
-}
-.solus-token--output-file-link .solus-token__icon {
-  width: 0.9375rem;
-  height: 0.9375rem;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
 }
 .solus-token__line-number {
   opacity: 0.5;
@@ -1079,7 +1025,17 @@ button.solus-token {
   opacity: 0.5;
   font-weight: 400;
 }
-.solus-token--slash         { --solus-token-color: var(--solus-accent); }
+/* The one exception: a slash command is an *action* you are about to run, not a
+   reference to something that exists, so it keeps the accent. */
+.solus-token--slash {
+  --solus-token-color: var(--solus-accent);
+  color: var(--solus-accent);
+  background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
+}
+.solus-token--slash .solus-token__icon {
+  color: var(--solus-accent);
+  opacity: 1;
+}
 
 /* Selected (cursor adjacent) state — Tiptap adds .ProseMirror-selectednode. */
 .solus-token.ProseMirror-selectednode {
@@ -1437,7 +1393,7 @@ button.solus-token {
      shell's own inline size, so this tracks the pane: a split pane still gets a
      narrow column on the same screen. The bounds keep it a reading measure at
      both ends instead of a full-bleed line. */
-  --solus-doc-measure: clamp(66ch, 60cqi, 94ch);
+  --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
   --solus-doc-serif: 'Lora', Georgia, serif;
   --solus-doc-mono: 'Geist Mono', var(--solus-code-font-family);
   --solus-doc-ink-strong: color-mix(in srgb, var(--solus-text-primary) 88%, var(--solus-text-tertiary));
@@ -1762,12 +1718,11 @@ button.solus-token {
 }
 /* The cell the caret is in takes a terracotta ring — the one place the accent
    is allowed inside the prose column, because it is the only thing there you
-   are actively editing. An outline rather than a border: cell borders are
-   collapsed, so a border would move the whole grid by a pixel. */
+   are actively editing. Keep the ring flush with the cell bounds; an inset
+   outline makes a large cell look like only its contents were selected. */
 .solus-doc-editor .ProseMirror .doc-cell-focus {
   border-radius: 0.375rem;
-  outline: 0.09375rem solid var(--solus-accent);
-  outline-offset: -0.1875rem;
+  box-shadow: inset 0 0 0 0.09375rem var(--solus-accent);
 }
 
 /* Responsive ladder — driven off the *pane*, not the window, so a narrow split
@@ -2339,23 +2294,452 @@ button.solus-token {
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
 }
 
-/* ─── User bubble prose overrides ─── */
-.prose-user-bubble,
-.prose-user-bubble h1,
-.prose-user-bubble h2,
-.prose-user-bubble h3,
-.prose-user-bubble h4 {
+/* ─── Transcript prose (the "Conversation assets" spec, §4 · §5 · §14) ───
+   Applied alongside `.prose-cloud .prose-reading` on assistant turns only —
+   `.prose-reading` is shared with the PR review guide, which keeps its own
+   larger ladder, so every transcript-specific value lands here instead.
+
+   Two rules govern the whole mapping: no element introduces a colour (emphasis
+   is weight, quotes are a rule, code is a wash), and no element introduces a
+   size outside the ladder — which is why `###` and every deeper level collapse
+   onto one 13.5px heading rather than growing a fourth and fifth step.
+
+   Last in the prose region on purpose: most declarations here tie on
+   specificity with a `.prose-cloud` / `.prose-reading` rule above, so source
+   order is what decides them. */
+.prose-transcript {
+  /* A share of the reading column, not a fixed measure — matches the 88% the
+     conversation cards take, so prose and cards read as one column at every
+     pane width. */
+  max-width: 88%;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  /* Set by the tallest thing a paragraph can hold, not by the text. A chip box is
+     ~22px; at 1.62 the borders of stacked lines nearly touch. */
+  line-height: 1.75;
+  font-weight: 400;
+  color: var(--solus-text-primary);
+  text-wrap: pretty;
+}
+/* Element margins alone set the rhythm; the generic sibling step would add to
+   the asymmetric heading spacing below. */
+.prose-transcript > * + * { margin-top: 0; }
+.prose-transcript p { margin: 0 0 0.625rem; }
+.prose-transcript > :first-child { margin-top: 0; }
+.prose-transcript > :last-child { margin-bottom: 0; }
+
+/* Headings — two steps, never more. */
+.prose-transcript h1,
+.prose-transcript h2 {
+  margin: 1.375rem 0 0.4375rem;
+  font-size: calc(0.9375rem * var(--solus-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.35;
+  color: var(--solus-text-primary);
+}
+.prose-transcript h3,
+.prose-transcript h4,
+.prose-transcript h5,
+.prose-transcript h6 {
+  margin: 1rem 0 0.3125rem;
+  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.35;
+  color: var(--solus-text-primary);
+}
+
+/* Lists — markers are drawn, not inherited, so the dot/ring/numeral sizes stay
+   on the ladder instead of tracking the font. */
+.prose-transcript ul,
+.prose-transcript ol {
+  margin: 0.625rem 0;
+  padding-left: 1.125rem;
+  list-style: none;
+}
+.prose-transcript ol { padding-left: 1.375rem; }
+.prose-transcript li {
+  position: relative;
+  margin: 0 0 0.25rem;
+  line-height: 1.55;
+}
+.prose-transcript li > p { margin: 0; }
+.prose-transcript ul > li::before {
+  content: "";
+  position: absolute;
+  left: -1.125rem;
+  top: 0.5625rem;
+  width: 0.1875rem;
+  height: 0.1875rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+/* One level of nesting only — the marker becomes a ring and anything deeper
+   flattens onto it rather than inventing a third marker. */
+.prose-transcript ul ul > li::before {
+  top: 0.5rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  background: none;
+  box-shadow: inset 0 0 0 0.0625rem
+    color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+.prose-transcript ol {
+  counter-reset: tx-ol;
+}
+.prose-transcript ol > li {
+  counter-increment: tx-ol;
+}
+.prose-transcript ol > li::before {
+  content: counter(tx-ol) ".";
+  position: absolute;
+  left: -1.375rem;
+  font-family: var(--solus-code-font-family);
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  color: var(--solus-text-tertiary);
+}
+/* A task item supplies its own checkbox, so it drops the drawn marker. */
+.prose-transcript li:has(> input[type="checkbox"])::before { content: none; }
+.prose-transcript li > input[type="checkbox"] {
+  appearance: none;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  margin: 0 0.5rem 0 -1.125rem;
+  vertical-align: -0.125rem;
+  border-radius: 0.1875rem;
+  box-shadow: inset 0 0 0 0.0625rem
+    color-mix(in oklch, var(--foreground) 20%, transparent);
+}
+.prose-transcript li > input[type="checkbox"]:checked {
+  background: color-mix(in oklch, var(--chart-3) 16%, transparent)
+    center / 0.5rem no-repeat
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6.3l2.7 2.7L10 3.4'/%3E%3C/svg%3E");
+  box-shadow: none;
+}
+.prose-transcript li:has(> input[type="checkbox"]:checked) {
+  opacity: 0.6;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+
+/* Emphasis is weight and a rule — never a hue. */
+.prose-transcript strong { font-weight: 600; color: inherit; }
+.prose-transcript em { font-style: italic; }
+.prose-transcript del,
+.prose-transcript s {
+  opacity: 0.6;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+.prose-transcript blockquote {
+  margin: 0.875rem 0 0.625rem;
+  padding-left: 0.75rem;
+  border-left: 0.09375rem solid
+    color-mix(in oklch, var(--foreground) 12%, transparent);
+  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  font-style: normal;
+  color: var(--solus-text-tertiary);
+}
+.prose-transcript hr {
+  margin: 1.125rem 0;
+  border: none;
+  border-top: 0.0625rem solid var(--solus-tx-rule-strong);
+  opacity: 1;
+}
+
+/* §4 — table: prose, not a card. Hairlines only, no filled header and no outer
+   box, so the head reads as a heading without a wash. */
+.prose-transcript table {
+  margin: 0.75rem 0;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  border-collapse: collapse;
+}
+.prose-transcript th {
+  padding: 0 0.625rem 0.4375rem 0;
+  border-bottom: none;
+  background: none;
+  font-size: calc(0.65625rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--solus-text-tertiary);
+}
+.prose-transcript td {
+  padding: 0.5625rem 0.625rem 0.5625rem 0;
+  line-height: 1.5;
+  color: var(--solus-text-primary);
+  text-wrap: pretty;
+  border-bottom: none;
+  /* The head reads as a heading because its rule is a step darker than the
+     body's; every later row shares the lighter one. */
+  border-top: 0.0625rem solid var(--solus-tx-rule);
+}
+.prose-transcript tbody tr:first-child td {
+  border-top: 0.0625rem solid var(--solus-tx-rule-strong);
+}
+.prose-transcript th:last-child,
+.prose-transcript td:last-child { padding-right: 0; }
+.prose-transcript td code {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+
+/* §5 — inline reference chips. One shell for everything atomic and copyable in a
+   message: code spans, file paths, PR and session refs. Card fill under a
+   hairline border — lighter than the message it sits in, never a tinted
+   highlight — so the token reads as a discrete object sitting on the surface,
+   which is what makes it feel clickable. A wash did the opposite: it read as
+   highlighter and dissolved the token back into the sentence.
+
+   Monochrome at rest — no terracotta, no underline, text at the prose colour.
+   Colour is reserved for hover, and only the interactive variant has one.
+
+   The outline is a real border, never a box-shadow: shadows ignore
+   `box-decoration-break`, so a wrapped code chip would draw an open-ended box.
+
+   References in the input bar use this same shell so file, plan, work, PR, and
+   session links do not change visual language between composing and reading.
+   Only slash-command/skill tokens keep their distinct composer treatment. */
+.prose-transcript code,
+.prose-transcript-user code,
+.prose-transcript .solus-token,
+.prose-transcript-user .solus-token,
+.solus-token--link-chip {
+  padding: 0.15625rem 0.40625rem;
+  border: 0.0625rem solid
+    color-mix(in oklch, var(--foreground) 11%, transparent);
+  border-radius: var(--radius-md);
+  margin-inline: 0;
+  background: var(--card);
+  color: inherit;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: calc(0.78125rem * var(--solus-font-scale, 1));
+}
+/* A code chip is a literal, not a control: no hover, no cursor change. It may
+   wrap across lines, and both halves keep a full border. */
+.prose-transcript code,
+.prose-transcript-user code {
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* The ref variant — an object in the product. Same shell plus a leading glyph, a
+   label that never splits, and the one bit of colour in the system. */
+.prose-transcript .solus-token,
+.prose-transcript-user .solus-token,
+.solus-token--link-chip {
+  gap: 0.1875rem;
+  padding-left: 0.3125rem;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: border-color 120ms ease;
+}
+/* A code-formatted file-link label is still one reference, not a code chip
+   nested inside a file chip. Keep the markdown semantics but let the outer
+   reference own the complete visual shell. */
+.prose-transcript .solus-token--output-file-link code,
+.prose-transcript-user .solus-token--output-file-link code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.prose-transcript .solus-token:hover,
+.prose-transcript-user .solus-token:hover,
+.solus-token--link-chip:hover {
+  background: var(--card);
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+.prose-transcript .solus-token__icon,
+.prose-transcript-user .solus-token__icon,
+.solus-token--link-chip .solus-token__icon {
+  width: 0.625rem;
+  height: 0.625rem;
+  opacity: 0.45;
+}
+/* A fenced block already carries its own chrome, so the inner `code` drops the
+   chip shell rather than drawing a second box inside the first. */
+.prose-transcript pre code,
+.prose-transcript-user pre code,
+.prose-transcript .solus-code-block code {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 1em;
+}
+/* The block trades its 1px border for a hairline and sits on a 1.5% wash over
+   card — enough to separate from prose without becoming a dark slab. */
+.prose-transcript .solus-code-block {
+  margin: 0.75rem 0 0.875rem;
+  border: none;
+  border-radius: 0.75rem;
+  background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
+  box-shadow: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+.prose-transcript .solus-code-head {
+  padding: 0.4375rem 0.75rem;
+  border-bottom: none;
+  background: color-mix(in oklch, var(--foreground) 3.5%, transparent);
+}
+.prose-transcript .solus-code-lang {
+  font-size: calc(0.65625rem * var(--solus-font-scale, 1));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.prose-transcript .solus-code-block pre {
+  padding: 0.75rem 0.875rem;
+  font-size: calc(0.78125rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+}
+
+/* §8 — links. A link is body text with an underline: it inherits currentColor,
+   so a paragraph with four links still reads as one paragraph. Terracotta
+   appears on hover only — it is the affordance, not the label. */
+.prose-transcript a,
+.prose-transcript-user a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.0625rem;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 28%, transparent);
+  text-underline-offset: 0.1875rem;
+  transition: text-decoration-color 120ms ease;
+}
+.prose-transcript a:hover,
+.prose-transcript-user a:hover {
+  text-decoration-color: var(--primary);
+}
+/* On the bubble's own fill the underline steps up — 28% goes soft against the
+   wash — and the offset tightens with the smaller type. */
+.prose-transcript-user a {
+  text-decoration-color: color-mix(in oklch, var(--foreground) 32%, transparent);
+  text-underline-offset: 0.15625rem;
+}
+/* A transcript is not a browser: no visited state. */
+.prose-transcript a:visited,
+.prose-transcript-user a:visited {
   color: inherit;
 }
-.prose-user-bubble { font-weight: var(--solus-font-weight-user-content); }
-.prose-user-bubble h1 { font-size: calc(0.8438rem * var(--solus-font-scale, 1)); letter-spacing: -0.02em; }
-.prose-user-bubble h2 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.015em; }
-.prose-user-bubble h3 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.01em; }
-.prose-user-bubble h4 { font-size: calc(0.8125rem * var(--solus-font-scale, 1)); letter-spacing: -0.005em; }
-.prose-user-bubble > * + * { margin-top: 0.35em; }
-.prose-user-bubble p { margin: 0.2em 0; }
-.prose-user-bubble ul, .prose-user-bubble ol { margin: 0.2em 0; }
-.prose-user-bubble pre { font-size: calc(0.75rem * var(--solus-font-scale, 1)); margin: 0.35em 0; }
+.prose-transcript .solus-link--external::after {
+  content: "";
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-left: 0.1875rem;
+  vertical-align: -0.0625rem;
+  opacity: 0.5;
+  background: currentColor;
+  -webkit-mask: var(--solus-external-arrow) center / contain no-repeat;
+  mask: var(--solus-external-arrow) center / contain no-repeat;
+}
+/* The person typed the URL, so a bubble drops the glyph — they know where it
+   goes. */
+.prose-transcript-user .solus-link--external::after {
+  content: none;
+}
+
+/* ─── Interrupt-card prose (§11 — the model writes the question) ───
+   Applied alongside `.prose-transcript` on a question body, so the model's own
+   markdown renders at assistant scale inside the card — §14 minus headings and
+   images, because the card title is already the heading and an image would
+   out-weigh the options. A fenced block keeps its chrome and its Copy: a
+   question about code the reader can't copy is one they answer blind.
+
+   Must sit after `.prose-transcript` — that ruleset is unlayered, so a Tailwind
+   `max-w-none` at the call site could never beat its `max-width: 88%`. */
+.prose-interrupt {
+  max-width: none;
+}
+.prose-interrupt h1,
+.prose-interrupt h2,
+.prose-interrupt h3,
+.prose-interrupt h4,
+.prose-interrupt h5,
+.prose-interrupt h6 {
+  margin: 0 0 0.375rem;
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.prose-interrupt img {
+  display: none;
+}
+/* Hand-drawn ASCII in an unfenced question body keeps its indentation — and
+   still wraps at the card edge rather than overflowing it. */
+.prose-interrupt p {
+  white-space: pre-wrap;
+}
+
+/* ─── Report prose (2a — the sub-agent's answer) ───
+   Two steps, both applied alongside `.prose-transcript`: the verdict the report
+   leads with, and the section bodies under it. Section headings are drawn as
+   kickers outside the prose, so nothing in here has to carry section weight —
+   which is why the ladder is flatter and a step smaller than a transcript's.
+
+   The measure is set by the report's own column, so the 88% share is released;
+   pinning it here instead would compound against that column.
+
+   Must sit after `.prose-transcript` — that ruleset is unlayered, so a Tailwind
+   `text-[…]` or `max-w-none` at the call site could never beat it. */
+.prose-report-lead {
+  max-width: none;
+  font-size: calc(0.90625rem * var(--solus-font-scale, 1));
+  line-height: 1.6;
+}
+.prose-report {
+  max-width: none;
+  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  line-height: 1.65;
+}
+
+/* ─── User bubble prose (§14, reduced set) ───
+   A bubble renders enough for a pasted sentence, not enough to become a
+   document: headings of every level flatten onto one 13.5px/600 line and
+   quotes lose their rule. */
+.prose-transcript-user,
+.prose-transcript-user h1,
+.prose-transcript-user h2,
+.prose-transcript-user h3,
+.prose-transcript-user h4 {
+  color: inherit;
+}
+.prose-transcript-user {
+  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  /* Same 1.75 as the transcript, and for the same reason: a bubble can hold a
+     chip, so the chip sets the leading. */
+  line-height: 1.75;
+  font-weight: 400;
+  text-wrap: pretty;
+}
+.prose-transcript-user h1,
+.prose-transcript-user h2,
+.prose-transcript-user h3,
+.prose-transcript-user h4 {
+  margin: 0.35em 0 0.15em;
+  font-size: calc(0.84375rem * var(--solus-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.prose-transcript-user > * + * { margin-top: 0.35em; }
+.prose-transcript-user p { margin: 0.2em 0; }
+.prose-transcript-user ul, .prose-transcript-user ol { margin: 0.2em 0; }
+/* A quoted reply is the main thing people paste into a bubble, so it keeps its
+   rule rather than flattening to a plain line — just scaled to bubble type. */
+.prose-transcript-user blockquote {
+  margin: 0.35em 0;
+  padding-left: 0.625rem;
+  border-left: 0.09375rem solid
+    color-mix(in oklch, var(--foreground) 20%, transparent);
+  font-style: normal;
+  opacity: 0.75;
+}
+/* Code and reference chips share one shell with the transcript — see §5. A bubble
+   adds nothing: the spec's whole point is that the chip is identical on both
+   surfaces, and the card fill is what separates it from the 2% wash. */
+.prose-transcript-user pre {
+  font-size: calc(0.71875rem * var(--solus-font-scale, 1));
+  margin: 0.35em 0;
+}
 
 /* ─── PR description prose ───
    Applied alongside `.prose-cloud .github-markdown` on the rendered body of a

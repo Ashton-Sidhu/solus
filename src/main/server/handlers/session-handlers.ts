@@ -5,7 +5,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { WORKSPACE_DIR } from '../../workspace'
 import type { ControlPlane } from '../../control-plane'
-import type { AgentId, AgentMetadata, IpcContext, PromptOptions, RateLimitDecisionAction, ThreadGoalSetRequest } from '../../../shared/types'
+import type { AgentId, AgentMetadata, HeadlessSessionRequest, IpcContext, PromptOptions, RateLimitDecisionAction, ThreadGoalSetRequest } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
@@ -50,7 +50,7 @@ function savePersistedBinaries(): void {
     mkdirSync(SOLUS_DIR, { recursive: true })
     writeFileSync(AGENT_BINARIES_FILE, JSON.stringify(_persistedBinaries ?? {}))
   } catch (err) {
-    log.warn(`failed to persist agent-binaries.json: ${String(err)}`)
+    log.warn('agent_binaries_persist_failed', { error: String(err) })
   }
 }
 
@@ -64,24 +64,24 @@ async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
     const { stdout } = await execFileAsync('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 })
     const result = stdout.trim()
     if (result) {
-      log.info(`probeAgentBinary(${agentId}): which ${bin} -> ${result}`)
+      log.info('agent_binary_which_hit', { agentId, bin, result })
       return result
     }
     // `which` answered "found nothing" without failing — an installed binary has
     // been reported missing this way, so don't take its word for it.
-    log.warn(`probeAgentBinary(${agentId}): which ${bin} exited 0 with no output; scanning PATH [PATH=${path}]`)
+    log.warn('agent_binary_which_empty', { agentId, bin, path })
   } catch (err) {
-    log.warn(`probeAgentBinary(${agentId}): which ${bin} failed: ${String(err)}; scanning PATH [PATH=${path}]`)
+    log.warn('agent_binary_which_failed', { agentId, bin, path, error: String(err) })
   }
   const scanned = findOnPath(bin, path)
-  log.info(`probeAgentBinary(${agentId}): PATH scan for ${bin} -> ${scanned ?? '(not found)'}`)
+  log.info('agent_binary_path_scan', { agentId, bin, result: scanned ?? null })
   return scanned
 }
 
 async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
   if (_agentBinaryCache.has(agentId)) {
     const cached = _agentBinaryCache.get(agentId)!
-    log.info(`resolveAgentBinary(${agentId}): in-memory cache hit -> ${cached ?? 'null'}`)
+    log.info('agent_binary_memory_cache_hit', { agentId, path: cached ?? null })
     return cached
   }
 
@@ -89,7 +89,7 @@ async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
   const persistedPath = persisted[agentId]
   if (persistedPath && existsSync(persistedPath)) {
     _agentBinaryCache.set(agentId, persistedPath)
-    log.info(`resolveAgentBinary(${agentId}): persisted cache hit -> ${persistedPath}`)
+    log.info('agent_binary_persisted_cache_hit', { agentId, path: persistedPath })
     // Self-heal in the background: if the binary moved/upgraded, update the
     // cache and the persisted file for the next lookup/launch. A probe that
     // comes back empty is ignored — the path it would replace demonstrably
@@ -104,7 +104,7 @@ async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
     return persistedPath
   }
 
-  log.info(`resolveAgentBinary(${agentId}): no usable cache (persisted=${persistedPath ?? 'null'}), probing fresh`)
+  log.info('agent_binary_cache_miss', { agentId, persistedPath: persistedPath ?? null })
   const result = await probeAgentBinary(agentId)
   // Only a hit is remembered. A miss can be the probe's fault rather than the
   // agent's, and caching one strands every agent picker empty — with no way
@@ -131,7 +131,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   const { controlPlane, agentIdFromContext } = deps
 
   server.register('start', async (_args, _handlerCtx) => {
-    log.info('RPC start')
+    log.info('rpc_start')
     // No seq-reset here: `start` runs only at boot, when the renderer is already
     // performing a full bootstrapRuntimeTabs (createTab + bindRuntimeSession per
     // tab). Pushing seq-reset would trigger a redundant resyncRuntime that races
@@ -142,7 +142,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     try {
       mkdirSync(WORKSPACE_DIR, { recursive: true })
     } catch (err) {
-      log.warn(`failed to create workspace dir ${WORKSPACE_DIR}: ${String(err)}`)
+      log.warn('workspace_dir_create_failed', { workspaceDir: WORKSPACE_DIR, error: String(err) })
     }
     const agents = await Promise.all(
       controlPlane
@@ -165,15 +165,21 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('createTab', (args, handlerCtx) => {
     const [clientTabId] = args as [string | undefined]
     const tabId = controlPlane.createTab(clientTabId, tabOwner(handlerCtx))
-    log.info(`RPC createTab → ${tabId}`)
+    log.info('rpc_create_tab', { tabId })
     return { tabId }
+  })
+
+  server.register('createHeadlessSession', (args) => {
+    const [request] = args as [HeadlessSessionRequest]
+    log.info('rpc_create_headless_session', { provider: request.provider })
+    return controlPlane.createSession(request)
   })
 
   function bindRuntimeSession(args: unknown[], handlerCtx: HandlerCtx) {
     const [ctx] = args as [IpcContext]
     const sessionId = ctx.session.agentSessionId
     if (!sessionId) return null
-    log.info(`RPC bindRuntimeSession: tab=${ctx.session.tabId} session=${sessionId}`)
+    log.info('rpc_bind_runtime_session', { tabId: ctx.session.tabId, sessionId })
     return controlPlane.bindRuntimeSession(
       ctx.session.tabId,
       sessionId,
@@ -187,7 +193,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('resetTabSession', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
-    log.info(`RPC resetTabSession: ${ctx.session.tabId}`)
+    log.info('rpc_reset_tab_session', { tabId: ctx.session.tabId })
     // Warm the same path the Files view queries: the worktree root when this tab
     // has one, else the project directory. Warming the bare workingDirectory
     // missed entirely for worktree sessions, so their first open paid full scan.
@@ -199,69 +205,75 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('switchSessionAgent', (args) => {
     const [tabId, provider] = args as [string, AgentId]
-    log.info(`RPC switchSessionAgent: tab=${tabId} provider=${provider}`)
+    log.info('rpc_switch_session_agent', { tabId, provider })
     return controlPlane.switchSessionProvider(tabId, provider)
   })
 
   server.register('prompt', async (args, handlerCtx) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]
     const tabId = ctx.session.tabId
-    log.info(`RPC prompt: tab=${tabId}`)
+    log.info('rpc_prompt', { tabId })
     if (!tabId) throw new Error('No tabId provided — prompt rejected')
     try {
       return await controlPlane.submitPrompt(ctx, options, handlerCtx.deviceId)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      log.error(`prompt error: ${msg}`)
+      log.error('prompt_failed', { tabId, error: msg })
       throw err
     }
   })
 
   server.register('stopTab', (args) => {
     const [ctx] = args as [IpcContext]
-    log.info(`RPC stopTab: ${ctx.session.tabId}`)
+    log.info('rpc_stop_tab', { tabId: ctx.session.tabId })
     return controlPlane.cancelTab(ctx)
   })
 
   server.register('retry', async (args) => {
     const [ctx, options] = args as [IpcContext, PromptOptions]
-    log.info(`RPC retry: tab=${ctx.session.tabId}`)
+    log.info('rpc_retry', { tabId: ctx.session.tabId })
     return controlPlane.retry(ctx, options)
   })
 
   server.register('closeTab', (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
-    log.info(`RPC closeTab: ${ctx.session.tabId}`)
+    log.info('rpc_close_tab', { tabId: ctx.session.tabId })
     controlPlane.closeTab(ctx, tabOwner(handlerCtx))
   })
 
   server.register('respondPermission', (args) => {
     const [ctx, questionId, optionId, updatedPlan] = args as [IpcContext, string, string, string | undefined]
-    log.info(`RPC respondPermission: tab=${ctx.session.tabId} question=${questionId} option=${optionId}${updatedPlan ? ' (with edited plan)' : ''}`)
+    log.info('rpc_respond_permission', { tabId: ctx.session.tabId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
     return controlPlane.respondToPermission(ctx, questionId, optionId, updatedPlan)
   })
 
   server.register('respondQuestion', (args) => {
     const [ctx, questionId, answers] = args as [IpcContext, string, Record<string, string>]
-    log.info(`RPC respondQuestion: tab=${ctx.session.tabId} question=${questionId}`)
+    log.info('rpc_respond_question', { tabId: ctx.session.tabId, questionId })
     return controlPlane.respondToQuestion(ctx, questionId, answers)
   })
 
   server.register('rateLimitDecision', (args) => {
     const [ctx, action] = args as [IpcContext, RateLimitDecisionAction]
-    log.info(`RPC rateLimitDecision: tab=${ctx.session.tabId} action=${action}`)
+    log.info('rpc_rate_limit_decision', { tabId: ctx.session.tabId, action })
     return controlPlane.resolveRateLimit(ctx, action)
   })
 
   server.register('cancelQueuedPrompt', (args) => {
     const [ctx, queueId] = args as [IpcContext, string]
-    log.info(`RPC cancelQueuedPrompt: tab=${ctx.session.tabId} queueId=${queueId}`)
+    log.info('rpc_cancel_queued_prompt', { tabId: ctx.session.tabId, queueId })
     return controlPlane.cancelQueuedPrompt(ctx, queueId)
+  })
+
+  server.register('editQueuedPrompt', (args) => {
+    const [ctx, queueId, text] = args as [IpcContext, string, string]
+    log.info('rpc_edit_queued_prompt', { tabId: ctx.session.tabId, queueId })
+    return controlPlane.editQueuedPrompt(ctx, queueId, text)
   })
 
   server.register('rewindFiles', async (args) => {
     const [ctx, checkpointId] = args as [IpcContext, string]
-    log.info(`RPC rewindFiles: tab=${ctx.session.tabId} checkpoint=${checkpointId}`)
+    log.info('rpc_rewind_files', { tabId: ctx.session.tabId, checkpointId })
     await controlPlane.rewindTabFiles(ctx, checkpointId)
     return true
   })

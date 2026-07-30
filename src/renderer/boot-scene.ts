@@ -65,36 +65,47 @@ function ensureBootStyles(): void {
     }
 
     /* The mark stays pinned to the shell's centre; detail hangs below it, so
-       nothing shifts as stages appear. */
-    .solus-boot-anchor { position: relative; }
-    .solus-boot-mark { display: block; width: 4.5rem; height: 4.5rem; }
+       nothing reflows as stages appear. The anchor then lifts by half the detail
+       height so the mark and its detail are centred as one group — the mark
+       starts at the shell's centre and settles up, which reads as one
+       continuous scene rather than a cut. */
+    .solus-boot-anchor {
+      position: relative;
+      transform: translateY(calc(var(--solus-boot-lift, 0px) * -1));
+      transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+    .solus-boot-mark { display: block; width: 5.25rem; height: 5.25rem; }
     .solus-boot-anchor[data-live='true'] .solus-boot-mark {
       animation: solus-boot-breathe 1.8s ease-in-out infinite;
     }
     .solus-boot-anchor[data-live='false'] .solus-boot-mark { opacity: 0.34; }
 
+    /* Wide enough for a stack trace to breathe. Prose and stages stay at a
+       readable measure inside it; only the trace uses the full width. */
     .solus-boot-detail {
       position: absolute;
-      top: calc(100% + 1.5rem);
+      top: calc(100% + 1.75rem);
       left: 50%;
       transform: translateX(-50%);
-      width: 17rem;
+      width: min(40rem, calc(100vw - 3rem));
       display: flex;
       flex-direction: column;
       align-items: center;
-      animation: solus-boot-rise 0.45s ease-out both;
+      opacity: 0;
+      transition: opacity 0.4s ease-out;
     }
+    .solus-boot-detail[data-shown='true'] { opacity: 1; }
 
-    .solus-boot-host { font-size: 0.8125rem; font-weight: 500; line-height: 1.2; }
-    .solus-boot-url { margin-top: 0.25rem; font-size: 0.6875rem; color: var(--solus-boot-tertiary); }
+    .solus-boot-host { font-size: 0.9375rem; font-weight: 500; line-height: 1.2; }
+    .solus-boot-url { margin-top: 0.3125rem; font-size: 0.78125rem; color: var(--solus-boot-tertiary); }
 
-    .solus-boot-stages { margin-top: 1.25rem; width: 100%; }
-    .solus-boot-step { display: flex; align-items: center; gap: 0.5625rem; padding: 0.3125rem 0; }
-    .solus-boot-bullet { position: relative; width: 0.875rem; height: 0.875rem; flex: none; display: grid; place-items: center; }
+    .solus-boot-stages { margin-top: 1.5rem; width: 100%; max-width: 20rem; }
+    .solus-boot-step { display: flex; align-items: center; gap: 0.625rem; padding: 0.375rem 0; }
+    .solus-boot-bullet { position: relative; width: 1rem; height: 1rem; flex: none; display: grid; place-items: center; }
     .solus-boot-bullet::before {
       content: '';
-      width: 0.375rem;
-      height: 0.375rem;
+      width: 0.4375rem;
+      height: 0.4375rem;
       border-radius: 999px;
       background: var(--solus-boot-hairline);
       transition: background-color 0.3s ease, transform 0.3s ease;
@@ -109,31 +120,31 @@ function ensureBootStyles(): void {
       border: 0.09375rem solid var(--solus-boot-accent);
       animation: solus-boot-ping 1.5s ease-out infinite;
     }
-    .solus-boot-step-label { font-size: 0.75rem; color: var(--solus-boot-tertiary); transition: color 0.3s ease; }
+    .solus-boot-step-label { font-size: 0.84375rem; color: var(--solus-boot-tertiary); transition: color 0.3s ease; }
     .solus-boot-step[data-state='active'] .solus-boot-step-label { color: inherit; }
     .solus-boot-step[data-state='done'] .solus-boot-step-label { color: var(--solus-boot-secondary); }
 
     .solus-boot-retry {
-      margin-top: 1.0625rem;
+      margin-top: 1.1875rem;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      font-size: 0.6875rem;
+      gap: 0.5625rem;
+      font-size: 0.78125rem;
       color: var(--solus-boot-tertiary);
-      animation: solus-boot-rise 0.45s ease-out both;
+      animation: solus-boot-fade 0.45s ease-out both;
     }
 
-    .solus-boot-title { margin-top: 0.9375rem; font-size: 0.9375rem; font-weight: 500; line-height: 1.3; text-align: center; }
-    .solus-boot-message { margin-top: 0.375rem; font-size: 0.75rem; line-height: 1.5; color: var(--solus-boot-tertiary); text-align: center; }
+    .solus-boot-title { margin-top: 1.0625rem; font-size: 1.0625rem; font-weight: 500; line-height: 1.3; text-align: center; max-width: 22rem; }
+    .solus-boot-message { margin-top: 0.4375rem; font-size: 0.84375rem; line-height: 1.5; color: var(--solus-boot-tertiary); text-align: center; max-width: 22rem; }
 
-    .solus-boot-actions { margin-top: 0.9375rem; display: flex; gap: 0.4375rem; }
+    .solus-boot-actions { margin-top: 1.0625rem; display: flex; gap: 0.5rem; }
     .solus-boot-button {
       appearance: none;
       cursor: pointer;
       font: inherit;
-      font-size: 0.71875rem;
-      padding: 0.3125rem 0.6875rem;
-      border-radius: 0.4375rem;
+      font-size: 0.8125rem;
+      padding: 0.375rem 0.8125rem;
+      border-radius: 0.5rem;
       border: 0.0625rem solid transparent;
       transition: filter 0.2s ease, background-color 0.2s ease, color 0.2s ease;
     }
@@ -147,7 +158,7 @@ function ensureBootStyles(): void {
       border: 0;
       padding: 0;
       font: inherit;
-      font-size: 0.6875rem;
+      font-size: 0.78125rem;
       color: var(--solus-boot-accent);
       cursor: pointer;
       text-decoration: underline;
@@ -155,9 +166,9 @@ function ensureBootStyles(): void {
     }
 
     .solus-boot-details {
-      margin-top: 0.875rem;
+      margin-top: 1rem;
       width: 100%;
-      border-radius: 0.5rem;
+      border-radius: 0.5625rem;
       border: 0.0625rem solid var(--solus-boot-hairline);
       background: var(--solus-boot-raised);
       text-align: left;
@@ -166,18 +177,39 @@ function ensureBootStyles(): void {
     .solus-boot-details summary {
       cursor: pointer;
       list-style: none;
-      padding: 0.375rem 0.625rem;
-      font-size: 0.6875rem;
-      color: var(--solus-boot-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+      font-size: 0.78125rem;
+      color: var(--solus-boot-secondary);
     }
     .solus-boot-details summary::-webkit-details-marker { display: none; }
+    .solus-boot-details[open] summary { border-bottom: 0.0625rem solid var(--solus-boot-hairline); }
+    .solus-boot-copy {
+      appearance: none;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.71875rem;
+      padding: 0.1875rem 0.5rem;
+      border-radius: 0.3125rem;
+      border: 0.0625rem solid var(--solus-boot-hairline);
+      background: transparent;
+      color: var(--solus-boot-secondary);
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    .solus-boot-copy:hover { background: var(--solus-boot-raised); color: inherit; }
+    .solus-boot-copy[data-copied='true'] { color: var(--solus-boot-accent); border-color: var(--solus-boot-accent); }
     .solus-boot-details pre {
       margin: 0;
-      padding: 0 0.625rem 0.5625rem;
-      font-size: 0.625rem;
-      line-height: 1.5;
+      padding: 0.625rem 0.75rem;
+      max-height: 18rem;
+      overflow: auto;
+      font-size: 0.75rem;
+      line-height: 1.65;
       font-family: 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
-      color: var(--solus-boot-tertiary);
+      color: var(--solus-boot-secondary);
       white-space: pre-wrap;
       word-break: break-word;
       user-select: text;
@@ -191,13 +223,13 @@ function ensureBootStyles(): void {
       0% { transform: scale(0.45); opacity: 0.7; }
       100% { transform: scale(1.15); opacity: 0; }
     }
-    @keyframes solus-boot-rise {
-      from { opacity: 0; transform: translate(-50%, 0.375rem); }
-      to { opacity: 1; transform: translate(-50%, 0); }
+    @keyframes solus-boot-fade {
+      from { opacity: 0; transform: translateY(0.375rem); }
+      to { opacity: 1; transform: none; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .solus-boot-mark, .solus-boot-bullet::after, .solus-boot-detail, .solus-boot-retry { animation: none !important; }
-      .solus-boot-detail { transform: translateX(-50%); }
+      .solus-boot-mark, .solus-boot-bullet::after, .solus-boot-retry { animation: none !important; }
+      .solus-boot-anchor, .solus-boot-detail { transition: none !important; }
     }
   `
   document.head.appendChild(style)
@@ -240,17 +272,82 @@ function useLocalHost(): void {
   location.reload()
 }
 
-function mountScene(root: HTMLElement, live: boolean, detail: string): HTMLElement {
+/**
+ * `navigator.clipboard` is unavailable on non-secure origins — which includes
+ * the web client served over plain http on a LAN, exactly where a connection
+ * failure is most likely. Mirrors the fallback in `ui/CopyButton.svelte`.
+ */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const scratch = document.createElement('textarea')
+  scratch.value = text
+  scratch.style.position = 'fixed'
+  scratch.style.opacity = '0'
+  document.body.appendChild(scratch)
+  scratch.select()
+  document.execCommand('copy')
+  document.body.removeChild(scratch)
+}
+
+function copyTraceButton(raw: string): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'solus-boot-copy'
+  button.textContent = 'Copy'
+  button.addEventListener('click', (event) => {
+    // The button lives inside <summary>, where a click would otherwise toggle
+    // the disclosure shut on the way to the clipboard.
+    event.preventDefault()
+    event.stopPropagation()
+    void copyText(raw).then(() => {
+      button.dataset.copied = 'true'
+      button.textContent = 'Copied'
+      setTimeout(() => {
+        delete button.dataset.copied
+        button.textContent = 'Copy'
+      }, 1500)
+    }).catch(() => {})
+  })
+  return button
+}
+
+/** Gap between the mark and its detail, matching `.solus-boot-detail`'s top. */
+const DETAIL_GAP_PX = 28
+
+/**
+ * Builds the scene once and refills it thereafter. Re-creating the whole tree on
+ * every status change would replay the entrance and snap the anchor back to the
+ * shell's centre mid-transition.
+ */
+function mountScene(root: HTMLElement, live: boolean, content: string): HTMLElement {
   ensureBootStyles()
-  root.innerHTML = `
-    <div class="solus-boot">
-      <div class="solus-boot-anchor" data-live="${live}">
-        ${MARK}
-        <div class="solus-boot-detail">${detail}</div>
+  if (!root.querySelector('.solus-boot-anchor')) {
+    root.innerHTML = `
+      <div class="solus-boot">
+        <div class="solus-boot-anchor">
+          ${MARK}
+          <div class="solus-boot-detail"></div>
+        </div>
       </div>
-    </div>
-  `
-  return root.querySelector('.solus-boot-detail') as HTMLElement
+    `
+  }
+  const anchor = root.querySelector<HTMLElement>('.solus-boot-anchor')!
+  anchor.dataset.live = String(live)
+
+  const detail = anchor.querySelector<HTMLElement>('.solus-boot-detail')!
+  detail.innerHTML = content
+
+  // Lift the anchor by half the detail block so mark + detail read as one
+  // centred group. Measured after paint, because the height depends on how many
+  // lines the copy wrapped to.
+  requestAnimationFrame(() => {
+    anchor.style.setProperty('--solus-boot-lift', `${(DETAIL_GAP_PX + detail.offsetHeight) / 2}px`)
+    detail.dataset.shown = 'true'
+  })
+  return detail
 }
 
 /**
@@ -299,7 +396,7 @@ export function renderFatal(
     <div class="solus-boot-message">${escapeHtml(message)}</div>
     <div class="solus-boot-actions"></div>
     <details class="solus-boot-details">
-      <summary>Technical details</summary>
+      <summary><span>Technical details</span></summary>
       <pre>${escapeHtml(raw)}</pre>
     </details>
   `)
@@ -307,6 +404,7 @@ export function renderFatal(
   const actions = detail.querySelector('.solus-boot-actions') as HTMLElement
   actions.appendChild(bootButton('Try again', 'primary', () => location.reload()))
   if (!isLocalHost) actions.appendChild(bootButton('Use this Mac', 'ghost', useLocalHost))
+  detail.querySelector('.solus-boot-details summary')?.appendChild(copyTraceButton(raw))
 }
 
 function bootButton(label: string, variant: 'primary' | 'ghost', onClick: () => void): HTMLButtonElement {

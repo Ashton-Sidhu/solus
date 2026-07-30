@@ -217,7 +217,7 @@ export function scheduleStackDetection(deps: StackDetectionDeps): void {
   const lastStarted = lastDetectionStarted.get(deps.repoRoot) ?? 0
   if (detectionInflight.has(deps.repoRoot) || Date.now() - lastStarted < STACK_DETECT_INTERVAL_MS) return
   void detectStackGraph(deps).catch((err) => {
-    log.warn(`stack detection failed for ${deps.repoRoot}: ${err instanceof Error ? err.message : String(err)}`)
+    log.warn('stack_detection_failed', { repoRoot: deps.repoRoot, error: err instanceof Error ? err.message : String(err) })
   })
 }
 
@@ -288,7 +288,7 @@ async function detectStackGraphUncached(deps: StackDetectionDeps): Promise<Stack
   ]
   const fetched = await runAsync('git', ['fetch', 'origin', ...refspecs], deps.repoRoot, { timeout: 120_000 })
     .then(() => true, (err) => {
-      log.warn(`PR ref fetch failed; keeping only declared/manual stack facts: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn('pr_ref_fetch_failed', { error: err instanceof Error ? err.message : String(err) })
       return false
     })
 

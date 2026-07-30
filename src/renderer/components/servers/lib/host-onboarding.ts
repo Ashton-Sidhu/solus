@@ -45,12 +45,19 @@ export type ProviderSetupAction = 'install' | 'authenticate'
  * Adding a provider promises a usable provider, not a CLI binary that springs
  * another sign-in on the user afterwards, so both halves belong to one action.
  * A provider already on the host skips straight to authenticating.
+ *
+ * `force` signs an already signed-in provider in again. Readiness reports what
+ * the host's CLI said when it was last asked, and credentials expire without
+ * anything on the host noticing, so a row that reads as fine still has to be
+ * able to run the one flow that repairs it.
  */
 export function providerSetupActions(
   state: { installed: boolean; signedIn: boolean },
+  opts?: { force?: boolean },
 ): ProviderSetupAction[] {
-  if (state.signedIn) return []
-  return state.installed ? ['authenticate'] : ['install', 'authenticate']
+  if (!state.installed) return ['install', 'authenticate']
+  if (state.signedIn && !opts?.force) return []
+  return ['authenticate']
 }
 
 /** The brand marks the rail can draw, keyed the same as the rows that use them. */
@@ -71,6 +78,8 @@ export interface ProviderRow {
   /** Some rows have their own reason to be unavailable. */
   disabled?: boolean
   run?: () => void
+  /** A quieter action a settled row still offers, drawn beside its check mark. */
+  secondary?: { label: string; run: () => void }
 }
 
 export interface GitHostRowsInput {
@@ -116,7 +125,7 @@ export interface CodingProviderRowsInput {
   readiness: HostReadiness | null
   /** Each provider owns its setup state so installs and sign-ins can overlap. */
   stages: Record<SetupAgent, ProviderSetupAction | null>
-  add: (agent: SetupAgent) => void
+  add: (agent: SetupAgent, opts?: { force?: boolean }) => void
 }
 
 /**
@@ -139,7 +148,16 @@ export function codingProviderRows(input: CodingProviderRowsInput): ProviderRow[
       }
     const actions = providerSetupActions(state)
     if (actions.length === 0)
-      return { id, label, detail: 'Installed and signed in', state: 'done' }
+      return {
+        id,
+        label,
+        detail: 'Installed and signed in',
+        state: 'done',
+        // Signed in is the last thing this host was able to report, not a
+        // promise the token still works. Someone who suspects a stale sign-in,
+        // or wants a different account, has this instead of a dead check mark.
+        secondary: { label: 'Sign in again', run: () => add(id, { force: true }) },
+      }
     return {
       id,
       label,

@@ -17,6 +17,8 @@
     waiting?: boolean
     /** bar: tooltip for the idle mic. */
     idleTooltip?: string
+    /** Compact bar controls for embedded prompt composers. */
+    dense?: boolean
     /** field: whether to render the idle mic at all (the host's `mic` prop). */
     showMic?: boolean
     /** field: top-align the mic for a textarea rather than vertically centering it. */
@@ -34,6 +36,7 @@
     disabled = false,
     waiting = false,
     idleTooltip = 'Voice input (⌥⇧Space)',
+    dense = false,
     showMic = true,
     micTextarea = false,
     progressPct = null,
@@ -51,8 +54,8 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={onCancel}
         aria-label="Cancel recording"
-        class="flex size-8 items-center justify-center rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
-      ><XIcon size={15} weight="bold" /></button>
+        class="flex {dense ? 'size-7' : 'size-8'} items-center justify-center rounded-full bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
+      ><XIcon size={dense ? 14 : 15} weight="bold" /></button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content value={"Cancel recording"} />
@@ -65,8 +68,8 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={onConfirm}
         aria-label="Finish recording"
-        class="flex size-8 items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-text-on-accent) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
-      ><CheckIcon size={15} weight="bold" /></button>
+        class="flex {dense ? 'size-7' : 'size-8'} items-center justify-center rounded-full bg-(--solus-accent) text-(--solus-text-on-accent) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
+      ><CheckIcon size={dense ? 14 : 15} weight="bold" /></button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
@@ -77,8 +80,8 @@
       type="button"
       disabled
       aria-label="Finishing transcription"
-      class="flex size-8 items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) text-(--solus-mic-color) shadow-xs"
-    ><SpinnerGapIcon size={16} class="animate-spin" /></button>
+      class="flex {dense ? 'size-7' : 'size-8'} items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) text-(--solus-mic-color) shadow-xs"
+    ><SpinnerGapIcon size={dense ? 14 : 16} class="animate-spin" /></button>
   {:else}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -89,7 +92,7 @@
       onclick={onToggle}
       {disabled}
       aria-label="Voice input"
-      class="flex size-8 items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) shadow-xs transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
+      class="flex {dense ? 'size-7' : 'size-8'} items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-container-bg) shadow-xs transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
       style="{waiting
         ? 'background:var(--solus-accent);'
         : progressPct !== null
@@ -99,7 +102,7 @@
         : waiting
           ? 'var(--solus-text-on-accent)'
           : 'var(--solus-mic-color)'};opacity:{disabled ? 0.4 : 1}"
-    >{#if progressPct !== null}<span class="flex size-7 items-center justify-center rounded-full bg-(--solus-input-pill-bg)"><MicrophoneIcon size={16} /></span>{:else}<MicrophoneIcon size={16} />{/if}</button>
+    >{#if progressPct !== null}<span class="flex {dense ? 'size-6' : 'size-7'} items-center justify-center rounded-full bg-(--solus-input-pill-bg)"><MicrophoneIcon size={dense ? 14 : 16} /></span>{:else}<MicrophoneIcon size={dense ? 14 : 16} />{/if}</button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content value={idleTooltip} />

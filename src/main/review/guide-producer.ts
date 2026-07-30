@@ -122,7 +122,7 @@ export async function generateGuide(
   const dedupeKey = `${review.repoRoot}::${target.guideKey}`
   const running = inFlight.get(dedupeKey)
   if (running) {
-    log.info(`review generation already in flight for ${target.guideKey}; joining it`)
+    log.info('review_generation_joined_inflight', { guideKey: target.guideKey })
     return running.promise
   }
 
@@ -181,7 +181,7 @@ async function produceGuide(
     const diff = await getEpisodeDiff(workTree, review.repoRoot, base)
     patch = diff?.patch?.trim() ?? ''
   } catch (err) {
-    log.warn(`episode diff failed for ${target.guideKey}: ${String(err)}`)
+    log.warn('episode_diff_failed', { guideKey: target.guideKey, error: String(err) })
     return { key: target.guideKey, guide: fallbackGuide(target.guideKey, headSha, base, DIFF_FAILED), persisted: false }
   }
 
@@ -234,7 +234,7 @@ async function produceGuide(
   }
 
   const ok = await writeGuide(review.repoRoot, guide)
-  if (!ok) log.warn(`failed to cache review guide for ${target.guideKey}`)
+  if (!ok) log.warn('review_guide_cache_failed', { guideKey: target.guideKey })
   return { key: target.guideKey, guide, persisted: ok }
 }
 

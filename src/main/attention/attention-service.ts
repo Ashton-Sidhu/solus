@@ -146,7 +146,7 @@ export class AttentionService {
     try {
       this.listener?.(this.list())
     } catch (err) {
-      log.error(`attention-changed listener failed: ${String(err)}`)
+      log.error('attention_changed_listener_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -159,7 +159,7 @@ export class AttentionService {
       }
       this._evictOverflow()
     } catch (err) {
-      log.error(`failed to load attention state: ${String(err)}`)
+      log.error('attention_state_load_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -169,7 +169,7 @@ export class AttentionService {
       const body: AttentionFile = { version: 1, entries: Object.fromEntries(this.entries) }
       writeFileSync(this.statePath, JSON.stringify(body, null, 2), { mode: 0o600 })
     } catch (err) {
-      log.error(`failed to persist attention state: ${String(err)}`)
+      log.error('attention_state_persist_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 }

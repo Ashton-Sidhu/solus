@@ -19,6 +19,7 @@
     onDirtyChange?: (dirty: boolean) => void;
     onClose?: () => void;
     inline?: boolean;
+    minimizeOutline?: boolean;
     onOpenChat?: (mode: 'resume' | 'new') => void;
     originalSessionMeta?: SessionMeta | null;
     /** Work kind — gates the Download .md action in the header. */
@@ -36,7 +37,7 @@
     onRename?: (title: string) => void;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onPromoteToProject, promoting = false, onRename }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onPromoteToProject, promoting = false, onRename }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
   const commentExtensions = [CommentMark];
@@ -183,6 +184,7 @@
   content={doc.content}
   onRenameTitle={onRename}
   {inline}
+  {minimizeOutline}
   editorClass="doc-document-editor"
   rootClass="doc-modal-shell"
   scope="document-modal"

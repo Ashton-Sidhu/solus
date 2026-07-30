@@ -556,16 +556,23 @@
     };
   });
 
-  // Keep the rail minimized through the secondary shell's exit animation. Once
-  // that shell is removed, the saved preference becomes effective again and the
-  // rail reopens at the width available to the restored conversation column.
+  // As soon as the secondary stops owning layout space, reopen the rail in the
+  // same transition instead of waiting for the fading secondary shell to unmount.
+  // Use the split container's final width while returning to the primary view so
+  // the rail starts toward one stable target rather than retargeting after the
+  // primary column's ResizeObserver catches up.
+  const projectRailContainerWidth = $derived(
+    secondaryVisible
+      ? workspaceColumnWidth
+      : conversationSplitWidth || workspaceColumnWidth,
+  );
   const railOpen = $derived(
     enableProjectPanel &&
       conversationChromeVisible &&
       isProjectRailOpen(
         settings.projectPanelOpen,
-        workspaceColumnWidth,
-        renderSecondaryShell,
+        projectRailContainerWidth,
+        secondaryVisible,
       ),
   );
 
@@ -804,7 +811,7 @@
             <div
               class="input-dock no-drag flex-shrink-0"
               class:mode-hidden={!conversationChromeVisible}
-              style="padding:10px 16px 12px;background:var(--solus-container-bg)"
+              style="padding:10px 16px 4px"
               bind:clientHeight={inputDockHeight}
               onfocusin={() => panes.focusPane("primary")}
             >
@@ -822,8 +829,8 @@
                   <ProjectPanel
                     tabId={session.activeTabId}
                     slot="primary"
-                    containerWidth={workspaceColumnWidth}
-                    minimized={renderSecondaryShell}
+                    containerWidth={projectRailContainerWidth}
+                    minimized={secondaryVisible}
                   />
                 {/if}
               </div>
@@ -938,6 +945,9 @@
   :global(.secondary-pane-wrap--framed) {
     border-left: 1px solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);
+    /* The thread stays the brighter surface: a pane opened beside it steps back
+       by 1.5% so the eye keeps the conversation as the primary object. */
+    background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
   }
   .content-column {
     padding: 0 8px 8px 0;

@@ -16,7 +16,7 @@
     PushPinIcon,
     GearIcon,
     XIcon,
-    LightningIcon,
+    ArrowsClockwiseIcon,
     ListChecksIcon,
     GitPullRequestIcon,
     ChatsIcon,
@@ -323,7 +323,7 @@
             isActive={session.automationsOpen}
             onclick={() => session.toggleAutomations()}
           >
-            <span class={navCardIcon}><LightningIcon size={13} /></span>
+            <span class={navCardIcon}><ArrowsClockwiseIcon size={13} /></span>
             <span class={navLabel}>Automations</span>
             <span class={navHint}>{comboHint("global.toggle-automations")}</span
             >

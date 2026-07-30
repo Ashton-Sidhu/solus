@@ -172,19 +172,30 @@
     data-testid="artifact-generating"
   >
     <!-- Anticipatory skeleton: faux content silhouettes (title, canvas, caption)
-         sit on a tall warm "stage", and a brand-accent fill wipes across each in
-         sequence — so a rich visualization reads as streaming into place rather
-         than a short box blinking. No status text: the motion is self-evidently a
-         render, and the label is screen-reader-only to keep the chrome clean. -->
+         on a tall warm "stage". Bones rest neutral — the brand colour never sits
+         as a fill, it only travels: a 10% accent highlight sweeping the bones
+         plus a 2px indeterminate hairline. The header names the payload in
+         words, because a rectangle of washes is the one moment the reader
+         cannot tell what is arriving. -->
     <div
       class="artifact-skeleton"
       role="status"
       aria-label="Rendering visualization"
     >
-      <div class="sk-row sk-title"><span class="sk-fill"></span></div>
-      <div class="sk-row sk-block"><span class="sk-fill"></span></div>
-      <div class="sk-row sk-line"><span class="sk-fill"></span></div>
-      <div class="sk-row sk-line2"><span class="sk-fill"></span></div>
+      <div class="artifact-skeleton__head">
+        <span class="artifact-skeleton__kicker">Artifact</span>
+        <span class="artifact-skeleton__status font-mono">rendering</span>
+      </div>
+      <div class="artifact-skeleton__rule"></div>
+      <div class="artifact-skeleton__body">
+        <div class="sk-bar sk-title"></div>
+        <div class="sk-bar sk-block"></div>
+        <div class="sk-bar sk-line"></div>
+        <div class="sk-bar sk-line2"></div>
+      </div>
+      <div class="artifact-skeleton__track">
+        <div class="artifact-skeleton__progress"></div>
+      </div>
     </div>
   </div>
 {:else}
@@ -231,8 +242,8 @@
           {srcdoc}
         ></iframe>
       {:else}
-        <div class="artifact-loading">
-          <span class="artifact-skeleton-dot"></span>
+        <div class="artifact-loading" role="status" aria-label="Loading artifact">
+          <div class="sk-bar artifact-loading__bone"></div>
         </div>
       {/if}
 
@@ -395,18 +406,29 @@
     }
 
     .artifact-skeleton {
-      gap: 0.625rem;
       min-height: clamp(9.5rem, 30svh, 13rem);
-      padding: 1.125rem;
       border-radius: min(2vw, 0.75rem);
+    }
+
+    .artifact-skeleton__body {
+      gap: 0.625rem;
+      padding: 0.875rem 0.875rem 0.8125rem;
     }
   }
 
+  /* Brief hydration gap between the file landing and the iframe painting —
+     the same quiet bone as the skeleton's canvas block, not a spinner. */
   .artifact-loading {
     display: flex;
-    align-items: center;
-    justify-content: center;
     min-height: 6rem;
+  }
+
+  .sk-bar.artifact-loading__bone {
+    --sk-ink: 4%;
+    flex: 1;
+    border-radius: 0.5rem;
+    box-shadow: inset 0 0 0 0.03125rem
+      color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
   }
 
   .artifact-actions {
@@ -542,110 +564,159 @@
   .artifact-skeleton {
     display: flex;
     flex-direction: column;
-    gap: 0.8125rem;
+    overflow: hidden;
     /* Track the window height (svh) so the reserved footprint scales with the
        device, bounded so it never gets cramped on short windows or oversized on
        tall displays. */
     min-height: clamp(11rem, 24svh, 15rem);
-    padding: 1.5rem;
     border-radius: 0.75rem;
     background: color-mix(in srgb, var(--solus-art-surface) 60%, transparent);
     border: 0.0625rem solid var(--solus-art-border);
   }
 
-  /* Each silhouette bone. A brand-accent fill wipes across it left→right; the
-     bones are staggered so content reads as streaming into place in sequence. */
-  .sk-row {
-    position: relative;
-    overflow: hidden;
-    border-radius: 0.4375rem;
-    background: color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
+  .artifact-skeleton__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.8125rem 1.0625rem 0.6875rem;
   }
 
-  .sk-fill {
-    position: absolute;
-    inset: 0;
-    transform-origin: left;
-    transform: scaleX(0);
-    background: color-mix(in srgb, var(--solus-accent) 30%, transparent);
-    animation: artifact-wipe 2.8s ease-in-out infinite;
+  .artifact-skeleton__kicker {
+    font-size: 0.59375rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    opacity: 0.7;
+  }
+
+  .artifact-skeleton__status {
+    margin-left: auto;
+    font-size: 0.65625rem;
+    color: var(--muted-foreground);
+    animation: artifact-sk-breathe 2.6s ease-in-out infinite;
+  }
+
+  .artifact-skeleton__rule {
+    height: 0.0625rem;
+    background: var(--solus-tx-rule);
+  }
+
+  .artifact-skeleton__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.6875rem;
+    padding: 1rem 1rem 0.9375rem;
+  }
+
+  /* Each bone rests at a quiet ink wash; the accent exists only inside the
+     highlight travelling across it. Ink tints mix in srgb, never oklch —
+     transparent's oklch hue is 0 and a polar mix turns warm brown pink. The
+     sweep runs on the transcript's 2.4s shimmer clock, rows offset by -0.4s so
+     the highlight reads as one pass moving down the stage. */
+  .sk-bar {
+    --sk-ink: 6%;
+    border-radius: 9999px;
+    background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--solus-text-primary) var(--sk-ink), transparent) 0%,
+      color-mix(in srgb, var(--solus-accent) 10%, transparent) 45%,
+      color-mix(in srgb, var(--solus-text-primary) var(--sk-ink), transparent) 90%
+    );
+    background-size: 260% 100%;
+    animation: artifact-sk-shim 2.4s linear infinite;
   }
 
   .sk-title {
+    --sk-ink: 7%;
     width: 46%;
-    height: 0.8125rem;
+    height: 0.6875rem;
   }
 
   /* The "canvas" block grows to fill the stage so the footprint stays tall. */
   .sk-block {
+    --sk-ink: 4%;
     flex: 1;
     min-height: 4.5rem;
+    border-radius: 0.5rem;
+    box-shadow: inset 0 0 0 0.03125rem
+      color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
+    animation-delay: -0.4s;
   }
 
   .sk-line {
-    width: 80%;
-    height: 0.6875rem;
+    width: 92%;
+    height: 0.5625rem;
+    animation-delay: -0.8s;
   }
 
   .sk-line2 {
-    width: 60%;
-    height: 0.6875rem;
+    width: 58%;
+    height: 0.5625rem;
+    animation-delay: -1.2s;
   }
 
-  .sk-title .sk-fill {
-    animation-delay: 0s;
-  }
-  .sk-block .sk-fill {
-    animation-delay: 0.2s;
-  }
-  .sk-line .sk-fill {
-    animation-delay: 0.4s;
-  }
-  .sk-line2 .sk-fill {
-    animation-delay: 0.55s;
+  .artifact-skeleton__track {
+    height: 0.125rem;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--solus-text-primary) 6%, transparent);
   }
 
-  @keyframes artifact-wipe {
-    0% {
-      transform: scaleX(0);
-      opacity: 1;
+  .artifact-skeleton__progress {
+    height: 100%;
+    width: 34%;
+    background: var(--solus-accent);
+    opacity: 0.5;
+    animation: artifact-sk-indet 1.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  }
+
+  @keyframes artifact-sk-shim {
+    from {
+      background-position: 200% 0;
     }
-    45%,
-    70% {
-      transform: scaleX(1);
-      opacity: 1;
+    to {
+      background-position: -100% 0;
     }
+  }
+
+  @keyframes artifact-sk-breathe {
+    0%,
     100% {
-      transform: scaleX(1);
-      opacity: 0;
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 0.85;
+    }
+  }
+
+  @keyframes artifact-sk-indet {
+    from {
+      transform: translateX(-45%);
+    }
+    to {
+      transform: translateX(245%);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .sk-fill {
+    .sk-bar {
       animation: none;
-      transform: scaleX(1);
-      opacity: 0.5;
+      background-image: none;
+      background-color: color-mix(
+        in srgb,
+        var(--solus-text-primary) var(--sk-ink),
+        transparent
+      );
     }
-  }
-
-  .artifact-skeleton-dot {
-    width: 0.375rem;
-    height: 0.375rem;
-    border-radius: 9999px;
-    background: var(--solus-accent);
-    animation: artifact-pulse 1.2s ease-in-out infinite;
-  }
-
-  @keyframes artifact-pulse {
-    0%,
-    100% {
+    .artifact-skeleton__status {
+      animation: none;
+      opacity: 0.6;
+    }
+    .artifact-skeleton__progress {
+      animation: none;
       opacity: 0.35;
-      transform: scale(0.85);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1);
     }
   }
+
 </style>

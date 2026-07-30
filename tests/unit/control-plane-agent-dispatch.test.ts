@@ -81,3 +81,25 @@ describe('ControlPlane.runAgent', () => {
     expect(internals.activeAgentRuns.size).toBe(0)
   })
 })
+
+describe('ControlPlane setup cancellation', () => {
+  test('cancels setup before an agent handle exists', () => {
+    // WHY: worktree setup starts before the backend creates a RunHandle. Stop
+    // must still own that phase or Ctrl-C lets setup continue into a live run.
+    const plane = new ControlPlane(new Map())
+    planes.push(plane)
+    const setupController = new AbortController()
+    const internals = plane as unknown as {
+      pendingSetupControllers: Map<string, AbortController>
+    }
+    internals.pendingSetupControllers.set('tab-1', setupController)
+
+    const cancelled = plane.cancelTab({
+      session: { tabId: 'tab-1' },
+    } as never)
+
+    expect(cancelled).toBe(true)
+    expect(setupController.signal.aborted).toBe(true)
+    expect(internals.pendingSetupControllers.has('tab-1')).toBe(false)
+  })
+})

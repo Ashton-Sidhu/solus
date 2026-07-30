@@ -47,8 +47,8 @@
     useWorktree?: boolean;
     /** Forwarded keydown not consumed by autocomplete or the ⌘↵ submit. */
     onKeyDown?: (e: KeyboardEvent) => void;
-    /** Action row, left of the picker. */
-    leading?: Snippet;
+    /** Action row, directly after the model picker. */
+    afterPicker?: Snippet;
     /** Action row, right of the spacer and before the send button. */
     trailing?: Snippet;
   }
@@ -69,7 +69,7 @@
     showWorktree = false,
     useWorktree = $bindable(false),
     onKeyDown,
-    leading,
+    afterPicker,
     trailing,
   }: Props = $props();
 
@@ -205,9 +205,9 @@
     onclick={() => (collapsed = false)}
     aria-label="Expand composer"
     aria-expanded="false"
-    class="pointer-events-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) font-secondary text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
+    class="pointer-events-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--solus-container-border) bg-(--solus-input-pill-bg) font-secondary text-(--solus-text-secondary) transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.96]"
   >
-    <ChatCircleTextIcon size={15} weight="bold" />
+    <ChatCircleTextIcon size={14} weight="bold" />
   </button>
       {/snippet}
     </TooltipUI.Trigger>
@@ -280,25 +280,25 @@
         onclick={() => (collapsed = true)}
         aria-label="Collapse composer"
         aria-expanded="true"
-        class="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color] duration-150 hover:bg-(--solus-surface-hover)"
+        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color] duration-150 hover:bg-(--solus-surface-hover)"
       >
-        <CaretDownIcon size={16} weight="bold" />
+        <CaretDownIcon size={14} weight="bold" />
       </button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content value={"Collapse"} />
       </TooltipUI.Root>
     {/if}
-    {@render leading?.()}
     {#if pickerVisible}
-      <SessionChip bind:selection menuSide={menuPlacement === "down" ? "bottom" : "top"} />
+      <SessionChip bind:selection menuSide={menuPlacement === "down" ? "bottom" : "top"} dense />
     {/if}
+    {@render afterPicker?.()}
     {#if showWorktree}
       <label
-        class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 font-medium transition-colors h-8 text-[0.8125rem] {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
+        class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 text-xs font-medium transition-colors {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
         title={useWorktree ? "Worktree enabled — run in an isolated branch (⌥W)" : "Enable worktree — run in an isolated branch (⌥W)"}
       >
-        <GitForkIcon size={15} />
+        <GitForkIcon size={14} />
         Worktree
         <Switch size="sm" bind:checked={useWorktree} data-testid="composer-worktree" aria-label="Run in an isolated worktree" />
       </label>
@@ -309,6 +309,7 @@
     >
       <RecordingControls
         variant="bar"
+        dense
         state={voiceState}
         rmsRef={dictation.rmsRef}
         disabled={!voiceReady || disabled}
@@ -333,10 +334,10 @@
           onclick={handleSubmit}
           disabled={!canSend}
           aria-label="Send"
-          class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.96] disabled:active:scale-100"
+          class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.96] disabled:active:scale-100"
           style="opacity:{canSend ? 1 : 0.4};cursor:{canSend ? 'pointer' : 'default'}"
         >
-          <ArrowUpIcon size={16} weight="bold" />
+          <ArrowUpIcon size={14} weight="bold" />
         </button>
             {/snippet}
           </TooltipUI.Trigger>

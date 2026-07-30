@@ -1,6 +1,6 @@
 import { execSync } from 'child_process'
 import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
-import { ClaudeTurnNormalizer, isSteerRestartResult } from './claude-event-normalizer'
+import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
 import { getCliEnv } from '../../cli-env'
@@ -13,7 +13,7 @@ const log = createLogger('ClaudeAgent', 'claude-agent.ts')
 function logRawClaudeEvent(sessionId: string | null, msg: unknown): void {
   if (isNormalStreamingTextEvent(msg)) return
 
-  log.debug('Raw provider event', {
+  log.debug('raw_provider_event', {
     provider: 'claude-code',
     sessionId,
     event: msg as Record<string, unknown>,
@@ -43,9 +43,9 @@ export const SAFE_TOOLS = [
 let claudeExecutablePath: string | undefined
 try {
   claudeExecutablePath = execSync('which claude', { encoding: 'utf8', env: getCliEnv() }).trim() || undefined
-  log.info(`claude executable: ${claudeExecutablePath}`)
+  log.info('claude_executable_found', { path: claudeExecutablePath })
 } catch {
-  log.warn('claude executable not found via which — using SDK default')
+  log.warn('claude_executable_not_found')
 }
 
 export type CanUseTool = (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any>
@@ -174,7 +174,7 @@ export class ClaudeAgent {
             state.sessionId = newSid
             if (firstSeen && opts.onSessionInit) {
               try { await opts.onSessionInit(newSid) }
-              catch (e) { log.warn(`onSessionInit failed: ${e}`) }
+              catch (e) { log.warn('on_session_init_failed', { error: e instanceof Error ? e.message : String(e) }) }
             }
           }
 
@@ -185,13 +185,21 @@ export class ClaudeAgent {
             if (evt.type === 'background_task_started') backgroundTasks++
             else if (evt.type === 'background_task_settled' && backgroundTasks > 0) backgroundTasks--
           }
-          // A steered message aborts the in-flight request, and the SDK reports
-          // that abort as a result before restarting its loop on the same query.
-          // Closing the input there would pull the stream out from under the
-          // restart, and `canUseTool` rides that same stream — every later
-          // permission request would fail with "AbortError: Stream closed".
-          if (msg.type === 'result' && !isSteerRestartResult(msg as unknown as ResultEvent)) {
+          // An aborted request is reported as a result before the SDK restarts
+          // its loop on the same query. Closing the input there would pull the
+          // stream out from under the restart, and `canUseTool` rides that same
+          // stream — every later permission request would fail with
+          // "AbortError: Stream closed".
+          if (
+            msg.type === 'result'
+            && !isAbortSeamResult(msg as unknown as ResultEvent)
+            && !isTaskNotificationResult(msg as unknown as ResultEvent)
+          ) {
             sawResult = true
+            // Refuse steers from here on. `input.close()` below can lag this by
+            // a whole git snapshot, and a message accepted in that window would
+            // be shown to the user and then never read.
+            input?.seal()
             if (state.sessionId && opts.onTurnComplete) {
               try {
                 const changedFiles = await opts.onTurnComplete(state.sessionId, {
@@ -201,7 +209,7 @@ export class ClaudeAgent {
                 })
                 if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
               }
-              catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
+              catch (e) { log.warn('on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) }) }
             }
           }
           if (sawResult && backgroundTasks === 0) input?.close()
@@ -228,7 +236,7 @@ export class ClaudeAgent {
               })
               if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
             }
-            catch (e) { log.warn(`onTurnComplete (abort) failed: ${e}`) }
+            catch (e) { log.warn('on_turn_complete_abort_failed', { error: e instanceof Error ? e.message : String(e) }) }
           }
           resolveResult({
             sessionId: state.sessionId,

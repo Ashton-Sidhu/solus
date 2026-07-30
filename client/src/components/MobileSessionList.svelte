@@ -7,19 +7,26 @@
     ClockIcon,
     XIcon,
     PushPinIcon,
+    CaretRightIcon,
+    HardDrivesIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext, getSessionSidebarStore } from "@renderer/contexts";
+  import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
 
   interface Props {
     /** Close the drawer after a navigation action. */
     onSessionSelect: () => void;
+    /** Open the server sheet (closing the drawer first). */
+    onOpenServers: () => void;
   }
-  let { onSessionSelect }: Props = $props();
+  let { onSessionSelect, onOpenServers }: Props = $props();
 
   const session = getWorkspaceContext();
   const store = getSessionSidebarStore();
+
+  const activeServer = $derived(serversStore.activeServer);
+  const serverOnline = $derived(activeServer?.status === "online");
 
   // Flatten the project → branch → tab tree into one large row per open session,
   // keeping project/branch context as secondary text. A flat list of big tap
@@ -80,17 +87,34 @@
 
 <div class="flex flex-col h-full min-h-0">
   <header
-    class="shrink-0 flex items-center justify-between px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top,0px))]"
+    class="shrink-0 flex flex-col px-4 pb-2 pt-[max(0.875rem,env(safe-area-inset-top,0px))]"
   >
-    <span class="text-[1.125rem] font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
-    <button
-      class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-colors duration-100 active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
-      onclick={newSession}
-      aria-label="New session"
-    >
-      <PlusIcon size={17} weight="bold" />
-      <span>New</span>
-    </button>
+    <div class="flex items-center justify-between">
+      <span class="text-[1.125rem] font-medium tracking-[-0.01em] text-(--solus-text-primary)">Sessions</span>
+      <button
+        class="flex items-center gap-1 rounded-full border-0 bg-(--solus-accent-light) py-1.5 pl-2.5 pr-3 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
+        onclick={newSession}
+        aria-label="New session"
+      >
+        <PlusIcon size={17} weight="bold" />
+        <span>New</span>
+      </button>
+    </div>
+    {#if activeServer}
+      <button
+        class="mt-2 flex items-center gap-2 rounded-[0.625rem] border-0 bg-(--solus-surface-hover) px-2.5 py-2 text-left cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-active) [-webkit-tap-highlight-color:transparent]"
+        onclick={() => nav(onOpenServers)}
+        aria-label="Servers"
+      >
+        <HardDrivesIcon size={15} class="shrink-0 text-(--solus-text-tertiary)" />
+        <span class="flex-1 min-w-0 truncate text-[0.75rem] font-medium text-(--solus-text-secondary)">{activeServer.label}</span>
+        <span
+          class="shrink-0 w-1.5 h-1.5 rounded-full {serverOnline ? 'bg-(--solus-status-complete)' : 'bg-(--solus-text-quaternary) opacity-60'}"
+          aria-hidden="true"
+        ></span>
+        <CaretRightIcon size={12} class="shrink-0 text-(--solus-text-quaternary)" />
+      </button>
+    {/if}
   </header>
 
   <div class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 pt-0.5 pb-3 [-webkit-overflow-scrolling:touch]">
@@ -155,7 +179,7 @@
       <div class="flex flex-col items-center gap-3 px-4 py-12 text-[0.8125rem] text-(--solus-text-tertiary)">
         <span>No open sessions</span>
         <button
-          class="flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-4 py-2 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer active:bg-(--solus-accent-border-medium)"
+          class="flex items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-4 py-2 text-[0.8125rem] font-medium text-(--solus-accent) cursor-pointer transition-[background-color,transform] duration-[120ms] active:scale-[0.96] active:bg-(--solus-accent-border-medium) [-webkit-tap-highlight-color:transparent]"
           onclick={newSession}
         >
           <PlusIcon size={15} weight="bold" /> New session

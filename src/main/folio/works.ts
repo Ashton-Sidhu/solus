@@ -277,7 +277,7 @@ async function snapshotPreviousProjectContent(id: string, found: FoundWork): Pro
     const prev: WorkPrevious = { content, updatedAt: found.meta.updatedAt }
     await writeFile(prevPath(found.locator.root, id), JSON.stringify(prev), 'utf8')
   } catch (err: any) {
-    log.warn(`snapshotPreviousContent(${id}) failed: ${String(err)}`)
+    log.warn('work_previous_snapshot_failed', { workId: id, error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -495,7 +495,7 @@ export async function loadWork(id: string, cwd?: string): Promise<Work | null> {
     const { content } = JSON.parse(raw) as { content: string }
     return { id, content, ...found.meta }
   } catch (err: any) {
-    log.error(`Error loading work ${id}: ${String(err)}`)
+    log.error('work_load_failed', { workId: id, error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }
@@ -514,7 +514,7 @@ export async function listWorks(cwd?: string): Promise<(WorkMeta & { id: string 
 
     return entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } catch (err: any) {
-    log.error(`Error listing works: ${String(err)}`)
+    log.error('works_list_failed', { error: err instanceof Error ? err.message : String(err) })
     return []
   }
 }

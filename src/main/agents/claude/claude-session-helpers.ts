@@ -6,6 +6,7 @@ import type { SessionLoadMessage } from '../../../shared/session-history'
 import { runBounded } from '../../lib/concurrency'
 import { stripInjectedContext } from '../utils'
 import { MemoryCache } from '../../../shared/cache'
+import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
 
 export interface SessionListCacheEntry {
   sessions: SessionMeta[]
@@ -118,14 +119,15 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
       if (Array.isArray(content) && content.every((b: any) => b.type === 'tool_result')) {
         const result = content.find((b: any) => typeof b.tool_use_id === 'string')
         if (!result) return null
-        const text = typeof result.content === 'string'
-          ? result.content
-          : Array.isArray(result.content)
-            ? result.content.map((b: any) => typeof b?.text === 'string' ? b.text : '').join('\n')
-            : ''
+        // A backgrounded sub-agent answers its tool call at *launch* with metadata
+        // the SDK forbids surfacing ("Async agent launched successfully…"); its real
+        // output arrives later as the <task-notification> below. Drop the ack here
+        // exactly as the live reducer does, so reload doesn't rebuild the card with
+        // launch metadata standing in for the agent's report.
+        if (obj.toolUseResult?.isAsync === true || obj.toolUseResult?.status === 'async_launched') return null
         return {
           role: 'tool_result',
-          content: text,
+          content: claudeToolResultText(result.content),
           toolResultForId: result.tool_use_id,
           parentToolUseId,
           timestamp: new Date(obj.timestamp).getTime(),
@@ -136,10 +138,14 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
       // agent's final output. Route it into that tool's nested transcript so reload
       // rebuilds the sub-agent card instead of leaking the result as a user bubble.
       if (typeof content === 'string' && content.includes('<task-notification>')) {
-        const notifToolId = content.match(/<tool-use-id>([^<]+)<\/tool-use-id>/)?.[1]
-        const result = content.match(/<result>([\s\S]*?)<\/result>/)?.[1]?.trim()
-        if (notifToolId && result) {
-          return { role: 'assistant', content: result, parentToolUseId: notifToolId, timestamp: new Date(obj.timestamp).getTime() }
+        const notification = parseClaudeTaskNotification(content)
+        if (notification) {
+          return {
+            role: 'assistant',
+            content: notification.result,
+            parentToolUseId: notification.toolUseId,
+            timestamp: new Date(obj.timestamp).getTime(),
+          }
         }
         // Status-only notifications carry no result — plumbing, not user input.
         return null

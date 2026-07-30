@@ -8,7 +8,7 @@ import { getServerSettings, setRemoteAccess } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { attachWebSocketTransport } from '../transports/websocket'
 import type { ControlPlane } from '../control-plane'
-import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '../../shared/types'
+import type { NormalizedEvent, EnrichedError, PromptDelivery, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
@@ -43,6 +43,7 @@ import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries
 import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../package.json'
+import { transcribeAudio } from '../transcription'
 
 const log = createLogger('main', 'server-boot')
 
@@ -117,7 +118,7 @@ export function acquireLock(host: string, port: number): { release(): void } | n
 
   const existing = readLock()
   if (existing && isAlive(existing.pid)) {
-    log.warn(`solus already running pid=${existing.pid} host=${existing.host} port=${existing.port}`)
+    log.warn('solus_already_running', { pid: existing.pid, host: existing.host, port: existing.port })
     return null
   }
 
@@ -194,8 +195,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
     pendingInputEvents: (sessionId) => opts.controlPlane.pendingInputEventsForSession(sessionId),
     promptSession: (sessionId, prompt, delivery) => opts.controlPlane.promptSession(sessionId, prompt, delivery),
-    watchSessionSettled: (targetSessionId, callerSessionId) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId),
+    watchSessionSettled: (targetSessionId, callerSessionId, watch) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId, watch),
     stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
+  })
+  // Relay cards drive peer sessions that have no bound tab in the renderer.
+  server.register('promptSession', async (args) => {
+    const [sessionId, prompt, delivery] = args as [string, string, PromptDelivery | undefined]
+    return opts.controlPlane.promptSession(sessionId, prompt, delivery)
+  })
+  server.register('stopSession', async (args) => {
+    const [sessionId] = args as [string]
+    return opts.controlPlane.stopSession(sessionId)
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
@@ -246,7 +256,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
     for (const entry of created) {
       void pushNotifications.sendToOfflineDevices(entry, isDeviceOnline).catch((err) => {
-        log.warn(`web push fanout failed: ${String(err)}`)
+        log.warn('web_push_fanout_failed', { error: err instanceof Error ? err.message : String(err) })
       })
     }
   })
@@ -263,6 +273,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.controlPlane.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
     server.broadcast('session-index-updated', event)
   })
+  // Global session-status feed: relay cards live-track peers without tabs.
+  opts.controlPlane.on('session-status', (event: { sessionId: string; status: SessionStatus; at: number }) => {
+    server.broadcast('session-status-changed', event)
+  })
 
   ensureClaimWindow()
 
@@ -272,6 +286,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     staticDir: opts.staticDir,
     getHost: () => host,
     getPort: () => actualPort,
+    transcribeAudio,
   })
   let ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
@@ -302,7 +317,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         SESSION_INDEX_POLL_MAX_BACKOFF_MS,
         SESSION_INDEX_POLL_MS * 2 ** sessionIndexPollFailures,
       )
-      log.warn(`Session index poll failed: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn('session_index_poll_failed', { error: err instanceof Error ? err.message : String(err) })
       scheduleSessionIndexPoll(backoff)
     }
   }
@@ -351,7 +366,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       } catch (err) {
         const code = (err as NodeJS.ErrnoException)?.code
         if (code !== 'EADDRINUSE' || i === MAX_PORT_RETRIES) throw err
-        log.info(`port ${nextPort} in use, trying ${nextPort + 1}`)
+        log.info('port_in_use_retrying', { port: nextPort, nextPort: nextPort + 1 })
         nextPort += 1
       }
     }
@@ -361,12 +376,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   actualPort = await listenWithRetries(port)
 
   if (actualPort !== port) {
-    log.info(`server bound to ${host}:${actualPort} (default ${port} unavailable)`)
+    log.info('server_bound_fallback_port', { host, port: actualPort, defaultPort: port })
   }
 
   let lock = acquireLock(host, actualPort)
   if (!lock) {
-    log.warn('lock acquisition failed; proceeding without single-instance enforcement')
+    log.warn('lock_acquisition_failed')
   }
 
   let lanDiscovery: LanDiscoveryService
@@ -378,7 +393,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       isReachable: !isLoopbackHost(host),
     }))
   } catch (err) {
-    log.warn(`LAN discovery unavailable: ${err}`)
+    log.warn('lan_discovery_unavailable', { error: err instanceof Error ? err.message : String(err) })
     lanDiscovery = {
       discoverServers: async () => [],
       close: async () => {},
@@ -394,13 +409,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Existing WS connections (including the one carrying this very toggle)
     // keep the plain http.close() callback from ever firing, since Node waits
     // for all live sockets to end on their own. Force them closed first.
-    try { ws.close() } catch (err) { log.warn(`ws.close failed during rebind: ${err}`) }
+    try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
     ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
     lock = acquireLock(host, actualPort)
-    if (!lock) log.warn('lock acquisition failed after rebind; proceeding without single-instance enforcement')
-    log.info(`Solus server rebound to http://${host}:${actualPort} (auth=${requireAuth ? 'on' : 'off'})`)
+    if (!lock) log.warn('lock_acquisition_failed_after_rebind')
+    log.info('server_rebound', { host, port: actualPort, requireAuth })
   }
 
   registerConnectionsHandlers(server, {
@@ -419,7 +434,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
   })
 
-  log.info(`Solus server listening on http://${host}:${actualPort}`)
+  log.info('server_listening', { host, port: actualPort })
   console.log(`\n  Solus web UI → http://localhost:${actualPort}\n`)
 
   let shutdownPromise: Promise<void> | null = null
@@ -436,7 +451,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
         await lanDiscovery.close()
-        try { ws.close() } catch (err) { log.warn(`ws.close failed: ${err}`) }
+        try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()
       })()

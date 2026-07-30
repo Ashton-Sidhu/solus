@@ -1,10 +1,8 @@
 import { MemoryCache } from '../../shared/cache'
-import type { IpcContext, Message, SessionMeta } from '../../shared/types'
-import type {
-  SessionLoadMessage,
-  SessionPreviewResult,
-} from '../../shared/session-history'
+import type { IpcContext, SessionMeta } from '../../shared/types'
+import type { SessionPreviewResult } from '../../shared/session-history'
 import type { PickerEntry } from './sessionUtils'
+import { extractPreviewMessages, type PreviewExtraction } from './sessionPreviewMessages'
 
 interface PreviewLoaderDeps {
   loadSessionPreview: Window['solus']['loadSessionPreview']
@@ -25,7 +23,7 @@ interface PreviewLoaderDeps {
  * selected, scope unchanged) evaluated after the fetch resolves.
  */
 export class PreviewLoader {
-  messages = $state<Array<SessionLoadMessage | Message> | null>(null)
+  snapshot = $state<PreviewExtraction | null>(null)
   hiddenCount = $state<number | undefined>(undefined)
   loading = $state(false)
 
@@ -51,17 +49,16 @@ export class PreviewLoader {
       this.#frame = null
     }
     this.#seq++
-    this.messages = null
+    this.snapshot = null
     this.hiddenCount = undefined
     this.loading = false
   }
 
   #apply(result: SessionPreviewResult) {
-    this.messages = [...result.head, ...result.tail]
-    this.hiddenCount = Math.max(
-      0,
-      result.totalMessages - result.head.length - result.tail.length,
-    )
+    const snapshot = extractPreviewMessages([...result.head, ...result.tail])
+    this.snapshot = snapshot
+    const shown = (snapshot.firstUserMessage ? 1 : 0) + (snapshot.lastAssistantMessage ? 1 : 0)
+    this.hiddenCount = Math.max(0, result.totalMessages - shown)
   }
 
   show(
@@ -76,12 +73,15 @@ export class PreviewLoader {
     if (entry.kind === 'open') {
       const seq = ++this.#seq
       this.loading = false
-      this.hiddenCount = undefined
       const entrySession = entry.session
       this.#frame = requestAnimationFrame(() => {
         if (seq !== this.#seq) return
         this.#frame = null
-        this.messages = entrySession.messages
+        const snapshot = extractPreviewMessages(entrySession.messages)
+        this.snapshot = snapshot
+        const shown =
+          (snapshot.firstUserMessage ? 1 : 0) + (snapshot.lastAssistantMessage ? 1 : 0)
+        this.hiddenCount = Math.max(0, entrySession.messages.length - shown)
       })
       return
     }
@@ -97,7 +97,7 @@ export class PreviewLoader {
 
     const seq = ++this.#seq
     this.loading = true
-    this.messages = null
+    this.snapshot = null
     this.hiddenCount = undefined
     this.#debounce = setTimeout(async () => {
       try {

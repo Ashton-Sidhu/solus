@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus } from '../shared/types'
+import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
@@ -63,6 +63,7 @@ export interface SolusAPI {
   respondQuestion(ctx: IpcContext, questionId: string, answers: Record<string, string>): Promise<boolean>
   rateLimitDecision(ctx: IpcContext, action: RateLimitDecisionAction): Promise<boolean>
   cancelQueuedPrompt(ctx: IpcContext, queueId: string): Promise<boolean>
+  editQueuedPrompt(ctx: IpcContext, queueId: string, text: string): Promise<boolean>
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
   resetTabSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
@@ -134,6 +135,16 @@ export interface SolusAPI {
   pushUnsubscribe(): Promise<{ ok: boolean }>
   /** Fires with the full active attention list whenever it changes. */
   onAttentionChanged(callback: (entries: AttentionEntry[]) => void): () => void
+
+  /** Create a durable provider session without tab ownership or routing state. */
+  createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
+  /** Prompt a session that has no bound tab (relay card composer/broadcast). */
+  promptSession(sessionId: string, prompt: string, delivery?: PromptDelivery): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
+  /** Stop a session that has no bound tab (relay card interrupt). */
+  stopSession(sessionId: string): Promise<boolean>
+  /** Global session-status feed — fires on every session's status transition,
+   *  bound tab or not, so relay cards can live-track peers. */
+  onSessionStatusChanged(callback: (event: { sessionId: string; status: SessionStatus; at: number }) => void): () => void
 
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
   providerConnect(ctx: IpcContext): Promise<AuthStatus>
@@ -303,11 +314,13 @@ export interface SolusAPI {
   /** Native-only: resolves the OS path for a File. Web stub returns ''. */
   getPathForFile(file: File): string
 
-  /** Tell main whether the current text selection is inside the conversation
-   *  view, gating the native "Quote in reply" context-menu item. */
-  setQuoteContext(active: boolean): void
+  /** Tell main which conversation owns the current text selection, gating the
+   *  native transcript context-menu actions and preserving their source tab. */
+  setQuoteContext(tabId: string | null): void
   /** Fires when the user picks "Quote in reply" on selected conversation text. */
-  onQuoteSelection(callback: (text: string) => void): () => void
+  onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
+  /** Fires when selected conversation text should seed a forked split session. */
+  onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
 
   stackGet(ctx: IpcContext): Promise<{ repoRoot: string; graph: StackGraph }>
   stackDetect(ctx: IpcContext): Promise<{ repoRoot: string; graph: StackGraph }>
@@ -325,8 +338,9 @@ export interface NativeSolusAPI {
   rendererMounted(mode: 'pill' | 'editor'): void
   getPathForFile(file: File): string
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
-  setQuoteContext(active: boolean): void
-  onQuoteSelection(callback: (text: string) => void): () => void
+  setQuoteContext(tabId: string | null): void
+  onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
+  onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
 }
 
 // Main has finished booting the local server before it creates either renderer
@@ -345,12 +359,17 @@ const nativeApi: NativeSolusAPI = {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean; focus?: boolean }) =>
     ipcRenderer.send('solus:set-ignore-mouse-events', ignore, options || {}),
-  setQuoteContext: (active: boolean) =>
-    ipcRenderer.send('solus:set-quote-context', active),
-  onQuoteSelection: (cb: (text: string) => void) => {
-    const handler = (_e: unknown, text: string) => cb(text)
+  setQuoteContext: (tabId: string | null) =>
+    ipcRenderer.send('solus:set-quote-context', tabId),
+  onQuoteSelection: (cb: (text: string, sourceTabId: string) => void) => {
+    const handler = (_e: unknown, text: string, sourceTabId: string) => cb(text, sourceTabId)
     ipcRenderer.on('solus:quote-selection', handler)
     return () => ipcRenderer.removeListener('solus:quote-selection', handler)
+  },
+  onAskSelectionInNewSession: (cb: (text: string, sourceTabId: string) => void) => {
+    const handler = (_e: unknown, text: string, sourceTabId: string) => cb(text, sourceTabId)
+    ipcRenderer.on('solus:ask-selection-in-new-session', handler)
+    return () => ipcRenderer.removeListener('solus:ask-selection-in-new-session', handler)
   },
 }
 

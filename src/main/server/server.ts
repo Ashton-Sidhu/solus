@@ -31,7 +31,7 @@ export class SolusServer {
   }
 
   async handle(method: RpcMethod, args: unknown[], ctx?: HandlerCtx): Promise<unknown> {
-    if (isDebugEnabled) log.debug(`Running ${method} with args: ${JSON.stringify(args)}`)
+    if (isDebugEnabled) log.debug('rpc_method_invoked', { method, args })
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
     return await handler(args, ctx ?? {})
@@ -62,7 +62,7 @@ export class SolusServer {
   }
 
   broadcast(topic: RpcTopic, ...payload: unknown[]): void {
-    if (isDebugEnabled) log.debug(`Sending payload ${JSON.stringify(payload)} to topic ${topic}`)
+    if (isDebugEnabled) log.debug('topic_broadcast', { topic, payload })
     this.emitter.emit(topic, payload)
   }
 

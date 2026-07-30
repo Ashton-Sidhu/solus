@@ -2,7 +2,7 @@ import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID, type SavedServer } from '@client-core/server-registry'
 import {
   claimServer,
-  desktopDeviceLabel,
+  defaultDeviceLabel,
   pairServer,
   saveBootstrappedServer,
 } from '@client-core/pairing'
@@ -120,6 +120,17 @@ export class HostOnboardingStore {
   ): Promise<void> {
     const target = this.pairingTarget
     if (!target) return
+    // SSH bootstrap shells out from wherever "local" resolves: the desktop app
+    // itself, or — on web — the connected server, which reaches the discovered
+    // host with the user's own SSH access. Only a client with no host at all
+    // falls back to pairing by code.
+    let sshApi: SolusAPI
+    try {
+      sshApi = this.resolveApi(LOCAL_SERVER_ID)
+    } catch {
+      this.useCodeFallback()
+      return
+    }
     const url = discoveredServerUrl(target)
     const generation = ++this.pairingGeneration
     // A retry from a form keeps the form on screen with a busy button; only the
@@ -132,12 +143,12 @@ export class HostOnboardingStore {
     }
 
     try {
-      const result = await this.resolveApi(LOCAL_SERVER_ID).connectionsBootstrapDiscoveredServer({
+      const result = await sshApi.connectionsBootstrapDiscoveredServer({
         server: target,
         ...(options.targetOverride ? { sshTarget: options.targetOverride } : {}),
         ...(options.authSecret ? { authSecret: options.authSecret } : {}),
         ...(options.attempt ? { attempt: options.attempt } : {}),
-        deviceLabel: desktopDeviceLabel(),
+        deviceLabel: defaultDeviceLabel(),
       })
       if (generation !== this.pairingGeneration || !this.isOpen) return
 
@@ -222,7 +233,7 @@ export class HostOnboardingStore {
         const result = await claimServer({
           url,
           code: trimmed,
-          deviceLabel: desktopDeviceLabel(),
+          deviceLabel: defaultDeviceLabel(),
           serverLabel: target.name,
         })
         server = result.server
@@ -231,7 +242,7 @@ export class HostOnboardingStore {
         const result = await pairServer({
           url,
           pairToken: trimmed,
-          deviceLabel: desktopDeviceLabel(),
+          deviceLabel: defaultDeviceLabel(),
           serverLabel: target.name,
         })
         server = result.server

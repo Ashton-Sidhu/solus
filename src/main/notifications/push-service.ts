@@ -172,7 +172,7 @@ export class PushNotificationService {
           droppedAny = true
           continue
         }
-        log.warn(`web push send failed for device ${record.deviceId}: ${String(err)}`)
+        log.warn('web_push_send_failed', { deviceId: record.deviceId, error: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -192,7 +192,7 @@ export class PushNotificationService {
           return { publicKey: parsed.publicKey, privateKey: parsed.privateKey }
         }
       } catch (err) {
-        log.warn(`failed to load push VAPID keys, regenerating: ${String(err)}`)
+        log.warn('push_vapid_keys_load_failed', { error: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -215,7 +215,7 @@ export class PushNotificationService {
         })
       }
     } catch (err) {
-      log.warn(`failed to load push subscriptions: ${String(err)}`)
+      log.warn('push_subscriptions_load_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 

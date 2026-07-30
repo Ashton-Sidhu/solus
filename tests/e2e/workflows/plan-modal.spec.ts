@@ -84,10 +84,10 @@ test.describe('Plan modal workflow', () => {
     await planPage.waitForModal()
 
     const newSessionOption = page.getByTestId('plan-action-new-session')
-    await expect(newSessionOption).toHaveAttribute('aria-checked', 'true')
+    await expect(newSessionOption).toHaveAttribute('aria-pressed', 'true')
 
     await newSessionOption.click()
-    await expect(newSessionOption).toHaveAttribute('aria-checked', 'false')
+    await expect(newSessionOption).toHaveAttribute('aria-pressed', 'false')
 
     await page.setViewportSize({ width: 390, height: 780 })
     await page.getByRole('button', { name: 'More approve options' }).click()

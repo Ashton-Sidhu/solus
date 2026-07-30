@@ -27,11 +27,11 @@ async function tick(): Promise<void> {
     // instead of stacking overlapping runs on the same working directory.
     const due = await claimDueAutomations(new Date(), hasActiveRun)
     for (const a of due) {
-      log.info(`firing scheduled automation ${a.id} ("${a.name}") trigger=${a.trigger.type}`)
-      triggerAutomationRun(a).catch((err) => log.error(`scheduled fire of ${a.id} failed: ${String(err)}`))
+      log.info('automation_scheduled_fire', { automationId: a.id, automationName: a.name, triggerType: a.trigger.type })
+      triggerAutomationRun(a).catch((err) => log.error('automation_scheduled_fire_failed', { automationId: a.id, error: err instanceof Error ? err.message : String(err) }))
     }
   } catch (err: any) {
-    log.error(`scheduler tick failed: ${String(err)}`)
+    log.error('automation_scheduler_tick_failed', { error: err instanceof Error ? err.message : String(err) })
   } finally {
     ticking = false
   }
@@ -45,7 +45,7 @@ export function startAutomationScheduler(): () => void {
   timer = setInterval(() => void tick(), TICK_MS)
   // Don't keep the process alive solely for the scheduler.
   timer.unref?.()
-  log.info('automation scheduler started')
+  log.info('automation_scheduler_started')
   return stopAutomationScheduler
 }
 
@@ -53,5 +53,5 @@ export function stopAutomationScheduler(): void {
   if (!timer) return
   clearInterval(timer)
   timer = null
-  log.info('automation scheduler stopped')
+  log.info('automation_scheduler_stopped')
 }

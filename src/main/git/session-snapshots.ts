@@ -174,13 +174,13 @@ async function snapshotTurnQueued(
 ): Promise<SnapshotTurnResult | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) {
-    log.warn(`Cannot snapshot — no base ref for session ${sessionId}`)
+    log.warn('snapshot_skipped_no_base_ref', { sessionId })
     return null
   }
   const turnIndex = sidecar.turns.length
   const prev = await resolvePrev(repoRoot, sidecar)
   if (!prev) {
-    log.warn(`Cannot snapshot — previous ref missing for session ${sessionId} turn ${turnIndex}`)
+    log.warn('snapshot_skipped_prev_ref_missing', { sessionId, turnIndex })
     return null
   }
 
@@ -214,7 +214,7 @@ async function snapshotTurnQueued(
             '--numstat',
           ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER })).map((file) => file.path)
         } catch (err) {
-          log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+          log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
         }
       }
       const snap: TurnSnapshot = {
@@ -275,14 +275,14 @@ async function snapshotTurnQueued(
         ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER }))
       sessionChangedFiles = sessionStats.map((file) => file.path)
     } catch (err) {
-      log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+      log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
     }
     sidecar.latestTreeSha = treeSha
     if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
     writeSidecar(repoRoot, sessionId, sidecar)
     return { snapshot: snap, sessionChangedFiles }
   } catch (err) {
-    log.error(`snapshotTurn failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+    log.error('snapshot_turn_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
     return null
   } finally {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
@@ -401,7 +401,7 @@ async function buildLiveTree(
     }
   } catch (err) {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
-    log.error(`buildLiveTree failed sid=${sessionId}: ${err}`)
+    log.error('build_live_tree_failed', { sessionId, error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }

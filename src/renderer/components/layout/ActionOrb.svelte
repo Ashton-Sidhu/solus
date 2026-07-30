@@ -117,7 +117,15 @@
   );
   const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
   const hasUncommittedChanges = $derived(uncommittedFiles.length > 0);
-  const showReview = $derived(hasSessionChanges);
+  // This action reviews one agent session. Never fall back to the branch key:
+  // the environment panel owns branch reports, and those must not make this
+  // session pill read as ready.
+  const sessionReviewGuideKey = $derived(
+    sess?.agentSessionId ? `session-${sess.agentSessionId}` : null,
+  );
+  const showReview = $derived(
+    hasSessionChanges && sessionReviewGuideKey !== null,
+  );
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
@@ -169,21 +177,25 @@
   // every mid-turn file change.
   const reviewCheckedFingerprint = new Map<string, string>();
   $effect(() => {
-    if (!hasSessionChanges || tabId !== session.activeTabId) return;
+    const key = sessionReviewGuideKey;
+    if (!hasSessionChanges || !key || tabId !== session.activeTabId) return;
     if (reviewStatus !== "idle") return;
     const fp = untrack(() => changesFingerprint);
     if (reviewCheckedFingerprint.get(tabId) === fp) return;
     reviewCheckedFingerprint.set(tabId, fp);
     const ctx = session.ctxFor(tabId);
-    const sid = sess?.agentSessionId;
-    window.solus.getReviewContext(ctx).then(async (rc) => {
+    const api = session.apiFor(tabId);
+    api.getReviewContext(ctx).then(async (rc) => {
       if (!rc) return;
-      const key = sid ? `session-${sid}` : rc.branch.replace(/\//g, "__");
-      const cached = await window.solus.readGuide(ctx, key);
+      const cached = await api.readGuide(ctx, key);
       // A cached guide from an older HEAD is stale — leave the orb on "Review"
       // so clicking generates a fresh walkthrough.
       if (cached && cached.headSha && cached.headSha !== rc.headSha) return;
-      if (cached && reviewStatus === "idle") {
+      if (
+        cached &&
+        sessionReviewGuideKey === key &&
+        reviewStatus === "idle"
+      ) {
         reviewGuideKey = key;
         reviewSnapshot = changesFingerprint;
         reviewStatus = "done";
@@ -530,26 +542,29 @@
       return;
     }
     if (reviewStatus === "generating") return;
+    const expectedGuideKey = sessionReviewGuideKey;
+    if (!expectedGuideKey) return;
 
     const runId = ++reviewRunId;
     reviewStatus = "generating";
     reviewProgressStep = "preparing";
+    const api = session.apiFor(tabId);
 
     // Progress events broadcast to every subscriber; only track this session's
     // generation so a concurrent branch/other-tab run can't drive our steps.
-    const sid = sess?.agentSessionId;
-    const unsubscribe = window.solus.onReviewProgress((event) => {
-      if (sid && event.key !== `session-${sid}`) return;
+    const unsubscribe = api.onReviewProgress((event) => {
+      if (event.key !== expectedGuideKey) return;
       reviewProgressStep = event.step;
     });
 
     try {
-      const gen = await window.solus.generateGuide(session.ctxFor(tabId), {
+      const gen = await api.generateGuide(session.ctxFor(tabId), {
         ...resolveReviewAgent(theme, agentContext),
         scope: "session",
       });
       if (runId !== reviewRunId) return;
-      reviewGuideKey = gen?.persisted ? gen.key : null;
+      reviewGuideKey =
+        gen?.persisted && gen.key === expectedGuideKey ? gen.key : null;
       reviewSnapshot = changesFingerprint;
       reviewStatus = reviewGuideKey ? "done" : "idle";
     } catch {
@@ -566,7 +581,7 @@
     reviewRunId += 1;
     reviewStatus = "idle";
     reviewPopoverOpen = false;
-    void window.solus.cancelGenerateGuide(session.ctxFor(tabId), {
+    void session.apiFor(tabId).cancelGenerateGuide(session.ctxFor(tabId), {
       scope: "session",
     });
     requestInputFocus();

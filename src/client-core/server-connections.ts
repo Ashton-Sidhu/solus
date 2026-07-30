@@ -74,7 +74,26 @@ export class ServerConnections {
     return connection
   }
 
+  /**
+   * On a web client no host is "local": the primary connection plays that
+   * role, so `LOCAL_SERVER_ID` resolves to it whenever no local target was
+   * ever registered. On desktop the local target is registered at boot, so
+   * this is the identity function there.
+   */
+  private resolveId(serverId: string): string {
+    if (
+      serverId === LOCAL_SERVER_ID
+      && this.primaryServerId
+      && !this.connections.has(serverId)
+      && !this.targets.has(serverId)
+    ) {
+      return this.primaryServerId
+    }
+    return serverId
+  }
+
   ensure(serverId: string): ManagedConnection {
+    serverId = this.resolveId(serverId)
     const existing = this.connections.get(serverId)
     if (existing) return existing
 
@@ -111,6 +130,7 @@ export class ServerConnections {
     serverId: string,
     fn: (api: SolusAPI) => Promise<T> | T,
   ): Promise<T> {
+    serverId = this.resolveId(serverId)
     const hadConnection = this.connections.has(serverId)
     const connection = this.ensure(serverId)
     try {
@@ -121,7 +141,7 @@ export class ServerConnections {
   }
 
   connectionFor(serverId?: string): ManagedConnection | undefined {
-    const resolvedId = serverId ?? this.primaryServerId
+    const resolvedId = serverId ? this.resolveId(serverId) : this.primaryServerId
     return resolvedId ? this.connections.get(resolvedId) : undefined
   }
 
@@ -161,10 +181,11 @@ export class ServerConnections {
   }
 
   statusFor(serverId: string): ConnectionStatus {
-    return this.connections.get(serverId)?.status ?? 'disconnected'
+    return this.connections.get(this.resolveId(serverId))?.status ?? 'disconnected'
   }
 
   async probeHealth(serverId: string, force = false): Promise<ServerHealth | null> {
+    serverId = this.resolveId(serverId)
     const cached = this.healthCache.get(serverId)
     if (!force && cached && cached.expiresAt > Date.now()) return cached.value
 
@@ -182,6 +203,7 @@ export class ServerConnections {
   }
 
   async projectIdentities(serverId: string, force = false): Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>> {
+    serverId = this.resolveId(serverId)
     const cached = this.identityCache.get(serverId)
     if (!force && cached && cached.expiresAt > Date.now()) return cached.value
 
@@ -196,6 +218,9 @@ export class ServerConnections {
     const saved = loadServers().find((server) => server.id === serverId)
     if (saved) return savedServerTarget(saved)
     if (serverId === LOCAL_SERVER_ID) {
+      // On web the primary target answers for the local id (see `ensure`).
+      const primary = this.primaryServerId ? this.targets.get(this.primaryServerId) : undefined
+      if (primary) return primary
       throw new Error('The local Solus target must be registered before it can be used')
     }
     throw new Error(`Unknown Solus server: ${serverId}`)

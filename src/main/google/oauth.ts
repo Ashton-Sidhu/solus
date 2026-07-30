@@ -61,7 +61,7 @@ function persist(token: StoredToken): void {
   try {
     secretStore().saveJson(TOKEN_KEY, tokenFile(), token)
   } catch (err) {
-    log.warn(`Failed to persist token: ${err}`)
+    log.warn('google_token_persist_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -177,7 +177,7 @@ export async function completeGoogleOAuthCallback(params: URLSearchParams): Prom
     })
     return callbackPage(200, "You're connected", 'Return to Solus to continue.')
   } catch (err) {
-    log.warn(`OAuth callback failed: ${err}`)
+    log.warn('google_oauth_callback_failed', { error: err instanceof Error ? err.message : String(err) })
     return callbackPage(500, 'Google connection failed', 'Return to Solus and start Google sign-in again.')
   }
 }
@@ -248,7 +248,7 @@ export async function getAccessToken(): Promise<string | null> {
     const { token } = await client.getAccessToken()
     return token ?? null
   } catch (err) {
-    log.warn(`Refresh failed, re-authenticating: ${err}`)
+    log.warn('google_token_refresh_failed', { error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }

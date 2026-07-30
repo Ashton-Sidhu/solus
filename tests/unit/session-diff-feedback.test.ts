@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   addDiffComment,
+  submitDiffFeedback,
   submitDiffFeedbackToNewSession,
 } from '../../src/renderer/contexts/workspace/session-diff-feedback'
 import type { WorkspaceContext } from '../../src/renderer/contexts/workspace/workspace.context.svelte'
@@ -52,8 +53,13 @@ describe('diff feedback tab targeting', () => {
       fresh: { workingDirectory: '', gitContext: null },
     }
     const ctx = {
-      activeTabId: 'source',
+      activeTabId: 'active',
       tabs: {
+        active: {
+          diffComments: [],
+          diffCommentDraft: null,
+          diffGeneralComment: '',
+        },
         source: {
           diffComments: [sourceComment],
           diffCommentDraft: null,
@@ -71,10 +77,39 @@ describe('diff feedback tab targeting', () => {
       generalComment: '',
       filePath: 'source.ts',
       diffText: '',
+      sourceTabId: 'source',
     })).toBe(true)
     expect(sessions.fresh.workingDirectory).toBe('/repo')
     expect(sends[0]?.tabId).toBe('fresh')
     expect(sends[0]?.prompt).toContain('source.ts')
+    expect(ctx.tabs.source.diffComments).toEqual([])
+  })
+
+  test('sends file-preview feedback to its source tab when another tab is active', () => {
+    const sourceComment = comment('source.ts')
+    const sends: Array<{ prompt: string; tabId?: string }> = []
+    const ctx = {
+      activeTabId: 'active',
+      tabs: {
+        active: {
+          diffComments: [],
+          diffCommentDraft: null,
+          diffGeneralComment: '',
+        },
+        source: {
+          diffComments: [sourceComment],
+          diffCommentDraft: null,
+          diffGeneralComment: '',
+        },
+      },
+      sendMessage(prompt: string, _cwd?: string, tabId?: string) {
+        sends.push({ prompt, tabId })
+      },
+    } as unknown as WorkspaceContext
+
+    expect(submitDiffFeedback(ctx, '', 'source')).toBe(true)
+    expect(sends[0]?.tabId).toBe('source')
+    expect(sends[0]?.prompt).toContain('Keep this behavior.')
     expect(ctx.tabs.source.diffComments).toEqual([])
   })
 })

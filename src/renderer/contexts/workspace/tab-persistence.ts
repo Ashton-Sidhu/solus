@@ -85,6 +85,8 @@ export interface PersistedTab {
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean
+  /** Provider history may omit the synthetic terminal error emitted live. */
+  terminalFailure?: { content: string; timestamp: number } | null
 }
 
 export interface PersistedTabs {

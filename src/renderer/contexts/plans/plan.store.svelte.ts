@@ -443,8 +443,12 @@ export class PlanStore {
 
   preloadAllDescriptors(ctx?: IpcContext): void {
     const key = this.descriptorCacheKey(undefined, true)
+    this.resetVisibleDescriptorsForKey(key)
     const cached = this._descriptorCache.getEntry(key, { allowStale: true })
-    if (cached && !cached.isStale) return
+    if (cached) {
+      this.setVisibleDescriptorsForKey(key, this.syncCachedDescriptors(cached.value))
+      if (!cached.isStale) return
+    }
     if (this._descriptorLoads.has(key)) return
     void this.refreshDescriptors(key, undefined, true, ctx, cached?.value).catch(() => {})
   }

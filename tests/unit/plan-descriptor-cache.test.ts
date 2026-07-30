@@ -29,6 +29,32 @@ function descriptor(title: string, timestamp: number): PlanDescriptor {
 }
 
 describe('plan descriptor cache', () => {
+  test('idle preload exposes plans to gallery and autocomplete immediately', async () => {
+    // WHY: both surfaces read the same visible all-project cache. Warming it
+    // must populate that cache, not merely hide the result in MemoryCache.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+
+    const warmed = [descriptor('Warmed plan', 1)]
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: { listPlans: () => Promise.resolve(warmed) } },
+    })
+
+    const { PlanStore } = await import('../../src/renderer/contexts/plans/plan.store.svelte')
+    const store = new PlanStore()
+    store.preloadAllDescriptors()
+    await Bun.sleep(0)
+
+    expect(store.cachedDescriptorKey).toBe(
+      store.descriptorCacheKey(undefined, true),
+    )
+    expect(store.cachedDescriptors).toEqual(warmed)
+  })
+
   test('shows stale plans immediately while refreshing the shared gallery list', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

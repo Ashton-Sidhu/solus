@@ -10,6 +10,7 @@ export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
     getPathForFile: () => '',
     setQuoteContext: () => {},
     onQuoteSelection: () => () => {},
+    onAskSelectionInNewSession: () => () => {},
   }
 
   for (const method of RPC_INVOKE_METHODS) {

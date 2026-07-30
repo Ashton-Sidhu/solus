@@ -406,4 +406,44 @@ describe('provider setup action', () => {
     expect(providerSetupActions({ installed: true, signedIn: false })).toEqual(['authenticate'])
     expect(providerSetupActions({ installed: true, signedIn: true })).toEqual([])
   })
+
+  test('a signed-in provider can still be signed in again on request', () => {
+    // WHY: readiness reports what the host's CLI last said, and credentials
+    // expire without anything on the host noticing. A user who suspects a stale
+    // token — or wants a different account — has to be able to re-run the flow
+    // without first uninstalling the CLI.
+    expect(providerSetupActions({ installed: true, signedIn: true }, { force: true })).toEqual([
+      'authenticate',
+    ])
+    // Forcing never skips the install a missing CLI still needs.
+    expect(providerSetupActions({ installed: false, signedIn: false }, { force: true })).toEqual([
+      'install',
+      'authenticate',
+    ])
+  })
+
+  test('a signed-in row offers a forced sign-in beside its check mark', () => {
+    // WHY: the settled row used to render a check mark and nothing else, so the
+    // one flow that repairs an expired sign-in was unreachable from the only
+    // surface that shows the provider's state.
+    const calls: Array<[string, { force?: boolean } | undefined]> = []
+    const rows = codingProviderRows({
+      readiness: readiness({
+        agents: {
+          claude: { installed: true, signedIn: true },
+          codex: { installed: false, signedIn: false },
+        },
+      }),
+      stages: { claude: null, codex: null },
+      add: (agent, opts) => calls.push([agent, opts]),
+    })
+    const claude = rows.find((row) => row.id === 'claude')!
+    expect(claude.state).toBe('done')
+    expect(claude.secondary?.label).toBe('Sign in again')
+    claude.secondary!.run()
+    expect(calls).toEqual([['claude', { force: true }]])
+    // A provider that was never set up keeps its primary action and gains no
+    // second one to choose between.
+    expect(rows.find((row) => row.id === 'codex')!.secondary).toBeUndefined()
+  })
 })

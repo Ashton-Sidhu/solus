@@ -114,15 +114,15 @@
       description: "Accounts Solus acts on your behalf with.",
       icon: GithubLogoIcon,
       group: "Capabilities",
-      desktopOnly: true,
     },
+    // Web-visible: a phone or browser manages its hosts through the same
+    // Connections page, driven entirely by RPC against the connected server.
     {
       id: "api-access",
       label: "Connections",
       description: "Reach this Solus server from your other devices.",
       icon: PlugsConnectedIcon,
       group: "Capabilities",
-      desktopOnly: true,
     },
     {
       id: "keybindings",

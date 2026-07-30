@@ -5,7 +5,7 @@ import { createLogger } from '../logger'
 import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady } from '../model-downloader'
 
 const log = createLogger('main', 'transcription/index.ts')
-const WORKER_PATH = join(__dirname, 'transcription-worker.js')
+const WORKER_PATH = join(__dirname, '..', 'transcription-worker.js')
 const BACKEND = 'Parakeet ONNX INT8'
 
 type PhaseMetrics = Record<string, number>
@@ -30,16 +30,16 @@ let pending = new Map<number, PendingTranscription>()
 function ensureWorker(): UtilityProcess {
   if (worker) return worker
   if (!existsSync(WORKER_PATH)) {
-    log.warn(`Transcription worker entry not found at ${WORKER_PATH}`)
+    log.warn('transcription_worker_entry_missing', { workerPath: WORKER_PATH })
   }
   const child = utilityProcess.fork(WORKER_PATH, [], { serviceName: 'solus-transcription' })
   child.on('message', (message) => handleWorkerMessage(message as WorkerResponse))
   child.once('exit', (code) => {
     const err = `Transcription worker exited with code ${code}`
-    log.warn(err)
+    log.warn('transcription_worker_exited', { code })
     for (const [id, request] of pending) {
       pending.delete(id)
-      log.metric('transcribe audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
+      log.metric('transcribe_audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
       request.resolve({ error: `Transcription failed: ${err}`, transcript: null })
     }
     warmupResolve?.()
@@ -52,13 +52,13 @@ function ensureWorker(): UtilityProcess {
 
 function handleWorkerMessage(message: WorkerResponse): void {
   if (message.type === 'warmup-done') {
-    log.metric('warmup transcription', message.ms, { success: true })
+    log.metric('warmup_transcription', message.ms, { success: true })
     warmupResolve?.()
     warmupResolve = null
     return
   }
   if (message.type === 'warmup-error') {
-    log.warn(`Transcription warmup failed: ${message.message}`)
+    log.warn('transcription_warmup_failed', { error: message.message })
     warmupResolve?.()
     warmupResolve = null
     return
@@ -68,7 +68,7 @@ function handleWorkerMessage(message: WorkerResponse): void {
   pending.delete(message.id)
   const durationMs = Date.now() - request.startedAt
   const success = message.type === 'result'
-  log.metric('transcribe audio', durationMs, {
+  log.metric('transcribe_audio', durationMs, {
     ...message.phaseMs,
     audio_duration_ms: Math.round(request.samplesLength / 16),
     speedup_x: durationMs > 0 ? Math.round((request.samplesLength / 16) / durationMs * 10) / 10 : null,
@@ -78,7 +78,7 @@ function handleWorkerMessage(message: WorkerResponse): void {
   if (message.type === 'result') {
     request.resolve({ error: null, transcript: message.transcript })
   } else {
-    log.error(`Transcription error: ${message.message}`)
+    log.error('transcription_failed', { error: message.message })
     request.resolve({ error: `Transcription failed: ${message.message}`, transcript: null })
   }
 }
@@ -101,7 +101,7 @@ export async function warmupTranscription(): Promise<void> {
       ensureWorker().postMessage({ type: 'warmup' })
     })
   } catch (err: any) {
-    log.warn(`Transcription warmup failed: ${err.message}`)
+    log.warn('transcription_warmup_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -110,7 +110,7 @@ export async function transcribeAudio(samples: Float32Array): Promise<{ error: s
   if (!(await isParakeetModelReady())) {
     void ensureParakeetModel().catch(() => {})
     const error = modelNotReadyMessage()
-    log.metric('transcribe audio', Date.now() - startedAt, { backend: BACKEND, success: false })
+    log.metric('transcribe_audio', Date.now() - startedAt, { backend: BACKEND, success: false })
     return { error, transcript: null }
   }
 

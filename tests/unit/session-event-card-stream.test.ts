@@ -22,15 +22,85 @@ async function createReducer(messages: Message[], isTabVisible = true) {
       tabs: { 'tab-1': tab },
       sessions: { 'session-1': session },
       sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
+      forEachSiblingTab: () => {},
     },
     settings: { rateLimitBehavior: 'ask' },
+    workStreamTracker: { sweep: () => {} },
     isTabVisible: () => isTabVisible,
+    closePlanModal: () => {},
+    playNotificationIfHidden: () => {},
     log: () => {},
   } as any)
   return { reducer, session }
 }
 
 describe('SessionEventReducer card stream boundaries', () => {
+  test('advances the visible startup lifecycle from connection to thinking', async () => {
+    const { reducer, session } = await createReducer([])
+    session.currentActivity = 'Starting session...'
+    session.currentTurnStart = 'fresh'
+
+    reducer.apply('tab-1', {
+      type: 'session_init',
+      sessionId: 'agent-session-1',
+      model: 'gpt-test',
+      skills: [],
+    })
+    expect(session.currentActivity).toBe('Connecting...')
+
+    reducer.apply('tab-1', { type: 'thinking', state: 'start' })
+    expect(session.currentActivity).toBe('Thinking...')
+  })
+
+  test('adds an interrupt divider immediately and deduplicates the provider confirmation', async () => {
+    const { reducer, session } = await createReducer([
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Do the work',
+        timestamp: 1,
+      },
+    ])
+    session.statusCard = {
+      id: 'setup-1',
+      title: 'Preparing worktree…',
+      status: 'active',
+      steps: [{ id: 'worktree', label: 'Creating worktree', status: 'active' }],
+    }
+
+    reducer.interruptTab('tab-1')
+
+    expect(session.status).toBe('interrupted')
+    // WHY: a setup card describes work that is currently happening. Once the
+    // user interrupts it, leaving the card visible falsely says setup continues.
+    expect(session.statusCard).toBeNull()
+    expect(session.messages.at(-1)).toMatchObject({
+      role: 'system',
+      content: '[Request interrupted by user]',
+    })
+
+    reducer.apply('tab-1', {
+      type: 'user_message',
+      text: '[Request interrupted by user]',
+    })
+
+    expect(session.messages).toHaveLength(2)
+  })
+
+  test('stores provider-only interrupt notices as system dividers', async () => {
+    const { reducer, session } = await createReducer([])
+
+    reducer.apply('tab-1', {
+      type: 'user_message',
+      text: '[Request cancelled by user]',
+    })
+
+    expect(session.messages.at(-1)).toMatchObject({
+      role: 'system',
+      content: '[Request cancelled by user]',
+    })
+  })
+
   test('marks server-confirmed steering messages as live-turn input', async () => {
     const { reducer, session } = await createReducer([])
 
@@ -40,6 +110,8 @@ describe('SessionEventReducer card stream boundaries', () => {
       delivery: 'steer',
     })
 
+    expect(session.currentTurnStart).toBe('steer')
+    expect(session.currentActivity).toBe('Steering...')
     expect(session.messages.at(-1)).toMatchObject({
       role: 'user',
       content: 'Use the smaller implementation',
@@ -96,32 +168,111 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
   })
 
-  test('renders assistant text after a created-session card as a separate message', async () => {
-    const sessionCard: Message = {
-      id: 'session-card',
+  test('renders assistant text after a relay card as a separate message', async () => {
+    // WHY: a relay card is a structured block, not prose — streamed text after
+    // it must open its own assistant message instead of gluing onto the card.
+    const relayCard: Message = {
+      id: 'relay-card',
       role: 'assistant',
       content: '',
-      sessionRef: {
-        agentSessionId: 'spawned-session',
-        title: 'Investigate the issue',
+      relayRef: {
+        peerSessionId: 'spawned-session',
         provider: 'codex',
+        title: 'Investigate the issue',
         cwd: '/project',
-        verb: 'Started',
+        origin: 'created',
+        exchanges: [{
+          exchangeId: 'x1',
+          index: 1,
+          prompt: 'Investigate the issue',
+          dispatchedAt: 0,
+          status: 'dispatched',
+        }],
       },
       timestamp: 0,
     }
-    const { reducer, session } = await createReducer([sessionCard])
+    const { reducer, session } = await createReducer([relayCard])
 
     reducer.appendTextChunk('tab-1', session, 'I started a separate investigation.')
     reducer.commitPendingStream('tab-1')
 
     expect(session.messages).toHaveLength(2)
-    expect(session.messages[0]).toBe(sessionCard)
-    expect(sessionCard.content).toBe('')
+    expect(session.messages[0]).toBe(relayCard)
+    expect(relayCard.content).toBe('')
     expect(session.messages[1]).toMatchObject({
       role: 'assistant',
       content: 'I started a separate investigation.',
     })
+  })
+
+  test('one relay card per peer per turn: dispatches append, settles land by exchange', async () => {
+    const { reducer, session } = await createReducer([])
+
+    // WHY: three exchanges with one peer must produce ONE block, not three
+    // disjoint cards — that is the core contract of the relay redesign.
+    reducer.apply('tab-1', {
+      type: 'session_relay',
+      update: {
+        phase: 'dispatched', peerSessionId: 'peer-1', exchangeId: 'x1', origin: 'prompted',
+        prompt: 'First question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 1,
+      },
+    })
+    reducer.apply('tab-1', {
+      type: 'session_relay',
+      update: {
+        phase: 'dispatched', peerSessionId: 'peer-1', exchangeId: 'x2', origin: 'prompted',
+        prompt: 'Second question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 2,
+      },
+    })
+    const relayMessages = session.messages.filter((m) => m.relayRef)
+    expect(relayMessages).toHaveLength(1)
+    expect(relayMessages[0].relayRef?.exchanges.map((x) => x.index)).toEqual([1, 2])
+
+    // A genuine user turn cuts the boundary; the next dispatch opens a new card…
+    reducer.apply('tab-1', { type: 'user_message', text: 'carry on' })
+    reducer.apply('tab-1', {
+      type: 'session_relay',
+      update: {
+        phase: 'dispatched', peerSessionId: 'peer-1', exchangeId: 'x3', origin: 'prompted',
+        prompt: 'Third question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 3,
+      },
+    })
+    expect(session.messages.filter((m) => m.relayRef)).toHaveLength(2)
+
+    // …while a settle for an old exchange still lands in the OLD turn's card.
+    reducer.apply('tab-1', {
+      type: 'session_relay',
+      update: {
+        phase: 'settled', peerSessionId: 'peer-1', exchangeId: 'x1', status: 'completed',
+        replyText: 'First answer', settledAt: 4,
+      },
+    })
+    const first = session.messages.filter((m) => m.relayRef)[0]
+    expect(first.relayRef?.exchanges[0]).toMatchObject({ status: 'done', reply: 'First answer' })
+  })
+
+  test('suppresses session-report prompts from the transcript entirely', async () => {
+    const { reducer, session } = await createReducer([])
+
+    // WHY: the report is turn input for the MODEL; rendering it as a user
+    // bubble is the exact failure the relay redesign removes.
+    reducer.apply('tab-1', {
+      type: 'user_message',
+      text: '[session report] Session abc finished (status: completed). Final reply:\nhello',
+      via: 'session-report',
+      relayPeerSessionId: 'abc',
+      relayExchangeId: 'x1',
+    })
+    expect(session.messages).toHaveLength(0)
+
+    reducer.apply('tab-1', {
+      type: 'prompt_queued',
+      text: '[session report] …',
+      queueId: 'q1',
+      enqueuedAt: 1,
+      via: 'session-report',
+    })
+    expect(session.outboundPrompts).toHaveLength(0)
   })
 
   test('buffers hidden-tab chunks without rebuilding the reactive stream string', async () => {

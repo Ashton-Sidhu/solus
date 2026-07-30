@@ -291,7 +291,9 @@
       {@render loadingSurface("Loading settings…")}
     {:then settingsModule}
       {@const SettingsPage = settingsModule.default}
-      <SettingsPage />
+      <div class="mobile-surface flex min-h-0 flex-1 flex-col">
+        <SettingsPage />
+      </div>
     {/await}
   {:else}
     {#if mountedGalleries.has("plans")}
@@ -299,7 +301,12 @@
         {@render loadingSurface("Loading plans…")}
       {:then planGalleryModule}
         {@const PlanGallery = planGalleryModule.default}
-        <PlanGallery />
+        <!-- The gallery stays mounted and gates itself on open; the wrapper
+             collapses to display:none so it never splits the flex column, and
+             re-adding the class replays the entrance on every open. -->
+        <div class="min-h-0 flex-col {session.plansGalleryOpen ? 'mobile-surface flex flex-1' : 'hidden'}">
+          <PlanGallery />
+        </div>
       {/await}
     {/if}
     {#if mountedGalleries.has("folio")}
@@ -307,7 +314,9 @@
         {@render loadingSurface("Loading works…")}
       {:then folioGalleryModule}
         {@const FolioGallery = folioGalleryModule.default}
-        <FolioGallery />
+        <div class="min-h-0 flex-col {session.folioGalleryOpen ? 'mobile-surface flex flex-1' : 'hidden'}">
+          <FolioGallery />
+        </div>
       {/await}
     {/if}
     {#if !session.plansGalleryOpen && !session.folioGalleryOpen}
@@ -316,21 +325,25 @@
           {@render loadingSurface("Loading document…")}
         {:then documentModule}
           {@const DocumentModal = documentModule.default}
-          <DocumentModal
-            document={{ title: activeWork.title, content: activeWork.content }}
-            onSave={async (content) => {
-              await session.worksStore.save(activeWork.id, { content });
-            }}
-            onClose={() => session.closeWorkModal()}
-            inline
-          />
+          <div class="mobile-surface flex min-h-0 flex-1 flex-col">
+            <DocumentModal
+              document={{ title: activeWork.title, content: activeWork.content }}
+              onSave={async (content) => {
+                await session.worksStore.save(activeWork.id, { content });
+              }}
+              onClose={() => session.closeWorkModal()}
+              inline
+            />
+          </div>
         {/await}
       {:else if activePlan}
         {#await import("@renderer/components/plan/PlanModal.svelte")}
           {@render loadingSurface("Loading plan…")}
         {:then planModalModule}
           {@const PlanModal = planModalModule.default}
-          <PlanModal plan={activePlan} inline />
+          <div class="mobile-surface flex min-h-0 flex-1 flex-col">
+            <PlanModal plan={activePlan} inline />
+          </div>
         {/await}
       {:else}
         <div class="flex min-h-0 flex-1 flex-col">
@@ -439,4 +452,27 @@
 <style>
   .tab-hidden { display: none !important; }
   .mode-hidden { display: none !important; }
+
+  /* chatContent is rendered only by the mobile shell, so this entrance is a
+     phone-only affordance: surfaces slide up like an iOS sheet, not a cut. */
+  .mobile-surface {
+    animation: mobile-surface-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @keyframes mobile-surface-in {
+    from {
+      opacity: 0;
+      transform: translateY(1.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-surface {
+      animation: none;
+    }
+  }
 </style>

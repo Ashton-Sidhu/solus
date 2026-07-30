@@ -34,7 +34,11 @@ export interface CodexThreadSummary {
 }
 
 export interface CodexTurnHistory {
+  status?: string | null
+  error?: unknown
   startedAt?: number | string | null
+  completedAt?: number | string | null
+  durationMs?: number | null
   items?: CodexHistoryItem[]
 }
 
@@ -458,6 +462,43 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
   }
 }
 
+/**
+ * Rebuild one persisted Codex turn with a real end timestamp. `thread/read`
+ * stores timing on the turn rather than its individual items; stamping the last
+ * visible message with that completion time preserves the turn duration after
+ * the renderer reloads the transcript.
+ */
+export function codexTurnToMessages(turn: CodexTurnHistory): SessionLoadMessage[] {
+  const startedAt = toEpochMs(turn.startedAt)
+  const messages = (turn.items ?? [])
+    .map((item) => codexItemToMessage(item, startedAt))
+    .filter((message): message is SessionLoadMessage => message !== null)
+  const completedAt = parseEpochMs(turn.completedAt)
+    ?? (typeof turn.durationMs === 'number' && turn.durationMs > 0
+      ? startedAt + turn.durationMs
+      : null)
+  if (turn.status === 'failed') {
+    const error =
+      typeof turn.error === 'string'
+        ? turn.error
+        : turn.error &&
+            typeof turn.error === 'object' &&
+            typeof (turn.error as { message?: unknown }).message === 'string'
+          ? (turn.error as { message: string }).message
+          : 'Codex turn failed'
+    messages.push({
+      role: 'system',
+      content: `Error: ${error}`,
+      timestamp: completedAt ?? startedAt,
+    })
+  }
+  const lastMessage = messages.at(-1)
+  if (lastMessage && completedAt !== null && completedAt > startedAt) {
+    lastMessage.timestamp = completedAt
+  }
+  return messages
+}
+
 export function codexSubagentActivityInput(item: {
   agentThreadId?: unknown
   agentPath?: unknown
@@ -470,6 +511,38 @@ export function codexSubagentActivityInput(item: {
     agent_thread_id: typeof item.agentThreadId === 'string' ? item.agentThreadId : undefined,
     agent_path: agentPath || undefined,
   })
+}
+
+export function codexSpawnedThreadLinks(item: unknown): Array<{ threadId: string; toolId: string }> {
+  if (!item || typeof item !== 'object') return []
+  const candidate = item as {
+    type?: unknown
+    kind?: unknown
+    tool?: unknown
+    id?: unknown
+    agentThreadId?: unknown
+    receiverThreadIds?: unknown
+  }
+  if (
+    candidate.type === 'subAgentActivity' &&
+    candidate.kind === 'started' &&
+    typeof candidate.id === 'string' &&
+    typeof candidate.agentThreadId === 'string'
+  ) {
+    return [{ threadId: candidate.agentThreadId, toolId: candidate.id }]
+  }
+  if (
+    candidate.type === 'collabAgentToolCall' &&
+    candidate.tool === 'spawnAgent' &&
+    typeof candidate.id === 'string' &&
+    Array.isArray(candidate.receiverThreadIds)
+  ) {
+    const toolId = candidate.id
+    return candidate.receiverThreadIds
+      .filter((threadId: unknown): threadId is string => typeof threadId === 'string' && !!threadId)
+      .map((threadId: string) => ({ threadId, toolId }))
+  }
+  return []
 }
 
 function joinReasoningStrings(value: unknown): string {

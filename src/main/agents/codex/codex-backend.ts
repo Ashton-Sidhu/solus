@@ -63,6 +63,8 @@ import {
 import {
   approvalPolicyFor,
   codexItemToMessage,
+  codexSpawnedThreadLinks,
+  codexTurnToMessages,
   codexThreadBelongsToProject,
   extractCodexChangedFilePaths,
   groupCodexPlansBySession,
@@ -186,6 +188,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   /** Maps Codex turn/item IDs → sessionId for event routing. */
   private sessionByTurn = new Map<string, string>()
   private sessionByItem = new Map<string, string>()
+  private sessionByChildThread = new Map<string, string>()
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
   private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000 })
@@ -311,7 +314,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         } catch (err: any) {
           if (this.dynamicToolsUnavailable) throw err
           // Retry once without dynamicTools — the agent loses work tools this run.
-          log.warn(`thread/start rejected dynamicTools, retrying without: ${err?.message ?? err}`)
+          log.warn('thread_start_dynamic_tools_rejected', { error: err?.message ?? String(err) })
           this.dynamicToolsUnavailable = true
           response = await this.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
         }
@@ -390,7 +393,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     handle.normalizer.interrupt()
     if (handle.threadId && handle.turnId) {
       this.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
-        .catch((err) => log.warn(`Codex turn interrupt failed: ${err.message}`))
+        .catch((err) => log.warn('turn_interrupt_failed', { error: err.message }))
     }
     return true
   }
@@ -416,17 +419,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     try {
       const response = await this.client.request<CodexTurnSteerResponse>('turn/steer', params)
       if (response.turnId !== expectedTurnId) {
-        log.warn(`Codex steer returned unexpected turn ${response.turnId}; expected ${expectedTurnId}`)
+        log.warn('steer_turn_mismatch', { turnId: response.turnId, expectedTurnId })
         return null
       }
-      log.info(`Codex steer accepted for ${sessionId} on turn ${expectedTurnId}`)
+      log.info('steer_accepted', { sessionId, expectedTurnId })
       return handle
     } catch (error) {
       // The active turn may complete, or enter a non-steerable review/compact
       // turn, between the control-plane check and this request. The caller keeps
       // the input and dispatches it at the next turn boundary.
       if (isSteerTurnBoundaryError(error)) {
-        log.info(`Codex steer rejected for ${sessionId}; preserving prompt for next turn: ${error.message}`)
+        log.info('steer_rejected', { sessionId, error: error instanceof Error ? error.message : String(error) })
         return null
       }
       throw error
@@ -535,9 +538,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
             ),
           )
         } catch (err) {
-          log.warn(
-            `Failed to index Codex messages for ${session.sessionId}: ${err instanceof Error ? err.message : String(err)}`,
-          )
+          log.warn('message_index_failed', {
+            sessionId: session.sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          })
         }
       })
     }
@@ -609,11 +613,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   private appendCodexTurnMessages(messages: SessionLoadMessage[], turns: CodexTurnHistory[]): void {
     for (const turn of turns) {
-      const timestamp = toEpochMs(turn.startedAt)
-      for (const item of turn.items ?? []) {
-        const msg = codexItemToMessage(item, timestamp)
-        if (msg) messages.push(msg)
-      }
+      messages.push(...codexTurnToMessages(turn))
     }
   }
 
@@ -732,12 +732,20 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (msg.method === 'turn/completed') {
+      const isChildTurn = !!handle &&
+        typeof params?.threadId === 'string' &&
+        params.threadId !== handle.threadId
+      if (isChildTurn) {
+        for (const event of normalized) this.emit('normalized', sessionId, event)
+        this.sessionByChildThread.delete(params.threadId)
+        return
+      }
       // A turn just created or updated a thread — drop the cached session lists
       // so the next listSessions reflects the new activity.
       if (handle?.persistent) {
         this.sessionListCache.clear()
         void this.refreshSessionIndex().catch((err) => {
-          log.warn(`Codex session index refresh failed: ${err instanceof Error ? err.message : String(err)}`)
+          log.warn('session_index_refresh_failed', { error: err instanceof Error ? err.message : String(err) })
         })
       }
       const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
@@ -895,13 +903,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (handle?.permissionMode === 'auto') {
-      log.info(`Auto-approving Codex permission request: method=${msg.method}`)
+      log.info('permission_auto_approved', { method: msg.method })
       this.client.respond(msg.id, autoApprovalResponse(msg.method, params))
       return
     }
 
     if (handle?.permissionMode === 'plan') {
-      log.info(`Declining Codex permission request in plan mode: method=${msg.method}`)
+      log.info('permission_declined_plan_mode', { method: msg.method })
       this.client.respond(msg.id, denialResponse(msg.method))
       return
     }
@@ -932,7 +940,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (isNormalStreamingTextNotification(kind, msg, params)) return
 
     const handle = sessionId ? this.activeRuns.get(sessionId) : undefined
-    log.debug('Raw provider event', {
+    log.debug('raw_provider_event', {
       provider: 'codex',
       kind,
       sessionId: params?.threadId || handle?.sessionId || handle?.threadId || sessionId || null,
@@ -958,7 +966,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       if (!head) return
       await initSessionBase(repoRoot, sessionId, head)
     } catch (e) {
-      log.warn(`initSnapshots failed: ${e}`)
+      log.warn('init_snapshots_failed', { error: e instanceof Error ? e.message : String(e) })
     }
   }
 
@@ -973,7 +981,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       })
       return result?.sessionChangedFiles ?? null
     } catch (e) {
-      log.warn(`snapshotOnTurnComplete failed: ${e}`)
+      log.warn('snapshot_on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) })
       return null
     }
   }
@@ -1003,9 +1011,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private sessionIdFor(params: any): string | null {
-    // threadId IS sessionId for Codex
+    // Root thread IDs are session IDs; spawned child threads route back to the
+    // active parent session that owns their transcript card.
     if (typeof params?.threadId === 'string') {
-      return this.activeRuns.has(params.threadId) ? params.threadId : null
+      if (this.activeRuns.has(params.threadId)) return params.threadId
+      return this.sessionByChildThread.get(params.threadId) ?? null
     }
     const turnId = params?.turnId
     if (turnId) return this.sessionByTurn.get(turnId) ?? null
@@ -1026,6 +1036,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const itemId = this.codexItemId(params)
     if (itemId) this.sessionByItem.set(itemId, sessionId)
+
+    for (const link of codexSpawnedThreadLinks(params?.item)) {
+      this.sessionByChildThread.set(link.threadId, sessionId)
+    }
   }
 
   private codexItemId(params: any): string | null {
@@ -1040,6 +1054,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     for (const [itemId, owner] of this.sessionByItem) {
       if (owner === sessionId) this.sessionByItem.delete(itemId)
+    }
+    for (const [threadId, owner] of this.sessionByChildThread) {
+      if (owner === sessionId) this.sessionByChildThread.delete(threadId)
     }
   }
 
@@ -1110,7 +1127,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         forceReload,
       })
     } catch (err) {
-      log.warn(`Codex skills/list failed: ${(err as Error).message}`)
+      log.warn('skills_list_failed', { error: (err as Error).message })
       return { global: [], project: [] }
     }
     const cwdResult = (response.data ?? []).find((entry) => entry.cwd === workingDirectory) ?? response.data?.[0]

@@ -71,7 +71,7 @@ function loadOrCreateKeys(): ServerKeys {
         return _keys!
       }
     } catch (err) {
-      log.warn(`failed to load server keys, regenerating: ${err}`)
+      log.warn('server_keys_load_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -81,7 +81,7 @@ function loadOrCreateKeys(): ServerKeys {
     ownership: 'unclaimed',
   }
   persistKeys()
-  log.info(`created new server keys (installationId=${_keys.installationId.slice(0, 8)}…)`)
+  log.info('server_keys_created', { installationId: _keys.installationId })
   return _keys!
 }
 
@@ -319,7 +319,7 @@ function loadRevokedDevices(): void {
       if (typeof id === 'string' && id) _revokedDevices.add(id)
     }
   } catch (err) {
-    log.warn(`failed to load revoked devices: ${err}`)
+    log.warn('revoked_devices_load_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 

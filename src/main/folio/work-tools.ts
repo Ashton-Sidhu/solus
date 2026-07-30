@@ -249,7 +249,7 @@ export async function executeWorkTool(
 
     return { ok: false, text: `Unknown work tool: ${name}` }
   } catch (err: any) {
-    log.error(`executeWorkTool(${name}) failed: ${String(err)}`)
+    log.error('work_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Work tool error: ${String(err?.message ?? err)}` }
   }
 }

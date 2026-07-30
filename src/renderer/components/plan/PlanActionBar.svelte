@@ -1,12 +1,12 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { XIcon, ArrowCounterClockwiseIcon, RobotIcon, CheckIcon, GitForkIcon } from 'phosphor-svelte'
+  import { XIcon, ArrowCounterClockwiseIcon, RobotIcon, CheckIcon, GitForkIcon, ChatsIcon } from 'phosphor-svelte'
   import { getWorkspaceContext, getStatusBarContext, runtime } from '../../contexts'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { Button } from '../ui/button'
   import * as DropdownMenu from '../ui/dropdown-menu'
   import { PromptComposer } from '../ui/prompt-composer'
-  import { Switch } from '../ui/switch'
+  import * as TooltipUI from '../ui/tooltip'
   import PlanApproveButton from './PlanApproveButton.svelte'
   import Kbd from '../ui/Kbd.svelte'
 
@@ -113,28 +113,38 @@
     bind:useWorktree
     placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
   >
-    {#snippet leading()}
+    {#snippet afterPicker()}
       {#if !compact}
-        <div
-          class="flex h-8 shrink-0 items-center gap-1.5 px-1 text-[0.8125rem] font-medium {startNewSession
-            ? 'text-(--solus-accent)'
-            : 'font-secondary text-(--solus-text-secondary)'}"
-          title={startNewSession
-            ? "Approved work will start in a new session"
-            : "Approved work will continue in this session"}
-        >
-          New session
-          <Switch
-            checked={startNewSession}
-            onCheckedChange={(next) => {
-              startNewSession = next
-              composerRef?.focus()
-            }}
-            size="sm"
-            data-testid="plan-action-new-session"
-            aria-label="Start approved work in a new session"
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                onclick={() => {
+                  startNewSession = !startNewSession
+                  composerRef?.focus()
+                }}
+                class="relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) after:absolute after:left-1/2 after:top-1/2 after:size-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-[''] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {startNewSession
+                  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+                  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                data-testid="plan-action-new-session"
+                aria-label="Start approved work in a new session"
+                aria-pressed={startNewSession}
+              >
+                <ChatsIcon
+                  size={15}
+                  weight={startNewSession ? "bold" : "regular"}
+                />
+              </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content
+            value={startNewSession
+              ? "New session on — click to continue in this session"
+              : "New session off — click to start approved work in a new session"}
           />
-        </div>
+        </TooltipUI.Root>
       {/if}
     {/snippet}
 
@@ -153,14 +163,14 @@
           <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>
         </button>
       {:else if hasRevise}
-        <Button data-testid="plan-action-revise" variant="outline" size="lg" class="text-[0.8rem] hover:text-(--solus-error)" onclick={handleRevise}>
-          <ArrowCounterClockwiseIcon size={14} />
+        <Button data-testid="plan-action-revise" variant="outline" size="sm" class="hover:text-(--solus-error) max-md:h-9" onclick={handleRevise}>
+          <ArrowCounterClockwiseIcon size={13} />
           Revise
           {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥V</Kbd>{/if}
         </Button>
       {:else}
-        <Button data-testid="plan-action-reject" variant="outline" size="lg" class="text-[0.8rem] hover:text-(--solus-error)" onclick={handleReject}>
-          <XIcon size={14} />
+        <Button data-testid="plan-action-reject" variant="outline" size="sm" class="hover:text-(--solus-error) max-md:h-9" onclick={handleReject}>
+          <XIcon size={13} />
           Reject
           {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥R</Kbd>{/if}
         </Button>

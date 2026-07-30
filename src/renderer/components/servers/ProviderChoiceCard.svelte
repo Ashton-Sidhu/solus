@@ -43,6 +43,17 @@
       {#if row.state === "busy"}
         <CircleNotchIcon size={12} class="mr-0.5 shrink-0 animate-spin text-(--solus-accent)" />
       {:else if row.state === "done"}
+        {#if row.secondary}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-[1.625rem] shrink-0 px-[0.5rem] text-[0.71875rem] text-[color:var(--solus-text-tertiary)]"
+            aria-label="{row.secondary.label} to {row.label}"
+            onclick={row.secondary.run}
+          >
+            {row.secondary.label}
+          </Button>
+        {/if}
         <span
           class="mr-0.5 flex size-[1.0625rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]"
         >

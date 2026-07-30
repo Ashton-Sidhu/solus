@@ -10,7 +10,7 @@
   import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
   import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
   import DiffStream from "./DiffStream.svelte";
-  import DiffFindBar from "./DiffFindBar.svelte";
+  import { FindBar } from "../ui/find-bar";
   import DiffResizableContent from "./DiffResizableContent.svelte";
   import { DiffState, type DiffFindMatch } from "../../lib/diff-state.svelte";
   import { orderDiffFiles } from "../../lib/diff-order";
@@ -174,7 +174,7 @@
   let mobileTreeOpen = $state(false);
   let treeInstance: FileTree | null = $state(null);
   let streamRef: DiffStream | null = $state(null);
-  let findBarRef: DiffFindBar | null = $state(null);
+  let findBarRef: FindBar | null = $state(null);
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
@@ -646,7 +646,7 @@
     if (total === 0) return;
     findIndex = (((findIndex + dir) % total) + total) % total;
     await revealMatch(findMatches[findIndex]);
-    findBarRef?.focusInput();
+    findBarRef?.focusInput(false);
   }
 
   useScope("diff-panel");
@@ -925,11 +925,14 @@
     >
         <div class="relative flex h-full min-h-0 min-w-0">
         {#if findOpen}
-          <DiffFindBar
+          <FindBar
             bind:this={findBarRef}
             query={findQuery}
             current={findMatches.length === 0 ? 0 : findIndex + 1}
             total={findMatches.length}
+            placeholder="Find in diff"
+            ariaLabel="Find in diff"
+            debounceMs={120}
             onQueryChange={(v) => {
               findQuery = v;
               findIndex = 0;

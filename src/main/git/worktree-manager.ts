@@ -162,28 +162,43 @@ function branchFromSlug(slug: string): string {
 export interface CreateWorktreeOptions {
   /** Optional model-backed namer; falls back to a prompt slug when absent or on failure. */
   generateName?: (prompt: string) => Promise<string>
+  /** Cancels branch discovery and worktree creation with the owning setup. */
+  signal?: AbortSignal
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  throw signal.reason instanceof Error ? signal.reason : new Error('Interrupted')
 }
 
 async function resolveBranchName(prompt: string, options: CreateWorktreeOptions): Promise<string> {
+  throwIfAborted(options.signal)
   if (options.generateName) {
     try {
       const slug = sanitizeBranchSlug(await options.generateName(prompt))
+      throwIfAborted(options.signal)
       if (slug) return branchFromSlug(slug)
     } catch (e) {
-      log.warn(`Branch name generation failed, falling back to prompt slug: ${e}`)
+      throwIfAborted(options.signal)
+      log.warn('branch_name_generation_failed', { error: e instanceof Error ? e.message : String(e) })
     }
   }
   return branchFromSlug(slugifyBranch(prompt))
 }
 
-async function resolveWorktreeStartPoint(projectPath: string, targetBranch: string): Promise<string> {
+async function resolveWorktreeStartPoint(
+  projectPath: string,
+  targetBranch: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const remoteRef = `origin/${targetBranch}`
   try {
-    await runAsync('git', ['fetch', 'origin', targetBranch], projectPath)
-    await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath)
+    await runAsync('git', ['fetch', 'origin', targetBranch], projectPath, { signal })
+    await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath, { signal })
     return remoteRef
   } catch (e) {
-    log.warn(`Falling back to local ${targetBranch} for worktree start point: ${e}`)
+    throwIfAborted(signal)
+    log.warn('worktree_start_point_fallback_local', { targetBranch, error: e instanceof Error ? e.message : String(e) })
     return targetBranch
   }
 }
@@ -194,33 +209,46 @@ export async function createWorktree(
   baseBranch?: string,
   options: CreateWorktreeOptions = {},
 ): Promise<GitCheckout> {
+  throwIfAborted(options.signal)
   const targetBranch = baseBranch || await getDefaultBranch(projectPath)
-  const startPoint = await resolveWorktreeStartPoint(projectPath, targetBranch)
+  throwIfAborted(options.signal)
+  const startPoint = await resolveWorktreeStartPoint(projectPath, targetBranch, options.signal)
   const branch = await resolveBranchName(prompt, options)
   const worktreePath = path.join(projectPath, SOLUS_WORKTREE_DIR, branch.replace(/\//g, '-'))
 
-  log.info(`Creating worktree: ${branch} at ${worktreePath} from ${startPoint}`)
-  await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, startPoint], projectPath)
-  await copyIncludedWorktreeFiles(projectPath, worktreePath)
+  log.info('worktree_creating', { branch, worktreePath, startPoint })
+  await runAsync(
+    'git',
+    ['worktree', 'add', '-b', branch, worktreePath, startPoint],
+    projectPath,
+    { signal: options.signal },
+  )
+  await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal)
 
   return { branch, targetBranch, worktreePath, repoRoot: projectPath }
 }
 
-async function copyIncludedWorktreeFiles(projectPath: string, worktreePath: string): Promise<void> {
+async function copyIncludedWorktreeFiles(
+  projectPath: string,
+  worktreePath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfAborted(signal)
   const includePath = path.join(projectPath, '.worktreeinclude')
   if (!existsSync(includePath)) return
 
-  const ignoredFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], projectPath))
+  const ignoredFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], projectPath, { signal }))
     .split('\0')
     .filter(Boolean)
   if (ignoredFiles.length === 0) return
 
   const ignoredFileSet = new Set(ignoredFiles)
-  const matchedFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', `--exclude-from=${includePath}`, '-z'], projectPath))
+  const matchedFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', `--exclude-from=${includePath}`, '-z'], projectPath, { signal }))
     .split('\0')
     .filter((relativePath) => relativePath && ignoredFileSet.has(relativePath))
 
   for (const relativePath of matchedFiles) {
+    throwIfAborted(signal)
     const source = path.join(projectPath, relativePath)
     const target = path.join(worktreePath, relativePath)
     if (!(await fsStat(source)).isFile()) continue
@@ -410,7 +438,7 @@ export async function discardChanges(
     if (discarded === 0) return { success: true, discarded: 0 }
     await runAsync('git', ['reset', '--hard', 'HEAD'], cwd)
     await runAsync('git', ['clean', '-fd'], cwd)
-    log.info(`Discarded ${discarded} uncommitted change(s) in ${cwd}`)
+    log.info('uncommitted_changes_discarded', { discarded, cwd })
     return { success: true, discarded }
   } catch (e: any) {
     return { success: false, discarded: 0, error: String(e.message || e) }
@@ -426,10 +454,10 @@ export async function syncWithOrigin(
   try {
     if (gitContext.worktreePath) {
       await runAsync('git', ['pull', '--no-edit', 'origin', gitContext.targetBranch], cwd)
-      log.info(`Synced worktree with origin/${gitContext.targetBranch}`)
+      log.info('worktree_synced_with_origin', { targetBranch: gitContext.targetBranch })
     } else {
       await runAsync('git', ['pull', '--no-edit'], cwd)
-      log.info(`Synced with origin/${gitContext.branch}`)
+      log.info('checkout_synced_with_origin', { branch: gitContext.branch })
     }
 
     return { success: true, outcome: 'synced' }
@@ -471,10 +499,10 @@ export function restoreWorktree(worktreePath: string, _options?: { includePr?: b
 
     const projectPath = worktreeProjectRoot(worktreePath)
     const targetBranch = getDefaultBranchLocalSync(projectPath)
-    log.info(`Restored worktree: ${branch} at ${worktreePath}`)
+    log.info('worktree_restored', { branch, worktreePath })
     return { branch, targetBranch, worktreePath, repoRoot: projectPath }
   } catch (e) {
-    log.error(`Failed to restore worktree: ${e}`)
+    log.error('worktree_restore_failed', { worktreePath, error: e instanceof Error ? e.message : String(e) })
     return null
   }
 }
@@ -531,12 +559,12 @@ export async function fetchAndCheckoutPr(
     (w) => w.path === worktreePath || w.branch === branch,
   )
   if (existing) {
-    log.info(`Reusing PR worktree ${branch} at ${existing.path}`)
+    log.info('pr_worktree_reused', { branch, worktreePath: existing.path })
     // Fast-forward to the freshly fetched head when it can apply cleanly; never
     // clobber local agent work (a non-ff or dirty tree is left as-is).
     await runAsync('git', ['merge', '--ff-only', 'FETCH_HEAD'], existing.path).catch(() => {})
   } else {
-    log.info(`Creating PR worktree ${branch} at ${worktreePath}`)
+    log.info('pr_worktree_creating', { branch, worktreePath })
     const branchExists = await runAsync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], projectPath).then(
       () => true,
       () => false,

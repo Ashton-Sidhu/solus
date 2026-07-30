@@ -77,10 +77,18 @@ export function cronMonthDay(expr: string): number {
 
 // ── Human-readable summaries ──
 
+/** Clock time as "8:00 AM". Pinned to en-US rather than the system locale: these
+ *  times are read inside hardcoded English sentences ("Daily at …", "Mondays at
+ *  …"), and a locale that renders "8:00 a.m." makes the sentence read as two
+ *  voices at once. */
+export function clockTime(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
 function timeLabel(hh: number, mm: number): string {
   const d = new Date()
   d.setHours(hh, mm, 0, 0)
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return clockTime(d)
 }
 
 function ordinal(n: number): string {
@@ -107,8 +115,10 @@ function cronSummary(expr: string): string {
   const t = timeLabel(f.hh, f.mm)
   if (f.dom === '*' && f.dow === '*') return `Daily at ${t}`
   if (f.dom === '*' && /^[0-6]$/.test(f.dow)) {
-    const day = WEEKDAYS.find((w) => w.value === Number(f.dow))?.label ?? 'week'
-    return `Weekly on ${day} at ${t}`
+    const day = WEEKDAYS.find((w) => w.value === Number(f.dow))?.label
+    // "Mondays at 8:00 AM" — the plural already says weekly, so "Weekly on
+    // Monday" only adds a word.
+    return day ? `${day}s at ${t}` : `Weekly at ${t}`
   }
   if (/^\d+$/.test(f.dom) && f.dow === '*') return `Monthly on the ${ordinal(Number(f.dom))} at ${t}`
   return `Cron · ${expr}`
@@ -122,7 +132,7 @@ export function triggerSummary(trigger: AutomationTrigger): string {
       const d = new Date(trigger.runAt)
       return Number.isNaN(d.getTime())
         ? 'Once'
-        : `Once on ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : `Once on ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${clockTime(d)}`
     }
     case 'interval':
       return `Every ${intervalLabel(trigger.everyMinutes)}`
@@ -217,7 +227,7 @@ export function absoluteTime(iso: string | undefined, nowMs = Date.now()): strin
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const time = clockTime(d)
   const dayDiff = dayOffset(d, nowMs)
   if (dayDiff === 0) return `Today at ${time}`
   if (dayDiff === 1) return `Tomorrow at ${time}`
@@ -371,6 +381,13 @@ export const RUN_STATUS_META: Record<
   cancelled: { label: 'Cancelled', tone: 'cancelled' },
   // In-session runs: handed to the chat thread, which owns the real outcome.
   dispatched: { label: 'Sent to chat', tone: 'success' },
+}
+
+/** The folder an automation runs in, as the trailing path segment — the list
+ *  row's secondary label, and what the page's search matches against. */
+export function folderLabel(cwd: string): string {
+  const parts = cwd.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? cwd
 }
 
 /** Resolve the provider transcript directory for an automation run. Older run

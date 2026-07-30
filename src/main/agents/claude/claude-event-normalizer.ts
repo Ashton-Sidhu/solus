@@ -2,6 +2,8 @@ import type { NormalizedEvent, UsageData } from '../../../shared/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '../../../shared/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { normalizeResetNumber } from '../../rate-limits'
+import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
+import { claudeToolResultText } from './claude-subagent-protocol'
 
 const SDK_TO_UI_PERMISSION_MODE: Record<string, 'ask' | 'auto' | 'plan'> = {
   default: 'ask',
@@ -14,16 +16,22 @@ const SDK_TO_UI_PERMISSION_MODE: Record<string, 'ask' | 'auto' | 'plan'> = {
  * Mostly stateless (one raw in, zero or more normalized out), except that a
  * main-thread tool's input arrives only as `input_json_delta` stream events —
  * those accumulate into `pendingToolInputs` (keyed by content-block index) so the
- * complete input can ride out on `tool_call_complete`. Sequencing/routing lives
- * in ClaudeAgent.
+ * complete input can ride out on `tool_call_complete`. `thinkingBlocks` is the
+ * same trick for extended thinking: `content_block_stop` carries only an index,
+ * so the start has to record which indexes were thinking. Sequencing/routing
+ * lives in ClaudeAgent.
  */
-function normalize(raw: ClaudeEvent, pendingToolInputs: Map<number, string>): NormalizedEvent[] {
+function normalize(
+  raw: ClaudeEvent,
+  pendingToolInputs: Map<number, string>,
+  thinkingBlocks: Set<number>,
+): NormalizedEvent[] {
   switch (raw.type) {
     case 'system':
       return normalizeSystem(raw as InitEvent)
 
     case 'stream_event':
-      return normalizeStreamEvent(raw as StreamEvent, pendingToolInputs)
+      return normalizeStreamEvent(raw as StreamEvent, pendingToolInputs, thinkingBlocks)
 
     case 'assistant':
       return normalizeAssistant(raw as AssistantEvent)
@@ -58,6 +66,9 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // accumulate per content-block index so the assembled input rides out on
   // tool_call_complete. Cleared on message_start so indexes never leak.
   private readonly pendingToolInputs = new Map<number, string>()
+  // content_block_stop carries only an index, so remember which indexes opened as
+  // thinking blocks to know whose span just closed. Cleared alongside the inputs.
+  private readonly thinkingBlocks = new Set<number>()
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -87,7 +98,7 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
 
     if (raw.type === 'assistant') this.collectEditedFiles(raw.message?.content)
 
-    events.push(...normalize(raw, this.pendingToolInputs))
+    events.push(...normalize(raw, this.pendingToolInputs, this.thinkingBlocks))
     return this.emit(events)
   }
 
@@ -137,11 +148,30 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
     subtype: string
     task_id?: string
     tool_use_id?: string
+    description?: string
+    usage?: {
+      total_tokens?: number
+      tool_uses?: number
+      duration_ms?: number
+    }
+    last_tool_name?: string
     status?: string
     patch?: { status?: string }
   }
   if (sys.subtype === 'task_started' && sys.task_id) {
     return [{ type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }]
+  }
+  if (sys.subtype === 'task_progress' && sys.task_id) {
+    return [{
+      type: 'background_task_progress',
+      taskId: sys.task_id,
+      toolUseId: sys.tool_use_id,
+      description: sys.description,
+      toolUses: sys.usage?.tool_uses,
+      totalTokens: sys.usage?.total_tokens,
+      durationMs: sys.usage?.duration_ms,
+      lastToolName: sys.last_tool_name,
+    }]
   }
   if (sys.subtype === 'task_updated' && sys.task_id) {
     const patchStatus = sys.patch?.status
@@ -176,29 +206,32 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
   return []
 }
 
-function normalizeStreamEvent(event: StreamEvent, pendingToolInputs: Map<number, string>): NormalizedEvent[] {
+function normalizeStreamEvent(
+  event: StreamEvent,
+  pendingToolInputs: Map<number, string>,
+  thinkingBlocks: Set<number>,
+): NormalizedEvent[] {
   const sub = event.event
   if (!sub) return []
 
-  // Sub-agent (Agent/Task) tool calls stream through the same query tagged with
-  // the originating tool call. Thread it onto every emitted event so the reducer
-  // can divert them into the parent tool's nested transcript. Sub-agent prose no
-  // longer streams — it arrives complete via the parented `assistant_message` that
-  // `normalizeAssistant` emits — so drop any parented `text_chunk` here.
   const parentToolUseId = event.parent_tool_use_id || undefined
-
-  const events = normalizeStreamSub(sub, pendingToolInputs)
-  if (parentToolUseId) {
-    const parented = events.filter((e) => e.type !== 'text_chunk')
-    for (const e of parented) (e as { parentToolUseId?: string }).parentToolUseId = parentToolUseId
-    return parented
-  }
-  return events
+  const events = normalizeStreamSub(sub, pendingToolInputs, thinkingBlocks)
+  return parentToolUseId
+    ? events.map((normalized) => parentSubagentEvent(normalized, parentToolUseId))
+    : events
 }
 
-function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>, pendingToolInputs: Map<number, string>): NormalizedEvent[] {
+function normalizeStreamSub(
+  sub: NonNullable<StreamEvent['event']>,
+  pendingToolInputs: Map<number, string>,
+  thinkingBlocks: Set<number>,
+): SubagentTranscriptEvent[] {
   switch (sub.type) {
     case 'content_block_start': {
+      if (sub.content_block.type === 'thinking') {
+        thinkingBlocks.add(sub.index)
+        return [{ type: 'thinking', state: 'start' }]
+      }
       if (sub.content_block.type === 'tool_use') {
         pendingToolInputs.set(sub.index, '')
         const toolName = sub.content_block.name || 'unknown'
@@ -228,10 +261,14 @@ function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>, pendingToolI
         pendingToolInputs.set(sub.index, (pendingToolInputs.get(sub.index) ?? '') + delta.partial_json)
         return []
       }
+      // The thought itself is never surfaced — only its duration is.
       return []
     }
 
     case 'content_block_stop': {
+      if (thinkingBlocks.delete(sub.index)) {
+        return [{ type: 'thinking', state: 'stop' }]
+      }
       const toolInput = pendingToolInputs.get(sub.index)
       pendingToolInputs.delete(sub.index)
       return [{
@@ -244,6 +281,7 @@ function normalizeStreamSub(sub: NonNullable<StreamEvent['event']>, pendingToolI
     case 'message_start':
       // A fresh message resets content-block indexes; clear any stragglers.
       pendingToolInputs.clear()
+      thinkingBlocks.clear()
       return []
 
     case 'message_delta':
@@ -274,9 +312,10 @@ function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {
     }
 
     content.forEach((block, index) => {
-      // A sub-agent's TodoWrite must not hijack the main progress tracker — only
-      // the top-level agent (no parent) drives it.
-      if (block.type === 'tool_use' && block.name === 'TodoWrite' && !parentToolUseId) {
+      // A sub-agent's TodoWrite is tagged with its parent so it lands on that
+      // sub-agent's card instead of hijacking the main progress tracker, which
+      // only the top-level agent (no parent) drives.
+      if (block.type === 'tool_use' && block.name === 'TodoWrite') {
         const todos = (block.input as any)?.todos
         if (Array.isArray(todos)) {
           events.push({
@@ -285,6 +324,7 @@ function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {
               content: String(t.content || ''),
               status: t.status || 'pending',
             })),
+            parentToolUseId,
           })
         }
       }
@@ -332,15 +372,10 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
   const events: NormalizedEvent[] = []
   for (const block of content) {
     if (block.type !== 'tool_result' || !block.tool_use_id) continue
-    const text = typeof block.content === 'string'
-      ? block.content
-      : Array.isArray(block.content)
-        ? block.content.map((b) => (typeof b?.text === 'string' ? b.text : '')).join('\n')
-        : ''
     events.push({
       type: 'tool_result',
       toolUseId: block.tool_use_id,
-      content: text,
+      content: claudeToolResultText(block.content),
       isError: block.is_error,
       parentToolUseId,
       ...(isAsyncLaunch ? { isAsyncLaunch: true } : {}),
@@ -350,13 +385,26 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
 }
 
 /**
- * A result that only marks a steered message cutting the in-flight request short.
- * The SDK reports the abort as an error result and then restarts its agent loop
- * on the same query, so this is a seam inside the turn, not the turn's outcome —
+ * A result that only marks an aborted request, not the end of the turn. The SDK
+ * reports the abort as an error result and then restarts its agent loop on the
+ * same query, so this is a seam inside the turn, not the turn's outcome —
  * neither a user-visible error nor a reason to close the turn's input stream.
+ *
+ * Both reasons matter and the CLI itself treats them as one: `aborted_streaming`
+ * when the abort lands while the model is streaming, `aborted_tools` when it
+ * lands during tool execution.
  */
-export function isSteerRestartResult(event: ResultEvent): boolean {
+export function isAbortSeamResult(event: ResultEvent): boolean {
   return event.terminal_reason === 'aborted_streaming'
+    || event.terminal_reason === 'aborted_tools'
+}
+
+/** Claude can automatically resume the parent when a background task reports
+ *  back. The resulting `result` closes only that internal continuation; treating
+ *  it as the user's task_complete resets the UI and can complete the session
+ *  while sibling tasks are still running. */
+export function isTaskNotificationResult(event: ResultEvent): boolean {
+  return event.origin?.kind === 'task-notification'
 }
 
 /**
@@ -374,7 +422,8 @@ function resultErrorMessage(event: ResultEvent): string {
 }
 
 function normalizeResult(event: ResultEvent): NormalizedEvent[] {
-  if (isSteerRestartResult(event)) return []
+  if (isAbortSeamResult(event)) return []
+  if (isTaskNotificationResult(event) && !event.is_error && event.subtype === 'success') return []
 
   if (event.is_error || event.subtype !== 'success') {
     return [{

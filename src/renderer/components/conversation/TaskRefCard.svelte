@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { CheckSquareOffsetIcon } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts";
   import ConversationRefCard from "./ConversationRefCard.svelte";
 
@@ -21,15 +20,10 @@
 </script>
 
 <ConversationRefCard
+  kicker="Task"
   title={ref.title}
-  subtitle={`Task ${ref.taskId}`}
+  subtitle={ref.taskId}
   ariaLabel={`Open task: ${ref.title}`}
   onOpen={open}
   {skipMotion}
->
-  {#snippet icon()}
-    <span style:color="var(--solus-accent)">
-      <CheckSquareOffsetIcon size={18} weight="regular" />
-    </span>
-  {/snippet}
-</ConversationRefCard>
+/>

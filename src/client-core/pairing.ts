@@ -63,8 +63,29 @@ export function urlHost(url: string): string {
   }
 }
 
-export function desktopDeviceLabel(): string {
-  return 'Solus desktop'
+/**
+ * What this device calls itself when it pairs. The desktop app is always
+ * "Solus desktop"; a browser names itself by browser and OS so the server's
+ * device list distinguishes a phone from the desktop that paired it.
+ */
+export function defaultDeviceLabel(): string {
+  const isBrowser = typeof navigator !== 'undefined'
+    && typeof window !== 'undefined'
+    && !(window as { solusNative?: unknown }).solusNative
+  if (!isBrowser) return 'Solus desktop'
+  const ua = navigator.userAgent
+  const os = /iPhone|iPad/.test(ua) ? 'iOS'
+    : /Android/.test(ua) ? 'Android'
+    : /Mac OS/.test(ua) ? 'macOS'
+    : /Windows/.test(ua) ? 'Windows'
+    : /Linux/.test(ua) ? 'Linux'
+    : 'device'
+  const browser = /Edg\//.test(ua) ? 'Edge'
+    : /Chrome/.test(ua) ? 'Chrome'
+    : /Firefox/.test(ua) ? 'Firefox'
+    : /Safari/.test(ua) ? 'Safari'
+    : 'Browser'
+  return `${browser} on ${os}`
 }
 
 export async function pairServer(input: PairServerInput): Promise<PairServerResult> {
@@ -74,7 +95,7 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       pairToken: input.pairToken,
-      deviceLabel: input.deviceLabel || desktopDeviceLabel(),
+      deviceLabel: input.deviceLabel || defaultDeviceLabel(),
     }),
   })
   if (!res.ok) {
@@ -104,7 +125,7 @@ export async function claimServer(input: ClaimServerInput): Promise<ClaimServerR
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       code: input.code,
-      deviceLabel: input.deviceLabel || desktopDeviceLabel(),
+      deviceLabel: input.deviceLabel || defaultDeviceLabel(),
     }),
   })
   if (!res.ok) {

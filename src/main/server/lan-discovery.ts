@@ -71,7 +71,7 @@ export async function startLanDiscoveryService(
     }
     if (!found.has(server.installationId)) found.set(server.installationId, server)
   })
-  socket.on('error', (err) => log.warn(`LAN discovery socket error: ${err.message}`))
+  socket.on('error', (err) => log.warn('lan_discovery_socket_error', { error: err.message }))
 
   await bindSocket(socket)
   socket.setBroadcast(true)
@@ -135,7 +135,7 @@ function respondToQuery(
     claimable: advertisement.claimable,
   }
   void send(socket, Buffer.from(JSON.stringify(response)), remote.address, remote.port).catch((err) => {
-    log.debug(`LAN discovery response failed: ${err}`)
+    log.debug('lan_discovery_response_failed', { error: err instanceof Error ? err.message : String(err) })
   })
 }
 

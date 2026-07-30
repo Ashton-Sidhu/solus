@@ -58,7 +58,7 @@ function emitChanged(event: AutomationsChangedEvent): void {
   try {
     changedListener?.(event)
   } catch (err: any) {
-    log.error(`automations-changed listener failed: ${String(err)}`)
+    log.error('automations_changed_listener_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 

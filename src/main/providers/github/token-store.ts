@@ -45,6 +45,6 @@ export function clearToken(): void {
   try {
     secretStore().remove(TOKEN_KEY, tokenFile())
   } catch (err) {
-    log.warn(`Failed to remove token file: ${err}`)
+    log.warn('token_file_remove_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }

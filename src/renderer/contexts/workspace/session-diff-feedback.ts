@@ -53,14 +53,14 @@ export function updateDiffCommentDraftValue(ctx: WorkspaceContext, value: string
   tab.diffCommentDraft.value = value
 }
 
-export function setDiffGeneralComment(ctx: WorkspaceContext, value: string): void {
-  const tab = targetTab(ctx)
+export function setDiffGeneralComment(ctx: WorkspaceContext, value: string, tabId?: string): void {
+  const tab = targetTab(ctx, tabId)
   if (!tab) return
   tab.diffGeneralComment = value
 }
 
-export function submitDiffFeedback(ctx: WorkspaceContext, generalComment: string): boolean {
-  const tab = targetTab(ctx)
+export function submitDiffFeedback(ctx: WorkspaceContext, generalComment: string, tabId?: string): boolean {
+  const tab = targetTab(ctx, tabId)
   if (!tab) return false
   const inlineComments = tab.diffComments
   if (!generalComment && inlineComments.length === 0) return false
@@ -71,8 +71,8 @@ export function submitDiffFeedback(ctx: WorkspaceContext, generalComment: string
     parts.push(`Inline comments:\n${formatDiffInlineComments(inlineComments)}`)
   }
 
-  ctx.sendMessage(parts.join('\n\n'))
-  clearDiffComments(ctx)
+  ctx.sendMessage(parts.join('\n\n'), undefined, tabId)
+  clearDiffComments(ctx, tabId)
   tab.diffGeneralComment = ''
   return true
 }
@@ -87,9 +87,11 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   modelConfig?: { modelId: string | null; reasoningEffort: ReasoningEffort }
   /** Run the fresh session in an isolated worktree off the source branch. */
   useWorktree?: boolean
+  /** Tab whose queued comments and session context are being handed off. */
+  sourceTabId?: string
 }): Promise<boolean> {
   const { generalComment, filePath, diffText, branchContext } = opts
-  const sourceTabId = ctx.activeTabId
+  const sourceTabId = opts.sourceTabId ?? ctx.activeTabId
   const tab = targetTab(ctx, sourceTabId)
   const inlineComments = tab?.diffComments ?? []
   if (!generalComment && inlineComments.length === 0) return false

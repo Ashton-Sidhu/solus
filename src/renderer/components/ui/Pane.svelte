@@ -276,7 +276,12 @@
     {@render loadingSurface('Loading plan…')}
   {:then planModule}
     {@const PlanModal = planModule.default}
-    <PlanModal plan={activePlan} inline onClose={closePlan} />
+    <PlanModal
+      plan={activePlan}
+      inline
+      minimizeOutline={slot === 'secondary'}
+      onClose={closePlan}
+    />
   {/await}
 {:else if content.kind === 'work' && activeWork && activeWork.type === 'diagram'}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
@@ -356,6 +361,7 @@
             onDirtyChange={(d) => { shellDirty = d }}
             onClose={() => panes.closeSlot(slot)}
             inline
+            minimizeOutline={slot === "secondary"}
             onOpenChat={handleOpenChatForWork}
             {originalSessionMeta}
             onRename={handleRename}

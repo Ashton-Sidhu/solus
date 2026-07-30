@@ -511,7 +511,7 @@ export class GitHubTaskProvider implements TaskProvider {
       } catch (err) {
         // Keep the issue — it just won't be nested. Surfaced in logs, not to the
         // user, since the create itself succeeded.
-        log.warn(`Created issue #${created.data.number} but failed to link under #${input.parentId}: ${String(err)}`)
+        log.warn('github_sub_issue_link_failed', { issueNumber: created.data.number, parentId: input.parentId, error: err instanceof Error ? err.message : String(err) })
       }
     }
     return this.getTask(String(created.data.number))
@@ -824,6 +824,6 @@ export async function makeGitHubTaskProvider(
   if (!repo) {
     throw new Error('Could not detect a GitHub repository from the origin remote.')
   }
-  log.info(`GitHub task provider bound to ${repo.owner}/${repo.repo}`)
+  log.info('github_task_provider_bound', { owner: repo.owner, repo: repo.repo })
   return new GitHubTaskProvider(repo)
 }

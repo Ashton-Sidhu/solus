@@ -22,6 +22,12 @@ type DevVoiceSessionStats = {
   totalListeningMs: number
 }
 
+type PendingVoiceTranscription = {
+  samples: Float32Array
+  startedAtIso: string | null
+  listeningMs: number | null
+}
+
 const devVoiceSessionStats: DevVoiceSessionStats = {
   firstStartedAtIso: null,
   count: 0,
@@ -52,6 +58,7 @@ export class VoiceRecorder {
   #cancelled = false
   #capture: PcmCapture | null = null
   #buffer: Float32Array[] = []
+  #pendingTranscription: PendingVoiceTranscription | null = null
   #speechDetected = false
   #preRoll: Float32Array = new Float32Array()
   #finishing = false
@@ -79,6 +86,12 @@ export class VoiceRecorder {
 
   async start(): Promise<void> {
     if (this.#disposed || this.state !== 'idle' || this.starting) return
+    if (this.#pendingTranscription) {
+      this.#setError(null, null)
+      this.#finishing = true
+      await this.#transcribe(this.#pendingTranscription)
+      return
+    }
     const generation = ++this.#startGeneration
     this.starting = true
     this.#setError(null, null)
@@ -248,21 +261,27 @@ export class VoiceRecorder {
       return
     }
 
+    await this.#transcribe({ samples, startedAtIso: recordingStartedAtIso, listeningMs })
+  }
+
+  async #transcribe(pending: PendingVoiceTranscription): Promise<void> {
     this.state = 'transcribing'
     const transcribeStartedAt = performance.now()
     let allowAutoRearm = false
     try {
-      const result = await window.solus.transcribeAudio(samples)
+      const result = await window.solus.transcribeAudio(pending.samples)
       this.#logDevTranscriptionSession({
         transcript: result.transcript,
-        startedAtIso: recordingStartedAtIso,
-        listeningMs,
+        startedAtIso: pending.startedAtIso,
+        listeningMs: pending.listeningMs,
         transcribeMs: Math.round(performance.now() - transcribeStartedAt),
         success: !result.error,
       })
       if (result.error) {
+        this.#pendingTranscription = pending
         this.#setError(`Voice failed: ${result.error}`, 'transient')
       } else {
+        this.#pendingTranscription = null
         allowAutoRearm = true
         if (result.transcript) {
           this.#setError(null, null)
@@ -270,6 +289,14 @@ export class VoiceRecorder {
         }
       }
     } catch (err: any) {
+      this.#pendingTranscription = pending
+      this.#logDevTranscriptionSession({
+        transcript: null,
+        startedAtIso: pending.startedAtIso,
+        listeningMs: pending.listeningMs,
+        transcribeMs: Math.round(performance.now() - transcribeStartedAt),
+        success: false,
+      })
       this.#setError(`Voice failed: ${err.message ?? String(err)}`, 'transient')
     } finally {
       this.#cleanup()

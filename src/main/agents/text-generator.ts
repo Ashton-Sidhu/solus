@@ -15,6 +15,7 @@ export interface TextGenerationOptions {
   fastMode?: boolean
   systemPrompt?: string
   additionalDirs?: string[]
+  abortSignal?: AbortSignal
   timeoutMs?: number
   maxTurns?: number
 }
@@ -44,6 +45,15 @@ export class TextGenerator {
       maxTurns: options.maxTurns,
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     })
-    return (await run.done).output
+    const cancel = () => run.cancel()
+    if (options.abortSignal) {
+      if (options.abortSignal.aborted) cancel()
+      else options.abortSignal.addEventListener('abort', cancel, { once: true })
+    }
+    try {
+      return (await run.done).output
+    } finally {
+      options.abortSignal?.removeEventListener('abort', cancel)
+    }
   }
 }

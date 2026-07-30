@@ -161,6 +161,9 @@
           permissionMode:
             sess?.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
+          terminalFailure: sess?.terminalFailure
+            ? { ...sess.terminalFailure }
+            : null,
         };
       });
     const snapshot: PersistedTabs = {
@@ -712,10 +715,10 @@
   // reply" only there. Pushed ahead of the click (on selectionchange) so main
   // already has the answer when the context menu fires — no IPC race.
   $effect(() => {
-    let lastActive = false;
+    let lastSourceTabId: string | null = null;
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      let active = false;
+      let sourceTabId: string | null = null;
       // Bail before the O(selection) toString() on the common continuous-drag
       // path where there's no real selection (collapsed caret / no range).
       if (
@@ -729,17 +732,30 @@
           node.nodeType === Node.ELEMENT_NODE
             ? (node as Element)
             : node.parentElement;
-        active = !!el?.closest(".conversation-selectable");
+        const conversation = el?.closest<HTMLElement>(
+          ".conversation-selectable",
+        );
+        sourceTabId = conversation?.dataset.conversationTabId ?? null;
       }
-      if (active !== lastActive) {
-        lastActive = active;
-        window.solus.setQuoteContext(active);
+      if (sourceTabId !== lastSourceTabId) {
+        lastSourceTabId = sourceTabId;
+        window.solus.setQuoteContext(sourceTabId);
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);
-    return () =>
+    return () => {
       document.removeEventListener("selectionchange", onSelectionChange);
+      window.solus.setQuoteContext(null);
+    };
   });
+
+  $effect(() =>
+    window.solus.onAskSelectionInNewSession((text, sourceTabId) => {
+      void session
+        .askInNewSession(sourceTabId, text)
+        .catch(() => toasts.error("Couldn't start a new session"));
+    }),
+  );
 
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);

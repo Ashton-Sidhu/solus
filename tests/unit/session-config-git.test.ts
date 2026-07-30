@@ -11,6 +11,81 @@ afterEach(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
+describe('SessionConfigController provider switching', () => {
+  test('keeps the visible transcript unchanged while handing the session to another provider', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const messages = [{ id: 'answer-1', role: 'assistant', content: 'Done', timestamp: 1 }]
+    const session = {
+      provider: 'codex',
+      status: 'idle',
+      agentSessionId: 'codex-session',
+      modelConfig: {},
+      messages,
+      workingDirectory: '/repo',
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const settings = {
+      activeAgent: 'codex',
+      tabGroupMode: 'flat',
+      update(patch: { activeAgent?: string }) {
+        if (patch.activeAgent) this.activeAgent = patch.activeAgent
+      },
+    }
+
+    let switchCount = 0
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: settings as any,
+      registry: {
+        activeTabId: 'tab-1',
+        activeSession: session,
+        sessionFor: () => session,
+      } as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      createTab: async () => 'tab-1',
+      ctx: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
+      apiFor: () => ({
+        switchSessionAgent: async () => {
+          switchCount++
+          return switchCount === 1
+            ? { fromProvider: 'codex', fromSessionId: 'codex-session' }
+            : {
+                fromProvider: 'claude-code',
+                fromSessionId: 'codex-session',
+                restoredSessionId: 'codex-session',
+              }
+        },
+      }) as any,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    await controller.switchActiveAgent('claude-code')
+
+    // WHY: provider selection is transport configuration, not a conversation
+    // event. The user should see the exact same thread before and after it.
+    expect(session.messages).toBe(messages)
+    expect(session.messages).toEqual([
+      { id: 'answer-1', role: 'assistant', content: 'Done', timestamp: 1 },
+    ])
+    expect(session.handoffFrom).toEqual({ provider: 'codex', sessionId: 'codex-session' })
+
+    await controller.switchActiveAgent('codex')
+
+    expect(switchCount).toBe(2)
+    expect(session.provider).toBe('codex')
+    expect(session.agentSessionId).toBe('codex-session')
+    expect(session.handoffFrom).toBeUndefined()
+    expect(session.messages).toBe(messages)
+  })
+})
+
 describe('SessionConfigController branch switching', () => {
   test('preserves a started session and switches the new active tab to the selected worktree', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(

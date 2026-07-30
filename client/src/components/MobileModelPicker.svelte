@@ -116,7 +116,7 @@
 {#if models.length > 0}
   <button
     type="button"
-    class="inline-flex items-center gap-1.5 max-w-[11rem] shrink-0 px-2.5 py-1 rounded-full border-0 cursor-pointer bg-(--solus-surface-hover) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.97] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
+    class="inline-flex items-center gap-1.5 max-w-[11rem] shrink-0 px-2.5 py-1 rounded-full border-0 cursor-pointer bg-(--solus-surface-hover) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
     onclick={toggle}
     aria-haspopup="dialog"
     aria-expanded={open}
@@ -145,7 +145,7 @@
        The sheet doesn't scroll; touch-none claims vertical drags for swipe-to-dismiss. -->
   <div
     bind:this={sheetEl}
-    class="fixed bottom-0 inset-x-0 z-[41] rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform"
+    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
     class:invisible={!visible}
     class:pointer-events-none={!visible}
     role="dialog"

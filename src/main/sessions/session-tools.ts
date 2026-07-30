@@ -2,10 +2,11 @@ import { z } from 'zod'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { getSessionMessages, listProjectRoots, searchIndexedSessions } from '../db/session-indexer'
 import { formatPendingInputReport } from './session-report'
 import { MODEL_PROFILES } from '../../shared/types'
-import type { AgentId, NormalizedEvent, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
+import type { AgentId, NormalizedEvent, PromptDelivery, ReasoningEffort, SessionMeta, SessionRelayUpdate, SessionStatus } from '../../shared/types'
 import type { SessionLoadMessage } from '../../shared/session-history'
 
 const log = createLogger('sessions', 'session-tools.ts')
@@ -44,6 +45,16 @@ export function setSessionCreator(creator: SessionCreator): void {
   sessionCreator = creator
 }
 
+/** An armed relay exchange: the settle/awaiting reports for `targetSessionId`
+ *  will be correlated back to this exchange in the caller's thread. */
+export interface RelayWatchRequest {
+  exchangeId: string
+  dispatchedAt: number
+  /** When false the renderer still receives relay updates, but no [session
+   *  report] prose is injected into the caller's turn input. */
+  notifyModel: boolean
+}
+
 export interface SessionController {
   listSessions(providers: AgentId[], projectPath: string): Promise<SessionMeta[]>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
@@ -55,7 +66,7 @@ export interface SessionController {
     prompt: string,
     delivery?: PromptDelivery,
   ): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
-  watchSessionSettled(targetSessionId: string, callerSessionId: string): void
+  watchSessionSettled(targetSessionId: string, callerSessionId: string, watch: RelayWatchRequest): void
   stopSession(agentSessionId: string): boolean
 }
 
@@ -66,34 +77,6 @@ export function setSessionController(controller: SessionController): void {
 
 // ─── Side-effect callback + per-call context ───
 
-export interface SessionCreatedPayload {
-  agentSessionId: string
-  title: string
-  provider: AgentId
-  cwd: string
-}
-
-/** Fired once a session is created, so the calling thread can render a card that
- *  opens the new session in a tab. */
-export type OnSessionCreated = (session: SessionCreatedPayload) => void
-
-export interface SessionPromptedPayload {
-  agentSessionId: string
-  promptPreview: string
-  provider: AgentId
-  cwd: string
-}
-
-export type OnSessionPrompted = (session: SessionPromptedPayload) => void
-
-export interface SessionStoppedPayload {
-  agentSessionId: string
-  provider: AgentId
-  cwd: string
-}
-
-export type OnSessionStopped = (session: SessionStoppedPayload) => void
-
 export interface SessionToolCtx {
   agentProvider: AgentId
   cwd: string
@@ -102,9 +85,9 @@ export interface SessionToolCtx {
 
 export interface SessionToolDeps {
   ctx?: SessionToolCtx
-  onSessionCreated?: OnSessionCreated
-  onSessionPrompted?: OnSessionPrompted
-  onSessionStopped?: OnSessionStopped
+  /** Fired for each relay lifecycle step so the calling thread renders/updates
+   *  its relay block for the peer session. */
+  onRelayUpdate?: (update: SessionRelayUpdate) => void
 }
 
 // ─── Schema ───
@@ -131,6 +114,10 @@ const createSessionShape = {
     .string()
     .optional()
     .describe('Optional base branch to create an isolated worktree for the new session.'),
+  notify_on_completion: z
+    .boolean()
+    .default(true)
+    .describe("When true (default), the new session's first reply arrives in this conversation later as a [session report]. Set false for fire-and-forget; use read_session to catch up."),
 }
 
 const listSessionsShape = {
@@ -182,7 +169,7 @@ const stopSessionShape = {
 }
 
 export const CREATE_SESSION_DESC =
-  'Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. model_id is required and must be a valid model id for the chosen provider. A card appears in the conversation; clicking it opens the new session in a tab. Use this to spin off a parallel task into its own thread. Call it once per session you want to start. Returns the new session id.'
+  "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. model_id is required and must be a valid model id for the chosen provider. A live relay card appears in the conversation tracking the session's progress. Use this to spin off a parallel task into its own thread. Call it once per session you want to start. By default the session's first reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Returns the new session id."
 const LIST_SESSIONS_DESC =
   'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
 const SEARCH_SESSIONS_DESC =
@@ -245,6 +232,12 @@ function isBusy(status: SessionStatus | undefined): boolean {
 async function findSession(sessionId: string): Promise<SessionMeta | null> {
   if (!sessionController) return null
   return sessionController.getSessionInfo(sessionId)
+}
+
+/** Display title for a peer session: CLI slug once it exists, else the first
+ *  message, else the short id. */
+function peerTitle(meta: SessionMeta): string {
+  return meta.slug || truncate(meta.firstMessage ?? '', 80) || meta.sessionId.slice(0, 8)
 }
 
 function formatTail(messages: SessionLoadMessage[]): string {
@@ -371,6 +364,7 @@ export async function executeSessionTool(
           `Session ${sessionLink(meta)}`,
           `status: ${status}${stuck}`,
           `provider: ${meta.provider}`,
+          ...(meta.model ? [`model: ${meta.model}${meta.reasoningEffort ? ` (reasoning: ${meta.reasoningEffort})` : ''}`] : []),
           `cwd: ${meta.cwd}`,
           `lastTimestamp: ${meta.lastTimestamp}`,
           '',
@@ -478,8 +472,27 @@ export async function executeSessionTool(
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
       const result = await sessionController.promptSession(sessionId, prompt, delivery)
-      if (notifyOnCompletion) sessionController.watchSessionSettled(sessionId, callerSessionId!)
-      deps.onSessionPrompted?.({ agentSessionId: sessionId, promptPreview: truncate(prompt, 80), provider: meta.provider, cwd: meta.cwd })
+      const exchangeId = randomUUID()
+      const dispatchedAt = Date.now()
+      // Always arm the exchange when we know the caller — the renderer's relay
+      // block needs the settle even when the model opted out of the report.
+      if (callerSessionId) {
+        sessionController.watchSessionSettled(sessionId, callerSessionId, { exchangeId, dispatchedAt, notifyModel: notifyOnCompletion })
+      }
+      deps.onRelayUpdate?.({
+        phase: 'dispatched',
+        peerSessionId: sessionId,
+        exchangeId,
+        origin: 'prompted',
+        prompt,
+        delivery,
+        provider: meta.provider,
+        title: peerTitle(meta),
+        cwd: meta.cwd,
+        model: meta.model,
+        reasoningEffort: meta.reasoningEffort,
+        dispatchedAt,
+      })
       const dispatch = result.disposition === 'queued'
         ? 'Queued prompt for'
         : result.disposition === 'steered'
@@ -508,7 +521,22 @@ export async function executeSessionTool(
           text: `Session ${sessionLink(meta)} is currently ${status}, not running/busy; no watcher was registered. Use read_session to inspect its latest reply.`,
         }
       }
-      sessionController.watchSessionSettled(sessionId, callerSessionId)
+      const watchExchangeId = randomUUID()
+      const watchDispatchedAt = Date.now()
+      sessionController.watchSessionSettled(sessionId, callerSessionId, { exchangeId: watchExchangeId, dispatchedAt: watchDispatchedAt, notifyModel: true })
+      deps.onRelayUpdate?.({
+        phase: 'dispatched',
+        peerSessionId: sessionId,
+        exchangeId: watchExchangeId,
+        origin: 'watched',
+        prompt: '',
+        provider: meta.provider,
+        title: peerTitle(meta),
+        cwd: meta.cwd,
+        model: meta.model,
+        reasoningEffort: meta.reasoningEffort,
+        dispatchedAt: watchDispatchedAt,
+      })
       return {
         ok: true,
         text: `Watching session ${sessionLink(meta)} (current status: ${liveStatus}). This call returns immediately; its reply will arrive later in this conversation as a [session report].`,
@@ -523,7 +551,7 @@ export async function executeSessionTool(
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
       const stopped = sessionController.stopSession(sessionId)
-      if (stopped) deps.onSessionStopped?.({ agentSessionId: sessionId, provider: meta.provider, cwd: meta.cwd })
+      if (stopped) deps.onRelayUpdate?.({ phase: 'stopped', peerSessionId: sessionId })
       return stopped
         ? { ok: true, text: `Stopped session ${sessionId}.` }
         : { ok: true, text: `Session ${sessionId} is not currently running.` }
@@ -561,13 +589,41 @@ export async function executeSessionTool(
       : null
     const { agentSessionId } = await sessionCreator({ prompt, provider: p, modelId, reasoningEffort, contextWindow, cwd, worktreeBaseBranch })
 
-    deps.onSessionCreated?.({ agentSessionId, title, provider: p, cwd })
+    const exchangeId = randomUUID()
+    const dispatchedAt = Date.now()
+    // The renderer's relay block always gets the first reply; the model's
+    // [session report] is opt-out via notify_on_completion.
+    const callerSessionId = deps.ctx?.sessionId
+    if (callerSessionId && sessionController) {
+      sessionController.watchSessionSettled(agentSessionId, callerSessionId, {
+        exchangeId,
+        dispatchedAt,
+        notifyModel: args.notify_on_completion !== false,
+      })
+    }
+    // Best-effort provenance: when the run already resolved a worktree, the
+    // indexed cwd is the worktree path; otherwise the pre-worktree cwd stands
+    // and a later `context` relay update corrects it.
+    const created = await findSession(agentSessionId)
+    deps.onRelayUpdate?.({
+      phase: 'dispatched',
+      peerSessionId: agentSessionId,
+      exchangeId,
+      origin: 'created',
+      prompt,
+      provider: p,
+      title,
+      cwd: created?.cwd ?? cwd,
+      model: modelId,
+      reasoningEffort,
+      dispatchedAt,
+    })
     return {
       ok: true,
       text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} running on ${p}/${modelId} (reasoning: ${reasoningEffort}). A card to open it was added to the conversation.`,
     }
   } catch (err: any) {
-    log.error(`executeSessionTool(${name}) failed: ${String(err)}`)
+    log.error('session_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Session tool error: ${String(err?.message ?? err)}` }
   }
 }
@@ -589,26 +645,7 @@ function sessionAgentTool(
         cwd: context.cwd,
         sessionId: context.sessionId(),
       },
-      onSessionCreated: (session) => context.emit({
-        type: 'session_created',
-        agentSessionId: session.agentSessionId,
-        title: session.title,
-        provider: session.provider,
-        cwd: session.cwd,
-      }),
-      onSessionPrompted: (session) => context.emit({
-        type: 'session_prompted',
-        agentSessionId: session.agentSessionId,
-        promptPreview: session.promptPreview,
-        provider: session.provider,
-        cwd: session.cwd,
-      }),
-      onSessionStopped: (session) => context.emit({
-        type: 'session_stopped',
-        agentSessionId: session.agentSessionId,
-        provider: session.provider,
-        cwd: session.cwd,
-      }),
+      onRelayUpdate: (update) => context.emit({ type: 'session_relay', update }),
     }),
   }
 }
@@ -617,9 +654,9 @@ export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESS
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionShape, false)
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, false)
 export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionShape, false)
-export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, true)
+export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, false)
 export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionShape, false)
-export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionShape, true)
+export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionShape, false)
 
 export const sessionAgentTools: AgentTool[] = [
   listSessionsAgentTool,

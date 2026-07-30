@@ -226,7 +226,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       await this._runLoop(handle, events, result, sessionRef, adaptedTools.observe)
     })().catch((err: any) => {
       const sessionId = handle.sessionId
-      log.error(`Run failed to start [${sessionId ?? 'pending'}]: ${err?.message}`)
+      log.error('run_start_failed', { sessionId: sessionId ?? 'pending', error: err?.message })
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
       this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
@@ -258,12 +258,12 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       handle.permissionDenials = final.permissionDenials
       const sessionId = handle.sessionId
       this.finishRun(handle)
-      log.info(`Run complete [${sessionId}]: denials=${handle.permissionDenials.length}`)
+      log.info('run_complete', { sessionId, denials: handle.permissionDenials.length })
       handle._resolveRun()
       this.emit('exit', sessionId, final.signal === 'SIGINT' ? null : 0, final.signal)
     } catch (err: any) {
       const sessionId = handle.sessionId
-      log.error(`Run errored [${sessionId ?? 'pending'}]: ${err?.message}`)
+      log.error('run_errored', { sessionId: sessionId ?? 'pending', error: err?.message })
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
       this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
@@ -271,28 +271,35 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   override cancelSession(sessionId: string): boolean {
-    log.info(`Cancelling session ${sessionId}`)
+    log.info('cancel_session', { sessionId })
     return super.cancelSession(sessionId)
   }
 
   /**
    * Push a message into the turn that is already running, so the model picks it
    * up at its next decision point and keeps going in the same turn.
+   *
+   * `priority: 'next'` is what makes this steering rather than an interrupt: the
+   * in-flight request runs to completion and the message is read at the next
+   * decision point, so the model keeps its partial work and folds the new
+   * instruction into it. `'now'` instead aborts the request outright — the
+   * partial response is discarded and `[Request interrupted by user]` is written
+   * into the transcript, which reads to the model as "stop and do this instead".
    */
   async steerSession(
     sessionId: string,
     options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
   ): Promise<RunHandle | null> {
     const handle = this.activeRuns.get(sessionId)
+    if (!handle) return null
     // The turn can settle between the control-plane's busy check and this push.
-    // A closed stream means its agent loop is already draining and will never
-    // read the message, so the caller keeps the prompt for the next turn.
-    if (!handle || handle.input.closed) return null
-    handle.input.push({
+    // A refused push means its agent loop will never read the message, so the
+    // caller keeps the prompt for the next turn.
+    const accepted = handle.input.push({
       ...buildUserMessage(options.prompt, options.imageAttachments),
-      priority: 'now',
+      priority: 'next',
     })
-    return handle
+    return accepted ? handle : null
   }
 
   rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {
@@ -598,7 +605,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     // cached) so the session is warmed and the list reflects the current tab.
     if (!ctx) return result
     const builtin = await this.builtinCommands(ctx).catch((e) => {
-      log.warn(`builtinCommands failed: ${e}`)
+      log.warn('builtin_commands_failed', { error: e instanceof Error ? e.message : String(e) })
       return [] as AgentSlashCommand[]
     })
     return { ...result, builtin }

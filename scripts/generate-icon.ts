@@ -33,8 +33,8 @@ const ARC_R = 11
 const ARC_STROKE = 2.2
 const MARK_HALF = 278 // outer half-extent of the mark on the 1024pt canvas
 
-// Surface: the conversation pane background (--solus-container-bg, light).
-const SURFACE = '#fefefc'
+// Surface: the white badge behind the Codex mark in the input-bar model picker.
+const SURFACE = '#ffffff'
 const EDGE = '#d2cfc5' // --solus-container-border
 const MARK: [string, string] = ['#D97757', '#B45A3C'] // arcs, core — --solus-accent clay
 

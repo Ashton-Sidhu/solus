@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
 import { CodexTurnNormalizer } from '../../src/main/agents/codex/codex-event-normalizer'
-import { codexItemToMessage } from '../../src/main/agents/codex/codex-utils'
+import { codexItemToMessage, codexTurnToMessages } from '../../src/main/agents/codex/codex-utils'
 import type { NormalizedEvent } from '../../src/shared/types'
 
 type RawCodexEvent = { method: string; params: any }
@@ -104,7 +104,7 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('normalizes persisted sub-agent activity into a card and parents child events', async () => {
+  test('deduplicates paired sub-agent lifecycle events and parents child events', async () => {
     const { events } = await normalizeCodexFixture('codex-subagent-activity.jsonl', { planMode: false })
 
     expect(events).toEqual([
@@ -132,8 +132,8 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('settles interrupted sub-agent activity as an error', () => {
-    expect(normalizeCodexNotification('item/started', {
+  test('settles completed-only interrupted sub-agent activity as an error', () => {
+    expect(normalizeCodexNotification('item/completed', {
       item: {
         type: 'subAgentActivity',
         id: 'call-agent-1',
@@ -209,14 +209,16 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('drops streamed child agent text and delivers it whole on completion', () => {
-    // Sub-agent prose no longer streams; parented deltas are dropped and the full
-    // text lands on item/completed as a parented assistant_message.
+  test('streams child agent text before reconciling the assembled completion', () => {
     expect(normalizeCodexNotification('item/agentMessage/delta', {
       itemId: 'msg-2',
       parentItemId: 'agent-1',
       delta: 'Found the auth handler.',
-    })).toEqual([])
+    })).toEqual([{
+      type: 'text_chunk',
+      text: 'Found the auth handler.',
+      parentToolUseId: 'agent-1',
+    }])
 
     expect(normalizeCodexNotification('item/completed', {
       item: { id: 'msg-2', type: 'agentMessage', text: 'Found the auth handler.' },
@@ -313,6 +315,36 @@ describe('normalizeCodexNotification', () => {
         parentToolUseId: 'agent-1',
       },
     ])
+  })
+
+  test('streams child-thread text into the subagent card', () => {
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+
+    normalizer.push({
+      method: 'item/started',
+      params: {
+        threadId: 'parent-thread',
+        item: {
+          type: 'subAgentActivity',
+          id: 'agent-1',
+          kind: 'started',
+          agentThreadId: 'child-thread',
+          agentPath: '/root/investigate',
+        },
+      },
+    })
+
+    expect(normalizer.push({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'child-thread',
+        delta: 'Still investigating',
+      },
+    })).toEqual([{
+      type: 'text_chunk',
+      text: 'Still investigating',
+      parentToolUseId: 'agent-1',
+    }])
   })
 })
 
@@ -481,6 +513,42 @@ describe('CodexTurnNormalizer', () => {
 })
 
 describe('Codex subagent history', () => {
+  test('rehydrates a failed turn with its terminal error', () => {
+    const messages = codexTurnToMessages({
+      status: 'failed',
+      error: { message: 'API Error: 500 Internal server error' },
+      startedAt: 1_000,
+      completedAt: 1_060,
+      items: [
+        { type: 'userMessage', content: [{ type: 'text', text: 'Inspect it' }] },
+        { type: 'commandExecution', command: 'grep failed state' },
+      ],
+    })
+
+    expect(messages.at(-1)).toEqual({
+      role: 'system',
+      content: 'Error: API Error: 500 Internal server error',
+      timestamp: 1_060_000,
+    })
+  })
+
+  test('preserves persisted turn duration when rebuilding transcript timestamps', () => {
+    const messages = codexTurnToMessages({
+      startedAt: 1_000,
+      completedAt: 1_090,
+      durationMs: 90_000,
+      items: [
+        { type: 'userMessage', content: [{ type: 'text', text: 'Fix it' }] },
+        { type: 'agentMessage', text: 'Fixed.' },
+      ],
+    })
+
+    expect(messages.map((message) => message.timestamp)).toEqual([
+      1_000_000,
+      1_090_000,
+    ])
+  })
+
   test('hydrates persisted plans with the same stable id as live plan events', () => {
     expect(codexItemToMessage({
       id: 'plan-item-1',

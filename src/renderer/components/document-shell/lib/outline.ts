@@ -20,6 +20,20 @@ export function isOutlineOpen(reasons: Set<OutlineReason>): boolean {
   return reasons.size > 0
 }
 
+/**
+ * Whether the labelled panel should render this frame. `atTop` is checked
+ * directly because the reason set synchronizes from props in an effect; without
+ * this guard, a split pane briefly paints the initial `top` hold before that
+ * effect removes it. Other reasons still reveal the outline on demand.
+ */
+export function isOutlineVisible(
+  reasons: Set<OutlineReason>,
+  atTop: boolean,
+): boolean {
+  if (reasons.size === 1 && reasons.has('top') && !atTop) return false
+  return isOutlineOpen(reasons)
+}
+
 /** Reasons that keep it open with no dwell timer — they end explicitly. */
 const STICKY: OutlineReason[] = ['top', 'pinned', 'focus']
 

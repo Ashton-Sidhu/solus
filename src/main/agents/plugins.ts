@@ -67,6 +67,6 @@ export async function syncBundledPlugins(): Promise<void> {
     }
     await symlink(BUNDLED_PLUGINS_DIR, PLUGINS_DIR, 'dir')
   } catch (err) {
-    log.warn(`Failed to sync bundled plugins: ${(err as Error).message}`)
+    log.warn('bundled_plugins_sync_failed', { error: (err as Error).message })
   }
 }

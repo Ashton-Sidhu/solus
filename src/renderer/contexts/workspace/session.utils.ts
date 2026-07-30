@@ -1,7 +1,28 @@
-import type { Message, NormalizedEvent, PermissionRequest, PermissionOption, QuestionRequest, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '../../../shared/types'
+import type { Message, NormalizedEvent, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '../../../shared/types'
 
 let msgCounter = 0
 export const nextMsgId = () => `msg-${++msgCounter}`
+
+export const AGENT_INTERRUPT_NOTICE = '[Request interrupted by user]'
+
+const AGENT_NOTICE_RE = /^\s*\[(request interrupted|request cancelled|request canceled)[^\]]*\]\s*$/i
+
+/**
+ * A turn the provider was told not to answer. It arrives as ordinary assistant
+ * text — unbracketed — so nothing else marks it as machine-written, and the
+ * bracketed form turns up on the user side of a resumed transcript.
+ */
+const NO_REPLY_RE = /^\s*\[?\s*no response requested\.?\s*\]?\s*$/i
+
+/** A no-reply turn is a state of the run, not an answer to print as prose. */
+export function isNoReplyNotice(content: string): boolean {
+  return NO_REPLY_RE.test(content)
+}
+
+/** Notices the agent SDK injects to keep its transcript valid — nobody typed them. */
+export function isAgentNotice(content: string): boolean {
+  return AGENT_NOTICE_RE.test(content) || NO_REPLY_RE.test(content)
+}
 
 // Friendly labels for the in-app Solus MCP tools. Keyed by the bare tool name,
 // which matches Codex directly and Claude after stripping the `mcp__solus__` prefix.
@@ -35,20 +56,22 @@ export function findLastUserIndex(messages: Message[]): number {
   return -1
 }
 
-export function computeCurrentActivity(sess: Session): string {
-  if (sess.permissionQueue.length > 0) return `Waiting for permission: ${sess.permissionQueue[0].toolTitle}`
-  if (sess.questionQueue.length > 0) return 'Waiting for your input...'
-  if (sess.isStreamingText) return 'Writing...'
-  if (sess.isReconnecting) return 'Reconnecting...'
-  if (sess.status === 'connecting') return 'Starting...'
-  if (sess.status === 'running') {
-    for (let i = sess.messages.length - 1; i >= 0; i--) {
-      const m = sess.messages[i]
-      if (m.role === 'tool' && m.toolStatus === 'running' && m.toolName) return `Running ${prettyToolName(m.toolName)}...`
+/** The most specific user-facing label for a live session's current phase. */
+export function computeCurrentActivity(session: Session): string {
+  if (session.permissionQueue.length > 0) return `Waiting for permission: ${session.permissionQueue[0].toolTitle}`
+  if (session.questionQueue.length > 0) return 'Waiting for your input...'
+  if (session.isStreamingText) return 'Writing...'
+  if (session.isReconnecting) return 'Reconnecting...'
+  for (let i = session.messages.length - 1; i >= 0; i--) {
+    const message = session.messages[i]
+    if (message.role === 'tool' && message.toolStatus === 'running' && message.toolName) {
+      return `Running ${prettyToolName(message.toolName)}...`
     }
-    return 'Thinking...'
   }
-  if (sess.status === 'dead') return 'Session ended'
+  if (session.currentActivity) return session.currentActivity
+  if (session.status === 'connecting') return session.agentSessionId ? 'Resuming...' : 'Starting session...'
+  if (session.status === 'running') return 'Thinking...'
+  if (session.status === 'dead') return 'Session ended'
   return ''
 }
 
@@ -216,4 +239,18 @@ export function formatDiffInlineComments(comments: DiffComment[]): string {
 
 export function hasConversation(session: Session): boolean {
   return session.messages.some(m => m.role === 'user' || m.role === 'assistant')
+}
+
+/** Reattach hands back the live run's config so a restored tab stops guessing.
+ *  A session whose run contract was lost still reattaches, reporting the config
+ *  as null — the tab then keeps the values it restored from its own snapshot
+ *  rather than being reset to whatever a bare default would be. */
+export function applyRuntimeConfig(session: Session, info: RuntimeSessionInfo): void {
+  if (info.modelConfig) {
+    session.modelConfig.modelId = info.modelConfig.modelId
+    session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
+    session.modelConfig.contextWindow = info.modelConfig.contextWindow
+    session.modelConfig.fastMode = info.modelConfig.fastMode
+  }
+  if (info.permissionMode) session.permissionMode = info.permissionMode
 }

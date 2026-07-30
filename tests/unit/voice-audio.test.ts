@@ -1,8 +1,22 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { resampleLinear, StreamingLinearResampler } from '../../src/renderer/lib/audio-utils'
 import { disposePcmCaptureResources, PcmCapture } from '../../src/renderer/lib/pcm-capture'
+import { encodePcm16Wav } from '../../src/shared/voice-audio'
+import { readWav } from '../../src/main/transcription/wav'
 
 describe('voice audio resampling', () => {
+  test('encodes transport audio as 16 kHz mono 16-bit WAV', () => {
+    const samples = Float32Array.from([-1, -0.5, 0, 0.5, 1])
+    const wav = encodePcm16Wav(samples)
+    const decoded = readWav(Buffer.from(wav))
+
+    expect(wav.byteLength).toBe(44 + samples.length * 2)
+    expect(decoded.length).toBe(samples.length)
+    for (let i = 0; i < samples.length; i++) {
+      expect(Math.abs(decoded[i] - samples[i])).toBeLessThan(1 / 0x7fff)
+    }
+  })
+
   test('preserves sample timing across AudioWorklet-sized input blocks', () => {
     for (const inputRate of [44_100, 48_000]) {
       const input = Float32Array.from(

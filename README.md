@@ -30,9 +30,8 @@ Solus is an Electron-based macOS app that puts AI coding agents into a polished,
 - **Works / Folio** — Agent-created documents, slides, and diagrams saved as standalone artifacts you can export or continue editing
 - **Split pane layout** — View artifacts and conversation side by side
 - **Diff panel** — Rich diff view with per-turn navigation, file tree, and inline commenting
-- **Scratchpad** — Project-scoped scratch notes panel that persists across sessions
 - **Git worktree mode** — Run agents on isolated git branches without disturbing your working tree
-- **Voice input** — Dictate prompts using local Whisper transcription with voice-activity detection
+- **Voice input** — Dictate or capture long-form idea dumps (up to 60 minutes) with local transcription and voice-activity detection
 - **Design annotation mode** — Annotate screenshots with shapes, arrows, and text before sending
 - **File & screenshot attachments** — Attach files or snap a screenshot directly from the input bar
 - **Skills** — Slash-command skill registry with fuzzy search

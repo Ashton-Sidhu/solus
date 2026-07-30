@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import { sectionNumbers, type PlanHeading } from "./headings";
-  import { OUTLINE_DWELL_MS, afterDwell, holdsWithoutDwell, isOutlineOpen, type OutlineReason } from "./lib/outline";
+  import { OUTLINE_DWELL_MS, afterDwell, holdsWithoutDwell, isOutlineVisible, type OutlineReason } from "./lib/outline";
 
   interface Props {
     headings: PlanHeading[]
@@ -36,7 +36,7 @@
   // several can hold at once — pinning while hovering must survive the pointer
   // leaving. Starts at the top, where the full contents remain visible.
   let reasons = $state<Set<OutlineReason>>(new Set<OutlineReason>(['top']))
-  const open = $derived(isOutlineOpen(reasons))
+  const open = $derived(isOutlineVisible(reasons, atTop))
 
   function hold(reason: OutlineReason, held: boolean) {
     if (reasons.has(reason) === held) return
@@ -215,7 +215,10 @@
     border-radius: 0.75rem;
     background: var(--solus-popover-bg);
     border: 0.0625rem solid var(--solus-popover-border);
-    box-shadow: var(--solus-popover-shadow);
+    box-shadow:
+      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55),
+      0 0.0625rem 0.125rem rgba(0, 0, 0, 0.04),
+      0 0.5rem 1.25rem rgba(60, 45, 30, 0.09);
     opacity: 0;
     visibility: hidden;
     transition:
@@ -231,6 +234,12 @@
       width 160ms var(--ease-premium),
       opacity 120ms var(--ease-premium),
       visibility 0s linear 0s;
+  }
+  :global(.dark) .doc-outline__panel {
+    box-shadow:
+      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.07),
+      0 0.125rem 0.25rem rgba(0, 0, 0, 0.25),
+      0 0.625rem 1.5rem rgba(0, 0, 0, 0.3);
   }
   /* Every row is laid out at the panel's full width even while it is narrow,
      so the widen reveals the labels rather than re-wrapping and re-ellipsing

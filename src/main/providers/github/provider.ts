@@ -785,7 +785,7 @@ class GitHubProvider implements ReviewProvider {
         owner: repo.owner,
         repo: repo.repo,
       })
-      results.push(...normalizeChecksResponse(response, batch, (message) => log.warn(message)))
+      results.push(...normalizeChecksResponse(response, batch, (message) => log.warn('pr_checks_normalize_warning', { message })))
     }
     return results
   }

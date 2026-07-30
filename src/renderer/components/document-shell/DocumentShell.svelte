@@ -53,6 +53,8 @@
     placeholder?: string;
     /** Renders full-pane (editor mode) vs floating modal + backdrop (pill mode). */
     inline?: boolean;
+    /** Split-pane documents keep the outline folded until it is needed. */
+    minimizeOutline?: boolean;
     /** Consumer-specific class on the editor, used to own its content width/typography. */
     editorClass: string;
     extraExtensions?: AnyExtension[];
@@ -137,6 +139,7 @@
     content,
     placeholder = "",
     inline = false,
+    minimizeOutline = false,
     editorClass,
     extraExtensions = [],
     scope,
@@ -292,8 +295,11 @@
   // Held open while a keyboard jump is settling, so the reader can see where
   // they landed before the labels dissolve.
   let outlineJumping = $state(false);
-  // The full contents stay visible at the top, then fold to measure bars as
-  // soon as the reader scrolls into the document.
+  // The full contents stay visible at the top in a floating document, then
+  // fold to measure bars as soon as the reader scrolls into the document.
+  // Split-pane documents stay minimized so the outline does not consume the
+  // narrow pane's visual space; hover, pinning, and keyboard jumps can still
+  // reveal it on demand.
   let outlineAtTop = $state(true);
   // The reading viewport's height. The margin rail sticks to the top of the
   // scroll region, so it needs the viewport's height rather than the
@@ -363,7 +369,7 @@
     const compute = () => {
       scrollPending = false;
       if (!tiptapEditor || !scrollContainer || suppressScrollSpy) return;
-      outlineAtTop = scrollContainer.scrollTop <= 1;
+      if (!minimizeOutline) outlineAtTop = scrollContainer.scrollTop <= 1;
       const atBottom =
         scrollContainer.scrollTop + scrollContainer.clientHeight >=
         scrollContainer.scrollHeight - 2;
@@ -386,7 +392,7 @@
     };
     const handler = () => {
       // Fold immediately rather than waiting for the scroll-spy's next frame.
-      if (scrollContainer) outlineAtTop = scrollContainer.scrollTop <= 1;
+      if (!minimizeOutline && scrollContainer) outlineAtTop = scrollContainer.scrollTop <= 1;
       if (scrollPending) return;
       scrollPending = true;
       requestAnimationFrame(compute);
@@ -782,14 +788,14 @@
         </div>
       {/if}
       {#if showTocRail}
-        <div class="doc-shell-toc-sleeve shrink-0 grow-0 basis-22 pt-10 pr-3.5 pb-8">
+        <div class="doc-shell-toc-sleeve ml-3 shrink-0 grow-0 basis-22 @min-[90rem]:basis-38 pt-10 pr-3.5 pb-8">
           <DocumentOutline
             headings={tocHeadings}
             activePos={activeHeadingPos}
             {threadCounts}
             pinned={outlinePinned}
             jumping={outlineJumping}
-            atTop={outlineAtTop}
+            atTop={minimizeOutline ? false : outlineAtTop}
             onScrollTo={scrollToHeading}
           />
         </div>

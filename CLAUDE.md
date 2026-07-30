@@ -24,7 +24,10 @@
 - **Keyboard-first.** Buttons get keybindings where sensible; every UI is keyboard-navigable. Global shortcuts: `opt+shift+<key>`. Sub-page shortcuts: `opt+<key>`.
 - After a user clicks/acts, **refocus the active input bar** so they can keep typing.
 - `bun run build` to confirm it compiles (keep output to warnings/errors). **Do not start a dev server to verify.**
-- `bun run dev` tees its output to `dev.log` at the repo root. If a dev server is already running and you need live logs for debugging, **read `dev.log`** instead of starting a new dev server.
+- Dev logs live at the repo root, written by the running dev server. If one is already running, **query these instead of starting a new dev server**:
+  - **`dev.log`** — structured NDJSON, one entry per line (`ts`, `level`, `tag`, `file`, `msg`, plus data fields; `msg` is a stable snake_case event name). Truncated on each app boot. Query with `jq`, filter by session: `jq -c 'select(.sessionId == "<id>")' dev.log`; errors only: `jq -c 'select(.level == "error")' dev.log`; fast pre-filter big files with `grep '"sessionId":"<id>"' dev.log | jq .`
+  - **`dev-console.log`** — raw process output (vite/electron noise, build errors, stray stack traces).
+  - When adding logs: `log.info('event_name', { sessionId, ...facts })` — never interpolate ids into the message string. Use `log.child({ sessionId })` to stamp every entry in a session-scoped code path.
 
 ## Renderer architecture
 

@@ -7,6 +7,8 @@
   import type { DiffComment } from "../../../shared/types";
 
   interface Props {
+    /** Tab that owns the queued comments and receives current-session feedback. */
+    tabId?: string;
     /** Currently-viewed file — used for "Send to new session" context. */
     filePath?: string | null;
     /** Raw diff for the current scope. */
@@ -27,6 +29,7 @@
   }
 
   let {
+    tabId,
     filePath = null,
     diffText = "",
     branchContext,
@@ -39,8 +42,9 @@
 
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
-  const tab = $derived(session.tabs[session.activeTabId]);
-  const sess = $derived(session.sessionFor(session.activeTabId));
+  const targetTabId = $derived(tabId ?? session.activeTabId);
+  const tab = $derived(session.tabs[targetTabId]);
+  const sess = $derived(session.sessionFor(targetTabId));
   const diffComments = $derived<DiffComment[]>(tab?.diffComments ?? []);
   const generalComment = $derived(tab?.diffGeneralComment ?? "");
 
@@ -59,6 +63,12 @@
   const inlineCount = $derived(
     diffComments.length + (pendingInlineDraft ? 1 : 0),
   );
+  let previousInlineCount = 0;
+  $effect(() => {
+    const count = inlineCount;
+    if (count > previousInlineCount) collapsed = false;
+    previousInlineCount = count;
+  });
   // A typed-but-unsaved inline comment (pendingInlineDraft) counts: beforeSend
   // commits it before the send fires, so the queued comments alone can submit
   // with nothing in the text input.
@@ -78,7 +88,7 @@
 
   /** Composer picks that differ from the session's effective config. */
   function changedConfig(payload: PromptComposerSubmit) {
-    const current = statusBar.ctxFor(session.activeTabId);
+    const current = statusBar.ctxFor(targetTabId);
     const providerChanged = payload.provider !== current.activeAgent;
     const modelChanged = payload.modelId !== (current.model || null);
     const effortChanged = payload.reasoningEffort !== current.reasoningEffort;
@@ -96,13 +106,16 @@
     beforeSend?.();
     submitting = true;
     if (changedConfig(payload).changed) {
-      session.updateModelConfig({
-        modelId: payload.modelId,
-        reasoningEffort: payload.reasoningEffort,
-      });
+      session.updateModelConfig(
+        {
+          modelId: payload.modelId,
+          reasoningEffort: payload.reasoningEffort,
+        },
+        targetTabId,
+      );
     }
     applyRefs(payload);
-    const sent = session.submitDiffFeedback(payload.text);
+    const sent = session.submitDiffFeedback(payload.text, targetTabId);
     submitting = false;
     if (sent) {
       composerRef?.clear();
@@ -126,6 +139,7 @@
         ? { modelId: payload.modelId, reasoningEffort: payload.reasoningEffort }
         : undefined,
       useWorktree: useWorktree || undefined,
+      sourceTabId: targetTabId,
     });
     submitting = false;
     if (sent) {
@@ -151,9 +165,9 @@
 >
   <PromptComposer
     bind:this={composerRef}
-    bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v)}
+    bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v, targetTabId)}
     bind:collapsed
-    tabId={session.activeTabId}
+    tabId={targetTabId}
     workingDirectory={sess?.workingDirectory}
     canSubmitWhenEmpty={inlineCount > 0}
     showWorktree={showWorktree}

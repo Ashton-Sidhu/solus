@@ -35,6 +35,8 @@
   import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
   import { requestFilePreview } from "../../lib/filePreview";
   import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
+  import { formatReleaseTime } from "../conversation/lib/queued-prompts";
+  import { quotedReplyDraft } from "../../lib/quoted-reply";
 
   const HISTORY_KEY = "solus-prompt-history";
   const MAX_HISTORY = 100;
@@ -314,6 +316,13 @@
             ? "Voice mode waiting..."
             : `Voice input (${comboHint("voice.toggle-recorder")})`)),
   );
+  // §1a — the composer stays an ordinary composer while a limit holds the queue.
+  // Its placeholder is the only thing that changes, so the limit is never stated
+  // twice: the bubbles and their caption own the rest.
+  const isRateLimited = $derived(sess?.status === "rate_limited");
+  const resetsAt = $derived(sess?.rateLimitInfo?.resetsAt);
+  const hasQueuedPrompts = $derived((sess?.outboundPrompts.length ?? 0) > 0);
+
   const placeholder = $derived(
     isReadOnly
       ? (sess?.readOnlyReason ?? "This session is read-only.")
@@ -321,15 +330,21 @@
         ? "Initializing..."
         : voiceState === "transcribing"
           ? "Transcribing..."
-          : isBusy
-            ? voiceModeEnabled && ownsVoice
-              ? "Waiting for Claude..."
-              : canSteer
-                ? isMobile
-                  ? "Send to steer this response..."
-                  : "Enter to steer now · ⌥Enter to queue next"
-                : "Type to queue a message..."
-            : "Plan, Build, Automate / @ for context",
+          : isRateLimited
+            ? resetsAt
+              ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
+              : "Add to the queue — rate limited"
+            : hasQueuedPrompts
+              ? "Add to the queue..."
+              : isBusy
+                ? voiceModeEnabled && ownsVoice
+                  ? "Waiting for Claude..."
+                  : canSteer
+                    ? isMobile
+                      ? "Send to steer this response..."
+                      : "Enter to steer now · ⌥Enter to queue next"
+                    : "Type to queue a message..."
+                : "Plan, Build, Automate / @ for context",
   );
 
   // ─── Focus management ───
@@ -402,25 +417,21 @@
   // blockquote so they can type their message addressing that snippet. Only the
   // active-mode bar subscribes (both pill+editor instances stay mounted).
   function insertQuote(text: string) {
-    const snippet = text.trim();
-    if (!snippet) return;
-    const quoted = snippet
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
+    const quoted = quotedReplyDraft(text);
+    if (!quoted) return;
     const existing = input.text;
     const next = existing.trim()
-      ? `${existing}\n\n${quoted}\n\n`
-      : `${quoted}\n\n`;
+      ? `${existing}\n\n${quoted}`
+      : quoted;
     input.text = next;
     composerEl?.setValueAndCursor(next, true, true);
     requestInputFocus();
   }
 
   $effect(() => {
-    if (!isActiveMode || !receivesFocusedInput) return;
-    return window.solus.onQuoteSelection((text) => {
-      if (isReadOnly) return;
+    if (!isActiveMode) return;
+    return window.solus.onQuoteSelection((text, sourceTabId) => {
+      if (sourceTabId !== targetTabId || isReadOnly) return;
       insertQuote(text);
     });
   });

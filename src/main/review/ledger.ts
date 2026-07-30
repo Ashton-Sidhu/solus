@@ -151,7 +151,7 @@ async function maybePromoteFromMain(repoRoot: string, branchKey: string, baseSha
       if (!existsSync(dir)) await mkdir(dir, { recursive: true })
       await rename(from, to)
     } catch (err) {
-      log.warn(`promote ${mainKey} → ${branchKey} failed for ${from}: ${String(err)}`)
+      log.warn('review_ledger_promote_failed', { mainKey, branchKey, from, error: String(err) })
     }
   }
 
@@ -161,7 +161,7 @@ async function maybePromoteFromMain(repoRoot: string, branchKey: string, baseSha
     ledger.key = branchKey
     await writeLedger(repoRoot, ledger)
   }
-  log.info(`promoted review ledger ${mainKey} → ${branchKey}`)
+  log.info('review_ledger_promoted', { mainKey, branchKey })
 }
 
 export async function readLedgerByKey(repoRoot: string, key: string): Promise<ReviewLedger | null> {

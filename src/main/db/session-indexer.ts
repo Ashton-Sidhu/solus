@@ -393,7 +393,7 @@ async function sweepAll(activeGeneration: number): Promise<void> {
     try {
       await indexFile(filePath, activeGeneration)
     } catch (error) {
-      log.warn(`Failed to index ${filePath}: ${error}`)
+      log.warn('session_index_file_failed', { filePath, error: error instanceof Error ? error.message : String(error) })
     }
     await yieldToMain()
   }
@@ -434,16 +434,16 @@ function scheduleSweep(filename: string | Buffer | null): void {
           (promise, filePath) => promise.then(() => indexFile(filePath, activeGeneration)),
           Promise.resolve(),
         ))
-    void sweepQueue.catch((error) => log.warn(`Session index sweep failed: ${error}`))
+    void sweepQueue.catch((error) => log.warn('session_index_sweep_failed', { error: error instanceof Error ? error.message : String(error) }))
   }, WATCH_DEBOUNCE_MS)
 }
 
 function installWatcher(): void {
   try {
     watcher = watch(PROJECTS_ROOT, { recursive: true }, (_event, filename) => scheduleSweep(filename))
-    watcher.on('error', (error) => log.warn(`Session index watcher failed: ${error}`))
+    watcher.on('error', (error) => log.warn('session_index_watcher_failed', { error: error instanceof Error ? error.message : String(error) }))
   } catch (error: any) {
-    if (error?.code !== 'ENOENT') log.warn(`Unable to watch Claude sessions: ${error}`)
+    if (error?.code !== 'ENOENT') log.warn('session_index_watch_unavailable', { error: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -452,7 +452,7 @@ export function startSessionIndexer(): void {
   const activeGeneration = generation
   ready = false
   void sweepAll(activeGeneration)
-    .catch((error) => log.warn(`Initial session index sweep failed: ${error}`))
+    .catch((error) => log.warn('session_index_initial_sweep_failed', { error: error instanceof Error ? error.message : String(error) }))
     .finally(() => {
       if (activeGeneration !== generation) return
       ready = true

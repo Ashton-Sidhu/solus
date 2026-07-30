@@ -1,106 +1,110 @@
 <script lang="ts">
   import { loadServers, upsertServer, removeServer, type SavedServer } from "@client-core/server-registry";
-  import { uuid } from "../../../src/shared/uuid";
+  import { claimServer, defaultDeviceLabel, pairServer, urlHost } from "@client-core/pairing";
+  import { classifyConnectInput, probeServer } from "../lib/connect";
   import { toasts } from "../lib/toast.store.svelte";
 
   interface Props {
     onConnect: (server: SavedServer) => void;
+    /** Prefills the address form — used by the /claim deep link. */
+    initialAddress?: string;
   }
-  let { onConnect }: Props = $props();
+  let { onConnect, initialAddress }: Props = $props();
 
   let servers = $state<SavedServer[]>(loadServers());
 
-  type View = 'servers' | 'add';
-  type AddTab = 'link' | 'manual';
-  let view = $state<View>(loadServers().length === 0 ? 'add' : 'servers');
-  let addTab = $state<AddTab>('link');
+  type View = "servers" | "add";
+  // initialAddress is a boot-time seed (the /claim deep link) — reading only
+  // its initial value here is the point, not an oversight.
+  // svelte-ignore state_referenced_locally
+  let view = $state<View>(loadServers().length === 0 || initialAddress ? "add" : "servers");
 
-  let urlInput = $state("");
+  // svelte-ignore state_referenced_locally
+  let smartInput = $state(initialAddress ?? "");
   let codeInput = $state("");
-  let pasteInput = $state("");
   let labelInput = $state("");
   let busy = $state(false);
   let connectingServer = $state<string | null>(null);
 
-  function parsePairLink(link: string): { url: string; token: string } | null {
-    try {
-      const u = new URL(link);
-      const fragment = u.hash.startsWith("#") ? u.hash.slice(1) : u.hash;
-      const params = new URLSearchParams(fragment);
-      const token = params.get("token");
-      if (!token) return null;
-      const url = `${u.protocol}//${u.host}`;
-      return { url, token };
-    } catch {
-      return null;
-    }
-  }
+  // One smart field: a pasted pairing link pairs directly; an address needs the
+  // 6-digit code shown beside the QR in Settings → Connections on the server.
+  const classified = $derived(classifyConnectInput(smartInput));
+  const needsCode = $derived(classified.kind === "address");
 
-  async function pair(url: string, tokenOrCode: string, label: string) {
-    busy = true;
-    try {
-      const resp = await fetch(`${url}/pair`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pairToken: tokenOrCode, deviceLabel: label || browserLabel() }),
+  // ── Live status for saved servers ──
+  let statuses = $state<Record<string, "checking" | "online" | "offline">>({});
+
+  $effect(() => {
+    if (view !== "servers") return;
+    for (const server of servers) {
+      statuses[server.id] = "checking";
+      void probeServer(server.url, 2_500).then((health) => {
+        statuses[server.id] = health.ok ? "online" : "offline";
       });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body?.error ?? `Pair failed (${resp.status})`);
+    }
+  });
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    const deviceLabel = defaultDeviceLabel();
+    const serverLabel = labelInput.trim();
+
+    if (classified.kind === "empty") {
+      toasts.error("Paste a pairing link or enter a server address");
+      return;
+    }
+
+    busy = true;
+    connectingServer = serverLabel || urlHost(classified.url);
+    try {
+      let server: SavedServer;
+      if (classified.kind === "link") {
+        ({ server } = await pairServer({
+          url: classified.url,
+          pairToken: classified.pairToken,
+          deviceLabel,
+          serverLabel,
+        }));
+      } else {
+        const code = codeInput.trim();
+        if (!/^\d{6}$/.test(code)) {
+          toasts.error("Enter the 6-digit code from the server");
+          return;
+        }
+        // A fresh, unclaimed server takes its code at /claim; an owned one
+        // treats the same 6 digits as a pairing code.
+        const health = await probeServer(classified.url);
+        if (health.claimable) {
+          ({ server } = await claimServer({
+            url: classified.url,
+            code,
+            deviceLabel,
+            serverLabel: serverLabel || health.name,
+          }));
+        } else {
+          ({ server } = await pairServer({
+            url: classified.url,
+            pairToken: code,
+            deviceLabel,
+            serverLabel: serverLabel || health.name,
+          }));
+        }
       }
-      const { sessionToken, installationId } = await resp.json();
-      const id = installationId ?? uuid();
-      const server: SavedServer = {
-        id,
-        label: label || urlHost(url),
-        url,
-        sessionToken,
-        installationId,
-        lastConnected: Date.now(),
-      };
       upsertServer(server);
       servers = loadServers();
       resetForm();
-      view = 'servers';
+      view = "servers";
       onConnect(server);
-    } catch (e) {
-      toasts.error(e instanceof Error ? e.message : String(e));
+    } catch (err) {
+      toasts.error(err instanceof Error ? err.message : String(err));
     } finally {
       busy = false;
       connectingServer = null;
     }
   }
 
-  async function handleLinkSubmit(e: Event) {
-    e.preventDefault();
-    if (!pasteInput.trim()) {
-      toasts.error("Paste a pairing link to continue");
-      return;
-    }
-    const parsed = parsePairLink(pasteInput.trim());
-    if (!parsed) {
-      toasts.error("Couldn't parse that pairing link — check the format");
-      return;
-    }
-    connectingServer = labelInput.trim() || urlHost(parsed.url);
-    await pair(parsed.url, parsed.token, labelInput.trim());
-  }
-
-  async function handleManualSubmit(e: Event) {
-    e.preventDefault();
-    if (!urlInput || !codeInput) {
-      toasts.error("Both server URL and pair code are required");
-      return;
-    }
-    let url = urlInput.trim();
-    if (!/^https?:\/\//.test(url)) url = "http://" + url;
-    connectingServer = labelInput.trim() || urlHost(url);
-    await pair(url, codeInput.trim(), labelInput.trim());
-  }
-
   function resetForm() {
-    pasteInput = "";
-    urlInput = "";
+    smartInput = "";
     codeInput = "";
     labelInput = "";
     connectingServer = null;
@@ -108,40 +112,18 @@
 
   function switchToAdd() {
     resetForm();
-    view = 'add';
+    view = "add";
   }
 
   function switchToServers() {
     resetForm();
-    view = 'servers';
+    view = "servers";
   }
 
-  function urlHost(url: string): string {
-    try { return new URL(url).host } catch { return url }
-  }
-
-  function browserLabel(): string {
-    const ua = navigator.userAgent;
-    if (/Chrome/.test(ua)) return `Chrome on ${guessOs()}`;
-    if (/Firefox/.test(ua)) return `Firefox on ${guessOs()}`;
-    if (/Safari/.test(ua)) return `Safari on ${guessOs()}`;
-    return "Web browser";
-  }
-
-  function guessOs(): string {
-    const ua = navigator.userAgent;
-    if (/iPhone|iPad/.test(ua)) return "iOS";
-    if (/Android/.test(ua)) return "Android";
-    if (/Mac OS/.test(ua)) return "macOS";
-    if (/Windows/.test(ua)) return "Windows";
-    if (/Linux/.test(ua)) return "Linux";
-    return "device";
-  }
-
-  function disconnect(id: string) {
+  function forget(id: string) {
     removeServer(id);
     servers = loadServers();
-    if (servers.length === 0) view = 'add';
+    if (servers.length === 0) view = "add";
   }
 
   function handleServerConnect(server: SavedServer) {
@@ -158,25 +140,21 @@
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days}d ago`;
-    return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (view === 'add' && e.key === 'Escape' && servers.length > 0) {
+    if (view === "add" && e.key === "Escape" && servers.length > 0) {
       e.preventDefault();
       switchToServers();
     }
   }
 
-  let linkInputEl: HTMLInputElement | undefined = $state();
-  let urlInputEl: HTMLInputElement | undefined = $state();
+  let smartInputEl: HTMLInputElement | undefined = $state();
 
   $effect(() => {
-    if (view === 'add') {
-      setTimeout(() => {
-        if (addTab === 'link') linkInputEl?.focus();
-        else urlInputEl?.focus();
-      }, 80);
+    if (view === "add") {
+      setTimeout(() => smartInputEl?.focus(), 80);
     }
   });
 </script>
@@ -197,10 +175,10 @@
       </svg>
       <h1 class="cf-title">Solus</h1>
       <p class="cf-subtitle">
-        {#if view === 'servers'}
-          Choose a server to connect
+        {#if view === "servers"}
+          Choose a server to work on
         {:else}
-          Register a new server
+          Connect a server
         {/if}
       </p>
     </header>
@@ -214,7 +192,7 @@
     {:else}
 
       <!-- Saved Servers View -->
-      {#if view === 'servers' && servers.length > 0}
+      {#if view === "servers" && servers.length > 0}
         <div class="cf-section">
           <div class="cf-servers-list">
             {#each servers as server (server.id)}
@@ -223,9 +201,13 @@
                   class="cf-server-btn"
                   onclick={() => handleServerConnect(server)}
                 >
+                  <span
+                    class="cf-dot cf-dot--{statuses[server.id] ?? 'checking'}"
+                    aria-label={statuses[server.id] ?? "checking"}
+                  ></span>
                   <div class="cf-server-info">
                     <span class="cf-server-label">{server.label}</span>
-                    <span class="cf-server-url">{server.url}</span>
+                    <span class="cf-server-url">{urlHost(server.url)}</span>
                   </div>
                   <div class="cf-server-meta">
                     <span class="cf-server-time">{relativeTime(server.lastConnected)}</span>
@@ -236,7 +218,7 @@
                 </button>
                 <button
                   class="cf-server-remove"
-                  onclick={() => disconnect(server.id)}
+                  onclick={() => forget(server.id)}
                   aria-label="Remove {server.label}"
                 >
                   <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
@@ -254,140 +236,75 @@
             <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
               <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            Add server
+            Connect another server
           </button>
         </div>
 
       <!-- Add Server View -->
       {:else}
         <div class="cf-section">
-          <!-- Tabs -->
-          <div class="cf-tabs" role="tablist">
-            <button
-              role="tab"
-              class="cf-tab"
-              class:cf-tab--active={addTab === 'link'}
-              aria-selected={addTab === 'link'}
-              onclick={() => { addTab = 'link'; }}
-            >
-              Pairing link
-            </button>
-            <button
-              role="tab"
-              class="cf-tab"
-              class:cf-tab--active={addTab === 'manual'}
-              aria-selected={addTab === 'manual'}
-              onclick={() => { addTab = 'manual'; }}
-            >
-              Manual setup
-            </button>
-          </div>
+          <form class="cf-form" onsubmit={handleSubmit}>
+            <div class="cf-hint">
+              On your computer, open Solus and go to
+              <strong>Settings &rarr; Connections</strong>. Scan the QR code with
+              your camera, or paste the pairing link or server address here.
+            </div>
 
-          <!-- Link Tab -->
-          {#if addTab === 'link'}
-            <form class="cf-form" onsubmit={handleLinkSubmit}>
-              <div class="cf-hint">
-                Open the Solus desktop app, go to <strong>Settings &rarr; Connections</strong> and copy the pairing link.
-              </div>
+            <label class="cf-field">
+              <span class="cf-label">Pairing link or address</span>
+              <input
+                bind:this={smartInputEl}
+                type="text"
+                placeholder="192.168.1.42:51234 or pairing link"
+                bind:value={smartInput}
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                class="cf-input"
+              />
+            </label>
 
+            {#if needsCode}
               <label class="cf-field">
-                <span class="cf-label">Pairing link</span>
-                <input
-                  bind:this={linkInputEl}
-                  type="text"
-                  placeholder="http://192.168.1.42:51234/pair#token=..."
-                  bind:value={pasteInput}
-                  autocomplete="off"
-                  class="cf-input"
-                />
-              </label>
-
-              <label class="cf-field">
-                <span class="cf-label">Device name <span class="cf-optional">optional</span></span>
-                <input
-                  type="text"
-                  placeholder={browserLabel()}
-                  bind:value={labelInput}
-                  autocomplete="off"
-                  class="cf-input"
-                />
-              </label>
-
-              <div class="cf-actions">
-                {#if servers.length > 0}
-                  <button
-                    type="button"
-                    class="cf-btn-secondary"
-                    onclick={switchToServers}
-                  >
-                    Back
-                  </button>
-                {/if}
-                <button type="submit" class="cf-btn-primary" disabled={busy}>
-                  Connect
-                </button>
-              </div>
-            </form>
-
-          <!-- Manual Tab -->
-          {:else}
-            <form class="cf-form" onsubmit={handleManualSubmit}>
-              <div class="cf-hint">
-                Enter the server address and 6-digit code shown in the Solus desktop app.
-              </div>
-
-              <label class="cf-field">
-                <span class="cf-label">Server address</span>
-                <input
-                  bind:this={urlInputEl}
-                  type="text"
-                  placeholder="192.168.1.42:51234"
-                  bind:value={urlInput}
-                  autocomplete="off"
-                  class="cf-input"
-                />
-              </label>
-
-              <label class="cf-field">
-                <span class="cf-label">Pair code</span>
+                <span class="cf-label">Code</span>
                 <input
                   type="text"
                   inputmode="numeric"
                   maxlength="6"
                   placeholder="000000"
                   bind:value={codeInput}
-                  autocomplete="off"
+                  autocomplete="one-time-code"
                   class="cf-input cf-input--code"
                 />
               </label>
+            {/if}
 
-              <label class="cf-field">
-                <span class="cf-label">Device name <span class="cf-optional">optional</span></span>
-                <input
-                  type="text"
-                  placeholder={browserLabel()}
-                  bind:value={labelInput}
-                  autocomplete="off"
-                  class="cf-input"
-                />
-              </label>
+            <label class="cf-field">
+              <span class="cf-label">Device name <span class="cf-optional">optional</span></span>
+              <input
+                type="text"
+                placeholder={defaultDeviceLabel()}
+                bind:value={labelInput}
+                autocomplete="off"
+                class="cf-input"
+              />
+            </label>
 
-              <div class="cf-actions">
-                {#if servers.length > 0}
-                  <button
-                    type="button"
-                    class="cf-btn-secondary"
-                    onclick={switchToServers}
-                  >
-                    Back
-                  </button>
-                {/if}
-                <button type="submit" class="cf-btn-primary" disabled={busy}>
-                  Connect
+            <div class="cf-actions">
+              {#if servers.length > 0}
+                <button
+                  type="button"
+                  class="cf-btn-secondary"
+                  onclick={switchToServers}
+                >
+                  Back
                 </button>
-              </div>
-            </form>
-          {/if}
+              {/if}
+              <button type="submit" class="cf-btn-primary" disabled={busy}>
+                Connect
+              </button>
+            </div>
+          </form>
         </div>
       {/if}
     {/if}
@@ -462,7 +379,6 @@
     flex: 1;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 0.75rem;
     padding: 0.75rem 0.875rem;
     border: none;
@@ -471,6 +387,7 @@
     text-align: left;
     color: var(--solus-text-primary);
     font-family: inherit;
+    min-width: 0;
   }
 
   .cf-server-btn:hover {
@@ -483,7 +400,33 @@
     border-radius: 0.625rem 0 0 0.625rem;
   }
 
+  .cf-dot {
+    flex-shrink: 0;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border-radius: 50%;
+    background: var(--solus-text-quaternary);
+  }
+
+  .cf-dot--checking {
+    animation: cf-pulse 1.1s ease-in-out infinite;
+  }
+
+  .cf-dot--online {
+    background: var(--solus-status-complete);
+  }
+
+  .cf-dot--offline {
+    background: var(--solus-text-quaternary);
+    opacity: 0.5;
+  }
+
+  @keyframes cf-pulse {
+    50% { opacity: 0.35; }
+  }
+
   .cf-server-info {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
@@ -501,7 +444,7 @@
   .cf-server-url {
     font-size: 0.6875rem;
     color: var(--solus-text-tertiary);
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -587,43 +530,6 @@
     outline-offset: 0.125rem;
   }
 
-  /* ── Tabs ── */
-  .cf-tabs {
-    display: flex;
-    gap: 0.125rem;
-    padding: 0.1875rem;
-    border-radius: 0.625rem;
-    background: var(--solus-surface-hover);
-  }
-
-  .cf-tab {
-    flex: 1;
-    padding: 0.4375rem 0.75rem;
-    border: none;
-    border-radius: 0.4375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    font-size: 0.8125rem;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-  }
-
-  .cf-tab:hover:not(.cf-tab--active) {
-    color: var(--solus-text-secondary);
-  }
-
-  .cf-tab--active {
-    background: var(--solus-container-bg);
-    color: var(--solus-text-primary);
-    box-shadow: 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.06);
-  }
-
-  .cf-tab:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: -0.125rem;
-  }
-
   /* ── Form ── */
   .cf-form {
     display: flex;
@@ -684,7 +590,7 @@
   }
 
   .cf-input--code {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     letter-spacing: 0.2em;
     font-size: 1rem;
   }
@@ -812,11 +718,6 @@
     .cf-add-btn {
       padding: 0.875rem 1rem;
       min-height: 2.75rem;
-    }
-
-    .cf-tab {
-      padding: 0.625rem 0.75rem;
-      min-height: 2.5rem;
     }
 
     .cf-input {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    LightningIcon,
+    ArrowsClockwiseIcon,
     CaretRightIcon,
     ChatCircleDotsIcon,
     ArrowRightIcon,
@@ -135,7 +135,7 @@
 <ul class="m-0 flex list-none flex-col gap-px p-0">
   {#each board.rows as a (a.id)}
     {@const running = a.lastRunStatus === "running"}
-    {@const lightningFilled = running || a.favorite}
+    {@const emphasized = running || a.favorite}
     <li class="automation-row group flex items-center">
       <button
         type="button"
@@ -147,7 +147,7 @@
         aria-expanded={menuOpen && openId === a.id}
         onclick={(e) => toggleMenu(a, e.currentTarget)}
       >
-        <!-- 5c bolts the row with a bare accent lightning — no icon chip — and
+        <!-- 5c marks the row with a bare accent cycle glyph — no icon chip — and
              fades it back for anything that isn't currently scheduled. -->
         <span
           class="inline-flex shrink-0 text-(--solus-accent) transition-opacity duration-150 {a.enabled
@@ -156,7 +156,7 @@
           class:animate-pulse={running}
           aria-hidden="true"
         >
-          <LightningIcon size={13} weight={lightningFilled ? "fill" : "regular"} />
+          <ArrowsClockwiseIcon size={13} weight={emphasized ? "bold" : "regular"} />
         </span>
         <span
           class="min-w-0 flex-1 truncate text-[0.8125rem] font-normal text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
@@ -213,7 +213,7 @@
            only two-line text in the popover vocabulary. -->
       <div class="flex items-center gap-2 px-2 pt-[0.3125rem] pb-1.5">
         <span class="inline-flex shrink-0 text-(--solus-accent)" aria-hidden="true">
-          <LightningIcon size={12} weight="fill" />
+          <ArrowsClockwiseIcon size={12} weight="bold" />
         </span>
         <span
           class="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-(--solus-text-primary)"

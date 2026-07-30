@@ -148,7 +148,7 @@ export class PermissionManager {
 
   setCurrentSessionId(sessionId: string): void {
     this.currentSessionId = sessionId
-    log.debug(`currentSessionId set to ${sessionId.substring(0, 8)}…`)
+    log.debug('current_session_id_set', { sessionId })
   }
 
   /** Build a canUseTool callback bound to a specific run.
@@ -173,7 +173,7 @@ export class PermissionManager {
               { id: 'deny', label: 'No', kind: 'deny' },
             ],
           }
-          log.info(`ExitPlanMode blocked for plan review [${questionId}]`)
+          log.info('exit_plan_mode_plan_review', { questionId })
           this.onPermissionEvent?.(sessionId, planEvent)
         } else {
           const safeInput = input ? maskSensitiveFields(input) : undefined
@@ -188,7 +188,7 @@ export class PermissionManager {
               { id: 'deny', label: 'Deny', kind: 'deny' },
             ],
           }
-          log.info(`ExitPlanMode blocked with empty plan content [${questionId}]`)
+          log.info('exit_plan_mode_empty_plan', { questionId })
           this.onPermissionEvent?.(sessionId, permEvent)
         }
         return new Promise((resolve) => {
@@ -209,7 +209,7 @@ export class PermissionManager {
             multiSelect: q.multiSelect ?? false,
           })),
         }
-        log.info(`Question request [${questionId}]: ${questionEvent.questions.length} question(s)`)
+        log.info('question_request', { questionId, questionCount: questionEvent.questions.length })
         const effectiveSessionId = sessionId ?? this.currentSessionId
         this.onPermissionEvent?.(effectiveSessionId, questionEvent)
         return new Promise((resolve) => {
@@ -229,20 +229,20 @@ export class PermissionManager {
       // Fall back to currentSessionId when this run started before session_init arrived.
       const effectiveSessionId = sessionId ?? this.currentSessionId
       if (effectiveSessionId && this.scopedAllows.has(`session:${effectiveSessionId}:tool:${toolName}`)) {
-        log.debug(`Auto-allowing ${toolName} (session-allowed)`)
+        log.debug('auto_allow_session_tool', { toolName, sessionId: effectiveSessionId })
         return { behavior: 'allow', updatedInput: input }
       }
 
       if (toolName === 'WebFetch' && effectiveSessionId) {
         const domain = extractDomain(input?.url)
         if (domain && this.scopedAllows.has(`session:${effectiveSessionId}:webfetch:${domain}`)) {
-          log.debug(`Auto-allowing WebFetch to ${domain} (domain-allowed)`)
+          log.debug('auto_allow_webfetch_domain', { domain, sessionId: effectiveSessionId })
           return { behavior: 'allow', updatedInput: input }
         }
       }
 
       if (toolName === 'Bash' && isSafeBashCommand(input?.command)) {
-        log.debug(`Auto-allowing safe Bash: ${String(input?.command).substring(0, 80)}`)
+        log.debug('auto_allow_safe_bash', { command: String(input?.command) })
         return { behavior: 'allow', updatedInput: input }
       }
 
@@ -259,7 +259,7 @@ export class PermissionManager {
         options: getOptionsForTool(toolName),
       }
 
-      log.info(`Permission request [${questionId}]: tool=${toolName}`)
+      log.info('permission_prompt_shown', { questionId, toolName })
       this.onPermissionEvent?.(sessionId, permEvent)
 
       return new Promise((resolve) => {
@@ -281,7 +281,7 @@ export class PermissionManager {
   respondToPermission(questionId: string, decision: string, updatedPlan?: string): boolean {
     const pending = this.pendingPermissions.get(questionId)
     if (!pending) {
-      log.info(`respondToPermission: no pending request for ${questionId}`)
+      log.info('permission_response_no_pending', { questionId })
       return false
     }
 
@@ -289,7 +289,7 @@ export class PermissionManager {
 
     // Fail closed: any unknown decision resolves to deny.
     if (!VALID_DECISIONS.has(decision)) {
-      log.info(`Unknown decision "${decision}" for [${questionId}] — denying (fail-closed)`)
+      log.info('unknown_decision_denied', { decision, questionId })
       pending.resolve({ behavior: 'deny', message: `Unknown decision: ${decision}` })
       return true
     }
@@ -299,18 +299,18 @@ export class PermissionManager {
     if (decision === 'allow-session' && resolvedSessionId) {
       const key = `session:${resolvedSessionId}:tool:${pending.toolName}`
       this.scopedAllows.add(key)
-      log.info(`Session-allowed ${pending.toolName} for session ${resolvedSessionId.substring(0, 8)}…`)
+      log.info('session_allowed', { toolName: pending.toolName, sessionId: resolvedSessionId })
     } else if (decision === 'allow-domain' && resolvedSessionId) {
       const domain = extractDomain(pending.input?.url)
       if (domain) {
         const key = `session:${resolvedSessionId}:webfetch:${domain}`
         this.scopedAllows.add(key)
-        log.info(`Domain-allowed ${domain} for session ${resolvedSessionId.substring(0, 8)}…`)
+        log.info('domain_allowed', { domain, sessionId: resolvedSessionId })
       }
     }
 
     if (VALID_ALLOW_DECISIONS.has(decision)) {
-      log.info(`Permission: ${pending.toolName} → allow`)
+      log.info('permission_allowed', { toolName: pending.toolName })
       // Swap in the user-edited plan so Claude resumes from the edited version, not the original.
       const resolvedInput =
         updatedPlan && pending.toolName === 'ExitPlanMode'
@@ -318,7 +318,7 @@ export class PermissionManager {
           : pending.input
       pending.resolve({ behavior: 'allow', updatedInput: resolvedInput })
     } else {
-      log.info(`Permission: ${pending.toolName} → deny`)
+      log.info('permission_denied', { toolName: pending.toolName })
       pending.resolve({ behavior: 'deny', message: 'User denied this action' })
     }
 
@@ -328,7 +328,7 @@ export class PermissionManager {
   respondToQuestion(questionId: string, answers: Record<string, string>): boolean {
     const pending = this.pendingQuestions.get(questionId)
     if (!pending) {
-      log.info(`respondToQuestion: no pending request for ${questionId}`)
+      log.info('question_response_no_pending', { questionId })
       return false
     }
     this.pendingQuestions.delete(questionId)

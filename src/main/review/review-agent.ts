@@ -81,11 +81,11 @@ export async function runReviewAgent(
   } catch (err) {
     // Don't return here: a late stream error (budget cut, transport hiccup)
     // must not discard a guide the agent already submitted.
-    log.error(`review agent run failed (${input.agent}): ${String(err)}`)
+    log.error('review_agent_run_failed', { agent: input.agent, error: String(err) })
   }
 
   if (!captured) {
-    log.warn(`review agent (${input.agent}) returned no usable guide`)
+    log.warn('review_agent_no_usable_guide', { agent: input.agent })
     return null
   }
   return captured

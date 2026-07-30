@@ -259,9 +259,7 @@
     <TooltipUI.Content
       value={!projectRoot
         ? "Open a project to save prompts"
-        : canSave
-          ? `Save prompt (${saveHint})`
-          : `Saved prompts (${openHint})`}
+        : `Save prompt (${saveHint})`}
     />
   </TooltipUI.Root>
 

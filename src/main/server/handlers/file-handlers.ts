@@ -143,7 +143,7 @@ async function listIndexedProjectFiles(root: string): Promise<ProjectFilesResult
 
   const result = finder.mixedSearch('', { pageSize: PROJECT_FILES_MAX_ENTRIES + 2 })
   if (!result.ok) {
-    log.warn(`mixedSearch failed while listing project files in ${root}: ${result.error}`)
+    log.warn('project_files_mixed_search_failed', { root, error: result.error })
     return { ok: false, root, error: result.error }
   }
 
@@ -284,7 +284,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     }
     const failure = await shell.openPath(target)
     if (failure) {
-      log.warn(`openInFileManager failed for ${target}: ${failure}`)
+      log.warn('open_in_file_manager_failed', { target, error: failure })
       return false
     }
     return true
@@ -474,7 +474,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       }
       await appendFile(VOICE_TRANSCRIPTIONS_CSV, `${prefix}${values}\n`, 'utf8')
     } catch (err) {
-      log.warn(`Failed to log voice transcription CSV: ${err}`)
+      log.warn('voice_transcription_csv_write_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   })
 
@@ -536,7 +536,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
     const result = finder.mixedSearch(search, { pageSize: MAX })
     if (!result.ok) {
-      log.warn(`mixedSearch failed for "${search}" in ${base}: ${result.error}`)
+      log.warn('search_files_mixed_search_failed', { search, base, error: result.error })
       return { files: [] }
     }
 
@@ -701,7 +701,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('detectEditors', () => {
-    log.info('RPC detectEditors')
+    log.info('rpc_detect_editors')
 
     const editors: DetectedEditor[] = []
     const probes: Array<{ id: EditorId; name: string; bin: string; isTerminal: boolean }> = [
@@ -724,7 +724,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       try { execFileSync('/usr/bin/which', ['ghostty'], { encoding: 'utf8', timeout: 2000 }); terminals.push({ id: 'ghostty', name: 'Ghostty' }) } catch {}
     }
 
-    log.info(`Detected editors: ${editors.map(e => e.id).join(', ')}; terminals: ${terminals.map(t => t.id).join(', ')}`)
+    log.info('editors_detected', { editors: editors.map(e => e.id), terminals: terminals.map(t => t.id) })
     return { editors, terminals }
   })
 
@@ -734,12 +734,12 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const editorId = ctx.settings.defaultEditor ?? request.editorId
     const terminalId = ctx.settings.defaultTerminal ?? request.terminalId
     const cwd = request.cwd || (filePaths.length > 0 ? dirname(filePaths[0]) : undefined)
-    log.info(`RPC openInEditor editor=${editorId} terminal=${terminalId} cwd=${cwd} files=${filePaths.join(', ')}`)
+    log.info('rpc_open_in_editor', { editorId, terminalId, cwd, filePaths })
 
     if (editorId === 'vscode') {
       return new Promise<boolean>((resolve) => {
         execFile('code', filePaths, (err: Error | null) => {
-          if (err) { log.error(`Failed to open VS Code: ${err.message}`); resolve(false) }
+          if (err) { log.error('open_vscode_failed', { error: err.message }); resolve(false) }
           else {
             if (process.platform === 'darwin') {
               execFile('/usr/bin/osascript', ['-e', 'tell application "Visual Studio Code" to activate'], () => {})
@@ -752,7 +752,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
     const binMap: Record<string, string> = { vim: 'vim', nvim: 'nvim', helix: 'hx' }
     const bin = binMap[editorId]
-    if (!bin) { log.warn(`Unknown editor: ${editorId}`); return false }
+    if (!bin) { log.warn('unknown_editor', { editorId }); return false }
 
     const escapedPaths = filePaths.map(p => `"${p.replace(/"/g, '\\"')}"`)
     const command = `${bin} ${escapedPaths.join(' ')}`

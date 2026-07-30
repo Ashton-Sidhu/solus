@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { NormalizedEvent } from '../../src/shared/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -51,7 +52,10 @@ describe('ClaudeBackend steering', () => {
     const delivered = await midTurn
     expect(delivered.done).toBe(false)
     expect(delivered.value?.message.content).toBe('Use the visitor pattern instead')
-    expect(delivered.value?.priority).toBe('now')
+    // 'next' lets the in-flight request finish and hands the message over at the
+    // model's next decision point. 'now' would abort the request instead, losing
+    // the partial work the steer is meant to redirect.
+    expect(delivered.value?.priority).toBe('next')
   })
 
   test('carries image attachments as content blocks', async () => {
@@ -76,6 +80,19 @@ describe('ClaudeBackend steering', () => {
     const backend = new ClaudeBackend()
     const input = activeRun(backend, 'session-1')
     input.close()
+
+    await expect(backend.steerSession('session-1', { prompt: 'Follow up' }))
+      .resolves.toBeNull()
+  })
+
+  test('declines while the turn is settling, before its stream has closed', async () => {
+    const backend = new ClaudeBackend()
+    const input = activeRun(backend, 'session-1')
+    // The result has landed and the git snapshot is still running, so the stream
+    // is open but nothing will read from it again. Accepting here is what showed
+    // the user a steer bubble that was never answered.
+    input.seal()
+    expect(input.closed).toBe(false)
 
     await expect(backend.steerSession('session-1', { prompt: 'Follow up' }))
       .resolves.toBeNull()
@@ -120,4 +137,62 @@ describe('ClaudeAgent turn input lifetime', () => {
     expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
     expect(input.closed).toBe(true)
   })
+
+  test('does not settle the user turn again for a task-notification continuation', async () => {
+    scriptedMessages = [
+      { type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-test', skills: [] },
+      { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },
+      { type: 'result', subtype: 'success', is_error: false, result: 'Background agent started.' },
+      { type: 'system', subtype: 'task_notification', task_id: 'task-1', status: 'completed' },
+      { type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-test', skills: [] },
+      {
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'The background agent reported back.',
+        origin: { kind: 'task-notification' },
+      },
+    ]
+    const input = new TurnInputChannel(opening('Launch an explorer'), 'Launch an explorer')
+    let completedTurns = 0
+    const { events } = new ClaudeAgent().run({
+      prompt: input,
+      cwd: '/tmp',
+      onTurnComplete: async () => {
+        completedTurns++
+        return null
+      },
+    })
+    const normalized: NormalizedEvent[] = []
+    for await (const event of events) normalized.push(event)
+
+    expect(normalized.filter((event) => event.type === 'session_init')).toHaveLength(2)
+    expect(normalized.filter((event) => event.type === 'task_complete')).toHaveLength(1)
+    expect(completedTurns).toBe(1)
+  })
+
+  // An abort that lands during tool execution reports `aborted_tools` rather than
+  // `aborted_streaming`. Reading either as the turn's outcome closed the stream
+  // under the SDK's restart and drove the session to idle while it kept working.
+  for (const terminalReason of ['aborted_streaming', 'aborted_tools'] as const) {
+    test(`carries the turn through an aborted request reported as ${terminalReason}`, async () => {
+      scriptedMessages = [
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          terminal_reason: terminalReason,
+        },
+        { type: 'result', subtype: 'success', result: 'done' },
+      ]
+      const input = new TurnInputChannel(opening('Refactor the parser'), 'Refactor the parser')
+      const { events } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
+      const stream = events[Symbol.asyncIterator]()
+
+      // The abort yields nothing at all — no error bubble, no turn outcome — and
+      // the restarted loop's own result is the first thing the UI hears about.
+      expect((await stream.next()).value).toMatchObject({ type: 'task_complete', result: 'done' })
+      expect(input.closed).toBe(true)
+    })
+  }
 })

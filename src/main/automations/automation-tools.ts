@@ -349,7 +349,7 @@ export async function executeAutomationTool(
 
     return { ok: false, text: `Unknown automation tool: ${name}` }
   } catch (err: any) {
-    log.error(`executeAutomationTool(${name}) failed: ${String(err)}`)
+    log.error('automation_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Automation tool error: ${String(err?.message ?? err)}` }
   }
 }

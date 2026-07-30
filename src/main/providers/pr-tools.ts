@@ -237,9 +237,9 @@ export async function executePrTool(
           base: baseSha,
           reviewedAt: new Date().toISOString(),
         })
-        if (!saved) log.warn(`review submitted for PR #${number}, but its checkpoint could not be saved`)
+        if (!saved) log.warn('pr_review_checkpoint_save_failed', { prNumber: number })
       } else {
-        log.warn(`review submitted for PR #${number}, but its merge-base could not be resolved`)
+        log.warn('pr_review_merge_base_unresolved', { prNumber: number })
       }
       notifyPrsChanged?.(cwd)
       return { ok: true, text: `Submitted ${event} review on PR #${number} anchored to headSha ${detail.headSha}.` }
@@ -250,7 +250,7 @@ export async function executePrTool(
     if (err instanceof GitHubReauthRequiredError) {
       return { ok: false, text: 'GitHub token expired — reconnect in Settings → Connections.' }
     }
-    log.error(`executePrTool(${name}) failed: ${String(err)}`)
+    log.error('pr_tool_failed', { tool: name, error: String(err) })
     return { ok: false, text: `PR tool error: ${String(err?.message ?? err)}` }
   }
 }

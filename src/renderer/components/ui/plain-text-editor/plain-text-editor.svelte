@@ -12,10 +12,11 @@
     historyKeymap,
   } from "@codemirror/commands";
   import {
-    defaultHighlightStyle,
+    HighlightStyle,
     syntaxHighlighting,
   } from "@codemirror/language";
   import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+  import { tags } from "@lezer/highlight";
   import {
     EditorView,
     keymap,
@@ -107,6 +108,16 @@
   });
   const references = createReferenceDecorations(() => referenceConfig);
 
+  // The composer is prose, not a code editor. Keep Markdown's typographic
+  // emphasis without defaultHighlightStyle's syntax palette — in particular,
+  // that palette paints URL tokens purple (#219).
+  const composerHighlightStyle = HighlightStyle.define([
+    { tag: tags.heading, fontWeight: "bold" },
+    { tag: tags.emphasis, fontStyle: "italic" },
+    { tag: tags.strong, fontWeight: "bold" },
+    { tag: tags.strikethrough, textDecoration: "line-through" },
+  ]);
+
   const editorTheme = EditorView.theme({
     "&": {
       width: "100%",
@@ -184,7 +195,7 @@
         addKeymap: false,
         completeHTMLTags: false,
       }),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      syntaxHighlighting(composerHighlightStyle),
       editorTheme,
       editableCompartment.of(EditorView.editable.of(!disabled)),
       placeholderCompartment.of(

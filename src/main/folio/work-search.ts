@@ -135,7 +135,7 @@ export async function searchWorks(
   try {
     local = searchLocalWorks(ftsQuery, opts.type, opts.limit)
   } catch (err: any) {
-    log.error(`searchLocalWorks failed: ${String(err)}`)
+    log.error('work_search_local_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
@@ -143,7 +143,7 @@ export async function searchWorks(
   try {
     project = await searchProjectWorks(tokens, opts.type, opts.cwd)
   } catch (err: any) {
-    log.error(`searchProjectWorks failed: ${String(err)}`)
+    log.error('work_search_project_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 
   return [...local, ...project].slice(0, opts.limit)

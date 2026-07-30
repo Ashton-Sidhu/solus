@@ -81,7 +81,7 @@ export async function resolveProvider(cwd: string): Promise<TaskProvider> {
       githubProviderCache.set(projectKey, pending)
       return await pending
     } catch (err) {
-      log.warn(`GitHub provider unavailable for configured task provider: ${String(err)}`)
+      log.warn('github_task_provider_unavailable', { error: err instanceof Error ? err.message : String(err) })
       throw classifyProviderError(err)
     }
   }
@@ -222,7 +222,7 @@ async function readCache(projectKey: string): Promise<TaskCacheFile | null> {
       tasks: JSON.parse(row.tasks) as Task[],
     }
   } catch (err) {
-    log.error(`readCache(${projectKey}) failed: ${String(err)}`)
+    log.error('task_cache_read_failed', { projectKey, error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }
@@ -266,7 +266,7 @@ export async function listTasks(
   } catch (err) {
     const cached = await readCache(projectKey)
     if (cached) {
-      log.warn(`listTasks live fetch failed; serving ${cached.tasks.length} cached tasks: ${String(err)}`)
+      log.warn('task_list_served_from_cache', { cachedTaskCount: cached.tasks.length, error: err instanceof Error ? err.message : String(err) })
       return {
         tasks: cached.tasks,
         truncated: cached.truncated,
@@ -298,7 +298,7 @@ export async function getTask(cwd: string, id: string): Promise<Task> {
         return updated
       }
     } catch (err) {
-      log.warn(`PR refresh for task ${id} failed: ${String(err)}`)
+      log.warn('task_pr_refresh_failed', { taskId: id, error: err instanceof Error ? err.message : String(err) })
     }
   }
   return task

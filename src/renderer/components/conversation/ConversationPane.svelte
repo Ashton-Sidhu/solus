@@ -52,8 +52,8 @@
     requestInputFocus({ tabId });
   }
 
-  function closeSplitChat() {
-    session.closeSplitChat();
+  function closeConversationTab() {
+    session.closeTab(tabId);
     requestInputFocus();
   }
 </script>
@@ -94,8 +94,8 @@
     <button
       type="button"
       class={PAGE_ICON_BTN}
-      onclick={closeSplitChat}
-      aria-label="Close secondary conversation"
+      onclick={closeConversationTab}
+      aria-label="Close conversation tab"
     >
       <XIcon size={16} />
     </button>

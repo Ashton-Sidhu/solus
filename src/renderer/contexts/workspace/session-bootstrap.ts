@@ -1,8 +1,8 @@
 import { isSessionBusyStatus, type AgentId } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makeInputState, makeSession, makeTab } from './session.factories'
-import { buildHandoffDividerMessage, loadSessionTranscript } from './session-transcript'
-import { hasConversation, progressFromMessages } from './session.utils'
+import { loadSessionTranscript } from './session-transcript'
+import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
@@ -145,11 +145,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       if (session.agentSessionId) {
         const info = await api.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
         if (info && session) {
-          session.modelConfig.modelId = info.modelConfig.modelId
-          session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
-          session.modelConfig.contextWindow = info.modelConfig.contextWindow
-          session.modelConfig.fastMode = info.modelConfig.fastMode
-          session.permissionMode = info.permissionMode
+          applyRuntimeConfig(session, info)
           session.status = info.status
           session.rateLimitInfo = info.rateLimitInfo
           ctx.reconcileQueuedPrompts(tabId, info.queuedPrompts)
@@ -201,6 +197,9 @@ function _materializeTabs(
         worktreeRequired: snapTab.worktreeRequired ?? false,
         modelConfig: snapTab.modelConfig ? { ...snapTab.modelConfig } : undefined,
         permissionMode: snapTab.permissionMode as any,
+        terminalFailure: snapTab.terminalFailure
+          ? { ...snapTab.terminalFailure }
+          : null,
       })
       tab = makeTab(session.id, {
         id: snapTab.tabId,
@@ -346,11 +345,9 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         if (s && !hasConversation(s) && handoffFrom) {
           const predecessorMessages = [...(predecessorTranscript?.messages ?? [])]
           const currentMessages = [...transcript.messages]
-          const divider = buildHandoffDividerMessage({
-            fromProvider: handoffFrom.provider,
-            toProvider: provider,
-          })
-          const stitchedMessages = [...predecessorMessages, divider, ...currentMessages]
+          // Provider boundaries are an implementation detail. Rehydrate one
+          // continuous transcript so switching agents never interrupts the thread.
+          const stitchedMessages = [...predecessorMessages, ...currentMessages]
           s.messages.splice(0, s.messages.length, ...stitchedMessages)
           s.progress = progressFromMessages(stitchedMessages)
           s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
@@ -363,6 +360,22 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
           s.historyTruncated = transcript.truncated
           ctx.recomputeChangedFiles(tabId)
           for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
+        }
+        if (
+          s &&
+          snapTab.terminalFailure &&
+          !s.messages.some(
+            (message) =>
+              message.role === 'system' &&
+              message.content === snapTab.terminalFailure?.content,
+          )
+        ) {
+          s.messages.push({
+            id: nextMsgId(),
+            role: 'system',
+            content: snapTab.terminalFailure.content,
+            timestamp: snapTab.terminalFailure.timestamp,
+          })
         }
       } finally {
         const t = ctx.tabs[tabId]
@@ -377,11 +390,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       .bindRuntimeSession(ctx.ctxFor(snapTab.tabId))
       .catch(() => null)
     if (info && session) {
-      session.modelConfig.modelId = info.modelConfig.modelId
-      session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
-      session.modelConfig.contextWindow = info.modelConfig.contextWindow
-      session.modelConfig.fastMode = info.modelConfig.fastMode
-      session.permissionMode = info.permissionMode
+      applyRuntimeConfig(session, info)
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       if (info.handoffFrom) session.handoffFrom = info.handoffFrom

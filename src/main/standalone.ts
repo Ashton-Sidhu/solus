@@ -109,7 +109,7 @@ function installShutdownHandlers(core: BootCore): void {
       flushLogs()
       process.exit(0)
     } catch (err) {
-      log.error(`standalone shutdown failed: ${err}`)
+      log.error('standalone_shutdown_failed', { error: err instanceof Error ? err.message : String(err) })
       flushLogs()
       process.exit(1)
     }
@@ -120,7 +120,7 @@ function installShutdownHandlers(core: BootCore): void {
 }
 
 main().catch((err) => {
-  log.error(`standalone boot failed: ${err?.message ?? err}`)
+  log.error('standalone_boot_failed', { error: String(err?.message ?? err) })
   flushLogs()
   process.exit(1)
 })

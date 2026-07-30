@@ -58,5 +58,7 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.works.update.requiresApproval).toBe(true)
     expect(solusToolbox.tasks.list.requiresApproval).toBe(false)
     expect(solusToolbox.tasks.create.requiresApproval).toBe(true)
+    expect(solusToolbox.sessions.prompt.requiresApproval).toBe(false)
+    expect(solusToolbox.sessions.stop.requiresApproval).toBe(false)
   })
 })

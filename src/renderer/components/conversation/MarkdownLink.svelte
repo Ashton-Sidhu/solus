@@ -78,6 +78,10 @@
       : null,
   );
 
+  // Anything leaving the app carries the arrow glyph; an in-app destination that
+  // has a chip type took one of the branches above instead.
+  const isExternal = $derived(/^https?:\/\//i.test(href));
+
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
     const idx = stripped.lastIndexOf("/");
@@ -177,7 +181,7 @@
 {:else if fileRef}
   <button
     type="button"
-    class={`${tokenClassName("file")} solus-token--output-link solus-token--output-file-link`}
+    class={`${tokenClassName("file", true)} solus-token--output-link solus-token--output-file-link`}
     title={fileRef.line ? `${fileRef.path}:${fileRef.line}` : fileRef.path}
     onclick={handleClick}
   >
@@ -191,5 +195,11 @@
     <span>{@render children?.()}{#if fileRef.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>
 {:else}
-  <a {href} {title} onclick={handleClick}>{@render children?.()}</a>
+  <a
+    {href}
+    {title}
+    class="solus-link"
+    class:solus-link--external={isExternal}
+    onclick={handleClick}>{@render children?.()}</a
+  >
 {/if}

@@ -104,6 +104,32 @@ describe('SessionEventReducer sub-agent transcript events', () => {
     ])
   })
 
+  test('retains a child tool result after the sub-agent finishes', async () => {
+    const { parent, reducer } = await createReducer()
+
+    reducer.apply('tab-1', {
+      type: 'tool_call',
+      toolName: 'Read',
+      toolId: 'child-tool',
+      index: 0,
+      toolInput: '{"file_path":"src/a.ts"}',
+      parentToolUseId: 'parent-tool',
+    })
+    reducer.apply('tab-1', {
+      type: 'tool_result',
+      toolUseId: 'child-tool',
+      content: 'the complete file contents',
+      parentToolUseId: 'parent-tool',
+    })
+
+    expect(parent.subMessages?.[0]).toMatchObject({
+      toolName: 'Read',
+      toolInput: '{"file_path":"src/a.ts"}',
+      toolResult: 'the complete file contents',
+      toolStatus: 'completed',
+    })
+  })
+
   test('settles the card only when the child delivers its final answer', async () => {
     const { parent, reducer } = await createReducer()
 
@@ -121,5 +147,52 @@ describe('SessionEventReducer sub-agent transcript events', () => {
       isFinal: true,
     })
     expect(parent.toolStatus).toBe('completed')
+  })
+
+  test('settles the card when the child turn fails', async () => {
+    const { parent, reducer } = await createReducer()
+
+    reducer.apply('tab-1', {
+      type: 'tool_result',
+      toolUseId: 'parent-tool',
+      content: 'Child process failed',
+      isError: true,
+      parentToolUseId: 'parent-tool',
+    })
+
+    expect(parent).toMatchObject({
+      toolStatus: 'error',
+      toolResult: 'Child process failed',
+      toolResultIsError: true,
+    })
+  })
+
+  test('stores SDK task progress on the matching sub-agent card', async () => {
+    const { parent, reducer } = await createReducer()
+
+    reducer.apply('tab-1', {
+      type: 'background_task_started',
+      taskId: 'task-1',
+      toolUseId: 'parent-tool',
+    })
+    reducer.apply('tab-1', {
+      type: 'background_task_progress',
+      taskId: 'task-1',
+      toolUseId: 'parent-tool',
+      description: 'Reading src/shared/types.ts',
+      toolUses: 3,
+      totalTokens: 1200,
+      durationMs: 4500,
+      lastToolName: 'Read',
+    })
+
+    expect(parent.backgroundTaskId).toBe('task-1')
+    expect(parent.backgroundTaskProgress).toEqual({
+      description: 'Reading src/shared/types.ts',
+      toolUses: 3,
+      totalTokens: 1200,
+      durationMs: 4500,
+      lastToolName: 'Read',
+    })
   })
 })

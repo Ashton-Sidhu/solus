@@ -14,7 +14,11 @@
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { preferredRunOnHost } from "@client-core/run-on-preferences";
   import type { RecentProject } from "../../../shared/types";
-  import { getWorkspaceContext, hostAffinityGlyph } from "../../contexts";
+  import {
+    getWindowContext,
+    getWorkspaceContext,
+    hostAffinityGlyph,
+  } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
@@ -87,7 +91,19 @@
   // of the checkout. A remote target is named for the host instead.
   // Where you already are is a worktree often enough that calling it a plain
   // checkout reads as a mistake — name it for what it is.
-  const stayLabel = "Local";
+  // A browser has no machine of its own — "Local" would claim the phone in
+  // your hand, so the connected host is named instead.
+  const windowCtx = getWindowContext();
+  const stayLabel = $derived(
+    windowCtx.isWeb
+      ? (serversStore.servers.find((server) => server.local)?.label ?? "This host")
+      : "Local",
+  );
+  // On web the active server is folded into the local row, so "another host"
+  // means the rows that remain — not the raw saved list, which includes it.
+  const otherHosts = $derived(
+    serversStore.servers.filter((server) => !server.local),
+  );
   const startInLabel = $derived(
     onRemoteHost
       ? hostLabel(selectedServer)
@@ -187,7 +203,7 @@
    * that list it beside other people's machines.
    */
   function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
-    return !server || server.local ? "Local" : server.label;
+    return !server || server.local ? stayLabel : server.label;
   }
 
   function checkoutFor(serverId: string) {
@@ -307,7 +323,7 @@
       if (sourceRepoKey) {
         queueSessionHostDispatch(session, {
           serverId: session.serverId,
-          hostLabel: "Local",
+          hostLabel: stayLabel,
           isLocalHost: true,
           repoKey: sourceRepoKey,
           checkout: checkoutFor(session.serverId),
@@ -395,7 +411,7 @@
      until there is a host to choose, unless this session already belongs to a
      remote host that has since been forgotten. -->
 {#if variant === "header" ||
-  serversStore.remotes.length > 0 ||
+  otherHosts.length > 0 ||
   (!!selectedHostId && selectedHostId !== LOCAL_SERVER_ID)}
   {#if locked}
     <TooltipUI.Root>
@@ -660,14 +676,14 @@
 
             <!-- Hosts are a different dimension from checkout shape, so give
                them their own group instead of presenting them as peers. -->
-            {#if serversStore.remotes.length > 0}
+            {#if otherHosts.length > 0}
               <DropdownMenu.Separator />
               <DropdownMenu.Label>Run on another host</DropdownMenu.Label>
             {/if}
-            {#each serversStore.servers as server (server.id)}
-              {#if !server.local}{@render serverRow(server)}{/if}
+            {#each otherHosts as server (server.id)}
+              {@render serverRow(server)}
             {/each}
-            {#if serversStore.remotes.length > 0}{@render availabilityNote()}{/if}
+            {#if otherHosts.length > 0}{@render availabilityNote()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               {#each serversStore.nearbyHosts as host (host.server.installationId)}

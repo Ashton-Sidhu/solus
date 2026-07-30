@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { isWorkspacePath } from '../../workspace'
 import { buildSystemPrompt } from '../system-hint'
-import type { NormalizedEvent, ReasoningEffort } from '../../../shared/types'
+import type { ReasoningEffort } from '../../../shared/types'
 import { MODEL_PROFILES } from '../../../shared/types'
 import type { AgentDispatcher } from '../agent-runner'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
+import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
 
 export const CLAUDE_SUBAGENT_TOOL_NAME = 'claude_subagent'
 
@@ -49,16 +50,6 @@ const claudeSubagentInputSchema = z.object({
 const CLAUDE_SUBAGENT_DESC =
   "Delegate a task to a Claude subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts); set read_only for tasks that must not modify files. The result is the subagent's final text — it has no memory between calls."
 
-type ClaudeSubagentTranscriptEvent = Extract<NormalizedEvent, {
-  type: 'text_chunk' | 'assistant_message' | 'tool_call' | 'tool_call_update' | 'tool_call_complete' | 'tool_result'
-}>
-
-function isTranscriptEvent(event: NormalizedEvent): event is ClaudeSubagentTranscriptEvent {
-  return event.type === 'text_chunk' || event.type === 'assistant_message' ||
-    event.type === 'tool_call' || event.type === 'tool_call_update' ||
-    event.type === 'tool_call_complete' || event.type === 'tool_result'
-}
-
 export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
   return {
     name: CLAUDE_SUBAGENT_TOOL_NAME,
@@ -94,8 +85,8 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
           planMode: readOnly,
         }),
         onEvent: (event) => {
-          if (!parentToolUseId || !isTranscriptEvent(event)) return
-          context.emit({ ...event, parentToolUseId })
+          if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
+          context.emit(parentSubagentEvent(event, parentToolUseId))
         },
       })
       const cancel = () => run.cancel()

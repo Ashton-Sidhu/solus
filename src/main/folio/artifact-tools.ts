@@ -55,7 +55,7 @@ export async function executeArtifactTool(
     deps.onArtifact?.({ html })
     return { ok: true, text: 'Rendered the HTML artifact in the conversation.' }
   } catch (err: any) {
-    log.error(`executeArtifactTool failed: ${String(err)}`)
+    log.error('artifact_tool_failed', { error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `render_artifact error: ${String(err?.message ?? err)}` }
   }
 }

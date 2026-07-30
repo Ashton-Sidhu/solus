@@ -55,7 +55,6 @@ function maxAttention(current: AttentionState, next: AttentionState): AttentionS
 export class SessionSidebarStore {
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
-
   visibleTabIds: string[] = $derived.by(() => this.session.tabOrder.filter((id) => this.session.tabs[id]))
 
   projectBranchGroups: ProjectBranchGroup[] = $derived.by(() => {

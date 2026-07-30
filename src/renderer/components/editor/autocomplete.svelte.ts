@@ -25,6 +25,7 @@ import {
   type CategorizedSlashCommands,
 } from "../input/slash-commands";
 import { type WorkspaceContext, type PlanStore } from "../../contexts";
+import { matchesOpenProjects } from "../../lib/sessionUtils";
 import type { AutocompleteEditor } from "./autocomplete-editor";
 
 // Trigger patterns shared by every reference-aware composer. Re-exported by
@@ -87,6 +88,23 @@ export interface AutocompleteDeps {
 
 function moveIndex(current: number, delta: number, count: number) {
   return count === 0 ? 0 : (current + delta + count) % count;
+}
+
+export function filterPlanAutocompleteDescriptors(
+  descriptors: PlanDescriptor[],
+  filter: string,
+  projectRoots: string[],
+): PlanDescriptor[] {
+  const query = filter.toLowerCase();
+  const scoped = descriptors.filter((descriptor) =>
+    matchesOpenProjects(descriptor.cwd, projectRoots),
+  );
+  const matching = query
+    ? scoped.filter((descriptor) =>
+        descriptor.title.toLowerCase().includes(query),
+      )
+    : scoped;
+  return matching.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
 }
 
 export class AutocompleteController {
@@ -179,13 +197,14 @@ export class AutocompleteController {
 
   planResults = $derived.by(() => {
     if (this.planFilter === null) return [] as PlanDescriptor[];
-    const query = this.planFilter.toLowerCase();
-    const all = [...this.deps.planStore.cachedDescriptors].sort(
-      (a, b) => b.timestamp - a.timestamp,
+    const workingDirectory = this.deps.workingDirectory();
+    return filterPlanAutocompleteDescriptors(
+      [...this.deps.planStore.cachedDescriptors],
+      this.planFilter,
+      workingDirectory
+        ? [workingDirectory]
+        : this.deps.session.openProjectScopeRoots,
     );
-    return (
-      query ? all.filter((d) => d.title.toLowerCase().includes(query)) : all
-    ).slice(0, 20);
   });
 
   workResults = $derived.by(() => {
@@ -253,7 +272,9 @@ export class AutocompleteController {
   isPlanMenuLoading = $derived.by(
     () =>
       this.planFilter !== null &&
-      this.deps.planStore.descriptorCacheLoading &&
+      this.deps.planStore.isDescriptorLoading(
+        this.deps.planStore.descriptorCacheKey(undefined, true),
+      ) &&
       this.planResults.length === 0,
   );
   showPlanMenu = $derived.by(
@@ -406,18 +427,15 @@ export class AutocompleteController {
       this.planFilter = match[1] ?? "";
       this.planIndex = 0;
       const planStore = this.deps.planStore;
-      const workingDirectory = this.deps.workingDirectory();
-      const descriptorKey = workingDirectory
-        ? planStore.descriptorCacheKey(workingDirectory, false)
-        : null;
+      const descriptorKey = planStore.descriptorCacheKey(undefined, true);
       if (
-        descriptorKey !== null &&
         (planStore.cachedDescriptorKey !== descriptorKey ||
           planStore.cachedDescriptors.length === 0) &&
-        !planStore.descriptorCacheLoading &&
-        workingDirectory
+        !planStore.isDescriptorLoading(descriptorKey)
       ) {
-        planStore.preloadDescriptors(workingDirectory, this.deps.session.ctx);
+        void planStore
+          .getDescriptors(undefined, true, this.deps.session.ctx)
+          .catch(() => {});
       }
     } else {
       this.planFilter = null;

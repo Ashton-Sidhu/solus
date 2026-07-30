@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { AgentDispatcher, AgentRun, AgentRunRequest } from '../../src/main/agents/agent-runner'
 import type { AgentTool, AgentToolContext } from '../../src/main/agents/tools/agent-tool'
+import type { NormalizedEvent } from '../../src/shared/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -34,14 +35,14 @@ class ChildDispatcher implements AgentDispatcher {
   }
 }
 
-function context(provider: 'claude-code' | 'codex'): AgentToolContext {
+function context(provider: 'claude-code' | 'codex', emitted: NormalizedEvent[] = []): AgentToolContext {
   return {
     provider,
     cwd: '/tmp/project',
     sessionId: () => 'parent',
     abortSignal: new AbortController().signal,
     parentToolUseId: () => 'tool-1',
-    emit: () => {},
+    emit: (event) => emitted.push(event),
   }
 }
 
@@ -64,5 +65,34 @@ describe('cross-provider subagent control-plane dispatch', () => {
     expect(names).not.toContain('codex_subagent')
     expect(names).toContain('list_works')
     expect(names).toContain('list_sessions')
+  })
+
+  test.each([
+    ['claude-code', () => createClaudeSubagentAgentTool] as const,
+    ['codex', () => createCodexSubagentAgentTool] as const,
+  ])('%s child forwards only parented transcript events', async (provider, factory) => {
+    const dispatcher = new ChildDispatcher()
+    const emitted: NormalizedEvent[] = []
+    const agentTool = factory()(dispatcher)
+
+    await agentTool.execute({ prompt: 'Inspect the change' }, context(provider, emitted))
+    dispatcher.request?.onEvent?.({ type: 'text_chunk', text: 'Reading files' })
+    dispatcher.request?.onEvent?.({
+      type: 'progress',
+      todos: [{ content: 'Read files', status: 'in_progress' }],
+    })
+    dispatcher.request?.onEvent?.({
+      type: 'usage',
+      usage: { inputTokens: 10, outputTokens: 2 },
+    })
+
+    expect(emitted).toEqual([
+      { type: 'text_chunk', text: 'Reading files', parentToolUseId: 'tool-1' },
+      {
+        type: 'progress',
+        todos: [{ content: 'Read files', status: 'in_progress' }],
+        parentToolUseId: 'tool-1',
+      },
+    ])
   })
 })

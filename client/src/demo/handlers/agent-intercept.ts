@@ -67,6 +67,7 @@ export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): 
   backend.register('respondQuestion', () => true)
   backend.register('rateLimitDecision', () => true)
   backend.register('cancelQueuedPrompt', () => true)
+  backend.register('editQueuedPrompt', () => true)
   backend.register('resetTabSession', () => undefined)
 
   const interceptGitMutation = (): { success: false; error: string } => {

@@ -73,7 +73,7 @@ async function loadReviewEfforts(
         }))
         .catch((err) => {
           effortCache.delete(cacheKey)
-          log.warn(`review effort unavailable for PR #${request.number}: ${err instanceof Error ? err.message : String(err)}`)
+          log.warn('review_effort_unavailable', { prNumber: request.number, error: err instanceof Error ? err.message : String(err) })
           return undefined
         })
       for (const key of effortCache.keys()) if (key.startsWith(prefix)) effortCache.delete(key)
@@ -159,7 +159,7 @@ async function persistReviewCheckpoint(
       await runAsync('git', ['fetch', 'origin', `pull/${number}/head`], repoRoot)
       checkpointBase = await runAsync('git', ['merge-base', review.commitId, detail.baseSha], repoRoot)
     } catch {
-      log.warn(`review submitted for PR #${number}, but its merge-base could not be resolved`)
+      log.warn('review_checkpoint_merge_base_unresolved', { prNumber: number })
       return
     }
   }
@@ -169,7 +169,7 @@ async function persistReviewCheckpoint(
     base: checkpointBase,
     reviewedAt: new Date().toISOString(),
   })
-  if (!saved) log.warn(`review submitted for PR #${number}, but its checkpoint could not be saved`)
+  if (!saved) log.warn('review_checkpoint_save_failed', { prNumber: number })
 }
 
 export interface ProviderHandlerDeps {
@@ -199,7 +199,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       // User-initiated cancellation isn't a failure; surface it without log noise.
       if (err instanceof ConnectCancelledError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      log.error(`providerConnect failed: ${message}`)
+      log.error('provider_connect_failed', { error: message })
       throw err
     }
   })
@@ -263,7 +263,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
           }
         },
       })
-    }).catch((err) => log.warn(`stack detection trigger failed: ${err instanceof Error ? err.message : String(err)}`))
+    }).catch((err) => log.warn('stack_detection_trigger_failed', { error: err instanceof Error ? err.message : String(err) }))
     return result
   })
 
@@ -424,7 +424,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     // The provider response is the user-visible completion boundary. Persisting
     // the local interdiff checkpoint must not hold the submitted modal open.
     void persistReviewCheckpoint(ctx, repo, provider, number, review).catch((err) => {
-      log.warn(`review submitted for PR #${number}, but its checkpoint failed: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn('review_checkpoint_failed', { prNumber: number, error: err instanceof Error ? err.message : String(err) })
     })
   })
 

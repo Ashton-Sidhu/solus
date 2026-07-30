@@ -1,13 +1,13 @@
 import { z } from 'zod'
-import type { NormalizedEvent } from '../../../shared/types'
 import type { AgentDispatcher } from '../agent-runner'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
 import { buildSystemPrompt } from '../system-hint'
 import { isWorkspacePath } from '../../workspace'
+import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
 
-// Keys deliberately line up with SubagentCard's parsedInput
-// (description / prompt / model / reasoning_effort) so the card's chips render.
+// Keys deliberately line up with the renderer's parseSubagentInput
+// (description / prompt / model / reasoning_effort) so the card's row renders.
 const codexSubagentShape = {
   prompt: z
     .string()
@@ -41,16 +41,6 @@ const codexSubagentShape = {
 const CODEX_SUBAGENT_DESC =
   "Delegate a task to a Codex subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts); set read_only for tasks that must not modify files. The result is the subagent's final text — it has no memory between calls."
 
-type CodexSubagentTranscriptEvent = Extract<NormalizedEvent, {
-  type: 'text_chunk' | 'assistant_message' | 'tool_call' | 'tool_call_update' | 'tool_call_complete' | 'tool_result'
-}>
-
-function isTranscriptEvent(event: NormalizedEvent): event is CodexSubagentTranscriptEvent {
-  return event.type === 'text_chunk' || event.type === 'assistant_message' ||
-    event.type === 'tool_call' || event.type === 'tool_call_update' ||
-    event.type === 'tool_call_complete' || event.type === 'tool_result'
-}
-
 export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
   return {
     name: 'codex_subagent',
@@ -80,8 +70,8 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
           planMode: args.read_only === true,
         }),
         onEvent: (event) => {
-          if (!parentToolUseId || !isTranscriptEvent(event)) return
-          context.emit({ ...event, parentToolUseId })
+          if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
+          context.emit(parentSubagentEvent(event, parentToolUseId))
         },
       })
       const cancel = () => run.cancel()

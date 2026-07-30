@@ -47,10 +47,11 @@
   interface Props {
     plan: Plan;
     inline?: boolean;
+    minimizeOutline?: boolean;
     onClose?: () => void;
   }
 
-  let { plan, inline = false, onClose }: Props = $props();
+  let { plan, inline = false, minimizeOutline = false, onClose }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -434,6 +435,7 @@
   title="Review Plan"
   content={plan.content}
   {inline}
+  {minimizeOutline}
   editorClass="plan-document-editor"
   rootClass="plan-shell"
   scope="plan-modal"

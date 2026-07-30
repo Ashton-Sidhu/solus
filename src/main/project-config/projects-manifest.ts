@@ -88,7 +88,7 @@ export async function listProjects(): Promise<ProjectEntry[]> {
         }
       })
     } catch (err) {
-      log.warn(`failed to persist projects manifest: ${(err as Error).message}`)
+      log.warn('projects_manifest_persist_failed', { error: (err as Error).message })
     }
   }
   return present.sort((a, b) => a.folderName.localeCompare(b.folderName))
@@ -113,7 +113,7 @@ export async function deleteProject(projectPath: string): Promise<void> {
   if (entry) {
     const dir = path.join(PROJECTS_DIR, entry.key)
     await rm(dir, { recursive: true, force: true }).catch((err) =>
-      log.warn(`failed to remove project data for ${projectPath}: ${(err as Error).message}`),
+      log.warn('project_data_remove_failed', { projectPath, error: (err as Error).message }),
     )
   }
 }

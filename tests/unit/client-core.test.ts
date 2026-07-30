@@ -10,6 +10,41 @@ import {
 } from '../../src/client-core/ws-transport'
 
 describe('client core transport helpers', () => {
+  test('uploads voice as compact WAV without enqueueing an RPC', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({ error: null, transcript: 'A long idea.' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const transport = new WsTransport({
+      serverUrl: 'http://localhost:3000',
+      sessionToken: 'voice-token',
+    })
+    try {
+      const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
+      const samples = new Float32Array(16_000)
+      const result = await api.transcribeAudio(samples)
+
+      expect(result).toEqual({ error: null, transcript: 'A long idea.' })
+      expect(calls).toHaveLength(1)
+      expect(calls[0].url).toBe('http://localhost:3000/voice/transcribe')
+      expect(calls[0].init?.headers).toEqual({
+        authorization: 'Bearer voice-token',
+        'content-type': 'audio/wav',
+      })
+      expect((calls[0].init?.body as ArrayBuffer).byteLength).toBe(44 + 16_000 * 2)
+      expect((transport as unknown as { requests: Map<string, unknown> }).requests.size).toBe(0)
+    } finally {
+      transport.destroy()
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('rejects undeliverable requests with TransportDisconnectedError', async () => {
     const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
     const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
@@ -38,12 +73,14 @@ describe('client core transport helpers', () => {
       getPlatform: () => 'web',
       getPathForFile: () => '',
       setQuoteContext: () => 'ws-quote',
+      onAskSelectionInNewSession: () => 'ws-ask',
     }
     const nativeApi = {
       start: () => 'ipc-start',
       getPlatform: () => 'darwin',
       getPathForFile: () => '/tmp/file.txt',
       setQuoteContext: () => 'native-quote',
+      onAskSelectionInNewSession: () => 'native-ask',
       rendererReady: () => 'native-ready',
       rendererMounted: () => 'native-mounted',
     }
@@ -54,6 +91,7 @@ describe('client core transport helpers', () => {
     expect((merged.getPlatform as () => string)()).toBe('darwin')
     expect((merged.getPathForFile as () => string)()).toBe('/tmp/file.txt')
     expect((merged.setQuoteContext as () => string)()).toBe('native-quote')
+    expect((merged.onAskSelectionInNewSession as () => string)()).toBe('native-ask')
     expect((merged.rendererReady as () => string)()).toBe('native-ready')
     expect((merged.rendererMounted as () => string)()).toBe('native-mounted')
   })

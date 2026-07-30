@@ -45,11 +45,11 @@ export async function getFinder(basePath: string): Promise<FileFinder | null> {
       enableHomeDirScanning: true,
     })
   } catch (err) {
-    log.warn(`FileFinder failed to load for ${basePath}: ${err}`)
+    log.warn('file_finder_load_failed', { basePath, error: err instanceof Error ? err.message : String(err) })
     return null
   }
   if (!created.ok) {
-    log.warn(`FileFinder.create failed for ${basePath}: ${created.error}`)
+    log.warn('file_finder_create_failed', { basePath, error: String(created.error) })
     return null
   }
 
@@ -79,7 +79,7 @@ export async function refreshFinder(basePath: string): Promise<void> {
 
   const result = entry.finder.scanFiles()
   if (!result.ok) {
-    log.warn(`FileFinder.scanFiles failed for ${basePath}: ${result.error}`)
+    log.warn('file_finder_scan_failed', { basePath, error: String(result.error) })
     try { entry.finder.destroy() } catch { /* already destroyed */ }
     finders.delete(basePath)
     return

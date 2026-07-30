@@ -74,7 +74,7 @@ async function handleArtifactRequest(request: Request): Promise<Response> {
       headers: { 'Content-Type': mime, 'Content-Security-Policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'" },
     })
   } catch (err: any) {
-    log.warn(`solus-artifact request failed: ${err?.message ?? err}`)
+    log.warn('artifact_request_failed', { error: String(err?.message ?? err) })
     return new Response('Error', { status: 500 })
   }
 }
@@ -106,10 +106,10 @@ function syncPowerSaveBlocker(): void {
   if (shouldBlock === isBlocking) return
   if (shouldBlock) {
     powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
-    log.info(`Power save blocker started (id=${powerSaveBlockerId})`)
+    log.info('power_save_blocker_started', { blockerId: powerSaveBlockerId })
   } else if (powerSaveBlockerId !== null) {
     powerSaveBlocker.stop(powerSaveBlockerId)
-    log.info(`Power save blocker stopped (id=${powerSaveBlockerId})`)
+    log.info('power_save_blocker_stopped', { blockerId: powerSaveBlockerId })
     powerSaveBlockerId = null
   }
 }
@@ -133,10 +133,9 @@ const bootPromise = new Promise<BootCore>((resolve, reject) => {
   rejectBoot = reject
 })
 let desktopAttentionNotifications: DesktopAttentionNotifications | null = null
-// True while the renderer's current text selection lives inside the conversation
-// view. Pushed from the renderer on selectionchange so the native context menu
-// can offer "Quote in reply" only for conversation output (not docs/diffs/etc).
-let quoteContextActive = false
+// The tab whose conversation owns the renderer's current text selection. Pushed
+// on selectionchange so native context-menu actions keep their exact source.
+let quoteContextTabId: string | null = null
 let hiddenUntilTrayShow = false
 let pendingPillShowSource: string | null = null
 let sessionIndexerStarted = false
@@ -149,7 +148,7 @@ const shutdownCoordinator = createShutdownCoordinator({
   },
   quit: () => app.quit(),
   forceQuit: () => app.exit(0),
-  onError: (error) => log.error(`shutdown failed: ${error}`),
+  onError: (error) => log.error('shutdown_failed', { error: error instanceof Error ? error.message : String(error) }),
 })
 
 process.on('SIGINT', shutdownCoordinator.requestQuit)
@@ -196,7 +195,7 @@ function saveAppShortcuts(shortcuts: AppGlobalShortcuts): void {
   try {
     writeFileSync(appShortcutsPath(), JSON.stringify(shortcuts, null, 2), { mode: 0o600 })
   } catch (err: any) {
-    log.warn(`Failed to persist app shortcuts: ${err?.message ?? err}`)
+    log.warn('app_shortcuts_persist_failed', { error: String(err?.message ?? err) })
   }
 }
 
@@ -229,11 +228,11 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: strin
     try {
       const ok = globalShortcut.register(accel, () => handler(accel))
       if (!ok) {
-        log.warn(`Global shortcut "${accel}" registration failed — another app may claim it`)
+        log.warn('global_shortcut_registration_failed', { accelerator: accel })
         failed.push(accel)
       }
     } catch (err: any) {
-      log.warn(`Global shortcut "${accel}" registration threw: ${err?.message ?? err}`)
+      log.warn('global_shortcut_registration_threw', { accelerator: accel, error: String(err?.message ?? err) })
       failed.push(accel)
     }
   }
@@ -338,7 +337,7 @@ function windowCursorRelative(): { x: number; y: number } | null {
 function snapshotWindowState(reason: string): void {
   if (!SPACES_DEBUG) return
   if (!mainWindow || mainWindow.isDestroyed()) {
-    log.debug(`[spaces] ${reason} window=none`)
+    log.debug('spaces_snapshot', { reason, window: 'none' })
     return
   }
 
@@ -348,14 +347,18 @@ function snapshotWindowState(reason: string): void {
   const visibleOnAll = mainWindow.isVisibleOnAllWorkspaces()
   const wcFocused = mainWindow.webContents.isFocused()
 
-  log.info(
-    `[spaces] ${reason} ` +
-    `vis=${mainWindow.isVisible()} focused=${mainWindow.isFocused()} wcFocused=${wcFocused} ` +
-    `alwaysOnTop=${mainWindow.isAlwaysOnTop()} allWs=${visibleOnAll} ` +
-    `bounds=(${b.x},${b.y},${b.width}x${b.height}) ` +
-    `cursor=(${cursor.x},${cursor.y}) display=${display.id} ` +
-    `workArea=(${display.workArea.x},${display.workArea.y},${display.workArea.width}x${display.workArea.height})`
-  )
+  log.info('spaces_snapshot', {
+    reason,
+    visible: mainWindow.isVisible(),
+    focused: mainWindow.isFocused(),
+    wcFocused,
+    alwaysOnTop: mainWindow.isAlwaysOnTop(),
+    visibleOnAllWorkspaces: visibleOnAll,
+    bounds: `${b.x},${b.y},${b.width}x${b.height}`,
+    cursor: `${cursor.x},${cursor.y}`,
+    displayId: display.id,
+    workArea: `${display.workArea.x},${display.workArea.y},${display.workArea.width}x${display.workArea.height}`,
+  })
 }
 
 function scheduleToggleSnapshots(toggleId: number, phase: 'show' | 'hide'): void {
@@ -536,7 +539,7 @@ function showPillWindow(source = 'unknown', options: { fromTrayShow?: boolean } 
   if (SPACES_DEBUG) {
     const cursor = screen.getCursorScreenPoint()
     const display = screen.getDisplayNearestPoint(cursor)
-    log.debug(`[spaces] showWindow#${toggleId} source=${source} alwaysOnTop=${mainWindow.isAlwaysOnTop()} display=${display.id}`)
+    log.debug('spaces_show_window', { toggleId, source, alwaysOnTop: mainWindow.isAlwaysOnTop(), displayId: display.id })
   }
 
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -583,7 +586,7 @@ function togglePillWindow(source = 'unknown'): void {
 
   const toggleId = ++toggleSequence
   if (SPACES_DEBUG) {
-    log.debug(`[spaces] toggle#${toggleId} source=${source} start`)
+    log.debug('spaces_toggle_start', { toggleId, source })
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
@@ -763,12 +766,21 @@ function attachContextMenu(win: BrowserWindow): void {
 
     // Conversation output only: let the user pull a selected snippet into the
     // composer as a markdown blockquote to address that specific text.
-    if (quoteContextActive && params.selectionText && !params.isEditable) {
+    if (quoteContextTabId && params.selectionText && !params.isEditable) {
+      const sourceTabId = quoteContextTabId
       menuItems.push({ type: 'separator' })
       menuItems.push({
         label: 'Quote in reply',
         icon: quoteInReplyIcon,
-        click: () => win.webContents.send('solus:quote-selection', params.selectionText),
+        click: () => win.webContents.send('solus:quote-selection', params.selectionText, sourceTabId),
+      })
+      menuItems.push({
+        label: 'Ask in New Session',
+        click: () => win.webContents.send(
+          'solus:ask-selection-in-new-session',
+          params.selectionText,
+          sourceTabId,
+        ),
       })
     }
 
@@ -803,7 +815,7 @@ function writePersistedLocalSessionToken(token: string): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     writeFileSync(localSessionTokenFile(), JSON.stringify({ token }, null, 2), { mode: 0o600 })
   } catch (err) {
-    log.warn(`failed to persist local session token: ${err}`)
+    log.warn('local_session_token_persist_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -885,8 +897,8 @@ ipcMain.on('solus:renderer-ready', (event, mode: unknown) => {
 
 // OS-level click-through is preload-only — it operates on the Electron window
 // directly and isn't relevant for browser clients.
-ipcMain.on('solus:set-quote-context', (_event, active: boolean) => {
-  quoteContextActive = !!active
+ipcMain.on('solus:set-quote-context', (_event, tabId: string | null) => {
+  quoteContextTabId = typeof tabId === 'string' && tabId ? tabId : null
 })
 
 ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: { forward?: boolean; focus?: boolean }) => {
@@ -915,7 +927,7 @@ function restoreDesignModeWindow(): void {
     focusEditorWindow()
   }
   if (SPACES_DEBUG) {
-    log.info('[spaces] design-mode overlay ready, window shown')
+    log.info('spaces_design_mode_overlay_ready')
     snapshotWindowState('design-mode restore')
   }
 }
@@ -955,7 +967,7 @@ async function requestPermissions(): Promise<void> {
       }
     }
   } catch (err: any) {
-    log.warn(`Permission preflight: microphone check failed — ${err.message}`)
+    log.warn('microphone_permission_check_failed', { error: err.message })
   }
 
   try {
@@ -979,7 +991,7 @@ async function requestPermissions(): Promise<void> {
       }
     }
   } catch (err: any) {
-    log.warn(`Permission preflight: screen check failed — ${err.message}`)
+    log.warn('screen_permission_check_failed', { error: err.message })
   }
 }
 
@@ -1008,7 +1020,7 @@ if (isPairUrl) {
     // sequential login-shell probes synchronously on that first call.
     void warmCliPath()
       .then(() => getCodexAppServerClient().ensureStarted())
-      .catch((err) => log.warn(`Codex app-server warmup failed: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => log.warn('codex_app_server_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     if (process.platform === 'darwin' && app.dock) {
       app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
@@ -1068,7 +1080,7 @@ if (isPairUrl) {
       // Unblock the renderer's getLocalConnection with the failure so it can show
       // its boot-error card instead of hanging on the pending bootPromise.
       rejectBoot(err)
-      log.error(`Failed to boot Solus core: ${err instanceof Error ? err.message : String(err)}`)
+      log.error('core_boot_failed', { error: err instanceof Error ? err.message : String(err) })
       return
     }
     core = bootedCore
@@ -1113,22 +1125,22 @@ if (isPairUrl) {
         void core?.shutdown()
       })
 
-      if (!isTestMode) requestPermissions().catch((err: Error) => log.error(`Permission preflight error: ${err.message}`))
+      if (!isTestMode) requestPermissions().catch((err: Error) => log.error('permission_preflight_failed', { error: err.message }))
 
       if (SPACES_DEBUG) {
         app.on('browser-window-focus', () => snapshotWindowState('event app browser-window-focus'))
         app.on('browser-window-blur', () => snapshotWindowState('event app browser-window-blur'))
 
         screen.on('display-added', (_e, display) => {
-          log.debug(`[spaces] event display-added id=${display.id}`)
+          log.debug('spaces_display_added', { displayId: display.id })
           snapshotWindowState('event display-added')
         })
         screen.on('display-removed', (_e, display) => {
-          log.debug(`[spaces] event display-removed id=${display.id}`)
+          log.debug('spaces_display_removed', { displayId: display.id })
           snapshotWindowState('event display-removed')
         })
         screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
-          log.debug(`[spaces] event display-metrics-changed id=${display.id} changed=${changedMetrics.join(',')}`)
+          log.debug('spaces_display_metrics_changed', { displayId: display.id, changed: changedMetrics.join(',') })
           snapshotWindowState('event display-metrics-changed')
         })
       }

@@ -14,9 +14,17 @@ export class ReviewDrafts {
   readonly diffComments: DiffComment[] = $derived(this.drafts.map(toDiffComment));
 
   #loadedKey: string | null = null;
-  #opts: { getCtx: () => IpcContext; getKey: () => string };
+  #opts: {
+    getApi?: () => typeof window.solus;
+    getCtx: () => IpcContext;
+    getKey: () => string;
+  };
 
-  constructor(opts: { getCtx: () => IpcContext; getKey: () => string }) {
+  constructor(opts: {
+    getApi?: () => typeof window.solus;
+    getCtx: () => IpcContext;
+    getKey: () => string;
+  }) {
     this.#opts = opts;
   }
 
@@ -26,7 +34,8 @@ export class ReviewDrafts {
     if (key === this.#loadedKey) return;
     this.#loadedKey = key;
     try {
-      const state = await window.solus.readReviewState(this.#opts.getCtx(), key);
+      const api = this.#opts.getApi?.() ?? window.solus;
+      const state = await api.readReviewState(this.#opts.getCtx(), key);
       if (this.#opts.getKey() !== key) return;
       this.drafts = state?.drafts ?? [];
     } catch {
@@ -87,7 +96,8 @@ export class ReviewDrafts {
       key: this.#opts.getKey(),
       drafts: [...this.drafts],
     };
-    return window.solus.writeReviewState(this.#opts.getCtx(), state);
+    const api = this.#opts.getApi?.() ?? window.solus;
+    return api.writeReviewState(this.#opts.getCtx(), state);
   }
 }
 

@@ -662,6 +662,51 @@ describe('ControlPlane headless sessions', () => {
 })
 
 describe('ControlPlane provider handoff', () => {
+  for (const [originalProvider, temporaryProvider] of [
+    ['codex', 'claude-code'],
+    ['claude-code', 'codex'],
+  ] as const) {
+    test(`${originalProvider} → ${temporaryProvider} → ${originalProvider} restores the original session as a no-op`, async () => {
+      const originalSessionId = `${originalProvider}-session`
+      const buildCalls: string[] = []
+      const env = setup({
+        backendIds: ['codex', 'claude-code'],
+        buildHandoff: async (sessionId) => {
+          buildCalls.push(sessionId)
+          return { transcriptFilePath: null, reasoningFilePath: null }
+        },
+      })
+      planes.push(env.controlPlane)
+      env.seedSession(originalSessionId, {
+        backendId: originalProvider,
+        status: 'completed',
+        runInput: sampleRunInput(originalProvider, originalSessionId),
+      })
+      env.registerWatch('tab-a', 'ws:a', 'device-1', originalSessionId)
+
+      await env.controlPlane.switchSessionProvider('tab-a', temporaryProvider)
+      await expect(env.controlPlane.switchSessionProvider('tab-a', originalProvider)).resolves.toMatchObject({
+        fromProvider: temporaryProvider,
+        fromSessionId: originalSessionId,
+        restoredSessionId: originalSessionId,
+      })
+
+      const tab = (env.controlPlane as unknown as {
+        tabs: Map<string, { provider: AgentId; sessionId: string | null }>
+      }).tabs.get('tab-a')
+      expect(tab).toMatchObject({ provider: originalProvider, sessionId: originalSessionId })
+
+      await env.controlPlane.submitPrompt(
+        promptContext('tab-a', originalProvider, originalSessionId),
+        { prompt: 'Keep going' },
+      )
+
+      const originalBackend = env.backends.find((backend) => backend.id === originalProvider)!
+      expect(buildCalls).toEqual([])
+      expect(originalBackend.lastInput?.sessionId).toBe(originalSessionId)
+    })
+  }
+
   test('resetting a tab cancels a pending provider handoff', async () => {
     const buildCalls: string[] = []
     const env = setup({
@@ -803,6 +848,33 @@ describe('ControlPlane provider handoff', () => {
   })
 })
 
+describe('ControlPlane retry', () => {
+  test('retries with the same interactive tools as a normal prompt', async () => {
+    // WHY: retry builds a fresh SessionRunRequest. Omitting its tools crashes
+    // before the backend starts and leaves a recoverable failed turn stuck.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('retry-session', {
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'retry-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'retry-session')
+
+    await env.controlPlane.retry(
+      promptContext('tab-a', 'codex', 'retry-session'),
+      { prompt: 'Try this again' },
+    )
+
+    const toolNames = env.backend.lastInput?.tools.map((tool) => tool.name) ?? []
+    expect(toolNames).toContain('list_works')
+    expect(toolNames).toContain('create_automation')
+    expect(toolNames).toContain('create_session')
+    expect(toolNames).toContain('list_tasks')
+    expect(toolNames).toContain('list_prs')
+    expect(toolNames).toContain('claude_subagent')
+  })
+})
+
 describe('ControlPlane idle-tab Git environments', () => {
   test('broadcasts live Git state without requiring a backend session', async () => {
     const env = setup()
@@ -822,6 +894,47 @@ describe('ControlPlane idle-tab Git environments', () => {
 })
 
 describe('ControlPlane device-scoped tab watches', () => {
+  test('treats repeated session init as idempotent while background tasks are running', () => {
+    const env = setup({ backendIds: ['claude-code'] })
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', {
+      runInput: sampleRunInput('claude-code', 'session-1'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+
+    const sessions = (env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+    }).activeSessions
+    const session = sessions.get('session-1')!
+    const pendingInputEvents = session.pendingInputEvents
+    session.promptCount = 3
+    session.backgroundTaskIds = new Set(['task-1', 'task-2'])
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'session_init',
+      sessionId: 'session-1',
+      model: 'claude-test',
+      skills: [],
+    } satisfies NormalizedEvent)
+
+    expect(sessions.get('session-1')).toBe(session)
+    expect(session.pendingInputEvents).toBe(pendingInputEvents)
+    expect(session.promptCount).toBe(3)
+    expect([...session.backgroundTaskIds]).toEqual(['task-1', 'task-2'])
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'task_complete',
+      result: 'One explorer finished; two are still running.',
+      costUsd: 0,
+      durationMs: 1,
+      numTurns: 1,
+      usage: {},
+      sessionId: 'session-1',
+    } satisfies NormalizedEvent)
+
+    expect(session.status).toBe('running')
+  })
+
   test('reattaching reports running while a completed event still has a live runtime', () => {
     const env = setup()
     planes.push(env.controlPlane)
@@ -838,6 +951,29 @@ describe('ControlPlane device-scoped tab watches', () => {
     )
 
     expect(info?.status).toBe('running')
+  })
+
+  // A stale exit can delete a session record that a newer run just installed; the
+  // re-`session_init` then rebuilds it with no run contract. The run is still
+  // alive, so refusing to reattach would strand the tab at 'idle' permanently —
+  // the client would never learn the session is running.
+  test('reattaching still reports running when the live session lost its run input', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', { status: 'running', runInput: undefined })
+    env.controlPlane.createTab('tab-a', { clientId: 'ws:new', deviceId: 'device-1' })
+
+    const info = env.controlPlane.bindRuntimeSession(
+      'tab-a',
+      'session-1',
+      { clientId: 'ws:new', deviceId: 'device-1' },
+    )
+
+    expect(info).not.toBeNull()
+    expect(info?.status).toBe('running')
+    // Nothing to restore the config from, so the client keeps its own snapshot.
+    expect(info?.modelConfig).toBeNull()
+    expect(info?.permissionMode).toBeNull()
   })
 
   test('keeps a deferred Codex account limit hidden after the active turn settles', () => {

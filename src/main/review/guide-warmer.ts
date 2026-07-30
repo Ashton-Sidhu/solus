@@ -76,7 +76,7 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): voi
         request.onStatus(number, 'ready', metadata ?? undefined)
       })
       .catch((err) => {
-        log.warn(`requested guide failed for PR #${number}: ${errorMessage(err)}`)
+        log.warn('requested_guide_failed', { prNumber: number, error: errorMessage(err) })
         request.onStatus(number, 'failed')
       })
       .finally(() => queuedRequests.delete(key))
@@ -196,7 +196,7 @@ function enqueueGuide(repoRoot: string, number: number, headSha: string): void {
   guideTail = guideTail
     .then(() => warmGuide(repoRoot, number, headSha))
     .catch((err) => {
-      log.warn(`guide warm failed for PR #${number}: ${errorMessage(err)}`)
+      log.warn('guide_warm_failed', { prNumber: number, error: errorMessage(err) })
       scheduleRetry(repoRoot, number, headSha)
     })
     .finally(() => queuedGuides.delete(key))
@@ -208,7 +208,7 @@ function enqueuePrefetch(repoRoot: string, number: number, headSha: string): voi
   queuedPrefetches.add(key)
   prefetchTail = prefetchTail
     .then(() => prefetchWorktree(repoRoot, number, headSha))
-    .catch((err) => log.warn(`worktree prefetch failed for PR #${number}: ${errorMessage(err)}`))
+    .catch((err) => log.warn('worktree_prefetch_failed', { prNumber: number, error: errorMessage(err) }))
     .finally(() => queuedPrefetches.delete(key))
 }
 

@@ -176,14 +176,14 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       })
       if (entry.cancelled) {
         await finishRun(automation.id, runId, { status: 'cancelled' })
-        log.info(`Automation ${automation.id} run ${runId} cancelled`)
+        log.info('automation_run_cancelled', { automationId: automation.id, runId })
         return
       }
       // 'dispatched', not 'succeeded': the prompt was handed to the thread, but
       // the thread's turn owns the real outcome — don't claim a success we
       // never observed.
       await finishRun(automation.id, runId, { status: 'dispatched', output: `Dispatched into session ${action.sessionId}; the outcome lives in that chat thread.`, agentSessionId: action.sessionId })
-      log.info(`Automation ${automation.id} run ${runId} dispatched into session ${action.sessionId}`)
+      log.info('automation_run_dispatched', { automationId: automation.id, runId, sessionId: action.sessionId })
       return
     }
 
@@ -226,7 +226,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     // partial success.
     if (entry.cancelled) {
       await finishRun(automation.id, runId, { status: 'cancelled', output, agentSessionId, branch })
-      log.info(`Automation ${automation.id} run ${runId} cancelled`)
+      log.info('automation_run_cancelled', { automationId: automation.id, runId })
       return
     }
 
@@ -236,11 +236,11 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       agentSessionId,
       branch,
     })
-    log.info(`Automation ${automation.id} run ${runId} succeeded (session ${agentSessionId})`)
+    log.info('automation_run_succeeded', { automationId: automation.id, runId, sessionId: agentSessionId })
   } catch (err: any) {
     if (entry.cancelled) {
       await finishRun(automation.id, runId, { status: 'cancelled', agentSessionId, branch })
-      log.info(`Automation ${automation.id} run ${runId} cancelled`)
+      log.info('automation_run_cancelled', { automationId: automation.id, runId })
       return
     }
     await finishRun(automation.id, runId, {
@@ -249,6 +249,6 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       branch,
       error: String(err?.message ?? err),
     })
-    log.error(`Automation ${automation.id} run ${runId} failed: ${String(err)}`)
+    log.error('automation_run_failed', { automationId: automation.id, runId, error: err instanceof Error ? err.message : String(err) })
   }
 }

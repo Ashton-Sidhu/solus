@@ -10,6 +10,7 @@ import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { type PlanStore } from '../plans/plan.store.svelte'
 import { WorksStore } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
+import { automationDraftSessionRequest } from '../automations/automation-draft-session'
 import { TasksStore } from '../tasks/tasks.store.svelte'
 import { PrsStore } from '../prs/prs.store.svelte'
 import { StacksStore } from '../prs/stacks.store.svelte'
@@ -32,7 +33,7 @@ import { type AgentContext } from '../app/agent.context.svelte'
 import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
-import { nextMsgId } from './session.utils'
+import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
@@ -52,6 +53,7 @@ import {
 } from '../../components/pr-review/lib/pr-review-profiler'
 import { prepareHostCheckout, retargetSessionHost } from '../../components/servers/run-on'
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
+import { quotedReplyDraft } from '../../lib/quoted-reply'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -80,6 +82,10 @@ interface CreateTabOptions {
   gitContext?: GitCheckout | null
   gitInitialization?: 'blocking' | 'background'
   worktreeRequested?: boolean
+}
+
+interface ForkTabOptions {
+  activate?: boolean
 }
 
 const notificationAudio = new Audio(notificationSrc)
@@ -495,11 +501,7 @@ export class WorkspaceContext {
     if (!session?.agentSessionId) return
     const info = await this.apiFor(tabId).bindRuntimeSession(this.ctxFor(tabId))
     if (info && session) {
-      session.modelConfig.modelId = info.modelConfig.modelId
-      session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
-      session.modelConfig.contextWindow = info.modelConfig.contextWindow
-      session.modelConfig.fastMode = info.modelConfig.fastMode
-      session.permissionMode = info.permissionMode
+      applyRuntimeConfig(session, info)
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       this.reconcileQueuedPrompts(tabId, info.queuedPrompts)
@@ -561,6 +563,17 @@ export class WorkspaceContext {
     return tabId
   }
 
+  /** Author an automation in a low-reasoning session with no tab routing state. */
+  async createAutomationDraftSession(prompt: string, cwd: string): Promise<string> {
+    const activeSession = this.activeSession
+    const provider = (activeSession?.provider ?? this.settings.activeAgent) as AgentId
+    const modelConfig = activeSession?.modelConfig ?? this.globalDefaults.modelConfig
+    const api = this.activeTabId ? this.apiFor(this.activeTabId) : window.solus
+    const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
+    const { agentSessionId } = await api.createHeadlessSession(request)
+    return agentSessionId
+  }
+
   /**
    * Open a new tab set to materialize a fresh worktree on its first prompt.
    * Mirrors how worktrees are created everywhere else in Solus (lazy, with an
@@ -584,7 +597,7 @@ export class WorkspaceContext {
   }
 
   /** Fork a session into a new tab. The fork inherits all messages and resumes on first prompt. */
-  async forkTab(sourceTabId: string): Promise<string | null> {
+  async forkTab(sourceTabId: string, options: ForkTabOptions = {}): Promise<string | null> {
     const sourceTab = this.tabs[sourceTabId]
     const sourceSession = this.sessionFor(sourceTabId)
     if (!sourceSession?.agentSessionId) return null
@@ -625,11 +638,32 @@ export class WorkspaceContext {
     this.sessions[forkedSession.id] = forkedSession
     this.tabs[forkTab.id] = forkTab
     this.addTabToOrder(forkTab.id)
-    this.setActiveTab(forkTab.id)
-    this.resetOverlays()
+    if (options.activate !== false) {
+      this.setActiveTab(forkTab.id)
+      this.resetOverlays()
+    }
     await this.environment.refreshTab(this, { tabId })
-    requestInputFocus()
+    if (options.activate !== false) requestInputFocus()
     return tabId
+  }
+
+  /**
+   * Branch selected transcript text into a contextual session beside its source.
+   * The provider fork remains lazy until the user sends the targeted question.
+   */
+  async askInNewSession(sourceTabId: string, selectedText: string): Promise<void> {
+    const draft = quotedReplyDraft(selectedText)
+    if (!draft || !this.sessionFor(sourceTabId)?.agentSessionId) return
+
+    const splitTabId = this.panes.chatTabIn('secondary', this.activeTabId)
+    if (splitTabId === sourceTabId) this.promoteSplitToMainTab()
+    else if (sourceTabId !== this.activeTabId) this.selectTab(sourceTabId)
+
+    const forkTabId = await this.forkTab(sourceTabId, { activate: false })
+    if (!forkTabId) return
+    this.tabs[forkTabId].input.text = draft
+    this.panes.openSplitChat(forkTabId)
+    requestInputFocus({ tabId: forkTabId })
   }
 
   /** Move a live session into a fresh git worktree. Creates the worktree now (so
@@ -1314,6 +1348,10 @@ export class WorkspaceContext {
         workRefs,
         sessionRefs,
       }
+      session.currentTurnStart = isFirstMessage ? 'fresh' : 'follow_up'
+      session.currentActivity = session.currentTurnStart === 'fresh'
+        ? 'Starting session...'
+        : 'Resuming...'
       session.status = 'connecting'
       tab.title = title
       input.attachments = []
@@ -1322,6 +1360,8 @@ export class WorkspaceContext {
       input.sessionRefs = []
       session.latestCheckpointId = null
       session.progress = null
+      session.retryAttempt = 1
+      session.terminalFailure = null
       session.messages.push(userMsg)
     }
 
@@ -1450,9 +1490,13 @@ export class WorkspaceContext {
     }
 
     session.status = 'connecting'
+    session.currentTurnStart = 'follow_up'
+    session.currentActivity = 'Resuming...'
     session.provider = session.provider ?? this.settings.activeAgent
     session.latestCheckpointId = null
     session.progress = null
+    session.retryAttempt = (session.retryAttempt ?? 1) + 1
+    session.terminalFailure = null
 
     const retry = this.apiFor(tabId).retry(this.ctxFor(tabId), { prompt: lastUserMsg.content })
 
@@ -1783,8 +1827,8 @@ export class WorkspaceContext {
   clearDiffComments(tabId?: string): void { clearDiffComments(this, tabId) }
   setDiffCommentDraft(draft: DiffCommentDraft | null, tabId?: string): void { setDiffCommentDraft(this, draft, tabId) }
   updateDiffCommentDraftValue(value: string, tabId?: string): void { updateDiffCommentDraftValue(this, value, tabId) }
-  setDiffGeneralComment(value: string): void { setDiffGeneralComment(this, value) }
-  submitDiffFeedback(generalComment: string): boolean { return submitDiffFeedback(this, generalComment) }
+  setDiffGeneralComment(value: string, tabId?: string): void { setDiffGeneralComment(this, value, tabId) }
+  submitDiffFeedback(generalComment: string, tabId?: string): boolean { return submitDiffFeedback(this, generalComment, tabId) }
   async submitDiffFeedbackToNewSession(opts: Parameters<typeof submitDiffFeedbackToNewSession>[1]): Promise<boolean> {
     return submitDiffFeedbackToNewSession(this, opts)
   }

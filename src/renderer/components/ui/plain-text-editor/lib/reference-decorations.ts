@@ -108,6 +108,16 @@ function tokenVariant(token: ReferenceToken): TokenVariant {
   return `plan-${token.status}`;
 }
 
+export function referenceTokenClassName(token: ReferenceToken): string {
+  const classes = tokenClassName(
+    tokenVariant(token),
+    token.kind === "slash",
+  );
+  return token.kind !== "slash"
+    ? `${classes} solus-token--link-chip`
+    : classes;
+}
+
 function tokenLabel(token: ReferenceToken): string {
   switch (token.kind) {
     case "file":
@@ -167,10 +177,7 @@ class ReferenceWidget extends WidgetType {
     const click = tokenClick(this.token, this.callbacks);
     const element = document.createElement(click ? "button" : "span");
     if (element instanceof HTMLButtonElement) element.type = "button";
-    element.className = tokenClassName(
-      tokenVariant(this.token),
-      this.token.kind === "slash",
-    );
+    element.className = referenceTokenClassName(this.token);
     element.contentEditable = "false";
     element.spellcheck = false;
     element.dataset.referenceKind = this.token.kind;
