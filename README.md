@@ -3,323 +3,173 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.15.1-blue" alt="version" />
-  <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="platform" />
-  <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="license" />
+  <b>A keyboard-first desktop app for coding agents.</b><br />
+  Talk to Claude Code or Codex from a floating overlay that sits above your editor — no terminal tab required.
 </p>
 
 <p align="center">
-  A native macOS desktop app that wraps AI coding agents with a beautiful, keyboard-first UI.
+  <a href="https://github.com/Ashton-Sidhu/solus/releases"><img src="https://img.shields.io/github/v/release/Ashton-Sidhu/solus?label=release&color=blue" alt="release" /></a>
+  <a href="https://solus.sh"><img src="https://img.shields.io/badge/download-macOS%20(Apple%20Silicon)-black?logo=apple&logoColor=white" alt="download for macOS" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="license" /></a>
+  <a href="./CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome" /></a>
+</p>
+
+<p align="center">
+  <a href="https://solus.sh">Website</a> ·
+  <a href="https://solus.sh/docs">Docs</a> ·
+  <a href="#install">Install</a> ·
+  <a href="https://solus.sh/docs#keybindings">Shortcuts</a> ·
+  <a href="./CONTRIBUTING.md">Contributing</a> ·
+  <a href="./CHANGELOG.md">Changelog</a>
 </p>
 
 ---
 
-## What is Solus?
+## Why Solus
 
-Solus is an Electron-based macOS app that puts AI coding agents into a polished, floating overlay that lives on top of your workspace. Instead of switching to a terminal, you talk to Claude Code (or Codex) from wherever you are — your IDE, browser, or any other app — and the panel steps out of the way when you don't need it.
+Coding agents live in the terminal, and the terminal is a bad place to supervise them. You lose the thread when you switch windows, plans and diffs scroll away, and running two agents at once means juggling panes.
+
+Solus puts agents in a glass overlay that floats above whatever you're doing. Sessions are tabs, plans are reviewable documents, diffs are commentable, and everything has a keybinding. Summon it with `⌥Space`, dismiss it when you're back in flow.
+
+Two layouts, one keystroke apart (`⌥⇧E`): **pill mode** is a compact strip for firing off prompts while you work elsewhere; **editor mode** is a full workspace for reading plans, reviewing diffs, and driving a session with full attention.
 
 ## Features
 
-- **Floating overlay** — Glass-morphism panel that sits above all windows with click-through on empty areas
-- **Multi-tab sessions** — Run multiple independent agent sessions side by side, each with its own working directory
-- **Branch-grouped tabs** — Tabs organized by git branch for managing parallel workstreams
-- **Permission modes** — Switch between *Ask*, *Auto*, and *Plan* modes per tab
-- **Plan mode** — Agent drafts a plan before executing; annotate it inline before approving
-- **Multiple agents** — Switch between Claude Code and Codex per session
-- **Architecture diagrams** — Create and edit interactive system diagrams on a live canvas with nodes, edges, and groups
-- **Works / Folio** — Agent-created documents, slides, and diagrams saved as standalone artifacts you can export or continue editing
-- **Split pane layout** — View artifacts and conversation side by side
-- **Diff panel** — Rich diff view with per-turn navigation, file tree, and inline commenting
-- **Git worktree mode** — Run agents on isolated git branches without disturbing your working tree
-- **Voice input** — Dictate or capture long-form idea dumps (up to 60 minutes) with local transcription and voice-activity detection
-- **Design annotation mode** — Annotate screenshots with shapes, arrows, and text before sending
-- **File & screenshot attachments** — Attach files or snap a screenshot directly from the input bar
-- **Skills** — Slash-command skill registry with fuzzy search
-- **Session history** — Resume and pin previous sessions from within the app
-- **Model picker** — Switch between Claude models per tab
-- **Light / dark theme** — Follows macOS system appearance
+A typical loop: summon Solus, describe the change, review the plan it drafts, watch the diff as it works, send line-level feedback, then commit and merge — without leaving the panel. The features below follow that loop in order, and each links to its section in the [docs](https://solus.sh/docs).
 
-## Requirements
+| | |
+|---|---|
+| [**Sessions & tabs**](https://solus.sh/docs#sessions) | Every tab is an independent session with its own project, agent, model, and permission mode. Fork a conversation to explore two approaches, resume any past session, queue messages while the agent is busy, or isolate risky work on a git worktree. |
+| [**Plans**](https://solus.sh/docs#plans) | In Plan mode the agent drafts before it executes. Mark the plan up like a PR — inline comments on any selection — then approve into Ask or Auto mode. Plans are saved to disk with revision history, and work with every model, not just those with native plan support. |
+| [**Workspace panes**](https://solus.sh/docs#panes) | Plans, Works, automations, reviews, and diffs open as focused panes or beside the live conversation. Closing a pane restores the chat with scroll position and drafts intact. |
+| [**Diff panel**](https://solus.sh/docs#diff) | Every file the agent touched, in a side panel. Step through files, filter by conversation turn, leave line-level comments, and send them back as one structured message. |
+| [**Opening changed files**](https://solus.sh/docs#files) | Jump from any inline diff preview straight into VS Code, vim, nvim, or helix — or open every file changed in the session at once. |
+| [**Review companion**](https://solus.sh/docs#review) | A second agent reviews your branch — commits, uncommitted edits, and untracked files — and writes a report of grouped findings. Click a finding to land on that exact hunk. |
+| [**Pull requests**](https://solus.sh/docs#pull-request-merge) | Merge, squash, or rebase a PR from its review surface, with status, checks, and unresolved conversations in view. Conflicted PRs can be handed to an agent in an isolated worktree. |
+| [**Works**](https://solus.sh/docs#works) | Docs, slides, and diagrams the agent produces are extracted from the chat and saved as standalone artifacts you can search, edit, and export — they outlive the session that made them. |
+| [**Document editor**](https://solus.sh/docs#document-editor) | Native Markdown editing with a selection toolbar, slash commands for block types, and bidirectional raw-Markdown sync. |
+| [**Design mode**](https://solus.sh/docs#design-mode) | Screenshot any window, annotate it with rectangles, arrows, numbered pins, and text, and send the composited image to the agent. |
+| [**Voice input**](https://solus.sh/docs#voice) | Push-to-talk or a continuous hands-free loop, both transcribed locally with Whisper — audio never leaves your machine. |
+| [**Automations**](https://solus.sh/docs#automations) | Save a prompt and run it on a schedule — interval, daily, weekly, monthly, or raw cron — or on demand. Every run keeps a history you can open as a full session. Agents can create automations for you. |
+| [**Rate limit queueing**](https://solus.sh/docs#rate-limits) | Hit a limit mid-task and Solus asks, queues and re-sends, continues, or stops — globally or per tab. |
+| [**Hosts & connections**](https://solus.sh/docs#connections) | The desktop app doubles as a server: pair your phone or another browser, add other machines as hosts, and choose where each session runs. |
+| [**Tasks**](https://solus.sh/docs#tasks) *(soon)* | A project-scoped board of local tickets and GitHub Issues, with sessions started straight from a task. |
 
-- macOS
-- [Bun](https://bun.sh)
-- Xcode Command Line Tools
-- [Claude Code](https://github.com/anthropics/claude-code) CLI installed and authenticated
-- [Codex](https://github.com/openai/codex) CLI (optional, for Codex agent support)
+## Install
 
-## Getting Started
+**Homebrew** — recommended, and it keeps itself current:
 
 ```bash
-# Install dependencies
+brew install --cask Ashton-Sidhu/tap/solus
+```
+
+**Direct download** — a signed and notarized `.dmg` from [solus.sh](https://solus.sh), or from the [releases page](https://github.com/Ashton-Sidhu/solus/releases). Drag `Solus.app` to `/Applications`. The app updates itself in place from there.
+
+Then press `⌥Space` to summon the window (`⌘⇧K` if that's taken), pick a project with `⌘O`, and start typing.
+
+### Requirements
+
+| | |
+|---|---|
+| OS | macOS 12 Monterey or later, Apple Silicon |
+| Agent | [Claude Code](https://github.com/anthropics/claude-code) CLI, installed and authenticated |
+| Optional | [Codex](https://github.com/openai/codex) CLI, for Codex sessions |
+
+Solus drives the agent CLIs you already have installed and auto-detects which are available — it doesn't ship its own agent or ask for an API key.
+
+## Build from source
+
+You'll additionally need [Bun](https://bun.sh) and the Xcode Command Line Tools.
+
+```bash
+git clone https://github.com/Ashton-Sidhu/solus.git
+cd solus
 bun install
-
-# Optional: create local config for analytics, Google integration, or release signing
-cp .env.example .env
-
-# Run in development
-bun run dev
-
-# Verify the app and web client build
-bun run build
-
-# Build for production
-bun run dist
+bun run dev      # development
 ```
-
-After `dist` completes, a `Solus.app` bundle will be placed in the `dist` folder. Drag it to `/Applications`.
-
-Local environment values are optional for normal development. Leave analytics and Google OAuth variables empty unless you are testing those integrations. Release signing variables are only needed for signed and notarized macOS builds.
-
-## Server
-
-Solus also ships as a standalone, headless server (for Linux hosts or running Solus outside the macOS app) that serves the web client and speaks the same RPC protocol as the desktop app.
-
-### Build and package locally
 
 ```bash
-# Build the app + web client (produces dist/main/standalone.js and dist/client)
-bun run build
-
-# Package the server for your current platform/arch
-bun scripts/package-server.ts
-
-# Or target a specific platform/arch (used by CI for releases)
-bun scripts/package-server.ts --platform linux --arch x64
+bun run build    # verify the app + web client compile
+bun run dist     # produces a Solus.app bundle in dist/
 ```
 
-This produces `release/solus-server-<platform>-<arch>.tar.gz` — a self-contained bundle with a pinned Node runtime, the bundled server, the CLI, and the web client. Supported targets: `darwin-arm64`, `linux-x64`, `linux-arm64`.
+`.env` is optional — copy `.env.example` if you're testing analytics, Google integration, or release signing. Leave those values empty otherwise.
 
-### Test the packaged server before release
+## Headless server
+
+You don't need the Mac app. Solus ships a standalone server you can run on a home server, a VPS, or any always-on box and drive entirely from the browser — it serves the same web client and speaks the same RPC protocol as the desktop app.
 
 ```bash
-# Extract the tarball somewhere and run it
-mkdir -p /tmp/solus-server && tar -xzf release/solus-server-<platform>-<arch>.tar.gz -C /tmp/solus-server
+brew install Ashton-Sidhu/tap/solus-server   # CLI + vendored Node runtime
 
-# Start it in the foreground (prints the reachable URL and claim code)
-/tmp/solus-server/bin/solus start
-
-# Or manage it as a background daemon
-/tmp/solus-server/bin/solus start --daemon
-/tmp/solus-server/bin/solus status
-/tmp/solus-server/bin/solus logs
-/tmp/solus-server/bin/solus stop
+brew services start solus-server             # run the daemon in the background
+solus claim                                  # take ownership from this machine
 ```
 
-Useful flags/env vars: `--data-dir PATH` (or `SOLUS_DATA_DIR`), `--host HOST` (or `SOLUS_HOST`), `--port PORT` (or `SOLUS_PORT`).
+`solus claim` prints a link, a 6-digit code, and a QR — open any of them in a browser to claim the server. After that, [pair devices](https://solus.sh/docs#connections) normally: your phone, a tablet, another laptop.
 
-To iterate on server code without repackaging the tarball each time, just re-run `bun run build` then `bin/solus-server` directly from a previously packaged bundle, or run `bun run dev` and connect the web client (`client/`) against the dev server.
+| Command | |
+|---|---|
+| `solus start` | Run the server in the foreground (`--host`, `--port`, `--data-dir`) |
+| `solus logs` | Tail the daemon log (`--lines N`) |
+| `solus claim` | Claim a fresh server |
+| `solus update` | Update a tarball install in place (Homebrew installs defer to `brew upgrade`) |
 
-## Keyboard Shortcuts
+Data lives in `~/.solus`, overridable with `--data-dir` or `SOLUS_DATA_DIR`; `SOLUS_HOST` and `SOLUS_PORT` mirror the flags. The server listens on port 3000 by default.
 
-### System-wide (work even when Solus is hidden)
+A running desktop app is itself a server on the same port — so you can reach your Mac's sessions from a browser on your phone without setting any of this up. And once a standalone server is claimed, add it as a **host** in the desktop app to choose, per session, which machine the agent actually runs on.
+
+Not on Homebrew? Each [release](https://github.com/Ashton-Sidhu/solus/releases) attaches a `solus-server-<platform>-<arch>.tar.gz` for `darwin-arm64`, `linux-x64`, and `linux-arm64` — a self-contained bundle with a pinned Node runtime, the server, the CLI, and the web client. Extract it anywhere and run `bin/solus`. To build one yourself:
+
+```bash
+bun run build                                              # dist/main/standalone.js + dist/client
+bun scripts/package-server.ts                              # package for this platform
+bun scripts/package-server.ts --platform linux --arch x64  # or a specific target
+```
+
+To iterate on server code without repackaging, re-run `bun run build` and launch `bin/solus-server` from an existing bundle — or run `bun run dev` and point the web client (`client/`) at the dev server.
+
+## Keyboard shortcuts
+
+Global shortcuts use `⌥⇧`, sub-page shortcuts use `⌥`. These are the ones worth learning first — the full reference lives in the [keybindings docs](https://solus.sh/docs#keybindings), or press `⌥⇧/` in the app.
 
 | Shortcut | Action |
 |---|---|
-| `⌥Space` | Toggle window |
-| `⌘⇧K` | Toggle window (alternative) |
-
-### General
-
-| Shortcut | Action |
-|---|---|
-| `⌥⇧,` | Open settings |
+| `⌥Space` | Toggle the window (system-wide) |
 | `⌥L` | Focus input |
-| `⌥⇧Q` | Toggle quick actions |
-| `` ⌥⇧` `` | Open terminal |
-| `⌥⇧/` | Show keyboard shortcuts |
-
-### Tabs
-
-| Shortcut | Action |
-|---|---|
-| `⌥⇧T` | New tab |
-| `⌥F` | Fork session |
-| `⌥⇧W` | Close tab |
-| `⌥⇧→` | Next branch / tab |
-| `⌥⇧←` | Previous branch / tab |
-| `⌥⇧N` | Next session in branch |
-| `⌥⇧P` | Previous session in branch |
-| `⌥⇧U` | Group tabs by status |
-
-### View
-
-| Shortcut | Action |
-|---|---|
+| `⌘O` | Select project |
+| `⌘T` | New tab |
 | `⌥⇧E` | Toggle editor / pill mode |
-| `⌥⇧D` | Toggle diff panel |
-| `⌥⇧\` | Open artifact in split pane |
-| `⌥M` | Toggle project panel |
-| `⌥⇧L` | Open plans gallery |
-| `⌥⇧;` | Open folio gallery |
-| `⌥B` | Toggle sidebar |
-| `⌥⇧=` | Expand / collapse input |
-
-### Compose
-
-| Shortcut | Action |
-|---|---|
-| `⌥⇧O` | Select project |
-| `⌥⇧A` | Attach file |
-| `⌥⇧S` | Take screenshot |
-| `⌥⇧I` | Design annotation mode |
-
-### Agent
-
-| Shortcut | Action |
-|---|---|
 | `⌥⇧Tab` | Cycle permission mode (Ask → Auto → Plan) |
-| `⌥⇧M` | Cycle model |
-| `⌥⇧G` | Cycle agent |
-| `⌥⇧Z` | Toggle reasoning menu |
-
-### Conversation
-
-| Shortcut | Action |
-|---|---|
-| `⌥H` | Scroll to top |
-| `⌥⇧F` | Open all changed files in editor |
-| `^C` | Stop agent |
-
-### Navigation
-
-| Shortcut | Action |
-|---|---|
-| `⌥⇧R` / `⌥⇧J` | Toggle session history picker |
-
-### Voice
-
-| Shortcut | Action |
-|---|---|
-| `⌥⇧V` | Toggle voice mode |
-| `⌥⇧K` | Toggle mic recording |
-
-### Git
-
-| Shortcut | Action |
-|---|---|
+| `⌥⇧D` | Toggle diff panel |
 | `⌥⇧B` | Toggle worktree mode |
-| `⌥⇧H` | Switch worktree |
-| `⌥⇧Y` | Open worktree in terminal |
-| `⌥⇧C` | Commit and push |
-| `⌥⇧.` | Sync (pull) |
 
-### Session
+## How it works
 
-| Shortcut | Action |
+```
+renderer  →  window.solus.<method>()      (src/preload — wraps as an RPC envelope)
+          →  SolusServer.handle()         (src/main/server)
+          →  handler in server/handlers/  (one file per domain)
+          →  ControlPlane / managers      (src/main/control-plane.ts)
+events    ←  broadcast back over RPC topics
+```
+
+| Path | Owns |
 |---|---|
-| `⌥⇧X` | Pin / unpin session |
+| `src/main/` | Electron main process — sessions, agents, git, RPC server |
+| `src/main/agents/` | Agent backends (`claude/`, `codex/`) and the backend registry |
+| `src/renderer/` | Svelte 5 UI — one folder per feature, stores in `contexts/` |
+| `src/shared/` | RPC method and topic definitions shared by both sides |
+| `client/` | Web client served by the headless server |
+| `docs/adr/` | Architecture decision records |
 
-### Diff Panel
+Built with **Electron** + **electron-vite**, **Svelte 5**, **TypeScript**, **Tailwind CSS v4**, and the **@anthropic-ai/claude-agent-sdk**.
 
-| Shortcut | Action |
-|---|---|
-| `Escape` | Close panel |
-| `⌥M` | Maximize / restore |
-| `⌥R` | Refresh diff |
-| `⌥N` | Next file |
-| `⌥P` | Previous file |
-| `⌥F` | Search files |
-| `⌥T` | Toggle file tree |
-| `⌥]` | Next comment |
-| `⌥[` | Previous comment |
-| `⌥→` | Next turn |
-| `⌥←` | Previous turn |
-| `⌥V` | Toggle split / unified view |
-| `⌥C` | Start comment |
-| `⌥↩` | Send to session |
+## Contributing
 
-### Plan Gallery
+Contributions are welcome. Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, code style, and PR expectations; [CLAUDE.md](./CLAUDE.md) documents the conventions agents (and humans) should follow in this repo. Please also read the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
-| Shortcut | Action |
-|---|---|
-| `Escape` | Close |
-| `/` | Focus search |
-| `↩` | Open plan |
-| `⇧↩` | Resume session |
-| `→` / `←` / `↑` / `↓` | Navigate grid |
-| `⌥B` | Toggle bookmark |
-
-### Plan Review
-
-| Shortcut | Action |
-|---|---|
-| `⌥Y` | Approve (ask mode) |
-| `⌥A` | Approve (auto mode) |
-| `⌥R` | Reject |
-| `⌥V` | Reject with feedback |
-| `⌥L` | Focus comment field |
-| `⌥W` | Toggle worktree |
-
-### Plan Modal
-
-| Shortcut | Action |
-|---|---|
-| `Escape` | Close |
-| `⌘M` | Comment on selection |
-| `⌥S` | Save |
-| `⌥C` | Copy to clipboard |
-| `⌥B` | Toggle bookmark |
-| `⌥M` | Toggle comments |
-| `⌥O` | Resume session |
-| `⌥G` | Open in Google Docs |
-| `⌥⇧T` | New tab |
-
-### Document Modal
-
-| Shortcut | Action |
-|---|---|
-| `Escape` | Close |
-| `⌥S` | Save |
-| `⌥C` | Copy to clipboard |
-| `⌥G` | Open in Google Docs |
-
-### Folio Gallery
-
-| Shortcut | Action |
-|---|---|
-| `Escape` | Close |
-| `/` | Focus search |
-| `↩` | Open document |
-| `↑` / `↓` | Navigate |
-| `⌥⌫` | Delete document |
-
-### Design Annotation
-
-| Shortcut | Action |
-|---|---|
-| `Escape` | Cancel / dismiss |
-| `⌘↩` | Confirm |
-| `⌘Z` | Undo |
-| `⌘⇧Z` | Redo |
-| `1` | Rectangle tool |
-| `2` | Arrow tool |
-| `3` | Pin tool |
-| `4` | Text tool |
-| `5` | Eraser tool |
-
-### Diagram Canvas
-
-| Shortcut | Action |
-|---|---|
-| `⌘A` | Select all |
-| `⌘C` | Copy selection |
-| `⌘V` | Paste |
-| `⌘D` | Duplicate selection |
-| `Delete` | Delete selection |
-| `⌥N` | Add node |
-| `⌥G` | Add group |
-| `⌘F` | Search nodes |
-| `Escape` | Close search / drawer / focus |
-| `PgUp` / `PgDn` | Zoom in / out |
-| `↑` / `↓` / `←` / `→` | Nudge (10px) |
-| `⇧↑` / `⇧↓` / `⇧←` / `⇧→` | Nudge (1px) |
-
-## Tech Stack
-
-- **Electron** + **electron-vite** — app shell and build pipeline
-- **Svelte 5** + **TypeScript** — UI
-- **Tailwind CSS v4** — styling
-- **@anthropic-ai/claude-agent-sdk** — Claude Code process management
+Found a security issue? See [SECURITY.md](./SECURITY.md) — please don't open a public issue.
 
 ## License
 
