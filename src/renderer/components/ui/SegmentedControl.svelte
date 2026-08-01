@@ -8,17 +8,27 @@
     isActive: (value: T) => boolean;
     onSelect: (value: T) => void;
     ariaLabel: string;
+    /** Tighter command-bar spacing for narrow docked sidebars. */
+    compact?: boolean;
     /** `pill` is the library-page default (round track, 11px labels). `bar` is
      *  the 32px command-bar form: a squared track whose active segment lifts on
      *  the page surface, sized to sit level with a 32px search field. */
     variant?: "pill" | "bar";
   }
-  let { options, isActive, onSelect, ariaLabel, variant = "pill" }: Props =
-    $props();
+  let {
+    options,
+    isActive,
+    onSelect,
+    ariaLabel,
+    variant = "pill",
+    compact = false,
+  }: Props = $props();
 
   const bar = $derived(variant === "bar");
   const segBtnClass = $derived(
-    bar
+    bar && compact
+      ? "inline-flex h-full cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border-0 px-1.5 text-[11.5px] transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+      : bar
       ? "inline-flex h-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border-0 px-2.5 text-[12.5px] transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]"
       : "inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border-0 px-2.5 py-1 text-[0.6875rem] font-medium transition-[background-color,color] duration-100 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:px-3",
   );
@@ -62,7 +72,9 @@
       {/if}
       {#if opt.count !== undefined}
         <span
-          class="tabular-nums {bar
+          class="tabular-nums {bar && compact
+            ? 'hidden'
+            : bar
             ? 'font-mono text-[10px] opacity-65 @max-[16rem]:hidden'
             : active
               ? 'text-(--solus-text-tertiary)'

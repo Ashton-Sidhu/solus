@@ -37,7 +37,7 @@
   type="button"
   bind:ref={triggerEl}
   class="flex min-w-0 shrink-0 cursor-pointer items-center rounded-lg border-0 bg-muted font-medium text-foreground transition-colors duration-100 hover:bg-(--solus-surface-active) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {compact
-    ? 'h-8 gap-1.5 px-2 text-[11.5px]'
+    ? 'h-8 gap-1 px-1.5 text-[11.5px]'
     : 'h-8 gap-2 px-2.5 text-[12.5px]'}"
   aria-label="Project"
   aria-haspopup="menu"

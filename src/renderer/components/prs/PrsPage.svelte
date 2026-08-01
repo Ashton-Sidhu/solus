@@ -719,7 +719,7 @@
           placeholder="Search"
           class="h-[30px] w-full flex-none basis-auto rounded-lg border-0 bg-muted px-2.5 py-0 @max-[44rem]:basis-auto"
         />
-        <div class="flex min-w-0 items-center justify-between gap-2">
+        <div class="flex min-w-0 items-center justify-between gap-1.5">
           <PrProjectSwitcher
             options={projectOptions}
             activePath={activeProjectPath}
@@ -727,10 +727,8 @@
             compact
             onSelect={selectProject}
           />
-          {@render sortControl()}
-        </div>
-        <div class="flex min-w-0 items-center">
-          {@render filterControls(false)}
+          {@render filterControls(false, true)}
+          {@render sortControl(true)}
         </div>
       </div>
     </div>
@@ -820,9 +818,10 @@
 
 <!-- State filter, the needs-review pin, and sort — the cluster both homes of
      the inbox share, after each has placed its own search field. -->
-{#snippet filterControls(showSort = true)}
+{#snippet filterControls(showSort = true, compact = false)}
   <SegmentedControl
     variant="bar"
+    {compact}
     options={STATE_TABS.map((t) => ({
       ...t,
       // Items are fetched per state filter, so only the active tab's
@@ -851,12 +850,14 @@
   {/if}
 {/snippet}
 
-{#snippet sortControl()}
+{#snippet sortControl(compact = false)}
   <SortMenu
     bind:value={sortMode}
     options={SORT_OPTIONS}
     ariaLabel="Sort pull requests"
-    class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]"
+    class="h-8 bg-muted py-0 font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground {compact
+      ? 'gap-1 px-1.5 text-[11.5px]'
+      : 'gap-1.5 px-2.5 text-[12.5px] @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]'}"
   />
 {/snippet}
 
