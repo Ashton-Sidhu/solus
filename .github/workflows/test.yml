@@ -20,4 +20,6 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build app
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: bun run build
