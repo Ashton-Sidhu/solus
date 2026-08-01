@@ -5,6 +5,7 @@
 		{ id: 'overview',        label: 'Overview' },
 		{ id: 'getting-started', label: 'Getting Started' },
 		{ id: 'sessions',        label: 'Sessions & Tabs' },
+		{ id: 'delegated-agents', label: 'Delegated Agents' },
 		{ id: 'plans',           label: 'Working with Plans' },
 		{ id: 'panes',           label: 'Workspace Panes' },
 		{ id: 'diff',            label: 'Diff Panel' },
@@ -223,7 +224,7 @@
 				shape its plan, review every change, ship the PR, and hand the recurring stuff to
 				automations. The full keybinding reference is at the end.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated July 30, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated August 1, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -244,6 +245,7 @@
 				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Multi-tab sessions', 'Run independent agent sessions side by side, each with its own working directory and permission mode.'],
+						['Delegated agents', 'Your agent can hand a scoped task to another agent — a headless subagent, or a full session of its own — and the exchange lands in the transcript as a card you can open, follow, and answer.'],
 						['Plan mode', "Review your agent's plan before it executes. Annotate with inline comments, then approve or reject. Pin or save plans for later reference and browse revision history when the plan changes."],
 						['Workspace panes', 'Open plans, Works, automations, reviews, changed files, and diffs as focused panes or beside the active conversation. Closing a pane returns to the same chat with scroll position and drafts preserved.'],
 						['Diff panel', 'Review every file your agent touched in a side panel. Navigate between files, leave line-level comments, and send annotated feedback back in one click.'],
@@ -257,7 +259,7 @@
 						['File & screenshot attachments', 'Attach files or screenshots directly in the input bar.'],
 						['Session history', 'Resume past sessions or pick up where you left off.'],
 						['Hosts & connections', 'Pair your phone or another browser with your desktop, add other machines as hosts, and choose which host each session runs on.'],
-						['Rate limit queueing', 'Automatically wait out rate limits and re-send without losing your prompt.'],
+						['Rate limit queueing', 'Automatically wait out rate limits and re-send without losing your prompt — and watch how much of each quota window is left before you get there.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -328,6 +330,8 @@
 						['Resume past work', `Press ${kbdHtml('⌥⇧R')} to open the session history picker and jump back into any previous session with its full conversation intact.`],
 						['Queue while busy', 'Sending a message while the agent is working queues it for the next turn — you never have to wait for a stopping point to say the next thing.'],
 						['Isolate risky work', `Toggle worktree mode with ${kbdHtml('⌥⇧B')} to run the session on an isolated git worktree, keeping your working branch clean while the agent experiments. Switch between worktrees with ${kbdHtml('⌥⇧H')}.`],
+						['Switch branches from the picker', `Picking a branch in the git dropdown checks it out for the tab. If that branch is already checked out in a worktree, Solus takes you to that worktree instead of cutting a second one.`],
+						['Follow the goal', `Once a session has an objective, the project panel shows it as a <strong class="text-[#1A1714] font-medium">Goal</strong> card with its status and progress against a token budget. Codex sessions can edit, pause, resume, or clear the goal from that card.`],
 						['Ship from the keyboard', `${kbdHtml('⌥⇧C')} commits and pushes the session's changes; ${kbdHtml('⌥⇧.')} pulls to sync.`],
 					] as [title, desc]}
 						<li class="flex gap-3">
@@ -341,6 +345,46 @@
 					{@render kbd('/')} opens the slash-command menu, {@render kbd('↑')} at the start of the
 					input walks your prompt history, and {@render kbd('⌥⇧=')} expands the input for long prompts.
 				</p>
+			</section>
+
+			<section id="delegated-agents" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Delegated Agents</h2>
+				<p>
+					Some work is better handed off than done in the main thread — a wide search, an
+					independent review, a second opinion. Your agent can delegate, and Solus renders the
+					hand-off in the transcript instead of hiding it: you see what was asked, who is working
+					on it, and what came back.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Two ways to delegate</h3>
+				<div class="mt-4 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+					<div class="p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)]">
+						<p class="text-[12px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-2">Subagent · headless</p>
+						<p class="text-base/7 sm:text-[14px]">A one-shot run in the same working directory that returns a written answer. It can be launched read-only, so it explores without touching files. The card shows the prompt it was given and the report it returned.</p>
+					</div>
+					<div class="p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)]">
+						<p class="text-[12px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-2">Session · a peer</p>
+						<p class="text-base/7 sm:text-[14px]">A full Solus session of its own — its own agent, model, and history — that your agent starts or messages. It keeps running after the exchange, and you can open it like any other session.</p>
+					</div>
+				</div>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">The exchange card</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['One card per exchange', 'A turn that delegates shows a single card with the other agent, its status, and how long it has been working — not one card per message. If several agents were dispatched in the same turn, they share one card and the tab row is the roster.'],
+						['Follow along', 'The dialogue streams into the card as it happens, so you can read the hand-off without leaving the conversation.'],
+						['Reply directly', 'The field at the bottom of the card goes straight to that agent\'s session — it doesn\'t add a turn to your own conversation. On a multi-agent card you can send the same note to everyone still working.'],
+						['Answer a blocked agent', 'If the other agent stops to ask something, the card asks you the question in place. Answering unblocks it without opening its session.'],
+						['Open the session', `Use <strong class="text-[#1A1714] font-medium">Open session</strong> on the card to take over the peer session in a tab of your own.`],
+						['Unattended by design', 'A delegated run has nobody to approve a plan, so it never enters plan mode and never stalls on a permission prompt — it proceeds with the scope it was given and reports back.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+				<p class="mt-5 text-[14px] text-[#A09488]">Delegation is the agent's call — ask for it in your prompt ("review this with a second agent", "search the repo with a subagent") and it uses the tools it has.</p>
 			</section>
 
 			<section id="plans" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
@@ -751,6 +795,16 @@
 					</div>
 				</div>
 				<p class="mt-5 text-[14px] text-[#A09488]">The global default is set in Settings under <em>Rate limit behavior</em>. Individual tabs can override this independently.</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Knowing how much is left</h3>
+				<p class="text-base/7 sm:text-[14px]">
+					Better than handling a limit is seeing it coming. The project panel ({@render kbd('⌥M')})
+					shows a meter for every signed-in agent: how much of the current
+					<strong class="text-[#1A1714] font-medium">Session</strong> window and the
+					<strong class="text-[#1A1714] font-medium">Weekly</strong> window is still available, with a
+					countdown to when each one refills. The bar shifts colour as a window runs down, so a
+					nearly-spent quota reads at a glance. Agents that don't report a quota are simply left out.
+				</p>
 			</section>
 
 			<section id="connections" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
@@ -797,6 +851,11 @@
 					from sleep, switching networks, or a momentary blip all recover on their own. On supported
 					browsers you can also enable web push notifications, so a run finishing or needing your
 					attention reaches you even when the tab is in the background.
+				</p>
+				<p class="mt-3 text-[14px] text-[#A09488]">
+					Links open on the device you're actually holding. Clicking a link in a session that runs on
+					another host opens it in your own browser — the remote machine never opens a window you
+					can't see.
 				</p>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Adding a host</h3>
@@ -965,7 +1024,7 @@ solus claim                           # claim the server from this machine</div>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
 						['Default editor', 'The editor launched when opening changed files. Auto-detected from your system — supports VS Code, vim, nvim, and helix.'],
-						['Default terminal', 'Terminal app used when launching terminal-based editors. Supports the system default terminal and Ghostty.'],
+						['Default terminal', 'Terminal app used when opening a terminal or launching terminal-based editors. Supports the system default terminal and Ghostty. Terminals open as a window in a shared <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus</code> tmux session — created on first use — so every terminal Solus opens stays in one place and survives closing the window. This requires <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">tmux</code> on the machine running the session.'],
 					] as [key, val], i}
 						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
