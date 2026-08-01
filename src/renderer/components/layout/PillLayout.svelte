@@ -15,6 +15,7 @@
   import PlanModalSkeleton from "../plan/PlanModalSkeleton.svelte";
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
+  import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { retainedConversationTabIds } from "./lib/workspace-body";
 
@@ -177,7 +178,7 @@
         {#if session.settingsOpen}
           <div style="height:var(--pill-body-max);overflow:hidden">
             {#await import("../settings/SettingsPage.svelte")}
-              {@render loadingSurface("Loading settings…")}
+              <SettingsPageSkeleton />
             {:then settingsModule}
               {@const SettingsPage = settingsModule.default}
               <SettingsPage />

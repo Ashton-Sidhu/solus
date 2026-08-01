@@ -347,6 +347,7 @@ export interface NativeSolusAPI {
   getLocalConnection(): Promise<LocalConnectionInfo>
   /** Re-invokes the local-connection bootstrap to pull a fresh session token over IPC. */
   refreshLocalSessionToken(): Promise<string>
+  openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
   rendererReady(mode: 'pill' | 'editor'): void
   rendererMounted(mode: 'pill' | 'editor'): void
   getPathForFile(file: File): string
@@ -367,6 +368,8 @@ const nativeApi: NativeSolusAPI = {
   getLocalConnection: () => localConnectionPromise,
   refreshLocalSessionToken: () =>
     (ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL) as Promise<LocalConnectionInfo>).then((info) => info.token),
+  openExternal: (url: string, options?: { hideAppAfterOpen?: boolean }) =>
+    ipcRenderer.invoke('solus:open-external', url, options) as Promise<boolean>,
   rendererReady: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-ready', mode),
   rendererMounted: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-mounted', mode),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

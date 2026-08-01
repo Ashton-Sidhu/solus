@@ -6,6 +6,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'getPlatform',
   'getPathForFile',
   'getLocalConnection',
+  'openExternal',
   'setQuoteContext',
   'onQuoteSelection',
   'onAskSelectionInNewSession',
@@ -13,6 +14,11 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'rendererReady',
   'rendererMounted',
 ] as const
+
+// Most RPC methods belong to the selected host. External links are the lone
+// exception: they must open on the client device, using its native shell when
+// one exists instead of asking a remote host to open them.
+const CLIENT_LOCAL_RPC_METHODS = new Set<string>(['openExternal'])
 
 export type NativeOnlySolusMethod = (typeof NATIVE_ONLY_SOLUS_METHODS)[number]
 
@@ -24,7 +30,7 @@ export function mergeNativeOnlySolusApi(
   const merged: Record<string, unknown> = { ...transportApi }
 
   for (const method of nativeMethods) {
-    if (RPC_METHODS.has(method)) continue
+    if (RPC_METHODS.has(method) && !CLIENT_LOCAL_RPC_METHODS.has(method)) continue
     const value = nativeApi[method]
     if (typeof value === 'function') merged[method] = value
   }

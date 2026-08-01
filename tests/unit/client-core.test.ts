@@ -67,9 +67,10 @@ describe('client core transport helpers', () => {
     expect(shouldRejectQueuedRequest(1_000, true, 60_000)).toBe(false)
   })
 
-  test('overlays only native methods so RPC calls keep riding WebSocket', () => {
+  test('keeps host RPCs on WebSocket but opens external links on the client device', () => {
     const transportApi = {
       start: () => 'ws-start',
+      openExternal: () => 'web-open',
       getPlatform: () => 'web',
       getPathForFile: () => '',
       setQuoteContext: () => 'ws-quote',
@@ -77,6 +78,7 @@ describe('client core transport helpers', () => {
     }
     const nativeApi = {
       start: () => 'ipc-start',
+      openExternal: () => 'native-open',
       getPlatform: () => 'darwin',
       getPathForFile: () => '/tmp/file.txt',
       setQuoteContext: () => 'native-quote',
@@ -88,6 +90,7 @@ describe('client core transport helpers', () => {
     const merged = mergeNativeOnlySolusApi(transportApi, nativeApi)
 
     expect((merged.start as () => string)()).toBe('ws-start')
+    expect((merged.openExternal as () => string)()).toBe('native-open')
     expect((merged.getPlatform as () => string)()).toBe('darwin')
     expect((merged.getPathForFile as () => string)()).toBe('/tmp/file.txt')
     expect((merged.setQuoteContext as () => string)()).toBe('native-quote')

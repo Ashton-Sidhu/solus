@@ -15,6 +15,8 @@
   import PlanModalSkeleton from '../plan/PlanModalSkeleton.svelte'
   import DocumentModalSkeleton from '../document-modal/DocumentModalSkeleton.svelte'
   import DiagramShellSkeleton from '../diagram/DiagramShellSkeleton.svelte'
+  import ConversationPaneSkeleton from '../conversation/ConversationPaneSkeleton.svelte'
+  import SettingsPageSkeleton from '../settings/SettingsPageSkeleton.svelte'
 
   // Keep every non-conversation surface behind an actual async boundary. Pane
   // itself is part of the editor's common module graph, but these views are not
@@ -518,7 +520,7 @@
   <!-- A chat pinned beside the primary conversation. Only ever reaches the
        secondary slot: a primary conversation renders through the pool. -->
   {#await import('../conversation/ConversationPane.svelte')}
-    {@render loadingSurface('Loading conversation…')}
+    <ConversationPaneSkeleton />
   {:then conversationModule}
     {@const ConversationPane = conversationModule.default}
     <ConversationPane
@@ -534,7 +536,11 @@
        explicit height instead. -->
   <div class="flex min-h-0 flex-col {slot === 'secondary' ? 'h-full' : 'flex-1'}">
     {#await PAGE_LOADERS[content.kind]()}
-      {@render loadingSurface('Loading page…')}
+      {#if content.kind === 'settings'}
+        <SettingsPageSkeleton />
+      {:else}
+        {@render loadingSurface('Loading page…')}
+      {/if}
     {:then pageModule}
       {@const Page = pageModule.default}
       <Page />

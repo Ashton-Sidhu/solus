@@ -35,12 +35,11 @@ function ensureWorker(): UtilityProcess {
   const child = utilityProcess.fork(WORKER_PATH, [], { serviceName: 'solus-transcription' })
   child.on('message', (message) => handleWorkerMessage(message as WorkerResponse))
   child.once('exit', (code) => {
-    const err = `Transcription worker exited with code ${code}`
     log.warn('transcription_worker_exited', { code })
     for (const [id, request] of pending) {
       pending.delete(id)
       log.metric('transcribe_audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
-      request.resolve({ error: `Transcription failed: ${err}`, transcript: null })
+      request.resolve({ error: `Transcription stopped unexpectedly (exit code ${code})`, transcript: null })
     }
     warmupResolve?.()
     warmupResolve = null

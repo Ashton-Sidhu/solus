@@ -279,7 +279,9 @@ export class VoiceRecorder {
       })
       if (result.error) {
         this.#pendingTranscription = pending
-        this.#setError(`Voice failed: ${result.error}`, 'transient')
+        // Backend errors are already written for the user ("Voice model is still
+        // downloading (42%)"), so prefixing them just stutters in the toast.
+        this.#setError(result.error, 'transient')
       } else {
         this.#pendingTranscription = null
         allowAutoRearm = true

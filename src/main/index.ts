@@ -864,6 +864,17 @@ ipcMain.handle(LOCAL_CONNECTION_CHANNEL, async () => {
   }
 })
 
+ipcMain.handle('solus:open-external', async (_event, url: unknown, options?: { hideAppAfterOpen?: boolean }) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false
+  try {
+    await shell.openExternal(url)
+    if (options?.hideAppAfterOpen) hideAppWindow()
+    return true
+  } catch {
+    return false
+  }
+})
+
 function scheduleSessionIndexer(): void {
   if (sessionIndexerStarted || sessionIndexerStartTimer) return
   // The renderer reports after its first real idle window. Keep a small cushion

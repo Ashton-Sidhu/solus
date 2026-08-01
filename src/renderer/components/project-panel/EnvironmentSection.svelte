@@ -17,6 +17,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import GitDropdown from "../GitDropdown.svelte";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
+  import UsageMeters from "./UsageMeters.svelte";
   import {
     worktreeProjectRoot,
     type WorktreeEntry,
@@ -206,6 +207,9 @@
       <MenuRow item={row} onActivate={row.run} />
     {/each}
   </div>
+  <!-- Subscription quota closes the section: what's left to spend in this
+       environment, per provider. -->
+  <UsageMeters {active} />
 </div>
 
 <style>
