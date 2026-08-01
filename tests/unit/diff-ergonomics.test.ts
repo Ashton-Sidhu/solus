@@ -146,20 +146,22 @@ diff --git a/src/new.ts b/src/new.ts
     expect(visible.additionLines[visible.hunks[0].additionLineIndex].trim()).toBe('runCurrent()')
   })
 
-  test('narrative ordering leads with entry points, then tests, then configuration', () => {
+  test('diff files follow the tree panel hierarchy and natural filename order', () => {
     const files = [
       { name: 'vite.config.ts' },
-      { name: 'src/parser.ts' },
-      { name: 'src/parser.test.ts' },
-      { name: 'src/main.ts' },
-      { name: 'src/index.test.ts' },
+      { name: 'src/parser10.ts' },
+      { name: 'README.md' },
+      { name: 'tests/parser.test.ts' },
+      { name: 'src/parser2.ts' },
+      { name: 'src/lib/tokenize.ts' },
     ] as FileDiffMetadata[]
 
     expect(orderDiffFiles(files).map((file) => file.name)).toEqual([
-      'src/main.ts',
-      'src/parser.ts',
-      'src/parser.test.ts',
-      'src/index.test.ts',
+      'src/lib/tokenize.ts',
+      'src/parser2.ts',
+      'src/parser10.ts',
+      'tests/parser.test.ts',
+      'README.md',
       'vite.config.ts',
     ])
   })

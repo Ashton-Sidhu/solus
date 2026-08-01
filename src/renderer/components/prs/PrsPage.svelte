@@ -719,7 +719,7 @@
           placeholder="Search"
           class="h-[30px] w-full flex-none basis-auto rounded-lg border-0 bg-muted px-2.5 py-0 @max-[44rem]:basis-auto"
         />
-        <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+        <div class="flex min-w-0 items-center justify-between gap-2">
           <PrProjectSwitcher
             options={projectOptions}
             activePath={activeProjectPath}
@@ -727,7 +727,10 @@
             compact
             onSelect={selectProject}
           />
-          {@render filterControls()}
+          {@render sortControl()}
+        </div>
+        <div class="flex min-w-0 items-center">
+          {@render filterControls(false)}
         </div>
       </div>
     </div>
@@ -817,7 +820,7 @@
 
 <!-- State filter, the needs-review pin, and sort — the cluster both homes of
      the inbox share, after each has placed its own search field. -->
-{#snippet filterControls()}
+{#snippet filterControls(showSort = true)}
   <SegmentedControl
     variant="bar"
     options={STATE_TABS.map((t) => ({
@@ -841,14 +844,20 @@
       <XIcon size={11} />
     </Button>
   {/if}
-  <div class="ml-auto flex shrink-0 items-center gap-2.5">
-    <SortMenu
-      bind:value={sortMode}
-      options={SORT_OPTIONS}
-      ariaLabel="Sort pull requests"
-      class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]"
-    />
-  </div>
+  {#if showSort}
+    <div class="ml-auto flex shrink-0 items-center gap-2.5">
+      {@render sortControl()}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet sortControl()}
+  <SortMenu
+    bind:value={sortMode}
+    options={SORT_OPTIONS}
+    ariaLabel="Sort pull requests"
+    class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground @max-[16rem]:gap-1 @max-[16rem]:px-1.5 @max-[16rem]:text-[11.5px]"
+  />
 {/snippet}
 
 <!-- The centered page's masthead: the repo the inbox is reading, the surface

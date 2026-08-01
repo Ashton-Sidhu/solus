@@ -554,17 +554,18 @@
 
 <section class="flex h-full min-h-0 flex-col bg-card">
   {#if !headless}
-    <!-- One 56px bar: navigation, the PR's identity, and the pane controls that
+    <!-- One chrome-height bar: navigation, the PR's identity, and the pane controls that
          PaneChrome floats for every other surface. Consolidated here (rather
          than in PaneChrome) so this review reads as a single header row while
          every other pane keeps the shared floating cluster.
          No rule beneath it, and no centred measure: the bar spans the pane's
-         full width on the pane's own gutters, so its controls stay on the same
-         edges as the surfaces below (the diff toolbar and file tree are
-         full-bleed) instead of floating inboard on a wide window. -->
-    <div class="@container h-[56px] shrink-0 overflow-hidden">
+         full width with the same leading gutter as the diff toolbar while the
+         trailing controls reach the pane's right edge. -->
+    <div
+      class="@container h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 overflow-hidden"
+    >
       <div
-        class="flex h-full w-full items-center justify-between gap-4 pr-[clamp(20px,2.6vw,56px)] pl-[max(clamp(20px,2.6vw,56px),var(--solus-chrome-lead-inset,0px))]"
+        class="flex h-full w-full items-center justify-between gap-4 pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
       >
         <div class="flex min-w-0 flex-1 items-center gap-3">
           <Tabs.Root

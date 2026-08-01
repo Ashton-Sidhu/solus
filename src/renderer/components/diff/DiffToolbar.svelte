@@ -550,11 +550,10 @@
 
 <style>
   /* A control strip sitting on the diff surface. Left padding clears the macOS
-     traffic lights when the strip is the leftmost chrome (maximized diff pane);
-     the right gutter clears the pane's floating chrome cluster. Both collapse to
-     the base 0.75rem otherwise. The hairline underneath separates the strip from
-     the now-flat code surface, which no longer has washes of its own to divide
-     the two. */
+     traffic lights when the strip is the leftmost chrome (maximized diff pane).
+     The trailing controls use the base gutter because pane chrome occupies its
+     own row above. The hairline underneath separates the strip from the now-flat
+     code surface, which no longer has washes of its own to divide the two. */
   /* Height is the workspace chrome row, not intrinsic content — the diff pane
      sits beside the tab strip and the two top rows have to share a baseline.
      Same token TabStrip.css and SidePanel.svelte use. */
@@ -564,7 +563,7 @@
     gap: 0.375rem;
     min-height: var(--solus-chrome-row-h, 2.5rem);
     padding-block: 0;
-    padding-right: max(0.75rem, var(--solus-pane-chrome-inset, 0px));
+    padding-right: 0.75rem;
     padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px));
     border-bottom: 0.0625rem solid var(--solus-container-border);
     flex-shrink: 0;

@@ -787,8 +787,8 @@
   });
   const treeGitStatus = $derived(toGitStatusEntries(treeFiles));
 
-  // A review guide keeps its authored section/file order. The unguided Diff
-  // panel instead uses a stable entry → core → tests → config narrative.
+  // Keep the stream, keyboard navigation, find results, and mobile file sheet
+  // in the same hierarchical order as the file tree.
   const orderedFiles = $derived(orderDiffFiles(treeFiles));
 
   function toFullPath(p: string): string {
@@ -854,7 +854,8 @@
 </script>
 
 <div
-  class="relative flex flex-col h-full diff-panel-border"
+  class="relative flex h-full flex-col diff-panel-selectable"
+  class:diff-panel-bordered={!embedded}
   style="background:var(--solus-container-bg)"
   bind:clientWidth={panelWidth}
   role="region"
@@ -1006,14 +1007,13 @@
 </div>
 
 <style>
-  :global(.diff-panel-border) {
+  :global(.diff-panel-bordered) {
     border-left: 0.0625rem solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);
   }
   @media (max-width: 767px) {
-    :global(.diff-panel-border) {
+    :global(.diff-panel-bordered) {
       border-left: none;
     }
   }
-
 </style>

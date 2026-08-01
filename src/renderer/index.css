@@ -1941,8 +1941,8 @@ button.solus-token {
 /* ─── Allow text selection in conversation content and diff panel ─── */
 .prose-cloud,
 .conversation-selectable,
-.diff-panel-border,
-.diff-panel-border * {
+.diff-panel-selectable,
+.diff-panel-selectable * {
   user-select: text;
   -webkit-user-select: text;
 }
