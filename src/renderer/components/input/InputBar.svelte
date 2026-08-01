@@ -14,6 +14,7 @@
     getWindowContext,
     runtime,
     savedPrompts,
+    toasts,
   } from "../../contexts";
   import type {
     PlanReference,
@@ -506,6 +507,14 @@
     prevVoiceErrorKind = kind;
     if (kind === null) voiceRetry.reset();
     else voiceRetry.note(kind);
+  });
+
+  let prevVoiceError = untrack(() => voice.error);
+  $effect(() => {
+    const error = voice.error;
+    if (error === prevVoiceError) return;
+    prevVoiceError = error;
+    if (error && isActiveMode && ownsVoice) toasts.error(error);
   });
 
   $effect(() => {
@@ -1061,11 +1070,6 @@
     </div>
   {/if}
 
-  {#if ownsVoice && voice.error}
-    <div class="px-1 pb-2 text-[0.6875rem] text-(--solus-status-error)">
-      {voice.error}
-    </div>
-  {/if}
 </div>
 
 {#snippet savedPromptsControl()}

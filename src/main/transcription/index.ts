@@ -5,7 +5,7 @@ import { createLogger } from '../logger'
 import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady } from '../model-downloader'
 
 const log = createLogger('main', 'transcription/index.ts')
-const WORKER_PATH = join(__dirname, '..', 'transcription-worker.js')
+const WORKER_PATH = join(__dirname, 'transcription-worker.js')
 const BACKEND = 'Parakeet ONNX INT8'
 
 type PhaseMetrics = Record<string, number>

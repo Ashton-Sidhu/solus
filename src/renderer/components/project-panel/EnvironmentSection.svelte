@@ -62,40 +62,44 @@
     return environmentStore.watchDetails(env.cwd);
   });
 
-  const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(() => [
-    {
-      key: "files",
-      label: "Files",
-      icon: FolderIcon,
-      phase: "idle",
-      disabled: !onOpenFiles,
-      run: () => {
-        onOpenFiles?.();
+  const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
+    () => [
+      {
+        key: "files",
+        label: "Files",
+        icon: FolderIcon,
+        phase: "idle",
+        disabled: !onOpenFiles,
+        run: () => {
+          onOpenFiles?.();
+        },
       },
-    },
-    {
-      key: "terminal",
-      label: "Terminal",
-      // The row trails with the terminal configured in Settings.
-      badge: settings.defaultTerminal === "ghostty" ? "Ghostty" : undefined,
-      hint: comboHint("orb.open-terminal"),
-      icon: TerminalWindowIcon,
-      phase: "idle",
-      disabled: !!hostAffinity,
-      tooltip: hostAffinity
-        ? `Runs on ${host?.label} — not available for remote sessions`
-        : undefined,
-      run: () => {
-        actions.openTerminal();
-        requestInputFocus();
+      {
+        key: "terminal",
+        label: "Terminal",
+        // The row trails with the terminal configured in Settings.
+        badge: settings.defaultTerminal === "ghostty" ? "Ghostty" : undefined,
+        hint: comboHint("orb.open-terminal"),
+        icon: TerminalWindowIcon,
+        phase: "idle",
+        disabled: !!hostAffinity,
+        tooltip: hostAffinity
+          ? `Runs on ${host?.label} — not available for remote sessions`
+          : undefined,
+        run: () => {
+          actions.openTerminal();
+          requestInputFocus();
+        },
       },
-    },
-  ]);
+    ],
+  );
 
   let branchPickerOpen = $state(false);
   let branchTriggerEl: HTMLButtonElement | null = $state(null);
 
-  const worktrees = $derived(environmentStore.refsFor(branchRepoRoot).worktrees);
+  const worktrees = $derived(
+    environmentStore.refsFor(branchRepoRoot).worktrees,
+  );
 
   // Environment selection is navigation, not an in-place retarget of this
   // panel's tab. Omitting tabId lets the workspace preserve a started session
@@ -138,23 +142,16 @@
     <!-- Read-only: the host is chosen before the session starts and locked
          after, so this row states a fact rather than offering a picker. -->
     <div class="host-row" title={hostAffinity.tooltip}>
-      <span class="host-row-icon"><HostIcon size={13} class={hostAffinity.className} /></span>
+      <span class="host-row-icon"
+        ><HostIcon size={13} class={hostAffinity.className} /></span
+      >
       <span class="host-row-name">{host.label}</span>
       <span class="menu-trail">{hostAffinity.statusLabel}</span>
     </div>
   {/if}
-  {#if !env.branch && status === undefined}
-    <p class="empty">Loading git status…</p>
-  {:else if !env.branch && status === null}
-    <div class="flex flex-col items-start gap-1 px-2 py-2">
-      <span class="text-[0.8125rem] font-secondary text-(--solus-text-secondary)"
-        >No Git repository</span
-      >
-      <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
-        Initialize Git to manage branches and changes.
-      </span>
-    </div>
-  {:else}
+  <!-- Git availability governs only the branch switcher. Files and Terminal
+       belong to the environment itself and remain useful outside a repository. -->
+  {#if env.branch && status}
     <button
       bind:this={branchTriggerEl}
       class="branch-row"
@@ -203,12 +200,12 @@
       />
     {/if}
     <div class="branch-divider" aria-hidden="true"></div>
-    <div class="menu-list">
-      {#each actionRows as row (row.key)}
-        <MenuRow item={row} onActivate={row.run} />
-      {/each}
-    </div>
   {/if}
+  <div class="menu-list">
+    {#each actionRows as row (row.key)}
+      <MenuRow item={row} onActivate={row.run} />
+    {/each}
+  </div>
 </div>
 
 <style>
