@@ -9,7 +9,7 @@ import { runBounded } from '../../lib/concurrency'
 import { MemoryCache } from '../../../shared/cache'
 
 export const PLAN_LIST_TTL = 60_000
-export const _planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: PLAN_LIST_TTL })
+export const _planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: PLAN_LIST_TTL, maxEntries: 64 })
 
 /**
  * In-flight cold plan scans keyed by cache key, mirroring _sessionScanInFlight.

@@ -172,6 +172,16 @@
     onKeyDown?.(e);
   }
 
+  function handleCardFocusOut(event: FocusEvent & { currentTarget: HTMLDivElement }) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    // Hiding the Electron window blurs the editor with no next target. Keep the
+    // card's focused presentation in that case so restoring the app does not
+    // paint one unfocused frame before Chromium restores editor focus.
+    if (next === null && !document.hasFocus()) return;
+    focused = false;
+  }
+
   // ─── Exposed host methods ───
 
   export function focus() {
@@ -224,6 +234,8 @@
     ? 'shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]'
     : 'shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]'}"
   style:display={collapsed ? "none" : null}
+  onfocusin={() => (focused = true)}
+  onfocusout={handleCardFocusOut}
 >
   {#if hasMountedWaveform}
     <div class="flex items-center gap-2" style:display={showWaveform ? null : "none"} style="padding:0.5rem 0.25rem">
@@ -248,10 +260,8 @@
       }}
       onKeyDown={handleKeyDown}
       onFocus={() => {
-        focused = true;
         claimVoice();
       }}
-      onBlur={() => (focused = false)}
       onPlanRefClick={(planId) => session.openPlanModal(planId)}
       onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
       onPrRefClick={(number, title) =>

@@ -6,6 +6,7 @@ import { buildHttpServer } from './http'
 import { getServerSettings, setRemoteAccess } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { attachWebSocketTransport } from '../transports/websocket'
+import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
 import type { ControlPlane } from '../control-plane'
 import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
@@ -234,7 +235,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
   })
   registerStackHandlers(server)
-  registerChecksHandlers(server)
+  const checksHandlers = registerChecksHandlers(server)
   registerUsageHandlers(server, { controlPlane: opts.controlPlane })
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
@@ -304,7 +305,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getPort: () => actualPort,
     transcribeAudio: opts.transcribeAudio,
   })
-  let ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
+  const responseReceiptBudget = new ResponseReceiptBudget()
+  let ws = attachWebSocketTransport(http, server, {
+    requireAuth: () => requireAuth,
+    responseBudget: responseReceiptBudget,
+  })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
 
@@ -344,8 +349,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const clientId = event?.clientId ?? (event?.id ? `ws:${event.id}` : undefined)
     if (event?.type === 'connect' && clientId) {
       opts.controlPlane.handleClientConnected(clientId)
+      checksHandlers.handleClientConnected(clientId)
     } else if (event?.type === 'disconnect' && clientId) {
       opts.controlPlane.handleClientDisconnected(clientId, event.deviceId ?? undefined)
+      checksHandlers.handleClientDisconnected(clientId)
     }
   })
   isDeviceOnline = (deviceId: string) => {
@@ -431,10 +438,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Existing WS connections (including the one carrying this very toggle)
     // keep the plain http.close() callback from ever firing, since Node waits
     // for all live sockets to end on their own. Force them closed first.
+    checksHandlers.handleTransportClosed()
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
-    ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
+    ws = attachWebSocketTransport(http, server, {
+      requireAuth: () => requireAuth,
+      responseBudget: responseReceiptBudget,
+    })
     lock = acquireLock(host, actualPort)
     if (!lock) log.warn('lock_acquisition_failed_after_rebind')
     log.info('server_rebound', { host, port: actualPort, requireAuth })
@@ -473,6 +484,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
         await lanDiscovery.close()
+        checksHandlers.handleTransportClosed()
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { tick } from "svelte";
   import {
     SparkleIcon,
     FilesIcon,
@@ -35,9 +35,9 @@
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
+    reviewGuideStore,
     sessionGuideIdentity,
-    sessionGuideStatusStore,
-  } from "../review/session-guide-status.store.svelte";
+  } from "../review/review-guide.store.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import Kbd from "../ui/Kbd.svelte";
   import * as Popover from "../ui/popover";
@@ -128,9 +128,13 @@
   const sessionReviewGuideKey = $derived(
     sess?.agentSessionId ? `session-${sess.agentSessionId}` : null,
   );
-  const sessionReviewIdentity = $derived(sessionGuideIdentity(sess));
+  const changesFingerprint = $derived(sessionChangedFiles.join("|"));
+  const sessionReviewIdentity = $derived.by(() => {
+    const identity = sessionGuideIdentity(sess);
+    return identity ? { ...identity, revision: changesFingerprint } : null;
+  });
   const sharedReviewStatus = $derived(
-    sessionGuideStatusStore.statusFor(
+    reviewGuideStore.statusFor(
       session.apiFor(tabId),
       sessionReviewIdentity,
     ),
@@ -169,49 +173,38 @@
   );
 
   // ── Review changes (background generation) ──
-  let reviewStatus = $state<"idle" | "generating" | "done">("idle");
-  let reviewProgressStep = $state<ReviewProgressStep>("preparing");
-  let reviewGuideKey = $state<string | null>(null);
+  const reviewStatus = $derived<"idle" | "generating" | "done">(
+    sharedReviewStatus?.status === "ready"
+      ? "done"
+      : sharedReviewStatus?.status === "queued" ||
+          sharedReviewStatus?.status === "generating"
+        ? "generating"
+        : "idle",
+  );
+  const reviewProgressStep = $derived<ReviewProgressStep>(
+    sharedReviewStatus?.step ?? "preparing",
+  );
+  const reviewGuideKey = $derived(
+    sharedReviewStatus?.status === "ready" ? sharedReviewStatus.key : null,
+  );
   let reviewPopoverOpen = $state(false);
-  let reviewRunId = 0;
   let lastReviewFailureAt = 0;
-  // Fingerprint of the change set the current "done" guide covered. When the
-  // session keeps editing past it, drop back to "Review" instead of latching
-  // "View Review" on a walkthrough of an older change.
-  let reviewSnapshot = $state<string | null>(null);
-  const changesFingerprint = $derived(sessionChangedFiles.join("|"));
 
   $effect(() => {
     const identity = sessionReviewIdentity;
     if (!identity) return;
     const api = session.apiFor(tabId);
-    void sessionGuideStatusStore.load(
+    void reviewGuideStore.load(
       api,
       session.ctxFor(tabId),
       identity,
+      "session",
     );
   });
 
   $effect(() => {
     const status = sharedReviewStatus;
     if (!status) return;
-    if (status.step) reviewProgressStep = status.step;
-    if (status.status === "queued" || status.status === "generating") {
-      reviewStatus = "generating";
-      return;
-    }
-    if (status.status === "ready" && sessionReviewGuideKey === status.key) {
-      reviewGuideKey = status.key;
-      reviewSnapshot = changesFingerprint;
-      reviewStatus = "done";
-      return;
-    }
-    if (
-      reviewStatus === "generating" &&
-      (status.status === "failed" || status.status === "cancelled")
-    ) {
-      reviewStatus = "idle";
-    }
     if (
       status.status === "failed" &&
       status.updatedAt !== lastReviewFailureAt
@@ -222,50 +215,6 @@
           ? `Review stopped: ${status.error}`
           : "Review stopped before a guide was produced. Try again.",
       );
-    }
-  });
-
-  // Latch keyed by tabId → the change-set fingerprint we last probed for a cached
-  // guide. Without it, every re-activation of a dirty tab whose probe found no
-  // guide (status stays "idle") repeats getReviewContext + readGuide — a git
-  // round-trip in main per tab switch. Plain (non-reactive) Map: it's a memo, not
-  // rendered state, so it must not itself invalidate the effect. Fingerprint read
-  // via untrack for the same reason — the probe is scoped to activation, not to
-  // every mid-turn file change.
-  const reviewCheckedFingerprint = new Map<string, string>();
-  $effect(() => {
-    const key = sessionReviewGuideKey;
-    if (!hasSessionChanges || !key || tabId !== session.activeTabId) return;
-    if (reviewStatus !== "idle") return;
-    const fp = untrack(() => changesFingerprint);
-    if (reviewCheckedFingerprint.get(tabId) === fp) return;
-    reviewCheckedFingerprint.set(tabId, fp);
-    const ctx = session.ctxFor(tabId);
-    const api = session.apiFor(tabId);
-    api.getReviewContext(ctx).then(async (rc) => {
-      if (!rc) return;
-      const cached = await api.readGuide(ctx, key);
-      // A cached guide from an older HEAD is stale — leave the orb on "Review"
-      // so clicking generates a fresh walkthrough.
-      if (cached && cached.headSha && cached.headSha !== rc.headSha) return;
-      if (
-        cached &&
-        sessionReviewGuideKey === key &&
-        reviewStatus === "idle"
-      ) {
-        reviewGuideKey = key;
-        reviewSnapshot = changesFingerprint;
-        reviewStatus = "done";
-      }
-    });
-  });
-
-  $effect(() => {
-    if (reviewStatus !== "done" || reviewSnapshot === null) return;
-    if (changesFingerprint !== reviewSnapshot) {
-      reviewStatus = "idle";
-      reviewGuideKey = null;
-      reviewSnapshot = null;
     }
   });
 
@@ -592,54 +541,48 @@
     requestInputFocus();
   }
 
-  async function handleReview() {
-    if (reviewStatus === "done" && reviewGuideKey) {
-      panes.enterReview(reviewGuideKey, "session");
+  async function handleReview(regenerate = false) {
+    if (!regenerate && reviewStatus === "done" && reviewGuideKey) {
+      panes.enterReview(reviewGuideKey, "session", {
+        sourceTabId: tabId,
+        workingDirectory: gitCwd ?? projectRoot,
+        gitContext: sess?.gitContext ?? null,
+      });
       closeExpanded();
       return;
     }
     if (reviewStatus === "generating") return;
-    const expectedGuideKey = sessionReviewGuideKey;
-    if (!expectedGuideKey) return;
-
-    const runId = ++reviewRunId;
-    reviewStatus = "generating";
-    reviewProgressStep = "preparing";
+    const identity = sessionReviewIdentity;
+    if (!identity) return;
     const api = session.apiFor(tabId);
 
     try {
-      const status = await api.requestSessionGuide(session.ctxFor(tabId), {
+      await reviewGuideStore.generate(api, session.ctxFor(tabId), identity, {
         ...resolveReviewAgent(theme, agentContext),
+        scope: "session",
       });
-      if (runId !== reviewRunId) return;
-      if (!status || status.key !== expectedGuideKey) {
-        reviewStatus = "idle";
-        return;
-      }
-      sessionGuideStatusStore.set(api, status);
-    } catch {
-      if (runId === reviewRunId) reviewStatus = "idle";
+    } catch (error) {
+      toasts.error(
+        `Couldn't start review: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
-      if (runId !== reviewRunId) return;
       requestInputFocus();
     }
   }
 
   function handleCancelReview() {
     if (reviewStatus !== "generating") return;
-    reviewRunId += 1;
-    reviewStatus = "idle";
     reviewPopoverOpen = false;
-    void session.apiFor(tabId).cancelGenerateGuide(session.ctxFor(tabId), {
-      scope: "session",
-    });
+    void reviewGuideStore.cancel(
+      session.apiFor(tabId),
+      session.ctxFor(tabId),
+      "session",
+    );
     requestInputFocus();
   }
 
   function handleRegenerate() {
-    reviewStatus = "idle";
-    reviewGuideKey = null;
-    void handleReview();
+    void handleReview(true);
   }
 
   function closeExpanded(focusInput = true) {
@@ -1154,7 +1097,7 @@
               </Popover.Content>
             {/if}
             <Popover.Trigger
-              onclick={handleReview}
+              onclick={() => void handleReview()}
               openOnHover={reviewStatus === "generating"}
               openDelay={0}
               closeDelay={120}

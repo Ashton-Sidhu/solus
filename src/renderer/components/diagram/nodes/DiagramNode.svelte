@@ -11,10 +11,6 @@
   import type { PinSummary } from '../lib/comment-threads'
   import CommentPin from '../CommentPin.svelte'
 
-  // Kick off the (code-split, idempotent) brand-icon registration on first node
-  // mount, so the ~12MB icon sets stay out of the eager startup bundle.
-  ensureIconCollections()
-
   interface NodeData extends DiagramNode {
     expanded?: boolean
     dimmed?: boolean
@@ -51,6 +47,9 @@
 
   const resolved = $derived(resolveIcon(data.icon, isEntity ? 'table' : 'service'))
   const iconifyName = $derived(resolved.iconify)
+  $effect(() => {
+    if (iconifyName) void ensureIconCollections()
+  })
   const iconSvg = $derived(resolved.svg)
   const iconEmoji = $derived(resolved.emoji)
 

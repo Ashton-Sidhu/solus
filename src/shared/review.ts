@@ -60,6 +60,19 @@ export interface ReviewContext {
   prUrl?: string
 }
 
+/** Stable storage key for the latest guide for one review target. Branch
+ * guides follow the checkout branch; session guides follow the provider
+ * session regardless of branch. Shared so renderer cache lookups and the
+ * producer cannot drift onto different files. */
+export function reviewGuideKeyFor(
+  branch: string,
+  scope: 'branch' | 'session' | undefined,
+  sessionId: string | null,
+): string {
+  if (scope === 'session' && sessionId) return `session-${sessionId}`
+  return branch.replace(/\//g, '__')
+}
+
 export interface ReviewGuide {
   version: 1
   key: string
@@ -127,12 +140,13 @@ export interface ReviewProgressEvent {
   step: ReviewProgressStep
 }
 
-export type SessionGuideStatus = 'queued' | 'generating' | 'ready' | 'failed' | 'cancelled'
+export type ReviewGuideStatus = 'queued' | 'generating' | 'ready' | 'failed' | 'cancelled'
 
-export interface SessionGuideStatusEvent {
+export interface ReviewGuideStatusEvent {
   repoRoot: string
   key: string
-  status: SessionGuideStatus
+  scope: 'branch' | 'session'
+  status: ReviewGuideStatus
   headSha: string
   step?: ReviewProgressStep
   updatedAt: number

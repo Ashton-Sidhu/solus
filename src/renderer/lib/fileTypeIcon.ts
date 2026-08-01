@@ -1,7 +1,6 @@
 // Maps a file path to a vibrant Iconify `logos:` icon name for known languages,
-// or null when the type has no brand logo — callers fall back to the monochrome
-// extension badge. The `logos` collection is ~12MB and lazy-loaded on demand
-// (see ensureIconCollections); @iconify/svelte re-renders once it registers.
+// or null when the type has no brand logo. A build-time subset keeps only these
+// icons locally; @iconify/svelte re-renders once that subset registers.
 
 // Full filename matches (no extension) take priority over extension lookup.
 const ICON_BY_FILENAME: Record<string, string> = {
@@ -50,6 +49,10 @@ const ICON_BY_EXT: Record<string, string> = {
   mdx: "logos:markdown",
   sql: "logos:postgresql",
 };
+
+export const FILE_TYPE_ICON_NAMES = Array.from(
+  new Set([...Object.values(ICON_BY_FILENAME), ...Object.values(ICON_BY_EXT)]),
+);
 
 export function fileTypeIcon(path: string): string | null {
   const name = (path.split("/").pop() ?? path).toLowerCase();

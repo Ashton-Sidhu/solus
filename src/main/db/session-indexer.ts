@@ -19,6 +19,8 @@ const log = createLogger('main', 'session-indexer')
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects')
 const WATCH_DEBOUNCE_MS = 2_000
 const LINES_PER_TRANSACTION = 300
+const READ_CHUNK_BYTES = 256 * 1024
+export const MAX_INDEXED_SESSION_LINE_BYTES = 4 * 1024 * 1024
 const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
 
 interface SessionRow {
@@ -64,22 +66,6 @@ const changedPaths = new Set<string>()
 
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve))
-}
-
-async function readTail(filePath: string, offset: number, size: number): Promise<Buffer> {
-  const fh = await open(filePath, 'r')
-  const tail = Buffer.allocUnsafe(size - offset)
-  let totalRead = 0
-  try {
-    while (totalRead < tail.length) {
-      const { bytesRead } = await fh.read(tail, totalRead, tail.length - totalRead, offset + totalRead)
-      if (bytesRead === 0) break
-      totalRead += bytesRead
-    }
-  } finally {
-    await fh.close()
-  }
-  return tail.subarray(0, totalRead)
 }
 
 function deleteSessionFile(filePath: string): void {
@@ -145,6 +131,122 @@ function extractMessage(line: string, endOffset: number): IndexedMessage | null 
     }
   } catch {
     return null
+  }
+}
+
+/**
+ * Stream complete JSONL records from the unread portion of a transcript.
+ *
+ * A session can grow to hundreds of megabytes. Reading its entire unread tail
+ * used to retain both that Buffer and a second array containing every parsed
+ * line until indexing began. Chunking here bounds the reader's working set to
+ * one 256 KiB block plus the current line; callers separately bound parsed
+ * records to one database transaction.
+ */
+export async function* readTailRecordBatches(
+  filePath: string,
+  offset: number,
+  size: number,
+): AsyncGenerator<Array<{ endOffset: number; message: IndexedMessage | null }>> {
+  const file = await open(filePath, 'r')
+  let position = offset
+  let pendingChunks: Buffer[] = []
+  let pendingLength = 0
+  let skippingOversizedLine = false
+  let records: Array<{ endOffset: number; message: IndexedMessage | null }> = []
+
+  const parseLine = (lineBuffer: Buffer, endOffset: number): IndexedMessage | null => {
+    const withoutCarriageReturn = lineBuffer.at(-1) === 0x0d
+      ? lineBuffer.subarray(0, lineBuffer.length - 1)
+      : lineBuffer
+    return extractMessage(withoutCarriageReturn.toString('utf8'), endOffset)
+  }
+
+  try {
+    while (position < size) {
+      const requestedBytes = Math.min(READ_CHUNK_BYTES, size - position)
+      const buffer = Buffer.allocUnsafe(requestedBytes)
+      const { bytesRead } = await file.read(buffer, 0, requestedBytes, position)
+      if (bytesRead === 0) break
+
+      const chunk = buffer.subarray(0, bytesRead)
+      let lineStart = 0
+      while (lineStart < chunk.length) {
+        const newline = chunk.indexOf(0x0a, lineStart)
+        if (skippingOversizedLine) {
+          if (newline === -1) {
+            lineStart = chunk.length
+            break
+          }
+          const endOffset = position + newline + 1
+          records.push({ endOffset, message: null })
+          if (records.length >= LINES_PER_TRANSACTION) {
+            yield records
+            records = []
+          }
+          skippingOversizedLine = false
+          lineStart = newline + 1
+          continue
+        }
+        if (newline === -1) break
+
+        const segment = chunk.subarray(lineStart, newline)
+        const endOffset = position + newline + 1
+        if (pendingLength + segment.length > MAX_INDEXED_SESSION_LINE_BYTES) {
+          records.push({ endOffset, message: null })
+        } else {
+          const lineBuffer = pendingLength === 0
+            ? segment
+            : Buffer.concat([...pendingChunks, segment], pendingLength + segment.length)
+          records.push({ endOffset, message: parseLine(lineBuffer, endOffset) })
+        }
+        if (records.length >= LINES_PER_TRANSACTION) {
+          yield records
+          records = []
+        }
+        pendingChunks = []
+        pendingLength = 0
+        lineStart = newline + 1
+      }
+
+      if (lineStart < chunk.length) {
+        const remainder = chunk.subarray(lineStart)
+        if (pendingLength + remainder.length > MAX_INDEXED_SESSION_LINE_BYTES) {
+          pendingChunks = []
+          pendingLength = 0
+          skippingOversizedLine = true
+        } else {
+          pendingChunks.push(remainder)
+          pendingLength += remainder.length
+        }
+      }
+      position += bytesRead
+    }
+
+    if (!skippingOversizedLine && pendingLength > 0) {
+      const lineBuffer = pendingChunks.length === 1
+        ? pendingChunks[0]
+        : Buffer.concat(pendingChunks, pendingLength)
+      const endOffset = position
+      const message = parseLine(lineBuffer, endOffset)
+      if (message) {
+        records.push({ endOffset, message })
+      } else {
+        const withoutCarriageReturn = lineBuffer.at(-1) === 0x0d
+          ? lineBuffer.subarray(0, lineBuffer.length - 1)
+          : lineBuffer
+        try {
+          JSON.parse(withoutCarriageReturn.toString('utf8'))
+          records.push({ endOffset, message: null })
+        } catch {
+          // The agent may still be writing the final line. Leave the offset at
+          // the preceding newline so the completed record is read next sweep.
+        }
+      }
+    }
+    if (records.length > 0) yield records
+  } finally {
+    await file.close()
   }
 }
 
@@ -297,78 +399,43 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
     return
   }
 
-  const tail = await readTail(filePath, readOffset, fileStat.size)
-  if (activeGeneration !== generation) return
-
   const projectPath = relative(PROJECTS_ROOT, filePath).split(/[\\/]/)[0] || basename(dirname(filePath))
   const isWorktree = projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER)
-  const records: Array<{ endOffset: number; message: IndexedMessage | null }> = []
-  let lineStart = 0
-  while (lineStart < tail.length) {
-    const newline = tail.indexOf(0x0a, lineStart)
-    const lineEnd = newline === -1 ? tail.length : newline
-    const endOffset = readOffset + (newline === -1 ? lineEnd : lineEnd + 1)
-    const line = tail.subarray(lineStart, lineEnd).toString('utf8').replace(/\r$/, '')
-    const message = extractMessage(line, endOffset)
-    if (newline === -1 && !message) {
-      try {
-        JSON.parse(line)
-      } catch {
-        break
-      }
-    }
-    records.push({ endOffset, message })
-    lineStart = lineEnd + 1
-  }
+  let lastIndexedOffset = readOffset
 
-  if (records.length === 0) {
-    withTx(() => {
-      upsertSession(
-        sessionId,
-        meta.cwd,
-        projectPath,
-        isWorktree,
-        meta.slug,
-        meta.firstMessage,
-        mtime,
-        fileStat.size,
-      )
-      getDb().prepare(`
-        UPDATE session_files
-        SET size = ?, mtime = ?, last_offset = ?, indexed_at = ?
-        WHERE path = ?
-      `).run(fileStat.size, mtime, readOffset, Date.now(), filePath)
-    })
-    return
-  }
-
-  for (let index = 0; index < records.length; index += LINES_PER_TRANSACTION) {
+  for await (const records of readTailRecordBatches(filePath, readOffset, fileStat.size)) {
     if (activeGeneration !== generation) return
-    const chunk = records.slice(index, index + LINES_PER_TRANSACTION)
-    const isFinalChunk = index + LINES_PER_TRANSACTION >= records.length
+    lastIndexedOffset = records.at(-1)!.endOffset
     withTx(() => {
       const openedDb = getDb()
-      insertSessionMessageRows(sessionId, chunk.map((record) => record.message))
-      if (isFinalChunk) {
-        upsertSession(
-          sessionId,
-          meta.cwd,
-          projectPath,
-          isWorktree,
-          meta.slug,
-          meta.firstMessage,
-          mtime,
-          fileStat.size,
-        )
-      }
+      insertSessionMessageRows(sessionId, records.map((record) => record.message))
       openedDb.prepare(`
         UPDATE session_files
         SET size = ?, mtime = ?, last_offset = ?, indexed_at = ?
         WHERE path = ?
-      `).run(fileStat.size, mtime, chunk.at(-1)!.endOffset, Date.now(), filePath)
+      `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
     })
     await yieldToMain()
   }
+  if (activeGeneration !== generation) return
+
+  withTx(() => {
+    upsertSession(
+      sessionId,
+      meta.cwd,
+      projectPath,
+      isWorktree,
+      meta.slug,
+      meta.firstMessage,
+      mtime,
+      fileStat.size,
+    )
+    getDb().prepare(`
+      UPDATE session_files
+      SET size = ?, mtime = ?, last_offset = ?, indexed_at = ?
+      WHERE path = ?
+    `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
+  })
 }
 
 async function listTranscriptFiles(activeGeneration: number): Promise<string[]> {

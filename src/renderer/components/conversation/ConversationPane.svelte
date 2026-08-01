@@ -11,12 +11,14 @@
 
   interface Props {
     tabId: string;
+    surfaceVisible?: boolean;
     onAttachFile?: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
     onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
   let {
     tabId,
+    surfaceVisible = true,
     onAttachFile,
     onScreenshot,
     onDesignMode,
@@ -104,7 +106,7 @@
   <div class="flex min-h-0 min-w-0 flex-1">
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <div class="flex min-h-0 flex-1 flex-col">
-        <ConversationView {tabId} onDiffToggle={toggleDiff} forceVisible />
+        <ConversationView {tabId} onDiffToggle={toggleDiff} forceVisible {surfaceVisible} />
       </div>
 
       <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5">
@@ -118,6 +120,6 @@
       </div>
     </div>
 
-    <ProjectPanel {tabId} slot="secondary" containerWidth={paneWidth} />
+    <ProjectPanel {tabId} slot="secondary" containerWidth={paneWidth} active={surfaceVisible} />
   </div>
 </div>

@@ -3,6 +3,7 @@ import { createRequire } from 'module'
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
+import { solusIconSubset } from '../scripts/vite-icon-collections'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -37,7 +38,7 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
-  plugins: [tailwindcss(), svelte()],
+  plugins: [solusIconSubset(), tailwindcss(), svelte()],
   server: {
     host: '0.0.0.0',
     port: 5174,

@@ -13,8 +13,7 @@
   import { resolveLedgerRefs, type GuideDiffCommentSave } from "./lib/guide-data";
   import GuideExplanation from "./GuideExplanation.svelte";
 
-  // Register the (lazy, ~12MB) `logos` icon set so file-type badges can resolve
-  // their vibrant brand icons. Idempotent and shared with the diagram canvas.
+  // Register the small offline icon subset used by file-type badges.
   ensureIconCollections();
 
   // One concern in the walkthrough: a sticky "why" summary (title, explanation,
@@ -253,7 +252,7 @@
           {/if}
         </div>
         {#if open}
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto bg-(--solus-diff-surface)">
             {#if fileVisible && patch}
               <div class="guide-diff-in">
                 <GuideFileDiff

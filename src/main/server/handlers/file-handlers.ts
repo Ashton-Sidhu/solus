@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
 import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
+import { MAX_VOICE_SAMPLES, MAX_VOICE_WAV_BYTES } from '../../../shared/voice-audio'
 import { transcribeAudio } from '../../transcription'
 import { readWav } from '../../transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
@@ -428,10 +429,19 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   server.register('transcribeAudio', (args) => {
     const [audio] = args as [unknown]
     if (audio instanceof Float32Array) return transcribeAudio(audio)
+    if (Array.isArray(audio) && audio.length > MAX_VOICE_SAMPLES) {
+      return { error: 'Voice recording exceeds the 60 minute limit', transcript: null }
+    }
     if (Array.isArray(audio) && audio.every((sample) => typeof sample === 'number')) {
       return transcribeAudio(Float32Array.from(audio))
     }
-    if (typeof audio === 'string') return transcribeAudio(readWav(Buffer.from(audio, 'base64')))
+    if (typeof audio === 'string') {
+      const maxBase64Chars = Math.ceil(MAX_VOICE_WAV_BYTES / 3) * 4
+      if (audio.length > maxBase64Chars) {
+        return { error: 'Voice recording exceeds the 60 minute limit', transcript: null }
+      }
+      return transcribeAudio(readWav(Buffer.from(audio, 'base64')))
+    }
     if (audio instanceof ArrayBuffer || audio instanceof Uint8Array) {
       return { error: 'Transcription expects 16 kHz Float32 PCM audio or a base64 WAV string.', transcript: null }
     }

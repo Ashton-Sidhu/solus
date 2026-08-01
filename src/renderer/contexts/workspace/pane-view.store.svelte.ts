@@ -19,7 +19,14 @@ export type BaseContent =
   // session-scoped one (ActionOrb) so the companion regenerates against the right
   // base; `key` already encodes the scope, but the prop keeps the companion from
   // having to parse it.
-  | { kind: 'review'; key: string; scope?: 'branch' | 'session' }
+  | {
+      kind: 'review'
+      key: string
+      scope?: 'branch' | 'session'
+      sourceTabId?: string
+      workingDirectory?: string
+      gitContext?: GitCheckout | null
+    }
   // PR review (M3): the review surface — Activity · Guide · Diff content tabs —
   // lives MAXIMIZED in the secondary pane. The worktree-rooted chat is created
   // lazily when requested; `chatTabId` identifies it once it exists.
@@ -188,8 +195,17 @@ export class PaneViewStore {
    * Review mode owns the primary pane (companion) directly, leaving the
    * secondary available for the diff/preview overlay a focus-hunk opens.
    */
-  enterReview(key: string, scope: 'branch' | 'session' = 'branch'): void {
-    this.primaryContent = { kind: 'review', key, scope }
+  enterReview(
+    key: string,
+    scope: 'branch' | 'session' = 'branch',
+    origin: { sourceTabId: string; workingDirectory: string; gitContext: GitCheckout | null } | null = null,
+  ): void {
+    this.primaryContent = {
+      kind: 'review',
+      key,
+      scope,
+      ...(origin ?? {}),
+    }
   }
 
   /** Place a PR review in the secondary pane without disturbing the current

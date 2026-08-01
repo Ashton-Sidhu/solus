@@ -1,5 +1,5 @@
 import { networkInterfaces } from 'os'
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { createLogger } from '../logger'
 import type { DiscoveredServer } from '../../shared/types'
@@ -10,6 +10,11 @@ const TAILSCALE_PATHS = ['/usr/local/bin/tailscale', '/usr/bin/tailscale', '/opt
 const DEFAULT_DISCOVERY_PORT = parseInt(process.env.SOLUS_PORT ?? '') || 3000
 const DISCOVERY_PROBE_TIMEOUT_MS = 1500
 const DISCOVERY_CONCURRENCY = 8
+const TAILSCALE_STATUS_TTL_MS = 5_000
+const TAILSCALE_STATUS_MAX_BYTES = 4 * 1024 * 1024
+
+let tailscaleStatusCache: { value: unknown | null; expiresAt: number } | null = null
+let tailscaleStatusPending: Promise<unknown | null> | null = null
 
 export interface ReachableEndpoint {
   /** "loopback" | "lan" | "tailnet" */
@@ -44,7 +49,7 @@ interface DiscoveryProbeTarget {
  * server isn't bound to 127.0.0.1; Tailnet endpoints appear when `tailscaled`
  * is running.
  */
-export function listReachableEndpoints(bindHost: string, port: number): ReachableEndpoint[] {
+export async function listReachableEndpoints(bindHost: string, port: number): Promise<ReachableEndpoint[]> {
   const out: ReachableEndpoint[] = [
     { kind: 'loopback', label: 'Localhost', host: '127.0.0.1', port },
   ]
@@ -66,7 +71,7 @@ export function listReachableEndpoints(bindHost: string, port: number): Reachabl
     }
   }
 
-  const tailnet = detectTailscaleEndpoint(port)
+  const tailnet = await detectTailscaleEndpoint(port)
   if (tailnet) out.push(tailnet)
 
   return out
@@ -77,7 +82,7 @@ export async function discoverTailnetServers(opts: {
   ownInstallationId: string
   fetchImpl?: typeof fetch
 }): Promise<DiscoveredServer[]> {
-  const status = readTailscaleStatus()
+  const status = await readTailscaleStatus()
   if (!status) return []
 
   const candidates = parseTailscalePeerCandidates(status)
@@ -125,20 +130,50 @@ function findTailscaleBin(): string | null {
   return null
 }
 
-function readTailscaleStatus(): unknown | null {
+async function readTailscaleStatus(): Promise<unknown | null> {
+  const now = Date.now()
+  if (tailscaleStatusCache && tailscaleStatusCache.expiresAt > now) return tailscaleStatusCache.value
+  if (tailscaleStatusPending) return tailscaleStatusPending
+
   const bin = findTailscaleBin()
   if (!bin) return null
 
-  try {
-    return JSON.parse(execFileSync(bin, ['status', '--json'], { encoding: 'utf8', timeout: 1500 }))
-  } catch (err) {
-    log.debug('tailscale_not_reachable', { error: err instanceof Error ? err.message : String(err) })
-    return null
-  }
+  tailscaleStatusPending = new Promise<unknown | null>((resolve) => {
+    execFile(
+      bin,
+      ['status', '--json'],
+      { encoding: 'utf8', timeout: 1_500, maxBuffer: TAILSCALE_STATUS_MAX_BYTES },
+      (error, stdout) => {
+        if (error) {
+          log.debug('tailscale_not_reachable', { error: error.message })
+          resolve(null)
+          return
+        }
+        try {
+          resolve(JSON.parse(stdout))
+        } catch (parseError) {
+          log.debug('tailscale_status_invalid', {
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          })
+          resolve(null)
+        }
+      },
+    )
+  }).then((value) => {
+    tailscaleStatusCache = { value, expiresAt: Date.now() + TAILSCALE_STATUS_TTL_MS }
+    return value
+  }).finally(() => {
+    tailscaleStatusPending = null
+  })
+
+  return tailscaleStatusPending
 }
 
-function detectTailscaleEndpoint(port: number): ReachableEndpoint | null {
-  const parsed = readTailscaleStatus()
+async function detectTailscaleEndpoint(port: number): Promise<ReachableEndpoint | null> {
+  return tailnetEndpointFromStatus(await readTailscaleStatus(), port)
+}
+
+export function tailnetEndpointFromStatus(parsed: unknown, port: number): ReachableEndpoint | null {
   const ip = (parsed as { Self?: { TailscaleIPs?: unknown } } | null)?.Self?.TailscaleIPs
   if (Array.isArray(ip)) {
     const ipv4 = ip.find((s): s is string => typeof s === 'string' && /^\d+\./.test(s))

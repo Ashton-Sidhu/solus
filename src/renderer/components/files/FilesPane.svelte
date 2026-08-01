@@ -23,6 +23,7 @@
   import FilePreviewStream, {
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
+  import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import { getWorkspaceContext, runtime } from "../../contexts";
   import * as Resizable from "../ui/resizable";
   import {
@@ -41,8 +42,7 @@
   let { ctx, cwd, isDark, onClose }: Props = $props();
   const workspace = getWorkspaceContext();
 
-  // Register the (lazy, ~12MB) `logos` icon set so the header's file-type badge
-  // can resolve its vibrant brand icon. Idempotent and shared across the app.
+  // Register the small offline icon subset used by file-type badges.
   ensureIconCollections();
 
   // Match the PR-review guide's file header: an extension badge plus a
@@ -419,7 +419,7 @@
         </TooltipUI.Root>
         <div class="min-h-0 flex-1 overflow-hidden">
           {#if loading && files.length === 0}
-            <div class="p-3 text-[0.75rem] text-(--solus-text-tertiary)">Loading files...</div>
+            <FilesPaneSkeleton variant="tree" />
           {:else if error}
             <div class="flex gap-2 p-3 text-[0.75rem] text-(--solus-status-error)">
               <WarningCircleIcon size={14} weight="fill" class="mt-0.5 shrink-0" />
@@ -447,10 +447,8 @@
 
     <Resizable.Pane order={2} minSize={runtime.isMobileViewport ? 45 : 0}>
       <section class="flex h-full min-h-0 min-w-0 flex-col">
-        {#if fileLoading}
-          <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
-            Opening file...
-          </div>
+        {#if fileLoading || (loading && files.length === 0)}
+          <FilesPaneSkeleton variant="editor" />
         {:else if fileError}
           <div class="flex flex-1 items-center justify-center p-6 text-center text-[0.75rem] text-(--solus-status-error)">
             {fileError}

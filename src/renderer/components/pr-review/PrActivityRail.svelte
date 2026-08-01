@@ -22,8 +22,7 @@
   import { fileName, dirName } from "./lib/activity-data";
   import { Skeleton } from "../ui/skeleton";
 
-  // Register the lazy (~12MB) `logos` icon set so changed-file rows can resolve
-  // their vibrant brand icon. Idempotent and shared across the app.
+  // Register the small offline icon subset used by changed-file rows.
   ensureIconCollections();
 
   // The activity tab's right rail: merge readiness as a card, then flat

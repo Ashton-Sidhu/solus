@@ -1023,6 +1023,36 @@ export class ControlPlane extends EventEmitter {
     return cancelled
   }
 
+  private _cancelAgentConversationRunWatches(targetSessionId: string, runKey: string): boolean {
+    const callers = this.agentConversationWatches.get(targetSessionId)
+    if (!callers?.size) return false
+
+    const cancelled: Array<{ callerSessionId: string; watch: AgentConversationWatch }> = []
+    for (const [callerSessionId, watches] of callers) {
+      for (let index = watches.length - 1; index >= 0; index--) {
+        if (watches[index].runKey !== runKey) continue
+        cancelled.unshift({ callerSessionId, watch: watches[index] })
+        watches.splice(index, 1)
+      }
+      if (!watches.length) callers.delete(callerSessionId)
+    }
+    if (!callers.size) this.agentConversationWatches.delete(targetSessionId)
+
+    for (const { callerSessionId, watch } of cancelled) {
+      this._broadcastToSessionId('event', callerSessionId, {
+        type: 'agent_conversation_update',
+        update: {
+          phase: 'settled',
+          agentSessionId: targetSessionId,
+          exchangeId: watch.exchangeId,
+          status: 'interrupted',
+          replyText: '',
+        },
+      })
+    }
+    return cancelled.length > 0
+  }
+
   loadSessionPreview(agentId: AgentId, sessionId: string, projectPath?: string): Promise<SessionPreviewResult> {
     const backend = this._backendFor(agentId)
     if (backend.loadSessionPreview) return backend.loadSessionPreview(sessionId, projectPath)
@@ -1507,6 +1537,7 @@ export class ControlPlane extends EventEmitter {
       for (let i = queue.length - 1; i >= 0; i--) {
         const req = queue[i]
         queue.splice(i, 1)
+        this._cancelAgentConversationRunWatches(agentSessionId, req.queueId)
         req.reject(new Error('Interrupted'))
         this._broadcastToSessionId('event', req.agentSessionId, { type: 'prompt_dequeued', queueId: req.queueId })
         if (req.rateLimitSessionId) this._cleanupRateLimitTimerIfUnused(req.rateLimitSessionId)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
 import { CodexTurnNormalizer } from '../../src/main/agents/codex/codex-event-normalizer'
-import { codexItemToMessage, codexTurnToMessages } from '../../src/main/agents/codex/codex-utils'
+import { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } from '../../src/main/agents/codex/codex-utils'
 import type { NormalizedEvent } from '../../src/shared/types'
 
 type RawCodexEvent = { method: string; params: any }
@@ -514,6 +514,34 @@ describe('CodexTurnNormalizer', () => {
 })
 
 describe('Codex subagent history', () => {
+  test('does not convert older turns outside a requested transcript window', () => {
+    let olderTurnsRead = 0
+    const turns = Array.from({ length: 100 }, (_, index) => {
+      const turn = {
+        startedAt: index + 1,
+        items: [{ type: 'agentMessage', text: `message ${index}` }],
+      }
+      if (index < 95) {
+        Object.defineProperty(turn, 'items', {
+          get() {
+            olderTurnsRead++
+            return [{ type: 'agentMessage', text: `message ${index}` }]
+          },
+        })
+      }
+      return turn
+    })
+
+    expect(codexTurnsToMessages(turns, 5).map((message) => message.content)).toEqual([
+      'message 95',
+      'message 96',
+      'message 97',
+      'message 98',
+      'message 99',
+    ])
+    expect(olderTurnsRead).toBe(0)
+  })
+
   test('rehydrates a failed turn with its terminal error', () => {
     const messages = codexTurnToMessages({
       status: 'failed',

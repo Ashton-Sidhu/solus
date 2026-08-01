@@ -6,9 +6,6 @@
   import { EditableLabel } from '../editable-label.svelte'
   import { ensureIconCollections } from '../iconify'
 
-  // Code-split, idempotent brand-icon registration (see DiagramNode).
-  ensureIconCollections()
-
   interface NodeData extends DiagramNode {
     dimmed?: boolean
     onLabelChange?: (id: string, label: string) => void
@@ -31,6 +28,9 @@
 
   // Groups default to the curated container glyph rather than a service icon.
   const resolved = $derived(resolveIcon(data.icon, 'group'))
+  $effect(() => {
+    if (resolved.iconify) void ensureIconCollections()
+  })
 
   const editor = new EditableLabel({
     getLabel: () => data.label,

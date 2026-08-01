@@ -63,6 +63,7 @@ describe('Git state initialization', () => {
       },
       ctxFor: () => ({ session: { provider: null } }) as any,
       loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
+      rebuildAgentConversations: () => {},
     })
     let initialized = false
     const initialization = store.initStaticInfo().then(() => { initialized = true })

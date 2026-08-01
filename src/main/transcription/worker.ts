@@ -27,14 +27,11 @@ type ParakeetModel = {
 }
 
 type WorkerRequest =
-  | { id: number; type: 'transcribe'; samples: Float32Array }
-  | { type: 'warmup' }
+  { id: number; type: 'transcribe'; samples: Float32Array }
 
 type WorkerResponse =
   | { id: number; type: 'result'; transcript: string; phaseMs: PhaseMetrics }
   | { id: number; type: 'error'; message: string; phaseMs: PhaseMetrics }
-  | { type: 'warmup-done'; ms: number }
-  | { type: 'warmup-error'; message: string }
 
 let modelPromise: Promise<ParakeetModel> | null = null
 
@@ -206,16 +203,6 @@ async function transcribe(samples: Float32Array, phaseMs: PhaseMetrics): Promise
   }
 }
 
-async function handleWarmup(): Promise<void> {
-  const startedAt = performance.now()
-  try {
-    await transcribe(new Float32Array(8_000), {})
-    post({ type: 'warmup-done', ms: elapsedMs(startedAt) })
-  } catch (err: any) {
-    post({ type: 'warmup-error', message: err.message ?? String(err) })
-  }
-}
-
 async function handleTranscribe(request: Extract<WorkerRequest, { type: 'transcribe' }>): Promise<void> {
   const phaseMs: PhaseMetrics = {}
   try {
@@ -229,6 +216,5 @@ async function handleTranscribe(request: Extract<WorkerRequest, { type: 'transcr
 const parentPort = (process as any).parentPort
 parentPort?.on('message', (event: { data: WorkerRequest } | WorkerRequest) => {
   const request = 'data' in event ? event.data : event
-  if (request.type === 'warmup') void handleWarmup()
-  else if (request.type === 'transcribe') void handleTranscribe(request)
+  void handleTranscribe(request)
 })

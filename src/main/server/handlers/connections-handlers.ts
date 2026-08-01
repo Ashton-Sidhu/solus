@@ -60,9 +60,9 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return { ...info, installationId: getInstallationId() }
   })
 
-  server.register('connectionsListEndpoints', () => {
+  server.register('connectionsListEndpoints', async () => {
     const { host, port } = deps.getServerInfo()
-    return listReachableEndpoints(host, port)
+    return await listReachableEndpoints(host, port)
   })
 
   server.register('discoverServers', async () => {

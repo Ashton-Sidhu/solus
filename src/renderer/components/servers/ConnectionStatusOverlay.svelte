@@ -4,6 +4,7 @@
   import { formatElapsed } from "@client-core/connection-display";
   import { serversStore } from "../../contexts";
   import { connectionOverlayMode } from "./lib/connection-overlay";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   /**
    * The pill window is a transparent, click-through canvas over the desktop, so
@@ -21,9 +22,7 @@
   let now = $state(Date.now());
   $effect(() => {
     if (!serversStore.offlineSince) return;
-    now = Date.now();
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   const mode = $derived(

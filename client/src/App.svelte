@@ -281,14 +281,12 @@
 
   $effect(() => {
     const unsubRun = window.solus.onRunStatus((status) => runStore.apply(status));
-    const unsubRunLog = window.solus.onRunLog((batch) => runStore.applyLog(batch));
     const unsubUsage = window.solus.onUsageLimits((snapshots) =>
       agent.applyUsage(snapshots),
     );
     void agent.refreshUsage();
     return () => {
       unsubRun();
-      unsubRunLog();
       unsubUsage();
     };
   });
@@ -326,6 +324,7 @@
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
+      session.prsStore.reportChecksActivity(session.ctx);
     }
   });
 

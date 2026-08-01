@@ -82,6 +82,7 @@
 
   const visibleLines = $derived.by(() => {
     const needle = filterText.trim().toLowerCase();
+    if (severityFloor === 0 && !needle) return logLines;
     return logLines.filter((l) => {
       if (LEVEL_RANK[l.level] < severityFloor) return false;
       if (needle && !lowerText(l).includes(needle)) return false;
@@ -183,9 +184,14 @@
     run.state === "starting" || run.state === "running",
   );
 
-  // Seed the buffer once (covers output from before we subscribed).
+  // Subscribe only while this console is mounted. The backend remains the
+  // authoritative ring buffer, so hidden Editor/Pill/web surfaces do not each
+  // retain their own 20k-line copy.
   $effect(() => {
-    if (commandId) void runStore.backfillLogs(cwd, commandId);
+    const activeCommandId = commandId;
+    const activeRepoRoot = run.repoRoot;
+    if (!activeCommandId) return;
+    return runStore.retainLogs(cwd, activeRepoRoot, activeCommandId);
   });
 
   // Keep pinned to the newest line as logs stream in (or the filter changes).
@@ -701,6 +707,9 @@
     font-family: var(--solus-code-font-family);
     font-size: 0.6875rem;
     line-height: 1.65;
+    content-visibility: auto;
+    contain: layout paint style;
+    contain-intrinsic-block-size: auto 1.25rem;
   }
   .ln-gutter {
     display: inline-flex;

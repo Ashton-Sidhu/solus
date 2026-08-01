@@ -7,7 +7,11 @@ export type ClaudeUsageWindows = Pick<AgentUsageLimits, 'fiveHour' | 'weekly'>
 // Anchored on the line prefixes, not line position: the report also carries
 // per-model week lines ("Current week (Fable)") and a usage breakdown whose
 // length varies with how much the account has run.
-const SESSION_LINE = /^Current session: (\d+)% used · resets (.+)$/m
+// The session's reset clause is optional: before the first request of a
+// 5-hour block there is no window to reset, so Claude prints the percent
+// alone. Requiring the clause dropped the whole meter at the start of every
+// block — a window at 0% is a fact worth showing, countdown or not.
+const SESSION_LINE = /^Current session: (\d+)% used(?: · resets (.+))?$/m
 const WEEKLY_LINE = /^Current week \(all models\): (\d+)% used · resets (.+)$/m
 
 /**
@@ -31,6 +35,6 @@ function usageWindow(match: RegExpMatchArray | null): UsageWindow | null {
     // (America/Toronto)") — nothing safe to turn into an epoch, so the
     // provider's own wording is all we keep.
     resetsAt: null,
-    resetsLabel: match[2].trim(),
+    resetsLabel: match[2]?.trim() ?? null,
   }
 }

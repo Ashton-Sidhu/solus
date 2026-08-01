@@ -91,6 +91,7 @@ describe('workspace plugin command demand', () => {
         getPluginCommands: async () => tabId === 'tab-a' ? requestA.promise : requestB.promise,
       }) as any,
       loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
+      rebuildAgentConversations: () => {},
     })
 
     const loadingA = store.refreshPluginCommands('/repo-a', 'tab-a')

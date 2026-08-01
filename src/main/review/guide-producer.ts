@@ -1,5 +1,5 @@
 import type { IpcContext, AgentId, ReasoningEffort } from '../../shared/types'
-import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewProgressEvent, type ReviewProgressStep, type SessionGuideStatus, type SessionGuideStatusEvent } from '../../shared/review'
+import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewGuideStatus, type ReviewGuideStatusEvent, type ReviewProgressEvent, type ReviewProgressStep } from '../../shared/review'
 import { getEpisodeDiff, getSessionBaseSha, resolvePrDiffBase } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
@@ -44,6 +44,7 @@ export interface GenerateGuideOptions {
  * walkthroughs suffix their stable key so distinct bases never coalesce. */
 interface GuideTarget {
   guideKey: string
+  scope: 'branch' | 'session'
   base: string
   /** Set only for a session walkthrough — filters the ledger to this session. */
   sessionId: string | null
@@ -57,11 +58,11 @@ async function resolveTarget(ctx: IpcContext, review: ReviewContext, opts: Gener
   if (opts.scope === 'session' && sessionId) {
     const sessionBase = getSessionBaseSha(review.repoRoot, sessionId)
     const branchBase = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
-    return { guideKey: guideKeyFor(review, opts.scope, sessionId), base: sessionBase ?? branchBase, sessionId }
+    return { guideKey: guideKeyFor(review, opts.scope, sessionId), scope: 'session', base: sessionBase ?? branchBase, sessionId }
   }
   const branchBase = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
   const baseKey = guideKeyFor(review, opts.scope, sessionId ?? null)
-  if (!opts.ownDeltaBase) return { guideKey: baseKey, base: branchBase, sessionId: null }
+  if (!opts.ownDeltaBase) return { guideKey: baseKey, scope: 'branch', base: branchBase, sessionId: null }
 
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   const base = await resolvePrDiffBase(workTree, review.repoRoot, {
@@ -72,6 +73,7 @@ async function resolveTarget(ctx: IpcContext, review: ReviewContext, opts: Gener
   })
   return {
     guideKey: reviewGuideKeyForBase(baseKey, opts.ownDeltaBase.headSha),
+    scope: 'branch',
     base,
     sessionId: null,
   }
@@ -94,19 +96,20 @@ type InFlightGuide = {
 }
 
 const inFlight = new Map<string, InFlightGuide>()
-const guideStatuses = new Map<string, SessionGuideStatusEvent>()
+const guideStatuses = new Map<string, ReviewGuideStatusEvent>()
 
-type EmitStatus = (event: SessionGuideStatusEvent) => void
+type EmitStatus = (event: ReviewGuideStatusEvent) => void
 
 function statusEvent(
   review: ReviewContext,
   target: GuideTarget,
-  status: SessionGuideStatus,
-  details: Pick<SessionGuideStatusEvent, 'step' | 'error'> = {},
-): SessionGuideStatusEvent {
+  status: ReviewGuideStatus,
+  details: Pick<ReviewGuideStatusEvent, 'step' | 'error'> = {},
+): ReviewGuideStatusEvent {
   return {
     repoRoot: review.repoRoot,
     key: target.guideKey,
+    scope: target.scope,
     status,
     headSha: review.headSha,
     updatedAt: Date.now(),
@@ -117,9 +120,9 @@ function statusEvent(
 
 function setGuideStatus(
   dedupeKey: string,
-  event: SessionGuideStatusEvent,
+  event: ReviewGuideStatusEvent,
   onStatus?: EmitStatus,
-): SessionGuideStatusEvent {
+): ReviewGuideStatusEvent {
   guideStatuses.set(dedupeKey, event)
   onStatus?.(event)
   return event
@@ -173,7 +176,7 @@ export async function generateGuide(
   const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, emit)
     .then((generated) => {
       if (inFlight.get(dedupeKey) !== entry) return generated
-      const status: SessionGuideStatus = abortController.signal.aborted
+      const status: ReviewGuideStatus = abortController.signal.aborted
         ? 'cancelled'
         : generated?.persisted
           ? 'ready'
@@ -194,7 +197,7 @@ export async function generateGuide(
     })
     .catch((error) => {
       if (inFlight.get(dedupeKey) !== entry) throw error
-      const status: SessionGuideStatus = abortController.signal.aborted ? 'cancelled' : 'failed'
+      const status: ReviewGuideStatus = abortController.signal.aborted ? 'cancelled' : 'failed'
       setGuideStatus(dedupeKey, statusEvent(review, target, status, {
         error: error instanceof Error ? error.message : String(error),
       }), onStatus)
@@ -208,16 +211,16 @@ export async function generateGuide(
   return run
 }
 
-export async function requestSessionGuide(
+export async function requestReviewGuide(
   dispatcher: AgentDispatcher,
   ctx: IpcContext,
-  opts: Omit<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> = {},
+  opts: GenerateGuideOptions = {},
   onProgress?: (event: ReviewProgressEvent) => void,
   onStatus?: EmitStatus,
-): Promise<SessionGuideStatusEvent | null> {
+): Promise<ReviewGuideStatusEvent | null> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review) return null
-  const target = await resolveTarget(ctx, review, { ...opts, scope: 'session' })
+  const target = await resolveTarget(ctx, review, opts)
   const dedupeKey = `${review.repoRoot}::${target.guideKey}`
   const running = inFlight.get(dedupeKey)
   if (running) {
@@ -236,12 +239,12 @@ export async function requestSessionGuide(
     .then(() => generateGuide(
       dispatcher,
       ctx,
-      { ...opts, scope: 'session' },
+      opts,
       onProgress,
       onStatus,
     ))
     .catch((error) => {
-      log.warn('session_review_generation_failed', {
+      log.warn('review_generation_failed', {
         guideKey: target.guideKey,
         error: error instanceof Error ? error.message : String(error),
       })
@@ -249,12 +252,13 @@ export async function requestSessionGuide(
   return queued
 }
 
-export async function getSessionGuideStatus(
+export async function getReviewGuideStatus(
   ctx: IpcContext,
-): Promise<SessionGuideStatusEvent | null> {
+  opts: Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> = {},
+): Promise<ReviewGuideStatusEvent | null> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review) return null
-  const target = await resolveTarget(ctx, review, { scope: 'session' })
+  const target = await resolveTarget(ctx, review, opts)
   const dedupeKey = `${review.repoRoot}::${target.guideKey}`
   const current = guideStatuses.get(dedupeKey)
   if (current && current.headSha !== review.headSha) guideStatuses.delete(dedupeKey)

@@ -16,6 +16,8 @@ import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
 import { SvelteMap } from 'svelte/reactivity'
 
 const PR_CACHE_TTL_MS = 30_000
+export const PR_CACHE_MAX_ENTRIES = 64
+const PR_LARGE_CACHE_MAX_ENTRIES = 8
 const NEEDS_REVIEW_POLL_MS = 15 * 60_000
 
 interface CacheEntry<T> {
@@ -112,40 +114,77 @@ export class PrsStore {
     return entry?.value !== undefined && Date.now() - entry.loadedAt < PR_CACHE_TTL_MS
   }
 
+  private setCacheEntry<T>(
+    cache: Map<string, CacheEntry<T>>,
+    key: string,
+    entry: CacheEntry<T>,
+    maxEntries = PR_CACHE_MAX_ENTRIES,
+  ): void {
+    const now = Date.now()
+    for (const [cacheKey, candidate] of cache) {
+      if (!candidate.inFlight && candidate.value !== undefined && now - candidate.loadedAt >= PR_CACHE_TTL_MS) {
+        cache.delete(cacheKey)
+      }
+    }
+    // Reinsertion makes the map's iteration order an inexpensive LRU order.
+    cache.delete(key)
+    cache.set(key, entry)
+    while (cache.size > maxEntries) {
+      let evicted = false
+      for (const [cacheKey, candidate] of cache) {
+        if (candidate.inFlight) continue
+        cache.delete(cacheKey)
+        evicted = true
+        break
+      }
+      // Do not cancel or detach an in-flight provider request merely to meet a
+      // transient cap. Its settlement will immediately run this pruning again.
+      if (!evicted) break
+    }
+  }
+
   private async readCached<T>(
     cache: Map<string, CacheEntry<T>>,
     key: string,
     force: boolean,
     load: () => Promise<T>,
+    maxEntries = PR_CACHE_MAX_ENTRIES,
   ): Promise<T> {
     const entry = cache.get(key)
     if (!force) {
-      if (this.isFresh(entry)) return entry.value
+      if (this.isFresh(entry)) {
+        this.setCacheEntry(cache, key, entry, maxEntries)
+        return entry.value
+      }
       if (entry?.inFlight) return entry.inFlight
     }
 
     const inFlight = load()
       .then((value) => {
-        cache.set(key, { value, loadedAt: Date.now() })
+        this.setCacheEntry(cache, key, { value, loadedAt: Date.now() }, maxEntries)
         return value
       })
       .finally(() => {
         const current = cache.get(key)
         if (current?.inFlight !== inFlight) return
-        if (current.value !== undefined) cache.set(key, { value: current.value, loadedAt: current.loadedAt })
+        if (current.value !== undefined) {
+          this.setCacheEntry(cache, key, { value: current.value, loadedAt: current.loadedAt }, maxEntries)
+        }
         else cache.delete(key)
       })
-    cache.set(key, { value: entry?.value, loadedAt: entry?.loadedAt ?? 0, inFlight })
+    this.setCacheEntry(cache, key, { value: entry?.value, loadedAt: entry?.loadedAt ?? 0, inFlight }, maxEntries)
     return inFlight
   }
 
   private seed<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T): void {
-    cache.set(key, { value, loadedAt: Date.now() })
+    this.setCacheEntry(cache, key, { value, loadedAt: Date.now() })
   }
 
   private cached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
     const entry = cache.get(key)
-    return this.isFresh(entry) ? entry.value : undefined
+    if (!this.isFresh(entry)) return undefined
+    this.setCacheEntry(cache, key, entry)
+    return entry.value
   }
 
   private seedOverview(ctx: IpcContext, number: number, overview: PullRequestOverview): void {
@@ -389,6 +428,7 @@ export class PrsStore {
       key,
       !!opts.force,
       () => window.solus.prInterdiff(safeCtx, safePr),
+      PR_LARGE_CACHE_MAX_ENTRIES,
     )
   }
 
@@ -587,7 +627,7 @@ export class PrsStore {
     this.checksLoadFailed = snapshot.loadFailed
   }
 
-  private reportChecksActivity(ctx: IpcContext): void {
+  reportChecksActivity(ctx: IpcContext): void {
     if (!this.contextKey(ctx)) return
     const active = document.visibilityState === 'visible' && document.hasFocus()
     void window.solus

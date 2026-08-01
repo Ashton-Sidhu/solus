@@ -67,6 +67,7 @@ import {
   codexItemToMessage,
   codexSpawnedThreadLinks,
   codexTurnToMessages,
+  codexTurnsToMessages,
   codexThreadBelongsToProject,
   extractCodexChangedFilePaths,
   groupCodexPlansBySession,
@@ -105,6 +106,7 @@ function isSteerTurnBoundaryError(error: unknown): boolean {
 /** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
  *  new user's first full sweep from spiking the RPC channel. */
 const CODEX_INDEX_READ_CONCURRENCY = 6
+const CODEX_PLAN_SCAN_CONCURRENCY = 6
 
 /** Run `task` over `items` with at most `limit` in flight at once. */
 async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
@@ -193,12 +195,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private sessionByChildThread = new Map<string, string>()
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
-  private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000 })
-  private planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: 60_000 })
+  private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000, maxEntries: 64 })
+  private planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: 60_000, maxEntries: 64 })
   /** Per-cwd hot cache over the persistent session index. Codex has no files to
    *  stat, so refresh with a TTL and clear on turn completion, which is when a
    *  thread is created or its activity changes. */
-  private sessionListCache = new MemoryCache<string, SessionMeta[]>({ ttlMs: 5 * 60 * 1000 })
+  private sessionListCache = new MemoryCache<string, SessionMeta[]>({ ttlMs: 5 * 60 * 1000, maxEntries: 64 })
   private sessionIndexRefresh: Promise<void> | null = null
   /** Set once if `thread/start` rejects dynamicTools — we then drop them and
    *  the agent loses work create/read/update for the run (experimental API). */
@@ -466,6 +468,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async refreshSessionIndex(): Promise<void> {
+    // The server's periodic index poll must not turn a Claude-only idle host
+    // into a two-process Codex host. Explicit Codex work starts the client; its
+    // turn/completed notification then enters this same refresh path.
+    if (!this.client.hasStarted) return
     if (this.sessionIndexRefresh) return this.sessionIndexRefresh
     this.sessionIndexRefresh = this.refreshSessionIndexOnce()
     try {
@@ -608,9 +614,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       threadId: sessionId,
       includeTurns: true,
     })
-    const messages: SessionLoadMessage[] = []
-    this.appendCodexTurnMessages(messages, response.thread?.turns ?? [])
-    return limit && limit > 0 && messages.length > limit ? messages.slice(-limit) : messages
+    return codexTurnsToMessages(response.thread?.turns ?? [], limit)
   }
 
   private appendCodexTurnMessages(messages: SessionLoadMessage[], turns: CodexTurnHistory[]): void {
@@ -622,22 +626,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
     const cacheKey = allProjects ? 'all' : projectPath || process.cwd()
     return this.planListCache.getOrLoad(cacheKey, async () => {
-      const threads = await this.listAllThreads()
       const projectRoot = projectPath?.replace(/\/$/, '')
+      const threads = await this.listAllThreads(allProjects ? undefined : projectRoot)
       const annotations = await loadAllAnnotations()
       const scanned: ScannedCodexPlan[] = []
 
-      await Promise.all(
-        threads
-          .filter((thread) => {
-            if (!thread.id) return false
-            if (allProjects || !projectRoot) return true
-            return thread.cwd?.replace(/\/$/, '') === projectRoot
-          })
-          .map(async (thread) => {
-            scanned.push(...await scanCodexPlans(thread, annotations))
-          }),
-      )
+      const candidates = threads.filter((thread) => {
+        if (!thread.id) return false
+        if (allProjects || !projectRoot) return true
+        return thread.cwd?.replace(/\/$/, '') === projectRoot
+      })
+      await runWithConcurrency(candidates, CODEX_PLAN_SCAN_CONCURRENCY, async (thread) => {
+        scanned.push(...await scanCodexPlans(thread, annotations))
+      })
 
       return groupCodexPlansBySession(scanned)
     })
@@ -649,8 +650,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     )
   }
 
-  async loadPlanContent(sessionId: string, _projectPath: string, planToolUseId: string): Promise<string | null> {
-    const threads = await this.listAllThreads()
+  async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
+    const threads = await this.listAllThreads(projectPath.replace(/\/$/, ''))
     const thread = threads.find((candidate) => candidate.id === sessionId)
     if (!thread) return null
     const plans = await scanCodexPlans(thread, {})
@@ -1174,14 +1175,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return commands
   }
 
-  private async listAllThreads(): Promise<CodexThreadSummary[]> {
+  private async listAllThreads(cwd?: string): Promise<CodexThreadSummary[]> {
     const threads: CodexThreadSummary[] = []
     let cursor: string | null | undefined = null
 
     do {
       const response: CodexThreadListResponse = await this.client.request('thread/list', {
         cursor,
+        limit: 100,
+        sortKey: 'updated_at',
         sortDirection: 'desc',
+        ...(cwd ? { cwd } : {}),
       })
       threads.push(...(response.data ?? []))
       cursor = response.nextCursor

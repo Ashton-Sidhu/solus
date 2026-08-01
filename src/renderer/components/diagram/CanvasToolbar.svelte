@@ -15,6 +15,7 @@
     getDoc: () => DiagramDoc
     exportBgColor: string
     exportTitle: string
+    prepareImageExport?: () => Promise<() => void>
     minimapVisible: boolean
     onToggleMinimap: () => void
     onFlowReady?: (flow: ReturnType<typeof useSvelteFlow>) => void
@@ -30,6 +31,7 @@
     getDoc,
     exportBgColor,
     exportTitle,
+    prepareImageExport,
     minimapVisible,
     onToggleMinimap,
     onFlowReady,
@@ -149,7 +151,7 @@
         </svg>
       </button>
 
-      <DiagramExportMenu {getDoc} bgColor={exportBgColor} title={exportTitle} />
+      <DiagramExportMenu {getDoc} bgColor={exportBgColor} title={exportTitle} {prepareImageExport} />
     </div>
 
     {#if onDeleteSelected}

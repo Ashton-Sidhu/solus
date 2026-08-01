@@ -37,6 +37,14 @@ describe('parseClaudeUsageReport', () => {
     expect(weeklyOnly?.weekly?.usedPercent).toBe(8)
   })
 
+  test('reads a session window that has not opened yet, which prints no reset', () => {
+    // Before the first request of a 5-hour block there is nothing to reset, so
+    // the clause is absent. Dropping the window here hid the meter at the start
+    // of every block — 0% used is exactly when it is worth reading.
+    const fresh = parseClaudeUsageReport('Current session: 0% used')
+    expect(fresh?.fiveHour).toEqual({ usedPercent: 0, resetsAt: null, resetsLabel: null })
+  })
+
   test('returns null on a report it cannot read, so no number is invented', () => {
     // A wording change must surface as "unknown" and let the cache go stale —
     // showing a fabricated or dead percentage is worse than showing nothing.

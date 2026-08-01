@@ -14,6 +14,7 @@
   } from "./lib/queued-prompts";
   import InterruptCard from "./InterruptCard.svelte";
   import TranscriptChip from "./TranscriptChip.svelte";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
     tabId: string;
@@ -61,10 +62,7 @@
 
   $effect(() => {
     if (!isVisible || !resetsAt || secondsLeft <= 0) return;
-    const timer = setInterval(() => {
-      now = Date.now();
-    }, 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   async function handleQueueIt() {

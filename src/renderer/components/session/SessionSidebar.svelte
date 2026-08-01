@@ -36,7 +36,7 @@
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import { sessionGuideStatusStore } from "../review/session-guide-status.store.svelte";
+  import { reviewGuideStore } from "../review/review-guide.store.svelte";
 
   interface Props {
     open?: boolean;
@@ -217,7 +217,7 @@
   }
 
   function isReviewRunning(tabId: string | null | undefined): boolean {
-    return !!tabId && sessionGuideStatusStore.isRunningFor(
+    return !!tabId && reviewGuideStore.isRunningFor(
       session.apiFor(tabId),
       session.sessionFor(tabId),
     );

@@ -330,4 +330,41 @@ describe('ControlPlane agent reply hold', () => {
     expect(tabStatus(env.plane, 'caller-tab')).toBe('interrupted')
     expect(watchCount(env.plane, 'caller')).toBe(0)
   })
+
+  test('stopping a target settles watches attached to prompts still in its queue', async () => {
+    // WHY: a queued peer prompt never reaches the normal run-settlement path
+    // when Stop drains it, so its caller must not remain held forever.
+    const env = setup()
+    planes.push(env.plane)
+    env.plane.createTab('caller-tab', { clientId: 'test', deviceId: 'device' })
+    await startSession(env.plane, 'caller', 'caller-tab')
+    const peer = await startSession(env.plane, 'peer')
+    const queued = await env.plane.runTurn({
+      input: runInput('peer'),
+      target: { kind: 'session', sessionId: 'peer' },
+      tools: [],
+      options: { prompt: 'Queued peer work', delivery: 'queue' },
+    })
+    expect(queued.disposition).toBe('queued')
+    expect(queued.queueId).toBeString()
+    env.plane.watchSessionSettled('peer', 'caller', {
+      exchangeId: 'queued-exchange',
+      dispatchedAt: Date.now(),
+      notifyModel: true,
+      runKey: queued.queueId!,
+    })
+
+    const queuedDone = queued.done.catch((error) => error)
+    const peerDone = peer.done.catch((error) => error)
+    expect(env.plane.stopSession('peer')).toBe(true)
+    await Promise.all([queuedDone, peerDone])
+
+    expect(watchCount(env.plane, 'caller')).toBe(0)
+    expect(env.events.some(({ event }) =>
+      event.type === 'agent_conversation_update'
+      && event.update.phase === 'settled'
+      && event.update.exchangeId === 'queued-exchange'
+      && event.update.status === 'interrupted'
+    )).toBe(true)
+  })
 })

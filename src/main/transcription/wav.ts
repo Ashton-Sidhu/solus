@@ -1,3 +1,5 @@
+import { MAX_VOICE_SAMPLES } from '../../shared/voice-audio'
+
 function readAscii(view: DataView, offset: number, length: number): string {
   let value = ''
   for (let i = 0; i < length; i++) value += String.fromCharCode(view.getUint8(offset + i))
@@ -5,6 +7,7 @@ function readAscii(view: DataView, offset: number, length: number): string {
 }
 
 export function readWav(buffer: Buffer): Float32Array {
+  if (buffer.byteLength < 12) throw new Error('Audio must be a RIFF WAV file')
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
   if (readAscii(view, 0, 4) !== 'RIFF' || readAscii(view, 8, 4) !== 'WAVE') {
     throw new Error('Audio must be a RIFF WAV file')
@@ -19,7 +22,10 @@ export function readWav(buffer: Buffer): Float32Array {
     const chunkId = readAscii(view, offset, 4)
     const chunkLength = view.getUint32(offset + 4, true)
     const chunkOffset = offset + 8
+    const chunkEnd = chunkOffset + chunkLength
+    if (chunkEnd > view.byteLength) throw new Error('WAV chunk exceeds the uploaded file')
     if (chunkId === 'fmt ') {
+      if (chunkLength < 16) throw new Error('WAV format chunk is truncated')
       channels = view.getUint16(chunkOffset + 2, true)
       sampleRate = view.getUint32(chunkOffset + 4, true)
       bitsPerSample = view.getUint16(chunkOffset + 14, true)
@@ -27,10 +33,16 @@ export function readWav(buffer: Buffer): Float32Array {
       dataOffset = chunkOffset
       dataLength = chunkLength
     }
-    offset = chunkOffset + chunkLength + (chunkLength % 2)
+    offset = chunkEnd + (chunkLength % 2)
   }
   if (!dataOffset || channels !== 1 || sampleRate !== 16_000 || bitsPerSample !== 16) {
     throw new Error('Audio must be a 16 kHz mono signed 16-bit PCM WAV')
+  }
+  if (dataLength <= 0 || dataLength % 2 !== 0 || dataOffset + dataLength > view.byteLength) {
+    throw new Error('WAV audio data is empty or truncated')
+  }
+  if (dataLength / 2 > MAX_VOICE_SAMPLES) {
+    throw new Error('Voice recording exceeds the 60 minute limit')
   }
 
   const samples = new Float32Array(dataLength / 2)

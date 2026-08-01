@@ -14,7 +14,7 @@
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
-  import { sessionGuideStatusStore } from "@renderer/components/review/session-guide-status.store.svelte";
+  import { reviewGuideStore } from "@renderer/components/review/review-guide.store.svelte";
 
   interface Props {
     /** Close the drawer after a navigation action. */
@@ -65,7 +65,7 @@
   }
 
   function isReviewRunning(tabId: string | null | undefined): boolean {
-    return !!tabId && sessionGuideStatusStore.isRunningFor(
+    return !!tabId && reviewGuideStore.isRunningFor(
       session.apiFor(tabId),
       session.sessionFor(tabId),
     );

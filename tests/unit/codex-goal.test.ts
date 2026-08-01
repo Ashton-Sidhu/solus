@@ -65,6 +65,43 @@ describe('Codex goals', () => {
     })
   })
 
+  test('pauses an active goal when the user interrupts its session', async () => {
+    // WHY: Ctrl-C stops the turn and the automatic goal continuation together;
+    // leaving the persisted goal active makes the UI promise work that was killed.
+    const updates: Array<{ status?: ThreadGoal['status'] }> = []
+    const { session, sync } = goalSync({
+      setThreadGoal: async (request) => {
+        updates.push(request)
+        return goal('Original', request.status)
+      },
+    })
+
+    sync.pauseForInterrupt('tab-1')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(updates).toEqual([{ threadId: 'thread-1', status: 'paused' }])
+    expect(session.goal).toEqual(goal('Original', 'paused'))
+  })
+
+  test('does not rewrite a goal that is already paused when interrupted again', async () => {
+    // WHY: repeated stop signals are common while provider cancellation settles;
+    // they must not enqueue redundant goal mutations.
+    const updates: Array<{ status?: ThreadGoal['status'] }> = []
+    const { session, sync } = goalSync({
+      setThreadGoal: async (request) => {
+        updates.push(request)
+        return goal('Original', request.status)
+      },
+    })
+    session.goal = goal('Original', 'paused')
+
+    sync.pauseForInterrupt('tab-1')
+    await Promise.resolve()
+
+    expect(updates).toEqual([])
+  })
+
   test('does not let a slow refresh overwrite a newer goal update', async () => {
     // WHY: reconnect and `/goal` refreshes can overlap a mid-session edit; the
     // command response is newer even when the earlier read resolves last.

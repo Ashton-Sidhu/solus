@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     staticDir: join(__dirname, '../client'),
   })
 
-  const endpoint = bestEndpoint(listReachableEndpoints(core.booted.host, core.booted.port))!
+  const endpoint = bestEndpoint(await listReachableEndpoints(core.booted.host, core.booted.port))!
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   process.stdout.write(`Solus server reachable at ${baseUrl}\n`)
 

@@ -22,6 +22,7 @@
   import AgentDialogue from "./AgentDialogue.svelte";
   import AgentExchangeFooter from "./AgentExchangeFooter.svelte";
   import AgentTypingDots from "./AgentTypingDots.svelte";
+  import { liveActivityClock } from "../../../lib/shared-clock";
 
   /**
    * Two or more agents in one turn share a single card: the tab row is the
@@ -44,9 +45,13 @@
   const serverId = $derived(session.sessionFor(tabId)?.serverId);
 
   $effect(() => {
+    const releases: Array<() => void> = [];
     for (const ref of refs) {
-      if (!isPendingAgent(ref)) agentConversationStatus.track(ref.agentSessionId, api);
+      if (!isPendingAgent(ref)) {
+        releases.push(agentConversationStatus.retain(ref.agentSessionId, api));
+      }
     }
+    return () => { for (const release of releases) release(); };
   });
 
   let now = $state(Date.now());
@@ -59,8 +64,7 @@
 
   $effect(() => {
     if (!anyLive) return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   function nameOf(ref: AgentConversationRef): string {

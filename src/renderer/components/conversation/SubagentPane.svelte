@@ -14,6 +14,7 @@
     subagentProgress,
   } from "./lib/subagent-view";
   import { subagentTranscriptText } from "./lib/tool-trace";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   /**
    * A subagent is one agent doing one task in a single turn, so the pane holds two
@@ -68,8 +69,7 @@
   // tear down and rebuild its own interval on every tick.
   $effect(() => {
     if (message?.toolStatus !== "running") return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   const blocks = $derived(message?.subMessages?.length ?? 0);

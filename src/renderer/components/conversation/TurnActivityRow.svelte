@@ -16,6 +16,7 @@
     type Turn,
   } from "./lib/turns";
   import type { TurnStartKind } from "../../../shared/types";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   /**
    * §16 — one row per turn, and never two. The live row and the summary row are
@@ -79,8 +80,7 @@
   let now = $state(Date.now());
   $effect(() => {
     if (!live) return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   const settledDurationMs = $derived(turnDurationMs(turn));

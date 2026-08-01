@@ -17,6 +17,8 @@ class AgentConversationStatusStore {
   private statuses = new SvelteMap<string, SessionStatus>()
   private metas = new SvelteMap<string, SessionMeta>()
   private apiByAgent = new Map<string, SolusApi>()
+  private consumers = new Map<string, number>()
+  private hydrationGeneration = new Map<string, number>()
   private subscribedApis = new WeakSet<object>()
 
   private subscribe(api: SolusApi): void {
@@ -33,18 +35,43 @@ class AgentConversationStatusStore {
     })
   }
 
-  /** Idempotent: begin following an agent through the given server api. */
-  track(agentSessionId: string, api: SolusApi = window.solus): void {
+  /** Retain an agent while at least one mounted card can display it. */
+  retain(agentSessionId: string, api: SolusApi = window.solus): () => void {
     this.subscribe(api)
-    if (this.apiByAgent.has(agentSessionId)) return
-    this.apiByAgent.set(agentSessionId, api)
-    void this.hydrate(agentSessionId)
+    const count = this.consumers.get(agentSessionId) ?? 0
+    this.consumers.set(agentSessionId, count + 1)
+    if (count === 0) {
+      this.apiByAgent.set(agentSessionId, api)
+      this.hydrationGeneration.set(agentSessionId, (this.hydrationGeneration.get(agentSessionId) ?? 0) + 1)
+      void this.hydrate(agentSessionId)
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const remaining = (this.consumers.get(agentSessionId) ?? 1) - 1
+      if (remaining > 0) {
+        this.consumers.set(agentSessionId, remaining)
+        return
+      }
+      this.consumers.delete(agentSessionId)
+      this.apiByAgent.delete(agentSessionId)
+      this.statuses.delete(agentSessionId)
+      this.metas.delete(agentSessionId)
+      this.hydrationGeneration.set(agentSessionId, (this.hydrationGeneration.get(agentSessionId) ?? 0) + 1)
+    }
   }
 
   private async hydrate(agentSessionId: string): Promise<void> {
     const api = this.apiByAgent.get(agentSessionId) ?? window.solus
+    const generation = this.hydrationGeneration.get(agentSessionId) ?? 0
     const meta = await api.getSessionInfo(agentSessionId).catch(() => null)
-    if (!meta) return
+    if (
+      !meta ||
+      !this.consumers.has(agentSessionId) ||
+      this.apiByAgent.get(agentSessionId) !== api ||
+      this.hydrationGeneration.get(agentSessionId) !== generation
+    ) return
     this.metas.set(agentSessionId, meta)
     // The push feed wins for liveness; indexed status only seeds the gap.
     if (meta.status && !this.statuses.has(agentSessionId)) this.statuses.set(agentSessionId, meta.status)
@@ -57,6 +84,11 @@ class AgentConversationStatusStore {
   metaFor(agentSessionId: string): SessionMeta | undefined {
     return this.metas.get(agentSessionId)
   }
+
+  trackedCount(): number {
+    return this.consumers.size
+  }
 }
 
 export const agentConversationStatus = new AgentConversationStatusStore()
+export { AgentConversationStatusStore }

@@ -19,7 +19,7 @@ export class ClaudeCommandDiscovery {
     private load: (target: ClaudeCommandDiscoveryTarget) => Promise<AgentSlashCommand[]>,
     ttlMs: number,
   ) {
-    this.cache = new MemoryCache({ ttlMs })
+    this.cache = new MemoryCache({ ttlMs, maxEntries: 64 })
   }
 
   get(target: ClaudeCommandDiscoveryTarget): Promise<AgentSlashCommand[]> {

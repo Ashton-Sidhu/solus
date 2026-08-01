@@ -36,7 +36,7 @@ import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
-import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
+import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, type ApprovePlanOptions } from './session-plan-operations'
 import { track } from '../../lib/analytics'
@@ -160,6 +160,7 @@ export class WorkspaceContext {
       ctxFor: (tabId) => this.ctxFor(tabId),
       apiFor: (tabId) => this.apiFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
+      rebuildAgentConversations: (session) => this.eventReducer.rebuildAgentConversations(session),
     })
     this.ui = new WorkspaceUiStore(this.panes, this.planStore)
     this.workStreamTracker = new WorkStreamTracker(this.worksStore, this.panes)
@@ -1124,6 +1125,7 @@ export class WorkspaceContext {
       session.agentSessionId = meta.sessionId
       session.workingDirectory = workingDirectory
       session.messages.splice(0, session.messages.length)
+      this.eventReducer.rebuildAgentConversations(session)
       session.readOnlyReason = null
       session.gitContext = null
       session.loadingHistory = true
@@ -1166,6 +1168,7 @@ export class WorkspaceContext {
           displayCwd: workingDirectory,
           provider,
           ctx: this.ctxFor(tabId),
+          limit: RESTORED_TRANSCRIPT_LIMIT,
         }),
         this.attachRuntimeSession(tabId),
       ])
@@ -1189,7 +1192,9 @@ export class WorkspaceContext {
           // immediate prompt; the background refresh re-registers it.
         }
         session.messages.splice(0, session.messages.length, ...transcript.messages)
+        this.eventReducer.rebuildAgentConversations(session)
         session.progress = transcript.progress
+        session.historyTruncated = transcript.truncated
 
         // Everything below is off the critical path — a stale/failed step only
         // means the git panel / changed files / plugins catch up a beat later.
@@ -1626,6 +1631,9 @@ export class WorkspaceContext {
   }
 
   interruptTab(tabId: string, opts: { notice?: boolean } = {}): void {
+    // A visible stop is the user putting this goal on hold. Internal handoffs
+    // pass `notice: false` because the work is continuing in another session.
+    if (opts.notice !== false) this.goalSync.pauseForInterrupt(tabId)
     this.eventReducer.interruptTab(tabId, opts)
     track('session_interrupted', {})
   }

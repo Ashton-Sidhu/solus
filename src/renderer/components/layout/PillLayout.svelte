@@ -20,11 +20,12 @@
   import { retainedConversationTabIds } from "./lib/workspace-body";
 
   interface Props {
+    active?: boolean;
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
     onDesignMode?: (() => void) | null;
   }
-  let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let { active = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -93,7 +94,7 @@
   const transcriptRecency: string[] = [];
   $effect(() => {
     const displayedTabIds =
-      session.activeTabId && session.tabs[session.activeTabId]
+      active && session.activeTabId && session.tabs[session.activeTabId]
         ? [session.activeTabId]
         : [];
     for (const id of displayedTabIds) mountedTabIds.add(id);
@@ -101,11 +102,13 @@
       if (!session.tabs[id]) mountedTabIds.delete(id);
     }
 
-    const retained = retainedConversationTabIds(
-      transcriptRecency,
-      displayedTabIds,
-      session.tabOrder,
-    );
+    const retained = active
+      ? retainedConversationTabIds(
+          transcriptRecency,
+          displayedTabIds,
+          session.tabOrder,
+        )
+      : [];
     transcriptRecency.splice(0, transcriptRecency.length, ...retained);
     for (const id of retained) retainedTranscriptTabIds.add(id);
     for (const id of retainedTranscriptTabIds) {
@@ -300,6 +303,7 @@
                       >
                         <ConversationView
                           tabId={tId}
+                          surfaceVisible={active && !showPillDiagram && !pillGoalTabId}
                           retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                         />
                       </div>

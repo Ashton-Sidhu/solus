@@ -6,6 +6,7 @@ import type { AgentContext } from '../app/agent.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SessionConfigController } from './session-config.svelte'
 import { reconcileQueuedPromptsForSession } from './session-transcript'
+import { progressFromMessages } from './session.utils'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
@@ -38,7 +39,38 @@ export interface WorkspaceLifecycleStoreDeps {
     displayCwd: string
     provider: AgentId
     ctx: IpcContext
-  }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[] }>
+  }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[]; truncated?: boolean }>
+  rebuildAgentConversations(session: Session): void
+}
+
+function expandedMessageKey(message: Message): string {
+  const stableId = message.toolId ?? message.planToolUseId ?? ''
+  return `${message.role}\0${message.timestamp}\0${stableId}`
+}
+
+/** Keep live objects/updates that landed while a full-history RPC was running. */
+export function reconcileExpandedHistory(
+  loaded: Session['messages'],
+  current: Session['messages'],
+): Session['messages'] {
+  const reconciled = [...loaded]
+  const loadedIndexByKey = new Map<string, number>()
+  for (let index = 0; index < reconciled.length; index++) {
+    loadedIndexByKey.set(expandedMessageKey(reconciled[index]), index)
+  }
+  for (const message of current) {
+    const key = expandedMessageKey(message)
+    const loadedIndex = loadedIndexByKey.get(key)
+    if (loadedIndex === undefined) {
+      loadedIndexByKey.set(key, reconciled.length)
+      reconciled.push(message)
+    } else {
+      // Prefer the existing reactive object: it may contain a streaming suffix,
+      // a just-completed tool result, or nested sub-agent state newer than disk.
+      reconciled[loadedIndex] = message
+    }
+  }
+  return reconciled
 }
 
 export class WorkspaceLifecycleStore {
@@ -58,6 +90,7 @@ export class WorkspaceLifecycleStore {
   private appliedStartDirectory: string | null = null
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
+  private historyExpansions = new Map<string, Promise<void>>()
 
   constructor(private deps: WorkspaceLifecycleStoreDeps) {}
 
@@ -184,25 +217,62 @@ export class WorkspaceLifecycleStore {
   }
 
   async expandHistory(tabId: string): Promise<void> {
+    const existing = this.historyExpansions.get(tabId)
+    if (existing) return existing
+    const expansion = this.expandHistoryOnce(tabId)
+    this.historyExpansions.set(tabId, expansion)
+    try {
+      await expansion
+    } finally {
+      if (this.historyExpansions.get(tabId) === expansion) this.historyExpansions.delete(tabId)
+    }
+  }
+
+  private async expandHistoryOnce(tabId: string): Promise<void> {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || !session.historyTruncated) return
+    const agentSessionId = session.agentSessionId
+    const handoffFrom = session.handoffFrom ? { ...session.handoffFrom } : undefined
     const displayCwd = session.workingDirectory
     const loadPath = session.gitContext?.worktreePath || displayCwd
     const provider = (session.provider ?? this.deps.settings.activeAgent) as AgentId
+    const predecessorTranscript = handoffFrom
+      ? await this.deps.loadTranscript({
+          sessionId: handoffFrom.sessionId,
+          loadPath,
+          displayCwd,
+          provider: handoffFrom.provider,
+          ctx: this.deps.ctxFor(tabId),
+        })
+      : null
     const transcript = await this.deps.loadTranscript({
-      sessionId: session.agentSessionId,
+      sessionId: agentSessionId,
       loadPath,
       displayCwd,
       provider,
       ctx: this.deps.ctxFor(tabId),
     })
     const s = this.deps.registry.sessionFor(tabId)
-    if (!s || transcript.messages.length === 0) return
-    s.messages.splice(0, s.messages.length, ...transcript.messages)
-    s.progress = transcript.progress
-    s.historyTruncated = false
+    if (
+      s !== session ||
+      s.agentSessionId !== agentSessionId ||
+      s.handoffFrom?.sessionId !== handoffFrom?.sessionId ||
+      s.handoffFrom?.provider !== handoffFrom?.provider
+    ) return
+    const loadedMessages = [
+      ...(predecessorTranscript?.messages ?? []),
+      ...transcript.messages,
+    ]
+    if (loadedMessages.length === 0) return
+    const reconciled = reconcileExpandedHistory(loadedMessages, s.messages)
+    s.messages.splice(0, s.messages.length, ...reconciled)
+    this.deps.rebuildAgentConversations(s)
+    s.progress = handoffFrom ? progressFromMessages(reconciled) : transcript.progress
+    s.historyTruncated = !!predecessorTranscript?.truncated || !!transcript.truncated
     this.recomputeChangedFiles(tabId)
-    for (const planId of transcript.planIds) void this.deps.planStore.hydrateAnnotations(planId)
+    for (const planId of [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]) {
+      void this.deps.planStore.hydrateAnnotations(planId)
+    }
   }
 
   async hydrateChangedFilesFromDiff(tabId: string): Promise<void> {

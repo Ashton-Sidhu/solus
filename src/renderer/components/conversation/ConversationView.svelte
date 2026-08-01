@@ -92,11 +92,13 @@
     tabId,
     onDiffToggle,
     forceVisible = false,
+    surfaceVisible = true,
     retainTranscriptRows = true,
   }: {
     tabId: string;
     onDiffToggle?: () => void;
     forceVisible?: boolean;
+    surfaceVisible?: boolean;
     retainTranscriptRows?: boolean;
   } = $props();
 
@@ -104,7 +106,9 @@
   // instance (forceVisible) is always on screen. Visibility gates autoscroll and
   // streaming work; keybindings stay gated on the focused chat so the two visible
   // instances never both respond to one shortcut.
-  const isVisible = $derived(forceVisible || tabId === session.activeTabId);
+  const isVisible = $derived(
+    surfaceVisible && (forceVisible || tabId === session.activeTabId),
+  );
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
@@ -131,7 +135,10 @@
   const REVEAL_DRAIN_MS = 300; // aim to drain the current backlog over ~this window
   const REVEAL_MIN_CPS = 140; // floor so short bursts still animate visibly
   const REVEAL_MAX_CPS = 4200; // ceiling so huge dumps finish well under a second
-  const REVEAL_FRAME_MS = 1000 / 60; // keep streamed text visually continuous
+  // Markdown parsing, DOM reconciliation, and ResizeObserver work all follow
+  // this cursor. 30 FPS remains visually continuous while preventing coarse
+  // transport batches from becoming up to 18 full markdown renders apiece.
+  const REVEAL_FRAME_MS = 1000 / 30;
   const prefersReducedMotion =
     typeof window !== "undefined" &&
     !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;

@@ -304,6 +304,64 @@ describe('the answered phase carries no exchangeId', () => {
     tracker.apply(agentSession, { phase: 'answered', agentSessionId: 's1', answerText: 'Snapshot' })
     expect(agentSession.messages[0].agentConversationRef.exchanges[0].status).toBe('dispatched')
   })
+
+  test('a settle after in-place history expansion updates the rehydrated exchange', () => {
+    // WHY: transcript arrays stay reactive by identity. Replacing their contents
+    // must rebuild correlation indexes rather than append an orphan settle.
+    const tracker = new AgentConversationTracker()
+    const agentSession = session() as any
+    tracker.apply(agentSession, {
+      phase: 'dispatched',
+      agentSessionId: 's1',
+      exchangeId: 'x1',
+      origin: 'prompted',
+      prompt: 'Inspect the cache',
+      provider: 'codex',
+      title: 'peer',
+      cwd: '/r',
+      dispatchedAt: 1,
+    })
+    const rehydratedExchange = exchange({
+      exchangeId: 'x1',
+      prompt: 'Inspect the cache',
+      status: 'dispatched',
+    })
+    agentSession.messages.splice(0, agentSession.messages.length, {
+      id: 'older-user',
+      role: 'user',
+      content: 'Earlier context',
+      timestamp: 0,
+    }, {
+      id: 'rehydrated-card',
+      role: 'assistant',
+      content: '',
+      timestamp: 1,
+      agentConversationRef: {
+        agentSessionId: 's1',
+        provider: 'codex',
+        title: 'peer',
+        cwd: '/r',
+        origin: 'prompted',
+        exchanges: [rehydratedExchange],
+      },
+    })
+    tracker.rebuild(agentSession)
+
+    tracker.apply(agentSession, {
+      phase: 'settled',
+      agentSessionId: 's1',
+      exchangeId: 'x1',
+      status: 'completed',
+      replyText: 'The cache is bounded.',
+      settledAt: 5,
+    })
+
+    expect(agentSession.messages).toHaveLength(2)
+    expect(rehydratedExchange).toMatchObject({
+      status: 'done',
+      reply: 'The cache is bounded.',
+    })
+  })
 })
 
 describe('a peer question this side answered', () => {

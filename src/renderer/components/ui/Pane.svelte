@@ -34,6 +34,7 @@
   interface Props {
     content: PaneContent
     slot: PaneSlot
+    surfaceVisible?: boolean
     onToggleSecondaryMaximize?: () => void
     onAttachFile?: (tabId?: string) => void | Promise<void>
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null
@@ -43,6 +44,7 @@
   let {
     content,
     slot,
+    surfaceVisible = true,
     onToggleSecondaryMaximize,
     onAttachFile,
     onScreenshot,
@@ -421,7 +423,16 @@
     {@render loadingSurface('Loading review…')}
   {:then reviewModule}
     {@const ReviewGuidePane = reviewModule.default}
-    <ReviewGuidePane guideKey={content.key} scope={content.scope} {slot} onOpenInSplit={handleOpenInSplit} onClose={() => panes.closeSlot(slot)} />
+    <ReviewGuidePane
+      guideKey={content.key}
+      scope={content.scope}
+      sourceTabId={content.sourceTabId}
+      workingDirectory={content.workingDirectory}
+      gitContext={content.gitContext}
+      {slot}
+      onOpenInSplit={handleOpenInSplit}
+      onClose={() => panes.closeSlot(slot)}
+    />
   {/await}
 {:else if content.kind === 'pr-review'}
   {#await import('../pr-review/PrReviewPane.svelte')}
@@ -525,6 +536,7 @@
     {@const ConversationPane = conversationModule.default}
     <ConversationPane
       tabId={content.tabId}
+      {surfaceVisible}
       {onAttachFile}
       {onScreenshot}
       {onDesignMode}

@@ -13,6 +13,7 @@
   import FilePreviewStream, {
     type FileSaveState,
   } from "../artifact/FilePreviewStream.svelte";
+  import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
 
   interface Props {
     ctx: IpcContext;
@@ -145,8 +146,9 @@
   </div>
 
   {#if loading}
-    <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
-      Opening file...
+    <div class="flex min-h-0 flex-1 flex-col" role="status">
+      <FilesPaneSkeleton variant="editor" />
+      <span class="sr-only">Opening file...</span>
     </div>
   {:else if fileError}
     <div class="flex flex-1 items-center justify-center gap-2 p-6 text-center text-[0.75rem] text-(--solus-status-error)">

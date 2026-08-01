@@ -315,7 +315,7 @@ export class PlanStore {
   cachedDescriptorKey = $state<string | null>(null)
   descriptorCacheLoading = $state(false)
   private _descriptorCacheTTL = 60_000
-  private _descriptorCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: this._descriptorCacheTTL })
+  private _descriptorCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: this._descriptorCacheTTL, maxEntries: 32 })
   private _descriptorLoads = new Set<string>()
 
   descriptorCacheKey(projectPath: string | undefined, allProjects: boolean): string {

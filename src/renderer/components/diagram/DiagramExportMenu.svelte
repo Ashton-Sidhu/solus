@@ -12,9 +12,10 @@
     getDoc: () => DiagramDoc
     bgColor: string
     title: string
+    prepareImageExport?: () => Promise<() => void>
   }
 
-  let { getDoc, bgColor, title }: Props = $props()
+  let { getDoc, bgColor, title, prepareImageExport }: Props = $props()
 
   const flow = useSvelteFlow()
 
@@ -37,24 +38,29 @@
   ): Promise<string | null> {
     const nodes = flow.getNodes()
     if (!nodes.length) return null
-    const el = document.querySelector<HTMLElement>('.svelte-flow__viewport')
-    if (!el) return null
+    const finish = await prepareImageExport?.()
+    try {
+      const el = document.querySelector<HTMLElement>('.svelte-flow__viewport')
+      if (!el) return null
 
-    const bounds = getNodesBounds(nodes)
-    const imageWidth = Math.max(Math.round(bounds.width) + EXPORT_PADDING, EXPORT_MIN_WIDTH)
-    const imageHeight = Math.max(Math.round(bounds.height) + EXPORT_PADDING, EXPORT_MIN_HEIGHT)
-    const viewport = getViewportForBounds(bounds, imageWidth, imageHeight, 0.2, 2.5, 0.12)
+      const bounds = getNodesBounds(nodes)
+      const imageWidth = Math.max(Math.round(bounds.width) + EXPORT_PADDING, EXPORT_MIN_WIDTH)
+      const imageHeight = Math.max(Math.round(bounds.height) + EXPORT_PADDING, EXPORT_MIN_HEIGHT)
+      const viewport = getViewportForBounds(bounds, imageWidth, imageHeight, 0.2, 2.5, 0.12)
 
-    return encode(el, {
-      backgroundColor: transparent ? undefined : bgColor,
-      width: imageWidth,
-      height: imageHeight,
-      style: {
-        width: `${imageWidth}px`,
-        height: `${imageHeight}px`,
-        transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-      },
-    })
+      return await encode(el, {
+        backgroundColor: transparent ? undefined : bgColor,
+        width: imageWidth,
+        height: imageHeight,
+        style: {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+        },
+      })
+    } finally {
+      finish?.()
+    }
   }
 
   function triggerDownload(dataUrl: string, ext: string) {

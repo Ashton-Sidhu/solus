@@ -17,6 +17,23 @@ describe('voice audio resampling', () => {
     }
   })
 
+  test('rejects forged or truncated WAV chunks before allocating samples', () => {
+    const encoded = encodePcm16Wav(Float32Array.of(0))
+
+    const oversized = Buffer.from(encoded.slice(0))
+    new DataView(oversized.buffer, oversized.byteOffset, oversized.byteLength)
+      .setUint32(40, 0xffff_fffe, true)
+    expect(() => readWav(oversized)).toThrow('WAV chunk exceeds the uploaded file')
+
+    const oddLength = Buffer.from(encoded.slice(0))
+    new DataView(oddLength.buffer, oddLength.byteOffset, oddLength.byteLength)
+      .setUint32(40, 1, true)
+    expect(() => readWav(oddLength)).toThrow('empty or truncated')
+
+    expect(() => readWav(Buffer.from(encoded).subarray(0, 30)))
+      .toThrow('WAV chunk exceeds the uploaded file')
+  })
+
   test('preserves sample timing across AudioWorklet-sized input blocks', () => {
     for (const inputRate of [44_100, 48_000]) {
       const input = Float32Array.from(

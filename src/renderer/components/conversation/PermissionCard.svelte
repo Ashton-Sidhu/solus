@@ -16,6 +16,7 @@
   import { formatReleaseTime } from './lib/queued-prompts'
   import InterruptCard from './InterruptCard.svelte'
   import TranscriptChip from './TranscriptChip.svelte'
+  import { liveActivityClock } from '../../lib/shared-clock'
 
   interface Props {
     tabId: string
@@ -43,8 +44,7 @@
 
   $effect(() => {
     if (responded) return
-    const timer = setInterval(() => (now = Date.now()), 1000)
-    return () => clearInterval(timer)
+    return liveActivityClock.subscribe((value) => { now = value })
   })
 
   const isEdit = $derived(permission.toolTitle === 'Edit')

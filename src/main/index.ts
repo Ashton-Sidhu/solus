@@ -5,11 +5,9 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
 }
 
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol, clipboard } from 'electron'
-import { join, extname } from 'path'
+import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { readFile } from 'fs/promises'
 import { syncBundledPlugins } from './agents/plugins'
-import { getCodexAppServerClient } from './agents/codex/codex-agent'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
@@ -22,12 +20,13 @@ import type { WindowDeps } from './server/handlers/window-handlers'
 import type { FileDeps } from './server/handlers/file-handlers'
 import { mintPairUrl } from './pair-url'
 import { destroyAllFinders } from './server/file-finder'
-import { transcribeAudio, warmupTranscription } from './transcription'
+import { prepareTranscriptionModel, transcribeAudio } from './transcription'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from './server/auth'
 import { closeDb } from './db'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { createShutdownCoordinator } from './shutdown-coordinator'
 import { captureServerEvent, shutdownAnalytics } from './analytics'
+import { handleArtifactRequest } from './artifact-protocol'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -44,42 +43,6 @@ const bootStartedAt = Date.now()
 protocol.registerSchemesAsPrivileged([
   { scheme: 'solus-artifact', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ])
-
-/** Image MIME types served over solus-artifact://, keyed by lowercased extension. */
-const ARTIFACT_MIME: Record<string, string> = {
-  '.ico': 'image/x-icon',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-}
-
-/** Decode the absolute file path from a solus-artifact://local/?p=<encoded> URL,
- *  validate it, and stream the bytes; 404/415 otherwise. */
-async function handleArtifactRequest(request: Request): Promise<Response> {
-  try {
-    const url = new URL(request.url)
-    const filePath = url.searchParams.get('p')
-    if (!filePath) return new Response('Missing path', { status: 400 })
-    const mime = ARTIFACT_MIME[extname(filePath).toLowerCase()]
-    if (!mime) return new Response('Unsupported type', { status: 415 })
-    if (!existsSync(filePath)) {
-      return url.searchParams.has('optional')
-        ? new Response(null, { status: 204 })
-        : new Response('Not found', { status: 404 })
-    }
-    const data = await readFile(filePath)
-    return new Response(new Uint8Array(data), {
-      status: 200,
-      headers: { 'Content-Type': mime, 'Content-Security-Policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'" },
-    })
-  } catch (err: any) {
-    log.warn('artifact_request_failed', { error: String(err?.message ?? err) })
-    return new Response('Error', { status: 500 })
-  }
-}
 
 let forceQuit = false
 
@@ -1028,12 +991,11 @@ if (isPairUrl) {
     // Link app-bundled plugins into ~/.solus/plugins before any agent can run.
     await syncBundledPlugins()
 
-    // Resolve the login-shell PATH off the main thread now, so it's warm before
-    // the first RPC (agent-binary lookup) needs it instead of paying up to three
-    // sequential login-shell probes synchronously on that first call.
+    // Resolve the login-shell PATH off the main thread now, so agent-binary
+    // lookup is warm. The Codex app-server itself remains lazy: starting it here
+    // costs a persistent child process even for Claude-only workspaces.
     void warmCliPath()
-      .then(() => getCodexAppServerClient().ensureStarted())
-      .catch((err) => log.warn('codex_app_server_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
+      .catch((err) => log.warn('cli_path_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     if (process.platform === 'darwin' && app.dock) {
       app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
@@ -1106,7 +1068,7 @@ if (isPairUrl) {
     // Independent of which window (if any) boots first — the editor is now the
     // default boot surface and the pill is created lazily on first summon, so
     // this can no longer live on the pill window's ready-to-show.
-    if (!isTestMode) void warmupTranscription()
+    if (!isTestMode) void prepareTranscriptionModel()
     if (isHeadless) {
       sessionIndexerStarted = true
       startSessionIndexer()

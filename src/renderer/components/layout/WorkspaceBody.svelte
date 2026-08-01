@@ -175,7 +175,7 @@
   );
   const dockRuns = $derived(runStore.runsFor(runCwd) ?? []);
   const showRunDock = $derived(
-    enableRunDock && runDock.open && conversationChromeVisible && dockRuns.length > 0,
+    active && enableRunDock && runDock.open && conversationChromeVisible && dockRuns.length > 0,
   );
 
   const visibleTabIds = $derived.by(() =>
@@ -201,7 +201,7 @@
   const retainedTranscriptTabIds = new SvelteSet<string>();
   const transcriptRecency: string[] = [];
   $effect(() => {
-    const displayedTabIds = [session.activeTabId].filter(
+    const displayedTabIds = (active ? [session.activeTabId] : []).filter(
       (tabId): tabId is string => !!tabId && !!session.tabs[tabId],
     );
     for (const id of displayedTabIds) mountedTabIds.add(id);
@@ -209,11 +209,13 @@
       if (!session.tabs[id]) mountedTabIds.delete(id);
     }
 
-    const retained = retainedConversationTabIds(
-      transcriptRecency,
-      displayedTabIds,
-      session.tabOrder,
-    );
+    const retained = active
+      ? retainedConversationTabIds(
+          transcriptRecency,
+          displayedTabIds,
+          session.tabOrder,
+        )
+      : [];
     transcriptRecency.splice(0, transcriptRecency.length, ...retained);
     for (const id of retained) retainedTranscriptTabIds.add(id);
     for (const id of retainedTranscriptTabIds) {
@@ -806,6 +808,7 @@
                   >
                     <ConversationView
                       tabId={tId}
+                      surfaceVisible={active && conversationChromeVisible}
                       retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                       onDiffToggle={() =>
                         panes.toggleDiff(
@@ -821,6 +824,7 @@
               <Pane
                 content={panes.primaryContent}
                 slot="primary"
+                surfaceVisible={active}
                 {onAttachFile}
                 {onScreenshot}
                 {onDesignMode}
@@ -864,6 +868,7 @@
                   <ProjectPanel
                     tabId={session.activeTabId}
                     slot="primary"
+                    {active}
                     containerWidth={projectRailContainerWidth}
                     minimized={secondaryVisible ||
                       (!hasStartedSession && !newTabProjectPanelPoppedOut)}
@@ -907,6 +912,7 @@
                   <Pane
                     content={displayedSecondaryContent}
                     slot="secondary"
+                    surfaceVisible={active && secondaryVisible}
                     {onAttachFile}
                     {onScreenshot}
                     {onDesignMode}

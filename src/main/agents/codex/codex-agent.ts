@@ -43,6 +43,11 @@ export class CodexAppServerClient extends EventEmitter {
   private didRestart = false
   private stopped = false
 
+  /** True only after an explicit Codex operation has started the runtime. */
+  get hasStarted(): boolean {
+    return !!this.proc || !!this.startPromise
+  }
+
   async request<M extends CodexTypedMethod>(method: M, params?: unknown, timeoutMs?: number): Promise<CodexResponseFor<M>>
   async request<T = any>(method: string, params?: unknown, timeoutMs?: number): Promise<T>
   async request<T = any>(method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {

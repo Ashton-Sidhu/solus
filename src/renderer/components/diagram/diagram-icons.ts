@@ -77,3 +77,7 @@ export const CURATED_ICONS: { icon: string; label: string }[] = [
   { icon: 'logos:elasticsearch', label: 'Elasticsearch' },
   { icon: 'logos:stripe', label: 'Stripe' },
 ]
+
+export const CURATED_ICONIFY_NAMES = CURATED_ICONS
+  .map(({ icon }) => icon)
+  .filter(isIconifyName)

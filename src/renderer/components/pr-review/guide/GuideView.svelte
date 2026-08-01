@@ -76,7 +76,7 @@
 
   <div bind:this={scrollEl} class="h-full overflow-y-auto">
     {#if guide.sections.length > 0}
-      <div class="mx-auto flex w-full max-w-[92rem] flex-col">
+      <div class="mx-auto flex w-full max-w-[92rem] flex-col 2xl:max-w-[104rem]">
         <!-- Guide overview: a large title with PR identity + summary, given room
              to read before the diffs. -->
         <header class="guide-intro border-b border-(--solus-art-border) py-11 pr-8 pl-14">

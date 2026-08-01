@@ -198,7 +198,11 @@
       var(--foreground) 50%,
       var(--muted-foreground) 70%
     );
-    background-size: 220% 100%;
+    /* Matches the transcript sweep: a fixed-width tile travelled exactly once
+       per cycle, so the loop never seams and the phase does not jump when the
+       activity label changes length. */
+    background-size: 12rem 100%;
+    background-repeat: repeat;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -215,11 +219,11 @@
   }
 
   @keyframes subagent-shim {
-    0% {
-      background-position: 200% 0;
+    from {
+      background-position: 0 0;
     }
-    100% {
-      background-position: -100% 0;
+    to {
+      background-position: 12rem 0;
     }
   }
 

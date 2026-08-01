@@ -1,7 +1,7 @@
 <script lang="ts">
   import "./DiagramShell.css";
 
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import {
     SvelteFlow,
     Background,
@@ -690,6 +690,20 @@
   };
 
   const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fefefc");
+  let fullDiagramExports = $state(0);
+
+  async function prepareImageExport(): Promise<() => void> {
+    if (nodes.length + edges.length <= 150) return () => {};
+    fullDiagramExports += 1;
+    await tick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      fullDiagramExports -= 1;
+    };
+  }
   const defaultEdgeOptions = {
     type: "default",
     // Hit area: a transparent stroke wider than the 1.3px line, but narrow
@@ -2389,6 +2403,7 @@
         zIndexMode="auto"
         elevateNodesOnSelect={false}
         elevateEdgesOnSelect={false}
+        onlyRenderVisibleElements={fullDiagramExports === 0 && nodes.length + edges.length > 150}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}
@@ -2435,6 +2450,7 @@
           getDoc={fullDoc}
           {exportBgColor}
           exportTitle={title}
+          {prepareImageExport}
           {minimapVisible}
           onToggleMinimap={() => {
             minimapVisible = !minimapVisible;

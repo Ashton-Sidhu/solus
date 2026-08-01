@@ -176,7 +176,7 @@ export class WsTransport {
     api.onSessionScan = (cb: Listener) => this.subscribe('session-scan', cb)
     api.onSessionIndexUpdated = (cb: Listener) => this.subscribe('session-index-updated', cb)
     api.onReviewProgress = (cb: Listener) => this.subscribe('review-progress', cb)
-    api.onSessionGuideStatus = (cb: Listener) => this.subscribe('session-guide-status', cb)
+    api.onReviewGuideStatus = (cb: Listener) => this.subscribe('review-guide-status', cb)
     api.onRunStatus = (cb: Listener) => this.subscribe('run-status', cb)
     api.onRunLog = (cb: Listener) => this.subscribe('run-log', cb)
     api.onVoiceModelStatus = (cb: Listener) => this.subscribe('voice-model-status', cb)

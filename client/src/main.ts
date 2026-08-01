@@ -1,5 +1,4 @@
 import { mount, unmount } from 'svelte'
-import App from './App.svelte'
 import '../../src/renderer/index.css'
 import ConnectFlow from './routes/ConnectFlow.svelte'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@client-core/ws-transport'
@@ -29,6 +28,19 @@ let activeTransport: WsTransport | null = null
 let connectFlowApp: Record<string, any> | null = null
 let solusApp: Record<string, any> | null = null
 let serviceWorkerBridgeInstalled = false
+let connectionGeneration = 0
+let workspaceAppImport: Promise<typeof import('./App.svelte')> | null = null
+let logoutListener: (() => void) | null = null
+
+function loadWorkspaceApp(): Promise<typeof import('./App.svelte')> {
+  if (!workspaceAppImport) {
+    workspaceAppImport = import('./App.svelte').catch((error) => {
+      workspaceAppImport = null
+      throw error
+    })
+  }
+  return workspaceAppImport
+}
 
 function installServiceWorkerMessageBridge(): void {
   if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
@@ -43,9 +55,24 @@ function installServiceWorkerMessageBridge(): void {
   })
 }
 
+function installLogoutListener(): void {
+  if (logoutListener) document.removeEventListener('solus:logout', logoutListener)
+  logoutListener = () => showConnectFlow()
+  document.addEventListener('solus:logout', logoutListener, { once: true })
+}
+
+function clearLogoutListener(): void {
+  if (!logoutListener) return
+  document.removeEventListener('solus:logout', logoutListener)
+  logoutListener = null
+}
+
 function showConnectFlow(options: { initialAddress?: string } = {}): void {
+  connectionGeneration += 1
+  clearLogoutListener()
   toasts.dismiss()
   if (solusApp) { unmount(solusApp); solusApp = null }
+  if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
   if (activeTransport) { activeTransport.destroy(); activeTransport = null }
   delete (window as any).solus
 
@@ -62,9 +89,9 @@ function showConnectFlow(options: { initialAddress?: string } = {}): void {
   })
 }
 
-function connectToServer(server: SavedServer): void {
+async function connectToServer(server: SavedServer): Promise<void> {
+  const generation = ++connectionGeneration
   toasts.dismiss()
-  if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
   setTabPersistenceServerInstallationId(server.installationId ?? server.id, {
     migrateLegacy: loadServers().length <= 1,
   })
@@ -79,7 +106,7 @@ function connectToServer(server: SavedServer): void {
       if (status === 'connected') void webPushState.ensureSubscribedSilently()
     },
     onAuthFailed: () => {
-      if (!solusApp) showConnectFlow()
+      if (generation === connectionGeneration && !solusApp) showConnectFlow()
     },
   })
 
@@ -96,11 +123,23 @@ function connectToServer(server: SavedServer): void {
   webState.setConnectedServer(server)
   router.navigateToChat()
 
-  document.addEventListener('solus:logout', () => showConnectFlow(), { once: true })
-
-  solusApp = mount(App, {
-    target: root,
-  })
+  try {
+    // Keep the multi-megabyte workspace graph out of the unpaired connection
+    // screen. Pairing and reconnect plumbing remain in the small entry chunk;
+    // the shared desktop/mobile workspace loads only once a host is selected.
+    const { default: App } = await loadWorkspaceApp()
+    if (generation !== connectionGeneration || activeTransport !== transport) {
+      transport.destroy()
+      return
+    }
+    if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
+    solusApp = mount(App, { target: root })
+    installLogoutListener()
+  } catch (error) {
+    if (generation !== connectionGeneration) return
+    showConnectFlow()
+    toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
+  }
 }
 
 function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
@@ -122,6 +161,7 @@ router.start()
 async function pairFromLocation(pairToken: string): Promise<void> {
   history.replaceState({}, '', '/')
   try {
+    void loadWorkspaceApp().catch(() => {})
     const { server } = await pairServer({
       url: location.origin,
       pairToken,
@@ -129,7 +169,7 @@ async function pairFromLocation(pairToken: string): Promise<void> {
     })
     upsertServer(server)
     setActiveServerId(server.id)
-    connectToServer(server)
+    await connectToServer(server)
   } catch (err) {
     showConnectFlow()
     toasts.error(err instanceof Error ? err.message : String(err))
@@ -151,12 +191,12 @@ if (bootPairToken) {
 } else if (hash.startsWith('#/connect')) {
   showConnectFlow()
 } else if (activeServer) {
-  connectToServer(activeServer)
+  void connectToServer(activeServer)
 } else if (servers.length === 1) {
-  connectToServer(servers[0])
+  void connectToServer(servers[0])
 } else if (servers.length === 0 && import.meta.env.DEV) {
   // Dev server is at our origin; connect directly — no pairing needed since requireAuth defaults to false.
-  connectToServer({ id: 'local', url: window.location.origin, sessionToken: '', label: 'Local browser', lastConnected: Date.now() })
+  void connectToServer({ id: 'local', url: window.location.origin, sessionToken: '', label: 'Local browser', lastConnected: Date.now() })
 } else {
   showConnectFlow()
 }

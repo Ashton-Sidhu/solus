@@ -53,6 +53,10 @@ export class MemoryCache<K, V> {
   }
 
   set(key: K, value: V, options: { ttlMs?: number } = {}): V {
+    // Path-keyed caches see continual project/worktree churn. Prune stale
+    // entries on writes as well as reads so an expired key that is never looked
+    // up again cannot remain resident for the process lifetime.
+    this.pruneExpired()
     this.entries.set(key, {
       value,
       expiresAt: this.expiresAt(options.ttlMs),

@@ -1,6 +1,7 @@
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { utilityProcess, type UtilityProcess } from 'electron'
+import { MAX_VOICE_SAMPLES } from '../../shared/voice-audio'
 import { createLogger } from '../logger'
 import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady } from '../model-downloader'
 
@@ -13,58 +14,96 @@ type PhaseMetrics = Record<string, number>
 type WorkerResponse =
   | { id: number; type: 'result'; transcript: string; phaseMs: PhaseMetrics }
   | { id: number; type: 'error'; message: string; phaseMs: PhaseMetrics }
-  | { type: 'warmup-done'; ms: number }
-  | { type: 'warmup-error'; message: string }
 
 type PendingTranscription = {
+  worker: UtilityProcess
   samplesLength: number
   startedAt: number
+  timer: ReturnType<typeof setTimeout>
   resolve: (value: { error: string | null; transcript: string | null }) => void
 }
 
 let worker: UtilityProcess | null = null
 let nextRequestId = 1
-let warmupResolve: ((value: void) => void) | null = null
 let pending = new Map<number, PendingTranscription>()
+let workerIdleTimer: ReturnType<typeof setTimeout> | null = null
+const idleStoppingWorkers = new Set<UtilityProcess>()
+
+// ONNX keeps roughly the entire model resident inside the utility process.
+// Keep it warm across a short dictation burst, then release it instead of
+// charging every subsequent idle hour for a feature that may not be used again.
+export const TRANSCRIPTION_WORKER_IDLE_MS = 2 * 60_000
+const TRANSCRIPTION_TIMEOUT_MIN_MS = 2 * 60_000
+const TRANSCRIPTION_TIMEOUT_MAX_MS = 30 * 60_000
+
+export function transcriptionRequestTimeoutMs(samplesLength: number): number {
+  const audioDurationMs = samplesLength / 16
+  return Math.max(
+    TRANSCRIPTION_TIMEOUT_MIN_MS,
+    Math.min(TRANSCRIPTION_TIMEOUT_MAX_MS, audioDurationMs * 2),
+  )
+}
+
+function clearWorkerIdleTimer(): void {
+  if (!workerIdleTimer) return
+  clearTimeout(workerIdleTimer)
+  workerIdleTimer = null
+}
+
+function scheduleWorkerIdleStop(): void {
+  clearWorkerIdleTimer()
+  if (!worker || pending.size > 0) return
+  workerIdleTimer = setTimeout(() => {
+    workerIdleTimer = null
+    if (!worker || pending.size > 0) return
+    const idleWorker = worker
+    idleStoppingWorkers.add(idleWorker)
+    if (!idleWorker.kill()) {
+      idleStoppingWorkers.delete(idleWorker)
+      log.warn('transcription_worker_idle_stop_failed')
+      scheduleWorkerIdleStop()
+      return
+    }
+    // Detach only after the process accepted the stop request. A new request
+    // may now start a successor while this generation finishes exiting.
+    if (worker === idleWorker) worker = null
+    log.info('transcription_worker_stopped_idle')
+  }, TRANSCRIPTION_WORKER_IDLE_MS)
+  workerIdleTimer.unref?.()
+}
 
 function ensureWorker(): UtilityProcess {
+  clearWorkerIdleTimer()
   if (worker) return worker
   if (!existsSync(WORKER_PATH)) {
     log.warn('transcription_worker_entry_missing', { workerPath: WORKER_PATH })
   }
   const child = utilityProcess.fork(WORKER_PATH, [], { serviceName: 'solus-transcription' })
-  child.on('message', (message) => handleWorkerMessage(message as WorkerResponse))
+  child.on('message', (message) => handleWorkerMessage(child, message as WorkerResponse))
   child.once('exit', (code) => {
-    log.warn('transcription_worker_exited', { code })
+    const stoppedForIdle = idleStoppingWorkers.delete(child)
+    if (!stoppedForIdle) log.warn('transcription_worker_exited', { code })
     for (const [id, request] of pending) {
+      if (request.worker !== child) continue
       pending.delete(id)
+      clearTimeout(request.timer)
       log.metric('transcribe_audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
       request.resolve({ error: `Transcription stopped unexpectedly (exit code ${code})`, transcript: null })
     }
-    warmupResolve?.()
-    warmupResolve = null
-    if (worker === child) worker = null
+    if (worker === child) {
+      clearWorkerIdleTimer()
+      worker = null
+    }
   })
   worker = child
   return child
 }
 
-function handleWorkerMessage(message: WorkerResponse): void {
-  if (message.type === 'warmup-done') {
-    log.metric('warmup_transcription', message.ms, { success: true })
-    warmupResolve?.()
-    warmupResolve = null
-    return
-  }
-  if (message.type === 'warmup-error') {
-    log.warn('transcription_warmup_failed', { error: message.message })
-    warmupResolve?.()
-    warmupResolve = null
-    return
-  }
+function handleWorkerMessage(sourceWorker: UtilityProcess, message: WorkerResponse): void {
   const request = pending.get(message.id)
-  if (!request) return
+  if (!request || request.worker !== sourceWorker) return
   pending.delete(message.id)
+  clearTimeout(request.timer)
   const durationMs = Date.now() - request.startedAt
   const success = message.type === 'result'
   log.metric('transcribe_audio', durationMs, {
@@ -80,6 +119,7 @@ function handleWorkerMessage(message: WorkerResponse): void {
     log.error('transcription_failed', { error: message.message })
     request.resolve({ error: `Transcription failed: ${message.message}`, transcript: null })
   }
+  scheduleWorkerIdleStop()
 }
 
 function modelNotReadyMessage(): string {
@@ -92,20 +132,23 @@ function modelNotReadyMessage(): string {
   return 'Voice model is still preparing'
 }
 
-export async function warmupTranscription(): Promise<void> {
+/** Prepare/download the model without loading ONNX sessions into memory. */
+export async function prepareTranscriptionModel(): Promise<void> {
   try {
     await ensureParakeetModel()
-    await new Promise<void>((resolve) => {
-      warmupResolve = resolve
-      ensureWorker().postMessage({ type: 'warmup' })
-    })
   } catch (err: any) {
-    log.warn('transcription_warmup_failed', { error: err instanceof Error ? err.message : String(err) })
+    log.warn('transcription_model_prepare_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
 export async function transcribeAudio(samples: Float32Array): Promise<{ error: string | null; transcript: string | null }> {
   const startedAt = Date.now()
+  if (samples.length === 0) {
+    return { error: 'Voice recording contains no audio', transcript: null }
+  }
+  if (samples.length > MAX_VOICE_SAMPLES) {
+    return { error: 'Voice recording exceeds the 60 minute limit', transcript: null }
+  }
   if (!(await isParakeetModelReady())) {
     void ensureParakeetModel().catch(() => {})
     const error = modelNotReadyMessage()
@@ -114,9 +157,43 @@ export async function transcribeAudio(samples: Float32Array): Promise<{ error: s
   }
 
   await ensureParakeetModel()
+  if (pending.size > 0) {
+    return { error: 'Voice transcription is already in progress', transcript: null }
+  }
   return new Promise((resolve) => {
     const id = nextRequestId++
-    pending.set(id, { samplesLength: samples.length, startedAt, resolve })
-    ensureWorker().postMessage({ id, type: 'transcribe', samples })
+    const transcriptionWorker = ensureWorker()
+    const timer = setTimeout(() => {
+      const request = pending.get(id)
+      if (!request || request.worker !== transcriptionWorker) return
+      pending.delete(id)
+      log.metric('transcribe_audio', Date.now() - request.startedAt, {
+        backend: BACKEND,
+        success: false,
+        timeout: true,
+      })
+      request.resolve({ error: 'Transcription timed out', transcript: null })
+      if (worker === transcriptionWorker) {
+        clearWorkerIdleTimer()
+        if (transcriptionWorker.kill()) worker = null
+        else {
+          log.warn('transcription_worker_timeout_stop_failed')
+          scheduleWorkerIdleStop()
+        }
+      }
+    }, transcriptionRequestTimeoutMs(samples.length))
+    timer.unref?.()
+    pending.set(id, { worker: transcriptionWorker, samplesLength: samples.length, startedAt, timer, resolve })
+    try {
+      transcriptionWorker.postMessage({ id, type: 'transcribe', samples })
+    } catch (err) {
+      pending.delete(id)
+      clearTimeout(timer)
+      scheduleWorkerIdleStop()
+      resolve({
+        error: `Transcription failed: ${err instanceof Error ? err.message : String(err)}`,
+        transcript: null,
+      })
+    }
   })
 }

@@ -16,6 +16,7 @@
   import { Button } from "../ui/button";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { pairQrSvgPath } from "./lib/qrcode";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   const connections = connectionsStore;
   let copiedField = $state<string | null>(null);
@@ -56,10 +57,7 @@
   let _now = $state(Date.now());
   $effect(() => {
     if (!connections.activePair) return;
-    const tick = setInterval(() => {
-      _now = Date.now();
-    }, 1000);
-    return () => clearInterval(tick);
+    return liveActivityClock.subscribe((value) => { _now = value; });
   });
 
   let pairMsLeft = $derived(

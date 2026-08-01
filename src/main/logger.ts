@@ -66,14 +66,21 @@ function formatDevData(data: Record<string, unknown>): string {
 
 const FLUSH_INTERVAL_MS = 500
 const MAX_BUFFER_SIZE = 64
+const MAX_BUFFER_BYTES = 1024 * 1024
+const MAX_ENTRY_BYTES = 64 * 1024
+const MAX_LOG_DEPTH = 8
+const MAX_LOG_ARRAY_ITEMS = 20
+const MAX_LOG_OBJECT_KEYS = 100
+const MAX_LOG_NODES = 2_000
 // Cap string values in file entries — a dumped stream buffer must not produce a megabyte line.
 const MAX_STRING_LENGTH = 2000
 
 let logPath: string | null = null
 let buffer: string[] = []
+let bufferedBytes = 0
 let timer: ReturnType<typeof setInterval> | null = null
-const inFlight = new Map<number, string>()
-let nextChunkId = 1
+let activeWrite: string | null = null
+let droppedEntries = 0
 let logEventSink: ((msg: string) => void) | null = null
 
 /** Registers the optional analytics bridge for info-level log event names. */
@@ -95,32 +102,120 @@ function getLogPath(): string {
   return logPath
 }
 
-function truncateStrings(_key: string, value: unknown): unknown {
-  if (typeof value === 'string' && value.length > MAX_STRING_LENGTH) {
-    return `${value.slice(0, MAX_STRING_LENGTH)}…[+${value.length - MAX_STRING_LENGTH} chars]`
+function boundedLogValue(
+  value: unknown,
+  depth: number,
+  state: { nodes: number; seen: WeakSet<object> },
+): unknown {
+  if (typeof value === 'string') {
+    return value.length > MAX_STRING_LENGTH
+      ? `${value.slice(0, MAX_STRING_LENGTH)}…[+${value.length - MAX_STRING_LENGTH} chars]`
+      : value
   }
-  return value
+  if (value == null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return typeof value === 'bigint' ? String(value) : value
+  }
+  if (typeof value !== 'object') return String(value)
+  if (state.seen.has(value)) return '[Circular]'
+  if (depth >= MAX_LOG_DEPTH || state.nodes++ >= MAX_LOG_NODES) return '[Truncated]'
+  state.seen.add(value)
+
+  if (ArrayBuffer.isView(value)) return `[${value.constructor.name} ${value.byteLength} bytes]`
+  if (value instanceof ArrayBuffer) return `[ArrayBuffer ${value.byteLength} bytes]`
+  if (value instanceof Error) {
+    return boundedLogValue({ name: value.name, message: value.message, stack: value.stack }, depth + 1, state)
+  }
+  if (Array.isArray(value)) {
+    const result = value.slice(0, MAX_LOG_ARRAY_ITEMS)
+      .map((item) => boundedLogValue(item, depth + 1, state))
+    if (value.length > MAX_LOG_ARRAY_ITEMS) result.push(`…[+${value.length - MAX_LOG_ARRAY_ITEMS} items]`)
+    return result
+  }
+
+  const result: Record<string, unknown> = {}
+  let keys = 0
+  for (const key in value as Record<string, unknown>) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+    if (keys++ >= MAX_LOG_OBJECT_KEYS) {
+      result.logTruncated = 'additional object keys omitted'
+      break
+    }
+    try {
+      result[key] = boundedLogValue((value as Record<string, unknown>)[key], depth + 1, state)
+    } catch {
+      result[key] = '[Unreadable]'
+    }
+  }
+  return result
 }
 
-function pushEntry(entry: Record<string, unknown>): void {
+export function serializeLogEntry(entry: Record<string, unknown>): string {
   let line: string
   try {
-    line = JSON.stringify(entry, truncateStrings)
+    line = JSON.stringify(boundedLogValue(entry, 0, { nodes: 0, seen: new WeakSet() }))
   } catch {
     line = JSON.stringify({ ts: entry.ts, level: entry.level, tag: entry.tag, file: entry.file, msg: entry.msg, logError: 'unserializable data' })
   }
-  buffer.push(line + '\n')
-  if (buffer.length >= MAX_BUFFER_SIZE) flush()
+  if (Buffer.byteLength(line) > MAX_ENTRY_BYTES) {
+    line = JSON.stringify({
+      ts: entry.ts,
+      level: entry.level,
+      tag: entry.tag,
+      file: entry.file,
+      msg: entry.msg,
+      logError: 'entry exceeded byte limit',
+    })
+  }
+  return line + '\n'
+}
+
+function pushEntry(entry: Record<string, unknown>): void {
+  const line = serializeLogEntry(entry)
+  const lineBytes = Buffer.byteLength(line)
+  if (bufferedBytes + lineBytes > MAX_BUFFER_BYTES) {
+    droppedEntries++
+    return
+  }
+  buffer.push(line)
+  bufferedBytes += lineBytes
+  if (buffer.length >= MAX_BUFFER_SIZE || bufferedBytes >= MAX_BUFFER_BYTES / 2) flush()
   ensureTimer()
 }
 
 function flush(): void {
-  if (buffer.length === 0) return
+  if (activeWrite || buffer.length === 0) return
   const chunk = buffer.join('')
   buffer = []
-  const chunkId = nextChunkId++
-  inFlight.set(chunkId, chunk)
-  appendFile(getLogPath(), chunk, () => { inFlight.delete(chunkId) })
+  bufferedBytes = 0
+  activeWrite = chunk
+  let path: string
+  try {
+    path = getLogPath()
+  } catch (error) {
+    activeWrite = null
+    console.error('[solus:logger] log path unavailable', error)
+    return
+  }
+  appendFile(path, chunk, (error) => {
+    activeWrite = null
+    if (error) {
+      console.error('[solus:logger] log write failed', error)
+      return
+    }
+    if (droppedEntries > 0) {
+      const dropped = droppedEntries
+      droppedEntries = 0
+      pushEntry({
+        ts: new Date().toISOString(),
+        level: 'warn',
+        tag: 'main',
+        file: 'logger.ts',
+        msg: 'log_entries_dropped',
+        count: dropped,
+      })
+    }
+    flush()
+  })
 }
 
 function ensureTimer(): void {
@@ -194,11 +289,15 @@ export function createLogger(tag: string, file: string): Logger {
 
 export function flushLogs(): void {
   if (timer) { clearInterval(timer); timer = null }
-  const pendingInflight = Array.from(inFlight.values()).join('')
-  const pending = pendingInflight + buffer.join('')
-  inFlight.clear()
+  // `activeWrite` was already submitted to appendFile; appending it again here
+  // races the callback and duplicates records. Only synchronously drain bytes
+  // that have not yet been handed to the filesystem.
+  const pending = buffer.join('')
   buffer = []
+  bufferedBytes = 0
   if (pending) {
-    try { appendFileSync(getLogPath(), pending) } catch {}
+    try { appendFileSync(getLogPath(), pending) } catch (error) {
+      console.error('[solus:logger] final log write failed', error)
+    }
   }
 }

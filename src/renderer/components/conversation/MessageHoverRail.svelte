@@ -2,6 +2,7 @@
   import { CopyIcon, CheckIcon } from "phosphor-svelte";
   import { runtime } from "../../contexts";
   import { formatRailTime, formatRailTitle } from "./lib/hover-rail";
+  import { messageTimestampClock } from "../../lib/shared-clock";
 
   /**
    * The rail every message hangs on its outer edge — left of assistant prose,
@@ -24,14 +25,15 @@
   let copied = $state(false);
   let now = $state(Date.now());
 
-  // Only re-derive the stamp about once a minute; "Yesterday" has to arrive
-  // without a reload, but not at 60fps.
+  // Hundreds of historical rows share one visibility-aware minute ticker.
   $effect(() => {
-    const timer = setInterval(() => (now = Date.now()), 60_000);
-    return () => clearInterval(timer);
+    if (!timestamp) return;
+    return messageTimestampClock.subscribe((value) => { now = value; });
   });
 
-  const label = $derived(timestamp ? formatRailTime(timestamp, now) : "");
+  const label = $derived(
+    timestamp ? formatRailTime(timestamp, now) : "",
+  );
   const title = $derived(timestamp ? formatRailTitle(timestamp) : "");
 
   async function copy() {

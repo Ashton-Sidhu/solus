@@ -374,6 +374,14 @@
   // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
+  let documentVisible = $state(document.visibilityState !== "hidden");
+  $effect(() => {
+    const update = () => (documentVisible = document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  });
+  const editorSurfaceActive = $derived(isEditorMode && documentVisible);
+  const pillSurfaceActive = $derived(!isEditorMode && documentVisible);
   type PillLayoutModule =
     typeof import("./components/layout/PillLayout.svelte");
   const initialViewMode = untrack(() => windowCtx.viewMode);
@@ -553,6 +561,7 @@
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
+      session.prsStore.reportChecksActivity(session.ctx);
     }
   });
 
@@ -665,9 +674,6 @@
     const unsubRun = window.solus.onRunStatus((status) =>
       runStore.apply(status),
     );
-    const unsubRunLog = window.solus.onRunLog((batch) =>
-      runStore.applyLog(batch),
-    );
     const unsubVoiceModel = window.solus.onVoiceModelStatus((status) =>
       voiceModelStore.apply(status),
     );
@@ -718,7 +724,6 @@
     });
     return () => {
       unsubRun();
-      unsubRunLog();
       unsubVoiceModel();
       unsubUsage();
       unsubAutomations();
@@ -2016,6 +2021,7 @@
   {@const EditorLayout = initialEditorLayout}
   <div class="mode-shell h-full w-full" class:mode-hidden={!isEditorMode}>
     <EditorLayout
+      active={editorSurfaceActive}
       onAttachFile={handleAttachFile}
       onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
       onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
@@ -2034,6 +2040,7 @@
     {@const EditorLayout = editorLayoutModule.default}
     <div class="mode-shell h-full w-full" class:mode-hidden={!isEditorMode}>
       <EditorLayout
+        active={editorSurfaceActive}
         onAttachFile={handleAttachFile}
         onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
         onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
@@ -2063,6 +2070,7 @@
     {@const PillLayout = pillLayoutModule.default}
     <div class="mode-shell" class:mode-hidden={isEditorMode}>
       <PillLayout
+        active={pillSurfaceActive}
         onAttachFile={handleAttachFile}
         onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
         onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}

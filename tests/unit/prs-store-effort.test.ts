@@ -115,4 +115,36 @@ describe('PR list effort metadata', () => {
     expect(store.get(33)?.deletions).toBe(4)
     expect(effortCalls).toBe(2)
   })
+
+  test('evicts old project entries instead of retaining every PR payload forever', async () => {
+    // WHY: the store spans project switches. A TTL makes stale values unusable,
+    // but without cardinality eviction their full provider payloads still stay
+    // strongly reachable for the lifetime of the renderer.
+    installStateRune()
+    let detailCalls = 0
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          prGetDetail: async () => {
+            detailCalls++
+            return { number: 33, title: 'bounded' }
+          },
+        },
+      },
+    })
+    const { PR_CACHE_MAX_ENTRIES, PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+
+    for (let index = 0; index <= PR_CACHE_MAX_ENTRIES; index++) {
+      await store.loadDetail({
+        ...ctx,
+        session: { ...ctx.session, projectPath: `/repo/${index}` },
+      } as IpcContext, 33)
+    }
+    await store.loadDetail(ctx, 33)
+
+    expect(detailCalls).toBe(PR_CACHE_MAX_ENTRIES + 2)
+  })
 })

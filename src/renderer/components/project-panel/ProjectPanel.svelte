@@ -47,12 +47,15 @@
     containerWidth: number;
     /** Temporarily minimize without changing the slot's persisted preference. */
     minimized?: boolean;
+    /** False while the owning Editor/web surface is mounted but hidden. */
+    active?: boolean;
   }
   let {
     tabId: panelTabId,
     slot,
     containerWidth,
     minimized = false,
+    active = true,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -133,7 +136,7 @@
   // churn the project-scoped stores.
   let loadedProjectCwd = $state<string>();
   const shouldLoadProject = $derived(
-    open && !isUnconfiguredCwd(gitCwd) && gitCwd !== loadedProjectCwd,
+    active && open && !isUnconfiguredCwd(gitCwd) && gitCwd !== loadedProjectCwd,
   );
   $effect(() => {
     if (!shouldLoadProject || !gitCwd) return;
@@ -147,7 +150,7 @@
   // bindings solely while its own conversation holds focus, so the shortcut acts
   // on the chat the user is actually in rather than always the primary one.
   const focused = $derived(
-    (session.focusedChatTabId ?? session.activeTabId) === panelTabId,
+    active && (session.focusedChatTabId ?? session.activeTabId) === panelTabId,
   );
 
   // Registered here (not in GitSection) so the shortcuts keep working while
@@ -295,7 +298,7 @@
     >
       <EnvironmentSection
         tabId={panelTabId}
-        active={open}
+        active={active && open}
         onOpenFiles={openFiles}
       />
     </PanelSection>

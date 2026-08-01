@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { parseTailscalePeerCandidates } from '../../src/main/server/endpoints'
+import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '../../src/main/server/endpoints'
 import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '../../src/main/server/lan-discovery'
 import {
   filterUnsavedDiscoveredServers,
@@ -82,6 +82,19 @@ describe('server discovery', () => {
       { host: '100.64.0.11', name: 'studio-mac' },
       { host: '100.64.0.14', name: 'daemon.tailnet.ts.net' },
     ])
+  })
+
+  test('derives only a valid IPv4 endpoint from local Tailscale status', () => {
+    expect(tailnetEndpointFromStatus({
+      Self: { TailscaleIPs: ['fd7a:115c:a1e0::1', '100.64.0.9'] },
+    }, 3000)).toEqual({
+      kind: 'tailnet',
+      label: 'Tailnet (100.64.0.9)',
+      host: '100.64.0.9',
+      port: 3000,
+    })
+    expect(tailnetEndpointFromStatus({ Self: { TailscaleIPs: ['fd7a:115c:a1e0::1'] } }, 3000)).toBeNull()
+    expect(tailnetEndpointFromStatus(null, 3000)).toBeNull()
   })
 
   test('keeps previously toasted hosts visible while excluding saved, self, and duplicate sightings', () => {

@@ -6,7 +6,7 @@
   import { track } from "@renderer/lib/analytics";
 
   interface Props {
-    onConnect: (server: SavedServer) => void;
+    onConnect: (server: SavedServer) => Promise<void>;
     /** Prefills the address form — used by the /claim deep link. */
     initialAddress?: string;
   }
@@ -98,7 +98,7 @@
       servers = loadServers();
       resetForm();
       view = "servers";
-      onConnect(server);
+      await onConnect(server);
     } catch (err) {
       track('pairing_failed', { method: pairingMethod });
       toasts.error(err instanceof Error ? err.message : String(err));
@@ -131,9 +131,18 @@
     if (servers.length === 0) view = "add";
   }
 
-  function handleServerConnect(server: SavedServer) {
+  async function handleServerConnect(server: SavedServer) {
+    if (busy) return;
+    busy = true;
     connectingServer = server.label;
-    onConnect(server);
+    try {
+      await onConnect(server);
+    } catch (err) {
+      toasts.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      busy = false;
+      connectingServer = null;
+    }
   }
 
   function relativeTime(ts: number): string {

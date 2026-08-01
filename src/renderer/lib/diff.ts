@@ -18,6 +18,41 @@ import { parsePatchFiles, type FileDiffMetadata } from '@pierre/diffs'
 // hunks is safe.
 const patchCache = new Map<string, FileDiffMetadata | null>()
 const PATCH_CACHE_LIMIT = 400
+const PATCH_CACHE_SOURCE_BYTES = 8 * 1024 * 1024
+const PATCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024
+let patchCacheSourceBytes = 0
+
+function sourceBytes(patch: string): number {
+  // V8 may store Latin-1 strings compactly, but two bytes/code-unit is the
+  // conservative retained-size bound for arbitrary Unicode patches.
+  return patch.length * 2
+}
+
+function cacheParsedPatch(patch: string, parsed: FileDiffMetadata | null): void {
+  const bytes = sourceBytes(patch)
+  // A single generated/vendor diff can be tens of megabytes. Keeping it as a
+  // Map key plus Pierre's parsed hunk graph turns a one-off view into a
+  // renderer-lifetime memory charge, so large entries deliberately bypass the
+  // cache and become collectible with their surface.
+  if (bytes > PATCH_CACHE_MAX_ENTRY_BYTES) return
+  while (patchCache.size >= PATCH_CACHE_LIMIT || patchCacheSourceBytes + bytes > PATCH_CACHE_SOURCE_BYTES) {
+    const oldest = patchCache.keys().next().value
+    if (oldest === undefined) break
+    patchCache.delete(oldest)
+    patchCacheSourceBytes -= sourceBytes(oldest)
+  }
+  patchCache.set(patch, parsed)
+  patchCacheSourceBytes += bytes
+}
+
+export function clearPatchMetadataCache(): void {
+  patchCache.clear()
+  patchCacheSourceBytes = 0
+}
+
+export function patchMetadataCacheStats(): { entries: number; sourceBytes: number } {
+  return { entries: patchCache.size, sourceBytes: patchCacheSourceBytes }
+}
 
 export function parsePatchMetadata(patchStr: string): FileDiffMetadata | null {
   let parsed = patchCache.get(patchStr)
@@ -29,11 +64,7 @@ export function parsePatchMetadata(patchStr: string): FileDiffMetadata | null {
     }
     // FIFO eviction keeps the cache bounded; the working set (files in one diff)
     // is far below the limit, so eviction only trims long-replaced patches.
-    if (patchCache.size >= PATCH_CACHE_LIMIT) {
-      const oldest = patchCache.keys().next().value
-      if (oldest !== undefined) patchCache.delete(oldest)
-    }
-    patchCache.set(patchStr, parsed)
+    cacheParsedPatch(patchStr, parsed)
   }
   return parsed ? { ...parsed } : null
 }

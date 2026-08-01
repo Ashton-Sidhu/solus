@@ -76,7 +76,13 @@ export class ClaudeGoalStore {
   applySessionStatus(threadId: string, status: SessionStatus): ThreadGoal | null {
     const goal = this.get(threadId)
     if (!goal) return null
-    const goalStatus = status === 'completed' ? 'complete' : isSessionBusyStatus(status) ? 'active' : goal.status
+    const goalStatus = status === 'completed'
+      ? 'complete'
+      : status === 'interrupted'
+        ? 'paused'
+        : isSessionBusyStatus(status)
+          ? 'active'
+          : goal.status
     if (goal.status === goalStatus) return null
 
     goal.status = goalStatus

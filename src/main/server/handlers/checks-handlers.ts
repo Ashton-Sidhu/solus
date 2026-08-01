@@ -23,10 +23,30 @@ interface RepoChecksCache {
   refresh?: Promise<void>
 }
 
-interface ClientActivity {
+export interface ClientChecksActivity {
   repoKey: string
   reviewSurfaceOpen: boolean
   active: boolean
+}
+
+export function removeChecksClientActivity(
+  activities: Map<string, ClientChecksActivity>,
+  clientId: string,
+  activeRepoKey: string | null,
+): { removed: boolean; activeRepoKey: string | null } {
+  if (!activities.delete(clientId)) return { removed: false, activeRepoKey }
+
+  let fallbackRepoKey: string | null = null
+  let preferredRepoIsActive = false
+  for (const activity of activities.values()) {
+    if (!activity.active) continue
+    fallbackRepoKey = activity.repoKey
+    if (activity.repoKey === activeRepoKey) preferredRepoIsActive = true
+  }
+  return {
+    removed: true,
+    activeRepoKey: preferredRepoIsActive ? activeRepoKey : fallbackRepoKey,
+  }
 }
 
 const caches = new Map<string, RepoChecksCache>()
@@ -88,8 +108,24 @@ async function refreshCache(
   return cache.refresh
 }
 
-export function registerChecksHandlers(server: SolusServer): void {
-  const activities = new Map<string, ClientActivity>()
+interface ChecksHandlersDeps {
+  resolveReviewTarget?: typeof reviewTargetFor
+}
+
+export interface ChecksHandlersLifecycle {
+  handleClientConnected(clientId: string): void
+  handleClientDisconnected(clientId: string): void
+  handleTransportClosed(): void
+  stats(): { connectedClients: number; activities: number; activeRepoKey: string | null }
+}
+
+export function registerChecksHandlers(
+  server: SolusServer,
+  deps: ChecksHandlersDeps = {},
+): ChecksHandlersLifecycle {
+  const resolveReviewTarget = deps.resolveReviewTarget ?? reviewTargetFor
+  const activities = new Map<string, ClientChecksActivity>()
+  const connectedClientTokens = new Map<string, object>()
   let activeRepoKey: string | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -131,7 +167,7 @@ export function registerChecksHandlers(server: SolusServer): void {
 
   server.register('prChecks', async (args) => {
     const [ctx, numbers = []] = args as [IpcContext, number[] | undefined]
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const { repo, provider } = await resolveReviewTarget(ctx)
     const key = repoKey(repo)
     const cache = ensureCache(repo, provider)
     activeRepoKey = key
@@ -144,10 +180,16 @@ export function registerChecksHandlers(server: SolusServer): void {
 
   server.register('prChecksActivity', async (args, request) => {
     const [ctx, reviewSurfaceOpen, active] = args as [IpcContext, boolean, boolean]
-    const { repo, provider } = await reviewTargetFor(ctx)
+    const clientId = clientKey(request)
+    const connectionToken = connectedClientTokens.get(clientId)
+    if (!connectionToken) return
+    const { repo, provider } = await resolveReviewTarget(ctx)
+    // The lookup can cross process/network boundaries. A disconnect or a fresh
+    // connection with the same client id makes the old result stale.
+    if (connectedClientTokens.get(clientId) !== connectionToken) return
     const key = repoKey(repo)
     ensureCache(repo, provider)
-    activities.set(clientKey(request), { repoKey: key, reviewSurfaceOpen, active })
+    activities.set(clientId, { repoKey: key, reviewSurfaceOpen, active })
     if (active) activeRepoKey = key
     if (activeRepoKey === key) {
       const interval = intervalFor(key)
@@ -156,6 +198,35 @@ export function registerChecksHandlers(server: SolusServer): void {
       else schedule(key)
     }
   })
+
+  return {
+    handleClientConnected(clientId: string): void {
+      connectedClientTokens.set(clientId, {})
+    },
+    handleClientDisconnected(clientId: string): void {
+      connectedClientTokens.delete(clientId)
+      const result = removeChecksClientActivity(activities, clientId, activeRepoKey)
+      if (!result.removed) return
+      activeRepoKey = result.activeRepoKey
+      if (timer) clearTimeout(timer)
+      timer = null
+      if (activeRepoKey) schedule(activeRepoKey)
+    },
+    handleTransportClosed(): void {
+      connectedClientTokens.clear()
+      activities.clear()
+      activeRepoKey = null
+      if (timer) clearTimeout(timer)
+      timer = null
+    },
+    stats(): { connectedClients: number; activities: number; activeRepoKey: string | null } {
+      return {
+        connectedClients: connectedClientTokens.size,
+        activities: activities.size,
+        activeRepoKey,
+      }
+    },
+  }
 }
 
 function repoKey(repo: RepoRef): string {

@@ -7,6 +7,7 @@
   import SubagentReturnCard from "./SubagentReturnCard.svelte";
   import SubagentRow from "./SubagentRow.svelte";
   import SubagentRunCard from "./SubagentRunCard.svelte";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   /**
    * §18 — a fan-out is one object, not n cards. Several sub-agents dispatched by
@@ -59,8 +60,7 @@
   );
   $effect(() => {
     if (runningCount === 0) return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   const elapsed = $derived(formatActivityDuration(summary.elapsedMs));

@@ -4,7 +4,7 @@ import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer,
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { AttentionEntry } from '../shared/attention-types'
-import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, SessionGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
+import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, ReviewGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
 import type { StackGraph } from '../shared/stack-types'
 import type { PrChecksSnapshot } from '../shared/checks-rpc-types'
 import type { SearchSessionsRequest } from '../shared/rpc'
@@ -201,8 +201,8 @@ export interface SolusAPI {
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
   generateGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null; scope?: 'branch' | 'session'; ownDeltaBase?: { parent: number; headSha: string } }): Promise<{ key: string; guide: ReviewGuide; persisted: boolean } | null>
-  requestSessionGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null }): Promise<SessionGuideStatusEvent | null>
-  sessionGuideStatus(ctx: IpcContext): Promise<SessionGuideStatusEvent | null>
+  requestReviewGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null; scope?: 'branch' | 'session'; ownDeltaBase?: { parent: number; headSha: string } }): Promise<ReviewGuideStatusEvent | null>
+  reviewGuideStatus(ctx: IpcContext, opts?: { scope?: 'branch' | 'session'; ownDeltaBase?: { parent: number; headSha: string } }): Promise<ReviewGuideStatusEvent | null>
   cancelGenerateGuide(ctx: IpcContext, opts?: { scope?: 'branch' | 'session'; ownDeltaBase?: { parent: number; headSha: string } }): Promise<boolean>
   readGuide(ctx: IpcContext, key: string): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
@@ -319,7 +319,7 @@ export interface SolusAPI {
   onSessionScan(callback: (event: SessionScanEvent) => void): () => void
   onSessionIndexUpdated(callback: (event: SessionIndexUpdatedEvent) => void): () => void
   onReviewProgress(callback: (event: ReviewProgressEvent) => void): () => void
-  onSessionGuideStatus(callback: (event: SessionGuideStatusEvent) => void): () => void
+  onReviewGuideStatus(callback: (event: ReviewGuideStatusEvent) => void): () => void
   onResetRuntime(callback: () => void): () => void
   onRunStatus(callback: (status: RunStatus) => void): () => void
   onRunLog(callback: (batch: RunLogBatch) => void): () => void

@@ -60,6 +60,10 @@ export class ServerConnections {
       this.connections.get(previousPrimaryId)?.transport.destroy()
       this.connections.delete(previousPrimaryId)
     }
+    // Re-selecting the same saved host creates a fresh transport. Destroy the
+    // displaced socket before replacing the map entry or it reconnects forever
+    // with no remaining owner.
+    if (existing && existing.transport !== transport) existing.transport.destroy()
     const connection: ManagedConnection = {
       serverId,
       target: resolvedTarget,

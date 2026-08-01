@@ -3,6 +3,7 @@ import { createRequire } from 'module'
 import { defineConfig, loadEnv } from 'electron-vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
+import { solusIconSubset } from './scripts/vite-icon-collections'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -26,7 +27,8 @@ function rendererManualChunks(id: string): string | undefined {
   if (id.includes('vite/preload-helper')) return 'runtime'
   if (!id.includes('node_modules')) return undefined
   if (id.includes('@tiptap') || id.includes('prosemirror') || id.includes('lowlight')) return 'vendor-editor'
-  if (id.includes('@xyflow') || id.includes('@dagrejs') || id.includes('@iconify')) return 'vendor-diagram'
+  if (id.includes('@xyflow') || id.includes('@dagrejs')) return 'vendor-diagram'
+  if (id.includes('@iconify')) return 'vendor-iconify'
   if (id.includes('svelte')) return 'vendor-svelte'
   return undefined
 }
@@ -118,7 +120,7 @@ export default defineConfig(({ mode }) => {
     worker: {
       format: 'es'
     },
-    plugins: [svelte(), tailwindcss()],
+    plugins: [solusIconSubset(), svelte(), tailwindcss()],
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
       // The renderer intentionally ships large isolated vendor chunks for the

@@ -14,7 +14,7 @@ export interface SessionListCacheEntry {
 }
 
 export const SESSION_LIST_FORCE_RESCAN_MS = 300_000
-export const _sessionListCache = new MemoryCache<string, SessionListCacheEntry>({ ttlMs: SESSION_LIST_FORCE_RESCAN_MS })
+export const _sessionListCache = new MemoryCache<string, SessionListCacheEntry>({ ttlMs: SESSION_LIST_FORCE_RESCAN_MS, maxEntries: 64 })
 
 /**
  * In-flight cold scans keyed by session-list cache key. At launch the pill and
@@ -26,6 +26,7 @@ export const _sessionListCache = new MemoryCache<string, SessionListCacheEntry>(
 export const _sessionScanInFlight = new Map<string, Promise<SessionMeta[]>>()
 
 const HEAD_BYTES = 4096
+export const MAX_SESSION_HEAD_BYTES = 4 * 1024 * 1024
 // Claude Code's `/rename` appends a `{"type":"custom-title",...}` line to the end
 // of the transcript. Read a small tail window to surface it without paying the
 // SDK's 64KB head+tail cost on every file. A rename buried before this much
@@ -91,15 +92,15 @@ export async function readSessionHeadMeta(filePath: string): Promise<ReturnType<
   const fh = await open(filePath, 'r')
   try {
     const stat = await fh.stat()
-    let windowBytes = Math.min(HEAD_BYTES, stat.size)
+    let windowBytes = Math.min(HEAD_BYTES, stat.size, MAX_SESSION_HEAD_BYTES)
     let meta!: ReturnType<typeof parseHeadMeta>
     while (true) {
       const headBuf = Buffer.allocUnsafe(windowBytes)
       const { bytesRead } = await fh.read(headBuf, 0, windowBytes, 0)
       const headLines = headBuf.subarray(0, bytesRead).toString('utf8').split('\n').filter(Boolean)
       meta = parseHeadMeta(headLines)
-      if (meta.validated || windowBytes >= stat.size) return meta
-      windowBytes = Math.min(stat.size, windowBytes * 4)
+      if (meta.validated || windowBytes >= stat.size || windowBytes >= MAX_SESSION_HEAD_BYTES) return meta
+      windowBytes = Math.min(stat.size, windowBytes * 4, MAX_SESSION_HEAD_BYTES)
     }
   } finally {
     await fh.close()

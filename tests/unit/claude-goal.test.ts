@@ -59,6 +59,7 @@ describe('Claude goals', () => {
     expect(store.applySessionStatus('session-1', 'idle')).toBeNull()
     expect(store.get('session-1')?.status).toBe('complete')
     expect(store.applySessionStatus('session-1', 'running')).toMatchObject({ status: 'active' })
+    expect(store.applySessionStatus('session-1', 'interrupted')).toMatchObject({ status: 'paused' })
   })
 
   test('refreshes and creates through the Claude-scoped goal API', async () => {

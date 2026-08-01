@@ -73,6 +73,10 @@ export class SessionEventReducer {
     this.agentConversations.closeTurn(session)
   }
 
+  rebuildAgentConversations(session: Session): void {
+    this.agentConversations.rebuild(session)
+  }
+
   /** Hand the accumulated thinking time to the tool call it preceded. */
   private takeThinkingMs(session: Session): number | undefined {
     const span = this.thinkingSpan(session)

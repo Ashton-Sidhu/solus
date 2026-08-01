@@ -8,6 +8,10 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 
 // ─── Transcript loader ───
 
+// Initial/restored surfaces render 100 rows at a time. Keep one extra page in
+// memory for instant upward scroll and leave the rest on the host until asked.
+export const RESTORED_TRANSCRIPT_LIMIT = 200
+
 /** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
 function isCreateWorkTool(name: string | undefined): boolean {
   return !!name && name.endsWith('create_work')
@@ -76,7 +80,7 @@ function resolveCreatedWork(ctx: WorkspaceContext, title: string, sessionId: str
   return ''
 }
 
-export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
+export interface SessionTranscriptLoadArgs {
   sessionId: string
   loadPath: string
   displayCwd: string
@@ -85,7 +89,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
   /** Hydrate only the most recent `limit` messages for a fast initial paint. */
   limit?: number
   shouldApply?: () => boolean
-}): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
+}
+
+export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
   const history = await ctx.apiFor(args.ctx.session.tabId).loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
   // A full window of messages means older ones were left on disk.
   const truncated = !!args.limit && history.length >= args.limit
@@ -335,6 +341,16 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
     progress: progressFromMessages(messages),
     truncated,
   }
+}
+
+/** Initial hydration always leaves older messages on the host, including both
+ * sides of a provider handoff. Full history expansion uses loadSessionTranscript
+ * directly after the user asks for it. */
+export function loadRestoredSessionTranscript(
+  ctx: WorkspaceContext,
+  args: Omit<SessionTranscriptLoadArgs, 'limit'>,
+): ReturnType<typeof loadSessionTranscript> {
+  return loadSessionTranscript(ctx, { ...args, limit: RESTORED_TRANSCRIPT_LIMIT })
 }
 
 // ─── Pending input sync ───

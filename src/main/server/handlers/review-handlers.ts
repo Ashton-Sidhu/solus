@@ -2,7 +2,7 @@ import type { SolusServer } from '../server'
 import type { IpcContext } from '../../../shared/types'
 import type { ReviewLedger, ReviewState } from '../../../shared/review'
 import { readGuideByKey, readLegacyGuide, readLedger, writeLedger, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/ledger'
-import { cancelGenerateGuide, generateGuide, getSessionGuideStatus, requestSessionGuide, type GenerateGuideOptions } from '../../review/guide-producer'
+import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, requestReviewGuide, type GenerateGuideOptions } from '../../review/guide-producer'
 import { guideKeyFor } from '../../review/review-target'
 import { readReviewState, writeReviewState } from '../../review/review-state'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -32,27 +32,27 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
       ctx,
       opts,
       (event) => server.broadcast('review-progress', event),
-      (event) => server.broadcast('session-guide-status', event),
+      (event) => server.broadcast('review-guide-status', event),
     )
   })
 
-  server.register('requestSessionGuide', async (args) => {
+  server.register('requestReviewGuide', async (args) => {
     const [ctx, opts] = args as [
       IpcContext,
-      Omit<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> | undefined,
+      GenerateGuideOptions | undefined,
     ]
-    return requestSessionGuide(
+    return requestReviewGuide(
       dispatcher,
       ctx,
       opts,
       (event) => server.broadcast('review-progress', event),
-      (event) => server.broadcast('session-guide-status', event),
+      (event) => server.broadcast('review-guide-status', event),
     )
   })
 
-  server.register('sessionGuideStatus', async (args) => {
-    const [ctx] = args as [IpcContext]
-    return getSessionGuideStatus(ctx)
+  server.register('reviewGuideStatus', async (args) => {
+    const [ctx, opts] = args as [IpcContext, Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> | undefined]
+    return getReviewGuideStatus(ctx, opts)
   })
 
   server.register('cancelGenerateGuide', async (args) => {
@@ -60,7 +60,7 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
     return cancelGenerateGuide(
       ctx,
       opts,
-      (event) => server.broadcast('session-guide-status', event),
+      (event) => server.broadcast('review-guide-status', event),
     )
   })
 

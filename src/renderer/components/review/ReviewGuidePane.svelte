@@ -1,10 +1,10 @@
 <script lang="ts">
   import { ArrowsClockwiseIcon } from "phosphor-svelte";
+  import type { GitCheckout } from "../../../shared/types";
   import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
-  import { getWorkspaceContext, getSettingsContext, getAgentContext, getStatusBarContext } from "../../contexts";
+  import { getWorkspaceContext, getSettingsContext, getAgentContext, toasts } from "../../contexts";
   import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
-  import { requestInputFocus } from "../../lib/inputFocus";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import PaneChrome from "../ui/PaneChrome.svelte";
@@ -22,12 +22,18 @@
   let {
     guideKey,
     scope = "branch",
+    sourceTabId,
+    workingDirectory,
+    gitContext,
     slot = "primary",
     onOpenInSplit,
     onClose,
   }: {
     guideKey: string;
     scope?: "branch" | "session";
+    sourceTabId?: string;
+    workingDirectory?: string;
+    gitContext?: GitCheckout | null;
     slot?: PaneSlot;
     onOpenInSplit?: () => void;
     onClose: () => void;
@@ -36,12 +42,26 @@
   const session = getWorkspaceContext();
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
-  const statusBar = getStatusBarContext();
   const isDemo = document.documentElement.classList.contains("solus-demo");
 
+  const reviewTabId = $derived(sourceTabId ?? session.activeTabId);
+  const reviewSession = $derived(session.sessionFor(reviewTabId));
+  const reviewWorkingDirectory = $derived(
+    workingDirectory ??
+      gitContext?.worktreePath ??
+      reviewSession?.workingDirectory ??
+      session.globalDefaults.workingDirectory,
+  );
+  const reviewGitContext = $derived(
+    gitContext === undefined ? (reviewSession?.gitContext ?? null) : gitContext,
+  );
+  const reviewCtx = $derived(
+    session.ctxForEnvironment(reviewWorkingDirectory, reviewGitContext, reviewTabId),
+  );
+
   const loader = new GuideLoader({
-    getApi: () => session.apiFor(session.activeTabId),
-    getCtx: () => session.ctx,
+    getApi: () => session.apiFor(reviewTabId),
+    getCtx: () => reviewCtx,
     getKey: () => guideKey,
     getScope: () => scope,
     getAgent: () => resolveReviewAgent(theme, agentContext),
@@ -57,8 +77,8 @@
   // surface (drafts → GitHub review), these submit back to the agent as
   // feedback on the change, closing the review → fix loop.
   const reviewDrafts = new ReviewDrafts({
-    getApi: () => session.apiFor(session.activeTabId),
-    getCtx: () => session.ctx,
+    getApi: () => session.apiFor(reviewTabId),
+    getCtx: () => reviewCtx,
     getKey: () => guideKey,
   });
   $effect(() => {
@@ -69,38 +89,51 @@
   let composerNote = $state("");
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
   let composerCollapsed = $state(true);
-  const sess = $derived(session.sessionFor(session.activeTabId));
-  const tab = $derived(session.tabs[session.activeTabId]);
+  let submitting = $state(false);
 
-  function sendToAgent(payload: PromptComposerSubmit) {
+  async function sendToAgent(payload: PromptComposerSubmit) {
     const hasDrafts = reviewDrafts.drafts.length > 0;
-    if (!hasDrafts && !payload.text) return;
-
-    const current = statusBar.ctxFor(session.activeTabId);
-    if (
-      payload.modelId !== (current.model || null) ||
-      payload.reasoningEffort !== current.reasoningEffort
-    ) {
-      session.updateModelConfig({
-        modelId: payload.modelId,
-        reasoningEffort: payload.reasoningEffort,
-      });
-    }
+    if ((!hasDrafts && !payload.text) || submitting) return;
 
     const parts = [`Please address this review feedback on the current changes:`];
     if (payload.text) parts.push(payload.text);
     if (hasDrafts) {
       parts.push(`Inline comments:\n${formatDiffInlineComments(reviewDrafts.diffComments)}`);
     }
-    if (tab) {
-      tab.input.planRefs = [...payload.planRefs];
-      tab.input.workRefs = [...payload.workRefs];
+    submitting = true;
+    try {
+      const newTabId = await session.createTab(reviewWorkingDirectory, {
+        activate: false,
+        gitContext: reviewGitContext,
+        worktreeRequested: false,
+      });
+      const newSession = session.sessionFor(newTabId);
+      if (newSession) {
+        newSession.provider = payload.provider;
+        newSession.modelConfig.modelId = payload.modelId;
+        newSession.modelConfig.reasoningEffort = payload.reasoningEffort;
+      }
+      const newTab = session.tabs[newTabId];
+      if (newTab) {
+        newTab.input.planRefs = [...payload.planRefs];
+        newTab.input.workRefs = [...payload.workRefs];
+      }
+      session.sendMessage(parts.join("\n\n"), undefined, newTabId);
+      composerRef?.clear();
+      reviewDrafts.clear();
+      toasts.success("Feedback sent to an agent", {
+        action: {
+          label: "Open session",
+          onAction: () => session.selectTab(newTabId),
+        },
+      });
+    } catch (error) {
+      toasts.error(
+        `Couldn't start a feedback session: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      submitting = false;
     }
-    session.sendMessage(parts.join("\n\n"));
-    composerRef?.clear();
-    reviewDrafts.clear();
-    onClose();
-    requestInputFocus();
   }
 </script>
 
@@ -153,16 +186,19 @@
         ? "absolute bottom-2.5 left-4 z-20"
         : "shrink-0 bg-(--solus-container-bg) px-4 pt-2.5 pb-2.5"}
     >
-      <PromptComposer
-        bind:this={composerRef}
-        bind:value={composerNote}
-        bind:collapsed={composerCollapsed}
-        tabId={session.activeTabId}
-        workingDirectory={sess?.workingDirectory}
-        canSubmitWhenEmpty={reviewDrafts.drafts.length > 0}
-        onSubmit={sendToAgent}
-        placeholder="Add feedback for the agent…"
-      />
+      <div class={composerCollapsed ? "" : "mx-auto w-full max-w-[92rem] 2xl:max-w-[104rem]"}>
+        <PromptComposer
+          bind:this={composerRef}
+          bind:value={composerNote}
+          bind:collapsed={composerCollapsed}
+          tabId={reviewTabId}
+          workingDirectory={reviewWorkingDirectory}
+          canSubmitWhenEmpty={reviewDrafts.drafts.length > 0}
+          onSubmit={sendToAgent}
+          {submitting}
+          placeholder="Add feedback for the agent…"
+        />
+      </div>
     </div>
   {/if}
 </section>

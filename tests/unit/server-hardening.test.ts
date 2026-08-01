@@ -114,4 +114,16 @@ describe('pair route token bucket', () => {
     expect(limiter.allow('192.168.1.6', 1_000)).toBe(true)
     expect(limiter.allow('192.168.1.5', 61_001)).toBe(true)
   })
+
+  test('bounds attacker-controlled key cardinality', () => {
+    const limiter = createTokenBucketRateLimiter(1, 60_000, 2)
+    expect(limiter.allow('oldest', 1_000)).toBe(true)
+    expect(limiter.allow('second', 1_000)).toBe(true)
+    expect(limiter.allow('oldest', 1_000)).toBe(false)
+
+    expect(limiter.allow('third', 1_000)).toBe(true)
+    // Adding the third unique key evicts the oldest bucket rather than growing
+    // the map without bound.
+    expect(limiter.allow('oldest', 1_000)).toBe(true)
+  })
 })

@@ -499,6 +499,29 @@ export function codexTurnToMessages(turn: CodexTurnHistory): SessionLoadMessage[
   return messages
 }
 
+/** Convert only the newest turns needed for a windowed renderer hydration. */
+export function codexTurnsToMessages(
+  turns: CodexTurnHistory[],
+  limit?: number,
+): SessionLoadMessage[] {
+  if (!limit || limit <= 0) {
+    const messages: SessionLoadMessage[] = []
+    for (const turn of turns) messages.push(...codexTurnToMessages(turn))
+    return messages
+  }
+
+  const newestTurnMessages: SessionLoadMessage[][] = []
+  let messageCount = 0
+  for (let index = turns.length - 1; index >= 0 && messageCount < limit; index--) {
+    const messages = codexTurnToMessages(turns[index])
+    newestTurnMessages.push(messages)
+    messageCount += messages.length
+  }
+  newestTurnMessages.reverse()
+  const messages = newestTurnMessages.flat()
+  return messages.length > limit ? messages.slice(-limit) : messages
+}
+
 export function codexSubagentActivityInput(item: {
   agentThreadId?: unknown
   agentPath?: unknown

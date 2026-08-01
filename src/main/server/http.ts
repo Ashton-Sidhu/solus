@@ -1,5 +1,7 @@
 import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
-import { existsSync, statSync, readFileSync, realpathSync } from 'fs'
+import { createReadStream, existsSync, realpathSync } from 'fs'
+import { stat as readFileStat } from 'fs/promises'
+import { Readable } from 'stream'
 import { randomBytes } from 'crypto'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
@@ -18,6 +20,7 @@ import { completeGoogleOAuthCallback } from '../google/oauth'
 import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '../../shared/voice-audio'
+import { parseByteRange } from './byte-range'
 
 const log = createLogger('main', 'http')
 
@@ -58,6 +61,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
   const currentPort = () => opts.getPort?.() ?? port
   const pairRateLimiter = createTokenBucketRateLimiter(10, 60_000)
   const claimRateLimiter = createTokenBucketRateLimiter(10, 60_000)
+  let voiceTranscriptionActive = false
 
   const app = new Hono<Env>()
 
@@ -95,7 +99,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     name: hostname() || 'Solus Server',
   }))
 
-  app.get('/endpoints', (c) => c.json({ endpoints: listReachableEndpoints(currentHost(), currentPort()) }))
+  app.get('/endpoints', async (c) => c.json({ endpoints: await listReachableEndpoints(currentHost(), currentPort()) }))
 
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
@@ -138,7 +142,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     return c.json(result)
   })
 
-  app.post('/claim/open', (c) => {
+  app.post('/claim/open', async (c) => {
     if (!verifyClaimOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
     const claimWindow = openClaimWindow()
     if (!claimWindow) return c.json({ error: 'Server already claimed' }, 403)
@@ -148,7 +152,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
       expiresAt: claimWindow.expiresAt,
       fingerprint: getServerFingerprint(),
       installationId: getInstallationId(),
-      endpoints: listReachableEndpoints(currentHost(), currentPort()),
+      endpoints: await listReachableEndpoints(currentHost(), currentPort()),
     })
   })
 
@@ -171,6 +175,13 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     if (declaredLength > MAX_VOICE_WAV_BYTES) {
       return c.json({ error: 'Voice recording exceeds the 60 minute limit', transcript: null }, 413)
     }
+    // Reject before buffering/decoding. Otherwise concurrent maximum-size
+    // requests each allocate a WAV Buffer and Float32 copy even though the
+    // single-flight inference worker can consume only one.
+    if (voiceTranscriptionActive) {
+      return c.json({ error: 'Voice transcription is already in progress', transcript: null }, 429)
+    }
+    voiceTranscriptionActive = true
 
     try {
       const wav = await readLimitedBody(c.env.incoming, MAX_VOICE_WAV_BYTES)
@@ -184,6 +195,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
         error: err instanceof Error ? err.message : 'Invalid voice recording',
         transcript: null,
       }, 400)
+    } finally {
+      voiceTranscriptionActive = false
     }
   })
 
@@ -195,15 +208,37 @@ export function buildHttpServer(opts: HttpServerOptions = {}): { server: HttpSer
     const filePath = await resolveKnownProjectFile(rawPath)
     if (!filePath) return c.json({ error: 'not found' }, 404)
 
-    const stat = statSync(filePath)
+    let stat
+    try {
+      stat = await readFileStat(filePath)
+    } catch {
+      return c.json({ error: 'not found' }, 404)
+    }
     if (!stat.isFile()) return c.json({ error: 'not found' }, 404)
 
+    const requestedRange = c.req.header('range')
+    const range = parseByteRange(requestedRange, stat.size)
+    if (requestedRange && !range) {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          'accept-ranges': 'bytes',
+          'content-range': `bytes */${stat.size}`,
+        },
+      })
+    }
+
     const type = getMimeType(filePath) ?? 'application/octet-stream'
-    return new Response(readFileSync(filePath), {
-      status: 200,
+    const start = range?.start ?? 0
+    const end = range?.end ?? stat.size - 1
+    const fileStream = createReadStream(filePath, range ? { start, end } : undefined)
+    return new Response(Readable.toWeb(fileStream) as ReadableStream, {
+      status: range ? 206 : 200,
       headers: {
         'content-type': type,
-        'content-length': String(stat.size),
+        'content-length': String(range ? end - start + 1 : stat.size),
+        'accept-ranges': 'bytes',
+        ...(range ? { 'content-range': `bytes ${start}-${end}/${stat.size}` } : {}),
         'content-security-policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'",
       },
     })
@@ -256,8 +291,9 @@ function readBearer(c: Ctx): string {
 }
 
 function clientIp(c: Ctx): string {
-  const forwarded = c.req.header('x-forwarded-for')
-  if (forwarded && forwarded.trim()) return forwarded.split(',')[0].trim()
+  // This server has no trusted-proxy configuration. Treating an arbitrary
+  // X-Forwarded-For value as identity lets unauthenticated callers manufacture
+  // rate-limit buckets at will.
   return c.env.incoming.socket.remoteAddress || 'unknown'
 }
 

@@ -19,6 +19,10 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import {
+    branchGuideIdentity,
+    reviewGuideStore,
+  } from "../review/review-guide.store.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import * as Popover from "../ui/popover";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
@@ -308,20 +312,62 @@
   // Review companion: run the producer (review the diff, enriched by the ledger
   // when present → fixed-structure HTML) for the current branch, then wait for
   // an explicit second click before opening the companion in the main pane.
-  let reviewing = $state(false);
-  let reviewKey = $state<string | null>(null);
-  let reviewRunId = 0;
+  const reviewIdentity = $derived.by(() => {
+    const identity = branchGuideIdentity(env);
+    if (!identity) return null;
+    const changes = status?.uncommittedChanges;
+    return {
+      ...identity,
+      revision: [
+        status?.headSha ?? "",
+        ...(changes?.files.map((file) => file.path) ?? []),
+        changes?.insertions ?? 0,
+        changes?.deletions ?? 0,
+      ].join("|"),
+    };
+  });
+  const reviewStatus = $derived(
+    reviewGuideStore.statusFor(session.apiFor(tabId), reviewIdentity),
+  );
+  const reviewing = $derived(
+    reviewStatus?.status === "queued" || reviewStatus?.status === "generating",
+  );
+  const reviewKey = $derived(
+    reviewStatus?.status === "ready" ? reviewStatus.key : null,
+  );
+  let lastReviewFailureAt = 0;
 
-  // The panel survives branch switches; a key latched for the previous branch
-  // would open that branch's guide. Reset so "View report" never crosses over.
   $effect(() => {
-    void currentBranch;
-    reviewKey = null;
+    const identity = reviewIdentity;
+    if (!identity) return;
+    void reviewGuideStore.load(
+      session.apiFor(tabId),
+      session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+      identity,
+      "branch",
+    );
+  });
+
+  $effect(() => {
+    if (
+      reviewStatus?.status !== "failed" ||
+      reviewStatus.updatedAt === lastReviewFailureAt
+    ) return;
+    lastReviewFailureAt = reviewStatus.updatedAt;
+    toasts.error(
+      reviewStatus.error
+        ? `Review stopped: ${reviewStatus.error}`
+        : "Review stopped before a report was produced. Try again.",
+    );
   });
 
   function handleReview() {
     if (reviewKey) {
-      panes.enterReview(reviewKey);
+      panes.enterReview(reviewKey, "branch", {
+        sourceTabId: tabId,
+        workingDirectory: env.cwd,
+        gitContext: env.checkout,
+      });
       requestInputFocus();
       return;
     }
@@ -330,44 +376,25 @@
 
   async function generateReport() {
     if (reviewing) return;
-    const isRegeneration = !!reviewKey;
-    const runId = ++reviewRunId;
+    const identity = reviewIdentity;
+    if (!identity) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, tabId);
-    reviewing = true;
     try {
-      const gen = await window.solus.generateGuide(
+      await reviewGuideStore.generate(
+        session.apiFor(tabId),
         ctx,
-        resolveReviewAgent(settings, agentContext),
+        identity,
+        {
+          ...resolveReviewAgent(settings, agentContext),
+          scope: "branch",
+        },
       );
-      if (runId !== reviewRunId) return;
-      // Fallback guides are intentionally not persisted. Only offer "View
-      // report" when generation returned a real cached guide.
-      const generatedKey = gen?.persisted ? gen.key : null;
-      if (generatedKey) {
-        reviewKey = generatedKey;
-        toasts.success(isRegeneration ? "Report updated" : "Report ready", {
-          action: {
-            label: "View",
-            onAction: () => {
-              panes.enterReview(generatedKey);
-              requestInputFocus();
-            },
-          },
-        });
-      } else if (gen) {
-        toasts.info(gen.guide.summary);
-      }
     } catch (error) {
-      if (runId === reviewRunId) {
-        toasts.error(
-          `Couldn't generate report: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+      toasts.error(
+        `Couldn't generate report: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
-      if (runId === reviewRunId) {
-        reviewing = false;
-        requestInputFocus();
-      }
+      requestInputFocus();
     }
   }
 
@@ -377,10 +404,10 @@
 
   function cancelReview() {
     if (!reviewing) return;
-    reviewRunId += 1;
-    reviewing = false;
-    void window.solus.cancelGenerateGuide(
+    void reviewGuideStore.cancel(
+      session.apiFor(tabId),
       session.ctxForEnvironment(env.cwd, env.checkout, tabId),
+      "branch",
     );
     requestInputFocus();
   }

@@ -23,6 +23,7 @@
   } from "./lib/interrupt";
   import { formatAnswer, questionKey } from "../../../shared/question-answer";
   import type { AgentId, QuestionRequest, QuestionItem } from "../../../shared/types";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
     tabId: string;
@@ -65,8 +66,7 @@
 
   $effect(() => {
     if (responded) return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   $effect(() => {

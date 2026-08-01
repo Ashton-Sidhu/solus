@@ -32,7 +32,7 @@ export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
   api.onSessionScan = on('session-scan')
   api.onSessionIndexUpdated = on('session-index-updated')
   api.onReviewProgress = on('review-progress')
-  api.onSessionGuideStatus = on('session-guide-status')
+  api.onReviewGuideStatus = on('review-guide-status')
   api.onRunStatus = on('run-status')
   api.onRunLog = on('run-log')
   api.onVoiceModelStatus = on('voice-model-status')

@@ -20,6 +20,7 @@
   import { fence, runLabel } from "../../lib/run-utils";
   import type { RunStatus } from "../../../shared/types";
   import { Button } from "../ui/button";
+  import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
     cwd: string;
@@ -39,8 +40,7 @@
   let now = $state(Date.now());
   $effect(() => {
     if (!runs.some((r) => isActive(r) && r.startedAt != null)) return;
-    const t = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(t);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   $effect(() => {

@@ -8,11 +8,12 @@
   } from "../../lib/filePreview";
   import type { DiffScope, GitCheckout } from "../../../shared/types";
   interface Props {
+    active?: boolean;
     onAttachFile: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
     onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
-  let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let { active = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -87,7 +88,7 @@
   {/if}
   <div class="flex flex-1 min-h-0">
     <WorkspaceBody
-      active
+      {active}
       enableProjectPanel
       {onAttachFile}
       {onScreenshot}

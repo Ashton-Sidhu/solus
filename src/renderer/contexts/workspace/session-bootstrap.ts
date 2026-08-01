@@ -1,7 +1,7 @@
 import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makeInputState, makeSession, makeTab } from './session.factories'
-import { loadSessionTranscript } from './session-transcript'
+import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -9,7 +9,6 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 interface DeferredHydrationState {
   pending: Map<string, PersistedTab>
   running: Set<string>
-  drainScheduled: boolean
 }
 
 const deferredHydrations = new WeakMap<WorkspaceContext, DeferredHydrationState>()
@@ -33,24 +32,6 @@ export function replaceHydratedMessages(session: Pick<Session, 'messages'>, hydr
   session.messages.splice(0, session.messages.length, ...hydrated, ...pendingConfigurationChanges)
 }
 
-function scheduleIdle(callback: () => void): void {
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(callback, { timeout: 1_500 })
-    return
-  }
-  window.setTimeout(callback, 250)
-}
-
-function scheduleDeferredDrain(ctx: WorkspaceContext, state: DeferredHydrationState): void {
-  if (state.drainScheduled || state.pending.size === 0) return
-  state.drainScheduled = true
-  scheduleIdle(() => {
-    state.drainScheduled = false
-    const nextTabId = state.pending.keys().next().value as string | undefined
-    if (nextTabId) void hydrateDeferredTab(ctx, state, nextTabId)
-  })
-}
-
 async function hydrateDeferredTab(
   ctx: WorkspaceContext,
   state: DeferredHydrationState,
@@ -63,14 +44,13 @@ async function hydrateDeferredTab(
   try {
     await hydrateTab(ctx, snapTab)
   } catch {
-    // A missing/deleted transcript should not stop the remaining startup queue.
+    // A missing/deleted transcript leaves this cold tab empty until reopened.
   } finally {
     state.running.delete(tabId)
-    scheduleDeferredDrain(ctx, state)
   }
 }
 
-/** Promote an inactive persisted tab out of the idle queue when the user selects it. */
+/** Hydrate an inactive persisted tab when the user selects it (or it is live). */
 export function prioritizeTabHydration(ctx: WorkspaceContext, tabId: string): void {
   const state = deferredHydrations.get(ctx)
   if (!state?.pending.has(tabId)) return
@@ -108,8 +88,9 @@ export function materializeTabs(ctx: WorkspaceContext): void {
 
 /**
  * Async second step: register the materialized tabs with the server, hydrate the
- * active tab's transcript + bind its live session, and queue the rest for idle-time
- * hydration. Assumes materializeTabs already built the client-side tabs; falls back
+ * active tab's transcript + bind its live session. Cold inactive tabs stay as
+ * metadata until selected; busy tabs are promoted immediately. Assumes
+ * materializeTabs already built the client-side tabs; falls back
  * to running it if the caller skipped it. Guarded so a re-running boot effect can't
  * double-register or double-hydrate.
  */
@@ -280,6 +261,7 @@ async function _attachRuntimeTabs(
           && isSessionBusyStatus(meta.status)
         ) {
           session.status = meta.status
+          prioritizeTabHydration(ctx, snapTab.tabId)
         }
       })
       .catch(() => null)
@@ -291,8 +273,8 @@ async function _attachRuntimeTabs(
   ctx.pruneTabOrder()
 
   // Hydrate the tab the user is actually looking at first (its loadingHistory
-  // flag drives the conversation skeleton). Remaining tabs are intentionally
-  // serialized through idle time; selecting one promotes it immediately.
+  // flag drives the conversation skeleton). Cold inactive tabs remain on disk;
+  // selecting one promotes it immediately.
   const activeSnap = persistedTabs.find((t) => t.tabId === ctx.activeTabId)
   if (activeSnap) void hydrateTab(ctx, activeSnap).catch(() => {})
 
@@ -300,10 +282,8 @@ async function _attachRuntimeTabs(
   const deferredState: DeferredHydrationState = {
     pending: new Map(rest.map((snapTab) => [snapTab.tabId, snapTab])),
     running: new Set(),
-    drainScheduled: false,
   }
   deferredHydrations.set(ctx, deferredState)
-  scheduleDeferredDrain(ctx, deferredState)
 }
 
 /**
@@ -345,7 +325,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         }
         const handoffFrom = snapTab.handoffFrom
         const predecessorTranscript = handoffFrom
-          ? await loadSessionTranscript(ctx, {
+          ? await loadRestoredSessionTranscript(ctx, {
               sessionId: handoffFrom.sessionId,
               loadPath,
               displayCwd,
@@ -355,7 +335,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
             })
           : null
         const transcript = sessionId
-          ? await loadSessionTranscript(ctx, {
+          ? await loadRestoredSessionTranscript(ctx, {
               sessionId,
               loadPath,
               displayCwd,
@@ -373,6 +353,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
           // continuous transcript so switching agents never interrupts the thread.
           const stitchedMessages = [...predecessorMessages, ...currentMessages]
           replaceHydratedMessages(s, stitchedMessages)
+          ctx.eventReducer.rebuildAgentConversations(s)
           s.progress = progressFromMessages(stitchedMessages)
           s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
           ctx.recomputeChangedFiles(tabId)
@@ -380,6 +361,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
           for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)
         } else if (s && transcript.messages.length > 0) {
           replaceHydratedMessages(s, transcript.messages)
+          ctx.eventReducer.rebuildAgentConversations(s)
           s.progress = transcript.progress
           s.historyTruncated = transcript.truncated
           ctx.recomputeChangedFiles(tabId)

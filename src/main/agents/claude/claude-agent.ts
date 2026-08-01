@@ -354,7 +354,19 @@ export class ClaudeAgent {
     })
     for await (const message of usageQuery) {
       if (message.type !== 'result') continue
-      return message.subtype === 'success' ? parseClaudeUsageReport(message.result) : null
+      if (message.subtype !== 'success') return null
+      const windows = parseClaudeUsageReport(message.result)
+      // A half-read report is the signature of a wording change, and the
+      // missing window silently disappears from the panel. Keep the text that
+      // defeated the parser so the next occurrence is diagnosable.
+      if (!windows?.fiveHour || !windows?.weekly) {
+        log.warn('usage_report_partially_parsed', {
+          hasFiveHour: !!windows?.fiveHour,
+          hasWeekly: !!windows?.weekly,
+          report: message.result,
+        })
+      }
+      return windows
     }
     return null
   }

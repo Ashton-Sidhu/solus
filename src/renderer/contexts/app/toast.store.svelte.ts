@@ -1,5 +1,4 @@
-import { toast } from "svelte-sonner"
-import MultiActionToast from "../../components/ui/sonner/MultiActionToast.svelte"
+import { toast, type ExternalToast } from "svelte-sonner"
 
 /** Visual tone of a toast. */
 export type ToastVariant = "info" | "success" | "error" | "undo"
@@ -66,9 +65,7 @@ class ToastStore {
   #active: ActiveToast | null = null
   #seq = 0
 
-  /** Show a toast, committing (dismissing) any toast it replaces. Every toast
-   *  renders through {@link MultiActionToast} so the design stays consistent;
-   *  a single {@link ToastSpec.action} becomes a one-button action row. */
+  /** Show a toast, committing (dismissing) any toast it replaces. */
   show(spec: ToastSpec): void {
     this.#commitActive()
 
@@ -83,21 +80,38 @@ class ToastStore {
     }
     this.#active = active
 
-    toast.custom(MultiActionToast, {
+    const toastOptions: ExternalToast = {
       id: active.id,
       duration: spec.duration ?? 6000,
       onDismiss: () => this.#settle(active, true),
       onAutoClose: () => this.#settle(active, true),
-      componentProps: {
-        message: spec.message,
-        variant: spec.variant ?? "info",
-        actions: actions.map((action) => ({
-          label: action.label,
-          onClick: () => this.#runAction(active, action),
-        })),
-        closeToast: () => toast.dismiss(active.id),
-      },
-    })
+      action: actions[0]
+        ? {
+            label: actions[0].label,
+            onClick: () => this.#runAction(active, actions[0]),
+          }
+        : undefined,
+      cancel: actions[1]
+        ? {
+            label: actions[1].label,
+            onClick: () => this.#runAction(active, actions[1]),
+          }
+        : undefined,
+    }
+
+    switch (spec.variant) {
+      case "success":
+        toast.success(spec.message, toastOptions)
+        break
+      case "error":
+        toast.error(spec.message, toastOptions)
+        break
+      case "info":
+        toast.info(spec.message, toastOptions)
+        break
+      default:
+        toast(spec.message, toastOptions)
+    }
   }
 
   success(message: string, opts?: ToastOptions): void {

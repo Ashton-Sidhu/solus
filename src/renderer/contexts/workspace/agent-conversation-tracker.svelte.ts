@@ -1,5 +1,5 @@
 import type { AgentConversationRef, AgentConversationUpdate, AgentExchange, Message, Session } from '../../../shared/types'
-import { nextMsgId } from './session.utils'
+import { isAgentNotice, nextMsgId } from './session.utils'
 
 interface AgentConversationState {
   /** agentSessionId → message id of that agent's card in the current turn.
@@ -22,10 +22,9 @@ const SETTLED_STATUS: Record<'completed' | 'interrupted' | 'failed', AgentExchan
  *  place as `agent_conversation_update` events land (same contract as WorkStreamTracker:
  *  keep the pushed message id, patch its ref). */
 export class AgentConversationTracker {
-  // Keyed by the messages ARRAY, not the Session: reloads, history expansion,
-  // and clearTab all replace `session.messages` on the same Session object,
-  // and tracker state pointing into a destroyed array (stale msgIds, stale
-  // exchange counts) must die with it.
+  // Keyed by the messages array so clearTab's replacement drops its tracker
+  // state. Performance-sensitive hydration expands the same reactive array in
+  // place; those callers explicitly rebuild the indexes below.
   private states = new WeakMap<Message[], AgentConversationState>()
 
   private state(session: Session): AgentConversationState {
@@ -35,6 +34,31 @@ export class AgentConversationTracker {
       this.states.set(session.messages, state)
     }
     return state
+  }
+
+  /** Re-index a transcript after hydration replaces its contents in place. */
+  rebuild(session: Session): void {
+    const state: AgentConversationState = {
+      currentByAgent: new Map(),
+      byExchange: new Map(),
+      countByAgent: new Map(),
+    }
+    for (const message of session.messages) {
+      if (message.role === 'user' && !isAgentNotice(message.content)) {
+        state.currentByAgent.clear()
+      }
+      const conversation = message.agentConversationRef
+      if (!conversation) continue
+      state.currentByAgent.set(conversation.agentSessionId, message.id)
+      for (const exchange of conversation.exchanges) {
+        state.byExchange.set(exchange.exchangeId, message.id)
+        state.countByAgent.set(
+          conversation.agentSessionId,
+          Math.max(state.countByAgent.get(conversation.agentSessionId) ?? 0, exchange.index),
+        )
+      }
+    }
+    this.states.set(session.messages, state)
   }
 
   /** A genuine user message closes the turn: the next dispatch per agent starts

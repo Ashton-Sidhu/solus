@@ -1,5 +1,6 @@
 import { createContext } from 'svelte'
-import { MAX_RUN_LOG_LINES, worktreeProjectRoot, type RunLogBatch, type RunLogLine, type RunProjectStatus, type RunStatus } from '../../../shared/types'
+import { worktreeProjectRoot, type RunLogBatch, type RunLogLine, type RunProjectStatus, type RunStatus } from '../../../shared/types'
+import { MAX_RENDERER_RUN_LOG_LINES, mergeRunLogBackfill } from './lib/run-log-buffer'
 
 export class RunStore {
   /** repoRoot -> commandId -> status */
@@ -7,6 +8,8 @@ export class RunStore {
   /** repoRoot -> commandId -> live log buffer (streamed + backfilled). */
   logsByCommand = $state<Record<string, Record<string, RunLogLine[]>>>({})
   private repoRootByCwd = $state<Record<string, string>>({})
+  private logConsumers = new Map<string, { count: number; generation: number; unsubscribe: () => void }>()
+  private nextLogConsumerGeneration = 1
 
   apply(status: RunStatus): void {
     let byId = this.projects[status.repoRoot]
@@ -75,7 +78,7 @@ export class RunStore {
       if (line.seq === 0) buf.length = 0
       buf.push(line)
     }
-    if (buf.length > MAX_RUN_LOG_LINES) buf.splice(0, buf.length - MAX_RUN_LOG_LINES)
+    if (buf.length > MAX_RENDERER_RUN_LOG_LINES) buf.splice(0, buf.length - MAX_RENDERER_RUN_LOG_LINES)
   }
 
   /** Live, reactive log buffer for a command (undefined until status has resolved its repoRoot). */
@@ -87,16 +90,58 @@ export class RunStore {
   }
 
   /** Seed from the backend ring buffer once, covering lines produced before we subscribed. */
-  async backfillLogs(cwd: string, commandId: string): Promise<void> {
+  async backfillLogs(cwd: string, commandId: string, consumerKey?: string, generation?: number): Promise<void> {
     if (!cwd || cwd === '~') return
     const repoRoot = this.repoRootByCwd[cwd]
     if (!repoRoot) return
     const existing = this.logsByCommand[repoRoot]?.[commandId]
     if (existing && existing.length > 0) return
     const lines = await window.solus.runLogs(cwd, commandId)
-    // Re-check after the await: a stream delta may have arrived first.
+    if (consumerKey) {
+      const consumer = this.logConsumers.get(consumerKey)
+      if (!consumer || consumer.generation !== generation) return
+    }
+    // Merge rather than replacing: a stream delta may have arrived while the
+    // snapshot RPC was in flight.
     const buf = this.ensureBuffer(repoRoot, commandId)
-    if (buf.length === 0) buf.push(...lines)
+    const merged = mergeRunLogBackfill(lines, buf, MAX_RENDERER_RUN_LOG_LINES)
+    buf.splice(0, buf.length, ...merged)
+  }
+
+  /**
+   * Retain one filtered transport subscription per visible command. Multiple
+   * mounted layouts share it through a reference count.
+   */
+  retainLogs(cwd: string, repoRoot: string, commandId: string): () => void {
+    const key = `${repoRoot}\0${commandId}`
+    const existing = this.logConsumers.get(key)
+    if (existing) {
+      existing.count += 1
+    } else {
+      const generation = this.nextLogConsumerGeneration++
+      const unsubscribe = window.solus.onRunLog((batch) => {
+        if (batch.repoRoot === repoRoot && batch.commandId === commandId) this.applyLog(batch)
+      })
+      this.logConsumers.set(key, { count: 1, generation, unsubscribe })
+      void this.backfillLogs(cwd, commandId, key, generation)
+    }
+
+    return () => {
+      const consumer = this.logConsumers.get(key)
+      if (!consumer) return
+      consumer.count -= 1
+      if (consumer.count > 0) return
+      consumer.unsubscribe()
+      this.logConsumers.delete(key)
+      this.clearLogsForRoot(repoRoot, commandId)
+    }
+  }
+
+  private clearLogsForRoot(repoRoot: string, commandId: string): void {
+    const byCommand = this.logsByCommand[repoRoot]
+    if (!byCommand) return
+    delete byCommand[commandId]
+    if (Object.keys(byCommand).length === 0) delete this.logsByCommand[repoRoot]
   }
 
   private ensureBuffer(repoRoot: string, commandId: string): RunLogLine[] {

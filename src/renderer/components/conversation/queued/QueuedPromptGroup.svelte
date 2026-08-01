@@ -5,6 +5,7 @@
   import { queuedCaption } from "../lib/queued-prompts";
   import UserMessageBubble from "../UserMessageBubble.svelte";
   import type { EnrichedError, OutboundPrompt } from "../../../../shared/types";
+  import { liveActivityClock } from "../../../lib/shared-clock";
 
   interface Props {
     tabId: string;
@@ -32,8 +33,7 @@
   const hasCountdown = $derived(isRateLimited && !!resetsAt);
   $effect(() => {
     if (!hasCountdown) return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   const caption = $derived(

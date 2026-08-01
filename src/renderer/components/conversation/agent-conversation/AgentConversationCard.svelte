@@ -22,6 +22,7 @@
   import { agentConversationStatus } from "./agent-conversation-status.store.svelte";
   import AgentDialogue from "./AgentDialogue.svelte";
   import AgentExchangeFooter from "./AgentExchangeFooter.svelte";
+  import { liveActivityClock } from "../../../lib/shared-clock";
 
   /**
    * This session's conversation with one other agent's session — one card per
@@ -50,7 +51,8 @@
   const neverStarted = $derived(isPendingAgent(ref));
 
   $effect(() => {
-    if (!neverStarted) agentConversationStatus.track(ref.agentSessionId, api);
+    if (neverStarted) return;
+    return agentConversationStatus.retain(ref.agentSessionId, api);
   });
 
   const meta = $derived(agentConversationStatus.metaFor(ref.agentSessionId));
@@ -71,8 +73,7 @@
 
   $effect(() => {
     if (!live) return;
-    const timer = setInterval(() => (now = Date.now()), 1000);
-    return () => clearInterval(timer);
+    return liveActivityClock.subscribe((value) => { now = value; });
   });
 
   const elapsed = $derived(

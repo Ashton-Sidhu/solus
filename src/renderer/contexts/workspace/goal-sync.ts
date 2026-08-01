@@ -90,6 +90,16 @@ export class GoalSync {
     })
   }
 
+  pauseForInterrupt(tabId: string): void {
+    const session = this.codexSession(tabId)
+    if (!session?.goal || session.goal.status !== 'active') return
+
+    // Stopping the turn must stay responsive even if goal persistence fails.
+    // `set` refreshes the authoritative state on failure; the interrupt itself
+    // remains independent and must not produce an unhandled rejection.
+    void this.set(tabId, { status: 'paused' }).catch(() => {})
+  }
+
   clear(tabId: string): Promise<void> {
     const session = this.requireCodexSession(tabId)
     const threadId = session.agentSessionId as string

@@ -5,7 +5,7 @@ import type { PluginCommand, PluginCommandsResult } from '../../../shared/types'
 import { MemoryCache } from '../../../shared/cache'
 
 export const PLUGIN_CMD_TTL = 5 * 60 * 1000
-export const _pluginCmdCache = new MemoryCache<string, PluginCommandsResult>({ ttlMs: PLUGIN_CMD_TTL })
+export const _pluginCmdCache = new MemoryCache<string, PluginCommandsResult>({ ttlMs: PLUGIN_CMD_TTL, maxEntries: 64 })
 
 async function listClaudeSkillCommands(skillsPath: string): Promise<PluginCommand[]> {
   try {
