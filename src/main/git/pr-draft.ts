@@ -120,16 +120,16 @@ export async function generatePullRequestDraft(input: PullRequestDraftInput): Pr
   try {
     const context = await collectGitContext(input)
     if (!context) {
-      log.warn('Skipping PR draft generation: git context exceeded size limit after truncation')
+      log.warn('pr_draft_skipped_context_too_large')
       return null
     }
 
     const text = await input.generateText(buildPrompt(context))
     const draft = parseDraft(text)
-    if (!draft) log.warn('PR draft generation returned invalid JSON')
+    if (!draft) log.warn('pr_draft_invalid_json')
     return draft
   } catch (err: any) {
-    log.warn(`PR draft generation failed: ${err?.message || err}`)
+    log.warn('pr_draft_generation_failed', { error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }

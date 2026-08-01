@@ -4,6 +4,7 @@
   import type { ProjectEntry } from "../../../shared/types";
   import { projectsStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
+  import SettingsSection from "./SettingsSection.svelte";
 
   const session = getWorkspaceContext();
   const projectMetadata = projectsStore;
@@ -47,25 +48,27 @@
   }
 </script>
 
-<div class="flex min-h-[18rem] gap-5">
-  <nav class="flex flex-col gap-0.5 w-60 shrink-0 border-r border-r-(--solus-container-border)/50 pr-3" aria-label="Projects">
+<SettingsSection>
+<div class="flex min-h-[18rem] gap-4 p-3">
+  <nav class="flex flex-col gap-0.5 w-60 shrink-0 border-r border-r-border pr-3" aria-label="Projects">
     {#if loaded && projects.length === 0}
       <p class="text-[0.75rem] text-(--solus-text-tertiary) py-2">No projects yet. Open a folder to get started.</p>
     {/if}
     {#each projects as project (project.path)}
-      <div class="group flex items-center gap-1 w-full rounded-lg min-w-0 [transition:background_0.15s_ease,color_0.15s_ease]
-        {selected === project.path
-          ? 'bg-(--solus-accent)/14 text-(--solus-text-primary)'
-          : 'text-(--solus-text-secondary) hover:bg-(--solus-surface-hover)'}">
+      {@const active = selected === project.path}
+      <div class="group flex items-center gap-1 w-full rounded-md border min-w-0 [transition:background_0.15s_ease,color_0.15s_ease,border-color_0.15s_ease]
+        {active
+          ? 'border-(--solus-accent)/25 bg-(--solus-accent)/10 text-foreground'
+          : 'border-transparent text-muted-foreground hover:bg-muted'}">
         <button
           type="button"
           class="flex items-center gap-2.5 flex-1 min-w-0 text-left py-2 px-2.5 border-none bg-transparent text-inherit cursor-pointer"
-          aria-current={selected === project.path}
+          aria-current={active}
           onclick={() => (selected = project.path)}
         >
-          <FolderIcon size={15} weight={selected === project.path ? "fill" : "regular"} class="shrink-0 {selected === project.path ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
+          <FolderIcon size={15} weight={active ? "fill" : "regular"} class="shrink-0 {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
           <span class="flex flex-col min-w-0 gap-px">
-            <span class="text-[0.8125rem] font-medium whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || folderName(project.path)}</span>
+            <span class="text-[0.8125rem] {active ? 'font-medium' : 'font-normal'} whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || folderName(project.path)}</span>
             <span class="text-[0.625rem] text-(--solus-text-tertiary) whitespace-nowrap overflow-hidden text-ellipsis">{project.path}</span>
           </span>
         </button>
@@ -113,3 +116,4 @@
     {/if}
   </div>
 </div>
+</SettingsSection>

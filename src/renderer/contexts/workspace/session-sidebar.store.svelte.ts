@@ -33,6 +33,8 @@ export type SidebarSessionChild = {
   label: string
   attention: AttentionState
   active: boolean
+  /** Session history mixes hosts, so each row has to carry the one it runs on. */
+  serverId: string | null
 }
 
 const attentionRank: Record<NonNullable<AttentionState>, number> = {
@@ -53,7 +55,6 @@ function maxAttention(current: AttentionState, next: AttentionState): AttentionS
 export class SessionSidebarStore {
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
-
   visibleTabIds: string[] = $derived.by(() => this.session.tabOrder.filter((id) => this.session.tabs[id]))
 
   projectBranchGroups: ProjectBranchGroup[] = $derived.by(() => {
@@ -70,9 +71,9 @@ export class SessionSidebarStore {
       if (tabSess.loadingHistory) continue
 
       const env = this.session.environment.environmentFor(tabId)
-      const projectKey = environmentProjectKey(env)
+      const projectKey = environmentProjectKey(env, tabSess.projectGroupPath)
       const projectLabel = projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
-      const branchKey = environmentBranchKey(env)
+      const branchKey = environmentBranchKey(env, tabSess.projectGroupPath)
       const branchLabel = tabSess.prReview?.title ?? env.name
       const attention = getAttentionState(tabSess, tabEntry, this.planStore.plans)
 
@@ -113,9 +114,15 @@ export class SessionSidebarStore {
     })
   })
 
-  activeBranchKey: string = $derived(environmentBranchKey(this.session.environment.environmentFor(this.session.activeTabId)))
+  activeBranchKey: string = $derived(environmentBranchKey(
+    this.session.environment.environmentFor(this.session.activeTabId),
+    this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
+  ))
 
-  activeProjectKey: string = $derived(environmentProjectKey(this.session.environment.environmentFor(this.session.activeTabId)))
+  activeProjectKey: string = $derived(environmentProjectKey(
+    this.session.environment.environmentFor(this.session.activeTabId),
+    this.session.sessionFor(this.session.activeTabId)?.projectGroupPath,
+  ))
 
   constructor(
     private settings: SettingsContext,
@@ -173,6 +180,7 @@ export class SessionSidebarStore {
       label: tab && sess ? sessionTitle(sess, tab) : tabId,
       attention: tab && sess ? getAttentionState(sess, tab, this.planStore.plans) : null,
       active: tabId === this.session.activeTabId,
+      serverId: sess?.serverId ?? null,
     }
   }
 

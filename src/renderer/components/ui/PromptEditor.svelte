@@ -15,10 +15,10 @@
   import SlashCommandMenu from "../input/SlashCommandMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
   import FileAutocompleteMenu from "../input/FileAutocompleteMenu.svelte";
-  import MarkdownEditor from "../MarkdownEditor.svelte";
-  import type { Transaction } from "@tiptap/pm/state";
-  import * as refs from "../editor/references";
+  import PlainTextEditor from "./plain-text-editor/plain-text-editor.svelte";
   import { AutocompleteController } from "../editor/autocomplete.svelte";
+  import type { AutocompleteEditor } from "../editor/autocomplete-editor";
+  import { resolveAutocompleteScope } from "../editor/autocomplete-scope";
 
   interface Props {
     value: string;
@@ -29,13 +29,15 @@
     provider: AgentId;
     /** Directory used for @-file search, plan preload, and work loading. */
     workingDirectory: string | undefined;
+    /** Session tab whose checkout and host own autocomplete requests. */
+    tabId?: string;
     /** Notified whenever the editor's plan/work/session references change. */
     onRefsChange?: (
       planRefs: PlanReference[],
       workRefs: WorkReference[],
       sessionRefs: SessionReference[],
     ) => void;
-    /** Synchronous emptiness signal (see MarkdownEditor) — lets callers gate
+    /** Synchronous emptiness signal — lets callers gate
      *  UI like a send button without waiting on the debounced markdown emit. */
     onEmptyChange?: (empty: boolean) => void;
     /** Include Solus built-in commands (/clear …) in the slash menu. The input
@@ -80,6 +82,7 @@
     pluginCommands,
     provider,
     workingDirectory,
+    tabId,
     onRefsChange,
     onEmptyChange,
     includeSolusCommands = false,
@@ -104,16 +107,38 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
+  const autocompleteScope = $derived(
+    resolveAutocompleteScope(session, workingDirectory, tabId),
+  );
 
-  let markdownEditorEl: ReturnType<typeof MarkdownEditor> | null = $state(null);
+  let plainTextEditorEl: ReturnType<typeof PlainTextEditor> | null =
+    $state(null);
   let fileMenuEl: ReturnType<typeof FileAutocompleteMenu> | null = $state(null);
-  const ed = () => markdownEditorEl?.getEditor() ?? null;
+  const autocompleteEditor: AutocompleteEditor = {
+    textBeforeCursor: () => plainTextEditorEl?.textBeforeCursor() ?? "",
+    cursorRect: () => plainTextEditorEl?.getCursorRect() ?? null,
+    focus: () => plainTextEditorEl?.focus(),
+    replaceTrigger: (pattern, replacement) =>
+      plainTextEditorEl?.replaceTrigger(pattern, replacement) ?? false,
+    insertReference: (token, pattern) =>
+      plainTextEditorEl?.insertReference(token, pattern) ?? false,
+    unwrapFileReferenceBeforeCursor: () =>
+      plainTextEditorEl?.unwrapFileReferenceBeforeCursor() ?? false,
+    extractTrackedReferences: () =>
+      plainTextEditorEl?.extractReferences() ?? {
+        planRefs: [],
+        workRefs: [],
+        sessionRefs: [],
+      },
+    isCaretAtStart: () => plainTextEditorEl?.isCaretAtStart() ?? false,
+  };
 
-  // The reference-autocomplete state machine. It operates on the raw Tiptap
-  // editor (via the accessors below), so this component is just the menu host.
+  // The reference-autocomplete state machine is editor-neutral; this component
+  // hosts its menus and connects it to the lightweight CodeMirror composer.
   const ac = new AutocompleteController({
     readOnly: () => readOnly,
-    workingDirectory: () => workingDirectory,
+    tabId: () => autocompleteScope.tabId,
+    workingDirectory: () => autocompleteScope.workingDirectory,
     useRelativeFilePaths: () => useRelativeFilePaths,
     provider: () => provider,
     includeSolusCommands: () => includeSolusCommands,
@@ -122,27 +147,30 @@
     onRefsChange: () => onRefsChange,
     session,
     planStore,
-    getEditor: ed,
-    focusEditor: () => markdownEditorEl?.focus(),
-    getCursorRect: () => markdownEditorEl?.getCursorRect() ?? null,
+    getEditor: () => autocompleteEditor,
     getFileMenu: () => fileMenuEl,
   });
+  const decoratedSlashCommands = $derived([
+    ...ac.commands.solus,
+    ...ac.commands.codex,
+    ...ac.commands.claudeCode,
+    ...ac.commands.global,
+    ...ac.commands.project,
+  ].map((command) => command.command));
 
   // Emit refs parsed from the starting value once the editor mounts. setContent
   // fires no update event, so without this a caller editing an automation never
   // learns about the plan/work tokens already in the saved prompt.
   $effect(() => {
-    if (markdownEditorEl) untrack(() => ac.syncRefs());
+    if (plainTextEditorEl) untrack(() => ac.syncRefs());
   });
 
   // Synchronous per-keystroke channel: autocomplete triggers must track the
-  // caret immediately, not after the debounced markdown emit.
-  function handleEditorInput(transaction: Transaction | null) {
+  // caret immediately. CodeMirror emits plain markdown synchronously, so there
+  // is no serialization debounce in the typing path.
+  function handleEditorInput() {
     if (readOnly) return;
-    ac.handleEditorChange(
-      refs.textBeforeCursor(ed()),
-      transaction === null || refs.transactionChangesTrackedRefs(transaction),
-    );
+    ac.handleEditorChange(autocompleteEditor.textBeforeCursor(), true);
   }
 
   function handleEditorChange(md: string) {
@@ -163,28 +191,30 @@
     ac.clearCompletions();
   }
   export function focus() {
-    markdownEditorEl?.focus();
+    plainTextEditorEl?.focus();
   }
   export function setValueAndCursor(
     text: string,
     autoFocus = true,
     ensureTrailingParagraph = false,
   ) {
-    markdownEditorEl?.setValueAndCursor(
+    plainTextEditorEl?.setValueAndCursor(
       text,
       autoFocus,
       ensureTrailingParagraph,
     );
     // Re-evaluate the slash trigger so prompt-history navigation keeps the
     // command menu in sync (setContent fires no editor update).
-    ac.updateSlashFilter(untrack(() => refs.textBeforeCursor(ed()) || text));
+    ac.updateSlashFilter(
+      untrack(() => autocompleteEditor.textBeforeCursor() || text),
+    );
   }
   export function clearEditor() {
-    markdownEditorEl?.clearEditor();
+    plainTextEditorEl?.clearEditor();
     ac.clearCompletions();
   }
   export function isCaretAtStart(): boolean {
-    return refs.isCaretAtStart(ed());
+    return autocompleteEditor.isCaretAtStart();
   }
 </script>
 
@@ -253,8 +283,8 @@
   />
 {/if}
 
-<MarkdownEditor
-  bind:this={markdownEditorEl}
+<PlainTextEditor
+  bind:this={plainTextEditorEl}
   {value}
   onValueChange={handleEditorChange}
   onInput={handleEditorInput}
@@ -272,7 +302,10 @@
   {onPrRefClick}
   {onFileRefClick}
   {placeholder}
+  ariaLabel="Message input"
   {disabled}
   {maxHeight}
+  referenceChips
+  slashCommands={decoratedSlashCommands}
   class={klass}
 />

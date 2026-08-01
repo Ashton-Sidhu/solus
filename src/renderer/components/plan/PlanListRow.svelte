@@ -9,7 +9,7 @@
   import ClaudeIcon from '../ClaudeIcon.svelte'
   import type { AgentId, PlanDescriptor } from '../../../shared/types'
   import { formatTimeAgo } from '../../lib/sessionUtils'
-  import { tooltip } from '../../lib/tooltip'
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from '../ui/button'
 
   interface Props {
@@ -107,7 +107,10 @@
     {/if}
     <span class="row-time">{timeLabel}</span>
     <div class="row-actions">
-      <span class="inline-flex" use:tooltip={descriptor.bookmarked ? 'Remove bookmark (⌥B)' : 'Bookmark (⌥B)'}>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps} class="inline-flex">
         <Button
           variant="ghost"
           size="icon-xs"
@@ -117,7 +120,14 @@
           <BookmarkSimpleIcon size={11} weight={descriptor.bookmarked ? 'fill' : 'regular'} />
         </Button>
       </span>
-      <span class="inline-flex" use:tooltip={'Resume session (⇧+Enter)'}>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={descriptor.bookmarked ? 'Remove bookmark (⌥B)' : 'Bookmark (⌥B)'} />
+      </TooltipUI.Root>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <span {...tooltipProps} class="inline-flex">
         <Button
           variant="ghost"
           size="icon-xs"
@@ -127,6 +137,10 @@
           <ArrowUpRightIcon size={11} />
         </Button>
       </span>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={'Resume session (⇧+Enter)'} />
+      </TooltipUI.Root>
     </div>
   </div>
 </div>

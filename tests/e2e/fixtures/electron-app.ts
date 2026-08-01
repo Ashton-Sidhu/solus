@@ -23,6 +23,7 @@ export const test = base.extend<Fixtures>({
       env: {
         ...process.env,
         SOLUS_TEST_MODE: '1',
+        SOLUS_DATA_DIR: join(userDataDir, 'solus-data'),
         ANTHROPIC_API_KEY: 'test-key',
         SOLUS_NO_UPDATE_CHECK: '1',
         ELECTRON_DISABLE_SECURITY_WARNINGS: '1',

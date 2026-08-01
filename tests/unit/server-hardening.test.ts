@@ -68,7 +68,7 @@ describe('session token lifetime, refresh, and revocation persistence', () => {
   test('rejects tokens older than the 30 day session lifetime', () => {
     isolateAuthStorage()
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
-    const token = auth.issueSessionToken('Test browser')
+    const { token } = auth.issueSessionToken('Test browser')
 
     setSystemTime(new Date('2026-02-01T00:00:01Z'))
     expect(Date.now() - Number(token.split('.')[1])).toBeGreaterThan(auth.SESSION_TOKEN_TTL_MS)
@@ -78,7 +78,7 @@ describe('session token lifetime, refresh, and revocation persistence', () => {
   test('refresh exchanges a valid token for a fresh token on the same device', () => {
     isolateAuthStorage()
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
-    const token = auth.issueSessionToken('Test browser')
+    const { token } = auth.issueSessionToken('Test browser')
     const original = auth.verifySessionToken(token)!
 
     setSystemTime(new Date('2026-01-10T00:00:00Z'))
@@ -93,7 +93,7 @@ describe('session token lifetime, refresh, and revocation persistence', () => {
   test('revoked devices stay revoked after auth state reloads from disk', () => {
     isolateAuthStorage()
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
-    const token = auth.issueSessionToken('Test browser')
+    const { token } = auth.issueSessionToken('Test browser')
     const session = auth.verifySessionToken(token)!
 
     auth.revokeDevice(session.deviceId)

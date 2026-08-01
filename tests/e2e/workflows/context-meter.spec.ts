@@ -6,18 +6,21 @@ const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 // The mock backend reports input 50K + cache-read 10K = 60K occupancy against a
-// 200K window (30%) for prompts containing __MOCK_USAGE__. Output (1.2K) is
-// reported too but must NOT count toward occupancy — it isn't in the window yet.
+// 200K window (30% used) for prompts containing __MOCK_USAGE__. Output (1.2K) is
+// reported too, as run spend — it must NOT count toward occupancy.
 test.describe('Context usage meter', () => {
-  test('meter is hidden until a response reports usage', async ({ page }) => {
+  test('meter reads zero before a response', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
 
-    // Before any usage is reported, the meter shows nothing (no 0%/0-token chip).
-    await expect(page.locator(`${ACTIVE_TAB} [data-testid="context-meter"]`)).toHaveCount(0)
+    // Always a figure, never a placeholder — the meter starts at 0% and fills
+    // in. The popover footnote is where "not reported yet" is said.
+    const label = page.locator(`${ACTIVE_TAB} [data-testid="context-meter-label"]`)
+    await expect(label).toBeVisible()
+    await expect(label).toHaveText('0%')
   })
 
-  test('meter shows used / total context after a response reports usage', async ({ page }) => {
+  test('meter reports how much context is used once usage arrives', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
@@ -27,8 +30,9 @@ test.describe('Context usage meter', () => {
 
     const label = page.locator(`${ACTIVE_TAB} [data-testid="context-meter-label"]`)
     await expect(label).toBeVisible({ timeout: 5000 })
-    // 60K occupancy (input + cache read), not 61.2K — output is excluded.
-    await expect(label).toHaveText('60K / 200K')
+    // 60K occupancy of 200K is 30%. Were the 1.2K of output counted as
+    // occupancy the figure would rise, so this pins output out of the window.
+    await expect(label).toHaveText('30%')
   })
 
   test('clicking the meter opens a detail popover with the token breakdown', async ({ page }) => {
@@ -44,9 +48,11 @@ test.describe('Context usage meter', () => {
     const popover = page.locator(`${ACTIVE_TAB} [data-testid="context-meter-popover"]`)
     await expect(popover).toBeVisible()
     await expect(popover).toContainText('30%')
-    await expect(popover).toContainText('50,000') // input
-    await expect(popover).toContainText('10,000') // cache read
-    await expect(popover).toContainText('1,200') // output
+    await expect(popover).toContainText('50,000') // input — in the window
+    await expect(popover).toContainText('10,000') // cache read — in the window
+    // Output is spend, not occupancy, so it appears under its own heading.
+    await expect(popover).toContainText('This run')
+    await expect(popover).toContainText('1,200')
 
     // Escape closes it.
     await page.keyboard.press('Escape')

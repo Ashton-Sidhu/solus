@@ -4,11 +4,12 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
   process.env.NODE_EXTRA_CA_CERTS = '/etc/ssl/cert.pem'
 }
 
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join, extname } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { syncBundledPlugins } from './agents/plugins'
+import { getCodexAppServerClient } from './agents/codex/codex-agent'
 import { warmCliPath } from './cli-env'
 import { createLogger, flushLogs } from './logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '../shared/types'
@@ -21,11 +22,12 @@ import type { WindowDeps } from './server/handlers/window-handlers'
 import type { FileDeps } from './server/handlers/file-handlers'
 import { mintPairUrl } from './pair-url'
 import { destroyAllFinders } from './server/file-finder'
-import { warmupTranscription } from './transcription'
+import { transcribeAudio, warmupTranscription } from './transcription'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from './server/auth'
 import { closeDb } from './db'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { createShutdownCoordinator } from './shutdown-coordinator'
+import { captureServerEvent, shutdownAnalytics } from './analytics'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -33,6 +35,7 @@ const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
 
 const log = createLogger('main', 'index.ts')
+const bootStartedAt = Date.now()
 
 // Privileged custom scheme for rendering local image artifacts (from Codex's
 // ImageGeneration tool) inside sandboxed iframes / <img>. Must be registered
@@ -57,18 +60,23 @@ const ARTIFACT_MIME: Record<string, string> = {
  *  validate it, and stream the bytes; 404/415 otherwise. */
 async function handleArtifactRequest(request: Request): Promise<Response> {
   try {
-    const filePath = new URL(request.url).searchParams.get('p')
+    const url = new URL(request.url)
+    const filePath = url.searchParams.get('p')
     if (!filePath) return new Response('Missing path', { status: 400 })
     const mime = ARTIFACT_MIME[extname(filePath).toLowerCase()]
     if (!mime) return new Response('Unsupported type', { status: 415 })
-    if (!existsSync(filePath)) return new Response('Not found', { status: 404 })
+    if (!existsSync(filePath)) {
+      return url.searchParams.has('optional')
+        ? new Response(null, { status: 204 })
+        : new Response('Not found', { status: 404 })
+    }
     const data = await readFile(filePath)
     return new Response(new Uint8Array(data), {
       status: 200,
       headers: { 'Content-Type': mime, 'Content-Security-Policy': "default-src 'none'; img-src data: *; style-src 'unsafe-inline'" },
     })
   } catch (err: any) {
-    log.warn(`solus-artifact request failed: ${err?.message ?? err}`)
+    log.warn('artifact_request_failed', { error: String(err?.message ?? err) })
     return new Response('Error', { status: 500 })
   }
 }
@@ -100,10 +108,10 @@ function syncPowerSaveBlocker(): void {
   if (shouldBlock === isBlocking) return
   if (shouldBlock) {
     powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
-    log.info(`Power save blocker started (id=${powerSaveBlockerId})`)
+    log.info('power_save_blocker_started', { blockerId: powerSaveBlockerId })
   } else if (powerSaveBlockerId !== null) {
     powerSaveBlocker.stop(powerSaveBlockerId)
-    log.info(`Power save blocker stopped (id=${powerSaveBlockerId})`)
+    log.info('power_save_blocker_stopped', { blockerId: powerSaveBlockerId })
     powerSaveBlockerId = null
   }
 }
@@ -127,10 +135,9 @@ const bootPromise = new Promise<BootCore>((resolve, reject) => {
   rejectBoot = reject
 })
 let desktopAttentionNotifications: DesktopAttentionNotifications | null = null
-// True while the renderer's current text selection lives inside the conversation
-// view. Pushed from the renderer on selectionchange so the native context menu
-// can offer "Quote in reply" only for conversation output (not docs/diffs/etc).
-let quoteContextActive = false
+// The tab whose conversation owns the renderer's current text selection. Pushed
+// on selectionchange so native context-menu actions keep their exact source.
+let quoteContextTabId: string | null = null
 let hiddenUntilTrayShow = false
 let pendingPillShowSource: string | null = null
 let sessionIndexerStarted = false
@@ -139,11 +146,11 @@ let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 const shutdownCoordinator = createShutdownCoordinator({
   shutdown: async () => {
     forceQuit = true
-    await core?.shutdown()
+    await Promise.all([core?.shutdown(), shutdownAnalytics()])
   },
   quit: () => app.quit(),
   forceQuit: () => app.exit(0),
-  onError: (error) => log.error(`shutdown failed: ${error}`),
+  onError: (error) => log.error('shutdown_failed', { error: error instanceof Error ? error.message : String(error) }),
 })
 
 process.on('SIGINT', shutdownCoordinator.requestQuit)
@@ -190,7 +197,7 @@ function saveAppShortcuts(shortcuts: AppGlobalShortcuts): void {
   try {
     writeFileSync(appShortcutsPath(), JSON.stringify(shortcuts, null, 2), { mode: 0o600 })
   } catch (err: any) {
-    log.warn(`Failed to persist app shortcuts: ${err?.message ?? err}`)
+    log.warn('app_shortcuts_persist_failed', { error: String(err?.message ?? err) })
   }
 }
 
@@ -223,11 +230,11 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): { failed: strin
     try {
       const ok = globalShortcut.register(accel, () => handler(accel))
       if (!ok) {
-        log.warn(`Global shortcut "${accel}" registration failed — another app may claim it`)
+        log.warn('global_shortcut_registration_failed', { accelerator: accel })
         failed.push(accel)
       }
     } catch (err: any) {
-      log.warn(`Global shortcut "${accel}" registration threw: ${err?.message ?? err}`)
+      log.warn('global_shortcut_registration_threw', { accelerator: accel, error: String(err?.message ?? err) })
       failed.push(accel)
     }
   }
@@ -332,7 +339,7 @@ function windowCursorRelative(): { x: number; y: number } | null {
 function snapshotWindowState(reason: string): void {
   if (!SPACES_DEBUG) return
   if (!mainWindow || mainWindow.isDestroyed()) {
-    log.debug(`[spaces] ${reason} window=none`)
+    log.debug('spaces_snapshot', { reason, window: 'none' })
     return
   }
 
@@ -342,14 +349,18 @@ function snapshotWindowState(reason: string): void {
   const visibleOnAll = mainWindow.isVisibleOnAllWorkspaces()
   const wcFocused = mainWindow.webContents.isFocused()
 
-  log.info(
-    `[spaces] ${reason} ` +
-    `vis=${mainWindow.isVisible()} focused=${mainWindow.isFocused()} wcFocused=${wcFocused} ` +
-    `alwaysOnTop=${mainWindow.isAlwaysOnTop()} allWs=${visibleOnAll} ` +
-    `bounds=(${b.x},${b.y},${b.width}x${b.height}) ` +
-    `cursor=(${cursor.x},${cursor.y}) display=${display.id} ` +
-    `workArea=(${display.workArea.x},${display.workArea.y},${display.workArea.width}x${display.workArea.height})`
-  )
+  log.info('spaces_snapshot', {
+    reason,
+    visible: mainWindow.isVisible(),
+    focused: mainWindow.isFocused(),
+    wcFocused,
+    alwaysOnTop: mainWindow.isAlwaysOnTop(),
+    visibleOnAllWorkspaces: visibleOnAll,
+    bounds: `${b.x},${b.y},${b.width}x${b.height}`,
+    cursor: `${cursor.x},${cursor.y}`,
+    displayId: display.id,
+    workArea: `${display.workArea.x},${display.workArea.y},${display.workArea.width}x${display.workArea.height}`,
+  })
 }
 
 function scheduleToggleSnapshots(toggleId: number, phase: 'show' | 'hide'): void {
@@ -530,7 +541,7 @@ function showPillWindow(source = 'unknown', options: { fromTrayShow?: boolean } 
   if (SPACES_DEBUG) {
     const cursor = screen.getCursorScreenPoint()
     const display = screen.getDisplayNearestPoint(cursor)
-    log.debug(`[spaces] showWindow#${toggleId} source=${source} alwaysOnTop=${mainWindow.isAlwaysOnTop()} display=${display.id}`)
+    log.debug('spaces_show_window', { toggleId, source, alwaysOnTop: mainWindow.isAlwaysOnTop(), displayId: display.id })
   }
 
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -577,7 +588,7 @@ function togglePillWindow(source = 'unknown'): void {
 
   const toggleId = ++toggleSequence
   if (SPACES_DEBUG) {
-    log.debug(`[spaces] toggle#${toggleId} source=${source} start`)
+    log.debug('spaces_toggle_start', { toggleId, source })
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
@@ -700,40 +711,82 @@ function designModeCaptureRegion(): { x: number; y: number; width: number; heigh
   return display.workArea
 }
 
-/** Native context menu (copy/cut/paste + "Quote in reply"), attached to each window. */
+/** Only http(s) links get a "Copy Link" item — never file:, javascript:, or our own solus-img: scheme. */
+function isSafeExternalUrl(url: string): boolean {
+  if (!url) return false
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/** Native context menu (spellcheck, link/image, clipboard + "Quote in reply"), attached to each window. */
 function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = []
 
-    if (params.selectionText) {
-      menuItems.push({ label: 'Copy', role: 'copy' })
-    }
-    if (params.isEditable) {
-      if (params.selectionText) {
-        menuItems.push({ label: 'Cut', role: 'cut' })
+    // Corrections come first — a right-click on a red-underlined word is asking
+    // for the suggestion, not for the clipboard.
+    if (params.misspelledWord) {
+      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+        menuItems.push({
+          label: suggestion,
+          click: () => win.webContents.replaceMisspelling(suggestion),
+        })
       }
-      menuItems.push({ label: 'Paste', role: 'paste' })
+      if (params.dictionarySuggestions.length === 0) {
+        menuItems.push({ label: 'No suggestions', enabled: false })
+      }
       menuItems.push({ type: 'separator' })
-      menuItems.push({ label: 'Select All', role: 'selectAll' })
-    } else if (params.selectionText) {
-      menuItems.push({ type: 'separator' })
-      menuItems.push({ label: 'Select All', role: 'selectAll' })
     }
+
+    if (isSafeExternalUrl(params.linkURL)) {
+      menuItems.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) })
+      menuItems.push({ type: 'separator' })
+    }
+
+    if (params.mediaType === 'image') {
+      menuItems.push({
+        label: 'Copy Image',
+        click: () => win.webContents.copyImageAt(params.x, params.y),
+      })
+      menuItems.push({ type: 'separator' })
+    }
+
+    // Always present, disabled when they don't apply. Omitting them instead let
+    // the template come out empty — right-clicking the transcript with nothing
+    // selected popped no menu at all, which reads as a broken right-click.
+    menuItems.push(
+      { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
+      { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
+      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+      { type: 'separator' },
+      { label: 'Select All', role: 'selectAll', enabled: params.editFlags.canSelectAll },
+    )
 
     // Conversation output only: let the user pull a selected snippet into the
     // composer as a markdown blockquote to address that specific text.
-    if (quoteContextActive && params.selectionText && !params.isEditable) {
+    if (quoteContextTabId && params.selectionText && !params.isEditable) {
+      const sourceTabId = quoteContextTabId
       menuItems.push({ type: 'separator' })
       menuItems.push({
         label: 'Quote in reply',
         icon: quoteInReplyIcon,
-        click: () => win.webContents.send('solus:quote-selection', params.selectionText),
+        click: () => win.webContents.send('solus:quote-selection', params.selectionText, sourceTabId),
+      })
+      menuItems.push({
+        label: 'Ask in New Session',
+        click: () => win.webContents.send(
+          'solus:ask-selection-in-new-session',
+          params.selectionText,
+          sourceTabId,
+        ),
       })
     }
 
-    if (menuItems.length > 0) {
-      Menu.buildFromTemplate(menuItems).popup({ window: win })
-    }
+    Menu.buildFromTemplate(menuItems).popup({ window: win })
   })
 }
 
@@ -764,7 +817,7 @@ function writePersistedLocalSessionToken(token: string): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     writeFileSync(localSessionTokenFile(), JSON.stringify({ token }, null, 2), { mode: 0o600 })
   } catch (err) {
-    log.warn(`failed to persist local session token: ${err}`)
+    log.warn('local_session_token_persist_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -794,7 +847,7 @@ function getLocalSessionToken(): string {
     }
   }
 
-  localSessionToken = issueSessionToken(LOCAL_DEVICE_LABEL)
+  localSessionToken = issueSessionToken(LOCAL_DEVICE_LABEL).token
   writePersistedLocalSessionToken(localSessionToken)
   return localSessionToken
 }
@@ -808,6 +861,17 @@ ipcMain.handle(LOCAL_CONNECTION_CHANNEL, async () => {
     port,
     token: getLocalSessionToken(),
     installationId: getInstallationId(),
+  }
+})
+
+ipcMain.handle('solus:open-external', async (_event, url: unknown, options?: { hideAppAfterOpen?: boolean }) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false
+  try {
+    await shell.openExternal(url)
+    if (options?.hideAppAfterOpen) hideAppWindow()
+    return true
+  } catch {
+    return false
   }
 })
 
@@ -846,8 +910,8 @@ ipcMain.on('solus:renderer-ready', (event, mode: unknown) => {
 
 // OS-level click-through is preload-only — it operates on the Electron window
 // directly and isn't relevant for browser clients.
-ipcMain.on('solus:set-quote-context', (_event, active: boolean) => {
-  quoteContextActive = !!active
+ipcMain.on('solus:set-quote-context', (_event, tabId: string | null) => {
+  quoteContextTabId = typeof tabId === 'string' && tabId ? tabId : null
 })
 
 ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: { forward?: boolean; focus?: boolean }) => {
@@ -876,7 +940,7 @@ function restoreDesignModeWindow(): void {
     focusEditorWindow()
   }
   if (SPACES_DEBUG) {
-    log.info('[spaces] design-mode overlay ready, window shown')
+    log.info('spaces_design_mode_overlay_ready')
     snapshotWindowState('design-mode restore')
   }
 }
@@ -916,7 +980,7 @@ async function requestPermissions(): Promise<void> {
       }
     }
   } catch (err: any) {
-    log.warn(`Permission preflight: microphone check failed — ${err.message}`)
+    log.warn('microphone_permission_check_failed', { error: err.message })
   }
 
   try {
@@ -940,7 +1004,7 @@ async function requestPermissions(): Promise<void> {
       }
     }
   } catch (err: any) {
-    log.warn(`Permission preflight: screen check failed — ${err.message}`)
+    log.warn('screen_permission_check_failed', { error: err.message })
   }
 }
 
@@ -968,9 +1032,11 @@ if (isPairUrl) {
     // the first RPC (agent-binary lookup) needs it instead of paying up to three
     // sequential login-shell probes synchronously on that first call.
     void warmCliPath()
+      .then(() => getCodexAppServerClient().ensureStarted())
+      .catch((err) => log.warn('codex_app_server_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     if (process.platform === 'darwin' && app.dock) {
-      app.dock.hide()
+      app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
     }
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
@@ -1022,12 +1088,13 @@ if (isPairUrl) {
         fileDeps,
         requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
         staticDir: join(__dirname, '../client'),
+        transcribeAudio,
       })
     } catch (err) {
       // Unblock the renderer's getLocalConnection with the failure so it can show
       // its boot-error card instead of hanging on the pending bootPromise.
       rejectBoot(err)
-      log.error(`Failed to boot Solus core: ${err instanceof Error ? err.message : String(err)}`)
+      log.error('core_boot_failed', { error: err instanceof Error ? err.message : String(err) })
       return
     }
     core = bootedCore
@@ -1072,22 +1139,22 @@ if (isPairUrl) {
         void core?.shutdown()
       })
 
-      if (!isTestMode) requestPermissions().catch((err: Error) => log.error(`Permission preflight error: ${err.message}`))
+      if (!isTestMode) requestPermissions().catch((err: Error) => log.error('permission_preflight_failed', { error: err.message }))
 
       if (SPACES_DEBUG) {
         app.on('browser-window-focus', () => snapshotWindowState('event app browser-window-focus'))
         app.on('browser-window-blur', () => snapshotWindowState('event app browser-window-blur'))
 
         screen.on('display-added', (_e, display) => {
-          log.debug(`[spaces] event display-added id=${display.id}`)
+          log.debug('spaces_display_added', { displayId: display.id })
           snapshotWindowState('event display-added')
         })
         screen.on('display-removed', (_e, display) => {
-          log.debug(`[spaces] event display-removed id=${display.id}`)
+          log.debug('spaces_display_removed', { displayId: display.id })
           snapshotWindowState('event display-removed')
         })
         screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
-          log.debug(`[spaces] event display-metrics-changed id=${display.id} changed=${changedMetrics.join(',')}`)
+          log.debug('spaces_display_metrics_changed', { displayId: display.id, changed: changedMetrics.join(',') })
           snapshotWindowState('event display-metrics-changed')
         })
       }
@@ -1127,6 +1194,7 @@ app.on('before-quit', (event) => {
   // intercepted. All ordinary quit paths get one bounded cleanup attempt.
   if (forceQuit || shutdownCoordinator.isQuitting) return
   event.preventDefault()
+  captureServerEvent('app_quit', { uptime_ms: Math.max(0, Date.now() - bootStartedAt) })
   shutdownCoordinator.requestQuit()
 })
 

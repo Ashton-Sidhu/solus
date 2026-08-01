@@ -1,11 +1,12 @@
-import { processFile } from "@pierre/diffs";
+import type { FileDiffMetadata } from "@pierre/diffs";
 import type { ReviewGuide, ReviewLedger, ReviewProgressStep } from "../../../../shared/review";
-import { FULL_CONTEXT_LINES, type AgentId, type IpcContext, type ReasoningEffort } from "../../../../shared/types";
-import { fileVersionsFromFullContext, type FileVersions } from "../../../lib/diff-expandable";
+import type { AgentId, DiffScope, IpcContext, ReasoningEffort } from "../../../../shared/types";
+import { loadDiffFiles as loadScopedDiffFiles } from "../../../lib/diff-file-loader";
 import { requestInputFocus } from "../../../lib/inputFocus";
-import { splitPatchByFile } from "../../pr-review/guide/lib/guide-data";
 
 export interface GuideLoaderOptions {
+  /** RPC surface that owns the review checkout. */
+  getApi?: () => typeof window.solus;
   /** The session IPC context to issue calls against. */
   getCtx: () => IpcContext;
   /** Stable cached-guide key (sanitized branch name or `session-<id>`). */
@@ -18,18 +19,6 @@ export interface GuideLoaderOptions {
   getOwnDeltaBase?: () => { parent: number; headSha: string } | null;
   /** Effective agent/model/reasoning for a fresh generation. */
   getAgent: () => { agent: AgentId; model: string | null; reasoningEffort: ReasoningEffort | null };
-}
-
-/** Recover each file's old/new contents from a full-context patch, keyed by the
- *  post-image path the guide's file refs use. */
-function parseFileVersions(patch: string): Map<string, FileVersions> {
-  const out = new Map<string, FileVersions>();
-  for (const [path, chunk] of splitPatchByFile(patch)) {
-    const parsed = processFile(chunk, { isGitDiff: true });
-    const versions = parsed && fileVersionsFromFullContext(parsed);
-    if (versions) out.set(path, versions);
-  }
-  return out;
 }
 
 /**
@@ -45,10 +34,7 @@ export class GuideLoader {
   guide = $state<ReviewGuide | null>(null);
   ledger = $state<ReviewLedger | null>(null);
   patch = $state("");
-  /** Both versions of each changed file, so the guide's diff cards can expand
-   *  the unchanged gaps between hunks. Empty when the extra fetch failed — the
-   *  cards then render exactly as they do today. */
-  fileVersions = $state(new Map<string, FileVersions>());
+  diffScope = $state<Extract<DiffScope, { kind: "pr" }> | null>(null);
   loading = $state(true);
   progressStep = $state<ReviewProgressStep>("preparing");
   /** A cached guide whose `headSha` no longer matches the checkout's HEAD —
@@ -64,10 +50,11 @@ export class GuideLoader {
   async load(regenerate: boolean, generateIfMissing = true): Promise<void> {
     const ctx = this.#opts.getCtx();
     const key = this.#opts.getKey();
+    const api = this.#opts.getApi?.() ?? window.solus;
     this.loading = true;
     this.stale = false;
     // Prefer the cached guide; regenerate (or generate-on-first-open) otherwise.
-    const cached = regenerate ? null : await window.solus.readGuide(ctx, key);
+    const cached = regenerate ? null : await api.readGuide(ctx, key);
     if (cached) {
       this.guide = cached;
     } else if (!generateIfMissing) {
@@ -80,12 +67,12 @@ export class GuideLoader {
       this.progressStep = "preparing";
       // Match progress events to this key's generation (events broadcast to
       // every subscriber); drop ones for other keys.
-      const unsubscribe = window.solus.onReviewProgress((event) => {
+      const unsubscribe = api.onReviewProgress((event) => {
         if (event.key !== key) return;
         this.progressStep = event.step;
       });
       try {
-        const generated = await window.solus.generateGuide(ctx, {
+        const generated = await api.generateGuide(ctx, {
           ...this.#opts.getAgent(),
           scope: this.#opts.getScope(),
           ownDeltaBase: this.#opts.getOwnDeltaBase?.() ?? undefined,
@@ -98,8 +85,8 @@ export class GuideLoader {
 
     if (this.guide && this.guide.sections.length > 0) {
       const [reviewCtx, loadedLedger] = await Promise.all([
-        window.solus.getReviewContext(ctx),
-        window.solus.readLedger(ctx),
+        api.getReviewContext(ctx),
+        api.readLedger(ctx),
       ]);
       this.ledger = loadedLedger;
       // Only a cached guide can be stale — a fresh generation just ran.
@@ -113,22 +100,15 @@ export class GuideLoader {
       // shows only this session's diff (not the whole branch). Older cached guides
       // predate `baseSha`, so fall back to the branch base.
       const baseSha = this.guide.baseSha ?? reviewCtx?.baseSha ?? null;
-      // The second request asks for the same diff with enough context to swallow
-      // each file whole, which is what makes the cards' hunk gaps expandable.
-      const [patch, fullContext] = baseSha
-        ? await Promise.all([
-            window.solus.diff(ctx, { scope: { kind: "pr", baseSha } }).catch(() => null),
-            window.solus
-              .diff(ctx, { scope: { kind: "pr", baseSha }, contextLines: FULL_CONTEXT_LINES })
-              .catch(() => null),
-          ])
-        : [null, null];
+      this.diffScope = baseSha ? { kind: "pr", baseSha } : null;
+      const patch = this.diffScope
+        ? await api.diff(ctx, { scope: this.diffScope }).catch(() => null)
+        : null;
       this.patch = patch?.patch ?? "";
-      this.fileVersions = parseFileVersions(fullContext?.patch ?? "");
     } else {
       this.ledger = null;
       this.patch = "";
-      this.fileVersions = new Map();
+      this.diffScope = null;
     }
 
     this.loading = false;
@@ -138,4 +118,16 @@ export class GuideLoader {
     void this.load(true);
     requestInputFocus();
   }
+
+  loadDiffFiles = (fileDiff: FileDiffMetadata) => {
+    if (!this.diffScope) {
+      throw new Error("Review comparison is unavailable");
+    }
+    return loadScopedDiffFiles(
+      this.#opts.getApi?.() ?? window.solus,
+      this.#opts.getCtx(),
+      this.diffScope,
+      fileDiff,
+    );
+  };
 }

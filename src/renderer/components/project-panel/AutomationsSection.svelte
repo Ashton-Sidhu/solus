@@ -1,11 +1,12 @@
 <script lang="ts">
   import {
-    LightningIcon,
+    ArrowsClockwiseIcon,
+    CaretRightIcon,
+    ChatCircleDotsIcon,
+    ArrowRightIcon,
     PlayIcon,
     PauseIcon,
     StopIcon,
-    ChatCircleDotsIcon,
-    ArrowRightIcon,
   } from "phosphor-svelte";
   import type { Automation } from "../../../shared/types";
   import type { AutomationBoard } from "./lib/automation-board";
@@ -38,20 +39,20 @@
     requestInputFocus();
   }
 
-  function viewAll() {
-    session.openAutomations();
-    requestInputFocus();
-  }
-
-  async function toggle(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function toggleEnabled(a: Automation, event: Event) {
+    event.stopPropagation();
     await store.setEnabled(a.id, !a.enabled);
     requestInputFocus();
   }
 
-  async function stop(a: Automation, e: Event) {
-    e.stopPropagation();
+  async function stop(a: Automation, event: Event) {
+    event.stopPropagation();
     await store.cancel(a.id);
+    requestInputFocus();
+  }
+
+  function viewAll() {
+    session.openAutomations();
     requestInputFocus();
   }
 
@@ -85,38 +86,39 @@
   }
 </script>
 
-{#if board.summary}
-  <p
-    class="m-0 mb-1 px-2 text-[0.6875rem] text-(--solus-text-tertiary)"
-    aria-live="polite"
-  >
-    {board.summary}
-  </p>
-{/if}
-
 <ul class="m-0 flex list-none flex-col gap-px p-0">
   {#each board.rows as a (a.id)}
     {@const running = a.lastRunStatus === "running"}
-    {@const lightningFilled = running || a.favorite}
-    <li class="group flex items-center gap-0.5">
+    {@const emphasized = running || a.favorite}
+    <li class="group relative flex w-full items-center">
       <button
         type="button"
-        class="flex min-h-[2rem] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent px-2 py-[0.3125rem] text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
+        class="flex min-h-[2rem] w-full min-w-0 cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent py-[0.3125rem] pr-8 pl-2 text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
         onclick={() => open(a)}
       >
+        <!-- 5c marks the row with a bare accent cycle glyph — no icon chip — and
+             fades it back for anything that isn't currently scheduled. -->
         <span
-          class="inline-flex shrink-0 transition-colors duration-150 {running
-            ? 'text-(--project-icon-amber)'
-            : 'text-[color-mix(in_srgb,var(--project-icon-amber)_82%,var(--solus-text-tertiary))] group-hover:text-(--project-icon-amber)'}"
+          class="inline-flex shrink-0 text-(--solus-accent) transition-opacity duration-150 {a.enabled
+            ? 'opacity-100'
+            : 'opacity-45'}"
           class:animate-pulse={running}
           aria-hidden="true"
         >
-          <LightningIcon size={13} weight={lightningFilled ? "fill" : "regular"} />
+          <ArrowsClockwiseIcon size={13} weight={emphasized ? "bold" : "regular"} />
         </span>
-        <span
-          class="min-w-0 flex-1 truncate text-[0.8125rem] font-normal text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
-        >
-          {a.name}
+        <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
+          <span
+            class="min-w-0 truncate text-[0.8125rem] font-normal text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-text-primary)"
+          >
+            {a.name}
+          </span>
+          <span
+            class="max-w-28 shrink-0 truncate text-[0.6875rem] tabular-nums whitespace-nowrap"
+            style:color={statusColor(a)}
+          >
+            {statusLabel(a)}
+          </span>
         </span>
         {#if a.action.sessionId}
           <span
@@ -127,49 +129,44 @@
             <ChatCircleDotsIcon size={10} />
           </span>
         {/if}
+        <span
+          class="absolute top-1/2 right-2 inline-flex -translate-y-1/2 shrink-0 text-(--solus-text-tertiary) opacity-55 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+          aria-hidden="true"
+        >
+          <CaretRightIcon size={11} />
+        </span>
       </button>
 
-      <!-- Trailing slot: a quiet status word at rest cross-fades to the
-           pause / resume control on hover (mirrors the Git section's
-           stats↔copy reveal). A live run keeps its stop control visible. -->
       {#if running}
         <Button
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
+          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
           title="Stop run"
           aria-label="Stop run"
-          onclick={(e) => stop(a, e)}
+          onclick={(event) => void stop(a, event)}
         >
           <StopIcon size={12} weight="fill" />
         </Button>
       {:else}
-        <span class="relative flex shrink-0 items-center justify-end">
-          <span
-            class="max-w-28 truncate text-[0.6875rem] tabular-nums whitespace-nowrap transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
-            style:color={statusColor(a)}
-          >
-            {statusLabel(a)}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            type="button"
-            class="pointer-events-none absolute right-0 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 {toggleButtonClass(
-              a,
-            )}"
-            title={a.enabled ? "Pause automation" : "Resume automation"}
-            aria-label={a.enabled ? "Pause automation" : "Resume automation"}
-            onclick={(e) => toggle(a, e)}
-          >
-            {#if a.enabled}
-              <PauseIcon size={12} weight="fill" />
-            {:else}
-              <PlayIcon size={12} weight="fill" />
-            {/if}
-          </Button>
-        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          type="button"
+          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 {toggleButtonClass(
+            a,
+          )}"
+          title={a.enabled ? "Pause automation" : "Resume automation"}
+          aria-label={a.enabled ? "Pause automation" : "Resume automation"}
+          onclick={(event) => void toggleEnabled(a, event)}
+        >
+          {#if a.enabled}
+            <PauseIcon size={12} weight="fill" />
+          {:else}
+            <PlayIcon size={12} weight="fill" />
+          {/if}
+        </Button>
       {/if}
     </li>
   {/each}

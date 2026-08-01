@@ -27,9 +27,8 @@
   import {
     dedupeHistoryEntries,
     filterEntries,
-    buildRows,
     FrozenEntryOrder,
-    type PickerRow,
+    SearchTextCache,
   } from "../../lib/pickerEntries";
   import { createSessionPreviewStore } from "../../lib/preview.svelte";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
@@ -109,10 +108,10 @@
     prevEntryCount = count;
   });
 
-  const HEADER_HEIGHT = 26;
   const ENTRY_HEIGHT = 46;
 
   const entryOrder = new FrozenEntryOrder();
+  const searchCache = new SearchTextCache();
 
   const effectiveProjectPath = $derived(statusBar.ctx.workingDirectory);
 
@@ -145,19 +144,19 @@
     );
   }
 
-  const allEntries: PickerEntry[] = $derived(
-    entryOrder.sort(
+  const allEntries: PickerEntry[] = $derived.by(() => {
+    const sorted = entryOrder.sort(
       [...openTabEntries, ...dedupedHistory],
       open && !historyLoading,
-    ),
-  );
+    );
+    // Warm the search cache for every entry now, on the empty-query pass,
+    // instead of paying for it lazily on the first non-empty keystroke.
+    searchCache.prepare(sorted);
+    return sorted;
+  });
 
   const filteredItems: PickerEntry[] = $derived(
-    filterEntries(allEntries, query),
-  );
-
-  const rows: PickerRow[] = $derived(
-    buildRows(filteredItems, (e) => entryOrder.timestamp(e)),
+    filterEntries(allEntries, query, searchCache),
   );
 
   const selectedEntry = $derived(
@@ -175,24 +174,10 @@
       : null,
   );
 
-  const rowIndexOfSelected = $derived(
-    rows.findIndex((r) => r.kind === "entry" && r.entryIndex === selectedIndex),
-  );
-
-  const getRowSize = (index: number) =>
-    rows[index]?.kind === "header" ? HEADER_HEIGHT : ENTRY_HEIGHT;
-
   $effect(() => {
     // Reset selection when filter changes
     query;
     selectedIndex = 0;
-  });
-
-  $effect(() => {
-    // Recompute row heights whenever the row shape changes (length-stable edits
-    // don't auto-trigger VirtualList's recompute, so cached sizes can go stale).
-    rows;
-    virtualList?.recomputeSizes?.(0);
   });
 
   // InputBar reclaims focus on close via its sessionPickerOpen effect.
@@ -241,6 +226,8 @@
     preview.reset();
     preview.clearCache();
     entryOrder.reset();
+    // searchCache is intentionally left alone: its records stay valid across
+    // reopens and `prepare()` prunes anything stale on the next allEntries pass.
   }
 
   $effect(() => {
@@ -478,35 +465,23 @@
           bind:this={virtualList}
           width="100%"
           height={listHeight ? listHeight - 12 : 400}
-          itemCount={rows.length}
-          itemSize={getRowSize}
-          scrollToIndex={rowIndexOfSelected >= 0 ? rowIndexOfSelected : 0}
+          itemCount={filteredItems.length}
+          itemSize={ENTRY_HEIGHT}
+          scrollToIndex={selectedIndex}
           scrollToAlignment="auto"
           scrollToBehaviour="instant"
           overscanCount={5}
         >
           {#snippet item({ style, index })}
             <div {style}>
-              {#if rows[index].kind === "header"}
-                <div
-                  class="pointer-events-none flex h-full select-none items-end px-5 pb-1 pt-2.5 text-[0.6875rem] font-medium uppercase tracking-[0.1em] text-[var(--solus-text-tertiary)] opacity-70"
-                >
-                  {(rows[index] as { label: string }).label}
-                </div>
-              {:else}
-                {@const r = rows[index] as {
-                  entry: PickerEntry;
-                  entryIndex: number;
+              <SessionPickerItem
+                item={filteredItems[index]}
+                isSelected={index === selectedIndex}
+                onSelect={() => handleSelect(filteredItems[index])}
+                onHover={() => {
+                  selectedIndex = index;
                 }}
-                <SessionPickerItem
-                  item={r.entry}
-                  isSelected={r.entryIndex === selectedIndex}
-                  onSelect={() => handleSelect(r.entry)}
-                  onHover={() => {
-                    selectedIndex = r.entryIndex;
-                  }}
-                />
-              {/if}
+              />
             </div>
           {/snippet}
         </VirtualList>
@@ -517,12 +492,12 @@
       class="relative min-w-0 flex-1 overflow-hidden bg-[color-mix(in_srgb,var(--solus-surface-primary)_5%,transparent)] shadow-[inset_0.0625rem_0_0_0_color-mix(in_srgb,var(--solus-popover-border)_45%,transparent)] max-md:hidden"
     >
       <SessionPreview
-        messages={preview.messages}
+        preview={preview.snapshot}
         loading={preview.loading}
         title={previewTitle}
         byline={previewByline}
         timeAgo={previewTimeAgo}
-        hiddenCountOverride={preview.hiddenCount}
+        hiddenCount={preview.hiddenCount}
         onContinue={() => {
           const entry = filteredItems[selectedIndex];
           if (entry) handleSelect(entry);
@@ -599,7 +574,7 @@
   >
     <div
       bind:this={popoverEl}
-      class="flex flex-col overflow-hidden overscroll-contain border border-[var(--solus-popover-border)] bg-[color-mix(in_srgb,var(--solus-popover-bg)_82%,transparent)] outline-none backdrop-blur-[3rem] backdrop-saturate-[1.15] origin-top animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-[1.125rem] shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none {portalTarget
+      class="flex flex-col overflow-hidden overscroll-contain border border-[var(--solus-popover-border)] outline-none origin-top animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-[1.125rem] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] max-md:h-[100dvh] max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none {portalTarget
         ? 'h-3/4 max-h-[75%] w-3/4'
         : 'h-[75vh] w-[clamp(32rem,58vw,56rem)] md:max-[1100px]:h-[min(78vh,42rem)] md:max-[1100px]:w-[min(80vw,48rem)]'}"
       role="dialog"

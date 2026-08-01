@@ -1,77 +1,49 @@
-import { execFileSync, execFile } from 'child_process'
+import { execFileSync } from 'child_process'
 import { createLogger } from './logger'
 import type { TerminalLaunchRequest, TerminalAppId } from '../shared/types'
 import { getCliEnv } from './cli-env'
 
 const log = createLogger('terminal-launcher', 'terminal-launcher.ts')
 
-interface TmuxLaunchResult {
-  sessionName: string
-  clientTty: string | null
-}
-
-const TERMINAL_PROCESS_NAMES: Record<TerminalAppId, string> = {
-  'default-terminal': 'Terminal',
-  'ghostty': 'Ghostty',
-}
+const TMUX_SESSION_NAME = 'solus'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function tryTmux(command: string, cwd?: string): TmuxLaunchResult | null {
+function createTmuxWindow(command: string, cwd?: string): boolean {
   try {
-    const sessionName = getAttachedTmuxSession()
-    if (!sessionName) return null
+    execFileSync('tmux', ['has-session', '-t', TMUX_SESSION_NAME], {
+      env: getCliEnv(),
+      timeout: 2000,
+      stdio: 'ignore',
+    })
+  } catch {
+    try {
+      const args = ['new-session', '-d', '-s', TMUX_SESSION_NAME]
+      if (cwd) args.push('-c', cwd)
+      args.push(command)
+      execFileSync('tmux', args, { env: getCliEnv(), timeout: 5000 })
+      log.info('tmux_session_created', { sessionName: TMUX_SESSION_NAME, command, cwd })
+      return true
+    } catch (createErr) {
+      log.error('tmux_session_create_failed', {
+        error: createErr instanceof Error ? createErr.message : String(createErr),
+      })
+      return false
+    }
+  }
 
-    const clientTty = getTmuxClientTty(sessionName)
-    const targetWindow = getHighestTmuxWindowTarget(sessionName)
-    const fullCmd = cwd ? `cd "${cwd}" && ${command}` : command
-    const args = ['new-window', '-a', '-t', targetWindow ?? sessionName]
+  try {
+    const args = ['new-window', '-t', TMUX_SESSION_NAME]
     if (cwd) args.push('-c', cwd)
-    args.push(fullCmd)
+    args.push(command)
     execFileSync('tmux', args, { env: getCliEnv(), timeout: 5000 })
-    log.info(`Opened tmux window in session "${sessionName}": ${fullCmd}`)
-
-    return { sessionName, clientTty }
+    log.info('tmux_window_opened', { sessionName: TMUX_SESSION_NAME, command, cwd })
+    return true
   } catch (err) {
-    log.error(`tmux new-window failed; falling back to configured terminal: ${err}`)
-    return null
-  }
-}
-
-function getAttachedTmuxSession(): string | null {
-  try {
-    const session = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}\t#{session_attached}'], {
-      env: getCliEnv(),
-      encoding: 'utf8',
-      timeout: 2000,
-    }).trim().split('\n').find((line) => {
-      const [, attached] = line.split('\t')
-      return Number(attached) > 0
-    })?.split('\t')[0]
-    return session || null
-  } catch (err) {
-    log.error(`tmux list-sessions failed: ${err}`)
-    return null
-  }
-}
-
-function getHighestTmuxWindowTarget(sessionName: string): string | null {
-  try {
-    const highestWindowIndex = execFileSync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'], {
-      env: getCliEnv(),
-      encoding: 'utf8',
-      timeout: 2000,
-    }).trim().split('\n').reduce<number | null>((highest, index) => {
-      const parsed = Number(index)
-      if (!Number.isInteger(parsed)) return highest
-      return highest === null || parsed > highest ? parsed : highest
-    }, null)
-    return highestWindowIndex === null ? null : `${sessionName}:${highestWindowIndex}`
-  } catch (err) {
-    log.error(`tmux list-windows failed for session "${sessionName}": ${err}`)
-    return null
+    log.error('tmux_new_window_failed', { error: err instanceof Error ? err.message : String(err) })
+    return false
   }
 }
 
@@ -80,67 +52,9 @@ function runAppleScript(script: string): boolean {
     execFileSync('/usr/bin/osascript', ['-e', script], { timeout: 5000, env: getCliEnv() })
     return true
   } catch (err) {
-    log.error(`AppleScript failed: ${err}`)
+    log.error('applescript_failed', { error: err instanceof Error ? err.message : String(err) })
     return false
   }
-}
-
-function runAppleScriptAsync(script: string): void {
-  execFile('/usr/bin/osascript', ['-e', script], { env: getCliEnv() }, (err) => {
-    if (err) log.error(`AppleScript failed: ${err}`)
-  })
-}
-
-function getTmuxClientTty(sessionName: string): string | null {
-  try {
-    const tty = execFileSync('tmux', ['list-clients', '-t', sessionName, '-F', '#{client_tty}'], {
-      env: getCliEnv(),
-      encoding: 'utf8',
-      timeout: 2000,
-    }).trim().split('\n').find(Boolean)
-    return tty || null
-  } catch (err) {
-    log.error(`tmux list-clients failed for session "${sessionName}": ${err}`)
-    return null
-  }
-}
-
-function focusRunningTerminalProcess(terminalId: TerminalAppId): void {
-  if (process.platform !== 'darwin') return
-  const processName = TERMINAL_PROCESS_NAMES[terminalId]
-  if (!processName) return
-
-  runAppleScriptAsync(`tell application "System Events"
-  if exists process "${escapeForAppleScript(processName)}" then
-    set frontmost of process "${escapeForAppleScript(processName)}" to true
-  end if
-end tell`)
-}
-
-function focusTerminalTabByTty(tty: string): void {
-  if (process.platform !== 'darwin') return
-  const escapedTty = escapeForAppleScript(tty)
-
-  runAppleScriptAsync(`tell application "System Events"
-  if not (exists process "Terminal") then return
-end tell
-tell application "Terminal"
-  repeat with terminalWindow in windows
-    repeat with terminalTab in tabs of terminalWindow
-      if tty of terminalTab is "${escapedTty}" then
-        set selected tab of terminalWindow to terminalTab
-        set index of terminalWindow to 1
-        tell application "System Events" to set frontmost of process "Terminal" to true
-        return
-      end if
-    end repeat
-  end repeat
-end tell`)
-}
-
-function focusTmuxTerminal(result: TmuxLaunchResult, terminalId: TerminalAppId): void {
-  if (result.clientTty) focusTerminalTabByTty(result.clientTty)
-  else focusRunningTerminalProcess(terminalId)
 }
 
 function launchInDefaultTerminal(command: string, cwd?: string): boolean {
@@ -164,7 +78,7 @@ function launchInGhostty(command: string, cwd?: string): boolean {
       execFileSync('open', args, { timeout: 5000, env: getCliEnv() })
       return true
     } catch (err) {
-      log.error(`Ghostty launch failed: ${err}`)
+      log.error('ghostty_launch_failed', { error: err instanceof Error ? err.message : String(err) })
       return false
     }
   }
@@ -184,7 +98,7 @@ function launchOnLinux(command: string, terminalId: TerminalAppId, cwd?: string)
     }
     return true
   } catch (err) {
-    log.error(`Linux terminal launch failed: ${err}`)
+    log.error('linux_terminal_launch_failed', { error: err instanceof Error ? err.message : String(err) })
     return false
   }
 }
@@ -196,23 +110,19 @@ const LAUNCHERS: Record<TerminalAppId, (command: string, cwd?: string) => boolea
 
 export function launchInTerminal(request: TerminalLaunchRequest): boolean {
   const { command, terminalId, cwd } = request
-  log.info(`Launching in ${terminalId}: ${command}`)
-
-  const tmuxResult = tryTmux(command, cwd)
-  if (tmuxResult) {
-    focusTmuxTerminal(tmuxResult, terminalId)
-    return true
-  }
+  log.info('terminal_launch', { terminalId, command })
 
   const launcher = LAUNCHERS[terminalId]
   if (!launcher) {
-    log.warn(`Unknown terminal: ${terminalId}`)
+    log.warn('unknown_terminal', { terminalId })
     return false
   }
 
-  const launched = launcher(command, cwd)
+  if (!createTmuxWindow(command, cwd)) return false
+
+  const launched = launcher(`exec tmux attach-session -t ${TMUX_SESSION_NAME}`)
   if (!launched) {
-    log.warn('Terminal launch returned false', { terminalId, command, cwd })
+    log.warn('terminal_launch_returned_false', { terminalId, command, cwd })
   }
   return launched
 }

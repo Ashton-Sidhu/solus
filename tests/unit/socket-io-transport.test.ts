@@ -49,7 +49,7 @@ describe('Socket.IO transport', () => {
 
   test('refreshes once after auth rejection, then blocks if that token is revoked', async () => {
     const harness = await createHarness(true)
-    const refreshedToken = issueSessionToken('Test browser')
+    const refreshedToken = issueSessionToken('Test browser').token
     let refreshes = 0
     let authFailures = 0
     const statuses: ConnectionStatus[] = []

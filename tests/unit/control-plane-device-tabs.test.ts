@@ -1,9 +1,20 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'events'
-import { ControlPlane } from '../../src/main/control-plane'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '../../src/main/agents/agent-runner'
 import type { BuiltHandoff, BuildHandoffDeps } from '../../src/main/agents/session-handoff'
 import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput, SessionStatus } from '../../src/shared/types'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
+let solusToolbox: typeof import('../../src/main/agents/tools/solus-toolbox')['solusToolbox']
+type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
+beforeAll(async () => {
+  ;({ ControlPlane } = await import('../../src/main/control-plane'))
+  ;({ solusToolbox } = await import('../../src/main/agents/tools/solus-toolbox'))
+})
 
 const GRACE_MS = 5 * 60_000
 
@@ -46,8 +57,12 @@ class FakeBackend extends EventEmitter implements AgentBackend {
   readonly metadata: AgentMetadata
   readonly permissions = new FakePermissions()
   running = new Set<string>()
-  lastInput: SessionRunInput | undefined
-  inputs: SessionRunInput[] = []
+  lastInput: AgentRunRequest | undefined
+  lastSessionState: AgentRunSessionState | undefined
+  inputs: AgentRunRequest[] = []
+  steeredOptions: Array<Pick<PromptOptions, 'prompt' | 'imageAttachments'>> = []
+  steerResult: 'accepted' | 'not-active' = 'accepted'
+  onSteer: (() => void) | null = null
   private nextSession = 1
   private handles = new Map<string, RunHandle>()
   private pendingHandles = new Set<RunHandle>()
@@ -63,10 +78,11 @@ class FakeBackend extends EventEmitter implements AgentBackend {
     }
   }
 
-  startRun(input: SessionRunInput, _options: PromptOptions): RunHandle {
+  startRun(input: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     this.lastInput = input
+    this.lastSessionState = sessionState
     this.inputs.push(input)
-    const sessionId = input.agentSessionId ?? `headless-${this.nextSession++}`
+    const sessionId = input.sessionId ?? `headless-${this.nextSession++}`
     let resolveRun!: () => void
     let rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((resolve, reject) => {
@@ -74,7 +90,8 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       rejectRun = reject
     })
     const handle: RunHandle = {
-      sessionId: input.agentSessionId,
+      sessionId: input.sessionId ?? null,
+      persistence: input.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -98,11 +115,21 @@ class FakeBackend extends EventEmitter implements AgentBackend {
       this.emit('normalized', sessionId, {
         type: 'session_init',
         sessionId,
-        model: input.model,
+        model: input.model ?? '',
         skills: [],
       } satisfies NormalizedEvent)
     })
     return handle
+  }
+  async steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null> {
+    if (!this.running.has(sessionId) || !this.handles.has(sessionId)) return null
+    this.onSteer?.()
+    if (this.steerResult === 'not-active') return null
+    this.steeredOptions.push(options)
+    return this.handles.get(sessionId) ?? null
   }
   complete(sessionId: string, result: string): void {
     const handle = this.handles.get(sessionId)
@@ -230,7 +257,7 @@ function setup(options: {
   }
 }
 
-const planes: ControlPlane[] = []
+const planes: ControlPlaneInstance[] = []
 
 afterEach(() => {
   for (const plane of planes.splice(0)) plane.shutdown()
@@ -293,7 +320,65 @@ function promptContext(tabId: string, provider: AgentId, agentSessionId: string)
   } as IpcContext
 }
 
+describe('ControlPlane subagent text routing', () => {
+  test('preserves the parent tool id instead of batching child text into the main reply', () => {
+    // WHY: cross-provider subagents stream through the parent backend. Dropping
+    // this id turns their live report into an ordinary assistant message even
+    // though the completed result still lands on the subagent card.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.registerWatch('tab-1', 'ws:a', 'device-1', 'session-1')
+    env.events.splice(0, env.events.length)
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'text_chunk',
+      text: 'Child report',
+      parentToolUseId: 'subagent-tool-1',
+    } satisfies NormalizedEvent)
+
+    expect(env.events).toEqual([{
+      tabId: 'tab-1',
+      event: {
+        type: 'text_chunk',
+        text: 'Child report',
+        parentToolUseId: 'subagent-tool-1',
+      },
+    }])
+  })
+})
+
 describe('ControlPlane headless sessions', () => {
+  test('gives create_session the same tools as a normal new session', async () => {
+    // WHY: create_session bypasses submitPrompt and has no tab. It must still
+    // receive every provider-neutral Solus tool and the provider subagent tool
+    // that an ordinary new session receives.
+    const providerNeutralToolNames = Object.values(solusToolbox)
+      .flatMap((group) => Object.values(group).map((tool) => tool.name))
+
+    for (const [provider, subagentToolName] of [
+      ['codex', 'claude_subagent'],
+      ['claude-code', 'codex_subagent'],
+    ] as const) {
+      const env = setup({ backendIds: [provider] })
+      planes.push(env.controlPlane)
+
+      await env.controlPlane.createSession({
+        prompt: 'Start through create_session',
+        provider,
+        modelId: 'test-model',
+        reasoningEffort: 'medium',
+        contextWindow: null,
+        cwd: process.cwd(),
+      })
+      const createdToolNames = env.backend.lastInput?.tools.map((tool) => tool.name)
+
+      expect(createdToolNames).toEqual([...providerNeutralToolNames, subagentToolName])
+      expect(createdToolNames).toContain('create_session')
+      expect(createdToolNames).toContain(subagentToolName)
+    }
+  })
+
   test('starts a headless session without creating tab-scoped state', async () => {
     const env = setup()
     planes.push(env.controlPlane)
@@ -313,7 +398,17 @@ describe('ControlPlane headless sessions', () => {
       activeSessions: Map<string, BackendSession>
       tabWatchKeys: Map<string, string>
     }
-    expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toEqual(env.backend.lastInput)
+    expect(internals.activeSessions.get(result.agentSessionId)?.runInput).toMatchObject({
+      provider: 'codex',
+      agentSessionId: result.agentSessionId,
+      workingDirectory: process.cwd(),
+    })
+    expect(env.backend.lastInput).toMatchObject({
+      provider: 'codex',
+      sessionId: null,
+      cwd: process.cwd(),
+      persistence: 'session',
+    })
     expect(internals.tabWatchKeys.size).toBe(0)
   })
 
@@ -343,6 +438,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'cold-session' },
+      tools: [],
       options: {
         prompt: 'Continue in the background',
         displayPrompt: 'Continue in the background',
@@ -352,7 +448,15 @@ describe('ControlPlane headless sessions', () => {
 
     expect(result.agentSessionId).toBe('cold-session')
     expect(lifecycle.disposition).toBe('started')
-    expect(env.backend.lastInput).toEqual(input)
+    expect(env.backend.lastInput).toMatchObject({
+      provider: input.provider,
+      sessionId: input.agentSessionId,
+      cwd: input.workingDirectory,
+      model: input.model,
+      permissionMode: input.permissionMode,
+      persistence: 'session',
+    })
+    expect(env.backend.lastInput?.tools.map((tool) => tool.name)).toEqual(['claude_subagent'])
     const tabWatchKeys = (env.controlPlane as unknown as { tabWatchKeys: Map<string, string> }).tabWatchKeys
     expect(tabWatchKeys.size).toBe(0)
   })
@@ -373,10 +477,56 @@ describe('ControlPlane headless sessions', () => {
 
     expect(lifecycle.agentSessionId).toBe('headless-1')
     expect(env.backend.lastInput?.permissionMode).toBe('auto')
-    expect(env.backend.lastInput?.toolProfile).toBe('automation')
+    const selectedNames = env.backend.lastInput?.tools.map((tool) => tool.name) ?? []
+    expect(selectedNames).toContain('list_works')
+    expect(selectedNames).toContain('create_session')
+    expect(selectedNames).toContain('list_tasks')
+    for (const automationToolName of [
+      'create_automation',
+      'list_automations',
+      'read_automation',
+      'update_automation',
+      'delete_automation',
+      'set_automation_enabled',
+      'run_automation',
+      'list_automation_runs',
+      'read_automation_run',
+    ]) {
+      expect(selectedNames).not.toContain(automationToolName)
+    }
 
     env.backend.complete(lifecycle.agentSessionId, 'Automation finished')
     await expect(lifecycle.done).resolves.toEqual({ output: 'Automation finished' })
+  })
+
+  test('keeps changed-file state in the control plane across session turns', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input = sampleRunInput('codex', 'session-files')
+
+    const first = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'session', sessionId: 'session-files' },
+      tools: [],
+      options: { prompt: 'First turn' },
+    })
+    await first.agentSessionId
+    env.backend.emit('normalized', 'session-files', {
+      type: 'session_changed_files_updated',
+      paths: ['src/changed.ts'],
+    } satisfies NormalizedEvent)
+    env.backend.complete('session-files', 'First complete')
+    await first.done
+
+    await env.controlPlane.runTurn({
+      input: { ...input, sessionChangedFiles: [] },
+      target: { kind: 'session', sessionId: 'session-files' },
+      tools: [],
+      options: { prompt: 'Second turn' },
+    })
+
+    expect(env.backend.lastSessionState).toEqual({ changedFiles: ['src/changed.ts'] })
+    expect('sessionChangedFiles' in (env.backend.lastInput ?? {})).toBe(false)
   })
 
   test('returns the same lifecycle shape for a queued turn and cancels by queue id', async () => {
@@ -406,15 +556,133 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'session', sessionId: 'busy-session' },
-      options: { prompt: 'Queue me' },
+      tools: [],
+      options: { prompt: 'Queue me', delivery: 'queue' },
     })
 
     expect(lifecycle.disposition).toBe('queued')
+    expect(lifecycle.queueId).toBeString()
     await expect(lifecycle.agentSessionId).resolves.toEqual({ agentSessionId: 'busy-session' })
     expect(env.backend.inputs).toHaveLength(0)
 
     lifecycle.cancel()
     await expect(lifecycle.done).rejects.toThrow('Cancelled by user')
+  })
+
+  test('steers a running turn by default and shares its completion lifecycle', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: null,
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+    const active = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'new-session' },
+      tools: [],
+      options: { prompt: 'Start working' },
+    })
+    const { agentSessionId } = await active.agentSessionId
+    env.registerWatch('tab-a', 'ws:a', 'device-a', agentSessionId)
+    env.registerWatch('tab-b', 'ws:b', 'device-b', agentSessionId)
+    env.events.length = 0
+
+    const steered = await env.controlPlane.runTurn({
+      input: { ...input, agentSessionId },
+      target: { kind: 'session', sessionId: agentSessionId },
+      tools: [],
+      sourceTabId: 'tab-a',
+      options: { prompt: 'Change direction', imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }] },
+    })
+
+    expect(steered.disposition).toBe('steered')
+    expect(env.backend.inputs).toHaveLength(1)
+    expect(env.backend.steeredOptions).toEqual([{
+      prompt: 'Change direction',
+      imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
+    }])
+    expect(env.events.filter(({ event }) => event.type === 'user_message')).toEqual([
+      {
+        tabId: 'tab-a',
+        event: {
+          type: 'user_message',
+          text: 'Change direction',
+          delivery: 'steer',
+          imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
+        },
+      },
+      {
+        tabId: 'tab-b',
+        event: {
+          type: 'user_message',
+          text: 'Change direction',
+          delivery: 'steer',
+          imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,aW1hZ2U=' }],
+        },
+      },
+    ])
+
+    env.backend.complete(agentSessionId, 'Finished after steering')
+    await expect(active.done).resolves.toEqual({ output: 'Finished after steering' })
+    await expect(steered.done).resolves.toEqual({ output: 'Finished after steering' })
+  })
+
+  test('starts a fresh turn when the active turn completes during steering', async () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    const input: SessionRunInput = {
+      provider: 'codex',
+      agentSessionId: null,
+      forked: false,
+      workingDirectory: process.cwd(),
+      projectPath: process.cwd(),
+      additionalDirs: [],
+      gitContext: null,
+      worktreeBaseBranch: null,
+      sessionChangedFiles: [],
+      contextWindow: null,
+      model: 'gpt-test',
+      preferredModel: 'gpt-test',
+      reasoningEffort: 'medium',
+      fastMode: false,
+      permissionMode: 'ask',
+      rateLimitBehavior: 'queue',
+      extraInstructions: '',
+    }
+    const active = await env.controlPlane.runTurn({
+      input,
+      target: { kind: 'new-session' },
+      tools: [],
+      options: { prompt: 'Start working' },
+    })
+    const { agentSessionId } = await active.agentSessionId
+    env.backend.steerResult = 'not-active'
+    env.backend.onSteer = () => env.backend.complete(agentSessionId, 'First turn finished')
+
+    const followUp = await env.controlPlane.runTurn({
+      input: { ...input, agentSessionId },
+      target: { kind: 'session', sessionId: agentSessionId },
+      tools: [],
+      options: { prompt: 'Follow up at the boundary' },
+    })
+
+    expect(followUp.disposition).toBe('started')
+    expect(env.backend.inputs).toHaveLength(2)
   })
 
   test('cancels a new run before session_init through the shared lifecycle', async () => {
@@ -443,6 +711,7 @@ describe('ControlPlane headless sessions', () => {
     const lifecycle = await env.controlPlane.runTurn({
       input,
       target: { kind: 'new-session' },
+      tools: [],
       options: { prompt: 'Cancel before init' },
     })
     lifecycle.cancel()
@@ -453,6 +722,98 @@ describe('ControlPlane headless sessions', () => {
 })
 
 describe('ControlPlane provider handoff', () => {
+  for (const [originalProvider, temporaryProvider] of [
+    ['codex', 'claude-code'],
+    ['claude-code', 'codex'],
+  ] as const) {
+    test(`${originalProvider} → ${temporaryProvider} → ${originalProvider} restores the original session as a no-op`, async () => {
+      const originalSessionId = `${originalProvider}-session`
+      const buildCalls: string[] = []
+      const env = setup({
+        backendIds: ['codex', 'claude-code'],
+        buildHandoff: async (sessionId) => {
+          buildCalls.push(sessionId)
+          return { transcriptFilePath: null, reasoningFilePath: null }
+        },
+      })
+      planes.push(env.controlPlane)
+      env.seedSession(originalSessionId, {
+        backendId: originalProvider,
+        status: 'completed',
+        runInput: sampleRunInput(originalProvider, originalSessionId),
+      })
+      env.registerWatch('tab-a', 'ws:a', 'device-1', originalSessionId)
+
+      await env.controlPlane.switchSessionProvider('tab-a', temporaryProvider)
+      await expect(env.controlPlane.switchSessionProvider('tab-a', originalProvider)).resolves.toMatchObject({
+        fromProvider: temporaryProvider,
+        fromSessionId: originalSessionId,
+        restoredSessionId: originalSessionId,
+      })
+
+      const tab = (env.controlPlane as unknown as {
+        tabs: Map<string, { provider: AgentId; sessionId: string | null }>
+      }).tabs.get('tab-a')
+      expect(tab).toMatchObject({ provider: originalProvider, sessionId: originalSessionId })
+
+      await env.controlPlane.submitPrompt(
+        promptContext('tab-a', originalProvider, originalSessionId),
+        { prompt: 'Keep going' },
+      )
+
+      const originalBackend = env.backends.find((backend) => backend.id === originalProvider)!
+      expect(buildCalls).toEqual([])
+      expect(originalBackend.lastInput?.sessionId).toBe(originalSessionId)
+    })
+  }
+
+  test('resetting a tab cancels a pending provider handoff', async () => {
+    const buildCalls: string[] = []
+    const env = setup({
+      backendIds: ['codex', 'claude-code'],
+      buildHandoff: async (sessionId) => {
+        buildCalls.push(sessionId)
+        return {
+          transcriptFilePath: '/tmp/solus-handoffs/old-session-transcript.md',
+          reasoningFilePath: '/tmp/solus-handoffs/old-session-reasoning.md',
+        }
+      },
+    })
+    planes.push(env.controlPlane)
+    env.seedSession('old-session', {
+      backendId: 'codex',
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'old-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'old-session')
+    env.controlPlane.bindRuntimeSession(
+      'tab-a',
+      'old-session',
+      { clientId: 'ws:a', deviceId: 'device-1' },
+      { provider: 'claude-code', sessionId: 'earlier-session' },
+      'codex',
+    )
+
+    await env.controlPlane.switchSessionProvider('tab-a', 'claude-code')
+    env.controlPlane.resetTabSession(
+      promptContext('tab-a', 'codex', 'old-session'),
+      { clientId: 'ws:a', deviceId: 'device-1' },
+    )
+    const resetTab = (env.controlPlane as unknown as {
+      tabs: Map<string, { handoffFrom?: { provider: AgentId; sessionId: string } }>
+    }).tabs.get('tab-a')
+    expect(resetTab?.handoffFrom).toBeUndefined()
+
+    const freshContext = promptContext('tab-a', 'claude-code', 'old-session')
+    freshContext.session.agentSessionId = null
+    await env.controlPlane.submitPrompt(freshContext, { prompt: 'Start fresh' })
+
+    const claude = env.backends.find((backend) => backend.id === 'claude-code')!
+    expect(buildCalls).toEqual([])
+    expect(claude.lastInput?.sessionId).toBeNull()
+    expect(claude.lastInput?.systemPrompt).not.toContain('/tmp/solus-handoffs/')
+  })
+
   test('switches the tab instantly, without building the handoff, then builds it on the next prompt', async () => {
     const buildCalls: Array<{ sessionId: string; projectPath: string }> = []
     const env = setup({
@@ -495,13 +856,9 @@ describe('ControlPlane provider handoff', () => {
 
     const claude = env.backends.find((backend) => backend.id === 'claude-code')!
     expect(claude.lastInput?.provider).toBe('claude-code')
-    expect(claude.lastInput?.agentSessionId).toBeNull()
-    expect(claude.lastInput?.handoff).toMatchObject({
-      fromProvider: 'codex',
-      fromSessionId: 'old-session',
-    })
-    expect(claude.lastInput?.handoff?.seedSystemAppend).toContain('/tmp/solus-handoffs/old-session-transcript.md')
-    expect(claude.lastInput?.handoff?.seedSystemAppend).toContain('/tmp/solus-handoffs/old-session-reasoning.md')
+    expect(claude.lastInput?.sessionId).toBeNull()
+    expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/old-session-transcript.md')
+    expect(claude.lastInput?.systemPrompt).toContain('/tmp/solus-handoffs/old-session-reasoning.md')
 
     const init = env.events.find(({ event }) =>
       event.type === 'session_init' && event.handoffFrom?.sessionId === 'old-session'
@@ -549,6 +906,72 @@ describe('ControlPlane provider handoff', () => {
       env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
     ).rejects.toThrow('must be idle before switching providers')
   })
+
+  test('allows switching away from a rate-limited provider and clears its parked prompt', async () => {
+    const env = setup({ backendIds: ['codex', 'claude-code'] })
+    planes.push(env.controlPlane)
+    env.seedSession('limited-session', {
+      backendId: 'codex',
+      status: 'running',
+      runInput: sampleRunInput('codex', 'limited-session'),
+    })
+    env.seedActiveRun('limited-session', 'queue')
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'limited-session')
+
+    env.backend.emit('normalized', 'limited-session', {
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: Math.ceil(Date.now() / 1000) + 3_600,
+      rateLimitType: 'Codex 5h',
+      isUsingOverage: false,
+    } satisfies NormalizedEvent)
+
+    await expect(
+      env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
+    ).resolves.toEqual({
+      fromProvider: 'codex',
+      fromSessionId: 'limited-session',
+    })
+
+    const tab = (env.controlPlane as unknown as {
+      tabs: Map<string, { provider: AgentId; sessionId: string | null; status: SessionStatus }>
+    }).tabs.get('tab-a')
+    expect(tab).toMatchObject({
+      provider: 'claude-code',
+      sessionId: null,
+      status: 'idle',
+    })
+    expect(env.controlPlane.liveSessionStatus('limited-session')).toBe('idle')
+    expect(env.events.some(({ event }) => event.type === 'prompt_dequeued')).toBe(true)
+    expect(env.events.some(({ event }) => event.type === 'rate_limit_resolved')).toBe(true)
+  })
+})
+
+describe('ControlPlane retry', () => {
+  test('retries with the same interactive tools as a normal prompt', async () => {
+    // WHY: retry builds a fresh SessionRunRequest. Omitting its tools crashes
+    // before the backend starts and leaves a recoverable failed turn stuck.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('retry-session', {
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'retry-session'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'retry-session')
+
+    await env.controlPlane.retry(
+      promptContext('tab-a', 'codex', 'retry-session'),
+      { prompt: 'Try this again' },
+    )
+
+    const toolNames = env.backend.lastInput?.tools.map((tool) => tool.name) ?? []
+    expect(toolNames).toContain('list_works')
+    expect(toolNames).toContain('create_automation')
+    expect(toolNames).toContain('create_session')
+    expect(toolNames).toContain('list_tasks')
+    expect(toolNames).toContain('list_prs')
+    expect(toolNames).toContain('claude_subagent')
+  })
 })
 
 describe('ControlPlane idle-tab Git environments', () => {
@@ -570,6 +993,88 @@ describe('ControlPlane idle-tab Git environments', () => {
 })
 
 describe('ControlPlane device-scoped tab watches', () => {
+  test('treats repeated session init as idempotent while background tasks are running', () => {
+    const env = setup({ backendIds: ['claude-code'] })
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', {
+      runInput: sampleRunInput('claude-code', 'session-1'),
+    })
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'session-1')
+
+    const sessions = (env.controlPlane as unknown as {
+      activeSessions: Map<string, BackendSession>
+    }).activeSessions
+    const session = sessions.get('session-1')!
+    const pendingInputEvents = session.pendingInputEvents
+    session.promptCount = 3
+    session.backgroundTaskIds = new Set(['task-1', 'task-2'])
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'session_init',
+      sessionId: 'session-1',
+      model: 'claude-test',
+      skills: [],
+    } satisfies NormalizedEvent)
+
+    expect(sessions.get('session-1')).toBe(session)
+    expect(session.pendingInputEvents).toBe(pendingInputEvents)
+    expect(session.promptCount).toBe(3)
+    expect([...session.backgroundTaskIds]).toEqual(['task-1', 'task-2'])
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'task_complete',
+      result: 'One explorer finished; two are still running.',
+      costUsd: 0,
+      durationMs: 1,
+      numTurns: 1,
+      usage: {},
+      sessionId: 'session-1',
+    } satisfies NormalizedEvent)
+
+    expect(session.status).toBe('running')
+  })
+
+  test('reattaching reports running while a completed event still has a live runtime', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', {
+      status: 'completed',
+      runInput: sampleRunInput('codex', 'session-1'),
+    })
+    env.controlPlane.createTab('tab-a', { clientId: 'ws:new', deviceId: 'device-1' })
+
+    const info = env.controlPlane.bindRuntimeSession(
+      'tab-a',
+      'session-1',
+      { clientId: 'ws:new', deviceId: 'device-1' },
+    )
+
+    expect(info?.status).toBe('running')
+  })
+
+  // A stale exit can delete a session record that a newer run just installed; the
+  // re-`session_init` then rebuilds it with no run contract. The run is still
+  // alive, so refusing to reattach would strand the tab at 'idle' permanently —
+  // the client would never learn the session is running.
+  test('reattaching still reports running when the live session lost its run input', () => {
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1', { status: 'running', runInput: undefined })
+    env.controlPlane.createTab('tab-a', { clientId: 'ws:new', deviceId: 'device-1' })
+
+    const info = env.controlPlane.bindRuntimeSession(
+      'tab-a',
+      'session-1',
+      { clientId: 'ws:new', deviceId: 'device-1' },
+    )
+
+    expect(info).not.toBeNull()
+    expect(info?.status).toBe('running')
+    // Nothing to restore the config from, so the client keeps its own snapshot.
+    expect(info?.modelConfig).toBeNull()
+    expect(info?.permissionMode).toBeNull()
+  })
+
   test('keeps a deferred Codex account limit hidden after the active turn settles', () => {
     const env = setup()
     planes.push(env.controlPlane)

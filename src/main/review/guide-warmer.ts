@@ -13,12 +13,14 @@ import type { Provider, RepoRef } from '../providers/types'
 import { generateGuide } from './guide-producer'
 import { readGuideByKey } from './ledger'
 import { guideKeyFor } from './review-target'
+import type { AgentDispatcher } from '../agents/agent-runner'
 
 const log = createLogger('review', 'guide-warmer.ts')
 const HEAD_STABLE_MS = 60_000
 const PREFETCH_COUNT = 3
 
 interface GuideWarmerInput {
+  dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
   repo: RepoRef
@@ -46,6 +48,7 @@ let guideTail = Promise.resolve()
 let prefetchTail = Promise.resolve()
 
 export interface PrGuideRequest {
+  dispatcher: AgentDispatcher
   ctx: IpcContext
   repoRoot: string
   repo: RepoRef
@@ -73,7 +76,7 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): voi
         request.onStatus(number, 'ready', metadata ?? undefined)
       })
       .catch((err) => {
-        log.warn(`requested guide failed for PR #${number}: ${errorMessage(err)}`)
+        log.warn('requested_guide_failed', { prNumber: number, error: errorMessage(err) })
         request.onStatus(number, 'failed')
       })
       .finally(() => queuedRequests.delete(key))
@@ -90,7 +93,7 @@ async function generateRequestedGuide(request: PrGuideRequest, number: number): 
   const checkout = await checkoutForGuide(request.repoRoot, request.isWorktreeInUse, detail)
   if (!checkout) throw new Error(`PR #${number}'s review worktree is busy on a different commit`)
   const ctx = contextForPr(request.ctx, request.repoRoot, detail, checkout)
-  const generated = await generateGuide(ctx, {
+  const generated = await generateGuide(request.dispatcher, ctx, {
     agent: request.ctx.settings.reviewAgent ?? request.ctx.settings.activeAgent,
     model: request.ctx.settings.reviewModel,
     reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
@@ -193,7 +196,7 @@ function enqueueGuide(repoRoot: string, number: number, headSha: string): void {
   guideTail = guideTail
     .then(() => warmGuide(repoRoot, number, headSha))
     .catch((err) => {
-      log.warn(`guide warm failed for PR #${number}: ${errorMessage(err)}`)
+      log.warn('guide_warm_failed', { prNumber: number, error: errorMessage(err) })
       scheduleRetry(repoRoot, number, headSha)
     })
     .finally(() => queuedGuides.delete(key))
@@ -205,7 +208,7 @@ function enqueuePrefetch(repoRoot: string, number: number, headSha: string): voi
   queuedPrefetches.add(key)
   prefetchTail = prefetchTail
     .then(() => prefetchWorktree(repoRoot, number, headSha))
-    .catch((err) => log.warn(`worktree prefetch failed for PR #${number}: ${errorMessage(err)}`))
+    .catch((err) => log.warn('worktree_prefetch_failed', { prNumber: number, error: errorMessage(err) }))
     .finally(() => queuedPrefetches.delete(key))
 }
 
@@ -234,7 +237,7 @@ async function warmGuide(repoRoot: string, number: number, headSha: string): Pro
   }
 
   const ctx = contextForPr(input.ctx, repoRoot, detail, checkout)
-  await generateGuide(ctx, {
+  await generateGuide(input.dispatcher, ctx, {
     agent: input.ctx.settings.reviewAgent ?? input.ctx.settings.activeAgent,
     model: input.ctx.settings.reviewModel,
     reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',

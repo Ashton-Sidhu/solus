@@ -10,6 +10,7 @@ export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
     getPathForFile: () => '',
     setQuoteContext: () => {},
     onQuoteSelection: () => () => {},
+    onAskSelectionInNewSession: () => () => {},
   }
 
   for (const method of RPC_INVOKE_METHODS) {
@@ -31,6 +32,7 @@ export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
   api.onSessionScan = on('session-scan')
   api.onSessionIndexUpdated = on('session-index-updated')
   api.onReviewProgress = on('review-progress')
+  api.onSessionGuideStatus = on('session-guide-status')
   api.onRunStatus = on('run-status')
   api.onRunLog = on('run-log')
   api.onVoiceModelStatus = on('voice-model-status')
@@ -40,7 +42,9 @@ export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
   api.onProviderDeviceCode = on('provider-device-code')
   api.onTasksChanged = on('tasks-changed')
   api.onPrsChanged = on('prs-changed')
+  api.onAnnotationsChanged = on('annotations-changed')
   api.onAttentionChanged = on('attention-changed')
+  api.onUsageLimits = on('usage-limits-update')
 
   let resetRuntimeCallback: (() => void) | null = null
   api.onResetRuntime = (callback: () => void) => {

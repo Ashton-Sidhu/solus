@@ -7,7 +7,11 @@ import {
   orderParentsFirst,
 } from "./graph-layout";
 
-export const DEFAULT_EDGE_COLOR = "var(--solus-text-tertiary)";
+/**
+ * Arrowheads sit a step darker than the line (whose default stroke comes from
+ * `.svelte-flow__edge-path` in DiagramShell.css) so they read as punctuation.
+ */
+export const DEFAULT_ARROW_COLOR = "var(--diagram-edge-arrow)";
 
 export function toFlowNodes(
   diagNodes: DiagramNode[],
@@ -74,12 +78,14 @@ export function toFlowEdges(
       type: "default",
       animated: e.animated ?? false,
       className: isAsync ? "edge--async" : isData ? "edge--data" : undefined,
-      ...edgeRenderProps(e.color, e.width, e.cardinality ? 'none' : e.arrows),
+      ...edgeRenderProps(e.color, e.width, e.cardinality ? 'none' : e.arrows, e.dash),
       data: {
         kind: e.kind,
         animated: e.animated,
+        body: e.body,
         color: e.color,
         width: e.width,
+        dash: e.dash,
         arrows: e.arrows,
         shape: e.shape,
         bendOffset: e.bendOffset,
@@ -92,20 +98,39 @@ export function toFlowEdges(
   });
 }
 
+/** The dash an edge actually draws with: explicit if set, else kind-derived. */
+export function effectiveEdgeDash(
+  kind: DiagramEdge["kind"],
+  dash: DiagramEdge["dash"],
+): NonNullable<DiagramEdge["dash"]> {
+  return dash ?? (kind === "async" ? "dashed" : "solid");
+}
+
 export function edgeRenderProps(
   color: string | undefined,
   width: number | undefined,
   arrows: DiagramEdge["arrows"],
+  dash: DiagramEdge["dash"],
 ) {
   const styleParts: string[] = [];
   if (color) styleParts.push(`stroke:${color}`);
   if (width != null) styleParts.push(`stroke-width:${width}px`);
+  // Inline style outranks the `.edge--async` class rule, so an explicit value
+  // is what makes a solid async (or a dashed sync) edge possible. Unset emits
+  // nothing and leaves the kind-derived class in charge. The base path sets no
+  // linecap, so dotted must ask for round or the dots render as squares.
+  if (dash === "dashed") styleParts.push("stroke-dasharray:5 5");
+  else if (dash === "dotted") styleParts.push("stroke-dasharray:0.1 4", "stroke-linecap:round");
+  else if (dash === "solid") styleParts.push("stroke-dasharray:none");
   const a = arrows ?? "end";
+  // An open chevron, not a filled triangle: on parchment a solid head reads far
+  // heavier than the 1.3px line it terminates.
   const head = {
-    type: MarkerType.ArrowClosed,
+    type: MarkerType.Arrow,
     width: 16,
     height: 16,
-    color: color ?? DEFAULT_EDGE_COLOR,
+    strokeWidth: 1.3,
+    color: color ?? DEFAULT_ARROW_COLOR,
   };
   return {
     style: styleParts.length ? styleParts.join(";") : undefined,

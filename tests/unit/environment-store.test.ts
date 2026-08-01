@@ -12,6 +12,20 @@ afterEach(() => {
 })
 
 describe('Git state initialization', () => {
+  test('starts new windows in the server workspace instead of its projects root', async () => {
+    const { startDirectoryForServer } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
+    const startInfo = {
+      version: 'test',
+      projectPath: '/var/lib/solus',
+      homePath: '/home/sidhu',
+      workspacePath: '/home/sidhu/.solus/my-workspace',
+      agents: [],
+    }
+
+    expect(startDirectoryForServer(startInfo)).toBe('/home/sidhu/.solus/my-workspace')
+    expect(startDirectoryForServer({ ...startInfo, workspacePath: '' })).toBe('/var/lib/solus')
+  })
+
   test('waits for tab-less Git state before startup completes', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
@@ -57,15 +71,14 @@ describe('Git state initialization', () => {
     expect(initialized).toBe(false)
     finishRefresh()
     await initialization
-    expect(globalDefaults.workingDirectory).toBe('/project')
-    expect(refreshedDirectory).toBe('/project')
+    expect(globalDefaults.workingDirectory).toBe('/my-workspace')
+    expect(refreshedDirectory).toBe('/my-workspace')
     expect(globalDefaults.gitContext?.targetBranch).toBe('main')
-    const { homeGitDetails } = await import('../../src/renderer/components/layout/lib/new-tab-home')
+    const { homeGitDetails } = await import('../../src/renderer/lib/git-context')
     const home = homeGitDetails(
       globalDefaults.workingDirectory,
       undefined,
       globalDefaults.gitContext,
-      globalDefaults.worktreeBaseBranch,
     )
     expect(home.canToggleWorktree).toBe(true)
     const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')

@@ -5,16 +5,20 @@
 import type { PermissionOption } from './types'
 
 export interface ContentBlock {
-  type: 'text' | 'tool_use'
+  type: 'text' | 'tool_use' | 'thinking'
   text?: string
   id?: string
   name?: string
   input?: Record<string, unknown>
+  /** Extended-thinking span. The transcript prints how long it took, never the
+   *  text, so only the block's start/stop boundary is consumed. */
+  thinking?: string
 }
 
 export type ContentDelta =
   | { type: 'text_delta'; text: string }
   | { type: 'input_json_delta'; partial_json: string }
+  | { type: 'thinking_delta'; thinking: string }
 
 export interface ClaudeUsageData {
   input_tokens?: number
@@ -110,13 +114,32 @@ export interface RateLimitEvent {
   uuid: string
 }
 
+/**
+ * Why the agent loop stopped. The two `aborted_*` reasons are the ones to watch:
+ * an aborted request is reported as an error result, but the SDK then *restarts*
+ * the loop on the same query, so the turn is not actually over.
+ */
+export type TerminalReason =
+  | 'blocking_limit' | 'rapid_refill_breaker' | 'prompt_too_long' | 'image_error'
+  | 'model_error' | 'aborted_streaming' | 'aborted_tools' | 'stop_hook_prevented'
+  | 'hook_stopped' | 'tool_deferred' | 'max_turns' | 'completed'
+
 export interface ResultEvent {
   type: 'result'
-  subtype: 'success' | 'error'
+  subtype:
+    | 'success'
+    | 'error_during_execution'
+    | 'error_max_turns'
+    | 'error_max_budget_usd'
+    | 'error_max_structured_output_retries'
   is_error: boolean
   duration_ms: number
   num_turns: number
-  result: string
+  /** Success results only — the error subtypes carry `errors` instead. */
+  result?: string
+  /** Error results only. */
+  errors?: string[]
+  terminal_reason?: TerminalReason
   total_cost_usd: number
   session_id: string
   usage: ClaudeUsageData & {
@@ -126,6 +149,10 @@ export interface ResultEvent {
     cache_creation_input_tokens?: number
   }
   permission_denials: string[]
+  /** Present when Claude internally resumes the parent after a background task
+   *  reports back. This result ends that internal continuation, not the user's
+   *  overall session run. */
+  origin?: { kind: string }
   uuid: string
 }
 

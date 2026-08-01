@@ -9,6 +9,14 @@
   } from '../../contexts/workspace/pane-view.store.svelte'
   import { getWorkspaceContext, getPlanStore } from '../../contexts'
   import { requestInputFocus } from '../../lib/inputFocus'
+  import PaneChrome from './PaneChrome.svelte'
+  // Eager, unlike every other surface here: these are what cover an async
+  // boundary, so they cannot sit behind one themselves.
+  import PlanModalSkeleton from '../plan/PlanModalSkeleton.svelte'
+  import DocumentModalSkeleton from '../document-modal/DocumentModalSkeleton.svelte'
+  import DiagramShellSkeleton from '../diagram/DiagramShellSkeleton.svelte'
+  import ConversationPaneSkeleton from '../conversation/ConversationPaneSkeleton.svelte'
+  import SettingsPageSkeleton from '../settings/SettingsPageSkeleton.svelte'
 
   // Keep every non-conversation surface behind an actual async boundary. Pane
   // itself is part of the editor's common module graph, but these views are not
@@ -166,6 +174,20 @@
     if (slot === 'primary') requestInputFocus()
   }
 
+  /** A previewed plan (gallery peek) has no pane of its own to fall back to —
+   *  closing it in primary dismisses the whole preview, while in secondary it
+   *  drops the preview and closes just that slot (R1). */
+  function closePlan() {
+    if (planStore.previewDescriptor) {
+      if (slot === 'primary') {
+        session.closePlanPreview()
+        return
+      }
+      planStore.dismissPreview()
+    }
+    panes.closeSlot(slot)
+  }
+
   function handleOpenChatForWork(mode: 'resume' | 'new') {
     if (content.kind !== 'work') return
     void session.openChatForWork(content.workId, mode)
@@ -249,15 +271,40 @@
   </div>
 {/snippet}
 
-{#if content.kind === 'plan' && activePlan}
-  {#await import('../plan/PlanModal.svelte')}
-    {@render loadingSurface('Loading plan…')}
-  {:then planModule}
-    {@const PlanModal = planModule.default}
-    <PlanModal plan={activePlan} inline {slot} onOpenInSplit={handleOpenInSplit} onClose={() => panes.closeSlot(slot)} />
-  {/await}
+{#if content.kind === 'plan'}
+  <PaneChrome
+    onClose={closePlan}
+    onOpenInSplit={handleOpenInSplit}
+    {slot}
+    closeLabel="Close plan"
+    closeTestId="plan-modal-close"
+  />
+  <!-- The pane opens on the plan id before its body is off disk, so "no plan
+       yet" is the loading state, not an empty pane. The open path retracts the
+       pane if the read comes back with nothing. -->
+  {#if activePlan}
+    {#await import('../plan/PlanModal.svelte')}
+      <PlanModalSkeleton inline />
+    {:then planModule}
+      {@const PlanModal = planModule.default}
+      <PlanModal
+        plan={activePlan}
+        inline
+        minimizeOutline={slot === 'secondary'}
+        onClose={closePlan}
+      />
+    {/await}
+  {:else}
+    <PlanModalSkeleton inline />
+  {/if}
 {:else if content.kind === 'work' && activeWork && activeWork.type === 'diagram'}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
+    <PaneChrome
+      onClose={() => panes.closeSlot(slot)}
+      onOpenInSplit={handleOpenInSplit}
+      {slot}
+      closeLabel="Close diagram"
+    />
     {#if conflict}
       {@render refreshPill()}
     {/if}
@@ -267,19 +314,18 @@
     {#key `${activeWork.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
         {#await import('../diagram/DiagramShell.svelte')}
-          {@render loadingSurface('Loading diagram…')}
+          <DiagramShellSkeleton />
         {:then diagramModule}
           {@const DiagramShell = diagramModule.default}
+          <!-- See the note on the document branch below: workId is read from
+               DOM handlers that can outlive `activeWork` by a tick. -->
           <DiagramShell
             content={activeWork.content ?? ''}
             title={activeWork.title}
-            workId={activeWork.id}
+            workId={activeWork?.id}
             onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
             onDirtyChange={(d) => { shellDirty = d }}
             onClose={() => panes.closeSlot(slot)}
-            inline
-            {slot}
-            onOpenInSplit={handleOpenInSplit}
             onOpenChat={handleOpenChatForWork}
             {originalSessionMeta}
             onRename={handleRename}
@@ -296,6 +342,13 @@
   </div>
 {:else if content.kind === 'work' && activeWork}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
+    <PaneChrome
+      onClose={() => panes.closeSlot(slot)}
+      onOpenInSplit={handleOpenInSplit}
+      {slot}
+      closeLabel="Close document"
+      closeTestId="document-modal-close"
+    />
     {#if conflict}
       {@render refreshPill()}
     {/if}
@@ -305,19 +358,28 @@
     {#key `${activeWork.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
         {#await import('../document-modal/DocumentModal.svelte')}
-          {@render loadingSurface('Loading document…')}
+          <DocumentModalSkeleton
+            inline
+            title={activeWork.title}
+            workStorage={activeWork.storage}
+          />
         {:then documentModule}
           {@const DocumentModal = documentModule.default}
+          <!-- workId is optional-chained on purpose: props compile to lazy
+               getters, so a DOM handler still attached during teardown (the
+               comment layer's pointerover) can re-read it after `activeWork`
+               has gone null. Consumers already treat a missing workId as "no
+               comments". `document` stays eager — resolving it to empty
+               mid-teardown would push a blank doc into the editor. -->
           <DocumentModal
             document={{ title: activeWork.title, content: activeWork.content }}
-            workId={activeWork.id}
+            workId={activeWork?.id}
             docType={activeWork.type}
             onSave={async (c) => { await session.worksStore.save(activeWork.id, { content: c }) }}
             onDirtyChange={(d) => { shellDirty = d }}
             onClose={() => panes.closeSlot(slot)}
             inline
-            {slot}
-            onOpenInSplit={handleOpenInSplit}
+            minimizeOutline={slot === "secondary"}
             onOpenChat={handleOpenChatForWork}
             {originalSessionMeta}
             onRename={handleRename}
@@ -334,6 +396,12 @@
   </div>
 {:else if content.kind === 'automation'}
   {#if content.automationId === null || activeAutomation}
+    <PaneChrome
+      onClose={() => panes.closeSlot(slot)}
+      onOpenInSplit={handleOpenInSplit}
+      {slot}
+      closeLabel="Close automation"
+    />
     {#key activeAutomation?.id ?? 'new'}
       {#await import('../automations/AutomationBuilder.svelte')}
         {@render loadingSurface('Loading automation…')}
@@ -342,8 +410,6 @@
         <AutomationBuilder
           automation={activeAutomation}
           inline
-          {slot}
-          onOpenInSplit={handleOpenInSplit}
           onClose={() => panes.closeSlot(slot)}
           onDone={() => panes.closeSlot(slot)}
         />
@@ -363,20 +429,21 @@
   {:then prReviewModule}
     {@const PrReviewPane = prReviewModule.default}
     <PrReviewPane
-      pr={content.pr}
+      pr={content.review}
+      target={content.target}
+      targetCtx={content.targetCtx}
       chatTabId={content.chatTabId}
-      guideKey={content.key}
       {onToggleSecondaryMaximize}
     />
   {/await}
-{:else if content.kind === 'pr-review-loading'}
-  {#await import('../pr-review/PrReviewSkeleton.svelte')}
-    {@render loadingSurface('Preparing pull request review…')}
-  {:then prReviewSkeletonModule}
-    {@const PrReviewSkeleton = prReviewSkeletonModule.default}
-    <PrReviewSkeleton number={content.number} title={content.title} />
-  {/await}
 {:else if content.kind === 'diff' && (overlayTab || content.cwd)}
+  <PaneChrome
+    onClose={() => panes.closeOverlay()}
+    onToggleMaximize={onToggleSecondaryMaximize}
+    maximized={panes.maximized}
+    {slot}
+    closeLabel="Close diff panel"
+  />
   {#await import('../diff/DiffPanel.svelte')}
     {@render loadingSurface('Loading changes…')}
   {:then diffModule}
@@ -396,7 +463,6 @@
       targetBranch={overlaySession?.gitContext?.targetBranch ?? session.globalDefaults.gitContext?.targetBranch ?? 'HEAD'}
       isWorktree={overlayIsWorktree || !!session.globalDefaults.gitContext?.worktreePath}
       onClose={() => panes.closeOverlay()}
-      maximized={panes.maximized}
       onToggleMaximize={onToggleSecondaryMaximize}
       initialScope={content.scope}
       initialFilePath={content.filePath}
@@ -404,6 +470,7 @@
     />
   {/await}
 {:else if content.kind === 'files' && (overlayTab || content.cwd)}
+  <PaneChrome onClose={() => panes.closeOverlay()} {slot} closeLabel="Close files" />
   {#await import('../files/FilesPane.svelte')}
     {@render loadingSurface('Loading files…')}
   {:then filesModule}
@@ -422,6 +489,7 @@
     />
   {/await}
 {:else if content.kind === 'file-editor' && overlayTab}
+  <PaneChrome onClose={() => panes.closeOverlay()} {slot} closeLabel="Close file editor" />
   {#await import('../files/FileEditorPane.svelte')}
     {@render loadingSurface('Loading file…')}
   {:then fileEditorModule}
@@ -435,22 +503,24 @@
     />
   {/await}
 {:else if content.kind === 'subagent'}
+  <PaneChrome
+    onClose={() => panes.closeOverlay()}
+    onToggleMaximize={onToggleSecondaryMaximize}
+    maximized={panes.maximized}
+    {slot}
+    closeLabel="Close sub-agent panel"
+  />
   {#await import('../conversation/SubagentPane.svelte')}
     {@render loadingSurface('Loading subagent…')}
   {:then subagentModule}
     {@const SubagentPane = subagentModule.default}
-    <SubagentPane
-      tabId={content.tabId}
-      messageId={content.messageId}
-      onClose={() => panes.closeOverlay()}
-      onToggleMaximize={onToggleSecondaryMaximize}
-    />
+    <SubagentPane tabId={content.tabId} messageId={content.messageId} />
   {/await}
 {:else if content.kind === 'conversation' && content.tabId}
   <!-- A chat pinned beside the primary conversation. Only ever reaches the
        secondary slot: a primary conversation renders through the pool. -->
   {#await import('../conversation/ConversationPane.svelte')}
-    {@render loadingSurface('Loading conversation…')}
+    <ConversationPaneSkeleton />
   {:then conversationModule}
     {@const ConversationPane = conversationModule.default}
     <ConversationPane
@@ -458,8 +528,6 @@
       {onAttachFile}
       {onScreenshot}
       {onDesignMode}
-      onToggleMaximize={onToggleSecondaryMaximize}
-      onClose={() => panes.closeSlot(slot)}
     />
   {/await}
 {:else if isPageContent(content)}
@@ -468,7 +536,11 @@
        explicit height instead. -->
   <div class="flex min-h-0 flex-col {slot === 'secondary' ? 'h-full' : 'flex-1'}">
     {#await PAGE_LOADERS[content.kind]()}
-      {@render loadingSurface('Loading page…')}
+      {#if content.kind === 'settings'}
+        <SettingsPageSkeleton />
+      {:else}
+        {@render loadingSurface('Loading page…')}
+      {/if}
     {:then pageModule}
       {@const Page = pageModule.default}
       <Page />

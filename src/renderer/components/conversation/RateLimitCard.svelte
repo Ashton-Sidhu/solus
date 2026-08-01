@@ -1,164 +1,179 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition'
-  import { ClockIcon } from 'phosphor-svelte'
-  import { getWorkspaceContext } from '../../contexts'
-  import { requestInputFocus } from '../../lib/inputFocus'
-  import { sendRateLimitedNow, cancelRateLimitedMessages, queueRateLimitedWait } from '../../lib/rate-limit-actions'
-  import * as Card from '../ui/card'
+  import { ClockIcon, StopIcon, ArrowUpIcon } from "phosphor-svelte";
+  import { getWorkspaceContext } from "../../contexts";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import {
+    sendRateLimitedNow,
+    cancelRateLimitedMessages,
+    queueRateLimitedWait,
+  } from "../../lib/rate-limit-actions";
+  import {
+    formatClock,
+    formatLimitWindow,
+    formatReleaseTime,
+  } from "./lib/queued-prompts";
+  import InterruptCard from "./InterruptCard.svelte";
+  import TranscriptChip from "./TranscriptChip.svelte";
 
   interface Props {
-    tabId: string
+    tabId: string;
   }
 
-  let { tabId }: Props = $props()
+  let { tabId }: Props = $props();
 
-  const session = getWorkspaceContext()
-  const sess = $derived(session.sessionFor(tabId))
-  const rateLimitStrategy = $derived(sess?.rateLimitStrategy)
-  const queuedPrompts = $derived((sess?.serverQueuedPrompts ?? []).filter((prompt) => prompt.reason === 'rate_limit'))
-  const totalQueuedCount = $derived(queuedPrompts.length)
-  const queuedRateLimit = $derived(queuedPrompts[0])
-  const rateLimitInfo = $derived(sess?.rateLimitInfo)
-  const resetsAt = $derived(rateLimitInfo?.resetsAt ?? queuedRateLimit?.releaseAt)
-  const rateLimitType = $derived(rateLimitInfo?.rateLimitType ?? queuedRateLimit?.rateLimitType)
+  const session = getWorkspaceContext();
+  const sess = $derived(session.sessionFor(tabId));
+  const rateLimitInfo = $derived(sess?.rateLimitInfo);
+  const resetsAt = $derived(rateLimitInfo?.resetsAt);
+  const limitWindow = $derived(formatLimitWindow(rateLimitInfo?.rateLimitType));
 
-  let userChoseQueue = $state(false)
+  // A held prompt is the decision, already made and durable across a reload —
+  // so it, not a local flag, is what retires the card. The flag only covers the
+  // gap between the click and the prompt_queued event landing.
+  const hasQueuedPrompt = $derived(
+    (sess?.outboundPrompts ?? []).some(
+      (prompt) => prompt.state === "queued" && prompt.reason === "rate_limit",
+    ),
+  );
+  let userChoseQueue = $state(false);
 
   $effect(() => {
-    if (sess?.status !== 'rate_limited') userChoseQueue = false
-  })
+    if (sess?.status !== "rate_limited") userChoseQueue = false;
+  });
 
-  const showAskUI = $derived(rateLimitStrategy === 'ask' && !userChoseQueue)
-  const showQueueUI = $derived(rateLimitStrategy === 'queue' || userChoseQueue)
+  // Purely a decision surface. Once the prompt is queued — by choice here, or by
+  // the 'queue' strategy that never asks — the queued bubbles state it instead,
+  // so the card leaves rather than repeating them.
   const isVisible = $derived(
-    totalQueuedCount > 0 || (rateLimitInfo != null && sess?.status === 'rate_limited')
-  )
-  let now = $state(Date.now())
-  const secondsLeft = $derived(resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0)
-  const countdownText = $derived(formatCountdown(secondsLeft))
-  const statusText = $derived(secondsLeft <= 0 ? 'Sending momentarily' : `Sending in ${countdownText}`)
+    rateLimitInfo != null &&
+      sess?.status === "rate_limited" &&
+      !userChoseQueue &&
+      !hasQueuedPrompt,
+  );
+  let now = $state(Date.now());
+  const secondsLeft = $derived(
+    resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0,
+  );
+  // The countdown is the card's only graphic, and it is set in type, not
+  // drawn — so it needs a fixed-width clock face, not a prose duration.
+  const clockFace = $derived(formatClock(secondsLeft));
+  const releaseClock = $derived(resetsAt ? formatReleaseTime(resetsAt) : "");
 
   $effect(() => {
-    if (!isVisible || !resetsAt || secondsLeft <= 0) return
+    if (!isVisible || !resetsAt || secondsLeft <= 0) return;
     const timer = setInterval(() => {
-      now = Date.now()
-    }, 1000)
-    return () => clearInterval(timer)
-  })
-
-  function formatCountdown(seconds: number) {
-    if (seconds <= 0) return 'momentarily'
-    const d = Math.floor(seconds / 86400)
-    const h = Math.floor((seconds % 86400) / 3600)
-    const m = Math.floor((seconds % 3600) / 60)
-    const s = seconds % 60
-    if (d > 0) return `${d}d ${h}h ${m}m`
-    if (h > 0) return `${h}h ${m}m`
-    if (m > 0) return `${m}m ${s}s`
-    return `${s}s`
-  }
+      now = Date.now();
+    }, 1000);
+    return () => clearInterval(timer);
+  });
 
   async function handleQueueIt() {
-    userChoseQueue = true
-    await queueRateLimitedWait(session.ctxFor(tabId), sess?.status === 'rate_limited', (err) => session.handleError(tabId, err))
-    requestInputFocus()
+    userChoseQueue = true;
+    await queueRateLimitedWait(
+      session.apiFor(tabId),
+      session.ctxFor(tabId),
+      sess?.status === "rate_limited",
+      (err) => session.handleError(tabId, err),
+    );
+    requestInputFocus();
   }
 
   async function handleSendNow() {
-    await sendRateLimitedNow(session.ctxFor(tabId), sess?.status === 'rate_limited', (err) => session.handleError(tabId, err))
-    requestInputFocus()
+    await sendRateLimitedNow(
+      session.apiFor(tabId),
+      session.ctxFor(tabId),
+      sess?.status === "rate_limited",
+      (err) => session.handleError(tabId, err),
+    );
+    requestInputFocus();
   }
 
   function handleStop() {
-    cancelRateLimitedMessages(session.ctxFor(tabId), (err) => session.handleError(tabId, err))
-    requestInputFocus()
+    cancelRateLimitedMessages(
+      session.apiFor(tabId),
+      session.ctxFor(tabId),
+      (err) => session.handleError(tabId, err),
+    );
+    requestInputFocus();
   }
 </script>
 
 {#if isVisible}
-  <div transition:fly={{ y: 8, duration: 200 }} class="mx-auto mt-2 mb-2 w-[88%]" data-testid="rate-limit-card">
-    <Card.Root
-      class="gap-0 overflow-hidden border border-(--solus-permission-border) bg-(--solus-container-bg) py-0"
-      style="border-radius:0.75rem;box-shadow:var(--solus-permission-shadow)"
-    >
-      <Card.Header
-        class="flex grid-cols-none grid-rows-none items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-permission-header-bg) px-3 py-1.5"
-      >
-        <ClockIcon size={12} class="text-(--solus-accent)" />
-        <span class="text-xs sm:text-[0.6875rem] font-semibold text-(--solus-accent)">
-          Rate limited{rateLimitType ? ` · ${rateLimitType}` : ''}
-        </span>
-        <span class="ml-auto text-xs sm:text-[0.6875rem] text-(--solus-text-tertiary)">
-          {showQueueUI ? statusText : `Resets in ${countdownText}`}
-        </span>
-      </Card.Header>
+  <!-- §11 — nothing has been decided yet, so this gets the card chassis: what
+       stopped, until when, and the three ways out. -->
+  <InterruptCard
+    eyebrow="Rate limited"
+    title="Reached the {limitWindow || 'usage'} limit"
+    testId="rate-limit-card"
+  >
+    {#snippet chip()}
+      <TranscriptChip state="warning">Paused</TranscriptChip>
+    {/snippet}
 
-      <Card.Content class="flex flex-col gap-2.5 px-3 py-2.5">
-        {#if showAskUI}
-          <div class="text-sm sm:text-[0.75rem] text-(--solus-text-secondary)">
-            {rateLimitInfo?.prompt ?? "You've been rate limited. What would you like to do?"}
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              onclick={handleQueueIt}
-              class="text-xs sm:text-[0.6875rem] font-medium px-2.5 py-1 rounded-full cursor-pointer bg-(--solus-accent-light) text-(--solus-accent)"
-              style="border:0.0625rem solid var(--solus-accent-soft)"
-              onmouseenter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = 'var(--solus-accent-soft)'
-              }}
-              onmouseleave={(e) => {
-                (e.currentTarget as HTMLElement).style.background = 'var(--solus-accent-light)'
-              }}
-            >
-              Queue it
-            </button>
-            <button
-              onclick={handleSendNow}
-              class="text-[0.6875rem] font-medium px-2.5 py-1 rounded-full cursor-pointer text-(--solus-text-secondary) hover:text-(--solus-text-primary)"
-              style="background:transparent;border:0.0625rem solid var(--solus-permission-border)"
-            >
-              Send now
-            </button>
-            <button
-              onclick={handleStop}
-              class="text-[0.6875rem] font-medium px-2.5 py-1 rounded-full cursor-pointer text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
-              style="background:transparent;border:0.0625rem solid transparent"
-            >
-              Stop
-            </button>
-          </div>
-        {:else}
-          <div class="text-[0.75rem] text-(--solus-text-secondary)">
-            {totalQueuedCount === 0
-              ? rateLimitInfo?.queuedPrompt ?? 'Waiting to send this message.'
-              : totalQueuedCount === 1
-              ? '1 message queued.'
-              : `${totalQueuedCount} messages queued.`}
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              onclick={handleSendNow}
-              class="text-[0.6875rem] font-medium px-2.5 py-1 rounded-full cursor-pointer bg-(--solus-accent-light) text-(--solus-accent)"
-              style="border:0.0625rem solid var(--solus-accent-soft)"
-              onmouseenter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = 'var(--solus-accent-soft)'
-              }}
-              onmouseleave={(e) => {
-                (e.currentTarget as HTMLElement).style.background = 'var(--solus-accent-light)'
-              }}
-            >
-              Send anyway
-            </button>
-            <button
-              onclick={handleStop}
-              class="text-[0.6875rem] font-medium px-2.5 py-1 rounded-full cursor-pointer text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)"
-              style="background:transparent;border:0.0625rem solid transparent"
-            >
-              Stop
-            </button>
-          </div>
-        {/if}
-      </Card.Content>
-    </Card.Root>
-  </div>
+    {#snippet meta()}
+      <span class="shrink-0">Resets at</span>
+      <span class="font-mono text-[0.71875rem] font-medium text-(--foreground)"
+        >{releaseClock}</span
+      >
+    {/snippet}
+
+    {#snippet headerAside()}
+      <div class="flex shrink-0 flex-col items-end">
+        <span class="limit-clock font-mono">{clockFace}</span>
+        <span class="limit-clock-caption">Until reset</span>
+      </div>
+    {/snippet}
+
+    <div
+      class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-[0.71875rem] text-(--muted-foreground)"
+    >
+      <ClockIcon size={12} class="shrink-0 opacity-50" />
+      <span
+        >Nothing runs until you choose. Queuing sends it the moment the window
+        opens.</span
+      >
+    </div>
+
+    {#snippet footer()}
+      <button type="button" class="interrupt-btn" onclick={handleStop}>
+        <StopIcon size={11} weight="bold" />
+        Stop &amp; discard
+      </button>
+      <div class="flex-1"></div>
+      <button
+        type="button"
+        class="interrupt-btn interrupt-btn--secondary"
+        onclick={handleQueueIt}
+      >
+        Queue prompt
+      </button>
+      <button
+        type="button"
+        class="interrupt-btn interrupt-btn--primary"
+        onclick={handleSendNow}
+      >
+        <ArrowUpIcon size={12} weight="bold" />
+        Send now
+      </button>
+    {/snippet}
+  </InterruptCard>
 {/if}
+
+<style>
+  /* Set in type, not drawn. */
+  .limit-clock {
+    font-size: 1.1875rem;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .limit-clock-caption {
+    margin-top: 0.1875rem;
+    font-size: 0.53125rem;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    opacity: 0.65;
+  }
+</style>

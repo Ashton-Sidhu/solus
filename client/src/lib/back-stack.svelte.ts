@@ -12,6 +12,8 @@
 // sentinel in place is safe — it's reused by the next overlay, or consumed by the
 // next back press (at worst one no-op "dead" back after a tap-close).
 
+import { track } from '@renderer/lib/analytics'
+
 interface Entry {
   id: string
   close: () => void
@@ -30,6 +32,7 @@ class BackStack {
   push(id: string, close: () => void) {
     this.entries = this.entries.filter((e) => e.id !== id)
     this.entries.push({ id, close })
+    track('overlay_opened', { overlay_id: id })
     if (!this.hasSentinel) {
       history.pushState({ solusBack: true }, '')
       this.hasSentinel = true

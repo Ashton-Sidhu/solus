@@ -50,7 +50,7 @@
         class="mb-1 size-12 rounded-full [&_svg:not([class*='size-'])]:size-[1.375rem] {tone ===
         'accent'
           ? 'bg-(--solus-accent-light) text-(--solus-accent) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-accent-light)_45%,transparent)]'
-          : 'bg-(--solus-surface-hover) text-(--solus-text-secondary) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-surface-hover)_45%,transparent)]'}"
+          : 'bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) shadow-[0_0_0_0.4375rem_color-mix(in_srgb,var(--solus-surface-hover)_45%,transparent)]'}"
       >
         <Icon weight="fill" />
       </EmptyMedia>

@@ -28,12 +28,14 @@
     {#if row.kind === "user"}
       <div class="flex justify-end py-1">
         <Skeleton
-          class="h-8 rounded-2xl opacity-70"
+          class="h-8 rounded-xl opacity-70"
           style="width:{row.width}%; animation-delay:{i * 80}ms"
         />
       </div>
     {:else if row.kind === "assistant"}
-      <div class="py-2 pl-3 border-l-2 border-(--solus-assistant-left-border)">
+      <!-- No spine: the assistant draws no container, so neither does its
+           placeholder. -->
+      <div class="py-2">
         <div class="flex flex-col gap-2">
           {#each row.lines as lineWidth, j (j)}
             <Skeleton

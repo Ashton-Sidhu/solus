@@ -6,9 +6,8 @@ const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 export class PanePage {
   constructor(readonly page: Page) {}
 
-  /** Opens the artifact header's overflow menu, then clicks "Open in split". */
+  /** Clicks the pane chrome's Open-in-split / Move-to-main-pane toggle. */
   async openInSplit() {
-    await this.page.getByTestId('work-actions-menu').click()
     await this.page.getByTestId('open-in-split').click()
   }
 
@@ -37,13 +36,9 @@ export class PanePage {
     return this.page.locator(`${ACTIVE_SHELL} .input-dock:not(.mode-hidden)`).isVisible()
   }
 
-  /** Reads the label of the Focus/Split toggle (reflects which slot the artifact is in). */
+  /** Reads the label of the split toggle (reflects which slot the artifact is in). */
   async toggleLabel(): Promise<string> {
-    await this.page.getByTestId('work-actions-menu').click()
-    const label = (await this.page.getByTestId('open-in-split').innerText()).trim()
-    // Close the menu again so it doesn't swallow the next interaction.
-    await this.page.getByTestId('work-actions-menu').click()
-    return label
+    return (await this.page.getByTestId('open-in-split').getAttribute('aria-label')) ?? ''
   }
 
   /**
@@ -56,7 +51,7 @@ export class PanePage {
     }, path)
   }
 
-  /** Closes the files browser or single-file editor via its header close button. */
+  /** Closes the files browser or single-file editor via the pane chrome. */
   async closeFilesPane() {
     await this.page
       .locator(`${ACTIVE_SHELL} button[aria-label="Close files"], ${ACTIVE_SHELL} button[aria-label="Close file editor"]`)

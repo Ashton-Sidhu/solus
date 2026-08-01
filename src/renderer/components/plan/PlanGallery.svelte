@@ -17,6 +17,7 @@
   import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import PlanCard from "./PlanCard.svelte";
+  import PlanGallerySkeleton from "./PlanGallerySkeleton.svelte";
   import PlanListRow from "./PlanListRow.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import PageShell from "../ui/PageShell.svelte";
@@ -44,10 +45,15 @@
   const isEditorMode = $derived(windowCtx.viewMode === "editor" || windowCtx.isWeb);
   const open = $derived(session.plansGalleryOpen);
 
-  let descriptors = $state<PlanDescriptor[]>([]);
-  let descriptorsKey = $state<string | null>(null);
-  let loadSeq = 0;
-  let loading = $state(false);
+  const descriptorsKey = planStore.descriptorCacheKey(undefined, true);
+  const descriptors: PlanDescriptor[] = $derived(
+    planStore.cachedDescriptorKey === descriptorsKey
+      ? planStore.cachedDescriptors
+      : [],
+  );
+  const loading = $derived(
+    descriptors.length === 0 && planStore.isDescriptorLoading(descriptorsKey),
+  );
   let query = $state("");
   let statusSet = $state<Set<StatusKind>>(new Set(defaultStatuses));
   let showBookmarked = $state(false);
@@ -71,26 +77,9 @@
     descriptors.filter((d) => matchesOpenProjects(d.cwd, scopeRoots)),
   );
 
-  async function load() {
+  function load() {
     const ipcCtx = untrack(() => session.ctx);
-    const key = planStore.descriptorCacheKey(undefined, true);
-    const seq = ++loadSeq;
-    if (untrack(() => descriptorsKey) !== key) {
-      descriptorsKey = key;
-      descriptors = [];
-      selectedIndex = 0;
-    }
-    loading = untrack(() => descriptors.length) === 0;
-    try {
-      const next = await planStore.getDescriptors(undefined, true, ipcCtx);
-      if (seq !== loadSeq || untrack(() => descriptorsKey) !== key) return;
-      descriptors = next;
-    } catch {
-      if (seq !== loadSeq || untrack(() => descriptorsKey) !== key) return;
-      if (untrack(() => descriptors.length) === 0) descriptors = [];
-    } finally {
-      if (seq === loadSeq && untrack(() => descriptorsKey) === key) loading = false;
-    }
+    void planStore.getDescriptors(undefined, true, ipcCtx).catch(() => {});
   }
 
   $effect(() => {
@@ -101,7 +90,7 @@
       sortMode = "newest";
       selectedIndex = 0;
       mouseHasMoved = false;
-      void load();
+      load();
       blurActiveTextInputOnMobile();
       if (!runtime.shouldSuppressFocus) {
         tick().then(() => searchEl?.focus());
@@ -435,7 +424,7 @@
 {#snippet editorGrid()}
   <div bind:this={scrollEl} class="outline-none" role="listbox" tabindex="-1" onmousemove={() => { mouseHasMoved = true; }}>
     {#if loading && descriptors.length === 0}
-      <PageEmpty compact>Loading plans…</PageEmpty>
+      <PlanGallerySkeleton />
     {:else if filtered.length === 0}
       {@render emptyState(false)}
     {:else}
@@ -501,7 +490,7 @@
     onmousemove={() => { mouseHasMoved = true; }}
   >
     {#if loading && descriptors.length === 0}
-      <PageEmpty compact>Loading plans…</PageEmpty>
+      <PlanGallerySkeleton compact />
     {:else if filtered.length === 0}
       {@render emptyState(true)}
     {:else}
@@ -563,22 +552,37 @@
     aria-label="Plans gallery"
     tabindex="-1"
   >
-    <PageShell onClose={close}>
+    {#snippet planStats()}
+      <span class="flex items-center gap-1.5">
+        <span
+          class="size-1.5 shrink-0 rounded-full bg-[var(--solus-art-2,#c9883f)]"
+          aria-hidden="true"
+        ></span>
+        <span class="tabular-nums">{counts.pending} pending</span>
+      </span>
+      <span class="opacity-40" aria-hidden="true">·</span>
+      <span class="tabular-nums">{counts.accepted} accepted</span>
+      <span class="opacity-40" aria-hidden="true">·</span>
+      <span class="tabular-nums">{counts.rejected} rejected</span>
+    {/snippet}
+    <PageShell>
       <PageHeader
         title="Plans"
-        subtitle="Plans the agent proposed — review, bookmark, resume."
+        subtitle={planStats}
+        onClose={close}
       >
         {#snippet icon()}
-          <MapTrifoldIcon size={18} weight="fill" />
+          <MapTrifoldIcon size={11} weight="fill" />
         {/snippet}
       </PageHeader>
 
       <!-- ── Command bar: search + status segments + bookmarked + sort ── -->
-      <div class="flex flex-wrap items-center gap-2 pb-4">
+      <div class="flex min-w-0 flex-wrap items-center gap-2.5 pt-1 pb-4">
         <SearchField
           bind:ref={searchEl}
           bind:value={query}
           placeholder="Search plans…"
+          class="h-8 min-w-0 flex-1 basis-0 rounded-lg border-0 bg-muted px-3 py-0 @max-[44rem]:basis-0"
           onkeydown={(e) => {
             if (e.key === "Enter" && runtime.isMobileViewport) {
               e.stopPropagation();
@@ -588,6 +592,7 @@
           }}
         />
         <SegmentedControl
+          variant="bar"
           options={statusSegments}
           isActive={(v) => (v === "all" ? isAllSelected : statusSet.has(v))}
           onSelect={onSegmentSelect}
@@ -597,9 +602,9 @@
           <Button
             variant="ghost"
             size="icon-sm"
-            class="[@media(pointer:coarse)]:size-10 {showBookmarked
-              ? 'bg-(--solus-accent-light) text-(--solus-accent)'
-              : 'text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
+            class="size-8 rounded-lg {showBookmarked
+              ? 'bg-secondary text-secondary-foreground'
+              : 'bg-muted text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground'}"
             onclick={() => (showBookmarked = !showBookmarked)}
             aria-pressed={showBookmarked}
             aria-label="Bookmarked plans"
@@ -614,6 +619,7 @@
             bind:value={sortMode}
             options={SORT_OPTIONS}
             ariaLabel="Sort plans"
+            class="h-8 gap-1.5 bg-muted px-2.5 py-0 text-[12.5px] font-normal text-muted-foreground hover:bg-(--solus-surface-active) hover:text-foreground"
           />
         </div>
       </div>

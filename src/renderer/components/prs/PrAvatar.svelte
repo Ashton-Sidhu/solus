@@ -3,7 +3,7 @@
 
   // PR-surface avatar: the author's image when GitHub gave us one, otherwise
   // an initials disc. `size` carries both the box and text size classes
-  // (e.g. "size-5 text-[0.5625rem]").
+  // (e.g. "size-5 text-[9.5px]").
   let { name, url = "", size }: { name: string; url?: string; size: string } = $props();
 </script>
 
@@ -15,7 +15,7 @@
   />
 {:else}
   <span
-    class="grid shrink-0 place-items-center rounded-full bg-(--solus-accent) font-semibold text-(--solus-on-accent,#fff) {size}"
+    class="grid shrink-0 place-items-center rounded-full bg-primary font-medium text-primary-foreground {size}"
   >
     {initials(name)}
   </span>

@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
 import type { Server as HttpServer } from 'http'
 import { SolusServer } from './server'
 import { buildHttpServer } from './http'
@@ -8,11 +7,12 @@ import { getServerSettings, setRemoteAccess } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { attachWebSocketTransport } from '../transports/websocket'
 import type { ControlPlane } from '../control-plane'
-import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '../../shared/types'
+import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
+import { registerFilesystemHandlers } from './handlers/filesystem-handlers'
 import { registerHistoryHandlers } from './handlers/history-handlers'
 import type { FileDeps } from './handlers/file-handlers'
 import { registerFolioHandlers } from './handlers/folio-handlers'
@@ -22,14 +22,19 @@ import { startAutomationScheduler, stopAutomationScheduler } from '../automation
 import { setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher } from '../automations/automation-runner'
 import { setAutomationsChangedListener } from '../automations/automations-store'
 import { setSessionController, setSessionCreator } from '../sessions/session-tools'
+import { setAnnotationsChangedNotifier } from '../annotations/annotation-events'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
+import { registerSettingsHandlers } from './handlers/settings-handlers'
+import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
 import { setPrsChangedNotifier } from '../providers/pr-tools'
 import { registerStackHandlers } from './handlers/stack-handlers'
 import { registerChecksHandlers } from './handlers/checks-handlers'
+import { registerUsageHandlers } from './handlers/usage-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
+import { registerSavedPromptsHandlers } from './handlers/saved-prompts-handlers'
 import { registerRunHandlers } from './handlers/run-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
@@ -37,14 +42,12 @@ import { setVoiceModelStatusListener } from '../model-downloader'
 import { createLogger } from '../logger'
 import type { RunManager } from '../run/run-manager'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
-import { ensureClaimWindow } from './auth'
+import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../package.json'
+import { solusDir } from '../platform/paths'
 
 const log = createLogger('main', 'server-boot')
-
-const SOLUS_DIR = join(homedir(), '.solus')
-const LOCK_FILE = join(SOLUS_DIR, 'server.lock')
 
 export interface BootOptions {
   controlPlane: ControlPlane
@@ -60,6 +63,8 @@ export interface BootOptions {
   port?: number
   /** Path to the bundled web client static files. */
   staticDir?: string
+  /** Optional voice transcription implementation supplied by the desktop host. */
+  transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
   runManager?: RunManager
 }
 
@@ -89,9 +94,10 @@ interface LockFileBody {
 }
 
 function readLock(): LockFileBody | null {
-  if (!existsSync(LOCK_FILE)) return null
+  const lockFile = join(solusDir(), 'server.lock')
+  if (!existsSync(lockFile)) return null
   try {
-    const raw = readFileSync(LOCK_FILE, 'utf-8')
+    const raw = readFileSync(lockFile, 'utf-8')
     const parsed = JSON.parse(raw) as LockFileBody
     if (!parsed?.pid) return null
     return parsed
@@ -110,23 +116,25 @@ function isAlive(pid: number): boolean {
  * locks (dead PID) are reclaimed.
  */
 export function acquireLock(host: string, port: number): { release(): void } | null {
-  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
+  const stateDir = solusDir()
+  const lockFile = join(stateDir, 'server.lock')
+  if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true })
 
   const existing = readLock()
   if (existing && isAlive(existing.pid)) {
-    log.warn(`solus already running pid=${existing.pid} host=${existing.host} port=${existing.port}`)
+    log.warn('solus_already_running', { pid: existing.pid, host: existing.host, port: existing.port })
     return null
   }
 
   const body: LockFileBody = { pid: process.pid, port, host, startedAt: Date.now() }
-  writeFileSync(LOCK_FILE, JSON.stringify(body, null, 2), { mode: 0o600 })
+  writeFileSync(lockFile, JSON.stringify(body, null, 2), { mode: 0o600 })
 
   let released = false
   return {
     release: () => {
       if (released) return
       released = true
-      try { if (existsSync(LOCK_FILE)) unlinkSync(LOCK_FILE) } catch {}
+      try { if (existsSync(lockFile)) unlinkSync(lockFile) } catch {}
     },
   }
 }
@@ -152,8 +160,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     agentIdFromContext: opts.agentIdFromContext,
   }
   registerSessionHandlers(server, sessionDeps)
+  registerSettingsHandlers(server)
 
   registerWorktreeHandlers(server, { controlPlane: opts.controlPlane })
+  // Browsing a host's filesystem must work headless — that is the whole point
+  // of pairing a server that has no window.
+  registerFilesystemHandlers(server)
   registerHistoryHandlers(server, {
     controlPlane: opts.controlPlane,
     agentIdFromContext: opts.agentIdFromContext,
@@ -167,7 +179,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     registerThemeHandlers(server)
   }
   registerFolioHandlers(server)
-  registerReviewHandlers(server)
+  registerReviewHandlers(server, opts.controlPlane)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
   // were created in (full conversation context), routed through the control plane.
@@ -187,9 +199,28 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
     pendingInputEvents: (sessionId) => opts.controlPlane.pendingInputEventsForSession(sessionId),
-    promptSession: (sessionId, prompt) => opts.controlPlane.promptSession(sessionId, prompt),
-    watchSessionSettled: (targetSessionId, callerSessionId) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId),
+    promptSession: (sessionId, prompt, delivery, options) => opts.controlPlane.promptSession(sessionId, prompt, delivery, options),
+    watchSessionSettled: (targetSessionId, callerSessionId, watch) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId, watch),
     stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
+    answerQuestion: (questionId, answers) => opts.controlPlane.respondToQuestion(questionId, answers),
+    respondPermission: (questionId, optionId, revisedPlan) => opts.controlPlane.respondToPermission(questionId, optionId, revisedPlan),
+    loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
+      opts.controlPlane.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
+    listPlans: (provider, projectPath, allProjects) => opts.controlPlane.listPlans(provider, projectPath, allProjects),
+    invalidatePlanCaches: (sessionId) => opts.controlPlane.invalidatePlanCaches(sessionId),
+  })
+  setAnnotationsChangedNotifier((change) => server.broadcast('annotations-changed', change))
+  // Agent-conversation cards drive sessions that have no bound tab in the renderer.
+  server.register('promptSession', async (args) => {
+    const [sessionId, prompt, delivery] = args as [unknown, unknown, unknown]
+    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('promptSession requires a session id')
+    if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
+    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue')
+  })
+  server.register('stopSession', async (args) => {
+    const [sessionId] = args as [unknown]
+    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('stopSession requires a session id')
+    return opts.controlPlane.stopSession(sessionId)
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
@@ -199,12 +230,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerTasksHandlers(server)
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerProviderHandlers(server, {
+    dispatcher: opts.controlPlane,
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
   })
   registerStackHandlers(server)
   registerChecksHandlers(server)
+  registerUsageHandlers(server, { controlPlane: opts.controlPlane })
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
+  registerSavedPromptsHandlers(server)
   registerSetupHandlers(server)
 
   server.register('getServerCapabilities', () => probeServerCapabilities({
@@ -238,7 +272,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
     for (const entry of created) {
       void pushNotifications.sendToOfflineDevices(entry, isDeviceOnline).catch((err) => {
-        log.warn(`web push fanout failed: ${String(err)}`)
+        log.warn('web_push_fanout_failed', { error: err instanceof Error ? err.message : String(err) })
       })
     }
   })
@@ -255,10 +289,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.controlPlane.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
     server.broadcast('session-index-updated', event)
   })
+  // Global session-status feed: agent-conversation cards track agents without tabs.
+  opts.controlPlane.on('session-status', (event: { sessionId: string; status: SessionStatus; at: number }) => {
+    server.broadcast('session-status-changed', event)
+  })
 
   ensureClaimWindow()
 
-  const { server: http } = buildHttpServer({ host, port, staticDir: opts.staticDir, getHost: () => host, getPort: () => actualPort })
+  const { server: http } = buildHttpServer({
+    host,
+    port,
+    staticDir: opts.staticDir,
+    getHost: () => host,
+    getPort: () => actualPort,
+    transcribeAudio: opts.transcribeAudio,
+  })
   let ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
@@ -288,7 +333,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         SESSION_INDEX_POLL_MAX_BACKOFF_MS,
         SESSION_INDEX_POLL_MS * 2 ** sessionIndexPollFailures,
       )
-      log.warn(`Session index poll failed: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn('session_index_poll_failed', { error: err instanceof Error ? err.message : String(err) })
       scheduleSessionIndexPoll(backoff)
     }
   }
@@ -337,7 +382,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       } catch (err) {
         const code = (err as NodeJS.ErrnoException)?.code
         if (code !== 'EADDRINUSE' || i === MAX_PORT_RETRIES) throw err
-        log.info(`port ${nextPort} in use, trying ${nextPort + 1}`)
+        log.info('port_in_use_retrying', { port: nextPort, nextPort: nextPort + 1 })
         nextPort += 1
       }
     }
@@ -347,12 +392,34 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   actualPort = await listenWithRetries(port)
 
   if (actualPort !== port) {
-    log.info(`server bound to ${host}:${actualPort} (default ${port} unavailable)`)
+    log.info('server_bound_fallback_port', { host, port: actualPort, defaultPort: port })
   }
 
   let lock = acquireLock(host, actualPort)
   if (!lock) {
-    log.warn('lock acquisition failed; proceeding without single-instance enforcement')
+    log.warn('lock_acquisition_failed')
+  }
+
+  const noLanDiscovery: LanDiscoveryService = {
+    discoverServers: async () => [],
+    close: async () => {},
+  }
+  let lanDiscovery: LanDiscoveryService
+  if (isLanDiscoveryDisabled()) {
+    log.info('lan_discovery_skipped')
+    lanDiscovery = noLanDiscovery
+  } else {
+    try {
+      lanDiscovery = await startLanDiscoveryService(() => ({
+        port: actualPort,
+        installationId: getInstallationId(),
+        claimable: isClaimable(),
+        isReachable: !isLoopbackHost(host),
+      }))
+    } catch (err) {
+      log.warn('lan_discovery_unavailable', { error: err instanceof Error ? err.message : String(err) })
+      lanDiscovery = noLanDiscovery
+    }
   }
 
   async function rebind(remoteAccess: boolean): Promise<void> {
@@ -364,13 +431,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Existing WS connections (including the one carrying this very toggle)
     // keep the plain http.close() callback from ever firing, since Node waits
     // for all live sockets to end on their own. Force them closed first.
-    try { ws.close() } catch (err) { log.warn(`ws.close failed during rebind: ${err}`) }
+    try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
     ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
     lock = acquireLock(host, actualPort)
-    if (!lock) log.warn('lock acquisition failed after rebind; proceeding without single-instance enforcement')
-    log.info(`Solus server rebound to http://${host}:${actualPort} (auth=${requireAuth ? 'on' : 'off'})`)
+    if (!lock) log.warn('lock_acquisition_failed_after_rebind')
+    log.info('server_rebound', { host, port: actualPort, requireAuth })
   }
 
   registerConnectionsHandlers(server, {
@@ -381,6 +448,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       deviceId: s.deviceId,
       connectedAt: s.connectedAt,
     })),
+    discoverLanServers: () => lanDiscovery.discoverServers(),
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
       await rebind(next.remoteAccess)
@@ -388,7 +456,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
   })
 
-  log.info(`Solus server listening on http://${host}:${actualPort}`)
+  log.info('server_listening', { host, port: actualPort })
   console.log(`\n  Solus web UI → http://localhost:${actualPort}\n`)
 
   let shutdownPromise: Promise<void> | null = null
@@ -404,7 +472,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopAutomationScheduler()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
-        try { ws.close() } catch (err) { log.warn(`ws.close failed: ${err}`) }
+        await lanDiscovery.close()
+        try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()
       })()

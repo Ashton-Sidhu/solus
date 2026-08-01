@@ -38,11 +38,61 @@ afterEach(() => {
   else globalThis.Audio = previousAudio
 })
 
+describe('WorkspaceContext tab clearing', () => {
+  test('removes provider handoff lineage from the cleared session', async () => {
+    installRendererGlobals()
+
+    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const session = {
+      agentSessionId: null,
+      provider: 'claude-code',
+      handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
+      messages: [],
+      sessionChangedFiles: [],
+      lastResult: null,
+      sessionUsage: null,
+      isStreamingText: false,
+      isReconnecting: false,
+      permissionQueue: [],
+      questionQueue: [],
+      permissionDenied: null,
+      outboundPrompts: [],
+      status: 'idle',
+      progress: null,
+      readOnlyReason: null,
+      worktreeBaseBranch: null,
+      gitContext: null,
+      workingDirectory: '/repo',
+    } as unknown as Session
+    const workspace = Object.create(WorkspaceContext.prototype) as any
+    workspace.registry = {
+      tabs: { 'tab-a': { id: 'tab-a', sessionId: 'session-a', title: 'Handoff' } },
+      sessions: { 'session-a': session },
+      tabOrder: ['tab-a'],
+      activeTabId: 'tab-a',
+    }
+    workspace.apiFor = () => ({ resetTabSession: async () => {} })
+    workspace.ctxFor = () => ({ session: { tabId: 'tab-a' } })
+    workspace.eventReducer = { streaming: { text: {} } }
+    workspace.environment = { refreshTab: async () => {} }
+
+    workspace.clearTab('tab-a')
+
+    expect(session.handoffFrom).toBeUndefined()
+  })
+})
+
 describe('WorkspaceContext new-tab Git initialization', () => {
   test('seeds the first prompt tab from the cached Git environment', async () => {
     installRendererGlobals()
 
     const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { serverConnections } = await import('../../src/client-core/server-connections')
+    const originalConnectionFor = serverConnections.connectionFor.bind(serverConnections)
+    serverConnections.connectionFor = (() => ({
+      serverId: 'remote-server',
+      target: { local: false },
+    })) as typeof serverConnections.connectionFor
     const registry = {
       tabs: {} as Record<string, Tab>,
       sessions: {} as Record<string, Session>,
@@ -95,14 +145,20 @@ describe('WorkspaceContext new-tab Git initialization', () => {
     workspace.resetOverlays = () => {}
     workspace.refreshPluginCommands = () => Promise.resolve()
 
-    const tabId = workspace.createTabFromDefaults()
-    const created = registry.sessions[registry.tabs[tabId].sessionId]
+    let created: Session
+    try {
+      const tabId = workspace.createTabFromDefaults()
+      created = registry.sessions[registry.tabs[tabId].sessionId]
+    } finally {
+      serverConnections.connectionFor = originalConnectionFor
+    }
 
     expect(created.gitContext).toEqual({
       repoRoot: '/repo',
       branch: 'feature',
       targetBranch: 'main',
     })
+    expect(created.serverId).toBe('remote-server')
   })
 
   test('uses the saved worktree default for a fresh session even when its source session is direct', async () => {

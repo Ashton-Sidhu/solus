@@ -4,7 +4,11 @@ export interface SessionLoadMessage {
   toolName?: string
   toolId?: string
   toolInput?: string
+  toolStatus?: 'running' | 'completed' | 'error'
+  isSubagent?: boolean
+  subagentType?: string
   toolResultForId?: string
+  toolResultIsError?: boolean
   planContent?: string
   planFilePath?: string
   planToolUseId?: string

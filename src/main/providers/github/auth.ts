@@ -1,4 +1,5 @@
 import { createLogger } from '../../logger'
+import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '../../../shared/github-auth'
 import { GITHUB_CLIENT_ID } from './client-id'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
 import type { AuthStatus, DeviceCodePrompt, ProviderAuth } from '../types'
@@ -14,9 +15,11 @@ const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 // minimum required to read private PRs and post reviews/comments as the user.
 // `project` is mandatory for Projects v2 read/write (it is NOT covered by `repo`)
 // — without it the task panel can't read or edit native due/priority/status.
+// `read:org` and `gist` are the other minimum scopes gh validates when importing
+// this token through `gh auth login --with-token`.
 // The connect UI states this plainly. Migrating to fine-grained perms is a
 // GitHub-App swap behind ProviderAuth, not a rewrite of consumers.
-const SCOPE = 'repo project'
+const SCOPE = GITHUB_OAUTH_SCOPES.join(' ')
 
 interface DeviceCodeResponse {
   device_code: string
@@ -146,7 +149,7 @@ function toStatus(token: GithubStoredToken | null): AuthStatus {
   return {
     connected: true,
     login: token.login,
-    scopes: token.scope ? token.scope.split(/[,\s]+/).filter(Boolean) : undefined,
+    scopes: token.scope ? parseGithubScopes(token.scope) : undefined,
   }
 }
 
@@ -202,6 +205,6 @@ export class GitHubAuth implements ProviderAuth {
 
   disconnect(): void {
     clearToken()
-    log.info('GitHub disconnected')
+    log.info('github_disconnected')
   }
 }

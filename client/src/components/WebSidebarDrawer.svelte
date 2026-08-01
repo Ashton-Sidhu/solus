@@ -7,8 +7,9 @@
   interface Props {
     open: boolean;
     onClose: () => void;
+    onOpenServers: () => void;
   }
-  let { open, onClose }: Props = $props();
+  let { open, onClose, onOpenServers }: Props = $props();
 
   const DRAWER_WIDTH = 280;
 
@@ -88,7 +89,7 @@
     class:drawer-hidden={!visible}
     use:swipeDismiss={{ axis: "x", sign: -1, onDismiss: onClose, backdrop: () => backdropEl }}
   >
-    <MobileSessionList onSessionSelect={onClose} />
+    <MobileSessionList onSessionSelect={onClose} {onOpenServers} />
   </div>
 {/if}
 
@@ -126,5 +127,8 @@
     overscroll-behavior: contain;
     will-change: transform;
     touch-action: pan-y;
+    /* List chrome, not copy — long-press must swipe or tap, never select. */
+    user-select: none;
+    -webkit-user-select: none;
   }
 </style>

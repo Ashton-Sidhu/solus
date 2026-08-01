@@ -1,4 +1,5 @@
 import type { ProjectConfig } from '../../../shared/types'
+import { listProjectIdentities } from '../../project-config/project-identities'
 import { loadProjectConfig, saveProjectConfig } from '../../project-config/project-config'
 import { deleteProject, listProjects, recordProject } from '../../project-config/projects-manifest'
 import { invalidateTaskProvider } from '../../tasks/task-service'
@@ -19,6 +20,7 @@ export function registerProjectConfigHandlers(server: SolusServer): void {
     return saved
   })
   server.register('listProjects', () => listProjects())
+  server.register('listProjectIdentities', () => listProjectIdentities())
   server.register('deleteProject', (args) => {
     const [projectPath] = args as [string]
     return deleteProject(projectPath)

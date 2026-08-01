@@ -19,6 +19,8 @@ const VALID_FIELD_KEY = new Set(['pk', 'fk', 'unique'])
 
 const VALID_CARDINALITY = new Set(['1-1', '1-n', 'n-1', 'n-n'])
 
+const VALID_EDGE_DASH = new Set(['solid', 'dashed', 'dotted'])
+
 export const DIAGRAM_NODE_SHAPES = ['rectangle', 'circle', 'diamond'] as const
 export type DiagramNodeShape = (typeof DIAGRAM_NODE_SHAPES)[number]
 
@@ -107,11 +109,19 @@ export interface DiagramEdge {
   source: string
   target: string
   label?: string
+  /** Prose describing what crosses this edge. Inspector-only — never drawn. */
+  body?: string
   kind?: 'sync' | 'async' | 'data'
   /** Custom stroke colour (CSS colour string). Omitted = default accent. */
   color?: string
   /** Stroke width in px, used to weight an edge. Omitted = kind-based default. */
   width?: number
+  /**
+   * Stroke pattern. Omitted = derived from `kind` (async is dashed, everything
+   * else solid); an explicit value overrides that, so a `solid` async edge and a
+   * `dashed` sync edge are both expressible.
+   */
+  dash?: 'solid' | 'dashed' | 'dotted'
   /**
    * Which ends carry an arrowhead. 'end' (the default) points at the target,
    * 'start' at the source, 'both' is bidirectional, 'none' is a plain line.
@@ -171,7 +181,7 @@ function normalizeDoc(doc: DiagramDoc, allowDetail: boolean): void {
   normalizeNodes(doc.nodes, allowDetail)
   // Drop edges whose endpoints aren't declared nodes (they'd error in the
   // renderer; mermaid export already skips them) and duplicate edge ids; strip
-  // any cardinality outside the supported set.
+  // any cardinality or dash outside the supported set.
   const edgeIds = new Set<string>()
   doc.edges = doc.edges.filter((e) => {
     if (!e || !ids.has(e.source) || !ids.has(e.target)) return false
@@ -183,6 +193,9 @@ function normalizeDoc(doc: DiagramDoc, allowDetail: boolean): void {
   })
   for (const edge of doc.edges) {
     if (edge.cardinality && !VALID_CARDINALITY.has(edge.cardinality)) delete edge.cardinality
+    // 'solid' survives, unlike node shape's 'rectangle': it is a meaningful
+    // override of the kind-derived dash, not a restatement of the default.
+    if (edge.dash && !VALID_EDGE_DASH.has(edge.dash)) delete edge.dash
   }
 }
 

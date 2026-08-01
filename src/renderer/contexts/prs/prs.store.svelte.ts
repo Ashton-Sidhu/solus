@@ -31,6 +31,9 @@ export class PrsStore {
   loading = $state(false)
   loadingMore = $state(false)
   loaded = $state(false)
+  /** When the current `items` fetch landed (ms; 0 before the first load). Feeds
+   *  the inbox masthead's "Synced 2m ago" fact. */
+  listLoadedAt = $state(0)
   hasMore = $state(false)
   nextPage = $state(1)
   filter = $state<PrFilter>({ state: 'open' })
@@ -60,7 +63,11 @@ export class PrsStore {
   private reviewSurfaceOpen = false
 
   private readonly listCache = new Map<string, CacheEntry<PrListPage>>()
-  private readonly effortLoaded = new Set<string>()
+  private readonly effortByKey = new Map<string, {
+    effort: NonNullable<PullRequestSummary['effort']>
+    additions: number
+    deletions: number
+  }>()
   private readonly effortInFlight = new Set<string>()
   private readonly overviewCache = new Map<string, CacheEntry<PullRequestOverview>>()
   private readonly detailCache = new Map<string, CacheEntry<PullRequestDetail>>()
@@ -87,6 +94,18 @@ export class PrsStore {
 
   private prKey(ctx: IpcContext, number: number): string {
     return `${this.contextKey(ctx)}::${number}`
+  }
+
+  private effortKey(ctx: IpcContext, item: Pick<PullRequestSummary, 'number' | 'headSha'>): string {
+    return `${this.contextKey(ctx)}::${item.number}::${item.headSha}`
+  }
+
+  private applyStoredEffort(ctx: IpcContext, item: PullRequestSummary): void {
+    const stored = this.effortByKey.get(this.effortKey(ctx, item))
+    if (!stored) return
+    item.effort = stored.effort
+    item.additions = stored.additions
+    item.deletions = stored.deletions
   }
 
   private isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> & { value: T } {
@@ -124,6 +143,11 @@ export class PrsStore {
     cache.set(key, { value, loadedAt: Date.now() })
   }
 
+  private cached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+    const entry = cache.get(key)
+    return this.isFresh(entry) ? entry.value : undefined
+  }
+
   private seedOverview(ctx: IpcContext, number: number, overview: PullRequestOverview): void {
     const key = this.prKey(ctx, number)
     this.seed(this.detailCache, key, overview.detail)
@@ -158,10 +182,12 @@ export class PrsStore {
     try {
       const result = await this.loadFor(ctx, filter, opts)
       if (this.listKey(ctx, this.filter, 1) !== key) return
+      for (const item of result.items) this.applyStoredEffort(ctx, item)
       this.items = result.items
       this.hasMore = result.hasMore
       this.nextPage = result.page + 1
       this.loaded = true
+      this.listLoadedAt = Date.now()
       void this.loadChecks(ctx, result.items.map((item) => item.number)).catch(() => { this.checksLoadFailed = true })
       void this.loadGuideMetadata(ctx, result.items).catch(() => {})
     } finally {
@@ -179,7 +205,10 @@ export class PrsStore {
       const result = await this.loadFor(ctx, filter, { page })
       if (this.listKey(ctx, this.filter, 1) !== key || this.nextPage !== page) return
       const known = new Set(this.items.map((item) => item.number))
-      for (const item of result.items) if (!known.has(item.number)) this.items.push(item)
+      for (const item of result.items) {
+        this.applyStoredEffort(ctx, item)
+        if (!known.has(item.number)) this.items.push(item)
+      }
       this.hasMore = result.hasMore
       this.nextPage = result.page + 1
       void this.loadChecks(ctx, result.items.map((item) => item.number)).catch(() => { this.checksLoadFailed = true })
@@ -194,23 +223,26 @@ export class PrsStore {
       .map((number) => this.get(number))
       .filter((item): item is PullRequestSummary => !!item && item.state === 'open' && !item.effort)
       .filter((item) => {
-        const key = `${this.contextKey(ctx)}::${item.number}::${item.headSha}`
-        return !this.effortLoaded.has(key) && !this.effortInFlight.has(key)
+        const key = this.effortKey(ctx, item)
+        return !this.effortByKey.has(key) && !this.effortInFlight.has(key)
       })
       .slice(0, 30)
     if (requests.length === 0) return
-    const keys = requests.map((item) => `${this.contextKey(ctx)}::${item.number}::${item.headSha}`)
+    const keys = requests.map((item) => this.effortKey(ctx, item))
     for (const key of keys) this.effortInFlight.add(key)
     try {
       const results = await window.solus.prGetEfforts(snapshotCtx(ctx), requests.map(({ number, headSha }) => ({ number, headSha })))
       for (const result of results) {
-        const key = `${this.contextKey(ctx)}::${result.number}::${result.headSha}`
-        this.effortLoaded.add(key)
+        if (!result.effort || result.additions === undefined || result.deletions === undefined) continue
+        const key = this.effortKey(ctx, result)
+        this.effortByKey.set(key, {
+          effort: result.effort,
+          additions: result.additions,
+          deletions: result.deletions,
+        })
         const item = this.get(result.number)
         if (item?.headSha !== result.headSha) continue
-        if (result.effort) item.effort = result.effort
-        if (result.additions !== undefined) item.additions = result.additions
-        if (result.deletions !== undefined) item.deletions = result.deletions
+        this.applyStoredEffort(ctx, item)
       }
     } finally {
       for (const key of keys) this.effortInFlight.delete(key)
@@ -227,6 +259,46 @@ export class PrsStore {
     )
     this.seedOverview(ctx, number, overview)
     return overview
+  }
+
+  /**
+   * Warm every provider read the review surface makes, at the moment a PR is
+   * opened. The worktree fetch/checkout that gates the pane is far slower than
+   * these, so they land first and the Activity tab paints filled instead of
+   * starting its own requests once the worktree is ready. Rejections are
+   * swallowed: the surface re-requests through this same cache and owns the
+   * error banner.
+   */
+  prefetchReview(ctx: IpcContext, number: number): void {
+    void this.loadOverview(ctx, number).catch(() => {})
+    void this.loadComments(ctx, number).catch(() => {})
+    void this.loadChangedFiles(ctx, number).catch(() => {})
+    void this.loadThreads(ctx, number).catch(() => {})
+    void this.loadViewer(ctx).catch(() => {})
+  }
+
+  /**
+   * The Activity tab's data, for the parts of it already cached and fresh.
+   * Awaiting the loaders would flash every section's skeleton for a microtask
+   * even on a pure cache hit, so the view seeds its state from this first and
+   * only marks the misses as loading.
+   */
+  cachedActivity(ctx: IpcContext, number: number): {
+    detail?: PullRequestDetail
+    commits?: PrCommit[]
+    reviewers?: PrReviewer[]
+    comments?: PrConversationItem[]
+    changedFiles?: ChangedFileStat[]
+  } {
+    const key = this.prKey(ctx, number)
+    const overview = this.cached(this.overviewCache, key)
+    return {
+      detail: overview?.detail ?? this.cached(this.detailCache, key),
+      commits: overview?.commits ?? this.cached(this.commitsCache, key),
+      reviewers: overview?.reviewers ?? this.cached(this.reviewersCache, key),
+      comments: this.cached(this.commentsCache, key),
+      changedFiles: this.cached(this.changedFilesCache, key),
+    }
   }
 
   async loadDetail(ctx: IpcContext, number: number, opts: { force?: boolean } = {}): Promise<PullRequestDetail> {

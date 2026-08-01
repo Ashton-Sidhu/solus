@@ -5,7 +5,7 @@ import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
 import { appendFile, mkdir, open, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
-import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
+import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { transcribeAudio } from '../../transcription'
 import { readWav } from '../../transcription/wav'
@@ -13,7 +13,9 @@ import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
 import { launchInTerminal } from '../../terminal-launcher'
 import { getCliEnv } from '../../cli-env'
 import { createLogger } from '../../logger'
+import { solusDir } from '../../platform/paths'
 import { getFinder, refreshFinder } from '../file-finder'
+import { sortDirEntries } from './filesystem-handlers'
 import type { SolusServer } from '../server'
 import { filePathsToAttachments, mimeTypeForExtension } from '../attachment-utils'
 
@@ -43,7 +45,7 @@ export interface FileDeps {
 
 const PROJECT_FILES_MAX_ENTRIES = 25_000
 const IS_DEV_MODE = Boolean(process.env.ELECTRON_RENDERER_URL)
-const VOICE_TRANSCRIPTIONS_CSV = join(homedir(), '.solus', 'voice-transcriptions.csv')
+const VOICE_TRANSCRIPTIONS_CSV = join(solusDir(), 'voice-transcriptions.csv')
 const VOICE_TRANSCRIPTIONS_CSV_HEADER = [
   'session_index',
   'first_started_at',
@@ -108,13 +110,6 @@ function buildAgentTerminalCommand(agentId: AgentId, agentBin: string, sessionId
   return sessionId ? `${agentBin} --resume ${shellQuote(sessionId)}` : agentBin
 }
 
-function sortDirEntries(entries: { name: string; isDir: boolean }[]) {
-  return entries.slice().sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-  })
-}
-
 function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
   if (rawPath.startsWith('~/')) return join(homedir(), rawPath.slice(2))
   if (rawPath === '~') return homedir()
@@ -149,7 +144,7 @@ async function listIndexedProjectFiles(root: string): Promise<ProjectFilesResult
 
   const result = finder.mixedSearch('', { pageSize: PROJECT_FILES_MAX_ENTRIES + 2 })
   if (!result.ok) {
-    log.warn(`mixedSearch failed while listing project files in ${root}: ${result.error}`)
+    log.warn('project_files_mixed_search_failed', { root, error: result.error })
     return { ok: false, root, error: result.error }
   }
 
@@ -257,13 +252,6 @@ async function readTextFile(
 }
 
 export function registerFileHandlers(server: SolusServer, deps: FileDeps): void {
-  server.register('selectDirectory', async () => {
-    const win = deps.getActiveWindow()
-    if (!win) return null
-    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
-    return result.canceled ? null : result.filePaths[0]
-  })
-
   server.register('saveFileDialog', async (args) => {
     const [defaultName, content] = args as [string, string]
     const win = deps.getActiveWindow()
@@ -284,6 +272,23 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     } catch {
       return false
     }
+  })
+
+  // Reveals a folder in the desktop's own file manager — Finder on macOS,
+  // Explorer on Windows, the xdg default on Linux.
+  server.register('openInFileManager', async (args) => {
+    const [target] = args as [string]
+    try {
+      if (!target || !statSync(target).isDirectory()) return false
+    } catch {
+      return false
+    }
+    const failure = await shell.openPath(target)
+    if (failure) {
+      log.warn('open_in_file_manager_failed', { target, error: failure })
+      return false
+    }
+    return true
   })
 
   server.register('attachFiles', async () => {
@@ -470,7 +475,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       }
       await appendFile(VOICE_TRANSCRIPTIONS_CSV, `${prefix}${values}\n`, 'utf8')
     } catch (err) {
-      log.warn(`Failed to log voice transcription CSV: ${err}`)
+      log.warn('voice_transcription_csv_write_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   })
 
@@ -532,7 +537,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
     const result = finder.mixedSearch(search, { pageSize: MAX })
     if (!result.ok) {
-      log.warn(`mixedSearch failed for "${search}" in ${base}: ${result.error}`)
+      log.warn('search_files_mixed_search_failed', { search, base, error: result.error })
       return { files: [] }
     }
 
@@ -555,50 +560,6 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     files.sort((a, b) => Number(b.isDir) - Number(a.isDir))
 
     return { files }
-  })
-
-  server.register('listDirectory', async (args) => {
-    const [rawPath, showHidden] = args as [string, boolean | undefined]
-    let resolved: string
-    if (rawPath.startsWith('~/')) resolved = join(homedir(), rawPath.slice(2))
-    else if (rawPath === '~') resolved = homedir()
-    else resolved = pathResolve(rawPath)
-
-    try {
-      const dirents = await readdir(resolved, { withFileTypes: true })
-      const raw = await Promise.all(dirents.map(async (entry) => ({
-        name: entry.name,
-        isDir: entry.isDirectory() || (
-          entry.isSymbolicLink()
-          && await stat(join(resolved, entry.name)).then(target => target.isDirectory()).catch(() => false)
-        ),
-      })))
-      const filtered = showHidden ? raw : raw.filter(e => !e.name.startsWith('.'))
-      const sorted = sortDirEntries(filtered)
-      const parent = dirname(resolved)
-      return {
-        entries: sorted.map(e => ({ name: e.name, isDir: e.isDir, path: join(resolved, e.name) })),
-        parentPath: parent === resolved ? null : parent,
-        currentPath: resolved,
-        error: null,
-      } satisfies DirectoryListResult
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      const message = code === 'EACCES' || code === 'EPERM'
-        ? 'You don\u2019t have permission to open this folder.'
-        : code === 'ENOENT'
-          ? 'This folder no longer exists.'
-          : code === 'ENOTDIR'
-            ? 'This location is not a folder.'
-            : 'Couldn\u2019t open this folder.'
-      const parent = dirname(resolved)
-      return {
-        entries: [],
-        parentPath: parent === resolved ? null : parent,
-        currentPath: resolved,
-        error: message,
-      } satisfies DirectoryListResult
-    }
   })
 
   server.register('readProjectFile', async (args) => {
@@ -741,7 +702,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('detectEditors', () => {
-    log.info('RPC detectEditors')
+    log.info('rpc_detect_editors')
 
     const editors: DetectedEditor[] = []
     const probes: Array<{ id: EditorId; name: string; bin: string; isTerminal: boolean }> = [
@@ -764,7 +725,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       try { execFileSync('/usr/bin/which', ['ghostty'], { encoding: 'utf8', timeout: 2000 }); terminals.push({ id: 'ghostty', name: 'Ghostty' }) } catch {}
     }
 
-    log.info(`Detected editors: ${editors.map(e => e.id).join(', ')}; terminals: ${terminals.map(t => t.id).join(', ')}`)
+    log.info('editors_detected', { editors: editors.map(e => e.id), terminals: terminals.map(t => t.id) })
     return { editors, terminals }
   })
 
@@ -774,12 +735,12 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const editorId = ctx.settings.defaultEditor ?? request.editorId
     const terminalId = ctx.settings.defaultTerminal ?? request.terminalId
     const cwd = request.cwd || (filePaths.length > 0 ? dirname(filePaths[0]) : undefined)
-    log.info(`RPC openInEditor editor=${editorId} terminal=${terminalId} cwd=${cwd} files=${filePaths.join(', ')}`)
+    log.info('rpc_open_in_editor', { editorId, terminalId, cwd, filePaths })
 
     if (editorId === 'vscode') {
       return new Promise<boolean>((resolve) => {
         execFile('code', filePaths, (err: Error | null) => {
-          if (err) { log.error(`Failed to open VS Code: ${err.message}`); resolve(false) }
+          if (err) { log.error('open_vscode_failed', { error: err.message }); resolve(false) }
           else {
             if (process.platform === 'darwin') {
               execFile('/usr/bin/osascript', ['-e', 'tell application "Visual Studio Code" to activate'], () => {})
@@ -792,7 +753,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
     const binMap: Record<string, string> = { vim: 'vim', nvim: 'nvim', helix: 'hx' }
     const bin = binMap[editorId]
-    if (!bin) { log.warn(`Unknown editor: ${editorId}`); return false }
+    if (!bin) { log.warn('unknown_editor', { editorId }); return false }
 
     const escapedPaths = filePaths.map(p => `"${p.replace(/"/g, '\\"')}"`)
     const command = `${bin} ${escapedPaths.join(' ')}`

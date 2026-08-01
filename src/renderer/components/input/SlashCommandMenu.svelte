@@ -25,11 +25,13 @@
   const q = $derived(filter.toLowerCase());
   const pass = $derived((c: SlashCommand) => c.command.startsWith(q));
   const solusFiltered = $derived(commands.solus.filter(pass));
+  const codexFiltered = $derived(commands.codex.filter(pass));
   const ccFiltered = $derived(commands.claudeCode.filter(pass));
   const globalFiltered = $derived(commands.global.filter(pass));
   const projectFiltered = $derived(commands.project.filter(pass));
   const totalCount = $derived(
     solusFiltered.length +
+      codexFiltered.length +
       ccFiltered.length +
       globalFiltered.length +
       projectFiltered.length,
@@ -58,20 +60,28 @@
   >
     <div
       bind:this={listEl}
-      class="overflow-y-auto rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) py-0.5 [&::-webkit-scrollbar]:w-[0.1875rem] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-(--scroll-thumb) [&::-webkit-scrollbar-track]:bg-transparent"
+      class="slash-menu-list overflow-y-auto rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) py-0.5 [&::-webkit-scrollbar]:w-[0.1875rem] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-(--scroll-thumb) [&::-webkit-scrollbar-track]:bg-transparent"
       style="max-height:12.25rem;backdrop-filter:blur(1.25rem);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
     >
       {@render commandSection(null, solusFiltered, 0)}
-      {@render commandSection("Claude Code", ccFiltered, solusFiltered.length)}
+      {@render commandSection("Codex", codexFiltered, solusFiltered.length)}
+      {@render commandSection(
+        "Claude Code",
+        ccFiltered,
+        solusFiltered.length + codexFiltered.length,
+      )}
       {@render commandSection(
         "Global",
         globalFiltered,
-        solusFiltered.length + ccFiltered.length,
+        solusFiltered.length + codexFiltered.length + ccFiltered.length,
       )}
       {@render commandSection(
         "Project",
         projectFiltered,
-        solusFiltered.length + ccFiltered.length + globalFiltered.length,
+        solusFiltered.length +
+          codexFiltered.length +
+          ccFiltered.length +
+          globalFiltered.length,
       )}
     </div>
   </div>

@@ -1,5 +1,17 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 
+/** Annotation state → mark class. Each state has to stay legible with the
+ *  thread hidden, because that is what split view does to the comments rail:
+ *  amber is a human thread, sage a resolved one, dashed terracotta an edit
+ *  Solus made, red a conflict. The styles live in index.css. */
+const MARK_CLASS: Record<string, string> = {
+  saved: 'plan-comment-saved',
+  active: 'plan-comment-active',
+  resolved: 'plan-comment-resolved',
+  solus: 'plan-comment-solus',
+  conflict: 'plan-comment-conflict',
+}
+
 export const CommentMark = Mark.create({
   name: 'planComment',
 
@@ -29,7 +41,7 @@ export const CommentMark = Mark.create({
       mergeAttributes({
         'data-plan-comment': HTMLAttributes.commentId,
         'data-comment-type': HTMLAttributes.type,
-        class: HTMLAttributes.type === 'active' ? 'plan-comment-active' : 'plan-comment-saved',
+        class: MARK_CLASS[HTMLAttributes.type] ?? MARK_CLASS.saved,
       }),
       0,
     ]

@@ -23,6 +23,17 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
+export class CodexRpcError extends Error {
+  constructor(
+    message: string,
+    readonly code: number,
+    readonly data?: unknown,
+  ) {
+    super(message)
+    this.name = 'CodexRpcError'
+  }
+}
+
 export class CodexAppServerClient extends EventEmitter {
   private proc: ChildProcessWithoutNullStreams | null = null
   private buffer = ''
@@ -96,15 +107,15 @@ export class CodexAppServerClient extends EventEmitter {
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (chunk) => {
       const text = String(chunk).trim()
-      if (text) log.warn(text)
+      if (text) log.warn('app_server_stderr', { text })
     })
     proc.on('error', (err) => {
-      log.error(`Failed to start Codex app-server: ${err.message}`)
+      log.error('app_server_start_failed', { error: err.message })
       this.rejectAll(err)
       this.emit('error', err)
     })
     proc.on('exit', (code, signal) => {
-      log.warn(`Codex app-server exited code=${code} signal=${signal}`)
+      log.warn('app_server_exited', { code, signal })
       this.proc = null
       const err = new Error(`Codex app-server exited code=${code} signal=${signal}`)
       this.rejectAll(err)
@@ -133,7 +144,7 @@ export class CodexAppServerClient extends EventEmitter {
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       }, 15_000)
     } catch (err) {
-      log.warn(`Codex app-server initialize failed: ${(err as Error).message}`)
+      log.warn('app_server_initialize_failed', { error: (err as Error).message })
     }
 
     // Point Codex at the app-bundled skills via the live API rather than config,
@@ -143,7 +154,7 @@ export class CodexAppServerClient extends EventEmitter {
         extraRoots: [join(SOLUS_PLUGINS_DIR, 'skills')],
       }, 15_000)
     } catch (err) {
-      log.warn(`Codex skills/extraRoots/set failed: ${(err as Error).message}`)
+      log.warn('skills_extra_roots_set_failed', { error: (err as Error).message })
     }
   }
 
@@ -158,7 +169,7 @@ export class CodexAppServerClient extends EventEmitter {
       try {
         this.onMessage(JSON.parse(line) as JsonRpcMessage)
       } catch {
-        log.warn(`Ignoring non-JSON app-server stdout: ${line.slice(0, 300)}`)
+        log.warn('non_json_stdout_ignored', { line })
       }
     }
   }
@@ -183,7 +194,11 @@ export class CodexAppServerClient extends EventEmitter {
     this.pending.delete(response.id)
     clearTimeout(pending.timer)
     if (response.error) {
-      pending.reject(new Error(response.error.message))
+      pending.reject(new CodexRpcError(
+        response.error.message,
+        response.error.code,
+        response.error.data,
+      ))
     } else {
       pending.resolve(response.result)
     }
@@ -203,16 +218,4 @@ let sharedClient: CodexAppServerClient | null = null
 export function getCodexAppServerClient(): CodexAppServerClient {
   if (!sharedClient) sharedClient = new CodexAppServerClient()
   return sharedClient
-}
-
-// ─── Headless thread registry ───
-// Thread ids of in-flight headless one-shot runs (see codex-oneshot) that own
-// their own dynamic-tool dispatch on the shared client. The interactive
-// CodexBackend skips server-requests for these threads so the two listeners on
-// the shared client never both respond to the same request.
-const headlessThreadIds = new Set<string>()
-export function registerHeadlessThread(id: string): void { headlessThreadIds.add(id) }
-export function unregisterHeadlessThread(id: string): void { headlessThreadIds.delete(id) }
-export function isHeadlessCodexThread(id: unknown): boolean {
-  return typeof id === 'string' && headlessThreadIds.has(id)
 }

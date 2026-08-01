@@ -40,7 +40,8 @@ export default defineConfig(({ mode }) => {
   const oauthDefines = {
     'process.env.SOLUS_GOOGLE_CLIENT_ID': JSON.stringify(env.SOLUS_GOOGLE_CLIENT_ID ?? ''),
     'process.env.SOLUS_GOOGLE_CLIENT_SECRET': JSON.stringify(env.SOLUS_GOOGLE_CLIENT_SECRET ?? ''),
-    'process.env.SOLUS_GITHUB_CLIENT_ID': JSON.stringify(env.SOLUS_GITHUB_CLIENT_ID ?? '')
+    'process.env.SOLUS_GITHUB_CLIENT_ID': JSON.stringify(env.SOLUS_GITHUB_CLIENT_ID ?? ''),
+    'process.env.SOLUS_POSTHOG_KEY': JSON.stringify(env.VITE_POSTHOG_KEY ?? '')
   }
 
   return {
@@ -100,7 +101,11 @@ export default defineConfig(({ mode }) => {
         '@client-core': resolve(__dirname, 'src/client-core'),
         '@renderer': resolve(__dirname, 'src/renderer'),
         '@geist-fonts': geistFontsDir
-      }
+      },
+      // prosemirror-tables can resolve its own prosemirror-view copy. Its
+      // DecorationSet then fails the editor view's instanceof check when a
+      // resizable table is hovered, corrupting DecorationGroup.
+      dedupe: ['prosemirror-view']
     },
     server: {
       watch: {

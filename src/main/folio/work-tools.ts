@@ -1,34 +1,19 @@
 import { z } from 'zod'
-import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
-import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
 import { searchWorks } from './work-search'
 import { loadWorkAnnotations } from './work-annotations'
+import { formatOpenThreads } from '../annotations/comment-tools'
 import { workPreview } from '../../shared/work-preview'
 import { parseDiagram, serializeDiagram } from '../../shared/diagram-types'
 import { reapplyLayout } from '../../shared/diagram-layout'
 import type { AgentId } from '../../shared/types'
 import { createLogger } from '../logger'
-import { artifactTool, type ArtifactToolDeps } from './artifact-tools'
-import { automationSdkTools, type OnAutomationSaved } from '../automations/automation-tools'
-import { sessionSdkTools, type OnSessionCreated, type OnSessionPrompted, type OnSessionStopped } from '../sessions/session-tools'
-import { taskSdkTools, type OnTaskCreated } from '../tasks/task-tools'
-import { prSdkTools } from '../providers/pr-tools'
+import type { AgentTool } from '../agents/tools/agent-tool'
 
 const log = createLogger('folio', 'work-tools.ts')
 
-/**
- * Single source of truth for the agent-facing work tools (list/search/read/create/update).
- * Exports three shapes from the same zod schemas:
- *   1. `createSolusMcpServer` — an in-process SDK MCP server for Claude. It hosts
- *      the work tools plus the `render_artifact` tool (see artifact-tools.ts), so
- *      Claude registers a single general-purpose "solus" MCP server.
- *   2. `WORK_TOOL_JSON_SCHEMAS` — JSON-schema descriptors for Codex dynamicTools.
- *   3. `executeWorkTool` — a plain executor for the Codex handler + mock backend.
- *
- * `create_work`/`update_work` return error TEXT (never throw) for invalid input
- * so a bad call degrades to a message the agent can recover from.
- */
+/** Provider-neutral work tools. Invalid input returns error text so the agent
+ * can recover from a bad call without terminating its run. */
 
 export interface WorkUpdatedPayload {
   workId: string
@@ -99,7 +84,7 @@ const DIAGRAM_GUIDANCE = [
 ].join('\n')
 
 const LIST_DESC =
-  'List the works (documents and architecture diagrams) the user has open in Solus, with their id, title, type and last-updated time. Call this first to discover a work_id before reading or updating.'
+  'List the works (documents, slide decks, architecture diagrams) the user has open in Solus, with their id, title, type and last-updated time. Call this first to discover a work_id before reading or updating.'
 const SEARCH_DESC =
   "Full-text search over the user's works (documents, slide decks, diagrams) by title AND content. Reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — instead of guessing from list_works titles, which carry no content. Put the topic in `query`. Each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
 const READ_DESC =
@@ -112,8 +97,7 @@ const CREATE_DESC = [
 ].join('\n')
 const UPDATE_DESC = [
   'Replace the content (and optionally the title) of an existing work by id. Use this to revise a document or diagram the user is looking at — never create a new work to revise one that already exists.',
-  '',
-  DIAGRAM_GUIDANCE,
+  'The `content` arg takes the same payload shapes as create_work; see its description for the diagram contract.',
 ].join('\n')
 
 // ─── Executor (shared by Codex handler + mock backend) ───
@@ -160,22 +144,13 @@ export async function executeWorkTool(
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const work = await loadWork(workId, deps.ctx?.cwd)
       if (!work) return { ok: false, text: `No work found with id "${workId}".` }
-      // Surface the user's comments alongside the content so the agent sees
-      // feedback without the user having to paste it into chat. Diagram
-      // comments carry the anchored node id; use it to target the revision.
+      // Surface the open threads alongside the content so the agent sees
+      // feedback without the user having to paste it into chat. Rendered by the
+      // same formatter as read_plan, so both read identically.
       const annotations = await loadWorkAnnotations(workId)
-      let commentsBlock = ''
-      if (annotations?.comments?.length) {
-        const lines = annotations.comments.map((c) =>
-          c.nodeId
-            ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
-            : `- On "${c.selectedText}": ${c.comment}`,
-        )
-        commentsBlock = `\n\nUser comments on this work (${lines.length}) — address them when revising:\n${lines.join('\n')}`
-      }
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${commentsBlock}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}`,
       }
     }
 
@@ -259,127 +234,57 @@ export async function executeWorkTool(
 
     return { ok: false, text: `Unknown work tool: ${name}` }
   } catch (err: any) {
-    log.error(`executeWorkTool(${name}) failed: ${String(err)}`)
+    log.error('work_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Work tool error: ${String(err?.message ?? err)}` }
   }
 }
 
-// ─── Shape 1: Claude SDK MCP server ───
-
-function toToolResult(r: WorkToolResult) {
+function workAgentTool(
+  name: string,
+  description: string,
+  inputShape: z.ZodRawShape,
+  requiresApproval: boolean,
+): AgentTool {
   return {
-    content: [{ type: 'text' as const, text: r.text }],
-    ...(r.ok ? {} : { isError: true as const }),
+    name,
+    description,
+    inputShape,
+    requiresApproval,
+    execute: async (args, context) => executeWorkTool(name, args, {
+      ctx: {
+        sessionId: context.sessionId(),
+        agentProvider: context.provider,
+        cwd: context.cwd,
+      },
+      onWorkCreated: (work) => context.emit({
+        type: 'work_created',
+        workId: work.workId,
+        title: work.title,
+        docType: work.docType,
+        content: work.content,
+      }),
+      onWorkUpdated: (work) => context.emit({
+        type: 'work_updated',
+        workId: work.workId,
+        title: work.title,
+        docType: work.docType,
+        content: work.content,
+        updatedAt: work.updatedAt,
+      }),
+    }),
   }
 }
 
-export interface SolusMcpDeps {
-  /** Fires when the agent updates a work. Optional: headless runs (automations)
-   *  have no conversation to stream into, and works persist regardless. */
-  onWorkUpdated?: OnWorkUpdated
-  onWorkCreated?: OnWorkCreated
-  /** Fires when the agent calls render_artifact (see artifact-tools.ts). */
-  onArtifact?: ArtifactToolDeps['onArtifact']
-  /** Fires when the agent creates or updates an automation, so the thread can
-   *  render an automation card. */
-  onAutomationSaved?: OnAutomationSaved
-  /** Fires when the agent spawns a new session via create_session, so the thread
-   *  can render a card that opens it in a tab. */
-  onSessionCreated?: OnSessionCreated
-  onSessionPrompted?: OnSessionPrompted
-  onSessionStopped?: OnSessionStopped
-  /** Fires when the agent creates a task, so the thread can render a task card. */
-  onTaskCreated?: OnTaskCreated
-  /** Origin context for create_work. `sessionId` is resolved lazily because a
-   *  fresh session has no id until session_init, which lands before any tool runs. */
-  createCtx: { agentProvider: AgentId; cwd: string; sessionId: () => string | undefined }
-  /** When false, the automation CRUD/run tools are omitted so a headless
-   *  automation run can't create or trigger more automations (the fork-bomb
-   *  guard). Defaults to true (interactive sessions get the full suite). */
-  includeAutomationTools?: boolean
-  /** The codex_subagent tool, built by the caller (the interactive Claude backend
-   *  needs the run's cwd + abort signal). Built by the caller — not imported here —
-   *  to avoid the cycle work-tools → codex-oneshot → codex-solus-tools → work-tools.
-   *  Headless runs never pass it, so a subagent can't spawn subagents (fork-bomb guard). */
-  codexSubagentTool?: SdkMcpToolDefinition<any>
-}
+export const listWorksAgentTool = workAgentTool('list_works', LIST_DESC, listWorksShape, false)
+export const searchWorksAgentTool = workAgentTool('search_works', SEARCH_DESC, searchWorksShape, false)
+export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkShape, false)
+export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, createWorkShape, false)
+export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkShape, true)
 
-export function createSolusMcpServer(deps: SolusMcpDeps) {
-  const createDeps = (): WorkToolDeps => ({
-    onWorkUpdated: deps.onWorkUpdated,
-    onWorkCreated: deps.onWorkCreated,
-    ctx: {
-      sessionId: deps.createCtx.sessionId(),
-      agentProvider: deps.createCtx.agentProvider,
-      cwd: deps.createCtx.cwd,
-    },
-  })
-  return createSdkMcpServer({
-    name: 'solus',
-    version: '1.0.0',
-    tools: [
-      tool('list_works', LIST_DESC, listWorksShape, async () =>
-        toToolResult(await executeWorkTool('list_works', {}, createDeps())),
-      ),
-      tool('search_works', SEARCH_DESC, searchWorksShape, async (args) =>
-        toToolResult(await executeWorkTool('search_works', (args ?? {}) as Record<string, unknown>, createDeps())),
-      ),
-      tool('read_work', READ_DESC, readWorkShape, async (args) =>
-        toToolResult(await executeWorkTool('read_work', args as Record<string, unknown>, createDeps())),
-      ),
-      tool('create_work', CREATE_DESC, createWorkShape, async (args) =>
-        toToolResult(await executeWorkTool('create_work', args as Record<string, unknown>, createDeps())),
-      ),
-      tool('update_work', UPDATE_DESC, updateWorkShape, async (args) =>
-        toToolResult(await executeWorkTool('update_work', args as Record<string, unknown>, createDeps())),
-      ),
-      artifactTool({ onArtifact: deps.onArtifact }),
-      // Automation tools are omitted for headless runs (fork-bomb guard) — an
-      // automation must not be able to create or trigger more automations.
-      ...(deps.includeAutomationTools === false
-        ? []
-        : automationSdkTools({
-            agentProvider: deps.createCtx.agentProvider,
-            cwd: deps.createCtx.cwd,
-            sessionId: deps.createCtx.sessionId,
-            onAutomationSaved: deps.onAutomationSaved,
-          })),
-      ...sessionSdkTools({
-        agentProvider: deps.createCtx.agentProvider,
-        cwd: deps.createCtx.cwd,
-        sessionId: deps.createCtx.sessionId,
-        onSessionCreated: deps.onSessionCreated,
-        onSessionPrompted: deps.onSessionPrompted,
-        onSessionStopped: deps.onSessionStopped,
-      }),
-      ...taskSdkTools({
-        cwd: deps.createCtx.cwd,
-        sessionId: deps.createCtx.sessionId,
-        onTaskCreated: deps.onTaskCreated,
-      }),
-      ...prSdkTools({ cwd: deps.createCtx.cwd }),
-      ...(deps.codexSubagentTool ? [deps.codexSubagentTool] : []),
-    ],
-  })
-}
-
-// ─── Shape 2: Codex dynamicTools JSON-schema descriptors ───
-
-export interface WorkToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export const WORK_TOOL_JSON_SCHEMAS: WorkToolDescriptor[] = [
-  { name: 'list_works', description: LIST_DESC, inputSchema: z.toJSONSchema(z.object(listWorksShape)) as Record<string, unknown> },
-  { name: 'search_works', description: SEARCH_DESC, inputSchema: z.toJSONSchema(z.object(searchWorksShape)) as Record<string, unknown> },
-  { name: 'read_work', description: READ_DESC, inputSchema: z.toJSONSchema(z.object(readWorkShape)) as Record<string, unknown> },
-  { name: 'create_work', description: CREATE_DESC, inputSchema: z.toJSONSchema(z.object(createWorkShape)) as Record<string, unknown> },
-  { name: 'update_work', description: UPDATE_DESC, inputSchema: z.toJSONSchema(z.object(updateWorkShape)) as Record<string, unknown> },
+export const workAgentTools: AgentTool[] = [
+  listWorksAgentTool,
+  searchWorksAgentTool,
+  readWorkAgentTool,
+  createWorkAgentTool,
+  updateWorkAgentTool,
 ]
-
-/** Tool names that mutate an existing work — these route through permissions on
- *  Codex. `create_work` is intentionally excluded (creation never prompts). */
-export const WORK_MUTATING_TOOLS = new Set(['update_work'])
-export const WORK_TOOL_NAMES = new Set(['list_works', 'search_works', 'read_work', 'create_work', 'update_work'])

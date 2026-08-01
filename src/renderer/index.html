@@ -42,20 +42,26 @@
         with the connecting card. Background lives on the shell (not html/body) so
         the transparent pill window keeps its transparency.
       */
+      /*
+        Background and mark geometry are the handoff contract with boot-scene.ts:
+        it re-renders this exact field, at this exact size and centre, so the
+        splash gains detail instead of repainting. --solus-edge-bg literals,
+        because index.css has not loaded yet.
+      */
       #solus-boot-shell {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
-        background: #18181b;
+        background: #1c1b18;
         z-index: 2147483647;
       }
       html.light #solus-boot-shell {
-        background: #fafafa;
+        background: #fbfaf6;
       }
       #solus-boot-shell svg {
-        width: 4.5rem;
-        height: 4.5rem;
+        width: 5.25rem;
+        height: 5.25rem;
         animation: solus-boot-breathe 1.8s ease-in-out infinite;
       }
       @keyframes solus-boot-breathe {
@@ -81,8 +87,8 @@
     <div id="root">
       <div id="solus-boot-shell">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true">
-          <circle cx="512" cy="512" r="180" fill="#D4AF6A" />
-          <g fill="none" stroke="#D4AF6A" stroke-width="60" stroke-linecap="round">
+          <circle cx="512" cy="512" r="180" fill="#B45A3C" />
+          <g fill="none" stroke="#D97757" stroke-width="60" stroke-linecap="round">
             <path d="M512,212 A300,300 0 0 1 812,512" />
             <path d="M764,716 A300,300 0 0 1 416,800" />
             <path d="M260,716 A300,300 0 0 1 212,416" />

@@ -1,17 +1,23 @@
 <script lang="ts">
   import type { Component, Snippet } from "svelte";
   import { SidebarSimpleIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { getWindowContext } from "../../contexts";
   import * as Sidebar from "../ui/sidebar";
 
   interface Props {
-    title: string;
+    /** Omit to leave the header as a bare action row. */
+    title?: string;
     side?: "left" | "right";
     open?: boolean;
     width?: number;
     /** Fill a parent-owned resizable pane instead of owning pixel geometry. */
     managedWidth?: boolean;
+    /** Dissolve the panel's own surface: no gutter, no radius, no seam, so the
+     *  neighbouring view reads as running under it. The panel's content
+     *  supplies whatever shape it needs (the project rail floats cards on it). */
+    flush?: boolean;
+    isElevated?: boolean;
     minWidth?: number;
     maxWidth?: number;
     onAction?: () => void;
@@ -19,7 +25,6 @@
     actionTooltip?: string;
     actionAriaLabel?: string;
     background?: string;
-    headerTopPadding?: "default" | "compact";
     headerActions?: Snippet;
     children: Snippet;
   }
@@ -30,6 +35,8 @@
     open = true,
     width,
     managedWidth = false,
+    flush = false,
+    isElevated = true,
     minWidth = 160,
     maxWidth = 400,
     onAction,
@@ -37,7 +44,6 @@
     actionTooltip,
     actionAriaLabel,
     background,
-    headerTopPadding = "default",
     headerActions,
     children,
   }: Props = $props();
@@ -46,6 +52,9 @@
     side === "right" ? "--solus-sidebar-bg-right" : "--solus-sidebar-bg-left",
   );
   const panelBg = $derived(background ?? `var(${panelColorVar})`);
+  // Horizontal space the shell's gutter steals from the root — flush panels
+  // have none, so the root spans the pane edge to edge.
+  const gutter = $derived(flush ? 0 : 8);
   const windowCtx = getWindowContext();
 </script>
 
@@ -53,51 +62,72 @@
   class="side-panel-shell"
   class:side-panel-closed={!open}
   class:side-panel-managed={managedWidth}
+  class:side-panel-flush={flush}
   style:--panel-min-width="{minWidth}px"
   style:--panel-max-width="{maxWidth}px"
   style:--panel-root-width={managedWidth
-    ? "calc(100% - 8px)"
+    ? `calc(100% - ${gutter}px)`
     : width
-      ? `${width - 8}px`
+      ? `${width - gutter}px`
       : undefined}
   style:width={managedWidth ? "100%" : open && width ? `${width}px` : undefined}
   aria-hidden={!open}
 >
   <div
-    class="side-panel-root no-drag flex h-full flex-col overflow-hidden rounded-2xl border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] bg-(--side-panel-bg,var(--solus-sidebar-bg)) shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none [contain:layout_paint]"
+    class="side-panel-root no-drag flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
+      ? ''
+      : 'rounded-2xl'} {flush
+      ? ''
+      : isElevated
+        ? 'border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none'
+        : 'border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none'}"
     style:--side-panel-bg={panelBg}
   >
     <Sidebar.Provider {open}>
       <Sidebar.Root {side} collapsible="none" class="bg-transparent">
-        <Sidebar.Header
-          class="side-panel-header flex-row items-center justify-between gap-2 px-4 pt-3 pb-2 {windowCtx.isMac &&
+        <!-- Skipped entirely when the panel has no chrome of its own — the
+             flush project rail hands its controls to the shared chrome row. -->
+        {#if title || headerActions || onAction}
+          <Sidebar.Header
+          class="side-panel-header flex-row items-center gap-2 {title
+            ? 'justify-between'
+            : 'justify-end'} {flush
+            ? 'border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2 py-0'
+            : 'px-4 pt-3 pb-2'} {windowCtx.isMac &&
           windowCtx.viewMode === 'editor' &&
           side === 'left'
             ? 'side-panel-header--mac-left'
-            : ''} {headerTopPadding === 'compact'
-            ? 'side-panel-header--compact-top'
             : ''}"
         >
-          <span
-            class="side-panel-title text-[0.625rem] font-semibold tracking-[0.09em] text-(--solus-text-tertiary) uppercase"
-            >{title}</span
-          >
+          {#if title}
+            <span
+              class="side-panel-title text-[0.625rem] font-semibold tracking-[0.09em] text-(--solus-text-tertiary) uppercase"
+              >{title}</span
+            >
+          {/if}
           <div class="side-panel-actions inline-flex items-center gap-1">
             {#if headerActions}
               {@render headerActions()}
             {/if}
             {#if onAction}
-              <button
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <button {...tooltipProps}
                 class="flex size-[1.625rem] cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-[color,background-color,transform] duration-150 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] active:bg-[color-mix(in_srgb,var(--solus-accent)_12%,transparent)]"
-                use:tooltip={actionTooltip}
                 onclick={onAction}
                 aria-label={actionAriaLabel}
               >
                 <ActionIcon size={13} />
               </button>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={actionTooltip} />
+              </TooltipUI.Root>
             {/if}
           </div>
-        </Sidebar.Header>
+          </Sidebar.Header>
+        {/if}
         <Sidebar.Content class="overflow-hidden">
           {@render children()}
         </Sidebar.Content>
@@ -123,6 +153,10 @@
       padding 240ms cubic-bezier(0.2, 0, 0, 1),
       opacity 180ms cubic-bezier(0.2, 0, 0, 1),
       visibility 0s;
+  }
+
+  .side-panel-shell.side-panel-flush {
+    padding: 0;
   }
 
   .side-panel-shell.side-panel-managed {
@@ -186,7 +220,4 @@
     grid-row: 1;
   }
 
-  :global(.side-panel-header--compact-top) {
-    padding-top: 0.375rem;
-  }
 </style>

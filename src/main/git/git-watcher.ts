@@ -145,7 +145,7 @@ export class GitWatcher {
         // still cover HEAD/index, and the retry repairs transient directory loss.
       }
     }
-    log.info(`Watching git checkout ${checkoutCwd} (${entry.watchers.length} targets)`)
+    log.info('git_checkout_watching', { checkoutCwd, targets: entry.watchers.length })
   }
 
   private _retryAttach(checkoutCwd: string, entry: WatchEntry): void {

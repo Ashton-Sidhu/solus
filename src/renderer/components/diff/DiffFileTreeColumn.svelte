@@ -1,6 +1,6 @@
 <script lang="ts">
   import { CaretLeftIcon } from "phosphor-svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
 
   interface Props {
     mountFileTree: (node: HTMLDivElement) => { destroy: () => void };
@@ -13,12 +13,14 @@
 <div
   class="diff-tree-column relative flex h-full w-full flex-col border-r border-(--solus-container-border)"
 >
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     type="button"
     onclick={onToggleTree}
     aria-label="Hide file tree"
     class="tree-collapse-btn absolute top-[0.875rem] left-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
-    use:tooltip={"Hide file tree (⌥T)"}
   >
     <span
       class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
@@ -26,6 +28,10 @@
     ></span>
     <CaretLeftIcon size={12} weight="bold" />
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Hide file tree (⌥T)"} />
+  </TooltipUI.Root>
   <div
     use:mountFileTree
     class="diff-tree flex-1 min-h-0 overflow-auto"

@@ -1,46 +1,53 @@
 <script lang="ts">
+  import { WarningCircleIcon } from "phosphor-svelte";
+  import { prettyToolName } from "../../contexts/workspace/session.utils";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import ActivityRow from "./ActivityRow.svelte";
+  import { KIND_ICONS } from "./lib/activity-icons";
   import {
-    FileTextIcon,
-    PencilSimpleIcon,
-    FileArrowUpIcon,
-    TerminalIcon,
-    MagnifyingGlassIcon,
-    GlobeIcon,
-    RobotIcon,
-    QuestionIcon,
-    WrenchIcon,
-    FolderOpenIcon,
-    CaretRightIcon,
-    CaretDownIcon,
-  } from "phosphor-svelte";
-  import type { Component } from "svelte";
-  import { runtime } from "../../contexts";
-  import { prettyToolName, solusToolKey } from "../../contexts/workspace/session.utils";
-  import type { Message } from "../../../shared/types";
+    activityDurationMs,
+    activityKind,
+    activityKinds,
+    activitySummary,
+    formatActivityDuration,
+    getToolDescription,
+    getToolDescriptionFromParsed,
+    liveActivityLabel,
+    participleFor,
+  } from "./lib/activity-summary";
+  import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
+  import type { Message, TurnStartKind } from "../../../shared/types";
 
   interface Props {
     tools: Message[];
     skipMotion?: boolean;
+    /** This group is the tail of a turn the session is still working on, so the
+     *  run is happening right here — even between two tool calls. */
+    working?: boolean;
+    /** Session lifecycle label shown between tool calls while this row owns the spinner. */
+    activityLabel?: string;
+    turnStart?: TurnStartKind | null;
+    /** Agents this turn has asked and not yet heard back from. A parent that is
+     *  blocked on another agent is not planning anything — it is waiting, and
+     *  the row should say whose reply it is waiting for. */
+    waitingOn?: string[];
   }
-  let { tools, skipMotion = false }: Props = $props();
+  let {
+    tools,
+    skipMotion = false,
+    working = false,
+    activityLabel,
+    turnStart = null,
+    waitingOn = [],
+  }: Props = $props();
 
   let expanded = $state(false);
+  let expandedToolId = $state<string | null>(null);
 
-  const TOOL_ICONS: Record<string, Component> = {
-    Read: FileTextIcon,
-    Edit: PencilSimpleIcon,
-    Write: FileArrowUpIcon,
-    Bash: TerminalIcon,
-    Glob: FolderOpenIcon,
-    Grep: MagnifyingGlassIcon,
-    WebSearch: GlobeIcon,
-    WebFetch: GlobeIcon,
-    Agent: RobotIcon,
-    AskUserQuestion: QuestionIcon,
-  };
-
-  const hasRunning = $derived(tools.some((t) => t.toolStatus === "running"));
-  const isOpen = $derived(expanded || hasRunning);
+  const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
+  const failedTool = $derived(
+    tools.find((t) => t.toolStatus === "error" || t.toolResultIsError),
+  );
 
   const parseCache = new WeakMap<Message, Record<string, unknown> | null>();
 
@@ -61,233 +68,223 @@
     }),
   );
 
-  const CHANGE_PATH_KEYS = [
-    "file_path",
-    "filePath",
-    "path",
-    "file",
-    "fileName",
-    "filename",
-    "old_path",
-    "new_path",
-    "oldPath",
-    "newPath",
-  ];
+  const kinds = $derived(activityKinds(tools));
+  const summary = $derived(activitySummary(tools));
+  const durationMs = $derived(activityDurationMs(tools));
+  const duration = $derived(durationMs === null ? "" : formatActivityDuration(durationMs));
 
-  function addToolPath(paths: Set<string>, value: unknown): void {
-    if (typeof value !== "string") return;
-    let path = value.trim();
-    if (!path || path === "/dev/null") return;
-    if (
-      (path.startsWith('"') && path.endsWith('"')) ||
-      (path.startsWith("'") && path.endsWith("'"))
-    ) {
-      path = path.slice(1, -1);
-    }
-    paths.add(path);
+  // While running, the sentence names what is happening now, not the whole group.
+  const runningLabel = $derived(
+    runningTool ? participleFor(runningTool.toolName) : "",
+  );
+  // Running and failed both name the tool they are talking about; a finished
+  // group names none, because the summary already counts them.
+  const namedTool = $derived(runningTool ?? failedTool);
+  const namedTarget = $derived.by(() => {
+    if (!namedTool) return "";
+    const raw = getToolDescription(namedTool.toolName || "Tool", namedTool.toolInput);
+    // The participle already carries the verb, so drop the description's own.
+    return raw.replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "").trim();
+  });
+  const doneCount = $derived(tools.filter((t) => t.toolStatus !== "running").length);
+
+  const failureLine = $derived.by(() => {
+    if (!failedTool) return "";
+    const text = (failedTool.toolResult || failedTool.content || "").trim();
+    const first = text.split("\n").map((line) => line.trim()).find(Boolean);
+    return first ? (first.length > 240 ? `${first.slice(0, 237)}…` : first) : "";
+  });
+
+  function describe(tool: Message, parsed: Record<string, unknown> | null): string {
+    const toolName = tool.toolName || "Tool";
+    if (tool.toolStatus === "running") return prettyToolName(toolName);
+    return parsed
+      ? getToolDescriptionFromParsed(toolName, parsed, { truncate: false })
+      : getToolDescription(toolName, tool.toolInput, { truncate: false });
   }
 
-  function toolPathsFromParsed(parsed: Record<string, unknown>): string[] {
-    const paths = new Set<string>();
-    for (const key of CHANGE_PATH_KEYS) addToolPath(paths, parsed[key]);
-
-    const changes = parsed.changes;
-    if (Array.isArray(changes)) {
-      for (const change of changes) {
-        if (!change || typeof change !== "object") continue;
-        const record = change as Record<string, unknown>;
-        for (const key of CHANGE_PATH_KEYS) addToolPath(paths, record[key]);
-      }
-    }
-
-    return [...paths];
+  function toggleExpanded(): void {
+    expanded = !expanded;
+    requestInputFocus();
   }
 
-  function describeFilePaths(action: string, paths: string[]): string {
-    if (paths.length === 0) return `${action} file`;
-    if (paths.length === 1) return `${action} ${paths[0]}`;
-    return `${action} ${paths[0]} and ${paths.length - 1} more file${paths.length > 2 ? "s" : ""}`;
-  }
-
-  function getToolDescriptionFromParsed(
-    name: string,
-    parsed: Record<string, unknown>,
-    options: { truncate?: boolean } = {},
-  ): string {
-    const truncate = options.truncate ?? true;
-    const s = (v: unknown) => (typeof v === "string" ? v : "");
-    // Solus tools show just their friendly label — no args.
-    if (solusToolKey(name)) return prettyToolName(name);
-    switch (name) {
-      case "Read":
-        return `Read ${s(parsed.file_path) || s(parsed.path) || "file"}`;
-      case "Edit":
-        return describeFilePaths("Edit", toolPathsFromParsed(parsed));
-      case "Write":
-        return describeFilePaths("Write", toolPathsFromParsed(parsed));
-      case "Glob":
-        return `Search files: ${s(parsed.pattern)}`;
-      case "Grep":
-        return `Search: ${s(parsed.pattern)}`;
-      case "Bash": {
-        const cmd = s(parsed.command);
-        return truncate && cmd.length > 60
-          ? `${cmd.substring(0, 57)}...`
-          : cmd || "Bash";
-      }
-      case "WebSearch":
-        return `Search: ${s(parsed.query) || s(parsed.search_query)}`;
-      case "WebFetch":
-        return `Fetch: ${s(parsed.url)}`;
-      case "Agent":
-        return `Agent: ${truncate ? (s(parsed.prompt) || s(parsed.description)).substring(0, 100) : s(parsed.prompt) || s(parsed.description)}`;
-      case "Skill":
-        return s(parsed.skill) ? `Skill: ${s(parsed.skill)}` : "Skill";
-      default:
-        return name;
-    }
-  }
-
-  function getToolDescription(
-    name: string,
-    input?: string,
-    options: { truncate?: boolean } = {},
-  ): string {
-    const pretty = prettyToolName(name);
-    const truncate = options.truncate ?? true;
-    // Solus tools show just their friendly label — never their args.
-    if (solusToolKey(name)) return pretty;
-    if (!input) return pretty;
-    try {
-      const parsed = JSON.parse(input);
-      return getToolDescriptionFromParsed(name, parsed, { truncate });
-    } catch {
-      const trimmed = input.trim();
-      if (truncate && trimmed.length > 60)
-        return `${pretty}: ${trimmed.substring(0, 57)}...`;
-      return trimmed ? `${pretty}: ${trimmed}` : pretty;
-    }
-  }
-
-  function toolSummary(): string {
-    if (tools.length === 0) return "";
-    const first = tools[0];
-    const desc = getToolDescription(first.toolName || "Tool", first.toolInput);
-    if (tools.length === 1) return desc;
-    return `${desc} and ${tools.length - 1} more tool${tools.length > 2 ? "s" : ""}`;
+  function toggleToolExpanded(toolId: string): void {
+    expandedToolId = expandedToolId === toolId ? null : toolId;
   }
 </script>
 
-{#if isOpen}
-  <div class="py-1 {skipMotion ? '' : 'animate-msg-in-side'}">
-    {#if !hasRunning}
-      <div
-        class="flex items-center gap-1 cursor-pointer mb-1.5 border-t border-(--solus-message-divider) rounded-md transition-colors hover:text-(--solus-text-secondary) active:bg-(--solus-surface-hover) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport
-          ? 'py-1'
-          : ''}"
-        onclick={() => (expanded = false)}
-        style="padding-top:0.375rem"
-        role="button"
-        tabindex="0"
-        onkeydown={(e) => {
-          if (e.key === "Enter") expanded = false;
-        }}
-      >
-        <CaretDownIcon size={10} class="text-(--solus-text-tertiary)" />
-        <span class="text-[0.6875rem] text-(--solus-text-tertiary)">
-          Used {tools.length} tool{tools.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-    {/if}
+{#snippet targetText()}{namedTarget}{/snippet}
 
-    <div class="relative pl-6">
-      <div
-        class="absolute left-[0.625rem] top-1 bottom-1 w-[0.0938rem] bg-(--solus-assistant-left-border)"
-      ></div>
-      <div class="space-y-2.5">
-        {#each tools as tool, i (tool.id)}
-          {@const isRunning = tool.toolStatus === "running"}
-          {@const toolName = tool.toolName || "Tool"}
-          {@const parsedInput = parsedInputs[i]}
-          {@const fullDesc = isRunning
-            ? toolName === "exec_command"
-              ? getToolDescription(toolName, tool.toolInput, {
-                  truncate: false,
-                })
-              : prettyToolName(toolName)
-            : parsedInput
-              ? getToolDescriptionFromParsed(toolName, parsedInput, {
-                  truncate: false,
-                })
-              : getToolDescription(toolName, tool.toolInput, {
-                  truncate: false,
-                })}
-          {@const filePaths = parsedInput
-            ? toolPathsFromParsed(parsedInput)
-            : []}
-          {@const ToolIcon =
-            TOOL_ICONS[toolName] ||
-            (solusToolKey(toolName) ? FileTextIcon : WrenchIcon)}
-          <div class="group/tool relative">
-            <div
-              class="absolute -left-6 top-px w-5 h-5 rounded-full flex items-center justify-center"
-              style="background:{isRunning
-                ? 'var(--solus-tool-running-bg)'
-                : 'var(--solus-timeline-node-done)'};border:0.0625rem solid {isRunning
-                ? 'var(--solus-tool-running-border)'
-                : 'var(--solus-timeline-node-done)'}"
-            >
-              {#if isRunning}
-                <span
-                  class="w-1.5 h-1.5 rounded-full animate-pulse-dot bg-(--solus-status-running)"
-                ></span>
-              {:else}
-                <span class="flex items-center text-(--solus-text-tertiary)">
-                  <ToolIcon size={10} />
-                </span>
-              {/if}
-            </div>
+<!-- No chassis at all: no fill, no hairline, no tint. This is the least
+     important thing in the turn — it says how the answer was produced — so once
+     it has finished it should read as a caption.
 
-            <div class="min-w-0">
-              <div class="flex items-center gap-3 min-w-0">
-                <span
-                  class="text-[0.75rem] leading-[1.4] min-w-0 truncate group-hover/tool:whitespace-normal group-hover/tool:break-words"
-                  class:text-(--solus-text-secondary)={isRunning}
-                  class:text-(--solus-text-tertiary)={!isRunning}
-                  >{fullDesc}</span
-                >
-              </div>
-
-              {#if isRunning}
-                <span
-                  class="text-[0.625rem] mt-0.5 block text-(--solus-text-tertiary)"
-                  >in progress</span
-                >
-              {/if}
-            </div>
-          </div>
-        {/each}
-      </div>
-    </div>
-  </div>
-{:else}
-  <div
-    class="flex items-start gap-1 cursor-pointer rounded-md px-1 transition-colors hover:bg-(--solus-surface-hover) active:bg-(--solus-surface-hover) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isMobileViewport
-      ? 'py-1.5'
-      : 'py-[0.25rem]'} {skipMotion ? '' : 'animate-msg-in-side'}"
-    onclick={() => (expanded = true)}
-    role="button"
-    tabindex="0"
-    onkeydown={(e) => {
-      if (e.key === "Enter") expanded = true;
-    }}
+     §16 — one row, whatever the group is doing. The spinner, the icon cluster
+     and the failure glyph all take the same 22px slot and the chevron holds its
+     position, so the row rewrites itself in place instead of jumping when the
+     group lands. -->
+<!-- `activity-host` opts this row out of the transcript's paint containment,
+     which would otherwise clip the row's rounded chassis flat. -->
+<div class="activity-host {skipMotion ? '' : 'animate-msg-in-side'}">
+  <ActivityRow
+    {expanded}
+    onToggle={toggleExpanded}
+    target={namedTarget ? targetText : undefined}
+    glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
+    testid={runningTool
+      ? "activity-running"
+      : failedTool
+        ? "activity-failed"
+        : "activity-summary"}
   >
-    <CaretRightIcon
-      size={10}
-      class="flex-shrink-0 mt-[0.125rem] text-(--solus-text-tertiary)"
-    />
-    <span class="text-[0.75rem] leading-[1.4] text-(--solus-text-secondary)"
-      >{toolSummary()}</span
-    >
-  </div>
-{/if}
+    {#snippet glyph()}
+      {#if runningTool || (working && !failedTool)}
+        <span class="activity-spinner" aria-hidden="true"></span>
+      {:else if failedTool}
+        <WarningCircleIcon size={13} />
+      {:else}
+        {#each kinds as kind (kind)}
+          {@const Glyph = KIND_ICONS[kind]}
+          <Glyph size={11} />
+        {/each}
+      {/if}
+    {/snippet}
+
+    {#snippet label()}
+      {#if runningTool}
+        <span class="activity-shimmer">{runningLabel}</span>
+      {:else if working && !failedTool}
+        <span class="activity-shimmer">
+          {waitingOnLabel(waitingOn) ?? liveActivityLabel(activityLabel, 0, true, turnStart)}
+        </span>
+      {:else if failedTool}
+        <span class="tool-named">{prettyToolName(failedTool.toolName || "Tool")} failed</span>
+      {:else}
+        {#each summary as segment, i (i)}
+          {#if segment.strong}<span class="tool-named">{segment.text}</span
+            >{:else}{segment.text}{/if}
+        {/each}
+      {/if}
+    {/snippet}
+
+    {#snippet rail()}
+      {#if runningTool && tools.length > 1}
+        <span>{doneCount}/{tools.length}</span>
+      {/if}
+      <span class="activity-rail-time">{duration}</span>
+    {/snippet}
+
+    <!-- Behind the chevron, on the same indented rule the step list uses: the
+         error is diagnostic detail, not transcript content, and a failure is not
+         more important than the answer above it. -->
+    {#snippet detail()}
+      {#if failureLine}
+        <div class="tool-stderr font-mono">{failureLine}</div>
+      {/if}
+      {#each tools as tool, i (tool.id)}
+        {@const parsed = parsedInputs[i]}
+        {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
+        {@const failed = tool.toolStatus === "error" || tool.toolResultIsError}
+        <div class:tool-step--expanded={expandedToolId === tool.id} class="tool-step">
+          <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
+            {#if failed}
+              <WarningCircleIcon size={13} />
+            {:else}
+              <Glyph size={11} />
+            {/if}
+          </span>
+          <button
+            type="button"
+            class:is-expanded={expandedToolId === tool.id}
+            class="tool-step-text font-mono"
+            aria-expanded={expandedToolId === tool.id}
+            onclick={() => toggleToolExpanded(tool.id)}
+          >
+            {describe(tool, parsed)}
+          </button>
+          <span class="flex-1"></span>
+          {#if tool.toolCompletedAt}
+            <span class="tool-step-duration font-mono shrink-0">
+              {formatActivityDuration(tool.toolCompletedAt - tool.timestamp)}
+            </span>
+          {/if}
+        </div>
+      {/each}
+    {/snippet}
+  </ActivityRow>
+</div>
+
+<style>
+  /* The tool a running or failed row names, and the one number in a finished
+     row's sentence — the parts worth scanning. */
+  .tool-named {
+    color: var(--solus-text-primary);
+  }
+
+  .tool-stderr {
+    padding: 0.125rem 0 0.3125rem;
+    font-size: 0.71875rem;
+    line-height: 1.65;
+    color: var(--muted-foreground);
+    white-space: pre-wrap;
+  }
+
+  .tool-step {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.25rem 0;
+  }
+
+  .tool-step--expanded {
+    align-items: flex-start;
+  }
+
+  .tool-step-glyph {
+    display: inline-flex;
+    width: 1.375rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+    opacity: 0.5;
+  }
+
+  .tool-step-glyph--failed {
+    color: var(--destructive);
+    opacity: 1;
+  }
+
+  .tool-step-text {
+    min-width: 0;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    white-space: nowrap;
+    text-align: left;
+    text-overflow: ellipsis;
+    font-size: 0.71875rem;
+    opacity: 0.8;
+    cursor: pointer;
+  }
+
+  .tool-step-text.is-expanded {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .tool-step-text:focus-visible {
+    border-radius: 0.25rem;
+    outline: 0.125rem solid var(--solus-accent-border-medium);
+    outline-offset: 0.125rem;
+  }
+
+  .tool-step-duration {
+    font-size: 0.65625rem;
+    color: var(--muted-foreground);
+    opacity: 0.55;
+  }
+</style>

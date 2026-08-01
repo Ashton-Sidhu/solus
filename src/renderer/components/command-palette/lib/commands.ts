@@ -29,9 +29,13 @@ export interface CommandGroup {
   items: Command[]
 }
 
-export type CommandDisplayRow =
-  | { kind: 'header'; title: string }
-  | { kind: 'command'; cmd: Command; commandIndex: number }
+export type CommandSelectionMove =
+  | 'first'
+  | 'last'
+  | 'next'
+  | 'previous'
+  | 'next-group'
+  | 'previous-group'
 
 const searchTextCache = new WeakMap<Command, string>()
 
@@ -70,36 +74,70 @@ export function groupCommands(commands: Command[]): CommandGroup[] {
 }
 
 /**
- * Returns the visible edge command to adopt when the selected command is
- * outside a virtual viewport. Returns null while selection is already visible.
+ * Keeps the user's selected command across live list updates. Falls back to the
+ * first visible command only when the previous selection is no longer present.
  */
-export function visibleCommandEdge(
-  rows: CommandDisplayRow[],
-  selectedIndex: number,
-  scrollOffset: number,
-  viewportHeight: number,
-  headerHeight: number,
-  commandHeight: number,
-  direction: 1 | -1,
-): number | null {
-  let offset = 0
-  let selectedIsVisible = false
-  let firstVisible = -1
-  let lastVisible = -1
-  const viewportEnd = scrollOffset + viewportHeight
+export function retainCommandSelection(
+  commands: Command[],
+  selectedCommandId: string,
+): string {
+  return commands.some((command) => command.id === selectedCommandId)
+    ? selectedCommandId
+    : commands[0]?.id ?? ''
+}
 
-  for (const row of rows) {
-    const size = row.kind === 'header' ? headerHeight : commandHeight
-    const rowEnd = offset + size
-    if (row.kind === 'command' && rowEnd > scrollOffset && offset < viewportEnd) {
-      if (firstVisible === -1) firstVisible = row.commandIndex
-      lastVisible = row.commandIndex
-      if (row.commandIndex === selectedIndex) selectedIsVisible = true
+/**
+ * Resolves keyboard navigation from a stable command id, so inserting commands
+ * into a live list does not turn the current selection into a stale index.
+ */
+export function moveCommandSelection(
+  commands: Command[],
+  selectedCommandId: string,
+  move: CommandSelectionMove,
+  loop = false,
+): string {
+  if (commands.length === 0) return ''
+
+  const selectedIndex = commands.findIndex((command) => command.id === selectedCommandId)
+  const currentIndex = selectedIndex >= 0 ? selectedIndex : 0
+
+  if (move === 'first') return commands[0]!.id
+  if (move === 'last') return commands.at(-1)!.id
+
+  if (move === 'next' || move === 'previous') {
+    const offset = move === 'next' ? 1 : -1
+    const nextIndex = selectedIndex < 0 && move === 'next'
+      ? 0
+      : currentIndex + offset
+    if (nextIndex >= 0 && nextIndex < commands.length) {
+      return commands[nextIndex]!.id
     }
-    offset = rowEnd
+    if (!loop) return commands[currentIndex]!.id
+    return move === 'next' ? commands[0]!.id : commands.at(-1)!.id
   }
 
-  if (selectedIsVisible) return null
-  const edge = direction === 1 ? firstVisible : lastVisible
-  return edge === -1 ? null : edge
+  const direction = move === 'next-group' ? 1 : -1
+  const currentGroup = commands[currentIndex]!.group
+  let candidateIndex = currentIndex + direction
+  while (
+    candidateIndex >= 0 &&
+    candidateIndex < commands.length &&
+    commands[candidateIndex]!.group === currentGroup
+  ) {
+    candidateIndex += direction
+  }
+
+  if (candidateIndex < 0 || candidateIndex >= commands.length) {
+    if (!loop) return commands[currentIndex]!.id
+    candidateIndex = move === 'next-group' ? 0 : commands.length - 1
+  }
+
+  const targetGroup = commands[candidateIndex]!.group
+  while (
+    candidateIndex > 0 &&
+    commands[candidateIndex - 1]!.group === targetGroup
+  ) {
+    candidateIndex -= 1
+  }
+  return commands[candidateIndex]!.id
 }

@@ -3,6 +3,7 @@
   import { applyLayout } from '../../../shared/diagram-layout'
   import { getSettingsContext } from '../../contexts'
   import { diagramAccent } from './diagram-colors'
+  import { effectiveEdgeDash } from './lib/flow-builders'
 
   interface Props {
     content: string
@@ -202,9 +203,11 @@
       {/each}
 
       {#each model.edges as edge (edge.id)}
+        {@const dash = effectiveEdgeDash(edge.kind, edge.dash)}
         <path
           class="diagram-thumbnail__edge"
-          class:diagram-thumbnail__edge--async={edge.kind === 'async' || edge.animated}
+          class:diagram-thumbnail__edge--async={dash === 'dashed' || edge.animated}
+          class:diagram-thumbnail__edge--dotted={dash === 'dotted'}
           class:diagram-thumbnail__edge--data={edge.kind === 'data'}
           d={edgePath(edge)}
           marker-end={edge.arrows === 'none' || edge.arrows === 'start' ? undefined : markerUrl}
@@ -278,6 +281,10 @@
 
   .diagram-thumbnail__edge--async {
     stroke-dasharray: 12 10;
+  }
+
+  .diagram-thumbnail__edge--dotted {
+    stroke-dasharray: 0.1 8;
   }
 
   .diagram-thumbnail__edge--data {

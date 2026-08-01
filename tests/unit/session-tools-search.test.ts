@@ -52,9 +52,13 @@ function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
 }
 
 interface FakeController {
-  calls: { watch: Array<[string, string]> }
+  calls: {
+    watch: Array<[string, string]>
+    prompt?: Array<[string, string, 'queue' | 'steer' | undefined]>
+  }
   liveStatusValue: SessionStatus | null
   metaValue: SessionMeta | null
+  promptDisposition?: 'started' | 'steered' | 'queued'
 }
 
 function installController(state: FakeController): void {
@@ -64,9 +68,17 @@ function installController(state: FakeController): void {
     loadSessionTail: async () => [],
     liveStatus: () => state.liveStatusValue,
     pendingInputEvents: () => [],
-    promptSession: async () => ({ queued: false }),
+    promptSession: async (sessionId, prompt, delivery) => {
+      ;(state.calls.prompt ??= []).push([sessionId, prompt, delivery])
+      return { disposition: state.promptDisposition ?? 'started' }
+    },
     watchSessionSettled: (target, caller) => { state.calls.watch.push([target, caller]) },
     stopSession: () => true,
+    answerQuestion: () => true,
+    respondPermission: () => true,
+    loadPlanContent: async () => null,
+    listPlans: async () => [],
+    invalidatePlanCaches: () => {},
   })
 }
 
@@ -137,9 +149,21 @@ describe('create_session executor', () => {
     tools.setSessionCreator(async () => ({ agentSessionId: id }))
   }
 
+  test('rejects a call without an explicit mode', async () => {
+    // WHY: mode has no default on purpose — the caller must commit to
+    // delegate vs fire-and-forget instead of silently inheriting one.
+    installCreator('new-1')
+    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', model_id: 'claude-sonnet-5' }, {
+      ctx: { agentProvider: 'claude-code', cwd: CWD, sessionId: 'me' },
+    })
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain("'delegate'")
+    expect(result.text).toContain("'fire_and_forget'")
+  })
+
   test('rejects a missing model_id', async () => {
     installCreator('new-1')
-    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code' }, {
+    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', mode: 'delegate' }, {
       ctx: { agentProvider: 'claude-code', cwd: CWD, sessionId: 'me' },
     })
     expect(result.ok).toBe(false)
@@ -148,21 +172,34 @@ describe('create_session executor', () => {
 
   test('rejects an unknown model id for the provider', async () => {
     installCreator('new-1')
-    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', model_id: 'not-a-real-model' }, {
+    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', model_id: 'not-a-real-model', mode: 'delegate' }, {
       ctx: { agentProvider: 'claude-code', cwd: CWD, sessionId: 'me' },
     })
     expect(result.ok).toBe(false)
     expect(result.text.toLowerCase()).toContain('unknown model')
   })
 
-  test('emits a session link on success', async () => {
+  test('emits a session link and the delegate follow-up on success', async () => {
     installCreator('spawned-42')
-    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', model_id: 'claude-sonnet-5' }, {
+    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', model_id: 'claude-sonnet-5', mode: 'delegate' }, {
       ctx: { agentProvider: 'claude-code', cwd: CWD, sessionId: 'me' },
     })
     expect(result.ok).toBe(true)
     expect(result.text).toContain('session://open?provider=claude-code&sessionId=spawned-42')
     expect(result.text).toContain(`&cwd=${encodeURIComponent(CWD)}`)
+    expect(result.text).toContain('[session report]')
+  })
+
+  test('tells a fire-and-forget caller no report will arrive', async () => {
+    // WHY: the result text is the model's post-call contract — fire-and-forget
+    // must not leave it waiting or polling for a reply that never comes.
+    installCreator('spawned-43')
+    const result = await tools.executeSessionTool('create_session', { prompt: 'go', agent_provider: 'claude-code', model_id: 'claude-sonnet-5', mode: 'fire_and_forget' }, {
+      ctx: { agentProvider: 'claude-code', cwd: CWD, sessionId: 'me' },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('no report will arrive')
+    expect(result.text).not.toContain('[session report]')
   })
 })
 
@@ -196,5 +233,60 @@ describe('wait_for_session executor', () => {
     })
     expect(result.ok).toBe(true)
     expect(state.calls.watch).toEqual([['target-1', 'me']])
+  })
+})
+
+describe('prompt_session executor', () => {
+  test('teaches agents to steer only for an in-progress redirect', () => {
+    const promptTool = tools.promptSessionAgentTool
+
+    expect(promptTool.description).toContain("work in progress should change now")
+    expect(promptTool.description).toContain("Choose 'queue' for independent or sequential follow-up")
+    expect(promptTool.inputShape.delivery.description).toContain("interrupt or redirect the target's current line of work")
+  })
+
+  test('queues by default for agent-to-agent delivery', async () => {
+    const state: FakeController = {
+      calls: { watch: [] },
+      liveStatusValue: 'running',
+      metaValue: meta(),
+      promptDisposition: 'queued',
+    }
+    installController(state)
+
+    const result = await tools.executeSessionTool('prompt_session', {
+      session_id: 'target-1',
+      prompt: 'Continue after your current work',
+      notify_on_completion: false,
+    }, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'me' },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(state.calls.prompt).toEqual([['target-1', 'Continue after your current work', 'queue']])
+    expect(result.text).toContain('Queued prompt for')
+  })
+
+  test('lets an agent explicitly steer another active session', async () => {
+    const state: FakeController = {
+      calls: { watch: [] },
+      liveStatusValue: 'running',
+      metaValue: meta(),
+      promptDisposition: 'steered',
+    }
+    installController(state)
+
+    const result = await tools.executeSessionTool('prompt_session', {
+      session_id: 'target-1',
+      prompt: 'Use the smaller implementation',
+      delivery: 'steer',
+      notify_on_completion: false,
+    }, {
+      ctx: { agentProvider: 'codex', cwd: CWD, sessionId: 'me' },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(state.calls.prompt).toEqual([['target-1', 'Use the smaller implementation', 'steer']])
+    expect(result.text).toContain('Steered the active turn in')
   })
 })

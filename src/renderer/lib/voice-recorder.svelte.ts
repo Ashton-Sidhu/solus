@@ -1,11 +1,6 @@
-import { analytics } from './analytics'
+import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 
-// Hard ceiling on a single recording. Batch transcription decodes the whole
-// utterance in one pass, so an unbounded buffer means an unbounded decode; this
-// wall-clock backstop (a timeout, not the starvable VAD interval) bounds the
-// captured audio so a stuck mic can never balloon the payload we transcribe.
-const MAX_RECORDING_MS = 60_000
 // Audio is held back from the buffer until a chunk crosses this rms — leading
 // mic-onset noise/breath decodes as garbage punctuation (a stray "?"). Same
 // threshold the worker uses for its speech gate.
@@ -25,6 +20,12 @@ type DevVoiceSessionStats = {
   firstStartedAtIso: string | null
   count: number
   totalListeningMs: number
+}
+
+type PendingVoiceTranscription = {
+  samples: Float32Array
+  startedAtIso: string | null
+  listeningMs: number | null
 }
 
 const devVoiceSessionStats: DevVoiceSessionStats = {
@@ -55,9 +56,9 @@ export class VoiceRecorder {
   readonly rmsRef = { current: 0 }
 
   #cancelled = false
-  #maxDurationTimeout: number | null = null
   #capture: PcmCapture | null = null
   #buffer: Float32Array[] = []
+  #pendingTranscription: PendingVoiceTranscription | null = null
   #speechDetected = false
   #preRoll: Float32Array = new Float32Array()
   #finishing = false
@@ -85,12 +86,18 @@ export class VoiceRecorder {
 
   async start(): Promise<void> {
     if (this.#disposed || this.state !== 'idle' || this.starting) return
+    if (this.#pendingTranscription) {
+      this.#setError(null, null)
+      this.#finishing = true
+      await this.#transcribe(this.#pendingTranscription)
+      return
+    }
     const generation = ++this.#startGeneration
     this.starting = true
     this.#setError(null, null)
     this.#cancelled = false
 
-    analytics.voiceRecordingStarted()
+    track('voice_recording_started', {})
 
     let stream: MediaStream
     try {
@@ -209,10 +216,6 @@ export class VoiceRecorder {
     if (!devVoiceSessionStats.firstStartedAtIso) {
       devVoiceSessionStats.firstStartedAtIso = this.#recordingStartedAtIso
     }
-    this.#maxDurationTimeout = window.setTimeout(() => {
-      this.#maxDurationTimeout = null
-      this.stop()
-    }, MAX_RECORDING_MS)
   }
 
   // Buffer a capture chunk, gating leading silence so a stray onset mark never
@@ -246,7 +249,6 @@ export class VoiceRecorder {
     const hadSpeech = this.#speechDetected
     this.#recordingStartedAtMs = null
     this.#recordingStartedAtIso = null
-    this.#clearMaxDurationTimeout()
     // stop() flushes the trailing partial chunk through onChunk (buffering it)
     // and stops the mic tracks before we read the buffer.
     this.#capture.stop()
@@ -259,21 +261,29 @@ export class VoiceRecorder {
       return
     }
 
+    await this.#transcribe({ samples, startedAtIso: recordingStartedAtIso, listeningMs })
+  }
+
+  async #transcribe(pending: PendingVoiceTranscription): Promise<void> {
     this.state = 'transcribing'
     const transcribeStartedAt = performance.now()
     let allowAutoRearm = false
     try {
-      const result = await window.solus.transcribeAudio(samples)
+      const result = await window.solus.transcribeAudio(pending.samples)
       this.#logDevTranscriptionSession({
         transcript: result.transcript,
-        startedAtIso: recordingStartedAtIso,
-        listeningMs,
+        startedAtIso: pending.startedAtIso,
+        listeningMs: pending.listeningMs,
         transcribeMs: Math.round(performance.now() - transcribeStartedAt),
         success: !result.error,
       })
       if (result.error) {
-        this.#setError(`Voice failed: ${result.error}`, 'transient')
+        this.#pendingTranscription = pending
+        // Backend errors are already written for the user ("Voice model is still
+        // downloading (42%)"), so prefixing them just stutters in the toast.
+        this.#setError(result.error, 'transient')
       } else {
+        this.#pendingTranscription = null
         allowAutoRearm = true
         if (result.transcript) {
           this.#setError(null, null)
@@ -281,17 +291,18 @@ export class VoiceRecorder {
         }
       }
     } catch (err: any) {
+      this.#pendingTranscription = pending
+      this.#logDevTranscriptionSession({
+        transcript: null,
+        startedAtIso: pending.startedAtIso,
+        listeningMs: pending.listeningMs,
+        transcribeMs: Math.round(performance.now() - transcribeStartedAt),
+        success: false,
+      })
       this.#setError(`Voice failed: ${err.message ?? String(err)}`, 'transient')
     } finally {
       this.#cleanup()
       this.#toIdle(allowAutoRearm)
-    }
-  }
-
-  #clearMaxDurationTimeout(): void {
-    if (this.#maxDurationTimeout) {
-      clearTimeout(this.#maxDurationTimeout)
-      this.#maxDurationTimeout = null
     }
   }
 

@@ -3,10 +3,10 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import {
-    ArrowCounterClockwiseIcon,
-    ArrowsLeftRightIcon,
     ClipboardTextIcon,
+    DesktopTowerIcon,
     GitForkIcon,
+    PlusCircleIcon,
     TreeStructureIcon,
   } from "phosphor-svelte";
   import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
@@ -18,10 +18,17 @@
     runtime,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
+  import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
+  import TranscriptDivider from "./TranscriptDivider.svelte";
+  import TranscriptStatusRow from "./TranscriptStatusRow.svelte";
+  import TurnActivityRow from "./TurnActivityRow.svelte";
+  import TurnEndDivider from "./TurnEndDivider.svelte";
+  import MessageHoverRail from "./MessageHoverRail.svelte";
 
   import UserMessageBubble from "./UserMessageBubble.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
@@ -29,99 +36,51 @@
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
-  import SessionRefCard from "./SessionRefCard.svelte";
+  import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
+  import { agentsAwaitingReply } from "./agent-conversation/lib/agent-conversation";
   import ArtifactView from "../artifact/ArtifactView.svelte";
-  import CopyButton from "../ui/CopyButton.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import ProgressTracker from "./ProgressTracker.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
+  import { FindBar } from "../ui/find-bar";
   import { previewText } from "./lib/minimap";
-  import { assistantMarkdownExtensions } from "./lib/assistant-markdown";
+  import {
+    findConversationMatches,
+    type ConversationFindMatch,
+  } from "./lib/find";
+  import { questionAnchorScrollTop } from "./lib/question-scroll";
+  import { ConversationFindHighlighter } from "./lib/find-highlight";
+  import { noticeText } from "./lib/transient";
+  import {
+    buildTurns,
+    groupMessages,
+    hasVisibleTurnBody,
+    itemKey,
+    needsLiveRow,
+    type GroupedItem,
+  } from "./lib/turns";
+  import { SvelteMap } from "svelte/reactivity";
+  import { assistantMarkdownOptions } from "./lib/assistant-markdown";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { formatMessageTime } from "../../lib/sessionUtils";
+  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
 
   const markdownRenderers = {
     code: CodeBlock,
     codespan: CodeSpan,
     link: MarkdownLink,
   };
-  import type { Message } from "../../../shared/types";
 
   const INITIAL_RENDER_CAP = 100;
   const PAGE_SIZE = 100;
 
-  type GroupedItem =
-    | { kind: "user"; message: Message }
-    | { kind: "assistant"; message: Message }
-    | {
-        kind: "live-assistant";
-        id: string;
-        content: string;
-        settledMessageId?: string;
-      }
-    | { kind: "system"; message: Message }
-    | { kind: "tool-group"; messages: Message[] }
-    | { kind: "subagent-group"; messages: Message[] }
-    | { kind: "plan"; message: Message }
-    | { kind: "document"; message: Message }
-    | { kind: "automation"; message: Message }
-    | { kind: "task"; message: Message }
-    | { kind: "session"; message: Message }
-    | { kind: "artifact"; message: Message };
-
-  function groupMessages(messages: Message[]): GroupedItem[] {
-    const result: GroupedItem[] = [];
-    let toolBuf: Message[] = [];
-    let subagentBuf: Message[] = [];
-    const flushTools = () => {
-      if (toolBuf.length > 0) {
-        result.push({ kind: "tool-group", messages: [...toolBuf] });
-        toolBuf = [];
-      }
-    };
-    const flushSubagents = () => {
-      if (subagentBuf.length > 0) {
-        result.push({ kind: "subagent-group", messages: [...subagentBuf] });
-        subagentBuf = [];
-      }
-    };
-    for (const msg of messages) {
-      if (msg.role === "tool" && msg.subMessages) {
-        // Consecutive sub-agents share one compact surface instead of repeating
-        // card chrome for every member of an orchestrated batch.
-        flushTools();
-        subagentBuf.push(msg);
-      } else if (msg.role === "tool") {
-        flushSubagents();
-        toolBuf.push(msg);
-      } else {
-        flushTools();
-        flushSubagents();
-        if (msg.role === "user") result.push({ kind: "user", message: msg });
-        else if (msg.workRef) result.push({ kind: "document", message: msg });
-        else if (msg.automationRef)
-          result.push({ kind: "automation", message: msg });
-        else if (msg.taskRef) result.push({ kind: "task", message: msg });
-        else if (msg.sessionRef) result.push({ kind: "session", message: msg });
-        else if (msg.artifact) result.push({ kind: "artifact", message: msg });
-        else if (msg.role === "assistant")
-          result.push({ kind: "assistant", message: msg });
-        else if (msg.role === "plan")
-          result.push({ kind: "plan", message: msg });
-        else result.push({ kind: "system", message: msg });
-      }
-    }
-    flushTools();
-    flushSubagents();
-    return result;
-  }
-
   const session = getWorkspaceContext();
+  const outerScrollbar = getOuterScrollbarContext();
   const planStore = getPlanStore();
   const windowCtx = getWindowContext();
   const sourceSessionHistory = createSessionHistoryStore();
@@ -133,10 +92,12 @@
     tabId,
     onDiffToggle,
     forceVisible = false,
+    retainTranscriptRows = true,
   }: {
     tabId: string;
     onDiffToggle?: () => void;
     forceVisible?: boolean;
+    retainTranscriptRows?: boolean;
   } = $props();
 
   // The pool instance is on screen only while its tab is active; the split-pane
@@ -147,7 +108,19 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
-  const streamingText = $derived(session.streaming.text[tabId] ?? "");
+  const remoteServer = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? serversStore.servers.find((server) => server.id === sess.serverId)
+      : null,
+  );
+  const remoteStatus = $derived(
+    sess?.serverId && sess.serverId !== LOCAL_SERVER_ID
+      ? serversStore.statusFor(sess.serverId)
+      : "online",
+  );
+  const streamingText = $derived(
+    session.streamingTextFor(tabId, isVisible),
+  );
 
   // ── Smooth typewriter reveal ──────────────────────────────────────────────
   // Text arrives in coarse ~300ms batches (control-plane TEXT_FLUSH_INTERVAL_MS).
@@ -175,10 +148,31 @@
     revealLastTs = 0;
   }
 
+  // A turn's fold sits below its row, so leaving the scroll alone is what makes
+  // it open downward: the row holds its place on screen and the content pushes
+  // everything under it down. Re-pinning to the bottom instead would drag the
+  // row the reader just clicked up and off the top of the view.
+  let holdScroll = false;
+  let holdScrollTimer: ReturnType<typeof setTimeout> | null = null;
+  function holdAutomaticScroll() {
+    holdScroll = true;
+    if (holdScrollTimer) clearTimeout(holdScrollTimer);
+    // Long enough for a newly revealed row or interrupt card to measure before
+    // the ResizeObserver is allowed to resume bottom pinning.
+    holdScrollTimer = setTimeout(() => {
+      holdScroll = false;
+      holdScrollTimer = null;
+    }, 160);
+  }
+  $effect(() => () => {
+    if (holdScrollTimer) clearTimeout(holdScrollTimer);
+  });
+
   // Glue the view to the bottom after structural changes. Streaming growth is
   // observed below so the reveal loop never forces a scrollHeight read itself.
   function pinToBottom() {
     const el = scrollEl;
+    if (holdScroll) return;
     if (el && isVisible && isNearBottom) {
       el.scrollTop = el.scrollHeight;
     }
@@ -187,7 +181,7 @@
     // read above can undershoot the real bottom. Settle once more after the
     // browser measures them, same retry used by the solus:scroll-conversation-bottom handler.
     setTimeout(() => {
-      if (scrollEl && isVisible && isNearBottom) {
+      if (scrollEl && isVisible && isNearBottom && !holdScroll) {
         scrollEl.scrollTop = scrollEl.scrollHeight;
       }
     }, 120);
@@ -263,10 +257,51 @@
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
   let hovered = $state(false);
+  let findOpen = $state(false);
+  let findQuery = $state("");
+  let findIndex = $state(0);
+  let findBarRef: FindBar | null = $state(null);
+  const findHighlighter = new ConversationFindHighlighter();
+  $effect(() => () => findHighlighter.destroy());
+
+  // The conversation now runs flush to the project rail, so its own 2px track
+  // would land exactly on the seam and read as a divider between the thread and
+  // the section cards. Hand scroll position to the workspace-edge scrollbar,
+  // which sits past the rail. Registered only while visible — every tab stays
+  // mounted, and a hidden one would otherwise claim the shared indicator.
+  $effect(() => {
+    if (!outerScrollbar || !scrollEl || !isVisible) return;
+    return outerScrollbar.register(scrollEl);
+  });
   let renderOffset = $state(0);
   let expandingHistory = $state(false);
   let isNearBottom = true;
   let loadingOlder = false;
+  let savedScrollFromBottom: number | null = null;
+  let previouslyRetainedTranscriptRows = false;
+
+  $effect.pre(() => {
+    const retained = retainTranscriptRows;
+    if (previouslyRetainedTranscriptRows && !retained && scrollEl) {
+      savedScrollFromBottom =
+        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    }
+    previouslyRetainedTranscriptRows = retained;
+  });
+
+  $effect(() => {
+    if (!retainTranscriptRows || savedScrollFromBottom === null) return;
+    const distanceFromBottom = savedScrollFromBottom;
+    void tick().then(() => {
+      requestAnimationFrame(() => {
+        if (!scrollEl || !retainTranscriptRows) return;
+        scrollEl.scrollTop = Math.max(
+          0,
+          scrollEl.scrollHeight - scrollEl.clientHeight - distanceFromBottom,
+        );
+      });
+    });
+  });
 
   // Infinite scroll: reveal older messages as the user nears the top. Pages
   // through already-loaded messages first (instant), then pulls the rest of a
@@ -346,14 +381,43 @@
     const msgCount = sess?.messages.length ?? 0;
     const permLen = sess?.permissionQueue?.length ?? 0;
     const qLen = sess?.questionQueue?.length ?? 0;
-    const queued = sess?.serverQueuedPrompts?.length ?? 0;
-    return `${msgCount}:${permLen}:${qLen}:${queued}`;
+    const outbound = sess?.outboundPrompts?.length ?? 0;
+    return `${msgCount}:${permLen}:${qLen}:${outbound}`;
   });
 
+  let previousQuestionCount = 0;
   $effect(() => {
     void scrollTrigger;
+    const questionCount = sess?.questionQueue?.length ?? 0;
+    const questionMounted =
+      previousQuestionCount === 0 && questionCount > 0;
+    previousQuestionCount = questionCount;
     if (isVisible && isNearBottom) {
-      requestAnimationFrame(pinToBottom);
+      if (questionMounted) {
+        // A question needs the turn that led to it. Keep a slice of that turn
+        // above the card instead of pinning the card's (potentially very tall)
+        // bottom to the viewport.
+        holdAutomaticScroll();
+        requestAnimationFrame(() => {
+          const el = scrollEl;
+          const card = el?.querySelector<HTMLElement>(
+            '[data-testid="question-card"]',
+          );
+          if (!el || !card || !isVisible) return;
+          const scrollRect = el.getBoundingClientRect();
+          const cardRect = card.getBoundingClientRect();
+          el.scrollTop = questionAnchorScrollTop(
+            el.scrollTop,
+            cardRect.top - scrollRect.top,
+            el.clientHeight,
+          );
+          // Keep card expansion and textarea growth from immediately undoing
+          // this context-preserving anchor.
+          isNearBottom = false;
+        });
+      } else {
+        requestAnimationFrame(pinToBottom);
+      }
     }
   });
 
@@ -377,7 +441,6 @@
     Math.max(0, totalCount - INITIAL_RENDER_CAP - renderOffset * PAGE_SIZE),
   );
   const hasOlder = $derived(startIndex > 0);
-  const historicalThreshold = $derived(Math.max(0, totalCount - 20));
 
   const visibleMessages = $derived.by(() => {
     const all = sess?.messages ?? [];
@@ -387,6 +450,9 @@
     );
     return start > 0 ? all.slice(start) : all;
   });
+  const conversationFindMatches = $derived(
+    findConversationMatches(sess?.messages ?? [], findQuery),
+  );
 
   const grouped = $derived(groupMessages(visibleMessages));
   const settlingCommittedId = $derived.by(() => {
@@ -475,7 +541,7 @@
   // Gate on isEditorShell: without this the derived rebuilds for every mounted
   // tab on every message change even in pill/web mode where it's never rendered.
   const navItems = $derived(
-    isEditorShell
+    isEditorShell && retainTranscriptRows
       ? (sess?.messages ?? [])
           .filter((m) => m.role === "user")
           .map((m) => ({ id: m.id, preview: previewText(m.content) }))
@@ -518,16 +584,149 @@
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
-  const isDead = $derived(sess?.status === "dead");
-  const isFailed = $derived(sess?.status === "failed");
   const isInterrupted = $derived(sess?.status === "interrupted");
   const isAwaitingPlan = $derived(sess?.status === "awaiting_plan");
   const currentActivity = $derived(sess ? computeCurrentActivity(sess) : "");
-  const showActivityStrip = $derived(
-    !!sess &&
-      (isRunning || isAwaitingPlan || isDead || isFailed || isInterrupted),
+  const activityLabel = $derived(
+    isAwaitingPlan ? "Awaiting plan approval" : currentActivity || undefined,
   );
+  // Running, stopped and failed are all reported by the turn's own activity row
+  // (§16, §17) — the strip only carries what no turn can express.
+  const showActivityStrip = $derived(!!sess && isAwaitingPlan);
   let activityReservedWidth = $state(0);
+
+  // §16 — a turn collapses to one row when it ends. Until then it renders the
+  // transcript it always did, in the order it happened.
+  const isTurnLive = $derived(isRunning || isAwaitingPlan || !!liveStreamContent);
+  const turns = $derived(buildTurns(displayGrouped, { running: isTurnLive }));
+  // Scrollback and history loads must not replay two hundred entry animations;
+  // only the turns at the live end of the transcript animate in.
+  const animatedTurnStart = $derived(Math.max(0, turns.length - 2));
+  // Successful and historical work stays compact. The latest failed work opens
+  // by default so its commands are immediately available; an explicit user
+  // choice then wins and survives transcript re-renders.
+  const turnExpansion = new SvelteMap<string, boolean>();
+  function toggleTurn(id: string, expanded: boolean) {
+    holdAutomaticScroll();
+    turnExpansion.set(id, !expanded);
+  }
+
+  function turnContainsMessage(
+    items: GroupedItem[],
+    messageId: string,
+  ): boolean {
+    return items.some(
+      (item) =>
+        item.kind !== "live-assistant" &&
+        item.kind !== "tool-group" &&
+        item.kind !== "subagent-group" &&
+        item.message.id === messageId,
+    );
+  }
+
+  async function revealFindMatch(match: ConversationFindMatch) {
+    const messages = sess?.messages ?? [];
+    const messageIndex = messages.findIndex(
+      (message) => message.id === match.messageId,
+    );
+    if (messageIndex === -1) return;
+
+    const requiredOffset = Math.ceil(
+      Math.max(0, messages.length - INITIAL_RENDER_CAP - messageIndex) /
+        PAGE_SIZE,
+    );
+    if (requiredOffset > renderOffset) {
+      renderOffset = requiredOffset;
+      await tick();
+    }
+
+    const foldedTurn = turns.find(
+      (turn) =>
+        turn.body.length > 0 &&
+        turnContainsMessage(turn.body, match.messageId),
+    );
+    if (foldedTurn && !foldedTurn.live) {
+      turnExpansion.set(foldedTurn.id, true);
+      await tick();
+    }
+
+    const target = messagesEl?.querySelector<HTMLElement>(
+      `[data-conversation-message-id="${CSS.escape(match.messageId)}"]`,
+    );
+    // Mount and center the message synchronously first; the second adjustment
+    // below can then animate to the exact occurrence inside a long response
+    // without fighting an in-flight message-level scroll.
+    target?.scrollIntoView({ block: "center" });
+    await tick();
+    const activeRange = findHighlighter.update(
+      messagesEl,
+      findQuery,
+      match,
+    );
+    const activeRect = activeRange?.getBoundingClientRect();
+    const scrollRect = scrollEl?.getBoundingClientRect();
+    if (activeRect && scrollRect && scrollEl) {
+      const top = activeRect.top - scrollRect.top;
+      const bottom = activeRect.bottom - scrollRect.bottom;
+      if (top < 56) {
+        scrollEl.scrollBy({ top: top - 80, behavior: "smooth" });
+      } else if (bottom > -24) {
+        scrollEl.scrollBy({ top: bottom + 48, behavior: "smooth" });
+      }
+    }
+    void findBarRef?.focusInput(false);
+  }
+
+  async function openFind() {
+    findOpen = true;
+    if (sess?.historyTruncated) {
+      expandingHistory = true;
+      try {
+        await session.expandHistory(tabId);
+      } finally {
+        expandingHistory = false;
+      }
+    }
+    await tick();
+    await findBarRef?.focusInput();
+  }
+
+  function closeFind() {
+    findOpen = false;
+    findQuery = "";
+    findIndex = 0;
+    findHighlighter.clear();
+    requestInputFocus({ tabId });
+  }
+
+  async function updateFindQuery(value: string) {
+    findQuery = value;
+    findIndex = 0;
+    await tick();
+    const first = conversationFindMatches[0];
+    if (first) await revealFindMatch(first);
+    else findHighlighter.update(messagesEl, findQuery, null);
+  }
+
+  async function navigateFind(direction: 1 | -1) {
+    const total = conversationFindMatches.length;
+    if (total === 0) return;
+    findIndex = (((findIndex + direction) % total) + total) % total;
+    await revealFindMatch(conversationFindMatches[findIndex]);
+  }
+
+  $effect(() => {
+    if (!findOpen) {
+      findHighlighter.clear();
+      return;
+    }
+    const query = findQuery;
+    const matches = conversationFindMatches;
+    if (findIndex >= matches.length) findIndex = Math.max(0, matches.length - 1);
+    void tick().then(() =>
+      findHighlighter.update(messagesEl, query, matches[findIndex] ?? null),
+    );
+  });
 
   // The pending plan whose approval the session is blocked on — used to jump
   // straight to it from the awaiting-plan footer below.
@@ -550,6 +749,21 @@
   }
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
+
+  useKeybinding(
+    "conversation.find",
+    () => openFind(),
+    { enabled: () => tabId === session.focusedChatTabId },
+  );
+
+  useKeybinding(
+    "conversation.close-find",
+    closeFind,
+    {
+      enabled: () =>
+        findOpen && tabId === session.focusedChatTabId,
+    },
+  );
 
   useKeybinding(
     "conversation.scroll-top",
@@ -588,7 +802,7 @@
     "conversation.interrupt",
     () => {
       session.interruptTab(tabId);
-      window.solus.stopTab(session.ctxFor(tabId));
+      session.apiFor(tabId).stopTab(session.ctxFor(tabId));
       requestInputFocus();
     },
     {
@@ -629,7 +843,7 @@
     const content = messagesEl;
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
-      if (isNearBottom && isVisible) {
+      if (isNearBottom && isVisible && !holdScroll) {
         el.scrollTop = el.scrollHeight;
       }
     });
@@ -663,20 +877,46 @@
   }
 </script>
 
+<!-- No container: assistant prose sits directly on the canvas. Cards, code and
+     tables are the only boxes it may draw. -->
 {#snippet assistantBody(displayContent: string)}
-  <div
-    class="pl-3 relative z-[1] border-l-2 border-(--solus-assistant-left-border) min-w-0"
-  >
-    <div class="prose-cloud prose-reading min-w-0">
-      <SvelteMarkdown
-        source={displayContent}
-        extensions={assistantMarkdownExtensions}
-        renderers={markdownRenderers}
-        sanitizeUrl={markdownSanitizeUrl}
-      />
-    </div>
+  <div class="prose-cloud prose-reading prose-transcript min-w-0">
+    <SvelteMarkdown
+      source={displayContent}
+      options={assistantMarkdownOptions}
+      renderers={markdownRenderers}
+      sanitizeUrl={markdownSanitizeUrl}
+    />
   </div>
 {/snippet}
+
+<!-- §13 — the machine's reachability belongs to the host, not to a turn, so it
+     is a row: the condition, the host, and the one thing the user can do. -->
+{#if sess?.serverId !== LOCAL_SERVER_ID && remoteStatus !== "online"}
+  <div class="mx-4 mt-2 shrink-0">
+    <TranscriptStatusRow
+      tone={remoteStatus === "connecting" ? "warning" : "destructive"}
+      progress={remoteStatus === "connecting" ? null : undefined}
+      data-testid="host-status-row"
+    >
+      {#snippet glyph()}
+        <DesktopTowerIcon size={13} />
+      {/snippet}
+      {remoteStatus === "connecting" ? "Reconnecting to" : "Can’t reach"}
+      <span class="font-mono text-[0.75rem]">{remoteServer?.label ?? "remote host"}</span>
+      {#snippet actions()}
+        {#if remoteStatus !== "connecting"}
+          <button type="button" class="status-row-action" onclick={() => serversStore.retryActive()}>
+            Reconnect
+          </button>
+          <button type="button" class="status-row-action" onclick={() => serversStore.useLocalHost()}>
+            Run locally
+          </button>
+        {/if}
+      {/snippet}
+    </TranscriptStatusRow>
+  </div>
+{/if}
 
 {#if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />
@@ -693,8 +933,27 @@
     class={isEditorMode ? "flex flex-col h-full min-h-0" : ""}
   >
     <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
+      {#if findOpen}
+        <div class="absolute top-2 right-3 z-20">
+          <FindBar
+            bind:this={findBarRef}
+            query={findQuery}
+            current={conversationFindMatches.length === 0 ? 0 : findIndex + 1}
+            total={conversationFindMatches.length}
+            onQueryChange={updateFindQuery}
+            onNext={() => navigateFind(1)}
+            onPrev={() => navigateFind(-1)}
+            onClose={closeFind}
+            placeholder="Find in conversation"
+            ariaLabel="Find in conversation"
+            debounceMs={120}
+          />
+        </div>
+      {/if}
       <div
         bind:this={scrollEl}
+        data-conversation-tab-id={tabId}
+        class:outer-scroll-source={!!outerScrollbar}
         class="overflow-y-auto overflow-x-hidden px-4 pt-1 conversation-selectable {isEditorMode
           ? 'h-full'
           : ''}"
@@ -729,79 +988,178 @@
             </div>
           {/if}
 
-          <div
-            bind:this={messagesEl}
-            class="relative messages-list cv-list {runtime.isMobileViewport
-              ? 'space-y-3'
-              : 'space-y-2'}"
-          >
-            {#each displayGrouped as item, idx (item.kind === "tool-group" ? `tg-${item.messages[0].id}` : item.kind === "subagent-group" ? `sg-${item.messages[0].id}` : item.kind === "live-assistant" ? item.id : item.message.id)}
-              {@const msgIndex = startIndex + idx}
-              {@const skipMotion = msgIndex < historicalThreshold}
+          {#if retainTranscriptRows}
+            <div
+              bind:this={messagesEl}
+              class="relative messages-list cv-list {runtime.isMobileViewport
+                ? 'space-y-3'
+                : 'space-y-2'}"
+            >
+            {#each turns as turn, turnIdx (turn.id)}
+              {@const skipMotion = turnIdx < animatedTurnStart}
+              {@const isLastTurn = turnIdx === turns.length - 1}
+              {@const expanded =
+                turnExpansion.get(turn.id) ??
+                (isLastTurn &&
+                  turn.end?.kind === "failed" &&
+                  hasVisibleTurnBody(turn))}
+              {@const live = turn.live}
+              <!-- A steer leaves earlier turns live too, and only the last one is
+                   where the run is actually working. -->
+              {@const working = live && isLastTurn}
+              <!-- A stop says nothing about the work, so it never stands in for
+                   the summary row: the row reports what ran and discloses it,
+                   and the stop's own divider follows the turn's content below.
+                   A failure keeps its row either way — it carries the error. -->
+              {@const hasSummaryRow =
+                !live &&
+                (turn.body.length > 0 || turn.end?.kind === "failed")}
+              {#if turn.lead}
+                {@render transcriptItem(turn.lead, skipMotion)}
+              {/if}
+              <!-- The row only exists once the turn is over; until then the
+                   transcript below renders exactly as it always did.
+                   Retry re-runs the last prompt, so only the last turn can
+                   honestly offer it; an older stop is history. -->
+              {#if hasSummaryRow}
+                <TurnActivityRow
+                  {turn}
+                  live={false}
+                  {expanded}
+                  attempt={isLastTurn ? (sess.retryAttempt ?? 1) : 1}
+                  onToggle={() => toggleTurn(turn.id, expanded)}
+                  onRetry={turn.end?.kind === "failed" && isLastTurn
+                    ? handleRetry
+                    : undefined}
+                />
+              {/if}
+              <!-- Folding hides this block, it never unmounts it — so ending a
+                   turn costs one reflow instead of rebuilding every subtree in
+                   it, and expanding hands the same view straight back. -->
+              {#if turn.body.length > 0}
+                <div
+                  class="turn-body {runtime.isMobileViewport
+                    ? 'space-y-3'
+                    : 'space-y-2'}"
+                  class:is-folded={!live && !expanded}
+                  class:is-open={!live && expanded}
+                >
+                  {#each turn.body as item, itemIdx (itemKey(item))}
+                    {#if item.kind === "tool-group"}
+                      <!-- §16 — the transcript keeps its order, but the row at
+                           the tail of a working turn is where the run *is*: it
+                           takes the spinner rather than letting a second row
+                           saying "Thinking" stack underneath it. -->
+                      <ToolGroupItem
+                        tools={item.messages}
+                        {skipMotion}
+                        working={working && itemIdx === turn.body.length - 1}
+                        {activityLabel}
+                        turnStart={working ? sess.currentTurnStart : null}
+                        waitingOn={working ? agentsAwaitingReply(turn.body) : []}
+                      />
+                    {:else}
+                      {@render transcriptItem(item, skipMotion)}
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+              {#if !live && !expanded && turn.visibleWhenCollapsed.length > 0}
+                <div
+                  class={runtime.isMobileViewport ? "space-y-3" : "space-y-2"}
+                >
+                  {#each turn.visibleWhenCollapsed as item (itemKey(item))}
+                    {@render transcriptItem(item, skipMotion)}
+                  {/each}
+                </div>
+              {/if}
+              {#if hasSummaryRow && turn.tail.length > 0}
+                <div class="turn-rule"></div>
+              {/if}
+              {#each turn.tail as item (itemKey(item))}
+                {@render transcriptItem(item, skipMotion)}
+              {/each}
+              <!-- §17's transient endings, in the place they happened: after
+                   everything the turn produced, never in front of it. -->
+              {#if !live && turn.end && turn.end.kind !== "failed"}
+                <TurnEndDivider
+                  end={turn.end}
+                  onRetry={isLastTurn ? handleRetry : undefined}
+                  {skipMotion}
+                />
+              {/if}
+              <!-- Only when nothing else is reporting the run: a tool group at
+                   the tail already carries the spinner, and streaming text is
+                   itself the evidence that work is happening. -->
+              {#if working && needsLiveRow(turn)}
+                <TurnActivityRow
+                  {turn}
+                  live
+                  {activityLabel}
+                  turnStart={sess.currentTurnStart}
+                  expanded={false}
+                  attempt={sess.retryAttempt ?? 1}
+                  onToggle={() => {}}
+                />
+              {/if}
+            {/each}
+            </div>
+          {/if}
+
+{#snippet transcriptItem(item: GroupedItem, skipMotion: boolean)}
               {#if item.kind === "user"}
                 <UserMessageBubble message={item.message} {skipMotion} />
               {:else if item.kind === "live-assistant"}
+                <!-- Nothing appears while a message is streaming; the rail
+                     arrives with the last token. -->
                 <div
-                  class="py-2 group/msg relative cv-stamp-host {skipMotion ||
+                  class="py-2 relative {skipMotion ||
                   item.settledMessageId
                     ? ''
                     : 'animate-msg-in-side'}"
                   data-testid="assistant-message"
                 >
-                  <div class="cv-msg-body">
-                    <div
-                      class="pl-3 relative z-[1] border-l-2 border-(--solus-assistant-left-border) min-w-0"
-                    >
-                      <div class="prose-cloud prose-reading min-w-0">
-                        <SvelteMarkdown
-                          source={item.content}
-                          streaming
-                          extensions={assistantMarkdownExtensions}
-                          renderers={markdownRenderers}
-                          sanitizeUrl={markdownSanitizeUrl}
-                        />
-                      </div>
+                  <div
+                    class="cv-msg-body min-w-0"
+                    data-conversation-message-content
+                    data-conversation-message-id={item.settledMessageId}
+                  >
+                    <div class="prose-cloud prose-reading prose-transcript min-w-0">
+                      <SvelteMarkdown
+                        source={item.content}
+                        streaming
+                        options={assistantMarkdownOptions}
+                        renderers={markdownRenderers}
+                        sanitizeUrl={markdownSanitizeUrl}
+                      />
                     </div>
                   </div>
                 </div>
               {:else if item.kind === "assistant"}
                 {@const displayContent = item.message.content.trim()}
                 {#if displayContent && item.message.id !== settlingCommittedId}
-                  <!-- Timestamp lives in the reading column's left margin (outside
-                       the panel) so the assistant text lines up flush with
-                       tool-call rows in both modes. The gutter room comes from the
-                       reading column's auto-margins in editor mode and from the
-                       pill column's horizontal inset in pill mode. The row root
-                       opts out of content-visibility (which would clip the margin
-                       stamp); the heavy markdown keeps it via .cv-msg-body. -->
+                  <!-- The rail hangs in the column's left margin and aligns with
+                       the bottom of the assistant message. -->
                   <div
-                    class="py-2 group/msg relative cv-stamp-host {skipMotion ||
+                    class="py-2 relative cv-rail-host {skipMotion ||
                     finalizedStreamMessageIds[item.message.id]
                       ? ''
                       : 'animate-msg-in-side'}"
                     data-testid="assistant-message"
                   >
                     {#if !runtime.isMobileViewport}
-                      <span
-                        class="cv-stamp-gutter-left text-[0.625rem] text-(--solus-text-tertiary) tabular-nums select-none transition-opacity duration-100 {runtime.isTouchDevice
-                          ? 'opacity-100'
-                          : 'opacity-0 group-hover/msg:opacity-100'}"
-                      >
-                        {formatMessageTime(item.message.timestamp)}
-                      </span>
+                      <MessageHoverRail
+                        timestamp={item.message.timestamp}
+                        text={displayContent}
+                      />
                     {/if}
-                    <div class="cv-msg-body">
+                    <div
+                      class="cv-msg-body min-w-0"
+                      data-conversation-message-content
+                      data-conversation-message-id={item.message.id}
+                    >
                       {@render assistantBody(displayContent)}
                     </div>
-                    {#if !runtime.isMobileViewport}
-                      <div
-                        class="absolute top-full right-0 -mt-1 z-10 transition-opacity duration-100 {runtime.isTouchDevice
-                          ? 'opacity-100'
-                          : 'opacity-0 group-hover/msg:opacity-100'}"
-                      >
-                        <CopyButton text={displayContent} />
-                      </div>
-                    {/if}
                   </div>
                 {/if}
               {:else if item.kind === "tool-group"}
@@ -809,65 +1167,56 @@
               {:else if item.kind === "subagent-group"}
                 <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "system"}
-                {#if item.message.handoffDivider}
-                  <div
-                    class="flex items-center gap-2.5 py-2.5 {skipMotion ? '' : 'animate-msg-in-side'}"
-                    data-testid="session-handoff-message"
+                {#if item.message.forkSourceSessionId}
+                  <TranscriptDivider
+                    glyphClass="text-(--solus-accent)"
+                    titleClass="text-(--solus-accent)"
+                    ariaLabel="Navigate to source session"
+                    onclick={() =>
+                      navigateToSourceSession(item.message.forkSourceSessionId!)}
+                    testid="fork-session-message"
+                    {skipMotion}
                   >
-                    <div class="h-px min-w-3 flex-1 bg-(--solus-tool-border)"></div>
-                    <div class="flex max-w-[80%] min-w-0 items-center gap-1.5 rounded-full bg-(--solus-container-bg) px-2.5 py-1 text-center text-[0.6875rem] leading-4 text-pretty text-(--solus-text-tertiary) shadow-[0_0_0_1px_var(--solus-tool-border)]">
-                      <ArrowsLeftRightIcon size={12} class="flex-shrink-0 text-(--solus-accent)" />
-                      <span>{item.message.content}</span>
-                    </div>
-                    <div class="h-px min-w-3 flex-1 bg-(--solus-tool-border)"></div>
-                  </div>
-                {:else if item.message.forkSourceSessionId}
-                  <div class="fork-divider" data-testid="fork-session-message">
-                    <div class="fork-divider-line"></div>
-                    <button
-                      class="fork-divider-label"
-                      onclick={() =>
-                        navigateToSourceSession(
-                          item.message.forkSourceSessionId!,
-                        )}
-                      title="Navigate to source session"
-                    >
-                      <GitForkIcon size={12} style="flex-shrink:0" />
-                      <span>Forked from</span>
-                      <span class="fork-divider-title"
-                        >"{item.message.forkSourceTitle || "session"}"</span
-                      >
-                    </button>
-                    <div class="fork-divider-line"></div>
-                  </div>
+                    {#snippet glyph()}<GitForkIcon size={12} />{/snippet}
+                    Forked from
+                    {#snippet title()}"{item.message.forkSourceTitle || "session"}"{/snippet}
+                  </TranscriptDivider>
                 {:else if item.message.worktreeMovedTo}
-                  <div
-                    class="fork-divider"
-                    data-testid="worktree-moved-message"
+                  <TranscriptDivider
+                    glyphClass="text-(--solus-accent)"
+                    titleClass="text-(--solus-accent)"
+                    testid="worktree-moved-message"
+                    {skipMotion}
                   >
-                    <div class="fork-divider-line"></div>
-                    <div class="fork-divider-label">
-                      <TreeStructureIcon size={12} style="flex-shrink:0" />
-                      <span>Continued in worktree</span>
-                      <span class="fork-divider-title"
-                        >{item.message.worktreeMovedTo}</span
-                      >
-                    </div>
-                    <div class="fork-divider-line"></div>
-                  </div>
+                    {#snippet glyph()}<TreeStructureIcon size={12} />{/snippet}
+                    Continued in worktree
+                    {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
+                  </TranscriptDivider>
+                {:else if item.message.newSessionForPlanId}
+                  <!-- The implementation run keeps none of the planning
+                       session's context, only the plan. Stating that is what
+                       separates a deliberate restart from a lost thread. -->
+                  {@const acceptedPlan = planStore.get(
+                    item.message.newSessionForPlanId,
+                  )}
+                  <TranscriptDivider
+                    glyphClass="text-(--solus-accent)"
+                    titleClass="text-(--solus-accent)"
+                    timestamp={item.message.timestamp}
+                    testid="plan-new-session-message"
+                    {skipMotion}
+                  >
+                    {#snippet glyph()}<PlusCircleIcon size={12} />{/snippet}
+                    New session implementing
+                    {#snippet title()}"{acceptedPlan?.title || "the plan"}"{/snippet}
+                  </TranscriptDivider>
                 {:else}
-                  {@const isError =
-                    item.message.content.startsWith("Error:") ||
-                    item.message.content.includes("unexpectedly")}
-                  <div class="py-0.5 {skipMotion ? '' : 'animate-msg-in-side'}">
-                    <div
-                      class="text-[0.6875rem] leading-[1.5] px-2.5 py-1 rounded-lg inline-block whitespace-pre-wrap {isError
-                        ? 'bg-(--solus-status-error-bg) text-(--solus-status-error)'
-                        : 'bg-(--solus-surface-hover) text-(--solus-text-tertiary)'}"
-                    >
-                      {item.message.content}
-                    </div>
-                  </div>
+                  <!-- Cancellations, interrupts and errors alike: centred between
+                       hairlines, never a bubble and never tinted. A transient
+                       state is not a message, so it gets no fill of its own. -->
+                  <TranscriptDivider timestamp={item.message.timestamp} {skipMotion}>
+                    {noticeText(item.message.content)}
+                  </TranscriptDivider>
                 {/if}
               {:else if item.kind === "plan"}
                 {@const plan = item.message.planId
@@ -913,13 +1262,12 @@
                 />
               {:else if item.kind === "task" && item.message.taskRef}
                 <TaskRefCard ref={item.message.taskRef} {skipMotion} />
-              {:else if item.kind === "session" && item.message.sessionRef}
-                <SessionRefCard ref={item.message.sessionRef} {skipMotion} />
+              {:else if item.kind === "agent-conversation-group"}
+                <AgentConversationGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "artifact" && item.message.artifact}
                 <ArtifactView artifact={item.message.artifact} {skipMotion} />
               {/if}
-            {/each}
-          </div>
+{/snippet}
 
           {#if sess.statusCard}
             <StatusCard card={sess.statusCard} />
@@ -941,40 +1289,19 @@
             />
           {/if}
 
-          {#if sess.status === "rate_limited" && (sess.rateLimitStrategy === "ask" || sess.rateLimitStrategy === "queue")}
+          <!-- The card is the *decision* surface, so it only stands while the
+               user still has one to make. Once the prompt is queued, its state
+               rides on the bubble instead. -->
+          {#if sess.status === "rate_limited" && sess.rateLimitStrategy === "ask"}
             <RateLimitCard tabId={tab.id} />
           {/if}
-          {#each sess.serverQueuedPrompts as prompt (`server-queued-${prompt.queueId}`)}
-            <UserMessageBubble
-              content={prompt.text}
-              attachments={prompt.images?.map((img) => ({
-                name: "",
-                dataUrl: img.dataUrl,
-                mimeType: img.mimeType,
-                type: "image" as const,
-              }))}
-              queued
-              queueId={prompt.queueId}
-              onCancel={(queueId) =>
-                window.solus
-                  .cancelQueuedPrompt(session.ctxFor(tabId), queueId)
-                  .catch((err: Error) =>
-                    session.handleError(tabId, {
-                      message: err.message,
-                      stderrTail: [],
-                      exitCode: null,
-                      elapsedMs: 0,
-                      toolCallCount: 0,
-                    }),
-                  )}
-            />
-          {/each}
+          <QueuedPromptGroup tabId={tab.id} />
 
           <div class="min-h-[6.25rem]"></div>
         </div>
       </div>
 
-      {#if isEditorShell}
+      {#if isEditorShell && retainTranscriptRows}
         <ConversationMinimap
           items={navItems}
           {scrollEl}
@@ -1007,27 +1334,11 @@
             class:pl-4={isEditorMode}
             class:pr-2={isEditorMode}
           >
-            {#if isRunning}
-              <span class="flex items-center gap-1.5">
-                <span class="flex gap-0.75">
-                  <span
-                    class="w-1.25 h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)"
-                    style="animation-delay:0ms"
-                  ></span>
-                  <span
-                    class="w-[0.3125rem] h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)"
-                    style="animation-delay:250ms"
-                  ></span>
-                  <span
-                    class="w-[0.3125rem] h-[0.3125rem] rounded-full animate-breathing bg-(--solus-status-running)"
-                    style="animation-delay:500ms"
-                  ></span>
-                </span>
-                <span class="text-(--solus-text-tertiary)"
-                  >{currentActivity || "Running..."}</span
-                >
-              </span>
-            {:else if isAwaitingPlan}
+            <!-- Running, stopped and failed are all reported by the turn's own
+                 row (§16, §17), not up here: the state belongs to the turn, not
+                 to the chrome. Only conditions the turn can't express stay in
+                 this strip. -->
+            {#if isAwaitingPlan}
               <span class="flex items-center gap-1.5">
                 <ClipboardTextIcon
                   size={11}
@@ -1038,32 +1349,6 @@
                   >Waiting for plan approval</span
                 >
               </span>
-            {:else if isDead}
-              <span class="text-(--solus-status-error)"
-                >Session ended unexpectedly</span
-              >
-              <button
-                onclick={handleRetry}
-                class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
-              >
-                <ArrowCounterClockwiseIcon size={10} />Retry
-              </button>
-            {:else if isFailed}
-              <span class="text-(--solus-status-error)">Failed</span>
-              <button
-                onclick={handleRetry}
-                class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
-              >
-                <ArrowCounterClockwiseIcon size={10} />Retry
-              </button>
-            {:else if isInterrupted}
-              <span class="text-(--solus-text-tertiary)">Interrupted</span>
-              <button
-                onclick={handleRetry}
-                class="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors text-(--solus-accent)"
-              >
-                <ArrowCounterClockwiseIcon size={10} />Retry
-              </button>
             {/if}
           </div>
         </div>
@@ -1084,10 +1369,19 @@
     contain-intrinsic-size: auto 3rem;
   }
 
-  /* Pill mode has no centered reading column, so it carves a small horizontal
-     inset on the message column to host the absolutely-positioned timestamp
-     gutters (assistant on the left, user on the right) — the same stamp markup
-     editor mode uses, just with locally-provided gutter room. */
+  /* content-visibility implies paint containment, which clips a child to its
+     padding box. An activity row's chassis bleeds into the column gutter so its
+     ends can round, and the clip was shearing those ends flat — the same trap
+     the rail hit below. These rows are a few spans and an icon, so there is
+     nothing worth skipping in them anyway. */
+  .cv-list > :global(.activity-block),
+  .cv-list > :global(.activity-host),
+  .turn-body > :global(.activity-host) {
+    content-visibility: visible;
+    contain-intrinsic-size: auto;
+  }
+
+  /* Pill mode provides the margin needed by the side-mounted message rails. */
   .cv-root {
     --cv-pill-gutter: 2.75rem;
   }
@@ -1107,11 +1401,9 @@
     padding-inline: calc(1rem + var(--cv-pill-gutter));
   }
 
-  /* Assistant rows whose timestamp sits in the column margin must opt out of
-     content-visibility on the row itself — paint containment would clip the
-     out-of-box stamp. The off-screen optimization moves to .cv-msg-body, which
-     holds the heavy markdown, so resize perf is preserved. */
-  .cv-list > :global(.cv-stamp-host) {
+  /* The row itself cannot contain paint because its rail sits outside its
+     bounds. Keep the expensive message body independently optimized. */
+  .cv-list > :global(.cv-rail-host) {
     content-visibility: visible;
     contain-intrinsic-size: auto;
   }
@@ -1121,72 +1413,46 @@
     contain-intrinsic-size: auto 3rem;
   }
 
-  /* Timestamp lives in the reading column's left margin (outside the panel) so
-     the assistant text's accent border lines up flush with tool-call rows at the
-     panel's left edge. right:100% anchors its right edge to the panel edge and it
-     extends left into the gutter. Editor mode only; pill keeps the inline stamp. */
-  .cv-stamp-gutter-left {
-    position: absolute;
-    right: 100%;
-    /* Anchored to the last text line's baseline: row py-2 bottom padding (0.5rem)
-       + paragraph bottom margin (~0.42rem) + the line's leading/descent (~0.5rem).
-       line-height:1 keeps the stamp's own baseline predictable. Tuned for messages
-       ending in a paragraph. */
-    bottom: 1.3125rem;
-    margin-right: 0.375rem;
-    line-height: 1;
-    white-space: nowrap;
+  /* §16 — the intermediate output is available, not present. While the turn runs
+     this block is the transcript itself, undecorated; once it ends it is either
+     hidden or indented behind the rule that marks where the fold was. It is
+     never unmounted, so ending a turn costs a reflow rather than a rebuild. */
+  .turn-body.is-folded {
+    display: none;
   }
 
-  .fork-divider {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.625rem 0;
+  .turn-body.is-open {
+    margin-left: 0.9375rem;
+    padding-left: 0.75rem;
+    border-left: 0.0625rem solid
+      color-mix(in oklch, var(--foreground) 9%, transparent);
   }
 
-  .fork-divider-line {
-    flex: 1;
+  /* The container itself cannot contain paint because side-mounted rails may
+     extend into its margin, so its rows retain the rendering optimization. */
+  .cv-list > :global(.turn-body) {
+    content-visibility: visible;
+    contain-intrinsic-size: auto;
+  }
+
+  .turn-body > :global(*) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 3rem;
+  }
+
+  .turn-body > :global(.cv-rail-host) {
+    content-visibility: visible;
+    contain-intrinsic-size: auto;
+  }
+
+  /* The hairline that closes the activity row and hands the column to the
+     answer. */
+  .turn-rule {
     height: 0.0625rem;
-    background: var(--solus-tool-border);
-  }
-
-  .fork-divider-label {
-    display: flex;
-    align-items: center;
-    gap: 0.3125rem;
-    flex-shrink: 0;
-    color: var(--solus-text-tertiary);
-    font-size: 0.6875rem;
-    background: transparent;
-    border: none;
-    padding: 0.1875rem 0.5rem;
-    border-radius: 1.25rem;
-    cursor: pointer;
-    transition:
-      background 0.15s ease,
-      color 0.15s ease;
-    line-height: 1.4;
-  }
-
-  .fork-divider-label:hover,
-  .fork-divider-label:active {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  .fork-divider-label:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
-  }
-
-  .fork-divider-title {
-    color: var(--solus-accent);
-    max-width: 12.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    display: inline-block;
-    vertical-align: bottom;
+    margin: 0 0 0.75rem;
+    /* A hairline that has never been painted must not claim a row's height in
+       the scrollbar when it is off-screen. */
+    contain-intrinsic-size: auto 0.0625rem;
+    background: color-mix(in oklch, var(--foreground) 8%, transparent);
   }
 </style>

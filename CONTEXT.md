@@ -1,40 +1,42 @@
 # Solus
 
-Solus is a desktop workspace for driving coding agents — sessions, PR review, and landing agent-authored changes. This glossary covers the language of its domain, starting with the merge lifecycle.
+An agent workspace that runs coding sessions on whichever machine holds the code — the machine
+you're sitting at, or one you've paired over the network.
 
 ## Language
 
-### Merge lifecycle
+**Host**:
+A machine Solus can run sessions on, reachable because a Solus server is running there.
+_Avoid_: Server (that's the process), machine, remote, box
 
-**Merge queue**:
-The machine that lands pull requests: it sequences them, gates each on required checks, and drives merges to completion. Each project has its own, with at most one run active at a time; projects' queues are independent of each other.
-_Avoid_: merge list, batch merger
+**Solus server**:
+The Solus daemon process running on a host. One per host.
+_Avoid_: Instance, node
 
-**Run**:
-A single opening of the merge queue over a set of pull requests that is sealed at start. There is exactly one kind of run; runs are deliberate, not standing background policy, and nothing joins a run after it starts. A run does not outlive the app — quitting abandons it, leaving worktrees clean.
+**Host readiness**:
+Whether a host still needs a user choice before it can take a session — code-host credentials and
+at least one provider that is installed and authenticated. Git and commit identity are probed, but
+repaired at the point of use rather than presented as onboarding requirements.
+_Avoid_: Setup status, health, capabilities
 
-**Fail-stop**:
-The merge queue's guarantee that a failed entry halts everything behind it. The queue never routes around a failure on its own; it waits for the user's decision.
+**Host onboarding**:
+The guided authentication pass that brings a host to readiness. Offered once when the host is
+claimed, always skippable, and resumable afterwards from the host's row in the host directory.
+_Avoid_: Setup wizard, checklist, first-run
 
-**Failure prompt**:
-The decision point raised app-wide when an entry fails — required checks failed, the host refused the merge, or the resolver gave up — offering exactly three verbs: agent fix, skip, or stop the run.
-_Avoid_: error toast (it demands a decision, not just attention)
+**Base checkout**:
+A host's copy of a repository, kept only so session worktrees can be cut from it. Never edited
+directly. The same repository can have a base checkout on several hosts.
+_Avoid_: Clone (that's the act), working copy, project folder
 
-**Resolver**:
-The agent the queue spawns automatically, without prompting, in an entry's worktree when a merge or restack hits conflicts. Conflicts are routine mechanics, not failures; only a resolver that gives up escalates to the failure prompt.
-_Avoid_: fixer, conflict agent
+**Dispatch**:
+Sending a session to a host other than the one you are working on. A dispatched session always
+runs in its own session worktree, so it never depends on that host's base checkout being clean.
+Only possible for a project with a git remote — that remote is the only thing that travels.
+Choosing the host you are already on is not a dispatch.
+_Avoid_: Remote run, offload, run-on
 
-**Staged**:
-The pull requests a user has selected for the next run. Staging during an active run builds the following run; it never feeds the live one.
-_Avoid_: queued (ambiguous with entries inside a run)
-
-**Run board**:
-The expanded view of an active run on the PRs page: one row per entry showing its live stage, its resolver, and — when paused — the failure prompt's verbs. The queue's first-class surface.
-_Avoid_: dock (the dock is the collapsed form)
-
-**Run chip**:
-The compact app-wide indicator of a project's active run, showing progress and the current entry's state, and linking back to the run board.
-
-**Auto-merge**:
-The merge queue's autonomous mechanics — restacking, conflict resolution, waiting out CI — that land a run without user intervention. A quality of every run, not a separate run kind, intake mode, or standing policy.
-_Avoid_: auto-land, merge policy, "auto run"
+**Session worktree**:
+The git worktree a session runs in, branched off the origin default branch of a base checkout.
+Modelled as `GitCheckout` in code.
+_Avoid_: Checkout (ambiguous with base checkout), branch

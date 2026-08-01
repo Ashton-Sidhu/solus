@@ -1,9 +1,9 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import type { FileDiffContentsLoader } from "@pierre/diffs";
   import { ClockIcon } from "phosphor-svelte";
   import type { ReviewGuide, ReviewLedger } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
-  import type { FileVersions } from "../../../lib/diff-expandable";
   import {
     formatAbsoluteTimestamp,
     formatTimeAgoFromTimestamp,
@@ -25,7 +25,7 @@
     guide,
     ledger,
     patch,
-    fileVersions,
+    loadDiffFiles,
     meta,
     guideCurrent = true,
     onFileJump,
@@ -36,9 +36,7 @@
     guide: ReviewGuide;
     ledger: ReviewLedger | null;
     patch: string;
-    /** Both versions of each changed file, keyed by path. Present only when the
-     *  host could fetch them; without it the cards' hunk gaps aren't expandable. */
-    fileVersions?: Map<string, FileVersions>;
+    loadDiffFiles?: FileDiffContentsLoader;
     /** PR identity for the intro header's metadata line (`repo#number · base ←
      *  branch`). Absent for standalone local-branch reviews. */
     meta?: { repo?: string; number?: number; baseRef: string; branch: string };
@@ -98,7 +96,7 @@
                 <span class="inline-flex items-center gap-1.5 font-mono text-[0.75rem]">
                   <span>{meta.baseRef}</span>
                   <span aria-hidden="true">←</span>
-                  <span class="text-(--solus-text-secondary)">{meta.branch}</span>
+                  <span class="font-secondary text-(--solus-text-secondary)">{meta.branch}</span>
                 </span>
               {/if}
               {#if meta && guide.generatedAt}
@@ -115,7 +113,7 @@
                 <span class="opacity-50">·</span>
                 <span
                   class="font-medium {guideCurrent
-                    ? 'text-(--solus-text-secondary)'
+                    ? 'font-secondary text-(--solus-text-secondary)'
                     : 'text-amber-700 dark:text-amber-400'}"
                 >
                   {guideCurrent ? "Current" : "Outdated"}
@@ -125,7 +123,7 @@
           {/if}
 
           {#if guide.summary}
-            <div class="prose-cloud prose-reading mt-4 max-w-[54rem] text-(--solus-text-secondary)">
+            <div class="prose-cloud prose-reading mt-4 max-w-[54rem] font-secondary text-(--solus-text-secondary)">
               <SvelteMarkdown source={guide.summary} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
             </div>
           {/if}
@@ -137,7 +135,7 @@
               {section}
               {records}
               {patchByPath}
-              {fileVersions}
+              {loadDiffFiles}
               {onFileJump}
               {comments}
               {onCommentSave}
@@ -164,7 +162,7 @@
                   {section}
                   {records}
                   {patchByPath}
-                  {fileVersions}
+                  {loadDiffFiles}
                   {onFileJump}
                   {comments}
                   {onCommentSave}

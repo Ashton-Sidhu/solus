@@ -13,10 +13,10 @@ export interface SessionLinkParams {
  *  in the link so cross-project opens still land in the right directory. */
 export async function resolveSessionLinkMeta(
   params: SessionLinkParams,
+  getSessionInfo: (sessionId: string) => Promise<SessionMeta | null> = window.solus
+    .getSessionInfo,
 ): Promise<SessionMeta> {
-  const meta = await window.solus
-    .getSessionInfo(params.sessionId)
-    .catch(() => null);
+  const meta = await getSessionInfo(params.sessionId).catch(() => null);
   if (meta?.cwd) return meta;
   return (
     meta ?? {

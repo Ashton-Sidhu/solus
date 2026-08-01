@@ -8,17 +8,23 @@
     FolderOpenIcon,
     ArrowsClockwiseIcon,
     GitCommitIcon,
+    ArrowSquareUpIcon,
+    ArrowCounterClockwiseIcon,
     CheckIcon,
     SpinnerIcon,
     XIcon,
     CaretRightIcon,
+    HardDrivesIcon,
   } from "phosphor-svelte";
   import {
     getWorkspaceContext,
     getAgentContext,
     getSettingsContext,
     getStatusBarContext,
+    getSessionEnvironmentStore,
+    serversStore,
   } from "@renderer/contexts";
+  import { gitActionsFor } from "@renderer/lib/git-actions.svelte";
   import { buildAgentAvailabilityRows } from "@renderer/lib/agentAvailability";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "../../../src/shared/types";
@@ -35,6 +41,7 @@
     canShowDiffPanel: boolean;
     diffPanelOpen: boolean;
     changedFilesCount: number;
+    onOpenServers: () => void;
   }
   let {
     open,
@@ -45,6 +52,7 @@
     canShowDiffPanel,
     diffPanelOpen,
     changedFilesCount,
+    onOpenServers,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -93,45 +101,24 @@
     return parts[parts.length - 1] || wd;
   });
 
-  let syncing = $state(false);
-  let synced = $state(false);
-  let commitPushing = $state(false);
-  let commitPushed = $state(false);
-  let syncTimer: ReturnType<typeof setTimeout> | null = null;
-  let commitTimer: ReturnType<typeof setTimeout> | null = null;
+  // The shared GitActions store routes every call through the session's own
+  // host (`apiFor`), so these rows work for dispatched sessions too.
+  const environmentStore = getSessionEnvironmentStore();
+  const actions = $derived(
+    gitActionsFor(session.activeTabId, session, environmentStore),
+  );
 
-  async function handleSync() {
-    if (gitDisabled || syncing) return;
-    syncing = true;
-    synced = false;
-    const result = await window.solus.gitSync(session.ctxForDirectory(workingDirectory));
-    syncing = false;
-    if (result.success) {
-      synced = true;
-      if (syncTimer) clearTimeout(syncTimer);
-      syncTimer = setTimeout(() => {
-        synced = false;
-        syncTimer = null;
-        onClose();
-      }, 1000);
-    }
-  }
+  // Discard arms in place — the row itself becomes the confirmation, which
+  // beats a modal on touch. Re-armed closed every time the sheet opens.
+  let confirmingDiscard = $state(false);
+  $effect(() => {
+    if (open) confirmingDiscard = false;
+  });
 
-  async function handleCommitPush() {
-    if (gitDisabled || commitPushing) return;
-    commitPushing = true;
-    commitPushed = false;
-    const result = await window.solus.gitCommitPush(session.ctxForDirectory(workingDirectory));
-    commitPushing = false;
-    if (result.success) {
-      commitPushed = true;
-      if (commitTimer) clearTimeout(commitTimer);
-      commitTimer = setTimeout(() => {
-        commitPushed = false;
-        commitTimer = null;
-        onClose();
-      }, 1000);
-    }
+  async function handleDiscard() {
+    if (gitDisabled || actions.discarding) return;
+    confirmingDiscard = false;
+    await actions.discard();
   }
 
   let hasMounted = $state(false);
@@ -189,13 +176,13 @@
   // Solus grouped bottom-sheet utilities — frosted surfaces, hairline borders,
   // terracotta accent on press (matches Dropdown / popover language).
   const heroCard =
-    "relative flex flex-col items-center justify-center gap-2 py-4 rounded-xl border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-primary) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.97] active:bg-(--solus-accent-light) active:border-(--solus-accent-border) disabled:opacity-40 disabled:active:scale-100 disabled:active:bg-(--solus-surface-hover) [-webkit-tap-highlight-color:transparent]";
+    "relative flex flex-col items-center justify-center gap-2 py-4 rounded-xl border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-primary) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) active:border-(--solus-accent-border) disabled:opacity-40 disabled:active:scale-100 disabled:active:bg-(--solus-surface-hover) [-webkit-tap-highlight-color:transparent]";
   const heroIcon = "text-(--solus-accent)";
   const heroLabel = "text-[0.8125rem] font-medium leading-tight text-center text-(--solus-text-primary)";
   const groupCard = "flex flex-col rounded-xl overflow-hidden border border-(--solus-container-border) bg-(--solus-surface-hover)";
   const listRow =
     "flex items-center gap-3.5 w-full min-h-12 px-3.5 py-3 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) disabled:opacity-40 disabled:cursor-default disabled:active:bg-transparent [-webkit-tap-highlight-color:transparent]";
-  const listIcon = "w-5 flex items-center justify-center shrink-0 text-(--solus-text-secondary)";
+  const listIcon = "w-5 flex items-center justify-center shrink-0 font-secondary text-(--solus-text-secondary)";
   const listLabel = "flex-1 min-w-0 truncate text-[0.9375rem] font-medium text-(--solus-text-primary)";
   const listValue = "shrink-0 max-w-[8rem] truncate text-[0.8125rem] text-(--solus-text-tertiary)";
   const rowDivider = "h-px bg-(--solus-container-border) opacity-60 ml-12";
@@ -225,7 +212,7 @@
        The sheet doesn't scroll; touch-none claims vertical drags for swipe-to-dismiss. -->
   <div
     bind:this={sheetEl}
-    class="fixed bottom-0 inset-x-0 z-[41] rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform"
+    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
     class:invisible={!visible}
     class:pointer-events-none={!visible}
     use:swipeDismiss={{ axis: "y", sign: 1, onDismiss: onClose, backdrop: () => backdropEl }}
@@ -235,7 +222,7 @@
     <div class="relative flex items-center justify-center h-9 mb-3">
       <button
         type="button"
-        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
+        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
         aria-label="Close menu"
         onclick={onClose}
       >
@@ -280,6 +267,13 @@
           <CaretRightIcon size={16} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>
+        <button class={listRow} onclick={() => handleAction(onOpenServers)}>
+          <span class={listIcon}><HardDrivesIcon size={18} /></span>
+          <span class={listLabel}>Server</span>
+          <span class={listValue}>{serversStore.activeServer?.label ?? ""}</span>
+          <CaretRightIcon size={16} class={chevronClass} />
+        </button>
+        <div class={rowDivider}></div>
         <button class={listRow} disabled={!canShowDiffPanel} onclick={() => handleAction(onToggleDiff)}>
           <span class={listIcon}><GitDiffIcon size={18} /></span>
           <span class={listLabel}>Changes</span>
@@ -311,31 +305,85 @@
       <!-- Source control -->
       {#if !gitDisabled}
         <div class={groupCard}>
-          <button class={listRow} onclick={handleSync} disabled={syncing}>
-            <span class="{listIcon} {synced ? '!text-(--solus-status-complete)' : ''}">
-              {#if syncing}
-                <SpinnerIcon size={18} class="animate-spin" />
-              {:else if synced}
-                <CheckIcon size={18} />
-              {:else}
-                <ArrowsClockwiseIcon size={18} />
-              {/if}
+          <button class={listRow} onclick={() => void actions.sync()} disabled={actions.syncing}>
+            <span class="{listIcon} {actions.synced ? '!text-(--solus-status-complete)' : ''}">
+              {#key actions.syncing ? "busy" : actions.synced ? "done" : "idle"}
+                <span class="icon-swap">
+                  {#if actions.syncing}
+                    <SpinnerIcon size={18} class="animate-spin" />
+                  {:else if actions.synced}
+                    <CheckIcon size={18} />
+                  {:else}
+                    <ArrowsClockwiseIcon size={18} />
+                  {/if}
+                </span>
+              {/key}
             </span>
-            <span class={listLabel}>{synced ? "Synced" : "Sync"}</span>
+            <span class={listLabel}>{actions.synced ? "Synced" : "Sync"}</span>
           </button>
           <div class={rowDivider}></div>
-          <button class={listRow} onclick={handleCommitPush} disabled={commitPushing}>
-            <span class="{listIcon} {commitPushed ? '!text-(--solus-status-complete)' : ''}">
-              {#if commitPushing}
-                <SpinnerIcon size={18} class="animate-spin" />
-              {:else if commitPushed}
-                <CheckIcon size={18} />
-              {:else}
-                <GitCommitIcon size={18} />
-              {/if}
+          <button class={listRow} onclick={() => void actions.commit()} disabled={actions.commitPushing}>
+            <span class="{listIcon} {actions.commitPushed ? '!text-(--solus-status-complete)' : ''}">
+              {#key actions.commitPushing ? "busy" : actions.commitPushed ? "done" : "idle"}
+                <span class="icon-swap">
+                  {#if actions.commitPushing}
+                    <SpinnerIcon size={18} class="animate-spin" />
+                  {:else if actions.commitPushed}
+                    <CheckIcon size={18} />
+                  {:else}
+                    <GitCommitIcon size={18} />
+                  {/if}
+                </span>
+              {/key}
             </span>
-            <span class={listLabel}>{commitPushed ? "Pushed" : "Commit & Push"}</span>
+            <span class={listLabel}>Commit</span>
           </button>
+          <div class={rowDivider}></div>
+          <button class={listRow} onclick={() => void actions.commitPush()} disabled={actions.commitPushing}>
+            <span class={listIcon}>
+              <ArrowSquareUpIcon size={18} />
+            </span>
+            <span class={listLabel}>Commit & Push</span>
+          </button>
+          {#if changedFilesCount > 0}
+            <div class={rowDivider}></div>
+            {#if confirmingDiscard}
+              <div class="flex items-center gap-2 px-3.5 py-2.5">
+                <span class="flex-1 min-w-0 text-[0.8125rem] text-(--solus-text-secondary)">
+                  Discards {changedFilesCount} uncommitted change{changedFilesCount === 1 ? "" : "s"}
+                </span>
+                <button
+                  type="button"
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold text-(--solus-status-error) bg-[color-mix(in_oklab,var(--solus-status-error)_12%,transparent)] [-webkit-tap-highlight-color:transparent]"
+                  onclick={handleDiscard}
+                >
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium text-(--solus-text-tertiary) [-webkit-tap-highlight-color:transparent]"
+                  onclick={() => (confirmingDiscard = false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            {:else}
+              <button
+                class={listRow}
+                onclick={() => (confirmingDiscard = true)}
+                disabled={actions.discarding}
+              >
+                <span class={listIcon}>
+                  {#if actions.discarding}
+                    <SpinnerIcon size={18} class="animate-spin" />
+                  {:else}
+                    <ArrowCounterClockwiseIcon size={18} />
+                  {/if}
+                </span>
+                <span class={listLabel}>Discard changes</span>
+              </button>
+            {/if}
+          {/if}
         </div>
       {/if}
     </div>
@@ -393,3 +441,34 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* State icons (sync/commit spinners and checks) grow in rather than pop:
+     the swap is a scale + blur entrance keyed on the state, per the Solus
+     icon-animation contract (0.25 → 1, blur 4px → 0). */
+  .icon-swap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: icon-swap-in 0.22s cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  @keyframes icon-swap-in {
+    from {
+      opacity: 0;
+      transform: scale(0.25);
+      filter: blur(0.25rem);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+      filter: blur(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .icon-swap {
+      animation: none;
+    }
+  }
+</style>

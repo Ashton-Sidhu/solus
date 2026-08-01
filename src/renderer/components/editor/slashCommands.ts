@@ -15,6 +15,7 @@ import {
   CodeIcon,
   TableIcon,
   MinusIcon,
+  SparkleIcon,
 } from 'phosphor-svelte'
 
 export interface EditorBlockCommand {
@@ -24,6 +25,9 @@ export interface EditorBlockCommand {
   keywords: string[]
   icon: Component
   group: string
+  /** Rendered in accent — reserved for the one entry that reaches the agent
+   *  rather than inserting a block. */
+  accent?: boolean
   action: (editor: Editor) => void
 }
 
@@ -129,10 +133,26 @@ export const EDITOR_BLOCK_COMMANDS: EditorBlockCommand[] = [
   },
 ]
 
-export function filterCommands(query: string): EditorBlockCommand[] {
+/** The agent entry is built per host rather than living in the static list —
+ *  it needs a callback, and surfaces without an agent must not offer it. */
+export function askSolusCommand(onAskSolus: () => void): EditorBlockCommand {
+  return {
+    id: 'askSolus',
+    label: 'Ask Solus to draft…',
+    description: 'Hand this block to the agent',
+    keywords: ['ai', 'agent', 'solus', 'draft', 'write', 'generate'],
+    icon: SparkleIcon,
+    group: 'agent',
+    accent: true,
+    action: () => onAskSolus(),
+  }
+}
+
+export function filterCommands(query: string, extra: EditorBlockCommand[] = []): EditorBlockCommand[] {
+  const all = extra.length > 0 ? [...EDITOR_BLOCK_COMMANDS, ...extra] : EDITOR_BLOCK_COMMANDS
   const q = query.toLowerCase().trim()
-  if (!q) return EDITOR_BLOCK_COMMANDS
-  return EDITOR_BLOCK_COMMANDS.filter(cmd =>
+  if (!q) return all
+  return all.filter(cmd =>
     cmd.label.toLowerCase().includes(q) ||
     cmd.id.toLowerCase().includes(q) ||
     cmd.keywords.some(k => k.includes(q))

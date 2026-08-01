@@ -8,10 +8,6 @@ import {
   type PickerEntry,
 } from './sessionUtils'
 
-export type PickerRow =
-  | { kind: 'header'; label: string }
-  | { kind: 'entry'; entry: PickerEntry; entryIndex: number }
-
 /** Tab/session maps needed to detect which history sessions are already open. */
 export interface SessionLookup {
   tabs: Record<string, Tab>
@@ -54,88 +50,109 @@ export function dedupeHistoryEntries(
     .map((meta) => ({ kind: 'history' as const, meta }))
 }
 
+/** Stable identity for a picker entry, independent of the wrapper object that
+ *  dedupe/derive recreate on every pass: an open tab keyed by its agent
+ *  session (or tab id before one exists), a history session keyed by
+ *  provider+sessionId. */
+function entryKey(entry: PickerEntry): string {
+  if (entry.kind === 'open') {
+    return entry.session.agentSessionId
+      ? `${entry.session.provider}:${entry.session.agentSessionId}`
+      : `tab:${entry.tabId}`
+  }
+  return `${entry.meta.provider}:${entry.meta.sessionId}`
+}
+
+function buildSearchText(entry: PickerEntry): string {
+  return `${entryTitle(entry)}\n${entryFirstMessage(entry)}\n${entryByline(entry)}`.toLowerCase()
+}
+
+type SearchCacheRecord =
+  | { kind: 'open'; tabTitle: string; messageCount: number; byline: string; searchText: string }
+  | { kind: 'history'; meta: SessionMeta; searchText: string }
+
 /**
- * Apply the search query (matches title, first message, or byline) then surface open
- * sessions first so they group under a dedicated "Open" header. Keyboard
- * selection indexes the returned array, so this ordering is the single source of
- * truth for both display and selection.
+ * Caches each entry's lowercased "title + first message + byline" blob so
+ * filtering on every keystroke only runs a substring search against it,
+ * rather than re-deriving and re-lowercasing the underlying (possibly very
+ * long) first message text every time. Keyed by stable identity rather than
+ * the `PickerEntry` wrapper, since dedupe recreates that wrapper on every
+ * pass.
+ *
+ * A history entry's cache stays valid as long as its `SessionMeta` reference
+ * is unchanged (history only gets new meta objects from an actual rescan). An
+ * open entry's tab/session objects are mutated in place, so reference
+ * equality can't detect a rename, a new message, or a working-directory swap
+ * (e.g. resuming into a worktree); instead it stays valid while the tab
+ * title, message count, and byline — all cheap to read — are unchanged.
  */
-export function filterEntries(entries: PickerEntry[], query: string): PickerEntry[] {
-  const q = query.trim().toLowerCase()
-  const base = q
-    ? entries.filter(
-        (e) =>
-          entryTitle(e).toLowerCase().includes(q) ||
-          entryFirstMessage(e).toLowerCase().includes(q) ||
-          entryByline(e).toLowerCase().includes(q),
-      )
-    : entries
-  return [
-    ...base.filter((e) => e.kind === 'open'),
-    ...base.filter((e) => e.kind === 'history'),
-  ]
+export class SearchTextCache {
+  #cache = new Map<string, SearchCacheRecord>()
+
+  get size(): number {
+    return this.#cache.size
+  }
+
+  get(entry: PickerEntry): string {
+    const key = entryKey(entry)
+    const cached = this.#cache.get(key)
+    if (entry.kind === 'history') {
+      if (cached?.kind === 'history' && cached.meta === entry.meta) return cached.searchText
+      const searchText = buildSearchText(entry)
+      this.#cache.set(key, { kind: 'history', meta: entry.meta, searchText })
+      return searchText
+    }
+    const tabTitle = entry.tab.title
+    const messageCount = entry.session.messages.length
+    const byline = entryByline(entry)
+    if (
+      cached?.kind === 'open' &&
+      cached.tabTitle === tabTitle &&
+      cached.messageCount === messageCount &&
+      cached.byline === byline
+    ) {
+      return cached.searchText
+    }
+    const searchText = buildSearchText(entry)
+    this.#cache.set(key, { kind: 'open', tabTitle, messageCount, byline, searchText })
+    return searchText
+  }
+
+  /**
+   * Warm the cache for every entry in one pass — called on the empty-query
+   * (all-entries) render so the first keystroke never pays for building
+   * search text from scratch. Also prunes records for entries no longer in
+   * `entries` (closed tabs, sessions that fell out of history) so the cache
+   * doesn't grow unbounded across reopens.
+   */
+  prepare(entries: PickerEntry[]) {
+    const liveKeys = new Set<string>()
+    for (const entry of entries) {
+      liveKeys.add(entryKey(entry))
+      this.get(entry)
+    }
+    if (this.#cache.size > liveKeys.size) {
+      for (const key of this.#cache.keys()) {
+        if (!liveKeys.has(key)) this.#cache.delete(key)
+      }
+    }
+  }
 }
 
 /**
- * Group filtered entries into rendered rows: open sessions first under "Open",
- * then history bucketed by recency. `entryIndex` is the running index of entry
- * rows only (headers excluded) so it lines up with keyboard selection.
+ * Apply the search query (matches title, first message, or byline) — the single
+ * source of truth for both display and keyboard selection order. A single pass
+ * over `entries` that preserves whatever order the caller (`FrozenEntryOrder`)
+ * already produced; it does not repartition open entries ahead of history.
  */
-export function buildRows(
-  filteredItems: PickerEntry[],
-  timestampOf: (entry: PickerEntry) => number,
-): PickerRow[] {
-  if (filteredItems.length === 0) return []
-  const now = new Date()
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  ).getTime()
-  const startOfYesterday = startOfToday - 86400000
-  const startOfWeek = startOfToday - 6 * 86400000
-
-  const buckets: Record<string, PickerEntry[]> = {
-    Today: [],
-    Yesterday: [],
-    'This week': [],
-    Earlier: [],
-  }
-  const openItems: PickerEntry[] = []
-
-  for (const e of filteredItems) {
-    if (e.kind === 'open') {
-      openItems.push(e)
-      continue
-    }
-    const ts = timestampOf(e)
-    if (!ts) buckets.Earlier.push(e)
-    else if (ts >= startOfToday) buckets.Today.push(e)
-    else if (ts >= startOfYesterday) buckets.Yesterday.push(e)
-    else if (ts >= startOfWeek) buckets['This week'].push(e)
-    else buckets.Earlier.push(e)
-  }
-
-  const out: PickerRow[] = []
-  let entryIndex = 0
-  if (openItems.length > 0) {
-    out.push({ kind: 'header', label: 'Open' })
-    for (const e of openItems) {
-      out.push({ kind: 'entry', entry: e, entryIndex })
-      entryIndex++
-    }
-  }
-  const order = ['Today', 'Yesterday', 'This week', 'Earlier'] as const
-  for (const k of order) {
-    const b = buckets[k]
-    if (b.length === 0) continue
-    out.push({ kind: 'header', label: k })
-    for (const e of b) {
-      out.push({ kind: 'entry', entry: e, entryIndex })
-      entryIndex++
-    }
-  }
-  return out
+export function filterEntries(
+  entries: PickerEntry[],
+  query: string,
+  searchCache: SearchTextCache,
+): PickerEntry[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return entries
+  return entries.filter((entry) => searchCache.get(entry).includes(q))
 }
 
 /**
@@ -160,17 +177,8 @@ export class FrozenEntryOrder {
     this.#order.clear()
   }
 
-  #key(entry: PickerEntry): string {
-    if (entry.kind === 'open') {
-      return entry.session.agentSessionId
-        ? `${entry.session.provider}:${entry.session.agentSessionId}`
-        : `tab:${entry.tabId}`
-    }
-    return `${entry.meta.provider}:${entry.meta.sessionId}`
-  }
-
   timestamp(entry: PickerEntry): number {
-    const key = this.#key(entry)
+    const key = entryKey(entry)
     const cached = this.#ts.get(key)
     if (cached !== undefined) return cached
     const ts = entryTimestamp(entry)
@@ -184,11 +192,11 @@ export class FrozenEntryOrder {
     )
     if (!settled) return byTimestamp
     for (const entry of byTimestamp) {
-      const key = this.#key(entry)
+      const key = entryKey(entry)
       if (!this.#order.has(key)) this.#order.set(key, this.#order.size)
     }
     return byTimestamp.sort(
-      (a, b) => this.#order.get(this.#key(a))! - this.#order.get(this.#key(b))!,
+      (a, b) => this.#order.get(entryKey(a))! - this.#order.get(entryKey(b))!,
     )
   }
 }

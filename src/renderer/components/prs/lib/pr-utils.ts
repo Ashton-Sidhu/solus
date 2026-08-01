@@ -88,12 +88,46 @@ export function reviewEffortSummary(items: PullRequestSummary[]): {
   }
 }
 
+export interface PrInboxFacts {
+  /** Open PRs in the loaded page. Counted from `items` rather than the tab
+   *  filter so switching to Closed/All doesn't restate them as "open". */
+  openCount: number
+  /** Review minutes across the rows currently on screen, or null when no PR
+   *  carries an estimate — the header drops the clause rather than asserting
+   *  a fabricated "≈ 0 min". */
+  effortMinutes: number | null
+  /** Null until the first list fetch lands, so the header never claims a sync
+   *  that hasn't happened. */
+  syncedLabel: string | null
+}
+
+/** The three facts under the inbox title: how much is open, how long it reads,
+ *  and how fresh the data is. */
+export function prInboxFacts({
+  items,
+  filtered,
+  listLoadedAt,
+  now = Date.now(),
+}: {
+  items: PullRequestSummary[]
+  filtered: PullRequestSummary[]
+  listLoadedAt: number
+  now?: number
+}): PrInboxFacts {
+  const effort = reviewEffortSummary(filtered)
+  return {
+    openCount: items.reduce((count, pr) => count + (pr.state === 'open' ? 1 : 0), 0),
+    effortMinutes: effort ? effort.minutes : null,
+    syncedLabel: listLoadedAt > 0 ? `Synced ${relativeTime(listLoadedAt, now)}` : null,
+  }
+}
+
 export function reviewEffortTooltip(pr: PullRequestSummary): string | undefined {
   return pr.effort?.signals.join(' · ')
 }
 
-export function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime()
+export function relativeTime(at: string | number, now = Date.now()): string {
+  const ms = now - (typeof at === 'number' ? at : new Date(at).getTime())
   const sec = Math.floor(ms / 1000)
   if (sec < 60) return 'just now'
   const min = Math.floor(sec / 60)

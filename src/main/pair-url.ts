@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { homedir, networkInterfaces } from 'os'
-
-const LOCK_FILE = join(homedir(), '.solus', 'server.lock')
+import { networkInterfaces } from 'os'
+import { solusDir } from './platform/paths'
 
 function candidateHosts(bindHost: string): string[] {
   if (bindHost && bindHost !== '0.0.0.0' && bindHost !== '::') {
@@ -30,13 +29,14 @@ async function isSolus(host: string, port: number): Promise<boolean> {
 }
 
 export async function mintPairUrl(): Promise<{ url: string; code: string; expiresIn: string }> {
-  if (!existsSync(LOCK_FILE)) {
-    throw new Error('No running Solus server detected (missing ~/.solus/server.lock). Start Solus first.')
+  const lockFile = join(solusDir(), 'server.lock')
+  if (!existsSync(lockFile)) {
+    throw new Error(`No running Solus server detected (missing ${lockFile}). Start Solus first.`)
   }
 
   let lock: { host: string; port: number }
   try {
-    lock = JSON.parse(readFileSync(LOCK_FILE, 'utf-8'))
+    lock = JSON.parse(readFileSync(lockFile, 'utf-8'))
   } catch (err: any) {
     throw new Error(`Failed to parse server.lock: ${err.message}`)
   }

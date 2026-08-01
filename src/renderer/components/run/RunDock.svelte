@@ -190,6 +190,7 @@
 
   /* Status indicator — mirrors the Run section's state language. */
   .tab-dot {
+    position: relative;
     width: 0.4375rem;
     height: 0.4375rem;
     border-radius: 999px;
@@ -198,19 +199,27 @@
   }
   .dock-tab.state-running .tab-dot {
     background: var(--solus-status-live);
+    box-shadow: 0 0 0.375rem var(--solus-status-live-glow);
   }
   @media (prefers-reduced-motion: no-preference) {
-    .dock-tab.state-running .tab-dot {
+    .dock-tab.state-running .tab-dot::after {
+      content: "";
+      position: absolute;
+      inset: -0.125rem;
+      border: 0.0625rem solid var(--solus-status-live-glow);
+      border-radius: inherit;
       animation: dock-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
   }
   @keyframes dock-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 var(--solus-status-live-glow);
+    0% {
+      opacity: 0.55;
+      transform: scale(0.72);
     }
-    50% {
-      box-shadow: 0 0 0 0.1875rem transparent;
+    55%,
+    100% {
+      opacity: 0;
+      transform: scale(1.5);
     }
   }
   .dock-tab.state-error .tab-dot {

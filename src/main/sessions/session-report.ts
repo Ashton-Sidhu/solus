@@ -31,6 +31,31 @@ export function formatPendingInputReport(events: readonly NormalizedEvent[]): st
   return reports.length ? reports.join('\n\n') : null
 }
 
+export interface AgentConversationQuestion {
+  kind: 'question' | 'permission' | 'plan'
+  questionId?: string
+  questionText: string
+}
+
+/** The human-readable question a paused agent is asking, for the agent-conversation card's
+ *  waiting state — latest pending item wins. Unlike formatPendingInputReport
+ *  this is display copy: no option lists, no tool input JSON. */
+export function agentConversationQuestionFromPendingInput(events: readonly NormalizedEvent[]): AgentConversationQuestion | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.type === 'question_request' && event.questions[0]) {
+      return { kind: 'question', questionId: event.questionId, questionText: event.questions[0].question }
+    }
+    if (event.type === 'permission_request') {
+      return { kind: 'permission', questionId: event.questionId, questionText: `Wants to run ${event.toolName}` }
+    }
+    if (event.type === 'plan') {
+      return { kind: 'plan', questionId: event.questionId, questionText: 'Plan awaiting approval' }
+    }
+  }
+  return null
+}
+
 export function buildSessionSettledReport(
   targetSessionId: string,
   status: SessionStatus,

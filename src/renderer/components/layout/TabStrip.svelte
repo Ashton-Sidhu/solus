@@ -14,7 +14,7 @@
     ClockIcon,
     CaretLeftIcon,
     CaretRightIcon,
-    ColumnsIcon,
+    ChatsIcon,
     FunnelSimpleIcon,
     SidebarSimpleIcon,
     HandPalmIcon,
@@ -24,11 +24,19 @@
     CircleDashedIcon,
     CircleIcon,
   } from "phosphor-svelte";
-  import { getWorkspaceContext, getPlanStore, type TabGroupMode } from "../../contexts";
-  import { tooltip } from "../../lib/tooltip";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    runtime,
+    type TabGroupMode,
+  } from "../../contexts";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { createTabScroll } from "../../lib/tabScroll.svelte";
   import SessionProgressRing from "./SessionProgressRing.svelte";
+  import ContextMeter from "../ContextMeter.svelte";
+  import SettingsPopover from "../SettingsPopover.svelte";
   import { shouldShowSessionProgressRing } from "./lib/session-progress-ring";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import * as Tabs from "../ui/tabs";
@@ -69,8 +77,10 @@
   const showSidebarToggle = $derived(
     variant === "editor" && !sidebarOpen && !!onToggleSidebar,
   );
+  // The chrome row spans the project rail now, so this is the rail's only
+  // expand/collapse affordance — it stays put whether the rail is open or shut.
   const showPanelToggle = $derived(
-    variant === "editor" && !projectPanelOpen && !!onToggleProjectPanel,
+    variant === "editor" && !!onToggleProjectPanel,
   );
 
   const session = getWorkspaceContext();
@@ -366,6 +376,7 @@
   {@const sess = session.sessionFor(tabId)}
   {@const statusIcon =
     showStatus && tab && sess ? getStatusIcon(sess.status) : null}
+  {@const hostAffinity = serversStore.affinityFor(sess?.serverId)}
   {@const showProgressRing =
     !!sess &&
     shouldShowSessionProgressRing(
@@ -375,6 +386,21 @@
     )}
   {#if tab}
     <div class="flex min-w-0 items-center gap-[0.3125rem]">
+      {#if hostAffinity}
+        {@const HostIcon = hostAffinity.icon}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
+          class="flex size-3 shrink-0 items-center justify-center {hostAffinity.className}"
+        >
+          <HostIcon size={10} />
+        </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={hostAffinity.tooltip} />
+        </TooltipUI.Root>
+      {/if}
       {#if showProgressRing && sess?.progress}
         <SessionProgressRing progress={sess.progress} />
       {:else if statusIcon}
@@ -388,12 +414,18 @@
         />
       {/if}
       {#if tabId === splitTabId}
-        <span
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
           class="tab-split-icon flex shrink-0 items-center"
-          use:tooltip={"Open in split pane"}
         >
-          <ColumnsIcon size={10} />
+          <ChatsIcon size={10} />
         </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Open in split pane"} />
+        </TooltipUI.Root>
       {/if}
       <span
         class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -428,17 +460,23 @@
   <div class="tab-bar-row flex items-center" bind:this={barEl}>
     <div class="tab-seam" aria-hidden="true"></div>
     {#if showSidebarToggle}
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         class="tab-chrome-lead tab-chrome-lead--left"
         onclick={() => {
           onToggleSidebar?.();
           requestInputFocus();
         }}
         aria-label="Expand sidebar"
-        use:tooltip={`Expand sidebar (${comboHint("global.toggle-sidebar")})`}
       >
         <SidebarSimpleIcon size={14} />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={`Expand sidebar (${comboHint("global.toggle-sidebar")})`} />
+      </TooltipUI.Root>
       <div class="tab-sep tab-sep-lead flex-shrink-0" aria-hidden="true"></div>
     {/if}
 
@@ -469,11 +507,13 @@
                  status-colored spine, a faint tinted body, and a rounded outer
                  edge, so the section's tabs read as hanging off the divider. The
                  status glyph lives here, so the tabs below drop their own icon. -->
-            <span
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <span {...tooltipProps}
               class="tab-group-binder"
               class:tab-group-lead={gi > 0}
               style="--gc:{gv.color}"
-              use:tooltip={`${group.label} · ${count}`}
             >
               <GIcon
                 size={13}
@@ -482,6 +522,10 @@
                 class={gv.spin ? "tab-status-spin" : ""}
               />
             </span>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={`${group.label} · ${count}`} />
+            </TooltipUI.Root>
             {#each group.tabIds as tabId (tabId)}
               {@const tab = session.tabs[tabId]}
               {@const sess = session.sessionFor(tabId)}
@@ -595,21 +639,30 @@
     <div class="tab-sep flex-shrink-0" aria-hidden="true"></div>
 
     <div class="tab-actions flex items-center gap-1 flex-shrink-0 ml-1 pr-2">
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         onclick={async () => {
           await session.createTab();
           requestInputFocus();
         }}
         data-testid="new-tab-button"
         class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-        use:tooltip={variant === "editor"
-          ? `New session in branch (${comboHint("global.new-tab")})`
-          : "New tab"}
       >
         <PlusIcon size={14} />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={variant === "editor"
+          ? `New session in branch (${comboHint("global.new-tab")})`
+          : "New tab"} />
+      </TooltipUI.Root>
 
-      <button
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
         onclick={() => {
           session.toggleTabGroupMode();
           requestInputFocus();
@@ -618,51 +671,85 @@
         class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors {isGrouped
           ? 'text-(--solus-accent)'
           : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
-        use:tooltip={groupToggleTooltip}
       >
         <FunnelSimpleIcon size={13} weight={isGrouped ? "fill" : "regular"} />
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={groupToggleTooltip} />
+      </TooltipUI.Root>
 
       {#if variant === "pill"}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           onclick={() =>
             window.dispatchEvent(
               new CustomEvent("solus:toggle-session-picker"),
             )}
           class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-          use:tooltip={`Resume a previous session (${comboHint("global.session-picker")})`}
         >
           <ClockIcon size={13} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={`Resume a previous session (${comboHint("global.session-picker")})`} />
+        </TooltipUI.Root>
 
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           onclick={() => session.togglePlansGallery()}
           class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-          use:tooltip={"Plans (⌥⇧L)"}
         >
           <ArticleIcon size={14} />
         </button>
-        <button
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Plans (⌥⇧L)"} />
+        </TooltipUI.Root>
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           onclick={() => session.toggleFolioGallery()}
           class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-          use:tooltip={"Folio — documents (⌥⇧;)"}
         >
           <FileTextIcon size={14} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Folio — documents (⌥⇧;)"} />
+        </TooltipUI.Root>
+
+        <ContextMeter tabId={session.activeTabId} />
+        {#if !runtime.isMobileViewport}
+          <SettingsPopover />
+        {/if}
       {/if}
 
       {#if showPanelToggle}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           onclick={() => {
             onToggleProjectPanel?.();
             requestInputFocus();
           }}
           class="tab-chrome-lead tab-chrome-lead--right"
-          aria-label="Expand project panel"
-          use:tooltip={`Expand project panel (${comboHint("global.toggle-project-panel")})`}
+          aria-label={projectPanelOpen
+            ? "Collapse project panel"
+            : "Expand project panel"}
         >
           <SidebarSimpleIcon size={13} mirrored />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={`${projectPanelOpen ? "Collapse" : "Expand"} project panel (${comboHint("global.toggle-project-panel")})`} />
+        </TooltipUI.Root>
       {/if}
     </div>
   </div>

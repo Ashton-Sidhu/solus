@@ -86,7 +86,3 @@ export function localConnectHost(host: string): string {
   return host
 }
 
-export function hostForUrl(host: string): string {
-  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
-}
-

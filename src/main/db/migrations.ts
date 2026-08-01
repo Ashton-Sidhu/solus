@@ -224,6 +224,20 @@ CREATE TRIGGER works_fts_au AFTER UPDATE ON works BEGIN
     SELECT new.id, COALESCE(new.title, ''), COALESCE(new.content, '') WHERE new.storage = 'local';
 END;
 `,
+  // Composer drafts parked for later, scoped to a project. Attachments ride in
+  // one JSON column: they are only ever read and written as the whole set
+  // belonging to a prompt, so a child table would buy N inserts per save for no
+  // query power. No updated_at — a saved prompt is immutable once written.
+  `
+CREATE TABLE saved_prompts (
+  id TEXT PRIMARY KEY,
+  project_root TEXT NOT NULL,
+  text TEXT NOT NULL,
+  attachments TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX saved_prompts_by_project ON saved_prompts(project_root, created_at DESC);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

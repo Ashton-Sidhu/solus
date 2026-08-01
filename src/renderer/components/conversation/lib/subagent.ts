@@ -1,11 +1,5 @@
-import type { Message } from '../../../../shared/types'
-import { prettyToolName, solusToolKey } from '../../../contexts/workspace/session.utils'
-
-/** A sub-agent transcript item: consecutive tool calls collapse into one group;
- *  assistant text renders on its own. Mirrors the main-thread grouping. */
-export type SubItem =
-  | { kind: 'tool-group'; messages: Message[] }
-  | { kind: 'assistant'; message: Message }
+import type { Message, TodoItem } from '../../../../shared/types'
+import { progressFromMessages, progressTodosFromTool } from '../../../contexts/workspace/session.utils'
 
 export type SubagentInput = {
   subagent_type?: string
@@ -15,6 +9,8 @@ export type SubagentInput = {
   instructions?: string
   model?: string
   reasoning_effort?: string
+  agent_thread_id?: string
+  agent_path?: string
 }
 
 export function parseSubagentInput(toolInput: string | undefined): SubagentInput {
@@ -40,8 +36,8 @@ export function subagentInputText(input: SubagentInput): string {
 // A sub-tool's toolInput carries whole file bodies (Write/Edit) and can still
 // change while running (Codex patch updates replace it). Parse each sub message
 // at most once, cached on the message object, and never while it's running —
-// the cache would otherwise pin a stale parse. Module-scoped WeakMap so the card
-// (ticker) and the pane (transcript) share one parse per message.
+// the cache would otherwise pin a stale parse. Module-scoped WeakMap so every
+// reader of a sub-transcript shares one parse per message.
 const subParseCache = new WeakMap<Message, Record<string, unknown> | null>()
 
 export function parseSubInput(m: Message): Record<string, unknown> | null {
@@ -56,49 +52,31 @@ export function parseSubInput(m: Message): Record<string, unknown> | null {
   return parsed
 }
 
-/** Short label for a sub-tool, used by the running ticker. */
-export function subToolLabel(m: Message): string {
-  const name = m.toolName || 'Tool'
-  if (solusToolKey(name)) return prettyToolName(name)
-  // Running / unparseable: cheap fallback, never parse the growing partial JSON.
-  const parsed = parseSubInput(m)
-  if (!parsed) return prettyToolName(name)
-  const s = (v: unknown) => (typeof v === 'string' ? v : '')
-  const arg =
-    s(parsed.file_path) || s(parsed.path) || s(parsed.pattern) || s(parsed.query) || s(parsed.command)
-  return arg ? `${prettyToolName(name)} ${arg}` : prettyToolName(name)
+/**
+ * The sub-agent's todo list. Live runs get it from the parented `progress` event
+ * the reducer lands on `subTodos`. A reloaded transcript has no events, so fall
+ * back to the last todo-writing tool in the replayed sub-transcript — the same
+ * list, read from the call that wrote it.
+ */
+export function subagentTodos(message: Message): TodoItem[] {
+  if (message.subTodos?.length) return message.subTodos
+  return progressFromMessages(message.subMessages ?? [])?.todos ?? []
 }
 
-/** Tool count + distinct files touched (Write/Edit) across the sub-transcript. */
-export function subStats(subs: Message[]): { toolCount: number; filesTouched: number } {
-  let toolCount = 0
-  const files = new Set<string>()
-  for (const m of subs) {
-    if (m.role !== 'tool') continue
-    toolCount++
-    if (m.toolName !== 'Write' && m.toolName !== 'Edit') continue
-    const fp = parseSubInput(m)?.file_path
-    if (typeof fp === 'string' && fp) files.add(fp)
+/**
+ * Calls the agent has made since it last rewrote its plan — how much work the
+ * step in flight has taken. A step has no denominator of its own, so this is the
+ * only honest measure of one, and it is counted from the plan write rather than
+ * from dispatch so a long run doesn't make every step look finished.
+ */
+export function callsOnCurrentStep(message: Message): number {
+  const subs = message.subMessages ?? []
+  let calls = 0
+  for (let i = subs.length - 1; i >= 0; i--) {
+    const m = subs[i]
+    if (progressTodosFromTool(m.toolName, m.toolInput)) break
+    if (m.role === 'tool') calls++
   }
-  return { toolCount, filesTouched: files.size }
+  return calls
 }
 
-export function groupSubMessages(subs: Message[]): SubItem[] {
-  const result: SubItem[] = []
-  let buf: Message[] = []
-  const flush = () => {
-    if (buf.length > 0) {
-      result.push({ kind: 'tool-group', messages: buf })
-      buf = []
-    }
-  }
-  for (const m of subs) {
-    if (m.role === 'tool') buf.push(m)
-    else if (m.role === 'assistant' && m.content.trim()) {
-      flush()
-      result.push({ kind: 'assistant', message: m })
-    }
-  }
-  flush()
-  return result
-}

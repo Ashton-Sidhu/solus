@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { DownloadSimpleIcon } from "phosphor-svelte";
   import { setPopoverLayer } from "@renderer/components/popoverLayer.svelte";
   import {
@@ -10,24 +10,75 @@
   } from "@renderer/contexts/workspace/tab-persistence";
   import { setupAgentEvents } from "@renderer/hooks/agentEvents.svelte";
   import { materializeTabs } from "@renderer/contexts/workspace/session-bootstrap";
+  import { loadServers, LOCAL_SERVER_ID } from "@client-core/server-registry";
   import {
     createReconnectDetector,
     initializeRuntime,
     refreshTheme,
   } from "@renderer/contexts/app/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app/app-core";
-  import { connectionsStore } from "@renderer/contexts";
+  import { subscribe } from "@client-core/connection-state";
+  import { connectionsStore, serversStore, toasts as rendererToasts, runtime } from "@renderer/contexts";
+  import { serverConnections } from "@client-core/server-connections";
+  import { openProjectStore } from "@renderer/components/servers/open-project.store.svelte";
+  import { hostOnboardingStore } from "@renderer/components/servers/host-onboarding.store.svelte";
+  import { retargetSessionHost, isRunOnHostLocked } from "@renderer/components/servers/run-on";
+  import { Toaster } from "@renderer/components/ui/sonner/index.js";
   import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,
     installGlobalDispatcher,
   } from "@renderer/lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
+  import {
+    identifyInstallation,
+    initAnalytics,
+    registerSuperProps,
+    track,
+  } from "@renderer/lib/analytics";
   import { invalidateHomeCache } from "@renderer/components/layout/NewTabHome.svelte";
+  import * as Tooltip from "@renderer/components/ui/tooltip";
   import WebLayout from "./components/WebLayout.svelte";
 
-  const { settings, planStore, runStore, sessionSidebarStore, session, agent, keybindings } =
-    createAppCore();
+  const {
+    settings,
+    windowCtx,
+    planStore,
+    runStore,
+    sessionSidebarStore,
+    session,
+    agent,
+    keybindings,
+  } = createAppCore();
+
+  const initialViewMode = windowCtx.viewMode;
+
+  initAnalytics({
+    enabled: settings.analyticsEnabled,
+    platform: initialViewMode === "pill" ? "web-mobile" : "web-desktop",
+    viewMode: initialViewMode,
+  });
+  track("app_opened", {});
+
+  $effect(() => {
+    const viewMode = windowCtx.viewMode;
+    registerSuperProps({
+      view_mode: viewMode,
+      platform: viewMode === "pill" ? "web-mobile" : "web-desktop",
+    });
+  });
+
+  $effect(() => {
+    const appVersion = session.staticInfo?.version;
+    if (appVersion) registerSuperProps({ app_version: appVersion });
+  });
+
+  onMount(() =>
+    subscribe((state) => {
+      const installationId = state.target?.installationId;
+      if (installationId) identifyInstallation(installationId);
+    }),
+  );
 
   // Materialize tabs synchronously during component init — before first paint — so
   // the tab strip, titles, drafts, and active tab render in the first mounted frame
@@ -42,6 +93,7 @@
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
     if (session.hydrating) return;
+    const savedServers = loadServers();
     const tabs = session.tabOrder
       .filter((id) => session.tabs[id])
       .map((tabId) => {
@@ -50,6 +102,10 @@
         return {
           tabId,
           title: tab.title ?? "New Tab",
+          serverId: sess?.serverId ?? LOCAL_SERVER_ID,
+          serverInstallationId: savedServers.find(
+            (server) => server.id === sess?.serverId,
+          )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
           workingDirectory: sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
@@ -108,16 +164,47 @@
       return overlayEl;
     },
   });
+  serversStore.init();
+
+  const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
   let directoryPickerOpen = $state(false);
+  let directoryPickerNewTab = $state(false);
+  let directoryPickerTargetTabId = $state<string | undefined>(undefined);
+  // Set when a caller names the host to browse — the "Run on" picker and the
+  // Open project flow both browse a host no tab points at yet.
+  let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
+  let directoryPickerRequireWorktree = $state(false);
+  // "Choose location…" in the Open project flow borrows the same browser; its
+  // selection is handed back to that flow instead of retargeting a tab here.
+  let directoryPickerForOpenProject = $state(false);
   let shortcutsModalOpen = $state(false);
   let hasMountedDirectoryPicker = $state(false);
   let hasMountedShortcuts = $state(false);
+  let hasMountedOpenProject = $state(false);
+  let hasMountedHostOnboarding = $state(false);
+  let hasMountedAddServer = $state(false);
+  /** Offered as the prefill when a remote host has no commit identity of its own. */
+  let localGitIdentity = $state<{ name: string; email: string } | null>(null);
   let shortcutsActiveScopes = $state<import("@renderer/lib/keybindings/types").Scope[]>([]);
 
   $effect(() => {
     if (directoryPickerOpen) hasMountedDirectoryPicker = true;
     if (shortcutsModalOpen) hasMountedShortcuts = true;
+    if (openProjectStore.isOpen) hasMountedOpenProject = true;
+    if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
+    if (serversStore.addServerOpen) hasMountedAddServer = true;
+  });
+
+  // A bare host has no commit identity; this machine's is the obvious prefill.
+  // On web "local" resolves to the connected server, which plays that role.
+  $effect(() => {
+    if (!openProjectStore.isOpen || localGitIdentity) return;
+    void serverConnections
+      .apiFor(LOCAL_SERVER_ID)
+      .setupHostReadiness()
+      .then((readiness) => (localGitIdentity = readiness.git.identity))
+      .catch(() => {});
   });
 
   const activeTabId = $derived(session.activeTabId);
@@ -134,6 +221,56 @@
     session.activeSession?.permissionMode ?? "auto",
   );
 
+  // ── Host-aware directory picker (mirrors the desktop shell) ──────────────
+  const directoryPickerCreatesTab = $derived(
+    directoryPickerNewTab ||
+      (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
+  );
+  const directoryPickerTitle = $derived.by(() => {
+    if (directoryPickerForOpenProject) {
+      return openProjectStore.source === "local"
+        ? "Open a folder"
+        : "Choose where to clone";
+    }
+    return directoryPickerCreatesTab
+      ? "Open project in a new tab"
+      : "Change project folder";
+  });
+  const directoryPickerAction = $derived.by(() => {
+    if (directoryPickerForOpenProject) {
+      return openProjectStore.source === "local" ? "Open" : "Clone here";
+    }
+    return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
+  });
+  // Browse the host the tab actually runs on; an explicit override wins.
+  const directoryPickerServerId = $derived(
+    directoryPickerServerIdOverride ??
+      (directoryPickerTargetTabId
+        ? session.sessionFor(directoryPickerTargetTabId)?.serverId
+        : session.activeSession?.serverId) ??
+      LOCAL_SERVER_ID,
+  );
+  // apiFor() opens the connection as a side effect, so only reach for it while
+  // the picker is actually on screen. On web, LOCAL resolves to the primary.
+  const directoryPickerApi = $derived(
+    !directoryPickerOpen || directoryPickerServerId === LOCAL_SERVER_ID
+      ? window.solus
+      : (serverConnections.apiFor(directoryPickerServerId) as typeof window.solus),
+  );
+  const directoryPickerHostLabel = $derived.by(() => {
+    const host = serversStore.hostFor(directoryPickerServerId);
+    return host && !host.local ? host.label : undefined;
+  });
+  const directoryPickerInitialPath = $derived.by(() => {
+    const targetSession = directoryPickerTargetTabId
+      ? session.sessionFor(directoryPickerTargetTabId)
+      : null;
+    if (targetSession?.serverId === directoryPickerServerId) {
+      return targetSession.workingDirectory;
+    }
+    return undefined;
+  });
+
   $effect(() => {
     refreshTheme(settings.setSystemTheme.bind(settings));
     const unsub = window.solus.onThemeChange((isDark: boolean) =>
@@ -145,9 +282,14 @@
   $effect(() => {
     const unsubRun = window.solus.onRunStatus((status) => runStore.apply(status));
     const unsubRunLog = window.solus.onRunLog((batch) => runStore.applyLog(batch));
+    const unsubUsage = window.solus.onUsageLimits((snapshots) =>
+      agent.applyUsage(snapshots),
+    );
+    void agent.refreshUsage();
     return () => {
       unsubRun();
       unsubRunLog();
+      unsubUsage();
     };
   });
 
@@ -178,7 +320,9 @@
   const detectReconnect = createReconnectDetector(webState.connectionStatus);
   $effect(() => {
     const connectionStatus = webState.connectionStatus;
-    if (detectReconnect(connectionStatus)) {
+    const reconnected = detectReconnect(connectionStatus);
+    if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
+    if (reconnected) {
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
@@ -192,11 +336,14 @@
     if (isRunning) return;
     directoryPickerOpen = true;
   });
-  useKeybinding("global.new-tab", () => session.createTab());
+  useKeybinding("global.open-host-project", () => {
+    if (!isRunning) startOpenProject();
+  });
+  useKeybinding("global.new-tab", () => session.createTab(undefined, { via: "keybinding" }));
   useKeybinding("global.next-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
-      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length]);
+      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length], "keybinding");
   });
   useKeybinding("global.prev-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -205,12 +352,13 @@
         visualTabOrder[
           (idx - 1 + visualTabOrder.length) % visualTabOrder.length
         ],
+        "keybinding",
       );
   });
   useKeybinding("global.next-session", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
-      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length]);
+      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length], "keybinding");
   });
   useKeybinding("global.prev-session", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -219,6 +367,7 @@
         visualTabOrder[
           (idx - 1 + visualTabOrder.length) % visualTabOrder.length
         ],
+        "keybinding",
       );
   });
   useKeybinding("global.session-picker", () =>
@@ -234,14 +383,14 @@
         (modes.indexOf(permissionMode as (typeof modes)[number]) + 1) %
           modes.length
       ];
-    session.setPermissionMode(next);
+    session.setPermissionMode(next, undefined, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId);
+    if (activeTabId) session.closeTab(activeTabId, "keybinding");
   });
   useKeybinding("global.attach-file", handleAttachFile);
   useKeybinding("global.cycle-agent", async () => {
-    if (!isRunning) await cycleAgentProvider();
+    if (!isRunning) await cycleAgentProvider("keybinding");
   });
   useKeybinding("global.cycle-model", () => {
     if (isRunning) return;
@@ -256,7 +405,7 @@
     const idx = models.findIndex((m) => m.id === currentModel);
     session.updateModelConfig({
       modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
-    });
+    }, undefined, "keybinding");
   });
   useKeybinding("global.toggle-reasoning", () => {
     if (isRunning) return;
@@ -265,10 +414,10 @@
   useKeybinding("global.toggle-diff-panel", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-diff-panel")),
   );
-  useKeybinding("global.toggle-plans", () => session.togglePlansGallery());
-  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery());
+  useKeybinding("global.toggle-plans", () => session.togglePlansGallery("keybinding"));
+  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery("keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
-  useKeybinding("global.toggle-worktree", () => session.toggleWorktreeMode());
+  useKeybinding("global.toggle-worktree", () => session.toggleWorktreeMode(undefined, "keybinding"));
   useKeybinding("global.switch-worktree", () => {
     if (session.activeSession?.agentSessionId) return;
     window.dispatchEvent(new CustomEvent("solus:toggle-git-dropdown"));
@@ -279,24 +428,202 @@
   });
 
   $effect(() => {
-    const handler = () => {
-      if (!isRunning) directoryPickerOpen = true;
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          tabId?: string;
+          serverId?: string;
+          requireWorktree?: boolean;
+        }>
+      ).detail;
+      const targetTabId = detail?.tabId;
+      const tab = targetTabId ? session.tabs[targetTabId] : null;
+      const opensInNewTab = tab?.sessionId != null;
+      directoryPickerNewTab = opensInNewTab;
+      directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
+      directoryPickerServerIdOverride = detail?.serverId;
+      directoryPickerRequireWorktree = detail?.requireWorktree === true;
+      directoryPickerForOpenProject = false;
+      directoryPickerOpen = true;
     };
+    const openProjectHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string } | undefined>)
+        .detail;
+      startOpenProject({ tabId: detail?.tabId });
+    };
+    // The nearby-host discovery toast fires from a store, which has no way to
+    // reach the settings pane on its own.
+    const showConnectionsHandler = () => session.showSettings("api-access");
     window.addEventListener("solus:open-directory-picker", handler);
-    return () =>
+    window.addEventListener("solus:open-project", openProjectHandler);
+    window.addEventListener("solus:show-connections", showConnectionsHandler);
+    return () => {
       window.removeEventListener("solus:open-directory-picker", handler);
+      window.removeEventListener("solus:open-project", openProjectHandler);
+      window.removeEventListener(
+        "solus:show-connections",
+        showConnectionsHandler,
+      );
+    };
   });
 
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false;
     invalidateHomeCache();
-    await session.setBaseDirectory(dir);
-    requestInputFocus();
+    if (directoryPickerForOpenProject) {
+      await finishBrowsedOpenProject(dir);
+      return;
+    }
+    const targetTabId = directoryPickerTargetTabId;
+    const overrideServerId = directoryPickerServerIdOverride;
+    const requireWorktree = directoryPickerRequireWorktree;
+    directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
+    if (directoryPickerNewTab) {
+      directoryPickerNewTab = false;
+      const newTabId = await session.createTab(dir);
+      if (overrideServerId) {
+        moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
+      }
+    } else if (
+      targetTabId &&
+      overrideServerId &&
+      session.sessionFor(targetTabId)?.serverId !== overrideServerId
+    ) {
+      // The folder lives on another host, so the tab has to move there too —
+      // setBaseDirectory alone would point the current host at a missing path.
+      moveTabToHost(targetTabId, overrideServerId, dir, { requireWorktree });
+    } else {
+      await session.setBaseDirectory(dir, targetTabId);
+    }
+    directoryPickerTargetTabId = undefined;
+    requestInputFocus(targetTabId ? { tabId: targetTabId } : undefined);
   }
 
   function handleDirectoryPickerClose() {
     directoryPickerOpen = false;
+    directoryPickerNewTab = false;
+    directoryPickerTargetTabId = undefined;
+    directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
+    // Cancelling a browse that the Open project flow started returns to that
+    // flow, on the step it left — not to an empty screen.
+    if (directoryPickerForOpenProject) {
+      directoryPickerForOpenProject = false;
+      openProjectStore.back();
+      return;
+    }
     requestInputFocus();
+  }
+
+  function moveTabToHost(
+    tabId: string,
+    serverId: string,
+    path: string,
+    options: { requireWorktree?: boolean } = {},
+  ) {
+    retargetSessionHost({
+      workspace: session,
+      tabId,
+      serverId,
+      isLocalHost: serverId === LOCAL_SERVER_ID,
+      path,
+      requireWorktree: options.requireWorktree,
+    });
+  }
+
+  /**
+   * Every machine the Open project flow can land a project on, active one
+   * first — the flow binds the head of this list, so the chip defaults to the
+   * machine you are already working on.
+   */
+  function openProjectHosts() {
+    const activeId = serversStore.activeServer?.id;
+    return [...serversStore.servers].sort(
+      (a, b) => Number(b.id === activeId) - Number(a.id === activeId),
+    );
+  }
+
+  function startOpenProject(options: { tabId?: string } = {}) {
+    openProjectStore.open(openProjectHosts(), { tabId: options.tabId });
+  }
+
+  /** Lands the chosen project in a session on the host that holds it. */
+  async function openProjectAtPath(path: string, cloned: boolean) {
+    const serverId = openProjectStore.serverId;
+    const hostLabel = openProjectStore.hostLabel;
+    const hostIsLocal = openProjectStore.hostIsLocal;
+    const tabId = openProjectStore.tabId;
+    const pushNote = openProjectStore.pushCapabilityNote;
+    openProjectStore.close();
+    if (!serverId) return;
+
+    // A started session keeps its folder — the project opens beside it instead.
+    const reusableTabId =
+      tabId &&
+      session.tabs[tabId] &&
+      !isRunOnHostLocked(session.sessionFor(tabId))
+        ? tabId
+        : null;
+    const targetTabId = reusableTabId ?? (await session.createTab(path));
+    moveTabToHost(targetTabId, serverId, path);
+    requestInputFocus({ tabId: targetTabId });
+
+    // A clone that authenticated as nobody works right up until the push, which
+    // is 25 minutes away at PR time. Say so now, without blocking the session.
+    if (pushNote) {
+      const onboardingHost = { id: serverId, label: hostLabel || serverId };
+      rendererToasts.info(pushNote, {
+        actions: [
+          {
+            label: "Set up",
+            onAction: () => hostOnboardingStore.open(onboardingHost),
+          },
+        ],
+      });
+      return;
+    }
+
+    if (!cloned && hostIsLocal) return;
+    const name = path.split(/[\\/]/).pop();
+    rendererToasts.success(
+      cloned
+        ? `Cloned ${name} on ${hostLabel || "host"}`
+        : `Opened ${name} on ${hostLabel || "host"}`,
+      {
+        actions: [
+          {
+            label: "Copy path",
+            onAction: () => void navigator.clipboard?.writeText(path),
+          },
+        ],
+      },
+    );
+  }
+
+  /** "Choose location…" — the same folder browser, handed back to the flow. */
+  function browseForOpenProject() {
+    if (!openProjectStore.serverId) return;
+    directoryPickerForOpenProject = true;
+    directoryPickerNewTab = false;
+    directoryPickerTargetTabId = undefined;
+    directoryPickerServerIdOverride = openProjectStore.serverId;
+    directoryPickerRequireWorktree = false;
+    directoryPickerOpen = true;
+  }
+
+  /** A folder chosen for the flow: opened as-is, or used as the clone's parent. */
+  async function finishBrowsedOpenProject(dir: string) {
+    directoryPickerForOpenProject = false;
+    directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
+    openProjectStore.back();
+    if (openProjectStore.source === "local") {
+      await openProjectAtPath(dir, false);
+      return;
+    }
+    const clonedPath = await openProjectStore.cloneInto(dir);
+    if (clonedPath) await openProjectAtPath(clonedPath, true);
   }
 
   async function handleAttachFile(tabId?: string) {
@@ -305,7 +632,7 @@
     session.addAttachments(files, tabId);
   }
 
-  async function cycleAgentProvider() {
+  async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
     );
@@ -317,7 +644,7 @@
       (candidate) => candidate.id === currentAgent,
     );
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
-    session.switchActiveAgent(next.id);
+    session.switchActiveAgent(next.id, undefined, via);
   }
 
   let isDraggingFile = $state(false);
@@ -365,6 +692,22 @@
   });
 </script>
 
+<svelte:window onkeydowncapture={rendererToasts.handleKeydown} />
+
+<Tooltip.Provider
+  delayDuration={450}
+  skipDelayDuration={300}
+  disableHoverableContent
+>
+<Toaster
+  theme={settings.isDark ? "dark" : "light"}
+  position={runtime.isMobileViewport ? "top-center" : "top-right"}
+  offset={{ top: "1rem", right: "1rem" }}
+  visibleToasts={1}
+  duration={6000}
+  hotkey={TOAST_HOTKEY}
+/>
+
 <div
   bind:this={overlayEl}
   data-solus-ui
@@ -387,7 +730,52 @@
       bind:open={directoryPickerOpen}
       onClose={handleDirectoryPickerClose}
       onSelect={handleDirectorySelected}
+      initialPath={directoryPickerInitialPath}
+      title={directoryPickerTitle}
+      actionLabel={directoryPickerAction}
+      api={directoryPickerApi}
+      hostLabel={directoryPickerHostLabel}
+      serverId={directoryPickerServerId}
     />
+  {/await}
+{/if}
+
+{#if hasMountedAddServer}
+  {#await import("@renderer/components/servers/AddServerModal.svelte")}
+    {#if serversStore.addServerOpen}
+      <div class="lazy-modal-loading" role="status">Loading server setup…</div>
+    {/if}
+  {:then addServerModule}
+    {@const AddServerModal = addServerModule.default}
+    <AddServerModal />
+  {/await}
+{/if}
+
+{#if hasMountedOpenProject}
+  {#await import("@renderer/components/servers/OpenProjectDialog.svelte")}
+    {#if openProjectStore.isOpen}
+      <div class="lazy-modal-loading" role="status">Loading projects…</div>
+    {/if}
+  {:then openProjectModule}
+    {@const OpenProjectDialog = openProjectModule.default}
+    <OpenProjectDialog
+      onOpenProject={(path) =>
+        void openProjectAtPath(path, openProjectStore.source !== "local")}
+      onBrowse={browseForOpenProject}
+      onBackgroundCloneFailure={(failure) => rendererToasts.error(failure.title)}
+      localIdentity={localGitIdentity}
+    />
+  {/await}
+{/if}
+
+{#if hasMountedHostOnboarding}
+  {#await import("@renderer/components/servers/HostOnboarding.svelte")}
+    {#if hostOnboardingStore.isOpen}
+      <div class="lazy-modal-loading" role="status">Loading host setup…</div>
+    {/if}
+  {:then hostOnboardingModule}
+    {@const HostOnboarding = hostOnboardingModule.default}
+    <HostOnboarding />
   {/await}
 {/if}
 
@@ -413,6 +801,7 @@
     </div>
   </div>
 {/if}
+</Tooltip.Provider>
 
 <style>
   .lazy-modal-loading {

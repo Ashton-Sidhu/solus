@@ -11,12 +11,11 @@ import type {
   NormalizedEvent,
   PlanDescriptor,
   PluginCommandsResult,
-  PromptOptions,
-  SessionRunInput,
   SessionMeta,
   UsageData,
 } from '../../../src/shared/types'
 import type { SessionLoadMessage } from '../../../src/shared/session-history'
+import type { AgentRunRequest } from '../../../src/main/agents/agent-runner'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
@@ -78,14 +77,14 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
-  startRun(input: SessionRunInput, options: PromptOptions): RunHandle {
+  startRun(request: AgentRunRequest): RunHandle {
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     const handle: RunHandle = {
       sessionId: null,
-      tabId: input.tabId,
+      persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -98,18 +97,18 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this.pendingRuns.push(handle)
 
     // Emit events asynchronously so the caller can register listeners first.
-    setImmediate(() => this._emitConversation(handle, options))
+    setImmediate(() => this._emitConversation(handle, request.prompt))
 
     return handle
   }
 
-  private _emitConversation(handle: RunHandle, options: PromptOptions) {
+  private _emitConversation(handle: RunHandle, rawPrompt: string) {
     if (handle.abortController.signal.aborted) return
 
     // The chat input is a markdown editor that backslash-escapes underscores on
     // serialize (e.g. `__MOCK_DOCUMENT__` → `\__MOCK_DOCUMENT_\_`). Strip the
     // escapes so the literal trigger strings below (and in specs) still match.
-    const prompt = (typeof options.prompt === 'string' ? options.prompt : '').replace(/\\/g, '')
+    const prompt = rawPrompt.replace(/\\/g, '')
     const responseText = this._responseFor(prompt)
 
     this.promoteToActive(handle, MOCK_SESSION_ID)
@@ -141,7 +140,19 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
         workId: 'mock-work-001',
         title: 'Mock Test Document',
         docType: 'doc',
-        content: '# Mock Test Document\n\nThis is a test document created by the mock agent.',
+        content: [
+          '# Mock Test Document',
+          '',
+          'This is a test document created by the mock agent.',
+          '',
+          '```typescript',
+          'const ready = true',
+          '```',
+          '',
+          '| State | Owner |',
+          '| --- | --- |',
+          '| Ready | Solus |',
+        ].join('\n'),
         completion: 'Created the document.',
         slow: prompt.includes('__MOCK_DOCUMENT_SLOW__'),
       })
@@ -300,8 +311,18 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       return
     }
 
-    // Report token usage for the context meter.
+    // Report token usage for the context meter. Real providers report window
+    // occupancy and run spend as separate figures; so does this.
     if (prompt.includes('__MOCK_USAGE__')) {
+      this.emit('normalized', MOCK_SESSION_ID, {
+        type: 'usage',
+        context: {
+          usedTokens: 60_000,
+          windowTokens: 200_000,
+          inputTokens: 50_000,
+          cacheReadTokens: 10_000,
+        },
+      } satisfies NormalizedEvent)
       this._completeRun(handle, responseText, [], {
         inputTokens: 50_000,
         outputTokens: 1_200,

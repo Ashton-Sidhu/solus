@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
+import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName } from './tokenStyle'
 import { FILE_ICON_VIEWBOX, getFileIconPath, FOLDER_ICON_PATH } from './fileIcons'
 
@@ -57,6 +58,10 @@ export const FileRefExtension = Node.create({
   },
 
   renderMarkdown(node) {
-    return `@${node.attrs?.path ?? ''}`
+    return serializeReferenceToken({
+      kind: 'file',
+      path: node.attrs?.path ?? '',
+      name: node.attrs?.name ?? '',
+    })
   },
 })

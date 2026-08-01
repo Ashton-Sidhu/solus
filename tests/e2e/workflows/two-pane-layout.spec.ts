@@ -25,6 +25,72 @@ const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
  */
 
 test.describe('Two-pane layout', () => {
+  test('split-chat shortcut toggles the secondary chat pane', async ({ page, electronApp }) => {
+    let editorPage = page
+    if (new URL(page.url()).searchParams.get('mode') !== 'editor') {
+      const editorWindow = electronApp.waitForEvent('window')
+      await page.evaluate(() => window.solus.switchMode('editor'))
+      editorPage = await editorWindow
+      await editorPage.waitForLoadState('domcontentloaded')
+    }
+
+    const app = new AppPage(editorPage)
+    const pane = new PanePage(editorPage)
+    await app.waitForAppReady()
+
+    // The same keyboard-first action must both open and dismiss the split so
+    // users do not have to reach for the tab context menu to recover the space.
+    await editorPage.getByTitle('New split chat (⌥⇧/)').click()
+    await pane.waitForSecondaryPane()
+
+    // Removing the split chat's titled header must not collapse its chrome row
+    // or bottom gutter. Both panes share one visual grid, so their conversation
+    // starts and input-card baselines stay aligned.
+    const primaryChrome = editorPage.locator(
+      `${ACTIVE_SHELL} .editor-variant .tab-bar-row`,
+    )
+    const secondaryChrome = editorPage.locator(
+      `${ACTIVE_SHELL} .secondary-pane-wrap .split-chat-chrome`,
+    )
+    const primaryInputCard = editorPage.locator(
+      `${ACTIVE_SHELL} .input-dock:not(.mode-hidden) > div`,
+    )
+    const secondaryInputCard = editorPage.locator(
+      `${ACTIVE_SHELL} .secondary-pane-wrap .split-input-dock > div`,
+    )
+    await expect(async () => {
+      const [
+        primaryChromeBox,
+        secondaryChromeBox,
+        primaryInputBox,
+        secondaryInputBox,
+      ] = await Promise.all([
+        primaryChrome.boundingBox(),
+        secondaryChrome.boundingBox(),
+        primaryInputCard.boundingBox(),
+        secondaryInputCard.boundingBox(),
+      ])
+      expect(primaryChromeBox).not.toBeNull()
+      expect(secondaryChromeBox).not.toBeNull()
+      expect(primaryInputBox).not.toBeNull()
+      expect(secondaryInputBox).not.toBeNull()
+      expect(secondaryChromeBox!.y).toBeCloseTo(primaryChromeBox!.y, 0)
+      expect(secondaryChromeBox!.height).toBeCloseTo(primaryChromeBox!.height, 0)
+      expect(secondaryInputBox!.y + secondaryInputBox!.height).toBeCloseTo(
+        primaryInputBox!.y + primaryInputBox!.height,
+        0,
+      )
+    }).toPass()
+
+    await editorPage.keyboard.press('Alt+Shift+Slash')
+    await expect(
+      editorPage.locator(`${ACTIVE_SHELL} .secondary-pane-wrap`),
+    ).toBeHidden({ timeout: 3_000 })
+
+    await editorPage.keyboard.press('Alt+Shift+Slash')
+    await pane.waitForSecondaryPane()
+  })
+
   test('plan defaults to primary pane (replaces conversation)', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
@@ -53,22 +119,27 @@ test.describe('Two-pane layout', () => {
     await conversation.typeAndSend('__MOCK_PLAN__ create a migration plan')
     await planPage.openFromCard()
 
+    // The full-app reader opens its contents at the top of the plan.
+    await expect(page.getByLabel('On this page')).toHaveClass(/doc-outline--open/)
+
     // Move to secondary via the "Open in split" button
     await pane.openInSplit()
     await pane.waitForSecondaryPane()
 
     // Plan is still visible (in secondary), conversation tab is now visible (in primary)
     await expect(page.getByTestId('plan-modal')).toBeVisible()
+    await expect(page.getByLabel('On this page')).not.toHaveClass(/doc-outline--open/)
     await expect(pane.isConversationVisible()).resolves.toBe(true)
 
     // Input dock must be visible so the user can actually chat
     await expect(pane.isInputDockVisible()).resolves.toBe(true)
 
-    // From the secondary the control is relabeled "Focus" but stays the same
-    // toggle: clicking it moves the plan back to primary (Split → Focus).
+    // From the secondary the control is relabeled "Move to main pane" but stays
+    // the same toggle: clicking it moves the plan back to primary.
     await pane.openInSplit()
     await expect(page.locator(`${ACTIVE_SHELL} .secondary-pane-wrap`)).toBeHidden({ timeout: 3_000 })
     await expect(page.getByTestId('plan-modal')).toBeVisible()
+    await expect(page.getByLabel('On this page')).toHaveClass(/doc-outline--open/)
     await expect(page.locator(`${ACTIVE_TAB}`).first()).toBeHidden({ timeout: 3_000 })
   })
 
@@ -206,7 +277,7 @@ test.describe('Two-pane layout', () => {
     await expect(pane.isConversationVisible()).resolves.toBe(true)
   })
 
-  test('split toggle relabels to Focus from the secondary pane', async ({ page }) => {
+  test('split toggle relabels to "Move to main pane" from the secondary pane', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const planPage = new PlanPage(page)
@@ -222,6 +293,6 @@ test.describe('Two-pane layout', () => {
     await expect(pane.toggleLabel()).resolves.toBe('Open in split')
     await pane.openInSplit()
     await pane.waitForSecondaryPane()
-    await expect(pane.toggleLabel()).resolves.toBe('Focus')
+    await expect(pane.toggleLabel()).resolves.toBe('Move to main pane')
   })
 })

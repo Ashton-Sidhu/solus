@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { solusDir } from '../platform/paths'
 import { runMigrations } from './migrations'
 
 let db: DatabaseSync | null = null
@@ -9,7 +9,7 @@ let db: DatabaseSync | null = null
 export function getDb(): DatabaseSync {
   if (db) return db
 
-  const dataDir = process.env.SOLUS_DATA_DIR || join(homedir(), '.solus')
+  const dataDir = solusDir()
   mkdirSync(dataDir, { recursive: true })
 
   const openedDb = new DatabaseSync(join(dataDir, 'solus.db'))

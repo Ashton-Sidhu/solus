@@ -79,7 +79,7 @@ async function refreshCache(
       cache.loadFailed = false
     } catch (err) {
       cache.loadFailed = true
-      log.warn(`checks poll failed for ${key}: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn('checks_poll_failed', { key, error: err instanceof Error ? err.message : String(err) })
     } finally {
       cache.lastAttemptAt = Date.now()
       cache.refresh = undefined

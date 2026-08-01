@@ -10,6 +10,10 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
 
+export function startDirectoryForServer(result: StartInfo): string {
+  return result.workspacePath || result.projectPath || '~'
+}
+
 export interface StaticInfo {
   version: string
   email: string | null
@@ -27,6 +31,7 @@ export interface WorkspaceLifecycleStoreDeps {
   agent?: AgentContext
   refreshGitState(opts?: { tabId?: string; cwd?: string }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
+  apiFor?(tabId: string): typeof window.solus
   loadTranscript(args: {
     sessionId: string
     loadPath: string
@@ -51,6 +56,8 @@ export class WorkspaceLifecycleStore {
   private staticInfoInitialized = false
   private staticInfoInitialization: Promise<void> | null = null
   private appliedStartDirectory: string | null = null
+  private pluginCommandRequestSequence = 0
+  private pluginCommandRequests = new Map<string, number>()
 
   constructor(private deps: WorkspaceLifecycleStoreDeps) {}
 
@@ -61,7 +68,7 @@ export class WorkspaceLifecycleStore {
    * optimistic path never touches the active agent.
    */
   private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
-    const startDirectory = result.projectPath || result.workspacePath || '~'
+    const startDirectory = startDirectoryForServer(result)
     const currentDirectory = this.deps.config.globalDefaults.workingDirectory
     const canReconcileCachedDefault = this.deps.registry.tabOrder.length === 0
       && currentDirectory === this.appliedStartDirectory
@@ -113,7 +120,9 @@ export class WorkspaceLifecycleStore {
         await optimisticEnvironmentRefresh
         await this.deps.refreshGitState()
       }
-      void this.refreshPluginCommands(this.deps.config.globalDefaults.workingDirectory).catch((error) => {
+      const commandDirectory = this.deps.registry.activeSession?.workingDirectory
+        ?? this.deps.config.globalDefaults.workingDirectory
+      void this.refreshPluginCommands(commandDirectory).catch((error) => {
         if (!(error instanceof TransportDisconnectedError)) {
           console.error('getPluginCommands failed', error)
         }
@@ -131,12 +140,27 @@ export class WorkspaceLifecycleStore {
 
   async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
+    const targetSession = this.deps.registry.sessionFor(targetTabId)
+    const requestKey = targetSession ? targetTabId : ''
+    const requestSequence = ++this.pluginCommandRequestSequence
+    this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
-    ctx.session.provider = this.deps.settings.activeAgent as AgentId
-    const result = await window.solus.getPluginCommands(workingDirectory, $state.snapshot(ctx))
+    ctx.session.provider = (targetSession?.provider ?? this.deps.settings.activeAgent) as AgentId
+    const result = await (this.deps.apiFor?.(targetTabId) ?? window.solus)
+      .getPluginCommands(workingDirectory, $state.snapshot(ctx))
+    if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
+
+    if (targetSession) {
+      const currentSession = this.deps.registry.sessionFor(targetTabId)
+      if (currentSession !== targetSession || currentSession.workingDirectory !== workingDirectory) return
+      currentSession.pluginCommands = result
+      if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = result
+      return
+    }
+
+    if (this.deps.registry.activeSession) return
+    if (this.deps.config.globalDefaults.workingDirectory !== workingDirectory) return
     this.pluginCommands = result
-    const session = this.deps.registry.sessionFor(targetTabId)
-    if (session) session.pluginCommands = result
   }
 
   recomputeChangedFiles(tabId: string): void {
@@ -185,7 +209,8 @@ export class WorkspaceLifecycleStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || session.sessionChangedFiles.length > 0) return
     try {
-      const stats = await window.solus.diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
+      const stats = await (this.deps.apiFor?.(tabId) ?? window.solus)
+        .diffStats(this.deps.ctxFor(tabId), { scope: { kind: 'session' } })
       const files = stats.map((file) => file.path)
       if (files.length === 0) return
       session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...files)
@@ -198,7 +223,8 @@ export class WorkspaceLifecycleStore {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId) return
     try {
-      const snaps = await window.solus.listTurnSnapshots(this.deps.ctxFor(tabId))
+      const snaps = await (this.deps.apiFor?.(tabId) ?? window.solus)
+        .listTurnSnapshots(this.deps.ctxFor(tabId))
       this.turnSnapshots[tabId] = snaps
     } catch {
       /* best-effort */

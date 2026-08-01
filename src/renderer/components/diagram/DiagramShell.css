@@ -4,71 +4,40 @@
     height: 100%;
     background: var(--solus-container-bg);
     outline: none;
+
+    /* Graph ink. Edges and node kind-glyphs sit a step lighter than body text so
+       the graph reads as structure, not as more copy. The light values are the
+       parchment neutrals the design spec calls out; dark mode uses translucent
+       white so they float over the container tint rather than fighting it. */
+    --diagram-edge-stroke: #c3b7a6;
+    --diagram-edge-arrow: #a89a88;
+    --diagram-glyph: #a89a88;
   }
 
-  .diagram-shell__header {
+  .dark .diagram-shell {
+    --diagram-edge-stroke: rgba(255, 255, 255, 0.2);
+    --diagram-edge-arrow: rgba(255, 255, 255, 0.32);
+    --diagram-glyph: var(--solus-text-tertiary);
+  }
+
+  /* De-chromed control strip over the canvas: no border, no chrome-row height. */
+  .diagram-shell__toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 1rem;
-    /* Clear the macOS traffic lights when this shell is the leftmost chrome
-       (maximized pane); collapses to the base 1rem otherwise and off-mac. */
-    padding-left: max(1rem, var(--solus-chrome-lead-inset, 0px));
     gap: 0.375rem;
-    /* In the editor's secondary pane the header shares the tab strip's chrome
-       row — match its height and seam so they read as one continuous bar. */
-    min-height: var(--solus-chrome-row-h, auto);
-    border-bottom: 0.0625rem solid var(--solus-chrome-row-border, var(--solus-tool-border));
+    padding: 0.5rem 1rem 0;
+    /* Clear the pane's floating chrome cluster on the right. */
+    padding-right: max(1rem, var(--solus-pane-chrome-inset, 0px));
     flex-shrink: 0;
   }
 
-  .diagram-shell__header-meta {
-    display: flex;
-    min-width: 0;
-    flex: 1;
-    align-items: center;
-    gap: 0.5rem;
-    overflow: hidden;
+  .diagram-shell__toolbar-spacer {
+    flex: 1 1 auto;
+    min-width: 0.5rem;
   }
 
-  .diagram-shell__header-actions {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .diagram-shell__title-icon {
-    color: var(--solus-text-tertiary);
-    flex-shrink: 0;
-  }
-
-  .diagram-shell__title {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--solus-text-primary);
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .diagram-shell__title--editable {
-    background: transparent;
-    border: none;
-    padding: 0.125rem 0.25rem;
-    margin-inline: -0.25rem;
-    border-radius: 0.375rem;
-    cursor: text;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  .diagram-shell__title--editable:hover {
-    background: var(--solus-surface-hover);
-  }
-  .diagram-shell__title--editable:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
   .diagram-shell__title-input {
+    flex: 1 1 auto;
     font-size: 0.8125rem;
     font-weight: 600;
     letter-spacing: -0.01em;
@@ -110,7 +79,26 @@
   }
 
   .diagram-shell__crumb--current {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--solus-text-primary);
+    font-weight: 600;
+  }
+
+  /* Marks the crumb as a nested level rather than another diagram. */
+  .diagram-shell__crumb-tag {
     flex-shrink: 0;
+    margin-left: 0.25rem;
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.25rem;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.59375rem;
+    color: var(--solus-accent);
+    background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
+    white-space: nowrap;
   }
 
   .diagram-shell__crumb-sep {
@@ -118,79 +106,6 @@
     color: var(--solus-text-tertiary);
     font-size: 0.75rem;
     opacity: 0.7;
-  }
-
-  .diagram-shell__comments-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    height: 1.5rem;
-    padding: 0 0.375rem;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    border: none;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      scale var(--duration-quick) var(--ease-premium);
-  }
-
-  .diagram-shell__comments-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  .diagram-shell__comments-btn:active {
-    scale: 0.96;
-  }
-
-  .diagram-shell__comments-btn--on {
-    background: var(--solus-accent-light);
-    color: var(--solus-accent);
-  }
-
-  .diagram-shell__comments-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-
-  .diagram-shell__comments-count {
-    font-size: 0.5625rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    padding: 0 0.25rem;
-    border-radius: 624.9375rem;
-    background: var(--solus-accent-light);
-    color: var(--solus-accent);
-  }
-
-  .diagram-shell__close {
-    width: 1.5rem;
-    height: 1.5rem;
-    margin-left: 0.125rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    border: none;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-  }
-
-  .diagram-shell__close:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  .diagram-shell__close:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
   }
 
   .diagram-shell__save-status {
@@ -281,6 +196,109 @@
     overflow: hidden;
     border: 0.0625rem solid var(--solus-container-border);
     background: var(--solus-container-bg);
+    /* Set inline by DiagramShell from the inspector's footprint. Declared here
+       so the panels below have a value to read before anything is selected. */
+    --chrome-inset-right: 0px;
+    --chrome-centre-bias: 0px;
+  }
+
+  /* ── Floating chrome ─────────────────────────────────────────────────────
+     Overlays get out of the inspector's way; the canvas underneath never does.
+     Node coordinates are absolute and independent of chrome, so opening or
+     collapsing the panel must not move a single node — only these reposition.
+
+     xyflow insets these panels with a 15px margin. Trading that for an explicit
+     `right` keeps the offset one number end to end: 15px at rest, the full
+     inspector footprint once a panel is up. */
+  .diagram-shell__board .svelte-flow__panel.right {
+    margin-right: 0;
+    right: max(var(--chrome-inset-right), 15px);
+    transition: right 180ms ease;
+  }
+
+  /* xyflow centres these with `transform: translateX(-50%)`. `translate` is a
+     separate property, so the bias composes instead of clobbering it. Scoped to
+     the horizontally-centred panels — `.left.center` / `.right.center` centre on
+     the *vertical* axis, where a horizontal nudge would be wrong. */
+  .diagram-shell__board .svelte-flow__panel.top.center,
+  .diagram-shell__board .svelte-flow__panel.bottom.center {
+    translate: calc(-1 * var(--chrome-centre-bias)) 0;
+    transition: translate 180ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .diagram-shell__board .svelte-flow__panel.right,
+    .diagram-shell__board .svelte-flow__panel.top.center,
+    .diagram-shell__board .svelte-flow__panel.bottom.center {
+      transition: none;
+    }
+  }
+
+  /* Top-right status stack — the focus escape hatch and the layout read-out
+     share one column so they never collide. */
+  .canvas-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.375rem;
+  }
+
+  .layout-status {
+    padding: 0.3125rem 0.625rem;
+    border-radius: 1rem;
+    border: 0.0625rem solid var(--solus-container-border);
+    background: var(--solus-container-bg);
+    box-shadow: var(--solus-container-shadow);
+    color: var(--solus-text-tertiary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /* What is still open on this diagram. Amber, like every other thread
+     surface, and edged rather than filled so it reads as a status, not a
+     button competing with the layout pill beside it. */
+  .threads-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.3125rem 0.625rem;
+    border-radius: 1rem;
+    border: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 48%, transparent);
+    background: var(--solus-container-bg);
+    box-shadow: var(--solus-container-shadow);
+    color: var(--solus-text-primary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
+  }
+
+  .threads-pill:hover {
+    background: color-mix(in srgb, var(--solus-art-2) 8%, var(--solus-container-bg));
+  }
+
+  .threads-pill:active { scale: 0.96; }
+
+  .threads-pill:focus-visible {
+    outline: 0.125rem solid var(--solus-art-2);
+    outline-offset: 0.125rem;
+  }
+
+  .threads-pill__dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    background: var(--solus-art-2);
+  }
+
+  .threads-pill__unread {
+    font-family: var(--solus-code-font-family);
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
   }
 
   /* Clear focus pill */
@@ -312,10 +330,11 @@
     scale: 0.96;
   }
 
-  .drill-back-pill {
+  .drill-crumbs {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.125rem;
+    max-width: 22rem;
     padding: 0.3125rem 0.625rem 0.3125rem 0.4375rem;
     border-radius: 1rem;
     border: 0.0625rem solid var(--solus-container-border);
@@ -329,20 +348,6 @@
       background var(--duration-base) var(--ease-premium),
       color var(--duration-base) var(--ease-premium),
       scale var(--duration-quick) var(--ease-premium);
-  }
-
-  .drill-back-pill:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-
-  .drill-back-pill:active {
-    scale: 0.96;
-  }
-
-  .drill-back-pill:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
   }
 
   /* Empty state */
@@ -418,17 +423,25 @@
   }
 
   .diagram-shell__board .svelte-flow__edge-path {
-    stroke: var(--solus-text-tertiary);
-    stroke-width: 1.25;
+    stroke: var(--diagram-edge-stroke);
+    stroke-width: 1.3;
+    stroke-linejoin: round;
     transition:
       stroke var(--duration-base) var(--ease-premium),
       stroke-width var(--duration-base) var(--ease-premium);
   }
 
+  /* Hover paints the hit area, not the line: the edge keeps its 1.3px weight so
+     a graph doesn't twitch as the pointer crosses it, and the wash reads as
+     "this band is what you'd be clicking". The interaction path carries a
+     `stroke="transparent"` presentation attribute, which CSS outranks. */
+  .diagram-shell__board .svelte-flow__edge-interaction {
+    transition: stroke var(--duration-base) var(--ease-premium);
+  }
+
   .diagram-shell__board
-    .svelte-flow__edge:hover .svelte-flow__edge-path {
-    stroke: var(--solus-text-secondary);
-    stroke-width: 1.5;
+    .svelte-flow__edge:hover .svelte-flow__edge-interaction {
+    stroke: color-mix(in srgb, var(--solus-accent) 16%, transparent);
   }
 
   /* Async edges: dashed flow */
@@ -441,13 +454,18 @@
   .diagram-shell__board
     .svelte-flow__edge.edge--data .svelte-flow__edge-path {
     stroke-width: 1.75;
-    stroke: var(--solus-text-tertiary);
+    stroke: var(--diagram-edge-arrow);
   }
 
+  /* A selected edge is redrawn, not just recoloured: 2px of accent with a soft
+     glow, so it still reads as the selected one where it runs behind a card. */
   .diagram-shell__board
     .svelte-flow__edge.selected .svelte-flow__edge-path {
     stroke: var(--solus-accent);
-    stroke-width: 1.5;
+    stroke-width: 2;
+    filter: drop-shadow(
+      0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 30%, transparent)
+    );
   }
 
   /* In-progress connection line: accent + dashed so the provisional wire reads
@@ -659,11 +677,515 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .diagram-shell__board .svelte-flow__edge-path {
+    .diagram-shell__board .svelte-flow__edge-path,
+    .diagram-shell__board .svelte-flow__edge-interaction {
       transition: none;
     }
     .diagram-shell__save-dot,
     .diagram-empty__card > * {
       animation: none;
     }
+  }
+
+  /* ── Inspector field primitives ───────────────────────────────────────────
+     Shared by the node and the edge inspector and rendered from inside each
+     tab, so they live here rather than in either panel's scoped block.
+
+     At rest a field is a flat muted row with a transparent border; the border
+     reveals on hover and goes accent on focus. Nothing is a boxed input until
+     you reach for it. Two-class selectors so they outrank the single-class
+     Tailwind utilities the shadcn Input and Textarea primitives bring along. */
+  .diagram-inspector .inspector-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  .diagram-inspector .inspector-label {
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
+  }
+
+  .diagram-inspector .inspector-input,
+  .diagram-inspector .inspector-textarea {
+    width: 100%;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    border: 0.0625rem solid transparent;
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+    font-size: 0.8125rem;
+    font-family: inherit;
+    outline: none;
+    box-shadow: none;
+    transition:
+      border-color var(--duration-base) var(--ease-premium),
+      background var(--duration-base) var(--ease-premium);
+  }
+
+  .diagram-inspector .inspector-textarea {
+    font-size: 0.78125rem;
+    line-height: 1.55;
+    resize: vertical;
+    min-height: 4.5rem;
+  }
+
+  .diagram-inspector .inspector-input:hover,
+  .diagram-inspector .inspector-textarea:hover {
+    border-color: var(--solus-tool-border);
+  }
+
+  .diagram-inspector .inspector-input:focus,
+  .diagram-inspector .inspector-textarea:focus {
+    border-color: var(--solus-accent-border);
+    background: var(--solus-surface-primary);
+  }
+
+  /* Add slots read as an outline waiting to be filled, not as a button. */
+  .diagram-inspector .inspector-add-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    align-self: flex-start;
+    padding: 0.3125rem 0.5625rem;
+    border: 0.0625rem dashed var(--solus-tool-border);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      border-color var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-inspector .inspector-add-row:hover {
+    border-color: var(--solus-accent-border);
+    color: var(--solus-accent);
+  }
+
+  .diagram-inspector .inspector-icon-btn {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      color var(--duration-quick) var(--ease-premium),
+      background var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-inspector .inspector-icon-btn:hover {
+    color: var(--solus-status-error);
+    background: color-mix(in srgb, var(--solus-status-error) 12%, transparent);
+  }
+
+  /* Segmented control — the Style and Route tabs' one-of-n picker. */
+  .diagram-inspector .inspector-segments {
+    display: flex;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border-radius: 0.5rem;
+    background: var(--solus-surface-hover);
+  }
+
+  .diagram-inspector .inspector-segment {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1875rem;
+    padding: 0.375rem 0;
+    border: 0.0625rem solid transparent;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    font-size: 0.71875rem;
+    cursor: pointer;
+    transition:
+      color var(--duration-quick) var(--ease-premium),
+      background var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-inspector .inspector-segment:hover { color: var(--solus-text-primary); }
+
+  .diagram-inspector .inspector-segment--active {
+    color: var(--solus-text-primary);
+    font-weight: 550;
+    background: var(--solus-container-bg);
+    border-color: var(--solus-container-border);
+  }
+
+  .diagram-inspector .inspector-segment:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: -0.125rem;
+  }
+
+  /* Accent swatch row — the node and the edge Style tab pick colour the same
+     way, so it is one control here rather than two that drift apart. The last
+     swatch is the custom picker: a spectrum until a colour is chosen, then the
+     colour itself. */
+  .diagram-inspector .inspector-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4375rem;
+  }
+
+  .diagram-inspector .inspector-swatch {
+    position: relative;
+    flex: none;
+    width: 1.375rem;
+    height: 1.375rem;
+    padding: 0;
+    border-radius: 50%;
+    border: 0.0625rem solid color-mix(in srgb, var(--solus-text-primary) 14%, transparent);
+    background: var(--swatch);
+    cursor: pointer;
+    transition:
+      transform var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
+  }
+
+  .diagram-inspector .inspector-swatch:hover { transform: scale(1.12); }
+
+  .diagram-inspector .inspector-swatch--active {
+    box-shadow:
+      0 0 0 0.125rem var(--solus-container-bg),
+      0 0 0 0.21875rem var(--swatch);
+  }
+
+  .diagram-inspector .inspector-swatch:focus-visible,
+  .diagram-inspector .inspector-swatch--custom:focus-within {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.125rem;
+  }
+
+  /* The wheel is the preset palette itself, so the picker reads as "one of
+     these, or anything else". Two rules, not one comma-separated background:
+     a colour is only legal in a background's last layer. */
+  .diagram-inspector .inspector-swatch--custom {
+    display: inline-grid;
+    place-items: center;
+    overflow: hidden;
+    background: conic-gradient(from 90deg, #f87171, #fbbf24, #4ade80, #60a5fa, #a78bfa, #f87171);
+  }
+
+  .diagram-inspector .inspector-swatch--custom.inspector-swatch--active {
+    background: var(--swatch);
+  }
+
+  .diagram-inspector .inspector-swatch__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  /* A row that is a setting, not a field: label plus a control on the right. */
+  .diagram-inspector .inspector-setting {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.6875rem;
+    border-radius: 0.5625rem;
+    background: var(--solus-surface-hover);
+  }
+
+  .diagram-inspector .inspector-setting__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .diagram-inspector .inspector-setting__title {
+    font-size: 0.78125rem;
+    color: var(--solus-text-primary);
+  }
+
+  .diagram-inspector .inspector-setting__hint {
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .diagram-inspector .inspector-input,
+    .diagram-inspector .inspector-textarea,
+    .diagram-inspector .inspector-add-row,
+    .diagram-inspector .inspector-icon-btn,
+    .diagram-inspector .inspector-segment,
+    .diagram-inspector .inspector-swatch {
+      transition: none;
+    }
+  }
+
+  /* ── Inspector panel chrome ──────────────────────────────────────
+     The node and the edge panel are the same shell — same footprint, same
+     shadow, same collapse — and only their contents differ, so the geometry
+     lives here once rather than in each of them. */
+
+  /* Floating card, never a docked panel: it is inset from the board on all four
+     sides and the canvas underneath it does not reflow when it opens or closes. */
+  .diagram-inspector {
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+    bottom: 1rem;
+    width: 23.25rem;
+    max-width: calc(100% - 2rem);
+    display: flex;
+    flex-direction: column;
+    background: var(--solus-container-bg);
+    border: 0.0625rem solid var(--solus-container-border);
+    border-radius: 0.875rem;
+    /* The only element in the feature allowed a shadow this deep. */
+    box-shadow:
+      0 1.625rem 3.75rem -1.375rem rgba(60, 40, 25, 0.4),
+      0 0.125rem 0.375rem rgba(60, 40, 25, 0.1);
+    z-index: 9;
+    overflow: hidden;
+  }
+
+  .diagram-inspector__head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 1.125rem 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .diagram-inspector__identity {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .diagram-inspector__tile {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.625rem;
+    font-size: 1rem;
+    line-height: 1;
+    color: var(--tile-tint);
+    background: linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--tile-tint) 24%, transparent),
+      color-mix(in srgb, var(--tile-tint) 7%, transparent)
+    );
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--tile-tint) 34%, transparent);
+  }
+
+  .diagram-inspector__nest {
+    position: absolute;
+    right: -0.25rem;
+    bottom: -0.25rem;
+    display: grid;
+    place-items: center;
+    width: 0.9375rem;
+    height: 0.9375rem;
+    border-radius: 0.3125rem;
+    background: var(--solus-container-bg);
+    box-shadow: 0 0 0 0.0625rem var(--solus-container-border);
+    color: var(--solus-accent);
+  }
+
+  .diagram-inspector__titles {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .diagram-inspector__title {
+    font-size: 0.96875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--solus-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* No text-transform: the sub-line carries authored text (a node's kind, an
+     edge's label), and lowercasing it would render "PostgreSQL 15" as
+     "postgresql 15". The edge panel lowercases its own relationship word at the
+     source instead. */
+  .diagram-inspector__sub {
+    font-size: 0.75rem;
+    color: var(--solus-text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .diagram-inspector__actions {
+    display: flex;
+    gap: 0.125rem;
+    flex: none;
+  }
+
+  .diagram-inspector__icon-btn {
+    display: grid;
+    place-items: center;
+    width: 1.625rem;
+    height: 1.625rem;
+    border: none;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      color var(--duration-base) var(--ease-premium),
+      background-color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
+  }
+
+  @media (hover: hover) {
+    .diagram-inspector__icon-btn:hover {
+      color: var(--solus-text-primary);
+      background: var(--solus-surface-hover);
+    }
+  }
+
+  .diagram-inspector__icon-btn:active { scale: 0.96; }
+
+  .diagram-inspector__icon-btn:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.0625rem;
+  }
+
+  .diagram-inspector__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .diagram-inspector__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 0.375rem;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
+    background: var(--solus-surface-hover);
+    white-space: nowrap;
+  }
+
+  .diagram-inspector__chip--accent {
+    font-family: inherit;
+    color: var(--solus-accent);
+    background: color-mix(in srgb, var(--solus-accent) 11%, transparent);
+  }
+
+  /* The track is an inset shadow, not a border, so the active tab's 2px
+     underline can sit flush on top of it without a 1px seam. */
+  .diagram-inspector__tabs {
+    display: flex;
+    gap: 1.375rem;
+    padding: 0 1.125rem;
+    flex-shrink: 0;
+    box-shadow: inset 0 -0.0625rem 0 var(--solus-container-border);
+  }
+
+  .diagram-inspector__tab {
+    padding: 0 0 0.5625rem;
+    margin-bottom: -0.0625rem;
+    border: none;
+    border-bottom: 0.125rem solid transparent;
+    background: transparent;
+    font-size: 0.78125rem;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      color var(--duration-base) var(--ease-premium),
+      border-color var(--duration-base) var(--ease-premium);
+  }
+
+  .diagram-inspector__tab:hover { color: var(--solus-text-secondary); }
+
+  .diagram-inspector__tab--active {
+    color: var(--solus-text-primary);
+    font-weight: 600;
+    border-bottom-color: var(--solus-accent);
+  }
+
+  .diagram-inspector__tab:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: -0.125rem;
+  }
+
+  /* Amber, like every other surface a thread appears on. */
+  .diagram-inspector__tab-count {
+    margin-left: 0.3125rem;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.625rem;
+    color: var(--solus-art-2);
+  }
+
+  .diagram-inspector__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 1.125rem 1.125rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .diagram-inspector__foot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6875rem 1.125rem;
+    border-top: 0.0625rem solid var(--solus-container-border);
+    flex-shrink: 0;
+  }
+
+  .diagram-inspector__foot-spacer { flex: 1; }
+
+  .diagram-inspector__delete {
+    padding: 0.375rem 0.625rem;
+    border: none;
+    border-radius: 0.4375rem;
+    background: transparent;
+    color: var(--solus-status-error);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background var(--duration-base) var(--ease-premium);
+  }
+
+  .diagram-inspector__delete:hover {
+    background: color-mix(in srgb, var(--solus-status-error) 12%, transparent);
+  }
+
+  .diagram-inspector__delete:focus-visible {
+    outline: 0.125rem solid var(--solus-status-error);
+    outline-offset: 0.125rem;
+  }
+
+  .diagram-inspector__save {
+    font-family: var(--solus-code-font-family);
+    font-size: 0.71875rem;
+    color: var(--solus-text-tertiary);
   }

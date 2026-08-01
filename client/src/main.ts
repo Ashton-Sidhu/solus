@@ -2,9 +2,13 @@ import { mount, unmount } from 'svelte'
 import App from './App.svelte'
 import '../../src/renderer/index.css'
 import ConnectFlow from './routes/ConnectFlow.svelte'
-import { TransportDisconnectedError, WsTransport, type ConnectionStatus } from '@client-core/ws-transport'
+import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@client-core/ws-transport'
+import { createSolusConnection, savedServerTarget } from '@client-core/server-connection'
+import { serverConnections } from '@client-core/server-connections'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
-import { getActiveServerId, loadServers, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
+import { getActiveServerId, loadServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
+import { defaultDeviceLabel, pairServer } from '@client-core/pairing'
+import { pairTokenFromLocation } from './lib/connect'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
 import { webState } from './lib/web-state.svelte'
 import { router } from './lib/router.svelte'
@@ -39,7 +43,7 @@ function installServiceWorkerMessageBridge(): void {
   })
 }
 
-function showConnectFlow(): void {
+function showConnectFlow(options: { initialAddress?: string } = {}): void {
   toasts.dismiss()
   if (solusApp) { unmount(solusApp); solusApp = null }
   if (activeTransport) { activeTransport.destroy(); activeTransport = null }
@@ -51,7 +55,10 @@ function showConnectFlow(): void {
 
   connectFlowApp = mount(ConnectFlow, {
     target: root,
-    props: { onConnect: (server: SavedServer) => connectToServer(server) },
+    props: {
+      onConnect: (server: SavedServer) => connectToServer(server),
+      initialAddress: options.initialAddress,
+    },
   })
 }
 
@@ -62,29 +69,29 @@ function connectToServer(server: SavedServer): void {
     migrateLegacy: loadServers().length <= 1,
   })
 
-  const transport = new WsTransport({
-    serverUrl: server.url,
-    sessionToken: server.sessionToken,
+  const target = savedServerTarget(server)
+  const { transport, api } = createSolusConnection(target, {
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
-      setConnectionState({ status, attempt })
+      serverConnections.updateStatus(server.id, status, attempt)
+      // The target names which host this status belongs to — serversStore keys
+      // its per-host connection state (and the web "local" alias) off it.
+      setConnectionState({ status, attempt, target })
       if (status === 'connected') void webPushState.ensureSubscribedSilently()
-    },
-    onSessionTokenRefreshed: (sessionToken: string) => {
-      server.sessionToken = sessionToken
-      upsertServer(server)
-      webState.setConnectedServer(server)
     },
     onAuthFailed: () => {
       if (!solusApp) showConnectFlow()
     },
   })
 
-  ;(window as any).solus = transport.buildSolusApi()
+  ;(window as any).solus = api
+  serverConnections.registerPrimary(server.id, api, transport, target)
   activeTransport = transport
   webPushState.init()
   installServiceWorkerMessageBridge()
   transport.start()
   touchLastConnected(server.id)
+  // Remember the choice so a refresh and the servers directory both resume here.
+  setActiveServerId(server.id)
 
   webState.setConnectedServer(server)
   router.navigateToChat()
@@ -107,11 +114,41 @@ function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
 
 // Boot
 router.start()
+
+/**
+ * Opening a pairing QR / link lands on this SPA at `/pair#token=…` — pair
+ * against our own origin and drop straight into the workspace, no forms.
+ */
+async function pairFromLocation(pairToken: string): Promise<void> {
+  history.replaceState({}, '', '/')
+  try {
+    const { server } = await pairServer({
+      url: location.origin,
+      pairToken,
+      deviceLabel: defaultDeviceLabel(),
+    })
+    upsertServer(server)
+    setActiveServerId(server.id)
+    connectToServer(server)
+  } catch (err) {
+    showConnectFlow()
+    toasts.error(err instanceof Error ? err.message : String(err))
+  }
+}
+
+const bootPairToken = pairTokenFromLocation(location.href)
 const servers = loadServers()
 const activeServer = resolveActiveSavedServer(servers)
 const hash = location.hash
 
-if (hash.startsWith('#/connect')) {
+if (bootPairToken) {
+  void pairFromLocation(bootPairToken)
+} else if (location.pathname === '/claim') {
+  // A fresh server's claim link: the address is our own origin; the user still
+  // types the 6-digit code the server printed.
+  history.replaceState({}, '', '/')
+  showConnectFlow({ initialAddress: location.origin })
+} else if (hash.startsWith('#/connect')) {
   showConnectFlow()
 } else if (activeServer) {
   connectToServer(activeServer)

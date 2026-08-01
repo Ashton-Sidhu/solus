@@ -20,7 +20,12 @@ function electronApp(): ElectronApp | null {
 export function dataDir(): string {
   const app = electronApp()
   if (app) return app.getPath('userData')
-  return process.env.SOLUS_DATA_DIR ?? join(homedir(), '.solus')
+  return process.env.SOLUS_DATA_DIR || join(homedir(), '.solus')
+}
+
+/** The shared `.solus` state dir. Unlike dataDir(), identical under Electron and Node. */
+export function solusDir(): string {
+  return process.env.SOLUS_DATA_DIR || join(homedir(), '.solus')
 }
 
 export function logsDir(): string {

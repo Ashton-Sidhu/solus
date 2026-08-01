@@ -16,7 +16,7 @@
 	bind:ref
 	data-slot="command-group"
 	class={cn(
-		"overflow-hidden p-1 text-foreground [&_[data-command-group-heading]]:px-2 [&_[data-command-group-heading]]:py-1.5 [&_[data-command-group-heading]]:text-xs [&_[data-command-group-heading]]:font-medium [&_[data-command-group-heading]]:text-muted-foreground",
+		"overflow-hidden text-foreground [&_[data-command-group-heading]]:menu-heading",
 		className,
 	)}
 	value={value ?? heading ?? `----${useId()}`}

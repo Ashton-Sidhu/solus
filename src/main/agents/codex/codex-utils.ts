@@ -34,7 +34,11 @@ export interface CodexThreadSummary {
 }
 
 export interface CodexTurnHistory {
+  status?: string | null
+  error?: unknown
   startedAt?: number | string | null
+  completedAt?: number | string | null
+  durationMs?: number | null
   items?: CodexHistoryItem[]
 }
 
@@ -57,6 +61,9 @@ export type CodexHistoryItem = {
   success?: boolean | null
   changes?: unknown[]
   summary?: unknown
+  kind?: string
+  agentThreadId?: string
+  agentPath?: string
 }
 
 export interface ScannedCodexPlan {
@@ -353,11 +360,49 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     return item.text ? { role: 'assistant', content: item.text, timestamp } : null
   }
 
+  if (item.type === 'plan') {
+    return item.text
+      ? {
+          role: 'plan',
+          content: '',
+          planContent: item.text,
+          planToolUseId: `codex-plan-${item.id || timestamp}`,
+          timestamp,
+        }
+      : null
+  }
+
   if (item.type === 'reasoning') {
     // Reasoning/thinking span, carried for provider handoffs; display surfaces
     // skip this role. Prefer the concise summary over the raw content.
     const content = codexReasoningText(item)
     return content ? { role: 'reasoning', content, timestamp } : null
+  }
+
+  if (item.type === 'subAgentActivity') {
+    if (item.kind === 'started') {
+      return {
+        role: 'tool',
+        content: '',
+        toolName: 'spawnAgent',
+        toolId: item.id,
+        toolInput: codexSubagentActivityInput(item),
+        toolStatus: 'running',
+        isSubagent: true,
+        subagentType: 'codex',
+        timestamp,
+      }
+    }
+    if (item.kind === 'interrupted') {
+      return {
+        role: 'tool_result',
+        content: 'Interrupted',
+        toolResultForId: item.id,
+        toolResultIsError: true,
+        timestamp,
+      }
+    }
+    return null
   }
 
   const toolName = codexToolNameForItem(item)
@@ -403,6 +448,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     }
   }
 
+  const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
   return {
     role: 'tool',
     content: codexToolResultText(
@@ -410,8 +456,93 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     ),
     toolName,
     toolInput: codexToolInputFromArguments(item.arguments),
+    isSubagent: isCodexSubagent || undefined,
+    subagentType: isCodexSubagent ? 'codex' : undefined,
     timestamp,
   }
+}
+
+/**
+ * Rebuild one persisted Codex turn with a real end timestamp. `thread/read`
+ * stores timing on the turn rather than its individual items; stamping the last
+ * visible message with that completion time preserves the turn duration after
+ * the renderer reloads the transcript.
+ */
+export function codexTurnToMessages(turn: CodexTurnHistory): SessionLoadMessage[] {
+  const startedAt = toEpochMs(turn.startedAt)
+  const messages = (turn.items ?? [])
+    .map((item) => codexItemToMessage(item, startedAt))
+    .filter((message): message is SessionLoadMessage => message !== null)
+  const completedAt = parseEpochMs(turn.completedAt)
+    ?? (typeof turn.durationMs === 'number' && turn.durationMs > 0
+      ? startedAt + turn.durationMs
+      : null)
+  if (turn.status === 'failed') {
+    const error =
+      typeof turn.error === 'string'
+        ? turn.error
+        : turn.error &&
+            typeof turn.error === 'object' &&
+            typeof (turn.error as { message?: unknown }).message === 'string'
+          ? (turn.error as { message: string }).message
+          : 'Codex turn failed'
+    messages.push({
+      role: 'system',
+      content: `Error: ${error}`,
+      timestamp: completedAt ?? startedAt,
+    })
+  }
+  const lastMessage = messages.at(-1)
+  if (lastMessage && completedAt !== null && completedAt > startedAt) {
+    lastMessage.timestamp = completedAt
+  }
+  return messages
+}
+
+export function codexSubagentActivityInput(item: {
+  agentThreadId?: unknown
+  agentPath?: unknown
+}): string {
+  const agentPath = typeof item.agentPath === 'string' ? item.agentPath : ''
+  const taskName = agentPath.split('/').filter(Boolean).at(-1)?.replaceAll('_', ' ') || 'Sub-agent'
+  return JSON.stringify({
+    subagent_type: 'codex',
+    description: taskName,
+    agent_thread_id: typeof item.agentThreadId === 'string' ? item.agentThreadId : undefined,
+    agent_path: agentPath || undefined,
+  })
+}
+
+export function codexSpawnedThreadLinks(item: unknown): Array<{ threadId: string; toolId: string }> {
+  if (!item || typeof item !== 'object') return []
+  const candidate = item as {
+    type?: unknown
+    kind?: unknown
+    tool?: unknown
+    id?: unknown
+    agentThreadId?: unknown
+    receiverThreadIds?: unknown
+  }
+  if (
+    candidate.type === 'subAgentActivity' &&
+    candidate.kind === 'started' &&
+    typeof candidate.id === 'string' &&
+    typeof candidate.agentThreadId === 'string'
+  ) {
+    return [{ threadId: candidate.agentThreadId, toolId: candidate.id }]
+  }
+  if (
+    candidate.type === 'collabAgentToolCall' &&
+    candidate.tool === 'spawnAgent' &&
+    typeof candidate.id === 'string' &&
+    Array.isArray(candidate.receiverThreadIds)
+  ) {
+    const toolId = candidate.id
+    return candidate.receiverThreadIds
+      .filter((threadId: unknown): threadId is string => typeof threadId === 'string' && !!threadId)
+      .map((threadId: string) => ({ threadId, toolId }))
+  }
+  return []
 }
 
 function joinReasoningStrings(value: unknown): string {
@@ -659,38 +790,4 @@ export function extractPlanText(value: any): string {
 
 export function isInterruptedTurnStatus(status: unknown): boolean {
   return status === 'interrupted' || status === 'cancelled' || status === 'canceled' || status === 'aborted'
-}
-
-export function hasUpdatePlanMessage(messages: SessionLoadMessage[], candidate: SessionLoadMessage): boolean {
-  return messages.some((m) => m.role === candidate.role && m.content === candidate.content && m.timestamp === candidate.timestamp)
-}
-
-export function insertMessageByTimestamp(messages: SessionLoadMessage[], msg: SessionLoadMessage): void {
-  const idx = messages.findIndex((m) => m.timestamp > msg.timestamp)
-  if (idx === -1) messages.push(msg)
-  else messages.splice(idx, 0, msg)
-}
-
-export async function latestCodexUpdatePlanMessageFromJsonl(filePath: string): Promise<SessionLoadMessage | null> {
-  let latest: SessionLoadMessage | null = null
-  await new Promise<void>((resolve) => {
-    const rl = createInterface({ input: createReadStream(filePath) })
-    rl.on('line', (line: string) => {
-      try {
-        const obj = JSON.parse(line)
-        if (obj.type !== 'response_item') return
-        const payload = obj.payload
-        if (payload?.type !== 'plan') return
-        const content = extractPlanText(payload)
-        if (!content.trim()) return
-        const timestamp = toEpochMs(obj.timestamp)
-        if (!latest || timestamp > latest.timestamp) {
-          latest = { role: 'plan' as any, content: '', planContent: content, timestamp }
-        }
-      } catch {}
-    })
-    rl.on('close', () => resolve())
-    rl.on('error', () => resolve())
-  })
-  return latest
 }

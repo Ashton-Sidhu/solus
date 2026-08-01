@@ -1,4 +1,6 @@
 import { exec, execSync } from 'child_process'
+import { accessSync, constants } from 'fs'
+import { join } from 'path'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
@@ -84,6 +86,22 @@ export function getCliPath(): string {
   // warmup (if in flight) will resolve to the same value and no-op.
   cachedPath = computeCliPathSync()
   return cachedPath
+}
+
+/** Walk a PATH ourselves, the way `which` is supposed to — the fallback for
+ *  callers that can't afford to believe a probe which answers "nothing". */
+export function findOnPath(bin: string, path: string): string | null {
+  for (const dir of path.split(':')) {
+    if (!dir) continue
+    const candidate = join(dir, bin)
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {
+      // Not here — keep walking.
+    }
+  }
+  return null
 }
 
 export function getCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

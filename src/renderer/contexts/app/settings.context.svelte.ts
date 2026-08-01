@@ -11,18 +11,22 @@ import { MOBILE_QUERY } from './runtime.svelte'
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
-export type ProjectPanelSectionId = 'git' | 'run' | 'works' | 'automations' | 'tasks'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'run' | 'works' | 'automations' | 'tasks'
 export type SplitLayoutSettings = {
   splitTabId: string
   secondaryRatio: number
 }
 
 const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
+  // The section only exists while a goal is set, so it opens on arrival — a
+  // collapsed default would hide the thing the user just asked to see.
+  goal: false,
+  environment: false,
   git: false,
   run: false,
   works: false,
-  automations: false,
-  tasks: false,
+  automations: true,
+  tasks: true,
 }
 
 /** Default height (px) of the bottom run-log dock. */
@@ -46,6 +50,7 @@ export type SettingsFields = {
   reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
   reviewModel: string | null      // review companion model; null → backend default
   reviewReasoning: ReasoningEffort | null  // review companion reasoning effort; null → model default
+  stackedPrsEnabled: boolean
   generatePrGuidesOnOpen: boolean
   reviewWarmingByProject: Record<string, boolean>
   rateLimitBehavior: RateLimitBehavior
@@ -59,7 +64,9 @@ export type SettingsFields = {
   keybindings: Record<string, KeyCombo>
   analyticsEnabled: boolean
   projectPanelOpen: boolean
+  splitProjectPanelOpen: boolean
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
+  splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   runDockOpen: boolean
   runDockHeight: number
   tabGroupMode: TabGroupMode
@@ -118,11 +125,14 @@ export const APP_FONT_FAMILIES: { id: AppFontFamily; label: string; stack: strin
 
 function applyFontFamily(fontFamily: AppFontFamily): void {
   const family = APP_FONT_FAMILIES.find((option) => option.id === fontFamily) ?? APP_FONT_FAMILIES[0]
+  const userContentWeight = family.id === 'sf-pro-text' ? 400 : family.weight
   document.documentElement.style.setProperty('--solus-font-family', family.stack)
   // Each typeface has its own crisp body weight — drive both the body and the
-  // (currently matched) secondary-label weight from it.
+  // (currently matched) secondary-label weight from it. SF Pro's authored text
+  // stays at Regular so the composer and user messages retain enough presence.
   document.documentElement.style.setProperty('--solus-font-weight-body', String(family.weight))
   document.documentElement.style.setProperty('--solus-font-weight-secondary', String(family.weight))
+  document.documentElement.style.setProperty('--solus-font-weight-user-content', String(userContentWeight))
 }
 
 export const APP_CODE_FONT_FAMILIES: { id: AppCodeFontFamily; label: string; stack: string }[] = [
@@ -226,7 +236,7 @@ function loadSettings(): SettingsFields {
     if (raw) {
       const parsed = JSON.parse(raw)
       return {
-        themeMode: (['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
+        themeMode: (['light', 'dark', 'system'].includes(parsed.themeMode) ? parsed.themeMode : 'light') as ThemeMode,
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         voiceModeEnabled: typeof parsed.voiceModeEnabled === 'boolean' ? parsed.voiceModeEnabled : false,
         autoSendVoiceTranscripts: typeof parsed.autoSendVoiceTranscripts === 'boolean' ? parsed.autoSendVoiceTranscripts : false,
@@ -237,20 +247,24 @@ function loadSettings(): SettingsFields {
         reviewAgent: VALID_AGENTS.includes(parsed.reviewAgent) ? parsed.reviewAgent : null,
         reviewModel: typeof parsed.reviewModel === 'string' ? parsed.reviewModel : null,
         reviewReasoning: parsed.reviewReasoning in REASONING_EFFORT_LABELS ? parsed.reviewReasoning : null,
+        stackedPrsEnabled: typeof parsed.stackedPrsEnabled === 'boolean' ? parsed.stackedPrsEnabled : false,
         generatePrGuidesOnOpen: typeof parsed.generatePrGuidesOnOpen === 'boolean' ? parsed.generatePrGuidesOnOpen : false,
         reviewWarmingByProject: loadBooleanRecord(parsed.reviewWarmingByProject),
         rateLimitBehavior: (['ask', 'queue', 'continue', 'stop'].includes(parsed.rateLimitBehavior) ? parsed.rateLimitBehavior : 'ask') as RateLimitBehavior,
         worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
         fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : 'inter',
         fontSize: typeof parsed.fontSize === 'number' && parsed.fontSize >= 8 ? parsed.fontSize : DEFAULT_FONT_SIZE,
-        codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'sf-mono',
+        codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
         codeFontSize: typeof parsed.codeFontSize === 'number' && parsed.codeFontSize >= 8 ? parsed.codeFontSize : DEFAULT_CODE_FONT_SIZE,
         extraInstructions: typeof parsed.extraInstructions === 'string' ? parsed.extraInstructions : '',
         modelInstructions: loadModelInstructions(parsed.modelInstructions),
         keybindings: sanitizeKeybindings(parsed.keybindings),
         analyticsEnabled: typeof parsed.analyticsEnabled === 'boolean' ? parsed.analyticsEnabled : true,
         projectPanelOpen: typeof parsed.projectPanelOpen === 'boolean' ? parsed.projectPanelOpen : false,
+        splitProjectPanelOpen:
+          typeof parsed.splitProjectPanelOpen === 'boolean' ? parsed.splitProjectPanelOpen : false,
         projectPanelCollapsed: loadProjectPanelCollapsed(parsed.projectPanelCollapsed),
+        splitProjectPanelCollapsed: loadProjectPanelCollapsed(parsed.splitProjectPanelCollapsed),
         runDockOpen: typeof parsed.runDockOpen === 'boolean' ? parsed.runDockOpen : false,
         runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
@@ -270,20 +284,23 @@ function loadSettings(): SettingsFields {
     reviewAgent: null,
     reviewModel: null,
     reviewReasoning: null,
+    stackedPrsEnabled: false,
     generatePrGuidesOnOpen: false,
     reviewWarmingByProject: {},
     rateLimitBehavior: 'ask',
     worktreeEnabled: false,
     fontFamily: 'inter',
     fontSize: DEFAULT_FONT_SIZE,
-    codeFontFamily: 'sf-mono',
+    codeFontFamily: 'jetbrains-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
     extraInstructions: '',
     modelInstructions: {},
     keybindings: {},
     analyticsEnabled: true,
     projectPanelOpen: false,
+    splitProjectPanelOpen: false,
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
+    splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     runDockOpen: false,
     runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
@@ -303,25 +320,30 @@ export class SettingsContext {
   reviewAgent = $state<AgentId | null>(null)
   reviewModel = $state<string | null>(null)
   reviewReasoning = $state<ReasoningEffort | null>(null)
+  stackedPrsEnabled = $state(false)
   generatePrGuidesOnOpen = $state(false)
   reviewWarmingByProject = $state<Record<string, boolean>>({})
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
   worktreeEnabled = $state(false)
   fontFamily = $state<AppFontFamily>('inter')
   fontSize = $state(13)
-  codeFontFamily = $state<AppCodeFontFamily>('sf-mono')
+  codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
   extraInstructions = $state('')
   modelInstructions = $state<Record<string, string>>({})
   keybindings = $state<Record<string, KeyCombo>>({})
   analyticsEnabled = $state(true)
   projectPanelOpen = $state(false)
+  splitProjectPanelOpen = $state(false)
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
+  splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   runDockOpen = $state(false)
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
   splitLayout = $state<SplitLayoutSettings | null>(null)
-  private _systemIsDark = $state(true)
+  // Seeded from the media query so 'system' paints correctly before the main
+  // process answers; `setSystemTheme` takes over from there.
+  private _systemIsDark = $state(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
 
   constructor() {
     const saved = loadSettings()
@@ -336,6 +358,7 @@ export class SettingsContext {
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
     this.reviewReasoning = saved.reviewReasoning
+    this.stackedPrsEnabled = saved.stackedPrsEnabled
     this.generatePrGuidesOnOpen = saved.generatePrGuidesOnOpen
     this.reviewWarmingByProject = saved.reviewWarmingByProject
     this.rateLimitBehavior = saved.rateLimitBehavior
@@ -349,14 +372,16 @@ export class SettingsContext {
     this.keybindings = saved.keybindings
     this.analyticsEnabled = saved.analyticsEnabled
     this.projectPanelOpen = saved.projectPanelOpen
+    this.splitProjectPanelOpen = saved.splitProjectPanelOpen
     this.projectPanelCollapsed = saved.projectPanelCollapsed
+    this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.runDockOpen = saved.runDockOpen
     this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
     this.splitLayout = saved.splitLayout
 
     // Must run before first paint so CSS variables resolve to the saved palette.
-    applyTheme(saved.themeMode !== 'light')
+    applyTheme(this.isDark)
     applyFontFamily(saved.fontFamily)
     applyFontSize(saved.fontSize)
     applyCodeFontFamily(saved.codeFontFamily)
@@ -380,6 +405,7 @@ export class SettingsContext {
       reviewAgent: this.reviewAgent,
       reviewModel: this.reviewModel,
       reviewReasoning: this.reviewReasoning,
+      stackedPrsEnabled: this.stackedPrsEnabled,
       reviewWarmingEnabled: false,
       worktreeEnabled: this.worktreeEnabled,
       rateLimitBehavior: this.rateLimitBehavior,
@@ -425,6 +451,7 @@ export class SettingsContext {
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
     if (patch.reviewReasoning !== undefined) this.reviewReasoning = patch.reviewReasoning
+    if (patch.stackedPrsEnabled !== undefined) this.stackedPrsEnabled = patch.stackedPrsEnabled
     if (patch.generatePrGuidesOnOpen !== undefined) this.generatePrGuidesOnOpen = patch.generatePrGuidesOnOpen
     if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
     if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
@@ -451,9 +478,16 @@ export class SettingsContext {
     if (patch.analyticsEnabled !== undefined) {
       this.analyticsEnabled = patch.analyticsEnabled
       setAnalyticsEnabled(patch.analyticsEnabled!)
+      if (window.solus.getPlatform() !== 'web') {
+        void window.solus.setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
+      }
     }
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
+    if (patch.splitProjectPanelOpen !== undefined)
+      this.splitProjectPanelOpen = patch.splitProjectPanelOpen
     if (patch.projectPanelCollapsed !== undefined) this.projectPanelCollapsed = patch.projectPanelCollapsed
+    if (patch.splitProjectPanelCollapsed !== undefined)
+      this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
     if (patch.runDockOpen !== undefined) this.runDockOpen = patch.runDockOpen
     if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
@@ -483,6 +517,7 @@ export class SettingsContext {
         reviewAgent: this.reviewAgent,
         reviewModel: this.reviewModel,
         reviewReasoning: this.reviewReasoning,
+        stackedPrsEnabled: this.stackedPrsEnabled,
         generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
         reviewWarmingByProject: this.reviewWarmingByProject,
         rateLimitBehavior: this.rateLimitBehavior,
@@ -496,7 +531,9 @@ export class SettingsContext {
         keybindings: this.keybindings,
         analyticsEnabled: this.analyticsEnabled,
         projectPanelOpen: this.projectPanelOpen,
+        splitProjectPanelOpen: this.splitProjectPanelOpen,
         projectPanelCollapsed: this.projectPanelCollapsed,
+        splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         runDockOpen: this.runDockOpen,
         runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,

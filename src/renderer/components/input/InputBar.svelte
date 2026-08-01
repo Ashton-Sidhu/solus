@@ -1,6 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { ArrowUpIcon, SquareIcon, XIcon } from "phosphor-svelte";
+  import {
+    ArrowBendDownRightIcon,
+    ArrowUpIcon,
+    SquareIcon,
+    XIcon,
+  } from "phosphor-svelte";
   import {
     getWorkspaceContext,
     getStatusBarContext,
@@ -8,23 +13,31 @@
     getVoiceModelStore,
     getWindowContext,
     runtime,
+    savedPrompts,
+    toasts,
   } from "../../contexts";
   import type {
     PlanReference,
+    PromptDelivery,
     WorkReference,
     SessionReference,
   } from "../../../shared/types";
+  import { isSteerableStatus, worktreeProjectRoot } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import AttachmentChips from "./AttachmentChips.svelte";
+  import SavedPromptsControl from "./SavedPromptsControl.svelte";
   import { SLASH_COMMANDS, type SlashCommand } from "./slash-commands";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
   import RecordingControls from "./RecordingControls.svelte";
   import { dictation, isDictationTarget } from "../../lib/dictation.svelte";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
   import { requestFilePreview } from "../../lib/filePreview";
   import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
+  import { formatReleaseTime } from "../conversation/lib/queued-prompts";
+  import { quotedReplyDraft } from "../../lib/quoted-reply";
 
   const HISTORY_KEY = "solus-prompt-history";
   const MAX_HISTORY = 100;
@@ -34,7 +47,11 @@
   interface Props {
     mode?: "pill" | "editor";
     tabId?: string;
-    leadingActions?: Snippet;
+    /** Receives the saved-prompts control, which the toolbar seats in the left
+     *  cluster beside the pickers rather than out with the mic and send: saving
+     *  a prompt is a composer decision, not a send action. It is handed over as
+     *  a snippet because every prop it needs is private to this bar. */
+    leadingActions?: Snippet<[Snippet]>;
   }
   let { mode = "pill", tabId, leadingActions }: Props = $props();
 
@@ -68,16 +85,28 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isConnecting = $derived(sess?.status === "connecting");
+  const activeProvider = $derived(sess?.provider ?? theme.activeAgent);
+  // Every provider steers; the turn just has to have actually started.
+  const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
   const isReadOnly = $derived(!!sess?.readOnlyReason);
   const attachments = $derived(input.attachments);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
-  const activeProvider = $derived(sess?.provider ?? theme.activeAgent);
   const pluginCommands = $derived(
     sess?.pluginCommands ?? session.pluginCommands,
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
-    sess?.workingDirectory ?? statusBar.ctxFor(targetTabId).workingDirectory,
+    sess?.gitContext?.worktreePath ??
+      sess?.workingDirectory ??
+      statusBar.ctxFor(targetTabId).workingDirectory,
+  );
+  // Saved prompts file under the project, not the worktree, so a prompt written
+  // in one worktree is there in its siblings and in the main checkout.
+  const composerProjectRoot = $derived(
+    sess?.gitContext?.repoRoot ??
+      (composerCwd && composerCwd !== "~"
+        ? worktreeProjectRoot(composerCwd)
+        : null),
   );
 
   // ─── Prompt history ───
@@ -112,13 +141,11 @@
   // The composer text lives on the target tab's input state (the active tab's,
   // the pinned split tab's, or the tab-less one). Switching tabs swaps `input`,
   // so the editor follows along with no manual save/restore — see
-  // MarkdownEditor's reactive `value` sync.
+  // The editor's reactive `value` sync.
   const inputText = $derived(input.text);
 
-  // When this bar is inactive (hidden with display:none) the underlying TipTap
-  // instance is still alive. Without a guard it calls setContent on every
-  // keystroke — parsing markdown and dispatching ProseMirror transactions for
-  // a hidden editor. Freeze the draft at the moment this bar goes inactive;
+  // When this bar is inactive (hidden with display:none) its CodeMirror
+  // instance is still alive. Freeze the draft at the moment this bar goes inactive;
   // switch back to the live reactive value the instant it becomes active again.
   let frozenText = $state(untrack(() => input.text));
   $effect(() => {
@@ -126,6 +153,8 @@
   });
   const editorValue = $derived(isActiveMode ? input.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
+  /** The composer card — the saved-prompts sheet matches its width. */
+  let composerRootEl = $state<HTMLElement | null>(null);
 
   // Skill commands, used only to strip a mobile-autocorrect duplication on send.
   const providerSkills = $derived(
@@ -216,7 +245,7 @@
 
   // ─── Derived state ───
 
-  // Editor emptiness, updated synchronously by MarkdownEditor on every
+  // Editor emptiness, updated synchronously by the editor on every
   // keystroke — unlike `inputText`, which only reflects the 200ms-debounced
   // markdown emit. Seeding from `inputText` at mount/tab-switch is safe
   // because PromptEditor immediately reports the true state once its `value`
@@ -288,8 +317,17 @@
       ? "Read-only session"
       : (voiceModelTooltip ??
           voicePausedTooltip ??
-          (isVoiceWaiting ? "Voice mode waiting..." : "Voice input")),
+          (isVoiceWaiting
+            ? "Voice mode waiting..."
+            : `Voice input (${comboHint("voice.toggle-recorder")})`)),
   );
+  // §1a — the composer stays an ordinary composer while a limit holds the queue.
+  // Its placeholder is the only thing that changes, so the limit is never stated
+  // twice: the bubbles and their caption own the rest.
+  const isRateLimited = $derived(sess?.status === "rate_limited");
+  const resetsAt = $derived(sess?.rateLimitInfo?.resetsAt);
+  const hasQueuedPrompts = $derived((sess?.outboundPrompts.length ?? 0) > 0);
+
   const placeholder = $derived(
     isReadOnly
       ? (sess?.readOnlyReason ?? "This session is read-only.")
@@ -297,11 +335,21 @@
         ? "Initializing..."
         : voiceState === "transcribing"
           ? "Transcribing..."
-          : isBusy
-            ? voiceModeEnabled && ownsVoice
-              ? "Waiting for Claude..."
-              : "Type to queue a message..."
-            : "Plan, Build, Automate / @ for context",
+          : isRateLimited
+            ? resetsAt
+              ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
+              : "Add to the queue — rate limited"
+            : hasQueuedPrompts
+              ? "Add to the queue..."
+              : isBusy
+                ? voiceModeEnabled && ownsVoice
+                  ? "Waiting for Claude..."
+                  : canSteer
+                    ? isMobile
+                      ? "Send to steer this response..."
+                      : "Enter to steer now · ⌥Enter to queue next"
+                    : "Type to queue a message..."
+                : "Plan, Build, Automate · @ for context",
   );
 
   // ─── Focus management ───
@@ -310,6 +358,30 @@
     if (isPrimary) requestInputFocus();
     else composerEl?.focus();
   }
+
+  // Recording replaces the editor with the waveform. Once the recorder settles
+  // and the editor is visible again, return keyboard input to the composer.
+  let previousVoiceStateForFocus = untrack(() => voiceState);
+  $effect(() => {
+    const previousState = previousVoiceStateForFocus;
+    const currentState = voiceState;
+    previousVoiceStateForFocus = currentState;
+
+    if (
+      !isActiveMode ||
+      !ownsVoice ||
+      previousState === "idle" ||
+      currentState !== "idle" ||
+      showWaveform
+    )
+      return;
+
+    requestAnimationFrame(() => {
+      if (isActiveMode && ownsVoice && voiceState === "idle" && !showWaveform) {
+        refocusComposer();
+      }
+    });
+  });
 
   let prevFocusable = untrack(() => isActiveMode && !session.sessionPickerOpen);
   $effect(() => {
@@ -350,25 +422,21 @@
   // blockquote so they can type their message addressing that snippet. Only the
   // active-mode bar subscribes (both pill+editor instances stay mounted).
   function insertQuote(text: string) {
-    const snippet = text.trim();
-    if (!snippet) return;
-    const quoted = snippet
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
+    const quoted = quotedReplyDraft(text);
+    if (!quoted) return;
     const existing = input.text;
     const next = existing.trim()
-      ? `${existing}\n\n${quoted}\n\n`
-      : `${quoted}\n\n`;
+      ? `${existing}\n\n${quoted}`
+      : quoted;
     input.text = next;
     composerEl?.setValueAndCursor(next, true, true);
     requestInputFocus();
   }
 
   $effect(() => {
-    if (!isActiveMode || !receivesFocusedInput) return;
-    return window.solus.onQuoteSelection((text) => {
-      if (isReadOnly) return;
+    if (!isActiveMode) return;
+    return window.solus.onQuoteSelection((text, sourceTabId) => {
+      if (sourceTabId !== targetTabId || isReadOnly) return;
       insertQuote(text);
     });
   });
@@ -439,6 +507,14 @@
     prevVoiceErrorKind = kind;
     if (kind === null) voiceRetry.reset();
     else voiceRetry.note(kind);
+  });
+
+  let prevVoiceError = untrack(() => voice.error);
+  $effect(() => {
+    const error = voice.error;
+    if (error === prevVoiceError) return;
+    prevVoiceError = error;
+    if (error && isActiveMode && ownsVoice) toasts.error(error);
   });
 
   $effect(() => {
@@ -601,6 +677,132 @@
     });
   }
 
+  function clearComposer() {
+    input.text = "";
+    composerEl?.clearEditor();
+  }
+
+  async function handleGoalCommand(argument: string) {
+    if (isReadOnly) return;
+    const goalSession = session.sessionFor(targetTabId);
+    const normalized = argument.trim();
+    const isCodexGoal = goalSession?.provider === "codex";
+
+    if (!normalized) {
+      clearComposer();
+      await session.refreshThreadGoal(targetTabId);
+      if (session.sessionFor(targetTabId)?.goal) {
+        session.revealGoal(targetTabId);
+      } else {
+        session.addSystemMessage("No goal is defined for this session yet.", targetTabId);
+      }
+      refocusComposer();
+      return;
+    }
+
+    if (!goalSession?.agentSessionId) {
+      if (
+        normalized === "clear" ||
+        normalized === "pause" ||
+        normalized === "resume" ||
+        normalized === "edit" ||
+        normalized.startsWith("edit ")
+      ) {
+        clearComposer();
+        session.addSystemMessage(
+          isCodexGoal ? "Define a goal before changing it." : "Goal changes are only supported for Codex sessions.",
+          targetTabId,
+        );
+        refocusComposer();
+        return;
+      }
+      if (normalized.length > 4000) {
+        session.addSystemMessage("Goal objectives must be 4,000 characters or fewer.", targetTabId);
+        refocusComposer();
+        return;
+      }
+      if (goalSession) {
+        goalSession.pendingGoalObjective = normalized;
+        sendPrompt(normalized);
+      } else {
+        sendPrompt(normalized);
+        const createdSession = session.sessionFor(session.activeTabId);
+        if (createdSession) createdSession.pendingGoalObjective = normalized;
+      }
+      return;
+    }
+
+    try {
+      if (!isCodexGoal) await session.refreshThreadGoal(targetTabId);
+      if (normalized === "clear") {
+        if (!isCodexGoal) {
+          clearComposer();
+          session.addSystemMessage("Clearing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        clearComposer();
+        await session.clearThreadGoal(targetTabId);
+        if (panes.secondaryContent.kind === "goal" && panes.secondaryContent.tabId === targetTabId) {
+          panes.closeSecondary();
+        }
+      } else if (normalized === "pause" || normalized === "resume") {
+        if (!isCodexGoal) {
+          clearComposer();
+          session.addSystemMessage("Pausing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        clearComposer();
+        await session.setThreadGoal(targetTabId, {
+          status: normalized === "pause" ? "paused" : "active",
+        });
+        session.revealGoal(targetTabId);
+      } else if (normalized === "edit") {
+        if (!isCodexGoal) {
+          clearComposer();
+          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        clearComposer();
+        await session.refreshThreadGoal(targetTabId);
+        if (goalSession.goal) session.revealGoal(targetTabId);
+      } else {
+        if (!isCodexGoal && normalized.startsWith("edit ")) {
+          clearComposer();
+          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        const objective = normalized.startsWith("edit ") ? normalized.slice(5).trim() : normalized;
+        if (!objective || objective.length > 4000) {
+          session.addSystemMessage("Goal objectives must be between 1 and 4,000 characters.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        const currentGoal = session.sessionFor(targetTabId)?.goal;
+        if (!isCodexGoal && currentGoal) {
+          clearComposer();
+          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        if (currentGoal) await session.setThreadGoal(targetTabId, { objective, status: "active" });
+        else await session.createThreadGoal(targetTabId, objective);
+        session.revealGoal(targetTabId);
+        if (!normalized.startsWith("edit ")) sendPrompt(objective);
+        else clearComposer();
+      }
+    } catch (error) {
+      session.addSystemMessage(
+        `Couldn't update goal: ${error instanceof Error ? error.message : String(error)}`,
+        targetTabId,
+      );
+    }
+    refocusComposer();
+  }
+
   // A Solus built-in command was picked from the menu. The composer has already
   // cleared its completion state; here we either insert its template text or run
   // it outright.
@@ -620,7 +822,10 @@
 
   // ─── Core input handlers ───
 
-  function sendPrompt(prompt: string, options: { refocus?: boolean } = {}) {
+  function sendPrompt(
+    prompt: string,
+    options: { refocus?: boolean; delivery?: PromptDelivery } = {},
+  ) {
     savePromptToHistory(prompt);
     input.text = "";
     resetHistoryNavigation();
@@ -628,14 +833,27 @@
     if (mode === "pill") {
       session.isExpanded = true;
     }
-    session.sendMessage(prompt || "See attached files", undefined, tabId);
+    // A saved prompt that has now been sent has served its purpose. This is the
+    // one composer send funnel, and the draft is already gone by here, so the
+    // paths where sendMessage bails have lost the draft either way.
+    const sentSavedPromptId = input.savedPromptId;
+    input.savedPromptId = null;
+    if (sentSavedPromptId && composerProjectRoot) {
+      void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
+    }
+    session.sendMessage(
+      prompt || "See attached files",
+      undefined,
+      tabId,
+      options.delivery,
+    );
 
     if (options.refocus !== false) {
       refocusComposer();
     }
   }
 
-  function handleSend() {
+  function handleSend(delivery: PromptDelivery = "steer") {
     if (isReadOnly) return;
     let prompt = inputText.trim();
     if (
@@ -647,6 +865,11 @@
     )
       return;
     if (isConnecting) return;
+
+    if (/^\/goal(?:\s|$)/.test(prompt)) {
+      void handleGoalCommand(prompt.slice("/goal".length));
+      return;
+    }
 
     // Mobile keyboards sometimes autocorrect the skill name and insert it as
     // plain text before the slash command (e.g. "ui /ui rest"). Strip it.
@@ -667,7 +890,7 @@
       return;
     }
 
-    sendPrompt(prompt);
+    sendPrompt(prompt, { delivery });
   }
 
   function navigateHistory(delta: -1 | 1) {
@@ -715,7 +938,7 @@
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSend(e.altKey ? "queue" : "steer");
     }
   }
 
@@ -748,12 +971,13 @@
 
   function handleInterrupt() {
     session.interruptTab(targetTabId);
-    window.solus.stopTab(session.ctxFor(targetTabId));
+    session.apiFor(targetTabId).stopTab(session.ctxFor(targetTabId));
     refocusComposer();
   }
 </script>
 
 <div
+  bind:this={composerRootEl}
   class="flex flex-col w-full relative"
   style="contain:layout paint"
   onfocusin={() => claimVoice(true)}
@@ -803,7 +1027,7 @@
   {/if}
 
   {#if attachments.length > 0}
-    <div style="padding-top:0.375rem;margin-left:-0.25rem">
+    <div class="-ml-1 pt-1.5">
       <AttachmentChips
         {attachments}
         onRemove={(id) => session.removeAttachment(id, tabId)}
@@ -812,20 +1036,22 @@
   {/if}
 
   {#if leadingActions}
+    <!-- Two stacked zones in one card: a text well (its own vertical padding
+         comes from the editor, symmetric so the first line sits centred in the
+         well) and a toolbar row that never moves relative to the card's bottom
+         edge. The well is inset a further 6px so prose clears the controls'
+         optical left edge. -->
     <div class="flex flex-col w-full">
-      <div class="min-w-0">
+      <div class="min-w-0 px-1.5">
         {@render editorOrWaveform()}
       </div>
       <!-- Keep the controls proportional to the composer text preference. -->
       <div
-        class="flex items-center w-full"
-        style="padding-top:0.125rem;zoom:var(--solus-font-scale,1)"
+        class="flex w-full items-center gap-2"
+        style="zoom:var(--solus-font-scale,1)"
       >
-        {@render leadingActions()}
-        <div
-          class="flex items-center gap-1 shrink-0 ml-auto"
-          style="padding-bottom:0.125rem"
-        >
+        {@render leadingActions(savedPromptsControl)}
+        <div class="ml-auto flex shrink-0 items-center gap-2">
           {@render actionButtons()}
         </div>
       </div>
@@ -836,9 +1062,7 @@
         {@render editorOrWaveform()}
       </div>
       <div
-        class="flex items-center gap-1 shrink-0 {isMobile
-          ? 'pb-[0.125rem]'
-          : 'pb-[0.375rem]'}"
+        class="flex shrink-0 items-center gap-1 {isMobile ? 'pb-0.5' : 'pb-1.5'}"
         style="zoom:var(--solus-font-scale,1)"
       >
         {@render actionButtons()}
@@ -846,14 +1070,28 @@
     </div>
   {/if}
 
-  {#if ownsVoice && voice.error}
-    <div class="px-1 pb-2 text-[0.6875rem] text-(--solus-status-error)">
-      {voice.error}
-    </div>
-  {/if}
 </div>
 
+{#snippet savedPromptsControl()}
+  {#if !isMobile}
+    <SavedPromptsControl
+      tabId={targetTabId}
+      projectRoot={composerProjectRoot}
+      active={isActiveMode && receivesFocusedInput}
+      {isReadOnly}
+      anchorEl={composerRootEl}
+      onClearEditor={() => composerEl?.clearEditor()}
+      onRefocus={refocusComposer}
+    />
+  {/if}
+{/snippet}
+
 {#snippet actionButtons()}
+  <!-- The pill-mode bar has no toolbar row to seat it in, so it keeps the saved
+       control out here with the mic and send. -->
+  {#if !leadingActions}
+    {@render savedPromptsControl()}
+  {/if}
   {#if isBusy && (isMobile || !isPrimary)}
     {@render stopButton()}
   {/if}
@@ -866,8 +1104,7 @@
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}
     <div
-      class="flex items-center gap-2"
-      style="padding:0.75rem 0"
+      class="flex items-center gap-2 py-3"
       style:display={showWaveform ? null : "none"}
     >
       <div class="min-w-0 flex-1">
@@ -887,6 +1124,7 @@
       onEmptyChange={(empty) => (editorHasText = !empty)}
       {pluginCommands}
       provider={activeProvider}
+      tabId={targetTabId}
       workingDirectory={composerCwd}
       onRefsChange={handleRefsChange}
       includeSolusCommands
@@ -904,34 +1142,71 @@
       readOnly={isReadOnly}
       disabled={isReadOnly || isConnecting || voiceState === "transcribing"}
       maxHeight={INPUT_MAX_HEIGHT}
+      class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
+      'editor'
+        ? '[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+        : ''}"
     />
   </div>
 {/snippet}
 
 {#snippet sendButton()}
-  {#if canSend && !showWaveform}
-    <button
-      onclick={handleSend}
+  <!-- The bottom-right corner is always the next thing you can do, so the
+       button stays put and goes neutral rather than disappearing: fill is spent
+       on send, and only once there is something to send. -->
+  {#if !showWaveform}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+      onclick={() => handleSend()}
+      disabled={!canSend}
       data-testid="send-button"
-      class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform] duration-150 active:scale-[0.94] hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)]"
-      use:tooltip={isBusy ? "Queue message" : "Send (Enter)"}
+      aria-label={canSteer ? "Steer the live turn" : "Send message"}
+      class="flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isMobile
+        ? 'size-8'
+        : 'size-[1.875rem]'} {canSend
+        ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
+        : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
     >
-      <ArrowUpIcon size={16} weight="bold" />
+      {#if canSteer && canSend}
+        <ArrowBendDownRightIcon size={14} weight="bold" />
+      {:else}
+        <ArrowUpIcon size={14} weight="bold" />
+      {/if}
     </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content
+        value={!canSend
+          ? null
+          : canSteer
+            ? { label: "Steer this response · Queue next with ⌥Enter", shortcut: "Enter" }
+            : isBusy
+              ? "Queue message (Enter)"
+              : "Send (Enter)"}
+      />
+    </TooltipUI.Root>
   {/if}
 {/snippet}
 
 {#snippet stopButton()}
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     onmousedown={(e) => e.preventDefault()}
     onclick={handleInterrupt}
     data-testid="mobile-stop-button"
     class="w-9 h-9 rounded-full flex items-center justify-center text-(--solus-text-on-accent) bg-(--solus-stop-bg) shadow-[0_0.125rem_0.5rem_rgba(239,68,68,0.24),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,background] duration-150 active:scale-[0.94] hover:bg-(--solus-stop-hover)"
     aria-label="Stop current task"
-    use:tooltip={"Stop current task"}
   >
     <SquareIcon size={11} weight="fill" />
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Stop current task"} />
+  </TooltipUI.Root>
 {/snippet}
 
 {#snippet voiceButtons()}

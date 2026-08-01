@@ -52,10 +52,50 @@ describe('ClaudeTurnNormalizer', () => {
     })
   })
 
-  test('routes sub-agent tool activity without promoting nested TodoWrite to progress', async () => {
+  test('does not complete the user turn for a task-notification continuation result', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+
+    expect(normalizer.push({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'One explorer finished; two are still running.',
+      origin: { kind: 'task-notification' },
+      terminal_reason: 'completed',
+      session_id: 'claude-session-1',
+    } as ClaudeEvent)).toEqual([])
+  })
+
+  test('streams parented text into the subagent transcript', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+
+    expect(normalizer.push({
+      type: 'stream_event',
+      parent_tool_use_id: 'agent-parent-1',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'Inspecting the auth flow' },
+      },
+    } as ClaudeEvent)).toEqual([{
+      type: 'text_chunk',
+      text: 'Inspecting the auth flow',
+      parentToolUseId: 'agent-parent-1',
+    }])
+  })
+
+  // A sub-agent's TodoWrite is its own plan, not the main agent's. It must reach
+  // the sub-agent's card tagged with the spawning tool call — an untagged progress
+  // event would overwrite the session tracker the top-level agent owns.
+  test('tags a nested TodoWrite with its parent instead of driving main progress', async () => {
     const { events, normalizer } = await normalizeClaudeFixture('claude-sub-agent.jsonl')
 
     expect(events).toEqual([
+      {
+        type: 'progress',
+        todos: [{ content: 'Nested task', status: 'in_progress' }],
+        parentToolUseId: 'agent-parent-1',
+      },
       {
         type: 'tool_call',
         toolName: 'TodoWrite',
@@ -72,7 +112,7 @@ describe('ClaudeTurnNormalizer', () => {
         parentToolUseId: 'agent-parent-1',
       },
     ])
-    expect(events.some((event) => event.type === 'progress')).toBe(false)
+    expect(events.every((event) => event.type !== 'progress' || event.parentToolUseId)).toBe(true)
     expect(normalizer.summary.toolCallCount).toBe(1)
   })
 
@@ -86,6 +126,16 @@ describe('ClaudeTurnNormalizer', () => {
     expect(events).toEqual([
       { type: 'tool_call', toolName: 'Task', toolId: 'agent-async-1', index: 2, isSubagent: true, subagentType: 'claude' },
       { type: 'background_task_started', taskId: 'task-async-1', toolUseId: 'agent-async-1' },
+      {
+        type: 'background_task_progress',
+        taskId: 'task-async-1',
+        toolUseId: 'agent-async-1',
+        description: 'Reading src/shared/types.ts',
+        toolUses: 3,
+        totalTokens: 1200,
+        durationMs: 4500,
+        lastToolName: 'Read',
+      },
       { type: 'tool_call_complete', index: 2, toolInput: '{"description":"Design plan"}' },
       {
         type: 'tool_result',

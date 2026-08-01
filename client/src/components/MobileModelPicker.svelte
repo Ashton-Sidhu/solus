@@ -116,7 +116,7 @@
 {#if models.length > 0}
   <button
     type="button"
-    class="inline-flex items-center gap-1.5 max-w-[11rem] shrink-0 px-2.5 py-1 rounded-full border-0 cursor-pointer bg-(--solus-surface-hover) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.97] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
+    class="inline-flex items-center gap-1.5 max-w-[11rem] shrink-0 px-2.5 py-1 rounded-full border-0 cursor-pointer bg-(--solus-surface-hover) transition-[background-color,transform] duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.96] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
     onclick={toggle}
     aria-haspopup="dialog"
     aria-expanded={open}
@@ -145,7 +145,7 @@
        The sheet doesn't scroll; touch-none claims vertical drags for swipe-to-dismiss. -->
   <div
     bind:this={sheetEl}
-    class="fixed bottom-0 inset-x-0 z-[41] rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform"
+    class="fixed bottom-0 inset-x-0 z-[41] select-none rounded-t-[1.25rem] border-t border-(--solus-popover-border) bg-(--solus-popover-bg) backdrop-blur-[1.25rem] backdrop-saturate-[1.1] shadow-(--solus-popover-shadow) px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] touch-none will-change-transform [-webkit-user-select:none]"
     class:invisible={!visible}
     class:pointer-events-none={!visible}
     role="dialog"
@@ -157,7 +157,7 @@
     <div class="relative flex items-center justify-center h-9 mb-3">
       <button
         type="button"
-        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
+        class="absolute left-0 flex items-center justify-center w-9 h-9 rounded-full border border-(--solus-container-border) cursor-pointer bg-(--solus-surface-hover) font-secondary text-(--solus-text-secondary) transition-colors duration-[120ms] active:bg-(--solus-accent-light) active:text-(--solus-text-primary) [-webkit-tap-highlight-color:transparent]"
         aria-label="Close"
         onclick={close}
       >
@@ -213,7 +213,7 @@
               class="flex items-center gap-3 w-full px-3.5 py-2.5 border-0 bg-transparent text-left cursor-pointer transition-colors duration-[120ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:bg-(--solus-accent-light) [-webkit-tap-highlight-color:transparent]"
               onclick={() => selectReasoning(level)}
             >
-              <span class="flex-1 min-w-0 text-[0.875rem] text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
+              <span class="flex-1 min-w-0 text-[0.875rem] font-secondary text-(--solus-text-secondary)">{REASONING_EFFORT_LABELS[level]}</span>
               {#if currentReasoning === level}
                 <CheckIcon size={16} weight="bold" class="shrink-0 text-(--solus-accent)" />
               {/if}

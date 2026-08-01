@@ -71,6 +71,33 @@ test.describe('Plan modal workflow', () => {
     }
   })
 
+  test('starting a new session is optional in desktop and compact layouts', async ({ page }) => {
+    const app = new AppPage(page)
+    const conversation = new ConversationPage(page)
+    const planPage = new PlanPage(page)
+    await app.waitForAppReady()
+
+    await page.keyboard.press('Alt+Shift+Tab')
+    await expect(page.locator(`${ACTIVE_SHELL} button`).filter({ hasText: 'Plan' }).first()).toBeVisible()
+    await conversation.typeAndSend('__MOCK_PLAN__ create a migration plan')
+    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await planPage.waitForModal()
+
+    const newSessionOption = page.getByTestId('plan-action-new-session')
+    await expect(newSessionOption).toHaveAttribute('aria-pressed', 'true')
+
+    await newSessionOption.click()
+    await expect(newSessionOption).toHaveAttribute('aria-pressed', 'false')
+
+    await page.setViewportSize({ width: 390, height: 780 })
+    await page.getByRole('button', { name: 'More approve options' }).click()
+    await expect(newSessionOption).toBeVisible()
+    await expect(newSessionOption).toHaveAttribute('aria-checked', 'false')
+
+    await newSessionOption.click()
+    await expect(newSessionOption).toHaveAttribute('aria-checked', 'true')
+  })
+
   test('toolbar link popover inserts a link from keyboard submission', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)

@@ -15,12 +15,24 @@
     TreeStructureIcon,
     CheckSquareIcon,
     FolderIcon,
+    FolderOpenIcon,
+    BookmarkSimpleIcon,
+    BookmarksIcon,
     ListChecksIcon,
     PlugsIcon,
   } from "phosphor-svelte";
-  import OfflineBanner from "./components/servers/OfflineBanner.svelte";
+  import ConnectionStatusOverlay from "./components/servers/ConnectionStatusOverlay.svelte";
+  import FatalErrorScene from "./components/servers/FatalErrorScene.svelte";
+  import { openProjectStore } from "./components/servers/open-project.store.svelte";
+  import { hostOnboardingStore } from "./components/servers/host-onboarding.store.svelte";
+  import type { HostOption } from "./components/servers/lib/open-project-flow";
+  import {
+    isRunOnHostLocked,
+    retargetSessionHost,
+  } from "./components/servers/run-on";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
+  import * as Tooltip from "./components/ui/tooltip";
   import type { Command } from "./components/command-palette/lib/commands";
   import {
     projectsStore,
@@ -42,6 +54,9 @@
   import type { PullRequestSummary } from "../shared/providers";
   import { setupAgentEvents } from "./hooks/agentEvents.svelte";
   import { materializeTabs } from "./contexts/workspace/session-bootstrap";
+  import { loadServers, LOCAL_SERVER_ID } from "../client-core/server-registry";
+  import { serverConnections } from "../client-core/server-connections";
+  import { connectionState } from "../client-core/connection-state";
   import {
     createReconnectDetector,
     initializeRuntime,
@@ -60,12 +75,19 @@
     useKeybinding,
     installGlobalDispatcher,
   } from "./lib/keybindings/use-keybinding.svelte";
-  import { comboHint } from "./lib/keybindings/manifest";
+  import { comboHint, KEYBINDINGS } from "./lib/keybindings/manifest";
+  import { defaultCombo, eventMatches } from "./lib/keybindings/match";
   import { requestInputFocus } from "./lib/inputFocus";
+  import { requestSavedPrompts } from "./lib/savedPromptsRequest";
   import { initRootScaling } from "./lib/uiScale";
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
-  import { initAnalytics, analytics } from "./lib/analytics";
+  import {
+    identifyInstallation,
+    initAnalytics,
+    registerSuperProps,
+    track,
+  } from "./lib/analytics";
   import { setupSplitLayoutPersistence } from "./lib/splitLayoutPersistence.svelte";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
@@ -73,6 +95,8 @@
   type EditorLayoutModule =
     typeof import("./components/layout/EditorLayout.svelte");
   type EditorLayoutComponent = EditorLayoutModule["default"];
+  const commandPaletteModulePromise =
+    import("./components/command-palette/CommandPalette.svelte");
   interface Props {
     initialEditorLayout?: EditorLayoutComponent;
   }
@@ -106,14 +130,27 @@
 
   // Electron-only: analytics is desktop-side. The editor is the sole boot
   // window; the pill is created lazily, so count the open from the editor only.
-  initAnalytics(settings.analyticsEnabled);
-  if (windowCtx.viewMode === "editor") analytics.appOpened();
+  initAnalytics({
+    enabled: settings.analyticsEnabled,
+    platform: "desktop",
+    viewMode: windowCtx.viewMode,
+  });
+  if (windowCtx.viewMode === "editor") track("app_opened", {});
+
+  $effect(() => {
+    const installationId = connectionState.target?.installationId;
+    const appVersion = session.staticInfo?.version;
+    if (!installationId || !appVersion) return;
+    identifyInstallation(installationId);
+    registerSuperProps({ app_version: appVersion });
+  });
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
   // Skipped while bootstrap is in progress so an empty initial state doesn't clobber saved data.
   $effect(() => {
     if (session.hydrating) return;
+    const savedServers = loadServers();
     const tabs = session.tabOrder
       .filter((id) => session.tabs[id])
       .map((tabId) => {
@@ -122,20 +159,30 @@
         return {
           tabId,
           title: tab.title ?? "New Tab",
+          serverId: sess?.serverId ?? LOCAL_SERVER_ID,
+          serverInstallationId: savedServers.find(
+            (server) => server.id === sess?.serverId,
+          )?.installationId,
           agentSessionId: sess?.agentSessionId ?? null,
           provider: sess?.provider ?? null,
           handoffFrom: sess?.handoffFrom ? { ...sess.handoffFrom } : undefined,
           workingDirectory:
             sess?.workingDirectory ?? session.globalDefaults.workingDirectory,
+          projectGroupPath: sess?.projectGroupPath ?? null,
           additionalDirs: sess ? [...sess.additionalDirs] : [],
           gitContext: sess?.gitContext ? { ...sess.gitContext } : null,
           worktreeBaseBranch: sess?.worktreeBaseBranch ?? null,
+          worktreeRequired: sess?.worktreeRequired ?? false,
           modelConfig: sess
             ? { ...sess.modelConfig }
             : { ...session.globalDefaults.modelConfig },
           permissionMode:
             sess?.permissionMode ?? session.globalDefaults.permissionMode,
           hasUnread: tab.hasUnread ?? false,
+          terminalFailure: sess?.terminalFailure
+            ? { ...sess.terminalFailure }
+            : null,
+          contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
         };
       });
     const snapshot: PersistedTabs = {
@@ -234,18 +281,15 @@
     const sess = session.sessionFor(tabId);
     const gitCwd = sess?.gitContext?.worktreePath ?? cwd;
     if (!gitCwd) return;
-    // onTurnSettled fires on every completed Write/Edit/exec tool call (mid-turn)
-    // as well as at task_complete. By that point the backend has already emitted
-    // the status_change, so a still-running status means this is a mid-turn
-    // settle — respect the store's throttle so ~20 edits don't spawn ~20 git
-    // pipelines. When the turn actually completes (status reset off running),
-    // force one authoritative refresh.
-    const midTurn = sess?.status === "running" || sess?.status === "connecting";
+    // Tool settles, the Git watcher, and task completion can arrive together.
+    // Keep all of them behind the store's two-second freshness window so the
+    // final snapshot pipeline does not overlap a redundant status scan. A stale
+    // checkout still refreshes immediately.
     void sessionEnvironmentStore.refreshTab(session, {
       tabId,
       cwd: gitCwd,
       level: "status",
-      force: !midTurn,
+      force: false,
     });
   };
 
@@ -265,6 +309,15 @@
   let directoryPickerOpen = $state(false);
   let directoryPickerNewTab = $state(false);
   let directoryPickerTargetTabId = $state<string | undefined>(undefined);
+  // Set when a caller names the host to browse — the "Run on" picker and the
+  // Open project flow both browse a host no tab points at yet.
+  let directoryPickerServerIdOverride = $state<string | undefined>(undefined);
+  // Only the Run on picker turns a cross-host folder choice into a mandatory
+  // session worktree. Opening a remote project uses the normal preference.
+  let directoryPickerRequireWorktree = $state(false);
+  // "Choose location…" in the Open project flow borrows the same browser; its
+  // selection is handed back to that flow instead of retargeting a tab here.
+  let directoryPickerForOpenProject = $state(false);
   let shortcutsModalOpen = $state(false);
   let shortcutsActiveScopes = $state<import("./lib/keybindings/types").Scope[]>(
     [],
@@ -277,9 +330,14 @@
   } | null>(null);
   let hasMountedDirectoryPicker = $state(false);
   let hasMountedShortcuts = $state(false);
-  let hasMountedCommandPalette = $state(false);
+  // The command palette is keyboard-critical and cheap while hidden. Mount it
+  // with the app so the first shortcut never pays component setup work.
+  let hasMountedCommandPalette = $state(true);
   let hasMountedAddServer = $state(false);
-  let hasMountedClaimServer = $state(false);
+  let hasMountedOpenProject = $state(false);
+  let hasMountedHostOnboarding = $state(false);
+  /** Offered as the prefill when a remote host has no commit identity of its own. */
+  let localGitIdentity = $state<{ name: string; email: string } | null>(null);
   // When set, the palette opens drilled straight into this sub-page (e.g. the
   // "Review a PR" git action reuses the "Review PR…" page). Cleared once consumed.
   let paletteInitialPage = $state<{ id: string; title: string } | null>(null);
@@ -350,7 +408,39 @@
     if (shortcutsModalOpen) hasMountedShortcuts = true;
     if (commandPaletteOpen) hasMountedCommandPalette = true;
     if (serversStore.addServerOpen) hasMountedAddServer = true;
-    if (serversStore.claimServerOpen) hasMountedClaimServer = true;
+    if (openProjectStore.isOpen) hasMountedOpenProject = true;
+    if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
+  });
+
+  // Warm the components a keystroke can summon, so the first ⌘K / Open project
+  // only opens them. Mounting is what pulls the lazy chunk in; doing it on the
+  // click meant paying a fetch-and-parse behind a "Loading…" placeholder every
+  // first time. Their data stays deferred until the store actually opens.
+  $effect(() => {
+    if (hasMountedCommandPalette && hasMountedOpenProject && hasMountedDirectoryPicker) return;
+    const warm = () => {
+      hasMountedCommandPalette = true;
+      hasMountedOpenProject = true;
+      // Home hands straight off to the picker, so it is on the same hot path.
+      hasMountedDirectoryPicker = true;
+    };
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(warm, { timeout: 1_500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timeoutId = window.setTimeout(warm, 250);
+    return () => window.clearTimeout(timeoutId);
+  });
+
+  // A bare host has no commit identity; this machine's is the obvious prefill,
+  // so read it once from the local host rather than from the one being set up.
+  $effect(() => {
+    if (!openProjectStore.isOpen || localGitIdentity) return;
+    void serverConnections
+      .apiFor(LOCAL_SERVER_ID)
+      .setupHostReadiness()
+      .then((readiness) => (localGitIdentity = readiness.git.identity))
+      .catch(() => {});
   });
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
@@ -368,14 +458,57 @@
     directoryPickerNewTab ||
       (!directoryPickerTargetTabId && !!session.activeSession?.agentSessionId),
   );
-  const directoryPickerTitle = $derived(
-    directoryPickerCreatesTab
+  // Borrowed by the Open project flow, where the folder being chosen is a place
+  // to put a clone rather than a project to open — so it gets its own wording.
+  const directoryPickerTitle = $derived.by(() => {
+    if (directoryPickerForOpenProject) {
+      return openProjectStore.source === "local"
+        ? "Open a folder"
+        : "Choose where to clone";
+    }
+    return directoryPickerCreatesTab
       ? "Open project in a new tab"
-      : "Change project folder",
+      : "Change project folder";
+  });
+  const directoryPickerAction = $derived.by(() => {
+    if (directoryPickerForOpenProject) {
+      return openProjectStore.source === "local" ? "Open" : "Clone here";
+    }
+    return directoryPickerCreatesTab ? "Open in new tab" : "Choose";
+  });
+  // Browse the host the tab actually runs on — a new tab inherits the active
+  // session's host, so both flows resolve to the same place the commit lands.
+  // An explicit override wins: it names a host before any tab points at it.
+  const directoryPickerServerId = $derived(
+    directoryPickerServerIdOverride ??
+      (directoryPickerTargetTabId
+        ? session.sessionFor(directoryPickerTargetTabId)?.serverId
+        : session.activeSession?.serverId) ??
+      LOCAL_SERVER_ID,
   );
-  const directoryPickerAction = $derived(
-    directoryPickerCreatesTab ? "Open in new tab" : "Choose",
+  // apiFor() opens the connection as a side effect, so only reach for it while
+  // the picker is actually on screen.
+  const directoryPickerApi = $derived(
+    !directoryPickerOpen || directoryPickerServerId === serversStore.activeServerId
+      ? window.solus
+      : (serverConnections.apiFor(directoryPickerServerId) as typeof window.solus),
   );
+  const directoryPickerHostLabel = $derived(
+    directoryPickerServerId === serversStore.activeServerId
+      ? undefined
+      : serversStore.servers.find((s) => s.id === directoryPickerServerId)?.label,
+  );
+  // Changing an existing tab's folder starts where that tab already is. Every
+  // other entry point lets the picker resolve the selected host's projects root.
+  const directoryPickerInitialPath = $derived.by(() => {
+    const targetSession = directoryPickerTargetTabId
+      ? session.sessionFor(directoryPickerTargetTabId)
+      : null;
+    if (targetSession?.serverId === directoryPickerServerId) {
+      return targetSession.workingDirectory;
+    }
+    return undefined;
+  });
 
   const visibleTabOrder = $derived(
     session.tabOrder.filter((id) => session.tabs[id]),
@@ -539,6 +672,10 @@
       voiceModelStore.apply(status),
     );
     void voiceModelStore.refresh();
+    const unsubUsage = window.solus.onUsageLimits((snapshots) =>
+      agent.applyUsage(snapshots),
+    );
+    void agent.refreshUsage();
     // Live automation state: scheduler fires, run transitions, and agent-tool
     // saves all land here. Failures get a toast — an unattended run breaking
     // is otherwise invisible until the user happens to open the page.
@@ -552,6 +689,13 @@
           },
         });
       }
+    });
+    // An agent left comment threads on a plan or a work. Re-read that target's
+    // annotations so the rail updates under the reader, rather than making them
+    // close and reopen the document to see the review.
+    const unsubAnnotations = window.solus.onAnnotationsChanged((change) => {
+      if (change.kind === "work") void session.worksStore.loadAnnotations(change.targetId);
+      else void session.planStore.hydrateAnnotations(change.targetId);
     });
     const unsubStackGraph = session.stacksStore.subscribe();
     const unsubChecks = session.prsStore.subscribeChecks(() => session.ctx);
@@ -576,7 +720,9 @@
       unsubRun();
       unsubRunLog();
       unsubVoiceModel();
+      unsubUsage();
       unsubAutomations();
+      unsubAnnotations();
       unsubStackGraph();
       unsubChecks();
       unsubGuideStatus();
@@ -601,10 +747,10 @@
   // reply" only there. Pushed ahead of the click (on selectionchange) so main
   // already has the answer when the context menu fires — no IPC race.
   $effect(() => {
-    let lastActive = false;
+    let lastSourceTabId: string | null = null;
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      let active = false;
+      let sourceTabId: string | null = null;
       // Bail before the O(selection) toString() on the common continuous-drag
       // path where there's no real selection (collapsed caret / no range).
       if (
@@ -618,22 +764,36 @@
           node.nodeType === Node.ELEMENT_NODE
             ? (node as Element)
             : node.parentElement;
-        active = !!el?.closest(".conversation-selectable");
+        const conversation = el?.closest<HTMLElement>(
+          ".conversation-selectable",
+        );
+        sourceTabId = conversation?.dataset.conversationTabId ?? null;
       }
-      if (active !== lastActive) {
-        lastActive = active;
-        window.solus.setQuoteContext(active);
+      if (sourceTabId !== lastSourceTabId) {
+        lastSourceTabId = sourceTabId;
+        window.solus.setQuoteContext(sourceTabId);
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);
-    return () =>
+    return () => {
       document.removeEventListener("selectionchange", onSelectionChange);
+      window.solus.setQuoteContext(null);
+    };
   });
+
+  $effect(() =>
+    window.solus.onAskSelectionInNewSession((text, sourceTabId) => {
+      void session
+        .askInNewSession(sourceTabId, text)
+        .catch(() => toasts.error("Couldn't start a new session"));
+    }),
+  );
 
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);
   $effect(() => {
-    // Pre-listener for ⌥⇧K: always claims the combo so macOS never sees it
+    // Pre-listener for the voice shortcut: always claims the combo so the OS
+    // never sees it
     // (exclusive scopes in DocumentShell block the normal dispatcher for global
     // bindings, which would otherwise let macOS insert the  character).
     // Handles dictation into focused plain inputs. Non-dictation cases (e.g.
@@ -642,9 +802,12 @@
     //
     // Runs in the capture phase so it fires before any subtree keydown handler
     // (e.g. the diff panel's tree/diff widgets) can stopPropagation and swallow
-    // the combo — without this, ⌥⇧K does nothing while focused inside the panel.
+    // the combo — without this, dictation does nothing while focused in a panel.
     const handleVoiceKey = (e: KeyboardEvent) => {
-      if (e.repeat || !e.altKey || !e.shiftKey || e.code !== "KeyK") return;
+      const combo =
+        settings.keybindings["voice.toggle-recorder"] ??
+        defaultCombo(KEYBINDINGS["voice.toggle-recorder"]);
+      if (e.repeat || !eventMatches(e, combo)) return;
       e.preventDefault();
       const el = document.activeElement;
       if (isDictationTarget(el)) dictation.toggleInto(el);
@@ -654,14 +817,20 @@
   });
 
   // ── Global keybinding handlers ────────────────────────────────────────────
-  useKeybinding("global.select-project", () => {
+  useKeybinding("global.open-host-project", () => {
     window.dispatchEvent(
       new CustomEvent("solus:open-directory-picker", {
-        detail: { tabId: session.focusedChatTabId ?? undefined },
+        detail: {
+          tabId: session.focusedChatTabId ?? undefined,
+          serverId: serversStore.activeServerId,
+        },
       }),
     );
   });
-  useKeybinding("global.new-tab", () => session.createTab());
+  useKeybinding("global.select-project", () => {
+    startOpenProject({ tabId: session.focusedChatTabId ?? undefined });
+  });
+  useKeybinding("global.new-tab", () => session.createTab(undefined, { via: "keybinding" }));
 
   function visualTabOrder(tabIds: string[]): string[] {
     return buildTabSections(
@@ -718,7 +887,7 @@
           branchKeyFor(session.sessionFor(nextId)),
         ) ?? nextId)
       : nextId;
-    session.selectTab(target);
+    session.selectTab(target, "keybinding");
     requestInputFocus();
   }
 
@@ -730,7 +899,7 @@
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
-      session.selectTab(order[(idx + 1) % order.length]);
+      session.selectTab(order[(idx + 1) % order.length], "keybinding");
       requestInputFocus();
     }
   });
@@ -739,7 +908,7 @@
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
-      session.selectTab(order[(idx - 1 + order.length) % order.length]);
+      session.selectTab(order[(idx - 1 + order.length) % order.length], "keybinding");
       requestInputFocus();
     }
   });
@@ -763,13 +932,13 @@
         (modes.indexOf(keyboardPermissionMode as (typeof modes)[number]) + 1) %
           modes.length
       ];
-    session.setPermissionMode(next, keyboardTabId);
+    session.setPermissionMode(next, keyboardTabId, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId);
+    if (activeTabId) session.closeTab(activeTabId, "keybinding");
   });
   useKeybinding("global.group-tabs", () => {
-    session.toggleTabGroupMode();
+    session.toggleTabGroupMode("keybinding");
   });
   useKeybinding("global.attach-file", () => handleAttachFile(keyboardTabId));
   useKeybinding(
@@ -789,7 +958,7 @@
   );
   useKeybinding("global.cycle-agent", async () => {
     if (isRunning) return;
-    await cycleAgentProvider();
+    await cycleAgentProvider("keybinding");
     requestInputFocus();
   });
   useKeybinding("global.cycle-model", () => {
@@ -813,6 +982,7 @@
         modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
       },
       keyboardTabId,
+      "keybinding",
     );
     requestInputFocus();
   });
@@ -837,14 +1007,14 @@
       enabled: () => viewMode === "editor",
     },
   );
-  useKeybinding("global.toggle-plans", () => session.togglePlansGallery());
-  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery());
-  useKeybinding("global.toggle-automations", () => session.toggleAutomations());
-  useKeybinding("global.toggle-tasks", () => session.toggleTasks());
-  useKeybinding("global.settings", () => session.showSettings());
+  useKeybinding("global.toggle-plans", () => session.togglePlansGallery("keybinding"));
+  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery("keybinding"));
+  useKeybinding("global.toggle-automations", () => session.toggleAutomations("keybinding"));
+  useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
+  useKeybinding("global.settings", () => session.showSettings("general", "keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
   useKeybinding("global.toggle-worktree", () =>
-    session.toggleWorktreeMode(session.focusedChatTabId ?? undefined),
+    session.toggleWorktreeMode(session.focusedChatTabId ?? undefined, "keybinding"),
   );
   useKeybinding("global.switch-worktree", () => {
     const hasAgent = !!session.sessionFor(activeTabId)?.agentSessionId;
@@ -854,7 +1024,7 @@
   useKeybinding(
     "global.git-open-terminal",
     () => window.solus.openWorktreeTerminal(session.ctx),
-    { enabled: () => desktopHandlersAvailable },
+    { enabled: () => desktopHandlersAvailable && session.activeSession?.serverId === LOCAL_SERVER_ID },
   );
   useKeybinding("global.show-shortcuts", () => {
     shortcutsActiveScopes = keybindings.activeScopes();
@@ -950,13 +1120,50 @@
   // context-aware commands get layered in later.
   const baseCommands: Command[] = [
     {
+      id: "open-project",
+      label: "Open project…",
+      group: "General",
+      icon: FolderOpenIcon,
+      hint: comboHint("global.select-project"),
+      keywords: [
+        "new project",
+        "clone",
+        "repository",
+        "git",
+        "github",
+        "folder",
+        "directory",
+        "host",
+        "machine",
+      ],
+      run: () => startOpenProject({ tabId: activeTabId }),
+    },
+    {
       id: "new-tab",
       label: "New session",
       group: "General",
       icon: PlusIcon,
       hint: comboHint("global.new-tab"),
       keywords: ["create", "session", "tab"],
-      run: () => session.createTab(),
+      run: () => session.createTab(undefined, { via: "palette" }),
+    },
+    {
+      id: "save-prompt",
+      label: "Save prompt",
+      group: "Compose",
+      icon: BookmarkSimpleIcon,
+      hint: comboHint("global.save-prompt"),
+      keywords: ["stash", "draft", "park", "later", "composer"],
+      run: () => requestSavedPrompts({ action: "save" }),
+    },
+    {
+      id: "saved-prompts",
+      label: "Saved prompts…",
+      group: "Compose",
+      icon: BookmarksIcon,
+      hint: comboHint("global.saved-prompts"),
+      keywords: ["stash", "draft", "park", "restore", "composer"],
+      run: () => requestSavedPrompts({ action: "open" }),
     },
     {
       id: "view-working-tree-diff",
@@ -978,7 +1185,7 @@
       icon: GearSixIcon,
       hint: comboHint("global.settings"),
       keywords: ["preferences", "config"],
-      run: () => session.showSettings(),
+      run: () => session.showSettings("general", "palette"),
     },
     {
       id: "shortcuts",
@@ -1000,6 +1207,20 @@
       keywords: ["remote", "pair", "connect"],
       run: () => serversStore.openAddServer(),
     },
+    {
+      id: "find-hosts",
+      label: "Find hosts nearby",
+      group: "Servers",
+      icon: PlugsIcon,
+      keywords: ["discover", "scan", "lan", "tailscale", "nearby"],
+      // Settings → Connections owns the fuller version of this: a scan button,
+      // last-seen times and connect. The switcher chip it used to open is not
+      // rendered in editor mode at all.
+      run: () => {
+        session.showSettings("api-access", "palette");
+        void serversStore.scanForServers();
+      },
+    },
   ];
 
   async function switchPaletteBranch(branch: string): Promise<boolean> {
@@ -1016,7 +1237,7 @@
         .refsFor(projectRoot)
         .worktrees.find((wt) => wt.branch === branch);
       if (worktree) {
-        await session.switchToWorktree(worktree.path);
+        await session.switchToWorktree(worktree.path, undefined, "palette");
         const nextCwd =
           session.activeSession?.gitContext?.worktreePath ??
           session.activeSession?.workingDirectory;
@@ -1027,7 +1248,7 @@
       }
     }
 
-    const ok = await session.switchToBranch(branch);
+    const ok = await session.switchToBranch(branch, undefined, "palette");
     const nextCwd =
       session.activeSession?.gitContext?.worktreePath ??
       session.activeSession?.workingDirectory;
@@ -1045,10 +1266,10 @@
   const paletteCommands = $derived.by(() => {
     const commands: Command[] = [...baseCommands];
 
-    for (const server of serversStore.servers) {
-      commands.push({
+    const switchServerChildren: Command[] = serversStore.servers.map(
+      (server) => ({
         id: `switch-server:${server.id}`,
-        label: `Switch server: ${server.label}`,
+        label: server.label,
         group: "Servers",
         icon: PlugsIcon,
         hint: server.id === serversStore.activeServerId ? "Active" : undefined,
@@ -1060,6 +1281,30 @@
           server.installationId ?? "",
         ],
         run: () => serversStore.switchTo(server.id),
+      }),
+    );
+    commands.push({
+      id: "switch-server",
+      label: "Switch server…",
+      group: "Servers",
+      icon: PlugsIcon,
+      keywords: ["server", "remote", "connect", "host", "machine"],
+      children: switchServerChildren,
+    });
+
+    for (const host of serversStore.nearbyHosts) {
+      commands.push({
+        id: `connect-host:${host.server.installationId}`,
+        label: `Connect to ${host.server.name}`,
+        group: "Servers",
+        icon: PlugsIcon,
+        keywords: [
+          "server",
+          "connect",
+          `${host.server.host}:${host.server.port}`,
+          host.server.source,
+        ],
+        run: () => hostOnboardingStore.openForDiscovered(host.server),
       });
     }
 
@@ -1072,7 +1317,7 @@
       group: "Plans",
       icon: ListBulletsIcon,
       keywords: [d.title ?? ""],
-      run: () => void session.openPlanFromDescriptor(d),
+      run: () => void session.openPlanFromDescriptor(d, "palette"),
     }));
     commands.push({
       id: "open-plan",
@@ -1097,7 +1342,7 @@
         group: "Documents",
         icon: FoldersIcon,
         keywords: [w.title],
-        run: () => void session.openWorkModal(w.id, w.title),
+        run: () => void session.openWorkModal(w.id, w.title, { via: "palette" }),
       }));
     commands.push({
       id: "open-work",
@@ -1115,7 +1360,7 @@
         group: "Automations",
         icon: ClockCounterClockwiseIcon,
         keywords: [a.name],
-        run: () => session.openAutomations(a.id),
+        run: () => session.openAutomations(a.id, "palette"),
       }),
     );
     commands.push({
@@ -1196,7 +1441,7 @@
       group: "View",
       icon: GitPullRequestIcon,
       keywords: ["pr", "pull request", "github", "review", "prs"],
-      run: () => session.openPrs(),
+      run: () => session.openPrs(null, "palette"),
     });
 
     const gitCtx =
@@ -1222,7 +1467,7 @@
             group: "Git",
             icon: GitForkIcon,
             keywords: ["git", "worktree", "branch", "checkout", wt.branch],
-            run: () => void session.switchToWorktree(wt.path),
+            run: () => void session.switchToWorktree(wt.path, undefined, "palette"),
           })),
       ];
       const existingWorktreeChildren: Command[] = worktrees
@@ -1235,8 +1480,8 @@
           keywords: ["session", "worktree", "existing", wt.branch, wt.path],
           run: () => {
             void (async () => {
-              await session.createTab();
-              await session.switchToWorktree(wt.path);
+              await session.createTab(undefined, { via: "palette" });
+              await session.switchToWorktree(wt.path, undefined, "palette");
             })();
           },
         }));
@@ -1250,7 +1495,7 @@
           keywords: ["session", "branch", "checkout", "switch", branch],
           run: () => {
             void (async () => {
-              await session.createTab();
+              await session.createTab(undefined, { via: "palette" });
               await switchPaletteBranch(branch);
             })();
           },
@@ -1279,7 +1524,7 @@
                   "fork",
                 ],
                 hint: comboHint("global.continue-worktree"),
-                run: () => void session.continueInWorktree(activeTabId),
+                run: () => void session.continueInWorktree(activeTabId, "palette"),
               } as Command,
             ]
           : []),
@@ -1341,6 +1586,7 @@
             run: () =>
               void session.enterPrReview(pr.number, pr.title, {
                 ctx: paletteGitTarget?.ctx,
+                via: "palette",
               }),
           })),
         },
@@ -1431,7 +1677,7 @@
     await window.solus.exitDesignMode();
   }
 
-  async function cycleAgentProvider() {
+  async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
     );
@@ -1443,7 +1689,7 @@
       (candidate) => candidate.id === currentAgent,
     );
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
-    session.switchActiveAgent(next.id);
+    session.switchActiveAgent(next.id, undefined, via);
   }
 
   $effect(() => {
@@ -1455,18 +1701,27 @@
 
   $effect(() => {
     const handler = (event: Event) => {
-      const targetTabId = (event as CustomEvent<{ tabId?: string }>).detail
-        ?.tabId;
+      const detail = (
+        event as CustomEvent<{
+          tabId?: string;
+          serverId?: string;
+          requireWorktree?: boolean;
+        }>
+      ).detail;
+      const targetTabId = detail?.tabId;
       const tab = targetTabId ? session.tabs[targetTabId] : null;
       const opensInNewTab = tab?.sessionId != null;
       directoryPickerNewTab = opensInNewTab;
       directoryPickerTargetTabId = opensInNewTab ? undefined : targetTabId;
+      directoryPickerServerIdOverride = detail?.serverId;
+      directoryPickerRequireWorktree = detail?.requireWorktree === true;
+      directoryPickerForOpenProject = false;
       directoryPickerOpen = true;
     };
-    const newTabHandler = () => {
-      directoryPickerNewTab = true;
-      directoryPickerTargetTabId = undefined;
-      directoryPickerOpen = true;
+    const openProjectHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string } | undefined>)
+        .detail;
+      startOpenProject({ tabId: detail?.tabId });
     };
     // The git "Review a PR" action reuses the palette's PR list: open the
     // command palette drilled straight into the "Review PR…" sub-page.
@@ -1498,29 +1753,50 @@
       paletteInitialPage = { id: "review-pr", title: "Review PR" };
       commandPaletteOpen = true;
     };
+    // The nearby-host discovery toast fires from a store, which has no way to
+    // reach the settings pane on its own.
+    const showConnectionsHandler = () => session.showSettings("api-access");
     window.addEventListener("solus:open-directory-picker", handler);
-    window.addEventListener(
-      "solus:open-directory-picker-new-tab",
-      newTabHandler,
-    );
+    window.addEventListener("solus:open-project", openProjectHandler);
     window.addEventListener("solus:review-pr", reviewPrHandler);
+    window.addEventListener("solus:show-connections", showConnectionsHandler);
     return () => {
       window.removeEventListener("solus:open-directory-picker", handler);
-      window.removeEventListener(
-        "solus:open-directory-picker-new-tab",
-        newTabHandler,
-      );
+      window.removeEventListener("solus:open-project", openProjectHandler);
       window.removeEventListener("solus:review-pr", reviewPrHandler);
+      window.removeEventListener(
+        "solus:show-connections",
+        showConnectionsHandler,
+      );
     };
   });
 
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false;
     invalidateHomeCache();
+    if (directoryPickerForOpenProject) {
+      await finishBrowsedOpenProject(dir);
+      return;
+    }
     const targetTabId = directoryPickerTargetTabId;
+    const overrideServerId = directoryPickerServerIdOverride;
+    const requireWorktree = directoryPickerRequireWorktree;
+    directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
     if (directoryPickerNewTab) {
       directoryPickerNewTab = false;
-      await session.createTab(dir);
+      const newTabId = await session.createTab(dir);
+      if (overrideServerId) {
+        moveTabToHost(newTabId, overrideServerId, dir, { requireWorktree });
+      }
+    } else if (
+      targetTabId &&
+      overrideServerId &&
+      session.sessionFor(targetTabId)?.serverId !== overrideServerId
+    ) {
+      // The folder lives on another host, so the tab has to move there too —
+      // setBaseDirectory alone would point the current host at a missing path.
+      moveTabToHost(targetTabId, overrideServerId, dir, { requireWorktree });
     } else {
       await session.setBaseDirectory(dir, targetTabId);
     }
@@ -1532,7 +1808,128 @@
     directoryPickerOpen = false;
     directoryPickerNewTab = false;
     directoryPickerTargetTabId = undefined;
+    directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
+    // Cancelling a browse that the Open project flow started returns to that
+    // flow, on the step it left — not to an empty screen.
+    if (directoryPickerForOpenProject) {
+      directoryPickerForOpenProject = false;
+      openProjectStore.back();
+      return;
+    }
     requestInputFocus();
+  }
+
+  function moveTabToHost(
+    tabId: string,
+    serverId: string,
+    path: string,
+    options: { requireWorktree?: boolean } = {},
+  ) {
+    retargetSessionHost({
+      workspace: session,
+      tabId,
+      serverId,
+      isLocalHost: serverId === LOCAL_SERVER_ID,
+      path,
+      requireWorktree: options.requireWorktree,
+    });
+  }
+
+  /**
+   * Every machine the Open project flow can land a project on, active one
+   * first — the flow binds the head of this list, so the chip defaults to the
+   * machine you are already working on.
+   */
+  function openProjectHosts(): HostOption[] {
+    const activeId = serversStore.activeServerId;
+    return [...serversStore.servers].sort(
+      (a, b) => Number(b.id === activeId) - Number(a.id === activeId),
+    );
+  }
+
+  function startOpenProject(options: { tabId?: string } = {}) {
+    openProjectStore.open(openProjectHosts(), { tabId: options.tabId });
+  }
+
+  /** Lands the chosen project in a session on the host that holds it. */
+  async function openProjectAtPath(path: string, cloned: boolean) {
+    const serverId = openProjectStore.serverId;
+    const hostLabel = openProjectStore.hostLabel;
+    const hostIsLocal = openProjectStore.hostIsLocal;
+    const tabId = openProjectStore.tabId;
+    const pushNote = openProjectStore.pushCapabilityNote;
+    openProjectStore.close();
+    if (!serverId) return;
+
+    // A started session keeps its folder — the project opens beside it instead.
+    const reusableTabId =
+      tabId &&
+      session.tabs[tabId] &&
+      !isRunOnHostLocked(session.sessionFor(tabId))
+        ? tabId
+        : null;
+    // A tab always starts on the active server, so even a brand new one has to
+    // be moved across before its first prompt runs on the right machine.
+    const targetTabId = reusableTabId ?? (await session.createTab(path));
+    moveTabToHost(targetTabId, serverId, path);
+    requestInputFocus({ tabId: targetTabId });
+
+    // A clone that authenticated as nobody works right up until the push, which
+    // is 25 minutes away at PR time. Say so now, without blocking the session.
+    if (pushNote) {
+      const onboardingHost = { id: serverId, label: hostLabel || serverId };
+      toasts.info(pushNote, {
+        actions: [
+          {
+            label: "Set up",
+            onAction: () => hostOnboardingStore.open(onboardingHost),
+          },
+        ],
+      });
+      return;
+    }
+
+    if (!cloned && hostIsLocal) return;
+    const name = path.split(/[\\/]/).pop();
+    toasts.success(
+      cloned
+        ? `Cloned ${name} on ${hostLabel || "host"}`
+        : `Opened ${name} on ${hostLabel || "host"}`,
+      {
+        actions: [
+          {
+            label: "Copy path",
+            onAction: () => void navigator.clipboard?.writeText(path),
+          },
+        ],
+      },
+    );
+  }
+
+  /** "Choose location…" — the same folder browser, handed back to the flow. */
+  function browseForOpenProject() {
+    if (!openProjectStore.serverId) return;
+    directoryPickerForOpenProject = true;
+    directoryPickerNewTab = false;
+    directoryPickerTargetTabId = undefined;
+    directoryPickerServerIdOverride = openProjectStore.serverId;
+    directoryPickerRequireWorktree = false;
+    directoryPickerOpen = true;
+  }
+
+  /** A folder chosen for the flow: opened as-is, or used as the clone's parent. */
+  async function finishBrowsedOpenProject(dir: string) {
+    directoryPickerForOpenProject = false;
+    directoryPickerServerIdOverride = undefined;
+    directoryPickerRequireWorktree = false;
+    openProjectStore.back();
+    if (openProjectStore.source === "local") {
+      await openProjectAtPath(dir, false);
+      return;
+    }
+    const clonedPath = await openProjectStore.cloneInto(dir);
+    if (clonedPath) await openProjectAtPath(clonedPath, true);
   }
 
   let isDraggingFile = $state(false);
@@ -1586,9 +1983,22 @@
 
 <svelte:window onkeydowncapture={toasts.handleKeydown} />
 
+<!--
+  Without this, a thrown render leaves an empty window with nothing to act on.
+  The boundary keeps the failure inside the app, where the user still has a way
+  back to a working host.
+-->
+<svelte:boundary onerror={(error) => console.error("renderer crashed", error)}>
+<Tooltip.Provider
+  delayDuration={700}
+  skipDelayDuration={300}
+  disableHoverableContent
+  ignoreNonKeyboardFocus
+>
 <Toaster
   theme={settings.isDark ? "dark" : "light"}
   position="top-right"
+  offset={{ top: "1rem", right: "1rem" }}
   visibleToasts={1}
   duration={6000}
   hotkey={TOAST_HOTKEY}
@@ -1680,8 +2090,12 @@
       bind:open={directoryPickerOpen}
       onClose={handleDirectoryPickerClose}
       onSelect={handleDirectorySelected}
+      initialPath={directoryPickerInitialPath}
       title={directoryPickerTitle}
       actionLabel={directoryPickerAction}
+      api={directoryPickerApi}
+      hostLabel={directoryPickerHostLabel}
+      serverId={directoryPickerServerId}
     />
   {/await}
 {/if}
@@ -1701,7 +2115,7 @@
 {/if}
 
 {#if hasMountedCommandPalette}
-  {#await import("./components/command-palette/CommandPalette.svelte")}
+  {#await commandPaletteModulePromise}
     {#if commandPaletteOpen}
       <div class="lazy-modal-loading" role="status">Loading commands…</div>
     {/if}
@@ -1710,12 +2124,12 @@
     <CommandPalette
       bind:open={commandPaletteOpen}
       bind:initialPage={paletteInitialPage}
-      commands={commandPaletteOpen ? paletteCommands : []}
+      commands={paletteCommands}
     />
   {/await}
 {/if}
 
-<OfflineBanner />
+<ConnectionStatusOverlay dimBackdrop={isEditorMode} />
 
 {#if hasMountedAddServer}
   {#await import("./components/servers/AddServerModal.svelte")}
@@ -1728,14 +2142,31 @@
   {/await}
 {/if}
 
-{#if hasMountedClaimServer}
-  {#await import("./components/servers/ClaimServerModal.svelte")}
-    {#if serversStore.claimServerOpen}
-      <div class="lazy-modal-loading" role="status">Loading server setup…</div>
+{#if hasMountedOpenProject}
+  {#await import("./components/servers/OpenProjectDialog.svelte")}
+    {#if openProjectStore.isOpen}
+      <div class="lazy-modal-loading" role="status">Loading projects…</div>
     {/if}
-  {:then claimServerModule}
-    {@const ClaimServerModal = claimServerModule.default}
-    <ClaimServerModal />
+  {:then openProjectModule}
+    {@const OpenProjectDialog = openProjectModule.default}
+    <OpenProjectDialog
+      onOpenProject={(path) =>
+        void openProjectAtPath(path, openProjectStore.source !== "local")}
+      onBrowse={browseForOpenProject}
+      onBackgroundCloneFailure={(failure) => toasts.error(failure.title)}
+      localIdentity={localGitIdentity}
+    />
+  {/await}
+{/if}
+
+{#if hasMountedHostOnboarding}
+  {#await import("./components/servers/HostOnboarding.svelte")}
+    {#if hostOnboardingStore.isOpen}
+      <div class="lazy-modal-loading" role="status">Loading host setup…</div>
+    {/if}
+  {:then hostOnboardingModule}
+    {@const HostOnboarding = hostOnboardingModule.default}
+    <HostOnboarding />
   {/await}
 {/if}
 
@@ -1788,6 +2219,12 @@
     </div>
   </div>
 {/if}
+</Tooltip.Provider>
+
+{#snippet failed(error)}
+  <FatalErrorScene {error} />
+{/snippet}
+</svelte:boundary>
 
 <style>
   .mode-hidden {

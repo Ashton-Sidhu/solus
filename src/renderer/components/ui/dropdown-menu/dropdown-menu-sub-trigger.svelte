@@ -2,6 +2,7 @@
 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
 	import { CaretRightIcon } from "phosphor-svelte";
 	import { cn } from "@renderer/lib/utils.js";
+	import { menuRowVariants } from "../menu/menu-row";
 
 	let {
 		ref = $bindable(null),
@@ -19,11 +20,12 @@
 	data-slot="dropdown-menu-sub-trigger"
 	data-inset={inset}
 	class={cn(
-		"data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary) data-open:bg-(--solus-accent-light) data-open:text-(--solus-text-primary) gap-2 rounded-md px-3 py-1.5 text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) data-inset:pl-7 [&_svg:not([class*='size-'])]:size-4 flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+		menuRowVariants({ stagger: false }),
+		"data-open:shadow-[inset_0_0_0_62rem_var(--solus-menu-hover-ink)] data-open:text-(--solus-text-primary) data-inset:pl-7 data-[inset]:pl-8 [&_svg:not([class*='size-'])]:size-3.5",
 		className
 	)}
 	{...restProps}
 >
 	{@render children?.()}
-	<CaretRightIcon size={11} class="ml-auto opacity-60" />
+	<CaretRightIcon size={9} class="ml-auto opacity-55" />
 </DropdownMenuPrimitive.SubTrigger>

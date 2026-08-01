@@ -1,25 +1,11 @@
 import type { PaneSlot } from '../../../contexts/workspace/pane-view.store.svelte'
 import { abbreviateHome } from '../../../lib/paths'
-import { worktreeProjectRoot, type GitCheckout, type RecentProject, type SessionMeta, type WorktreeEntry } from '../../../../shared/types'
+import type { RecentProject, SessionMeta, WorktreeEntry } from '../../../../shared/types'
 
 export interface HomePresence {
   isActive: boolean
   isFocused: boolean
   isSplit: boolean
-}
-
-export function homeGitDetails(
-  currentDir: string,
-  gitContext: GitCheckout | null | undefined,
-  defaultGitContext: GitCheckout | null,
-  worktreeBaseBranch: string | null | undefined,
-) {
-  const currentGitContext = gitContext ?? defaultGitContext
-  return {
-    projectRoot: currentDir && currentDir !== '~' ? worktreeProjectRoot(currentDir) : null,
-    baseBranch: currentGitContext?.targetBranch ?? 'main',
-    canToggleWorktree: !!currentGitContext?.targetBranch && !currentGitContext.worktreePath,
-  }
 }
 
 export function homePresence(

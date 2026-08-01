@@ -3,7 +3,7 @@ import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
 import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
 import { fetchAndCheckoutPr } from '../../git/worktree-manager'
-import { readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
+import { emptyStackGraph, readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
 import { computePrInterdiff } from '../../git/interdiff'
 import { runAsync } from '../../git/exec'
 import { writeReviewCheckpoint } from '../../review/checkpoints'
@@ -16,6 +16,7 @@ import type { PrGuideMetadataRequest } from '../../../shared/review'
 import type { IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
 import type { SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
+import type { AgentDispatcher } from '../../agents/agent-runner'
 
 const log = createLogger('main', 'provider-handlers')
 const EFFORT_FETCH_CONCURRENCY = 4
@@ -72,7 +73,7 @@ async function loadReviewEfforts(
         }))
         .catch((err) => {
           effortCache.delete(cacheKey)
-          log.warn(`review effort unavailable for PR #${request.number}: ${err instanceof Error ? err.message : String(err)}`)
+          log.warn('review_effort_unavailable', { prNumber: request.number, error: err instanceof Error ? err.message : String(err) })
           return undefined
         })
       for (const key of effortCache.keys()) if (key.startsWith(prefix)) effortCache.delete(key)
@@ -158,7 +159,7 @@ async function persistReviewCheckpoint(
       await runAsync('git', ['fetch', 'origin', `pull/${number}/head`], repoRoot)
       checkpointBase = await runAsync('git', ['merge-base', review.commitId, detail.baseSha], repoRoot)
     } catch {
-      log.warn(`review submitted for PR #${number}, but its merge-base could not be resolved`)
+      log.warn('review_checkpoint_merge_base_unresolved', { prNumber: number })
       return
     }
   }
@@ -168,11 +169,12 @@ async function persistReviewCheckpoint(
     base: checkpointBase,
     reviewedAt: new Date().toISOString(),
   })
-  if (!saved) log.warn(`review submitted for PR #${number}, but its checkpoint could not be saved`)
+  if (!saved) log.warn('review_checkpoint_save_failed', { prNumber: number })
 }
 
 export interface ProviderHandlerDeps {
   isWorktreeInUse: (path: string) => boolean
+  dispatcher: AgentDispatcher
 }
 
 export function registerProviderHandlers(server: SolusServer, deps: ProviderHandlerDeps): void {
@@ -197,7 +199,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       // User-initiated cancellation isn't a failure; surface it without log noise.
       if (err instanceof ConnectCancelledError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      log.error(`providerConnect failed: ${message}`)
+      log.error('provider_connect_failed', { error: message })
       throw err
     }
   })
@@ -232,13 +234,28 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     ])
     result.items = attachReviewAttention(result.items, viewer)
     const cwd = ctx.session.projectPath || ctx.session.workingDirectory
-    // Stack inference is advisory: even resolving the local repo root happens
-    // after the PR response is ready, so a slow/failing heuristic cannot delay it.
+    // Stack inference is experimental and advisory: even resolving the local
+    // repo root happens after the PR response is ready, so it cannot delay it.
     if (cwd) void resolveRepoRoot(cwd).then((repoRoot) => {
       if (!repoRoot) return
       const isOpenPage = (!filter?.state || filter.state === 'open') && !filter?.author
       if (!isOpenPage) return
       const isCompleteOpenList = page === 1 && !result.hasMore
+      if (!ctx.settings.stackedPrsEnabled) {
+        if (isCompleteOpenList) {
+          scheduleGuideWarming({
+            dispatcher: deps.dispatcher,
+            ctx,
+            repoRoot,
+            repo,
+            provider,
+            openPullRequests: result.items,
+            graph: emptyStackGraph(),
+            isWorktreeInUse: deps.isWorktreeInUse,
+          })
+        }
+        return
+      }
       scheduleStackDetection({
         repoRoot,
         repo,
@@ -249,6 +266,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
           server.broadcast('stack-graph-update', repoRoot, graph)
           if (isCompleteOpenList) {
             scheduleGuideWarming({
+              dispatcher: deps.dispatcher,
               ctx,
               repoRoot,
               repo,
@@ -260,7 +278,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
           }
         },
       })
-    }).catch((err) => log.warn(`stack detection trigger failed: ${err instanceof Error ? err.message : String(err)}`))
+    }).catch((err) => log.warn('stack_detection_trigger_failed', { error: err instanceof Error ? err.message : String(err) }))
     return result
   })
 
@@ -283,7 +301,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prGuideMetadata', async (args) => {
     const [ctx, requests] = args as [IpcContext, PrGuideMetadataRequest[]]
     const repoRoot = await repoRootForContext(ctx)
-    return readPrGuideMetadata(repoRoot, await readStackGraph(repoRoot), requests)
+    const graph = ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null
+    return readPrGuideMetadata(repoRoot, graph, requests)
   })
 
   server.register('prOpenReview', async (args) => {
@@ -421,7 +440,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     // The provider response is the user-visible completion boundary. Persisting
     // the local interdiff checkpoint must not hold the submitted modal open.
     void persistReviewCheckpoint(ctx, repo, provider, number, review).catch((err) => {
-      log.warn(`review submitted for PR #${number}, but its checkpoint failed: ${err instanceof Error ? err.message : String(err)}`)
+      log.warn('review_checkpoint_failed', { prNumber: number, error: err instanceof Error ? err.message : String(err) })
     })
   })
 
@@ -478,11 +497,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const { repo, provider } = await reviewTargetFor(ctx)
     const repoRoot = await repoRootForContext(ctx)
     requestPrGuides({
+      dispatcher: deps.dispatcher,
       ctx,
       repoRoot,
       repo,
       provider,
-      graph: await readStackGraph(repoRoot),
+      graph: ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null,
       isWorktreeInUse: deps.isWorktreeInUse,
       onStatus: (number, status, metadata) => server.broadcast('pr-guide-status', {
         repoRoot,

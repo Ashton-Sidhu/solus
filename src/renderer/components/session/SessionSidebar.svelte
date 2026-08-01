@@ -16,14 +16,15 @@
     PushPinIcon,
     GearIcon,
     XIcon,
-    LightningIcon,
+    ArrowsClockwiseIcon,
     ListChecksIcon,
     GitPullRequestIcon,
-    ColumnsIcon,
+    ChatsIcon,
+    BinocularsIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     getAttentionIcon,
@@ -33,7 +34,9 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import * as Sidebar from "../ui/sidebar";
   import SessionContextMenu from "./SessionContextMenu.svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { sessionGuideStatusStore } from "../review/session-guide-status.store.svelte";
 
   interface Props {
     open?: boolean;
@@ -84,11 +87,11 @@
     "hover:bg-(--solus-surface-hover) hover:border-[color-mix(in_srgb,var(--solus-container-border)_80%,transparent)]";
   // Top-nav card cluster (Plans / Folio / Automations / …).
   const navCardBase =
-    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)";
+    "group flex items-center gap-2 w-full h-8 px-2.5 rounded-lg bg-transparent cursor-pointer text-left font-secondary text-(--solus-text-secondary) transition-[color,background] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover)";
   const navCardActive =
     "text-(--solus-text-primary) bg-[color-mix(in_srgb,var(--solus-accent)_8%,transparent)]";
   const navCardIcon =
-    "flex items-center flex-shrink-0 text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-accent) group-data-active:text-(--solus-accent)";
+    "flex items-center flex-shrink-0 font-secondary text-(--solus-text-secondary) transition-colors duration-150 group-hover:text-(--solus-accent) group-data-active:text-(--solus-accent)";
   const navLabel =
     "text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left";
   const navHint =
@@ -212,6 +215,13 @@
     session.openTabInSplit(tabId);
     onSessionSelect?.();
   }
+
+  function isReviewRunning(tabId: string | null | undefined): boolean {
+    return !!tabId && sessionGuideStatusStore.isRunningFor(
+      session.apiFor(tabId),
+      session.sessionFor(tabId),
+    );
+  }
 </script>
 
 {#snippet pinnedSection()}
@@ -225,6 +235,7 @@
           {#each sidebarStore.pinnedSessions as pin (pin.sessionId)}
             {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
             {@const isActive = !!openTabId && openTabId === session.activeTabId}
+            {@const reviewRunning = isReviewRunning(openTabId)}
             <Sidebar.MenuItem>
               <Sidebar.MenuButton
                 class="gap-1.5 rounded-[0.4375rem] border border-transparent pl-8 pr-8 font-normal active:scale-[0.96] {focusRing} {isActive
@@ -248,6 +259,9 @@
                     : 'text-[color-mix(in_srgb,var(--solus-text-primary)_62%,var(--solus-text-secondary))]'}"
                   >{pin.title}</span
                 >
+                {#if reviewRunning}
+                  {@render reviewMark()}
+                {/if}
               </Sidebar.MenuButton>
               <Sidebar.MenuAction
                 class="pointer-events-none opacity-0 transition-[opacity,background-color,color] duration-150 group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 group-focus-within/menu-item:pointer-events-auto group-focus-within/menu-item:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
@@ -258,7 +272,7 @@
                   void openPinnedSessionInSplit(pin);
                 }}
               >
-                <ColumnsIcon size={11} />
+                <ChatsIcon size={11} />
               </Sidebar.MenuAction>
               <Sidebar.MenuAction
                 class="left-2 right-auto text-(--solus-accent) hover:text-(--solus-stop-bg) hover:bg-[color-mix(in_srgb,var(--solus-stop-bg)_12%,transparent)]"
@@ -285,6 +299,7 @@
   side="left"
   {open}
   {managedWidth}
+  isElevated={false}
   minWidth={160}
   maxWidth={400}
   onAction={onToggleCollapse}
@@ -321,7 +336,7 @@
             isActive={session.automationsOpen}
             onclick={() => session.toggleAutomations()}
           >
-            <span class={navCardIcon}><LightningIcon size={13} /></span>
+            <span class={navCardIcon}><ArrowsClockwiseIcon size={13} /></span>
             <span class={navLabel}>Automations</span>
             <span class={navHint}>{comboHint("global.toggle-automations")}</span
             >
@@ -380,13 +395,11 @@
     </Sidebar.GroupLabel>
     <Sidebar.GroupAction
       class="right-2 top-1.5 text-(--solus-text-tertiary)"
-      aria-label="New session in project"
+      aria-label="Open project"
       onclick={() => {
-        window.dispatchEvent(
-          new CustomEvent("solus:open-directory-picker-new-tab"),
-        );
+        window.dispatchEvent(new CustomEvent("solus:open-project"));
       }}
-      tooltipContent="New session in project…"
+      tooltipContent="Open project…"
     >
       <PlusIcon size={14} />
     </Sidebar.GroupAction>
@@ -407,10 +420,12 @@
         class="flex items-center gap-px flex-shrink-0 max-w-0 pl-0.5 overflow-hidden opacity-0 pointer-events-none transition-[max-width,opacity] duration-150 group-hover:max-w-12 group-hover:opacity-100 group-hover:pointer-events-auto focus-within:max-w-12 focus-within:opacity-100 focus-within:pointer-events-auto"
       >
         {#if showNew}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background] duration-[120ms] hover:text-(--solus-accent) hover:bg-(--solus-surface-hover) focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]"
             aria-label="New session in {label}"
-            use:tooltip={"New session"}
             onclick={(e) => {
               e.stopPropagation();
               void newSessionForGroup(tabIds);
@@ -418,28 +433,38 @@
           >
             <PlusIcon size={12} />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"New session"} />
+          </TooltipUI.Root>
         {/if}
         {#if showSplit && tabIds[0]}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background] duration-[120ms] hover:text-(--solus-accent) hover:bg-(--solus-surface-hover) focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-accent)]"
             aria-label="Open {label} in split"
-            use:tooltip={"Open in split"}
             onclick={(event) => {
               event.stopPropagation();
               openTabInSplit(tabIds[0]);
             }}
           >
-            <ColumnsIcon size={12} />
+            <ChatsIcon size={12} />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Open in split"} />
+          </TooltipUI.Root>
         {/if}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background] duration-[120ms] hover:text-(--solus-stop-bg) hover:bg-[color-mix(in_srgb,var(--solus-stop-bg)_14%,transparent)] focus-visible:shadow-[inset_0_0_0_0.0938rem_var(--solus-stop-bg)]"
           aria-label={tabIds.length > 1
             ? `Close ${tabIds.length} sessions in ${label}`
             : `Close ${label}`}
-          use:tooltip={tabIds.length > 1
-            ? `Close ${tabIds.length} sessions`
-            : "Close"}
           onclick={(e) => {
             e.stopPropagation();
             closeTabs(tabIds);
@@ -447,6 +472,12 @@
         >
           <XIcon size={12} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={tabIds.length > 1
+            ? `Close ${tabIds.length} sessions`
+            : "Close"} />
+        </TooltipUI.Root>
       </span>
     {/snippet}
     {#snippet attentionMark(att: AttentionState)}
@@ -471,11 +502,21 @@
         {/if}
       {/if}
     {/snippet}
+    {#snippet reviewMark()}
+      <span
+        class="flex flex-shrink-0 items-center justify-center leading-none text-(--solus-accent) group-hover:hidden"
+        title="Review running"
+        aria-label="Review running"
+      >
+        <BinocularsIcon size={11} weight="bold" />
+      </span>
+    {/snippet}
     <Sidebar.Menu class="gap-1">
       {#each sidebarStore.projectBranchGroups as pg (pg.projectKey)}
         {@const groupKey = `project:${pg.projectKey}`}
         {@const collapsed = collapsedGroups.has(groupKey)}
         {@const projectTabIds = pg.branches.flatMap((b) => b.tabIds)}
+        {@const projectReviewRunning = projectTabIds.some(isReviewRunning)}
         {@const isProjectActive = projectTabIds.includes(session.activeTabId)}
         {@const showProjectActive = isProjectActive && collapsed}
         <Sidebar.MenuItem>
@@ -504,6 +545,9 @@
             {#if collapsed && pg.attention}
               {@render attentionMark(pg.attention)}
             {/if}
+            {#if collapsed && projectReviewRunning}
+              {@render reviewMark()}
+            {/if}
             {@render rowActions(projectTabIds, pg.projectLabel, true)}
           </div>
           {#if !collapsed}
@@ -517,8 +561,9 @@
                   session.activeTabId,
                 )}
                 {@const showBranchActive = isActiveBranch && !isExpanded}
+                {@const branchReviewRunning = branch.tabIds.some(isReviewRunning)}
                 <div
-                  class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
+                  class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none font-secondary text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
                     ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
                     : `border-transparent bg-transparent ${rowHoverWash}`}"
                   style="--branch-kind-color:{branchKindColor(branch.kind)}"
@@ -572,6 +617,9 @@
                   {#if branch.attention && !isExpanded}
                     {@render attentionMark(branch.attention)}
                   {/if}
+                  {#if branchReviewRunning && !isExpanded}
+                    {@render reviewMark()}
+                  {/if}
                   <button
                     class="flex-shrink-0 flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background,transform] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) {focusRing} {isExpanded
                       ? 'rotate-90'
@@ -602,8 +650,10 @@
                     {#each branch.tabIds as tabId (tabId)}
                       {@const child = sidebarStore.childForTab(tabId)}
                       {@const showChildActive = isActiveBranch && child.active}
+                      {@const hostAffinity = serversStore.affinityFor(child.serverId)}
+                      {@const reviewRunning = isReviewRunning(tabId)}
                       <div
-                        class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
+                        class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none font-secondary text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                           ? `${rowActiveWash} text-(--solus-text-primary)`
                           : `border-transparent bg-transparent ${rowHoverWash}`}"
                         role="button"
@@ -632,8 +682,26 @@
                         >
                           {child.label}
                         </span>
+                        {#if hostAffinity}
+                          {@const HostIcon = hostAffinity.icon}
+                          <TooltipUI.Root>
+                            <TooltipUI.Trigger>
+                              {#snippet child({ props: tooltipProps })}
+                                <span {...tooltipProps}
+                            class="flex shrink-0 items-center {hostAffinity.className}"
+                          >
+                            <HostIcon size={11} />
+                          </span>
+                              {/snippet}
+                            </TooltipUI.Trigger>
+                            <TooltipUI.Content value={hostAffinity.tooltip} />
+                          </TooltipUI.Root>
+                        {/if}
                         {#if child.attention}
                           {@render attentionMark(child.attention)}
+                        {/if}
+                        {#if reviewRunning}
+                          {@render reviewMark()}
                         {/if}
                         {@render rowActions([tabId], child.label, false, true)}
                       </div>
@@ -669,7 +737,7 @@
           <span
             class="text-[0.8125rem] font-normal tracking-[-0.01em] flex-1 text-left {session.settingsOpen
               ? 'text-(--solus-text-primary)'
-              : 'text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
+              : 'font-secondary text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)'}"
             >Settings</span
           >
           <span

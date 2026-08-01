@@ -3,9 +3,10 @@ import { defaultCombo, formatCombo } from './match'
 
 export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
-  'global.select-project':    { combo: { mod: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Select project',           group: 'General' },
+  'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
+  'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open project',             group: 'General' },
   'global.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New tab',                  group: 'Tabs' },
-  'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'New chat in split',        group: 'Tabs' },
+  'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
   'global.prev-tab':          { combo: { ctrl: true, shift: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowLeft' }, scope: 'global', label: 'Previous branch / tab', group: 'Tabs' },
@@ -16,6 +17,8 @@ export const KEYBINDINGS = {
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
   'global.design-mode':       { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Design mode',              group: 'Compose' },
+  'global.save-prompt':       { combo: { mod: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Save prompt',              group: 'Compose' },
+  'global.saved-prompts':     { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Saved prompts',            group: 'Compose' },
   'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
@@ -44,7 +47,7 @@ export const KEYBINDINGS = {
 
   // ── Voice (global, gated by viewMode + not read-only) ──────────────────────
   'voice.toggle-mode':        { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Toggle voice mode',        group: 'Voice' },
-  'voice.toggle-recorder':    { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Toggle voice recording',   group: 'Voice' },
+  'voice.toggle-recorder':    { combo: { alt: true, shift: true, code: 'Space' },         scope: 'global',             label: 'Start / finish voice recording', group: 'Voice' },
 
   // ── Action orb (global, gated by active tab) ───────────────────────────────
   'orb.toggle':               { combo: { alt: true, shift: true, code: 'KeyQ' },          scope: 'global',             label: 'Toggle quick actions',     group: 'General' },
@@ -56,6 +59,8 @@ export const KEYBINDINGS = {
   // ── Conversation (global, gated by active tab) ─────────────────────────────
   'conversation.scroll-top':      { combo: { alt: true, code: 'KeyH' },                   scope: 'global',             label: 'Scroll to first message',  group: 'Conversation' },
   'conversation.scroll-bottom':   { combo: { alt: true, code: 'KeyE' },                   scope: 'global',             label: 'Scroll to bottom',         group: 'Conversation' },
+  'conversation.find':            { combo: { mod: true, code: 'KeyF' },                   scope: 'global',             label: 'Find in conversation',     group: 'Conversation' },
+  'conversation.close-find':      { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close conversation find',  group: 'Conversation' },
   'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' },      scope: 'global',             label: 'Open changed files',       group: 'Conversation' },
   'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' },                  scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
 
@@ -116,13 +121,16 @@ export const KEYBINDINGS = {
   'plan-modal.toggle-comments':   { combo: { alt: true, code: 'KeyM' },                    scope: 'plan-modal',         label: 'Toggle comments',          group: 'Modal' },
   'plan-modal.resume':            { combo: { alt: true, code: 'KeyO' },                    scope: 'plan-modal',         label: 'Resume session',           group: 'Modal' },
   'plan-modal.find':              { combo: { mod: true, code: 'KeyF' },                    scope: 'plan-modal',         label: 'Find & replace',           group: 'Modal' },
+  'plan-modal.pin-outline':       { combo: { mod: true, alt: true, code: 'Backslash' },    scope: 'plan-modal',         label: 'Pin table of contents',    group: 'Modal' },
   'plan-modal.new-tab':           { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'plan-modal', label: 'New tab',         group: 'Modal' },
 
   // ── Document modal ─────────────────────────────────────────────────────────
   'document-modal.close':         { combo: { code: 'Escape' },                             scope: 'document-modal',     label: 'Close',                    group: 'Modal' },
+  'document-modal.start-comment': { combo: { mod: true, code: 'KeyM' },                    scope: 'document-modal',     label: 'Comment on selection',     group: 'Modal' },
   'document-modal.save':          { combo: { alt: true, code: 'KeyS' },                    scope: 'document-modal',     label: 'Save',                     group: 'Modal' },
   'document-modal.copy':          { combo: { alt: true, code: 'KeyC' },                    scope: 'document-modal',     label: 'Copy to clipboard',        group: 'Modal' },
   'document-modal.find':          { combo: { mod: true, code: 'KeyF' },                    scope: 'document-modal',     label: 'Find & replace',           group: 'Modal' },
+  'document-modal.pin-outline':   { combo: { mod: true, alt: true, code: 'Backslash' },    scope: 'document-modal',     label: 'Pin table of contents',    group: 'Modal' },
   'document-modal.google-upload': { combo: { alt: true, code: 'KeyG' },                    scope: 'document-modal',     label: 'Open in Google Docs',      group: 'Modal' },
   'plan-modal.google-upload':     { combo: { alt: true, code: 'KeyG' },                    scope: 'plan-modal',         label: 'Open in Google Docs',      group: 'Modal' },
 
@@ -174,6 +182,7 @@ export const KEYBINDINGS = {
   'diagram.bring-to-front':       { combo: { mod: true, shift: true, code: 'BracketRight' }, scope: 'diagram',           label: 'Bring to front',           group: 'Canvas' },
   'diagram.search':               { combo: { mod: true, code: 'KeyF' },                     scope: 'diagram',            label: 'Search nodes',             group: 'Canvas' },
   'diagram.comments':             { combo: { alt: true, code: 'KeyC' },                     scope: 'diagram',            label: 'Toggle comments',          group: 'Canvas' },
+  'diagram.toggle-inspector':     { combo: { mod: true, code: 'Backslash' },                scope: 'diagram',            label: 'Toggle inspector',         group: 'Canvas' },
   'diagram.dismiss':              { combo: { code: 'Escape' },                              scope: 'diagram',            label: 'Close search / drawer / focus', group: 'Canvas' },
   'diagram.zoom-in':              { combo: { code: 'PageUp' },                              scope: 'diagram',            label: 'Zoom in',                  group: 'Canvas' },
   'diagram.zoom-out':             { combo: { code: 'PageDown' },                            scope: 'diagram',            label: 'Zoom out',                 group: 'Canvas' },
@@ -189,11 +198,12 @@ export const KEYBINDINGS = {
   // ── Attachment preview ─────────────────────────────────────────────────────
   'attachment.close-preview':     { combo: { code: 'Escape' },                             scope: 'attachment-preview', label: 'Close preview',            group: 'General' },
 
+  // ── Saved prompts (sheet open; ⌫ is gated on an empty search field so it
+  //    still backspaces while you type) ───────────────────────────────────────
+  'saved-prompts.delete':         { combo: { code: 'Backspace' },                          scope: 'saved-prompts',      label: 'Delete saved prompt',      group: 'Saved prompts' },
+
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },
-  'command-palette.next':         { combo: { code: 'ArrowDown' }, aliases: [{ ctrl: true, code: 'KeyN' }], repeatable: true, scope: 'command-palette',    label: 'Next command',             group: 'Palette' },
-  'command-palette.prev':         { combo: { code: 'ArrowUp' }, aliases: [{ ctrl: true, code: 'KeyP' }],   repeatable: true, scope: 'command-palette',    label: 'Previous command',         group: 'Palette' },
-  'command-palette.select':       { combo: { code: 'Enter' },                              scope: 'command-palette',    label: 'Run command',              group: 'Palette' },
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },

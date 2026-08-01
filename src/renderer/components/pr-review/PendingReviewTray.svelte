@@ -25,25 +25,25 @@
   let expanded = $state(false);
 </script>
 
-<div class="shrink-0 border-t border-(--solus-art-border) bg-(--solus-container-bg)">
+<div class="shrink-0 border-t border-border bg-card">
   {#if expanded}
     <ul class="flex max-h-48 flex-col gap-1 overflow-y-auto px-3 pt-2">
       {#each drafts as d (d.id)}
-        <li class="flex items-start gap-2 rounded-lg bg-(--solus-art-surface) px-2.5 py-1.5">
+        <li class="flex items-start gap-2 rounded-lg bg-card px-2.5 py-1.5">
           <!-- A list row, not a button primitive: two stacked lines, left-aligned. -->
           <button
             type="button"
             class="min-w-0 flex-1 cursor-pointer text-left"
             onclick={() => onJump?.(d.path, d.line, d.side)}
           >
-            <span class="block truncate font-mono text-[0.6875rem] text-(--solus-text-tertiary)">{d.path}:{d.line}</span>
-            <span class="block truncate text-[0.8125rem] text-(--solus-text-secondary)">{d.body}</span>
+            <span class="block truncate font-mono text-[11px] text-muted-foreground">{d.path}:{d.line}</span>
+            <span class="block truncate text-[12.5px] text-foreground">{d.body}</span>
           </button>
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
-            class="cursor-pointer text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-status-error)"
+            class="cursor-pointer text-muted-foreground hover:bg-muted hover:text-(--solus-status-error)"
             aria-label="Remove comment"
             onclick={() => onRemove(d.id)}
           >
@@ -59,7 +59,7 @@
       type="button"
       variant="ghost"
       size="xs"
-      class="-ml-2 cursor-pointer gap-1.5 text-[0.8125rem] font-medium text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
+      class="-ml-2 cursor-pointer gap-1.5 text-[12.5px] font-medium text-foreground hover:bg-muted hover:text-foreground"
       onclick={() => (expanded = !expanded)}
     >
       <CaretUpIcon size={13} class={expanded ? "rotate-180 transition-transform" : "transition-transform"} />
@@ -68,7 +68,7 @@
     {#if onSubmit}
       <Button
         type="button"
-        class="ml-auto inline-flex items-center gap-1.5 rounded-md bg-(--solus-accent) px-3 py-1.5 text-[0.8125rem] font-semibold text-(--solus-on-accent,#fff) transition-opacity hover:opacity-90"
+        class="ml-auto inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-3.5 text-[12.5px] font-medium text-primary-foreground transition-colors"
         onclick={onSubmit}
       >
         <PaperPlaneTiltIcon size={14} weight="bold" />

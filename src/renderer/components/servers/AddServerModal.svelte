@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { CheckCircleIcon, LinkSimpleIcon, XIcon } from "phosphor-svelte";
-  import { desktopDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
+  import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@client-core/pairing";
   import type { SavedServer } from "@client-core/server-registry";
   import { serversStore, toasts } from "../../contexts";
   import * as Tabs from "../ui/tabs";
   import { Input } from "../ui/input";
+  import { messageFor } from "./lib/setup-rpc";
 
   type Mode = "link" | "manual";
 
@@ -18,17 +19,26 @@
   let paired = $state<SavedServer | null>(null);
   let linkInput: HTMLInputElement | null = $state(null);
   let urlInput: HTMLInputElement | null = $state(null);
+  let wasOpen = false;
 
   $effect(() => {
-    if (!serversStore.addServerOpen) return;
-    if (serversStore.addServerUrl) {
-      mode = "manual";
-      serverUrl = serversStore.addServerUrl;
-      label = label || urlHost(serversStore.addServerUrl);
+    const isOpen = serversStore.addServerOpen;
+    if (!isOpen) {
+      wasOpen = false;
+      return;
     }
-    void tick().then(() => {
-      if (mode === "link") linkInput?.focus();
-      else urlInput?.focus();
+    if (wasOpen) return;
+    wasOpen = true;
+    untrack(() => {
+      if (serversStore.addServerUrl) {
+        mode = "manual";
+        serverUrl = serversStore.addServerUrl;
+        label = label || urlHost(serversStore.addServerUrl);
+      }
+      void tick().then(() => {
+        if (mode === "link") linkInput?.focus();
+        else urlInput?.focus();
+      });
     });
   });
 
@@ -71,13 +81,13 @@
       const result = await pairServer({
         url,
         pairToken,
-        deviceLabel: desktopDeviceLabel(),
+        deviceLabel: defaultDeviceLabel(),
         serverLabel: label.trim() || urlHost(url),
       });
       serversStore.savePairedServer(result.server);
       paired = result.server;
     } catch (err) {
-      toasts.error(`Couldn't pair server: ${err instanceof Error ? err.message : String(err)}`);
+      toasts.error(`Couldn't pair server: ${messageFor(err)}`);
     } finally {
       busy = false;
     }
@@ -133,7 +143,7 @@
             </div>
           </div>
           <div class="flex justify-end gap-2">
-            <button type="button" class="rounded-lg px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Done</button>
+            <button type="button" class="rounded-lg px-3 py-2 text-[0.8125rem] font-secondary text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Done</button>
             <button type="button" class="rounded-lg bg-(--solus-accent) px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-on-accent) transition-transform active:scale-[0.96]" onclick={switchNow}>Switch now</button>
           </div>
         </div>
@@ -175,7 +185,7 @@
             </label>
 
             <div class="flex justify-end gap-2 pt-1">
-              <button type="button" class="rounded-lg px-3 py-2 text-[0.8125rem] text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Cancel</button>
+              <button type="button" class="rounded-lg px-3 py-2 text-[0.8125rem] font-secondary text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Cancel</button>
               <button type="submit" disabled={busy} class="inline-flex items-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 text-[0.8125rem] font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.96] disabled:cursor-wait disabled:opacity-60">
                 <LinkSimpleIcon size={14} />
                 {busy ? "Pairing..." : "Pair"}

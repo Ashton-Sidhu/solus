@@ -1,6 +1,7 @@
 import { onDestroy } from 'svelte'
 import { getVoiceModelStore } from '../contexts'
 import { dictation, isDictationTarget, type DictationTarget } from './dictation.svelte'
+import { comboHint } from './keybindings/manifest'
 
 export type FieldSubmitKey = 'enter' | 'mod-enter'
 
@@ -66,7 +67,7 @@ export function createFieldDictation(options: FieldDictationOptions) {
       return options.getDisabled() || !voiceModel.ready
     },
     get idleMicTooltip() {
-      if (voiceModel.ready) return 'Voice input'
+      if (voiceModel.ready) return `Voice input (${comboHint('voice.toggle-recorder')})`
       if (voiceModel.status.state === 'downloading' && voiceModel.progressPct !== null) {
         return `Downloading voice model - ${voiceModel.progressPct}%`
       }

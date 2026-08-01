@@ -9,6 +9,8 @@ const DEFAULT_TIMEOUT = 60_000
 export interface GitExecOptions {
   /** Extra env vars merged over the inherited CLI env. */
   env?: NodeJS.ProcessEnv
+  /** Stops the spawned process when the owning setup is interrupted. */
+  signal?: AbortSignal
   /** Timeout in ms. Defaults to 60s. */
   timeout?: number
   /** Max stdout bytes. Defaults to Node's 1 MiB; raise for whole-repo diffs. */
@@ -34,6 +36,7 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     maxBuffer: opts.maxBuffer,
     env: getCliEnv(opts.env),
+    signal: opts.signal,
   })
   return opts.raw ? stdout : stdout.trim()
 }

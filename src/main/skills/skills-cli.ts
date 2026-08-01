@@ -60,7 +60,7 @@ export async function searchSkills(query: string): Promise<RemoteSkill[]> {
         url: `https://skills.sh/${skill.id}`,
       }))
   } catch (err) {
-    log.warn(`skills.sh search "${q}" failed: ${(err as Error).message}`)
+    log.warn('skills_search_failed', { query: q, error: (err as Error).message })
     return []
   }
 }
@@ -82,7 +82,7 @@ export async function listInstalledSkillNames(): Promise<string[]> {
       maxBuffer: 4 * 1024 * 1024,
     }))
   } catch (err) {
-    log.warn(`skills list failed: ${(err as Error).message}`)
+    log.warn('skills_list_failed', { error: (err as Error).message })
     return []
   }
 
@@ -103,7 +103,7 @@ export async function installSkill(id: string, agentIds: AgentId[]): Promise<Ski
   if (agentIds.length === 0) return { ok: false, agents: [], error: 'No active agent providers' }
 
   const agentArgs = agentIds.flatMap((id) => ['-a', id])
-  log.info(`Installing ${id} for [${agentIds.join(', ')}]`)
+  log.info('skill_install_started', { skillId: id, agentIds })
 
   try {
     await execFileAsync(NPX, [...BASE_ARGS, 'add', id, '-g', '-y', ...agentArgs], {
@@ -111,11 +111,11 @@ export async function installSkill(id: string, agentIds: AgentId[]): Promise<Ski
       timeout: CLI_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
     })
-    log.info(`Installed ${id}`)
+    log.info('skill_installed', { skillId: id })
     return { ok: true, agents: agentIds }
   } catch (err) {
     const msg = (err as Error).message
-    log.error(`Failed to install ${id}: ${msg}`)
+    log.error('skill_install_failed', { skillId: id, error: msg })
     return { ok: false, agents: agentIds, error: msg }
   }
 }

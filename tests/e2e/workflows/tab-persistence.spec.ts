@@ -5,7 +5,7 @@ import { ConversationPage } from '../helpers/conversation.page'
 const TAB_ITEM = '[data-testid="tab-item"]'
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
-const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .solus-md-editor`
+const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-line`
 // Both the editor and pill shells stay mounted (one hidden), so each renders its
 // own TabStrip. Scope tab lookups to the visible shell to count logical tabs.
 const VISIBLE_TAB_ITEM = `${ACTIVE_SHELL} ${TAB_ITEM}`
@@ -126,6 +126,35 @@ test.describe('Tab persistence across reload', () => {
     // restore its live status via bindRuntimeSession, not fall back to idle.
     await expect(page.locator(VISIBLE_TAB_ITEM).first()).toHaveAttribute('data-status', 'awaiting_input', {
       timeout: 10_000,
+    })
+  })
+
+  // Regression: inactive tabs defer transcript hydration until browser idle time.
+  // Their lightweight live-status lookup must not wait behind that queue, or the
+  // tab strip falsely reports idle work after a client refresh.
+  test('inactive running session restores its status before deferred hydration', async ({ page }) => {
+    const app = new AppPage(page)
+    const conversation = new ConversationPage(page)
+    await app.waitForAppReady()
+
+    await conversation.typeAndSend('Run a background command __MOCK_PERMISSION__')
+    await page.waitForSelector(`${ACTIVE_TAB} [data-testid="permission-card"]`, { timeout: 8000 })
+    await expect(page.locator(VISIBLE_TAB_ITEM).first()).toHaveAttribute('data-status', 'awaiting_input')
+
+    await app.openNewTab()
+    await expect(page.locator(VISIBLE_TAB_ITEM)).toHaveCount(2)
+
+    // Keep the inactive tab's transcript/bind hydration queued across reload.
+    // Status recovery must therefore come from the side-effect-free status probe.
+    await page.addInitScript(() => {
+      window.requestIdleCallback = () => 1
+    })
+    await page.reload()
+    await app.waitForAppReady()
+
+    await expect(page.locator(VISIBLE_TAB_ITEM)).toHaveCount(2)
+    await expect(page.locator(VISIBLE_TAB_ITEM).first()).toHaveAttribute('data-status', 'awaiting_input', {
+      timeout: 3000,
     })
   })
 

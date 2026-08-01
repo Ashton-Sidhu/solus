@@ -25,6 +25,8 @@
     getWindowContext,
     getSessionEnvironmentStore,
     runtime,
+    serversStore,
+    toasts,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
@@ -32,7 +34,11 @@
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { tooltip } from "../../lib/tooltip";
+  import {
+    sessionGuideIdentity,
+    sessionGuideStatusStore,
+  } from "../review/session-guide-status.store.svelte";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import Kbd from "../ui/Kbd.svelte";
   import * as Popover from "../ui/popover";
   import ActionOrbProgress from "./ActionOrbProgress.svelte";
@@ -116,7 +122,22 @@
   );
   const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
   const hasUncommittedChanges = $derived(uncommittedFiles.length > 0);
-  const showReview = $derived(hasSessionChanges);
+  // This action reviews one agent session. Never fall back to the branch key:
+  // the environment panel owns branch reports, and those must not make this
+  // session pill read as ready.
+  const sessionReviewGuideKey = $derived(
+    sess?.agentSessionId ? `session-${sess.agentSessionId}` : null,
+  );
+  const sessionReviewIdentity = $derived(sessionGuideIdentity(sess));
+  const sharedReviewStatus = $derived(
+    sessionGuideStatusStore.statusFor(
+      session.apiFor(tabId),
+      sessionReviewIdentity,
+    ),
+  );
+  const showReview = $derived(
+    hasSessionChanges && sessionReviewGuideKey !== null,
+  );
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
@@ -125,6 +146,15 @@
     showNativeDesktopActions && hasUncommittedChanges,
   );
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
+  const remoteHost = $derived.by(() => {
+    const host = serversStore.hostFor(sess?.serverId);
+    return host?.local ? null : host;
+  });
+  const terminalTooltip = $derived(
+    remoteHost
+      ? `Runs on ${remoteHost.label} — not available for remote sessions`
+      : "Open session in terminal",
+  );
   const showFork = $derived(!!sess?.agentSessionId && !isRunning);
   const showContinueWorktree = $derived(
     !!sess?.agentSessionId && !isRunning && !sess?.gitContext?.worktreePath,
@@ -144,11 +174,56 @@
   let reviewGuideKey = $state<string | null>(null);
   let reviewPopoverOpen = $state(false);
   let reviewRunId = 0;
+  let lastReviewFailureAt = 0;
   // Fingerprint of the change set the current "done" guide covered. When the
   // session keeps editing past it, drop back to "Review" instead of latching
   // "View Review" on a walkthrough of an older change.
   let reviewSnapshot = $state<string | null>(null);
   const changesFingerprint = $derived(sessionChangedFiles.join("|"));
+
+  $effect(() => {
+    const identity = sessionReviewIdentity;
+    if (!identity) return;
+    const api = session.apiFor(tabId);
+    void sessionGuideStatusStore.load(
+      api,
+      session.ctxFor(tabId),
+      identity,
+    );
+  });
+
+  $effect(() => {
+    const status = sharedReviewStatus;
+    if (!status) return;
+    if (status.step) reviewProgressStep = status.step;
+    if (status.status === "queued" || status.status === "generating") {
+      reviewStatus = "generating";
+      return;
+    }
+    if (status.status === "ready" && sessionReviewGuideKey === status.key) {
+      reviewGuideKey = status.key;
+      reviewSnapshot = changesFingerprint;
+      reviewStatus = "done";
+      return;
+    }
+    if (
+      reviewStatus === "generating" &&
+      (status.status === "failed" || status.status === "cancelled")
+    ) {
+      reviewStatus = "idle";
+    }
+    if (
+      status.status === "failed" &&
+      status.updatedAt !== lastReviewFailureAt
+    ) {
+      lastReviewFailureAt = status.updatedAt;
+      toasts.error(
+        status.error
+          ? `Review stopped: ${status.error}`
+          : "Review stopped before a guide was produced. Try again.",
+      );
+    }
+  });
 
   // Latch keyed by tabId → the change-set fingerprint we last probed for a cached
   // guide. Without it, every re-activation of a dirty tab whose probe found no
@@ -159,21 +234,25 @@
   // every mid-turn file change.
   const reviewCheckedFingerprint = new Map<string, string>();
   $effect(() => {
-    if (!hasSessionChanges || tabId !== session.activeTabId) return;
+    const key = sessionReviewGuideKey;
+    if (!hasSessionChanges || !key || tabId !== session.activeTabId) return;
     if (reviewStatus !== "idle") return;
     const fp = untrack(() => changesFingerprint);
     if (reviewCheckedFingerprint.get(tabId) === fp) return;
     reviewCheckedFingerprint.set(tabId, fp);
     const ctx = session.ctxFor(tabId);
-    const sid = sess?.agentSessionId;
-    window.solus.getReviewContext(ctx).then(async (rc) => {
+    const api = session.apiFor(tabId);
+    api.getReviewContext(ctx).then(async (rc) => {
       if (!rc) return;
-      const key = sid ? `session-${sid}` : rc.branch.replace(/\//g, "__");
-      const cached = await window.solus.readGuide(ctx, key);
+      const cached = await api.readGuide(ctx, key);
       // A cached guide from an older HEAD is stale — leave the orb on "Review"
       // so clicking generates a fresh walkthrough.
       if (cached && cached.headSha && cached.headSha !== rc.headSha) return;
-      if (cached && reviewStatus === "idle") {
+      if (
+        cached &&
+        sessionReviewGuideKey === key &&
+        reviewStatus === "idle"
+      ) {
         reviewGuideKey = key;
         reviewSnapshot = changesFingerprint;
         reviewStatus = "done";
@@ -413,22 +492,19 @@
     const livePaths = [...sessionChangedFiles];
     const ctx = session.ctxFor(tabId);
     let cancelled = false;
-    window.solus
-      .diffStats(ctx, { scope: { kind: "session" }, livePaths })
-      .then((files) => {
-        if (cancelled || fingerprint !== changesFingerprint) return;
-        const nextStats: Record<string, FileStat> = {};
-        for (const file of files) {
-          nextStats[file.path] = {
-            additions: file.additions,
-            deletions: file.deletions,
-          };
-        }
-        fileStats = nextStats;
-      })
-      .catch(() => {
-        if (!cancelled) fileStats = {};
-      });
+    session.apiFor(tabId).diffStats(ctx, { scope: { kind: "session" }, livePaths }).then((files) => {
+      if (cancelled || fingerprint !== changesFingerprint) return;
+      const nextStats: Record<string, FileStat> = {};
+      for (const file of files) {
+        nextStats[file.path] = {
+          additions: file.additions,
+          deletions: file.deletions,
+        };
+      }
+      fileStats = nextStats;
+    }).catch(() => {
+      if (!cancelled) fileStats = {};
+    });
     return () => {
       cancelled = true;
     };
@@ -505,7 +581,7 @@
   }
 
   function handleOpenTerminal() {
-    if (!tab) return;
+    if (!tab || remoteHost) return;
     window.solus.openInTerminal(session.ctxFor(tabId));
     requestInputFocus();
   }
@@ -523,32 +599,27 @@
       return;
     }
     if (reviewStatus === "generating") return;
+    const expectedGuideKey = sessionReviewGuideKey;
+    if (!expectedGuideKey) return;
 
     const runId = ++reviewRunId;
     reviewStatus = "generating";
     reviewProgressStep = "preparing";
-
-    // Progress events broadcast to every subscriber; only track this session's
-    // generation so a concurrent branch/other-tab run can't drive our steps.
-    const sid = sess?.agentSessionId;
-    const unsubscribe = window.solus.onReviewProgress((event) => {
-      if (sid && event.key !== `session-${sid}`) return;
-      reviewProgressStep = event.step;
-    });
+    const api = session.apiFor(tabId);
 
     try {
-      const gen = await window.solus.generateGuide(session.ctxFor(tabId), {
+      const status = await api.requestSessionGuide(session.ctxFor(tabId), {
         ...resolveReviewAgent(theme, agentContext),
-        scope: "session",
       });
       if (runId !== reviewRunId) return;
-      reviewGuideKey = gen?.persisted ? gen.key : null;
-      reviewSnapshot = changesFingerprint;
-      reviewStatus = reviewGuideKey ? "done" : "idle";
+      if (!status || status.key !== expectedGuideKey) {
+        reviewStatus = "idle";
+        return;
+      }
+      sessionGuideStatusStore.set(api, status);
     } catch {
       if (runId === reviewRunId) reviewStatus = "idle";
     } finally {
-      unsubscribe();
       if (runId !== reviewRunId) return;
       requestInputFocus();
     }
@@ -559,7 +630,7 @@
     reviewRunId += 1;
     reviewStatus = "idle";
     reviewPopoverOpen = false;
-    void window.solus.cancelGenerateGuide(session.ctxFor(tabId), {
+    void session.apiFor(tabId).cancelGenerateGuide(session.ctxFor(tabId), {
       scope: "session",
     });
     requestInputFocus();
@@ -671,7 +742,7 @@
     "global.continue-worktree",
     () => {
       if (showContinueWorktree && !isCreatingWorktree) {
-        session.continueInWorktree(tabId);
+        session.continueInWorktree(tabId, "keybinding");
         requestInputFocus();
       }
     },
@@ -701,7 +772,10 @@
   class:orb-streaming={isRunning}
 >
   <!-- Trigger: always bottom-right, compact status button -->
-  <button
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
     class="orb-trigger pointer-events-auto absolute flex cursor-pointer items-center justify-center rounded-full [isolation:isolate]"
     class:orb-trigger-active={hasUncommittedChanges && !expanded}
     class:orb-trigger-open={expanded}
@@ -717,7 +791,6 @@
     aria-controls="action-orb-panel-{tabId}"
     aria-haspopup="true"
     aria-label={orbTooltip}
-    use:tooltip={orbTooltip}
   >
     <SparkleIcon size={13} weight="regular" />
     {#if orbBadge}
@@ -729,6 +802,10 @@
       </span>
     {/if}
   </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={orbTooltip} />
+  </TooltipUI.Root>
 
   <!-- Panel: streams up to center-bottom on expand -->
   <div
@@ -746,7 +823,10 @@
       class="dock-actions inline-flex items-center justify-center gap-(--orb-gap)"
     >
       {#if showPin}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn dock-btn-icon stagger-item"
           class:dock-btn-pinned={isPinned}
           data-orb-action="pin"
@@ -756,14 +836,20 @@
           title={isPinned ? "Unpin session" : "Pin session to sidebar"}
           aria-label={isPinned ? "Unpin session" : "Pin session to sidebar"}
           aria-pressed={isPinned}
-          use:tooltip={isPinned ? "Unpin session" : "Pin session to sidebar"}
         >
           <StarIcon size={13} weight={isPinned ? "fill" : "regular"} />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={isPinned ? "Unpin session" : "Pin session to sidebar"} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showInterrupt}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn dock-btn-stop stagger-item"
           class:dock-btn-primary={primaryAction === "stop"}
           data-orb-action="stop"
@@ -771,12 +857,11 @@
           style="--item-index:{itemIndices.stop}"
           onclick={() => {
             session.interruptTab(tab.id);
-            window.solus.stopTab(session.ctxFor(tab.id));
+            session.apiFor(tab.id).stopTab(session.ctxFor(tab.id));
             requestInputFocus();
           }}
           title="Stop current task"
           aria-label="Stop current task"
-          use:tooltip={"Stop current task"}
         >
           <SquareIcon size={9} weight="fill" />
           <span>Stop</span>
@@ -784,6 +869,10 @@
             >{shortcutLabel("conversation.interrupt")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Stop current task"} />
+        </TooltipUI.Root>
         <span class="dock-divider" aria-hidden="true"></span>
       {/if}
 
@@ -846,21 +935,27 @@
                   >
                 </span>
               </div>
-              <button
-                class="files-pop-primary inline-flex cursor-pointer items-center justify-center whitespace-nowrap bg-[color-mix(in_srgb,var(--solus-container-bg)_54%,transparent)] text-(--solus-text-secondary)"
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <button {...tooltipProps}
+                class="files-pop-primary inline-flex cursor-pointer items-center justify-center whitespace-nowrap bg-[color-mix(in_srgb,var(--solus-container-bg)_54%,transparent)] font-secondary text-(--solus-text-secondary)"
                 onclick={handleOpenFiles}
                 disabled={!theme.defaultEditor}
                 title={theme.defaultEditor
                   ? "Open files in editor"
                   : "Choose a default editor in settings"}
                 aria-label="Open files in editor"
-                use:tooltip={theme.defaultEditor
-                  ? "Open files in editor"
-                  : "Choose a default editor in settings"}
               >
                 <ArrowSquareOutIcon size={15} weight="regular" />
                 <span>Open files in editor</span>
               </button>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={theme.defaultEditor
+                  ? "Open files in editor"
+                  : "Choose a default editor in settings"} />
+              </TooltipUI.Root>
             </div>
             <div class="files-pop-list overflow-auto">
               {#each sessionChangedFiles as path (path)}
@@ -902,9 +997,7 @@
                 data-orb-action="files"
                 tabindex={tabIndexFor("files")}
                 style="--item-index:{itemIndices.files}"
-                title={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
                 aria-label={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
-                use:tooltip={`Review ${sessionChangedFiles.length} session file${sessionChangedFiles.length !== 1 ? "s" : ""}`}
               >
                 <FilesIcon size={13} weight="regular" />
                 <span>Changed Files ({sessionChangedFiles.length})</span>
@@ -918,15 +1011,18 @@
       {/if}
 
       {#if showNativeDesktopActions}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           data-orb-action="terminal"
           tabindex={tabIndexFor("terminal")}
           style="--item-index:{itemIndices.terminal}"
           onclick={handleOpenTerminal}
-          title="Open session in terminal"
+          disabled={!!remoteHost}
+          title={terminalTooltip}
           aria-label="Open session in terminal"
-          use:tooltip={"Open session in terminal"}
         >
           <TerminalWindowIcon size={13} weight="regular" />
           <span>Terminal</span>
@@ -934,10 +1030,17 @@
             >{shortcutLabel("orb.open-terminal")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={terminalTooltip} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showFork}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           data-orb-action="fork"
           tabindex={tabIndexFor("fork")}
@@ -948,7 +1051,6 @@
           }}
           title="Fork session into a new tab"
           aria-label="Fork session into a new tab"
-          use:tooltip={"Fork session into a new tab"}
         >
           <GitForkIcon size={13} weight="regular" />
           <span>Fork</span>
@@ -956,10 +1058,17 @@
             >{shortcutLabel("global.fork-tab")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Fork session into a new tab"} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showContinueWorktree}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           class:dock-btn-worktree-pending={isCreatingWorktree}
           data-orb-action="continueWorktree"
@@ -979,9 +1088,6 @@
             ? "Creating worktree"
             : "Continue this session in a new worktree"}
           aria-busy={isCreatingWorktree}
-          use:tooltip={isCreatingWorktree
-            ? "Creating worktree…"
-            : "Continue this session in a new worktree"}
         >
           {#if isCreatingWorktree}
             <TreeStructureIcon size={13} weight="regular" />
@@ -994,6 +1100,12 @@
             >
           {/if}
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={isCreatingWorktree
+            ? "Creating worktree…"
+            : "Continue this session in a new worktree"} />
+        </TooltipUI.Root>
       {/if}
 
       {#if showNativeDesktopActions || showFork || showContinueWorktree || showPin}
@@ -1048,7 +1160,10 @@
               closeDelay={120}
             >
               {#snippet child({ props })}
-                <button
+                <TooltipUI.Root>
+                  <TooltipUI.Trigger>
+                    {#snippet child({ props: tooltipProps })}
+                      <button {...tooltipProps}
                   {...props}
                   class="dock-btn stagger-item"
                   class:dock-btn-reviewing={reviewStatus === "generating"}
@@ -1058,44 +1173,62 @@
                   style="--item-index:{itemIndices.review}"
                   title={reviewLabel}
                   aria-label={reviewLabel}
-                  use:tooltip={reviewLabel}
                 >
                   <BinocularsIcon size={13} weight="regular" />
                   <span>{reviewLabel}</span>
                 </button>
+                    {/snippet}
+                  </TooltipUI.Trigger>
+                  <TooltipUI.Content value={reviewLabel} />
+                </TooltipUI.Root>
               {/snippet}
             </Popover.Trigger>
           </Popover.Root>
           {#if reviewStatus === "done"}
-            <button
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
               class="dock-btn dock-btn-icon stagger-item"
               style="--item-index:{itemIndices.review}"
               tabindex={expanded ? 0 : -1}
               onclick={handleRegenerate}
               title="Regenerate review"
               aria-label="Regenerate review"
-              use:tooltip={"Regenerate review"}
             >
               <ArrowsClockwiseIcon size={13} weight="regular" />
             </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={"Regenerate review"} />
+            </TooltipUI.Root>
           {:else if reviewStatus === "generating"}
-            <button
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
               class="dock-btn dock-btn-icon dock-btn-stop stagger-item"
               style="--item-index:{itemIndices.review}"
               tabindex={expanded ? 0 : -1}
               onclick={handleCancelReview}
               title="Cancel review"
               aria-label="Cancel review"
-              use:tooltip={"Cancel review"}
             >
               <SquareIcon size={9} weight="fill" />
             </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={"Cancel review"} />
+            </TooltipUI.Root>
           {/if}
         </span>
       {/if}
 
       {#if showViewDiff}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           class="dock-btn stagger-item"
           data-orb-action="diff"
           tabindex={tabIndexFor("diff")}
@@ -1106,7 +1239,6 @@
           }}
           title="View diff"
           aria-label="View diff"
-          use:tooltip={"View diff"}
         >
           <ArrowsOutSimpleIcon size={13} weight="regular" />
           <span>Diff</span>
@@ -1114,6 +1246,10 @@
             >{shortcutLabel("global.toggle-diff-panel")}</Kbd
           >
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"View diff"} />
+        </TooltipUI.Root>
       {/if}
     </div>
   </div>

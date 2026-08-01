@@ -1,17 +1,49 @@
 import { execSync } from 'child_process'
-import { Options, PermissionMode, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { ClaudeTurnNormalizer } from './claude-event-normalizer'
+import { homedir } from 'os'
+import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
+import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
+import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
 import { getCliEnv } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
-import type { AgentSlashCommand, NormalizedEvent, ReasoningEffort } from '../../../shared/types'
+import { parseClaudeUsageReport } from './claude-usage'
+import type { ClaudeUsageWindows } from './claude-usage'
+import type { AgentSlashCommand, ContextUsage, NormalizedEvent, ReasoningEffort } from '../../../shared/types'
+import type { ResultEvent } from '../../../shared/claude-types'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
+
+/**
+ * The SDK's own accounting of the window it is about to send: exact totals, the
+ * real limit for this model (not the profile's guess), and the threshold it will
+ * auto-compact at. Reported per turn because all three move — a compaction drops
+ * the total, and the threshold follows whatever the CLI is configured with.
+ * Returns null when the CLI predates the control request, leaving the meter on
+ * the per-message figures the normalizer derives.
+ */
+async function readContextUsage(
+  cquery: { getContextUsage(): Promise<any> },
+): Promise<ContextUsage | null> {
+  try {
+    const report = await cquery.getContextUsage()
+    if (typeof report?.totalTokens !== 'number') return null
+    return {
+      usedTokens: report.totalTokens,
+      windowTokens: typeof report.maxTokens === 'number' ? report.maxTokens : undefined,
+      compactAtTokens: report.isAutoCompactEnabled && typeof report.autoCompactThreshold === 'number'
+        ? report.autoCompactThreshold
+        : undefined,
+    }
+  } catch (e) {
+    log.warn('context_usage_read_failed', { error: e instanceof Error ? e.message : String(e) })
+    return null
+  }
+}
 
 function logRawClaudeEvent(sessionId: string | null, msg: unknown): void {
   if (isNormalStreamingTextEvent(msg)) return
 
-  log.debug('Raw provider event', {
+  log.debug('raw_provider_event', {
     provider: 'claude-code',
     sessionId,
     event: msg as Record<string, unknown>,
@@ -41,17 +73,18 @@ export const SAFE_TOOLS = [
 let claudeExecutablePath: string | undefined
 try {
   claudeExecutablePath = execSync('which claude', { encoding: 'utf8', env: getCliEnv() }).trim() || undefined
-  log.info(`claude executable: ${claudeExecutablePath}`)
+  log.info('claude_executable_found', { path: claudeExecutablePath })
 } catch {
-  log.warn('claude executable not found via which — using SDK default')
+  log.warn('claude_executable_not_found')
 }
 
 export type CanUseTool = (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any>
 
 export interface ClaudeRunOptions {
-  /** A plain string for a single text turn, or an async stream of user messages
-   *  (streaming input mode) when the turn carries real content blocks (e.g. images). */
-  prompt: string | AsyncIterable<SDKUserMessage>
+  /** A plain string for a one-shot turn (background/utility runs), or a
+   *  TurnInputChannel (streaming input mode) for session turns, whose stream is
+   *  held open across the turn so it can be steered while the agent loop runs. */
+  prompt: string | TurnInputChannel
   cwd: string
   sessionId?: string | null
   model?: string | null
@@ -150,11 +183,19 @@ export class ClaudeAgent {
       rejectResult = rej
     })
 
-    const userMessagePreview = typeof opts.prompt === 'string' ? opts.prompt.slice(0, 200) : ''
+    const input = opts.prompt instanceof TurnInputChannel ? opts.prompt : null
+    const promptInput = opts.prompt instanceof TurnInputChannel ? opts.prompt.stream : opts.prompt
+    const userMessagePreview = (input?.previewText ?? String(opts.prompt)).slice(0, 200)
 
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
+      // A turn is over once its result lands, but the SDK keeps the query open
+      // while backgrounded sub-agents finish. Closing the input stream is what
+      // ends the query, so hold it open until nothing is still in flight —
+      // otherwise those tasks get cut off mid-run.
+      let sawResult = false
+      let backgroundTasks = 0
       try {
-        const cquery = query({ prompt: opts.prompt, options: claudeOptions })
+        const cquery = query({ prompt: promptInput, options: claudeOptions })
 
         for await (const msg of cquery) {
           if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
@@ -163,24 +204,47 @@ export class ClaudeAgent {
             state.sessionId = newSid
             if (firstSeen && opts.onSessionInit) {
               try { await opts.onSessionInit(newSid) }
-              catch (e) { log.warn(`onSessionInit failed: ${e}`) }
+              catch (e) { log.warn('on_session_init_failed', { error: e instanceof Error ? e.message : String(e) }) }
             }
           }
 
           logRawClaudeEvent(state.sessionId, msg)
 
           const normalized = normalizer.push(msg)
-          if (msg.type === 'result' && state.sessionId && opts.onTurnComplete) {
-            try {
-              const changedFiles = await opts.onTurnComplete(state.sessionId, {
-                partial: false,
-                userMessagePreview,
-                editedFiles: normalizer.editedFiles,
-              })
-              if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
-            }
-            catch (e) { log.warn(`onTurnComplete failed: ${e}`) }
+          for (const evt of normalized) {
+            if (evt.type === 'background_task_started') backgroundTasks++
+            else if (evt.type === 'background_task_settled' && backgroundTasks > 0) backgroundTasks--
           }
+          // An aborted request is reported as a result before the SDK restarts
+          // its loop on the same query. Closing the input there would pull the
+          // stream out from under the restart, and `canUseTool` rides that same
+          // stream — every later permission request would fail with
+          // "AbortError: Stream closed".
+          if (
+            msg.type === 'result'
+            && !isAbortSeamResult(msg as unknown as ResultEvent)
+            && !isTaskNotificationResult(msg as unknown as ResultEvent)
+          ) {
+            sawResult = true
+            // Refuse steers from here on. `input.close()` below can lag this by
+            // a whole git snapshot, and a message accepted in that window would
+            // be shown to the user and then never read.
+            input?.seal()
+            const contextUsage = await readContextUsage(cquery)
+            if (contextUsage) yield { type: 'usage', context: contextUsage }
+            if (state.sessionId && opts.onTurnComplete) {
+              try {
+                const changedFiles = await opts.onTurnComplete(state.sessionId, {
+                  partial: false,
+                  userMessagePreview,
+                  editedFiles: normalizer.editedFiles,
+                })
+                if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
+              }
+              catch (e) { log.warn('on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) }) }
+            }
+          }
+          if (sawResult && backgroundTasks === 0) input?.close()
           for (const evt of normalized) yield evt
         }
 
@@ -204,7 +268,7 @@ export class ClaudeAgent {
               })
               if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
             }
-            catch (e) { log.warn(`onTurnComplete (abort) failed: ${e}`) }
+            catch (e) { log.warn('on_turn_complete_abort_failed', { error: e instanceof Error ? e.message : String(e) }) }
           }
           resolveResult({
             sessionId: state.sessionId,
@@ -216,6 +280,10 @@ export class ClaudeAgent {
         } else {
           rejectResult(err instanceof Error ? err : new Error(String(err)))
         }
+      } finally {
+        // An aborted or failed turn never reaches the result path above; release
+        // the stream so the query can't be left waiting on input that never comes.
+        input?.close()
       }
     })()
 
@@ -266,15 +334,29 @@ export class ClaudeAgent {
     }
   }
 
-  /** Convenience for non-streaming use — returns the final assistant text. */
-  async runOneShot(opts: ClaudeRunOptions): Promise<{ text: string; result: ClaudeRunResult }> {
-    const { events, result } = this.run(opts)
-    let text = ''
-    for await (const evt of events) {
-      if (evt.type === 'text_chunk') text += evt.text
-      else if (evt.type === 'task_complete' && evt.result) text = evt.result
+  /**
+   * Read the subscription quota windows by running `/usage` headless. The slash
+   * command costs $0 and zero turns — it never reaches the model — so this is
+   * cheap enough to poll. Returns null when the report doesn't parse.
+   */
+  async readUsageReport(): Promise<ClaudeUsageWindows | null> {
+    const usageQuery = query({
+      prompt: '/usage',
+      options: {
+        // Quota is account-wide, so this deliberately runs outside any project:
+        // no project settings, no session file, nothing to leak into a transcript.
+        cwd: homedir(),
+        settingSources: [],
+        pathToClaudeCodeExecutable: claudeExecutablePath,
+        extraArgs: { 'no-session-persistence': null },
+        env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
+      } as Options,
+    })
+    for await (const message of usageQuery) {
+      if (message.type !== 'result') continue
+      return message.subtype === 'success' ? parseClaudeUsageReport(message.result) : null
     }
-    return { text, result: await result }
+    return null
   }
 
   async rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {

@@ -1,8 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
 import { createLogger } from '../logger'
+import { solusDir } from '../platform/paths'
 
 const log = createLogger('main', 'auth')
 
@@ -71,7 +71,7 @@ function loadOrCreateKeys(): ServerKeys {
         return _keys!
       }
     } catch (err) {
-      log.warn(`failed to load server keys, regenerating: ${err}`)
+      log.warn('server_keys_load_failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -81,7 +81,7 @@ function loadOrCreateKeys(): ServerKeys {
     ownership: 'unclaimed',
   }
   persistKeys()
-  log.info(`created new server keys (installationId=${_keys.installationId.slice(0, 8)}…)`)
+  log.info('server_keys_created', { installationId: _keys.installationId })
   return _keys!
 }
 
@@ -155,14 +155,9 @@ export function consumePairToken(tokenOrCode: string, now = Date.now()): boolean
   const key = isCode ? `code:${tokenOrCode}` : tokenOrCode
   const entry = _activePairTokens.get(key)
   if (!entry) return false
-  if (entry.expiresAt < now) {
-    _activePairTokens.delete(entry.token)
-    _activePairTokens.delete(`code:${entry.code}`)
-    return false
-  }
   _activePairTokens.delete(entry.token)
   _activePairTokens.delete(`code:${entry.code}`)
-  return true
+  return entry.expiresAt >= now
 }
 
 export function openClaimWindow(options: { now?: number; ttlMs?: number } = {}): ClaimWindow | null {
@@ -205,20 +200,49 @@ export function claimOwnership(tokenOrCode: string, deviceLabel: string, now = D
   }
 
   _activeClaimWindow = null
-  const sessionToken = issueSessionToken(deviceLabel, now)
-  const session = verifySessionToken(sessionToken, now)
-  if (!session) return { ok: false, reason: 'closed' }
+  const { token: sessionToken, deviceId } = issueSessionToken(deviceLabel, now)
 
-  keys.ownership = { owned: { ownerDeviceId: session.deviceId, claimedAt: now } }
+  keys.ownership = { owned: { ownerDeviceId: deviceId, claimedAt: now } }
   persistKeys()
 
   return {
     ok: true,
     sessionToken,
-    ownerDeviceId: session.deviceId,
+    ownerDeviceId: deviceId,
     claimedAt: now,
     installationId: keys.installationId,
     fingerprint: getServerFingerprint(),
+  }
+}
+
+export interface SshBootstrapCredential {
+  sessionToken: string
+  installationId: string
+  fingerprint: string
+  ownerDeviceId?: string
+  claimedAt?: number
+}
+
+export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now()): SshBootstrapCredential {
+  const keys = loadOrCreateKeys()
+  const { token: sessionToken, deviceId } = issueSessionToken(deviceLabel, now)
+
+  let claimedAt: number | undefined
+  let ownerDeviceId: string | undefined
+  if (keys.ownership === 'unclaimed') {
+    claimedAt = now
+    ownerDeviceId = deviceId
+    keys.ownership = { owned: { ownerDeviceId, claimedAt } }
+    _activeClaimWindow = null
+    persistKeys()
+  }
+
+  return {
+    sessionToken,
+    installationId: keys.installationId,
+    fingerprint: getServerFingerprint(),
+    ...(ownerDeviceId ? { ownerDeviceId } : {}),
+    ...(claimedAt ? { claimedAt } : {}),
   }
 }
 
@@ -234,10 +258,10 @@ function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: numbe
  * Signs an opaque session token: `<deviceId>.<issuedAt>.<deviceLabelB64>.<hmac>`.
  * The signing key never leaves the server; clients store the whole opaque blob.
  */
-export function issueSessionToken(deviceLabel: string, now = Date.now()): string {
+export function issueSessionToken(deviceLabel: string, now = Date.now()): { token: string; deviceId: string } {
   const deviceId = randomBytes(12).toString('hex')
   const issuedAt = now
-  return signSessionToken(deviceId, deviceLabel, issuedAt)
+  return { token: signSessionToken(deviceId, deviceLabel, issuedAt), deviceId }
 }
 
 export function verifySessionToken(token: string, now = Date.now()): SessionToken | null {
@@ -295,7 +319,7 @@ function loadRevokedDevices(): void {
       if (typeof id === 'string' && id) _revokedDevices.add(id)
     }
   } catch (err) {
-    log.warn(`failed to load revoked devices: ${err}`)
+    log.warn('revoked_devices_load_failed', { error: err instanceof Error ? err.message : String(err) })
   }
 }
 
@@ -331,7 +355,7 @@ function persistKeys(): void {
 }
 
 function keysDir(): string {
-  return process.env.SOLUS_DATA_DIR || join(homedir(), '.solus')
+  return solusDir()
 }
 
 function keysFile(): string {

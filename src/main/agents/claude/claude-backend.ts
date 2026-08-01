@@ -5,9 +5,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, SAFE_TOOLS } from './claude-agent'
-import { createSolusMcpServer } from '../../folio/work-tools'
-import { codexSubagentSdkTool } from '../codex/codex-subagent-tool'
-import { CodexSubagentEventBridge } from '../codex/codex-subagent-event-bridge'
+import { TurnInputChannel } from './claude-turn-input'
+import { adaptClaudeTools } from './claude-tool-adapter'
 import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
@@ -17,18 +16,19 @@ import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
 import type { AgentBackend, RunHandle } from '../agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER } from '../../../shared/types'
 import type {
   AgentId,
   AgentMetadata,
   AgentSlashCommand,
+  AgentUsageLimits,
   IpcContext,
   NormalizedEvent,
   PlanDescriptor,
   PluginCommandsResult,
   PromptOptions,
   SessionMeta,
-  SessionRunInput,
 } from '../../../shared/types'
 import type { ClaudeRunResult } from './claude-agent'
 import type { SessionLoadMessage, SessionPreviewResult } from '../../../shared/session-history'
@@ -47,11 +47,9 @@ import {
   type AnnotatedPlan,
 } from './claude-plan-helpers'
 import { _pluginCmdCache, PLUGIN_CMD_TTL, resolvePluginCommands } from './claude-plugin-helpers'
-import { MemoryCache } from '../../../shared/cache'
 import { runBounded } from '../../lib/concurrency'
-import { buildSystemPrompt } from '../system-hint'
-import { isWorkspacePath } from '../../workspace'
 import { listIndexedSessions, sessionIndexReady } from '../../db/session-indexer'
+import { ClaudeCommandDiscovery } from './claude-command-discovery'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
 
@@ -76,18 +74,28 @@ type TurnBlock =
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
 
 /**
- * Build the prompt input for a turn. With no images it's a plain string (single
- * message input, unchanged). With images it's a one-shot async generator
- * (streaming input mode) that yields a single user message carrying real text +
- * image content blocks, then returns — closing the stream so the SDK runs
- * exactly one turn. The base64 bytes already live in memory (from the renderer
- * preview), so the generator never touches the filesystem and can't throw.
+ * A user message for a turn — the opening one, or one steered into a turn that
+ * is already running. Images become real content blocks; the base64 bytes
+ * already live in memory (from the renderer preview), so this never touches the
+ * filesystem and can't throw.
  */
-function buildPromptInput(
+function buildUserMessage(
   text: string,
   images: Array<{ mimeType: string; dataUrl: string }> | undefined,
-): string | AsyncIterable<SDKUserMessage> {
-  if (!images || images.length === 0) return text
+): SDKUserMessage {
+  return {
+    type: 'user',
+    message: { role: 'user', content: imageContent(text, images) ?? text },
+    parent_tool_use_id: null,
+  } as SDKUserMessage
+}
+
+/** Content blocks for a turn carrying images, or null for a plain text turn. */
+function imageContent(
+  text: string,
+  images: Array<{ mimeType: string; dataUrl: string }> | undefined,
+): TurnBlock[] | null {
+  if (!images || images.length === 0) return null
 
   const content: TurnBlock[] = []
   if (text) content.push({ type: 'text', text })
@@ -97,23 +105,24 @@ function buildPromptInput(
     content.push({ type: 'image', source: { type: 'base64', media_type: img.mimeType || m[1], data: m[2] } })
   }
   // Every dataUrl was malformed — fall back to the plain text turn.
-  if (!content.some((b) => b.type === 'image')) return text
-
-  return (async function* (): AsyncGenerator<SDKUserMessage> {
-    yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null } as SDKUserMessage
-  })()
+  return content.some((b) => b.type === 'image') ? content : null
 }
 
-/** Cache of SDK-reported built-in commands, keyed by working directory.
- *  Stores promises so concurrent calls for the same cwd share one subprocess. */
-const _builtinCmdCache = new MemoryCache<string, Promise<AgentSlashCommand[]>>({ ttlMs: PLUGIN_CMD_TTL })
+interface ClaudeRunHandle extends RunHandle {
+  /** The turn's open input stream — steering pushes into it while the run is live. */
+  input: TurnInputChannel
+}
 
-export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
+export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements AgentBackend {
   readonly id: AgentId = 'claude-code'
   readonly metadata: AgentMetadata = CLAUDE_METADATA
   readonly permissions = new PermissionManager()
 
   private agent = new ClaudeAgent()
+  private commandDiscovery = new ClaudeCommandDiscovery(
+    (target) => this.agent.supportedCommands(target),
+    PLUGIN_CMD_TTL,
+  )
 
   constructor() {
     super()
@@ -126,37 +135,30 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
-  /** SDK-reported built-in commands for a working directory, fetched via a
+  /** SDK-reported built-in commands for a working directory and model, fetched via a
    *  short-lived streaming query (the only mode that exposes `supportedCommands`)
-   *  and cached per-cwd. No persistent session is kept. */
+   *  and serialized across cache misses. No persistent session is kept. */
   private builtinCommands(ctx: IpcContext): Promise<AgentSlashCommand[]> {
     const cwd = ctx.session.workingDirectory
-    const cached = _builtinCmdCache.get(cwd)
-    if (cached) return cached
-
     const baseModel = ctx.statusBar.model
     const model = ctx.session.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
-    const promise = this.agent.supportedCommands({ cwd, model }).catch((e) => {
-      _builtinCmdCache.delete(cwd)
-      throw e
-    })
-    _builtinCmdCache.set(cwd, promise)
-    return promise
+    return this.commandDiscovery.get({ cwd, model })
   }
 
-  startRun(input: SessionRunInput, options: PromptOptions): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const abortController = new AbortController()
-    const sessionId = input.agentSessionId
-    const uiMode = input.permissionMode
+    const sessionId = request.sessionId ?? null
+    const uiMode = request.permissionMode
     const sessionRef = { current: sessionId }
-    const canUseTool = this.permissions.createCanUseTool(sessionRef, uiMode)
+    const canUseTool = this.permissions.createCanUseTool(sessionRef, uiMode, request.unattended)
 
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
-    const handle: RunHandle = {
+    const handle: ClaudeRunHandle = {
       sessionId,
+      persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
       sawPermissionRequest: false,
@@ -165,161 +167,67 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
       runPromise,
       _resolveRun,
       _rejectRun,
+      input: new TurnInputChannel(
+        buildUserMessage(request.prompt, request.imageAttachments),
+        request.prompt,
+      ),
     }
 
-    const workTree = input.gitContext?.worktreePath ?? input.workingDirectory
-    const baseModel = input.model
-    const model = input.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
-    const codexSubagentEvents = new CodexSubagentEventBridge()
-
-    // In-process MCP server giving the agent list/read/create/update access to
-    // works plus render_artifact. onWorkCreated/onWorkUpdated/onArtifact fire
-    // mid-turn so the streaming card, open viewers, and the gallery live-update.
-    const solusServer = createSolusMcpServer({
-      onWorkCreated: (work) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'work_created',
-          workId: work.workId,
-          title: work.title,
-          docType: work.docType,
-          content: work.content,
-        })
-      },
-      onWorkUpdated: (work) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'work_updated',
-          workId: work.workId,
-          title: work.title,
-          docType: work.docType,
-          content: work.content,
-          updatedAt: work.updatedAt,
-        })
-      },
-      onArtifact: (artifact) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'artifact_created',
-          kind: 'html',
-          html: artifact.html,
-        })
-      },
-      onAutomationSaved: (automation) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'automation_saved',
-          automationId: automation.id,
-          name: automation.name,
-          trigger: automation.trigger,
-          enabled: automation.enabled,
-        })
-      },
-      onSessionCreated: (created) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'session_created',
-          agentSessionId: created.agentSessionId,
-          title: created.title,
-          provider: created.provider,
-          cwd: created.cwd,
-        })
-      },
-      onSessionPrompted: (prompted) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'session_prompted',
-          agentSessionId: prompted.agentSessionId,
-          promptPreview: prompted.promptPreview,
-          provider: prompted.provider,
-          cwd: prompted.cwd,
-        })
-      },
-      onSessionStopped: (stopped) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'session_stopped',
-          agentSessionId: stopped.agentSessionId,
-          provider: stopped.provider,
-          cwd: stopped.cwd,
-        })
-      },
-      onTaskCreated: (task) => {
-        this.emit('normalized', handle.sessionId, {
-          type: 'task_created',
-          taskId: task.taskId,
-          title: task.title,
-          url: task.url,
-        })
-      },
-      createCtx: {
-        agentProvider: 'claude-code',
-        cwd: input.workingDirectory,
-        sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
-      },
-      includeAutomationTools: input.toolProfile !== 'automation',
-      // Built here (outside the work-tools import cycle) with the run's worktree cwd
-      // and abort signal, so stopping the session interrupts the Codex turn.
-      codexSubagentTool: codexSubagentSdkTool({
-        cwd: workTree,
-        abortSignal: abortController.signal,
-        claimParentToolUseId: (args) => codexSubagentEvents.claim(args),
-        onEvent: (_parentToolUseId, event) => this.emit('normalized', handle.sessionId, event),
-      }),
-    })
+    const workTree = request.cwd
+    const baseModel = request.model ?? this.metadata.defaultModel
+    const model = request.contextWindow === 1_000_000 ? `${baseModel}[1m]` : baseModel
+    const adaptedTools = adaptClaudeTools(request.tools, {
+      provider: 'claude-code',
+      cwd: request.cwd,
+      sessionId: () => handle.sessionId ?? sessionRef.current ?? undefined,
+      abortSignal: abortController.signal,
+      parentToolUseId: () => undefined,
+      emit: (event) => this.emit('normalized', handle.sessionId, event),
+    }, uiMode)
 
     this.pendingRuns.push(handle)
     void (async () => {
-      const general = isWorkspacePath(input.workingDirectory)
-      const baseSystemPromptAppend = buildSystemPrompt({
-        agent: 'claude',
-        general,
-        extraInstructions: input.extraInstructions,
-        modelInstructions: input.modelInstructions,
-        prReview: input.prReview,
-      })
-      const systemPromptAppend = !input.agentSessionId && input.handoff
-        ? `${baseSystemPromptAppend}\n\n${input.handoff.seedSystemAppend}`
-        : baseSystemPromptAppend
-
       const { events, result } = this.agent.run({
-        prompt: buildPromptInput(options.prompt, options.imageAttachments),
-        cwd: input.workingDirectory,
+        prompt: handle.input,
+        cwd: request.cwd,
         sessionId,
-        forkSession: input.forked,
+        forkSession: request.forkSession,
         model,
-        reasoningEffort: input.reasoningEffort,
-        fastMode: input.fastMode,
+        reasoningEffort: request.reasoningEffort,
+        fastMode: request.fastMode,
         permissionMode: uiMode,
-        additionalDirectories: input.additionalDirs,
-        mcpServers: { 'solus': solusServer },
-        // Reads + create + render are pre-approved; update_work falls through to the prompt.
-        // Automation reads are pre-approved; mutating/triggering ones (create/update/delete/set_enabled/run) fall through to the permission prompt.
-        // create_session is pre-approved — spawning a session is a first-class agent action.
-        // codex_subagent is pre-approved like create_session — delegating to a Codex subagent is a first-class agent action.
-        // Session/task reads are pre-approved; writes fall through to the prompt.
-        allowedTools: [...SAFE_TOOLS, 'mcp__solus__list_works', 'mcp__solus__search_works', 'mcp__solus__read_work', 'mcp__solus__create_work', 'mcp__solus__render_artifact', 'mcp__solus__list_automations', 'mcp__solus__read_automation', 'mcp__solus__list_automation_runs', 'mcp__solus__read_automation_run', 'mcp__solus__create_session', 'mcp__solus__codex_subagent', 'mcp__solus__list_sessions', 'mcp__solus__read_session', 'mcp__solus__wait_for_session', 'mcp__solus__search_sessions', 'mcp__solus__get_task', 'mcp__solus__list_tasks', 'mcp__solus__list_prs', 'mcp__solus__read_pr', 'mcp__solus__list_pr_threads'],
-        systemPromptAppend,
-        maxTurns: options.maxTurns,
-        maxBudgetUsd: options.maxBudgetUsd,
+        additionalDirectories: request.additionalDirectories,
+        mcpServers: { solus: adaptedTools.server },
+        allowedTools: [...SAFE_TOOLS, ...adaptedTools.allowedTools],
+        systemPromptAppend: request.systemPrompt,
+        maxTurns: request.maxTurns,
+        maxBudgetUsd: request.maxBudgetUsd,
         canUseTool,
-        enableFileCheckpointing: true,
+        enableFileCheckpointing: request.persistence === 'session',
+        persistSession: request.persistence === 'session',
         abortController,
-        onSessionInit: async (sid) => {
+        onSessionInit: request.persistence === 'session' ? async (sid) => {
           const repoRoot = await resolveRepoRoot(workTree)
           if (!repoRoot) return
           const head = getHeadCommit(workTree)
           if (!head) return
           await initSessionBase(repoRoot, sid, head)
-        },
-        onTurnComplete: async (sid, snapOpts) => {
+        } : undefined,
+        onTurnComplete: request.persistence === 'session' ? async (sid, snapOpts) => {
           const repoRoot = await resolveRepoRoot(workTree)
           if (!repoRoot) return null
           const result = await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
-            sessionChangedFiles: [...new Set([...input.sessionChangedFiles, ...snapOpts.editedFiles])],
+            sessionChangedFiles: [...new Set([...(sessionState?.changedFiles ?? []), ...snapOpts.editedFiles])],
           })
           return result?.sessionChangedFiles ?? null
-        },
+        } : undefined,
       })
 
-      await this._runLoop(handle, events, result, sessionRef, codexSubagentEvents)
+      await this._runLoop(handle, events, result, sessionRef)
     })().catch((err: any) => {
       const sessionId = handle.sessionId
-      log.error(`Run failed to start [${sessionId ?? 'pending'}]: ${err?.message}`)
+      log.error('run_start_failed', { sessionId: sessionId ?? 'pending', error: err?.message })
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
       this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
@@ -328,15 +236,13 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   private async _runLoop(
-    handle: RunHandle,
+    handle: ClaudeRunHandle,
     events: AsyncIterable<NormalizedEvent>,
     result: Promise<ClaudeRunResult>,
     sessionRef: { current: string | null },
-    codexSubagentEvents?: CodexSubagentEventBridge,
   ): Promise<void> {
     try {
       for await (const evt of events) {
-        codexSubagentEvents?.observe(evt)
         if (evt.type === 'session_init') {
           this.promoteToActive(handle, evt.sessionId)
           sessionRef.current = evt.sessionId
@@ -351,12 +257,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
       handle.permissionDenials = final.permissionDenials
       const sessionId = handle.sessionId
       this.finishRun(handle)
-      log.info(`Run complete [${sessionId}]: denials=${handle.permissionDenials.length}`)
+      log.info('run_complete', { sessionId, denials: handle.permissionDenials.length })
       handle._resolveRun()
       this.emit('exit', sessionId, final.signal === 'SIGINT' ? null : 0, final.signal)
     } catch (err: any) {
       const sessionId = handle.sessionId
-      log.error(`Run errored [${sessionId ?? 'pending'}]: ${err?.message}`)
+      log.error('run_errored', { sessionId: sessionId ?? 'pending', error: err?.message })
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
       this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
@@ -364,8 +270,35 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   override cancelSession(sessionId: string): boolean {
-    log.info(`Cancelling session ${sessionId}`)
+    log.info('cancel_session', { sessionId })
     return super.cancelSession(sessionId)
+  }
+
+  /**
+   * Push a message into the turn that is already running, so the model picks it
+   * up at its next decision point and keeps going in the same turn.
+   *
+   * `priority: 'next'` is what makes this steering rather than an interrupt: the
+   * in-flight request runs to completion and the message is read at the next
+   * decision point, so the model keeps its partial work and folds the new
+   * instruction into it. `'now'` instead aborts the request outright — the
+   * partial response is discarded and `[Request interrupted by user]` is written
+   * into the transcript, which reads to the model as "stop and do this instead".
+   */
+  async steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null> {
+    const handle = this.activeRuns.get(sessionId)
+    if (!handle) return null
+    // The turn can settle between the control-plane's busy check and this push.
+    // A refused push means its agent loop will never read the message, so the
+    // caller keeps the prompt for the next turn.
+    const accepted = handle.input.push({
+      ...buildUserMessage(options.prompt, options.imageAttachments),
+      priority: 'next',
+    })
+    return accepted ? handle : null
   }
 
   rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {
@@ -624,6 +557,12 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
+  invalidatePlanCache(sessionId: string): void {
+    _planListCache.invalidateWhere(
+      (_key, descriptors) => descriptors.some((descriptor) => descriptor.sessionId === sessionId),
+    )
+  }
+
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
     const folderName = projectPath.startsWith('-') ? projectPath : encodePathAsFolder(projectPath)
     const filePath = join(homedir(), '.claude', 'projects', folderName, `${sessionId}.jsonl`)
@@ -665,7 +604,7 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
     // cached) so the session is warmed and the list reflects the current tab.
     if (!ctx) return result
     const builtin = await this.builtinCommands(ctx).catch((e) => {
-      log.warn(`builtinCommands failed: ${e}`)
+      log.warn('builtin_commands_failed', { error: e instanceof Error ? e.message : String(e) })
       return [] as AgentSlashCommand[]
     })
     return { ...result, builtin }
@@ -673,6 +612,19 @@ export class ClaudeBackend extends BaseAgentBackend implements AgentBackend {
 
   async refreshPluginCommands(): Promise<void> {
     _pluginCmdCache.clear()
-    _builtinCmdCache.clear()
+    this.commandDiscovery.clear()
+  }
+
+  async readUsageLimits(): Promise<AgentUsageLimits | null> {
+    const windows = await this.agent.readUsageReport()
+    if (!windows) return null
+    return {
+      provider: this.id,
+      ...windows,
+      // `/usage` names no plan tier, only the two windows.
+      planType: null,
+      fetchedAt: Date.now(),
+      stale: false,
+    }
   }
 }

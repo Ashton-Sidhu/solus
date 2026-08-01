@@ -26,7 +26,7 @@
   const faviconUrl = $derived.by(() => {
     const root = projectRoot.replace(/\/+$/, "");
     const path = `${root}/${filenames[candidateIndex]}`;
-    return `solus-artifact://local/?p=${encodeURIComponent(path)}`;
+    return `solus-artifact://local/?p=${encodeURIComponent(path)}&optional=1`;
   });
 
   function tryNextCandidate() {
@@ -37,7 +37,7 @@
 
 <span class="relative flex size-3.5 flex-shrink-0 items-center justify-center">
   {#if isWorkspace}
-    <WorkspaceMark class="size-3.5 text-(--solus-brand-gold)" />
+    <WorkspaceMark class="size-3.5" />
   {:else}
     <FolderIcon
       size={13}

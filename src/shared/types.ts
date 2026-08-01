@@ -29,10 +29,15 @@ export interface ServerCapabilities {
     github: boolean
   }
   serverName?: string
+  /** Where this host's folder picker starts when opening a new project. */
+  projectsBaseDirectory?: string
 }
 
 export type SetupAgent = 'claude' | 'codex'
-export type SetupStreamStep = 'install-claude' | 'install-codex' | 'clone'
+/** `signin-*` reuse the install streaming machinery — same log/status topics. */
+export type SetupStreamStep =
+  | 'install-claude' | 'install-codex' | 'install-git' | 'install-gh' | 'clone'
+  | 'signin-claude' | 'signin-codex'
 export type SetupStepStatus = 'running' | 'done' | 'failed'
 
 export interface SetupLogEvent {
@@ -40,10 +45,19 @@ export interface SetupLogEvent {
   line: string
 }
 
+/** The browser prompt an agent sign-in is blocked on. Some CLIs require a returned code. */
+export interface SetupVerification {
+  url: string
+  code?: string
+  requiresCodeInput?: boolean
+}
+
 export interface SetupStatusEvent {
   step: SetupStreamStep
   status: SetupStepStatus
   error?: string
+  /** Present while an agent sign-in waits on the user to open the URL. */
+  verification?: SetupVerification
 }
 
 export interface SetupStepResult {
@@ -71,9 +85,112 @@ export type SetupGithubReposResult =
   | { connected: false }
   | { connected: true; repos: SetupGithubRepo[] }
 
+/**
+ * How a clone authenticated — and therefore whether this host can also push. An
+ * `anonymous` clone read a public repo with no credentials at all, so it works
+ * right up until the push.
+ */
+export type CloneAuth = 'ssh' | 'token' | 'anonymous'
+
 export interface SetupCloneProjectResult {
   path: string
   projectKey: string
+  auth: CloneAuth
+}
+
+/** Asks a host to materialize a repository using its own projects and credentials. */
+export interface SetupPrepareProjectRequest {
+  cloneUrl: string
+}
+
+export interface SetupPrepareProjectResult {
+  path: string
+  projectKey: string
+  action: 'updated' | 'cloned'
+}
+
+/** Fast-forwards a checkout that already exists on the selected host. */
+export interface SetupSyncProjectRequest {
+  path: string
+  /** Refuses to update the path when its origin names a different repository. */
+  cloneUrl: string
+}
+
+/** Registering a checkout the host already had, instead of cloning a new one. */
+export interface SetupAdoptProjectResult {
+  path: string
+  projectKey: string
+}
+
+/** How a clone reaches the code host. HTTPS rides the host's stored token; SSH needs a key on the host. */
+export type CloneProtocol = 'https' | 'ssh'
+
+export interface SetupCloneProjectRequest {
+  cloneUrl: string
+  /** Overrides the directory name derived from the repo. */
+  name?: string
+  /** Absolute (or `~`-rooted) destination on the host; defaults under its projects root. */
+  destination?: string
+  protocol?: CloneProtocol
+  /** Removes the partial directory a previous clone on this host left behind. */
+  clean?: boolean
+}
+
+/** The command that installs a package on a host, and whether Solus may run it unattended. */
+export interface PackageInstallCommand {
+  display: string
+  /** False when the command needs sudo we don't have — the client shows it to copy instead. */
+  autoRunnable: boolean
+}
+
+/** The `user.name`/`user.email` a host commits under. */
+export interface GitCommitIdentity {
+  name: string
+  email: string
+}
+
+/**
+ * Everything a host needs before it can clone and then push: the git binary, a
+ * commit identity, GitHub credentials, and any SSH keys it holds. Probed on the
+ * host itself — a remote host inherits none of this from the client.
+ */
+export interface HostReadiness {
+  platform: string
+  home: string
+  /** Where a clone lands when no destination is given. */
+  projectsRoot: string
+  git: {
+    installed: boolean
+    identity: GitCommitIdentity | null
+    /** True when git is configured to fetch github.com credentials from Solus. */
+    credentialHelper: boolean
+  }
+  github: {
+    /** A GitHub OAuth token is stored in this host's keyring. */
+    solusToken: boolean
+    solusLogin: string | null
+    /** Omitted by older hosts; callers must treat omission as unknown. */
+    solusScopes?: string[]
+    ghCli: boolean
+    ghAuthenticated: boolean
+  }
+  ssh: {
+    /** Basenames of `~/.ssh/*.pub`. Presence only — nothing is dialled. */
+    publicKeys: string[]
+  }
+  /** Folded in so readiness is one answer to "can this host take a session?". */
+  agents: Record<SetupAgent, { installed: boolean; signedIn: boolean }>
+  /** Null when git is already installed, or when no installer is known here. */
+  installGit: PackageInstallCommand | null
+  /** Null when the GitHub CLI is already installed, or when no installer is known here. */
+  installGh: PackageInstallCommand | null
+}
+
+export interface SetupSshAccessResult {
+  host: string
+  ok: boolean
+  /** The host's own words — shown verbatim so an unfamiliar failure isn't hidden. */
+  message: string
 }
 
 export interface DiscoveredServer {
@@ -82,8 +199,27 @@ export interface DiscoveredServer {
   name: string
   installationId: string
   claimable: boolean
-  source: 'tailnet'
+  source: 'lan' | 'tailnet'
 }
+
+export interface SshBootstrapCredential {
+  sessionToken: string
+  installationId: string
+  fingerprint: string
+  ownerDeviceId?: string
+  claimedAt?: number
+}
+
+export interface SshTargetCandidate {
+  target: string
+  label: string
+  source: 'ssh-config' | 'known-hosts'
+}
+
+export type SshBootstrapResult =
+  | { status: 'connected'; credential: SshBootstrapCredential }
+  | { status: 'needs-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
+  | { status: 'needs-auth'; sshTarget: string; attempt: number; message: string }
 
 export interface WebPushSubscriptionJSON {
   endpoint: string
@@ -105,6 +241,27 @@ export interface UsageData {
   contextWindowTokens?: number
 }
 
+/**
+ * What occupies the model's context window right now — the provider's latest
+ * context snapshot, not a running total. Providers report cumulative spend for
+ * a whole thread too (Claude's result usage, Codex's `tokenUsage.total`); that
+ * belongs in `UsageData`, and mixing the two overstates the window by an order
+ * of magnitude once a turn makes several tool calls.
+ */
+export interface ContextUsage {
+  /** Tokens currently retained in the model context. */
+  usedTokens: number
+  /** The window the run is actually using. Absent until a provider reports it. */
+  windowTokens?: number
+  /** Where the provider auto-compacts. Absent when it doesn't (Codex). */
+  compactAtTokens?: number
+  /** Composition of `usedTokens`, for the meter's breakdown rows. */
+  inputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  outputTokens?: number
+}
+
 /** A selectable response for a permission or plan prompt (main→renderer form). */
 export interface PermissionOption {
   id: string
@@ -114,7 +271,7 @@ export interface PermissionOption {
 
 // ─── Model Configuration ───
 
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode'
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'ultracode'
 
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   none: 'None',
@@ -123,6 +280,7 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   high: 'High',
   xhigh: 'Extra High',
   max: 'Max',
+  ultra: 'Ultra',
   ultracode: 'Ultra Code'
 }
 
@@ -131,6 +289,16 @@ export interface ModelConfig {
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   fastMode: boolean
+}
+
+/** A background agent session created without any tab ownership or routing state. */
+export interface HeadlessSessionRequest {
+  prompt: string
+  provider: AgentId
+  modelId: string | null
+  reasoningEffort: ReasoningEffort
+  contextWindow: number | null
+  cwd: string
 }
 
 // ─── Model Profiles ───
@@ -147,6 +315,20 @@ export interface ModelProfile {
 
 export const MODEL_PROFILES = rawModelProfiles as Partial<Record<AgentId, Record<string, ModelProfile>>>
 
+/**
+ * The window a model runs with unless the user picks another. Every site that
+ * builds a run must resolve it the same way: a session that starts on 1M and is
+ * later resumed with `null` silently drops to the provider's default and loses
+ * the tail of its own history.
+ */
+export function defaultContextWindowFor(
+  provider: AgentId | null | undefined,
+  modelId: string | null | undefined,
+): number | null {
+  if (!provider || !modelId) return null
+  return MODEL_PROFILES[provider]?.[modelId]?.defaultContextWindow ?? null
+}
+
 // ─── Session Status ───
 
 export type SessionStatus =
@@ -160,6 +342,18 @@ export type SessionStatus =
   | 'failed'
   | 'interrupted'
   | 'dead'
+
+export function isSteerableStatus(status: SessionStatus): boolean {
+  return status === 'running'
+}
+
+export function isSessionBusyStatus(status: SessionStatus): boolean {
+  return status === 'connecting'
+    || status === 'running'
+    || status === 'awaiting_input'
+    || status === 'awaiting_plan'
+    || status === 'rate_limited'
+}
 
 export interface PermissionRequest {
   questionId: string
@@ -206,6 +400,20 @@ export interface Attachment {
   size?: number
   /** Rich metadata for design mode selections */
   designData?: DesignModeSelection
+}
+
+/**
+ * A composer draft parked for later: the prompt text plus its attachments,
+ * scoped to one project. Restoring drops both into the current tab's composer;
+ * sending the restored draft deletes the saved prompt.
+ */
+export interface SavedPrompt {
+  id: string
+  /** Repo root, or the working directory when the composer isn't in a checkout. */
+  projectRoot: string
+  text: string
+  attachments: Attachment[]
+  createdAt: number
 }
 
 export interface DesignAnnotation {
@@ -259,6 +467,12 @@ export interface InputState {
   planRefs: PlanReference[]
   workRefs: WorkReference[]
   sessionRefs: SessionReference[]
+  /**
+   * Set when this draft was restored from a saved prompt. Sending the draft
+   * deletes that saved prompt; emptying the composer, restoring a different one,
+   * or saving a new draft breaks the link. Editing the text keeps it.
+   */
+  savedPromptId: string | null
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -278,43 +492,83 @@ export interface SessionHandoffLineage {
   sessionId: string
 }
 
+export type TurnStartKind = 'fresh' | 'follow_up' | 'steer'
+
+/** A picker choice waiting for the first prompt to prepare and enter its host. */
+export interface PendingHostDispatch {
+  serverId: string
+  hostLabel: string
+  isLocalHost: boolean
+  repoKey: string
+}
+
 /** Backend-driven session state. Shared across tabs watching the same session. */
 export interface Session {
   id: string
+  /** Client-only host routing key. Defaults to LOCAL_SERVER_ID for new sessions. */
+  serverId: string
   agentSessionId: string | null
   provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
   currentActivity: string
+  /** Renderer-only context for wording the live activity row without making an
+   *  established session sound like it reconnects before every turn. */
+  currentTurnStart: TurnStartKind | null
   isStreamingText: boolean
   isReconnecting: boolean
   permissionQueue: PermissionRequest[]
   questionQueue: QuestionRequest[]
   permissionDenied: { tools: Array<{ toolName: string; toolUseId: string }> } | null
-  serverQueuedPrompts: QueuedPromptSnapshot[]
+  /** Prompts submitted while a turn cannot start immediately. Client-only
+   *  optimistic state is reconciled with server queue snapshots and events. */
+  outboundPrompts: OutboundPrompt[]
   rateLimitInfo: RateLimitInfo | null
   rateLimitStrategy: 'queue' | 'ask' | 'stop' | 'continue'
   lastResult: RunResult | null
-  /** Cumulative token usage for the completed run (from task_complete). Drives the breakdown rows in the context meter. */
-  sessionUsage: UsageData | null
+  /** What currently occupies the context window. Drives the context meter. */
+  contextUsage: ContextUsage | null
+  /** Cumulative token spend for the completed run (from task_complete). Not in
+   *  the window — reported separately so neither number reads as the other. */
+  runUsage: UsageData | null
   latestCheckpointId: string | null
+  /** Attempts at the current turn — 1 until a retry re-runs the last prompt.
+   *  Printed on the turn's activity rail so a re-run never reads as a first try. */
+  retryAttempt: number
+  /** Last failed terminal notice synthesized by the renderer. Provider
+   * transcripts do not consistently persist these, so open tabs retain it
+   * separately for reload/rehydration. Cleared when a new attempt starts. */
+  terminalFailure: { content: string; timestamp: number } | null
   sessionModel: string | null
   sessionSkills: string[]
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
+  /** Persisted goal for this thread. Codex owns its native record; Solus owns
+   *  Claude's create-once record. Both refresh when an existing thread rebinds. */
+  goal?: ThreadGoal | null
+  /** A fresh tab has no provider thread id yet. `/goal <objective>` stores the
+   *  objective here until the first prompt initializes the thread. */
+  pendingGoalObjective?: string | null
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
+  /** Selection is inert until Send; then connection and repo preparation begin. */
+  pendingHostDispatch: PendingHostDispatch | null
   /** Files changed since this Solus session began. Committing does not clear
    * these paths; uncommitted files come from live Git state instead. */
   sessionChangedFiles: string[]
   gitContext: GitCheckout | null
   workingDirectory: string
+  /** Stable sidebar grouping path when this checkout runs on another host. */
+  projectGroupPath: string | null
   additionalDirs: string[]
   modelConfig: ModelConfig
   permissionMode: 'ask' | 'auto' | 'plan'
   worktreeBaseBranch: string | null
+  /** True only when the user dispatched this specific session through the
+   *  Run on host picker, which requires an isolated worktree on that host. */
+  worktreeRequired: boolean
   readOnlyReason: string | null
   loadingHistory: boolean
   /** True when only a recent window of the transcript was hydrated and older
@@ -372,6 +626,30 @@ export interface SessionProgress {
   totalSteps: number
 }
 
+/** Who wrote a thread message. Absent on anything written before threads had
+ *  authors, which is why every read goes through `commentAuthor()`. */
+export type CommentAuthor = 'you' | 'solus'
+
+/** Which agent wrote a 'solus' thread message. `CommentAuthor` alone cannot say
+ *  which one, and several agents can be reviewing the same document. Absent on
+ *  everything written before agents could comment. */
+export interface CommentAgentAuthor {
+  sessionId: string
+  /** The session's name, when it has one — absent until it is slugged, and the
+   *  thread signs as plain "Solus" until then. */
+  title?: string
+  provider: AgentId
+}
+
+export interface PlanCommentReply {
+  id: string
+  author: CommentAuthor
+  authorAgent?: CommentAgentAuthor
+  text: string
+  /** Epoch ms. */
+  createdAt: number
+}
+
 export interface PlanComment {
   id: string
   /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
@@ -380,6 +658,19 @@ export interface PlanComment {
   textOffset?: number
   /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
   nodeId?: string
+  /** For diagram works: id of the edge this comment is anchored to. Mutually exclusive with nodeId. */
+  edgeId?: string
+  /** Absent = 'you' — every comment written before threads had authors. */
+  author?: CommentAuthor
+  authorAgent?: CommentAgentAuthor
+  /** Epoch ms. Absent on pre-existing comments, which render without a time. */
+  createdAt?: number
+  /** Epoch ms the thread was resolved. Absent = open. */
+  resolvedAt?: number
+  resolvedBy?: CommentAuthor
+  replies?: PlanCommentReply[]
+  /** Epoch ms the thread was last read. A Solus message newer than this is unread. */
+  readAt?: number
 }
 
 export interface DiffComment {
@@ -455,13 +746,36 @@ export interface Message {
    *  main agent). Drives the sub-agent card's summary. */
   toolResult?: string
   toolResultIsError?: boolean
+  /** Epoch ms the tool's result landed. `toolCompletedAt - timestamp` is the
+   *  duration the activity block prints in its right-hand rail; absent means the
+   *  rail stays empty rather than showing a made-up figure. */
+  toolCompletedAt?: number
+  /** Milliseconds the agent spent thinking immediately before this tool call.
+   *  Thinking never gets a row of its own once the tools have finished — it
+   *  folds into the block's summary as "Thought for 6s". */
+  thinkingMs?: number
   /** Set when this tool launched an async sub-agent. Its settle event carries
    *  only the task id, so this is the sole link back from settle to the card. */
   backgroundTaskId?: string
+  /** Latest SDK heartbeat for a background sub-agent. This is activity metadata,
+   *  not a todo plan: it has no trustworthy total-step denominator. */
+  backgroundTaskProgress?: {
+    description?: string
+    toolUses?: number
+    totalTokens?: number
+    durationMs?: number
+    lastToolName?: string
+  }
   /** Nested transcript for a sub-agent (Agent/Task) tool call: every child event
    *  (tool calls + assistant text) diverted out of the main thread by
    *  `parentToolUseId`. Presence === "render this tool as a sub-agent card." */
   subMessages?: Message[]
+  /** The sub-agent's own todo list (its TodoWrite / plan update), kept off the
+   *  session tracker the main agent owns. Latest list wins — a todo write is a
+   *  wholesale replacement, not an append. */
+  subTodos?: TodoItem[]
+  /** Renderer-only marker for a nested assistant block receiving live deltas. */
+  isStreaming?: boolean
   /** Resolved `subagent_type` from the Agent tool input, for the card's chip. */
   subagentType?: string
   timestamp: number
@@ -480,10 +794,12 @@ export interface Message {
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
   taskRef?: { taskId: string; title: string; url: string | null }
-  /** Reference to a session the agent spawned via create_session, rendered as a
-   *  card that opens the new session in a tab. Live-only (not persisted to the
-   *  transcript), so it's lost on a history reload. */
-  sessionRef?: { agentSessionId: string; title: string; provider: AgentId; cwd: string; verb?: 'Started' | 'Prompted' | 'Stopped' }
+  /** Agent-conversation card for another agent this thread is driving
+   *  (create_session / prompt_session / wait_for_session). One message per
+   *  agent per turn, mutated in place as `agent_conversation_update` events land;
+   *  reconstructed from the transcript
+   *  on history reload. */
+  agentConversationRef?: AgentConversationRef
   /** Attachments submitted with this user message (name + preview dataUrl) */
   attachments?: Array<{ name: string; dataUrl?: string; mimeType?: string; type?: 'image' | 'file' | 'design-selection' }>
   /** Plan references attached via # autocomplete */
@@ -492,12 +808,6 @@ export interface Message {
   workRefs?: WorkReference[]
   /** Session references attached via & autocomplete */
   sessionRefs?: SessionReference[]
-  /** Set on the system divider inserted between provider handoff transcripts. */
-  handoffDivider?: {
-    fromProvider: AgentId
-    toProvider: AgentId
-    truncated: boolean
-  }
   /** Set on the fork-divider system message to identify it. */
   forkSourceSessionId?: string
   /** Snapshot of the source session title at fork time. */
@@ -505,12 +815,28 @@ export interface Message {
   /** Set on the divider system message when a session is moved into a worktree;
    *  holds the new worktree branch name. */
   worktreeMovedTo?: string
+  /** Set on the divider system message inserted after a successful agent
+   *  handoff. Holds the destination agent's display label. */
+  agentChangedTo?: string
+  /** Set on the divider system message inserted when accepting a plan starts a
+   *  fresh agent session to implement it. Holds the accepted plan's id, so the
+   *  divider can name the plan the new session carries over. */
+  newSessionForPlanId?: string
   /** Set on a user message that an automation injected into this thread, so the
    *  bubble can render a "Sent via automation" badge. Live-only (not persisted to
    *  the transcript), so it's lost on a history reload. */
-  via?: 'automation'
+  via?: PromptVia
   automationId?: string
   automationName?: string
+  /** Correlates the committed transcript entry with its optimistic outbox row. */
+  clientPromptId?: string
+  /** How this message entered an already-running session. */
+  delivery?: PromptDelivery
+  /** Milliseconds this prompt spent held by a rate limit before it went out.
+   *  Present only on a bubble that drained from the queue, so its caption can
+   *  state the wait as a fact instead of counting to a time that has passed.
+   *  Live-only — lost on a history reload, like `via`. */
+  queuedWaitMs?: number
 }
 
 // ─── Folio / Works ───
@@ -624,6 +950,14 @@ export interface PlanAnnotations {
   updatedAt: number
 }
 
+/** An agent wrote to a plan's or a work's comment threads. Broadcast so the open
+ *  document's rail refreshes without being reopened. */
+export interface AnnotationsChanged {
+  kind: 'plan' | 'work'
+  /** `sessionId__planToolUseId` for a plan, the work id for a work. */
+  targetId: string
+}
+
 /** Selection comments on a work (document), stored in a per-work sidecar. */
 export interface WorkAnnotations {
   version: 1
@@ -690,6 +1024,8 @@ export interface StatusCardStep {
   /** Stable key within the card. */
   id: string
   label: string
+  /** Optional supporting context, primarily for an actionable failed step. */
+  detail?: string
   status: StatusCardStepStatus
 }
 
@@ -701,41 +1037,118 @@ export interface StatusCardState {
   id: string
   title: string
   /** Icon hint for the header; the renderer maps it to a component. */
-  icon?: 'git-branch'
+  icon?: 'git-branch' | 'server'
   status: 'active' | 'done' | 'error'
   steps: StatusCardStep[]
 }
+
+// ─── Agent conversations (one agent talking to another agent) ───
+
+/** How the other agent entered the caller's thread. */
+export type AgentConversationOrigin = 'created' | 'prompted' | 'watched'
+
+export type AgentExchangeStatus = 'dispatched' | 'awaiting_input' | 'answered' | 'done' | 'failed' | 'interrupted'
+
+/** One prompt→reply round-trip with another agent. `index` is dispatch order
+ *  within the agent-conversation card and never renumbers. */
+export interface AgentExchange {
+  exchangeId: string
+  index: number
+  prompt: string
+  delivery?: PromptDelivery
+  dispatchedAt: number
+  status: AgentExchangeStatus
+  /** Rebuilt from persisted tool history rather than observed live. A restored
+   *  dispatch may have lost its in-memory completion watcher across an app
+   *  restart, so the card may eventually stop presenting it as active. */
+  restored?: boolean
+  /** Set while the other agent is waiting on human input mid-exchange. Kept
+   *  after status 'answered' so the card still shows what was asked. */
+  question?: { kind: 'question' | 'permission' | 'plan'; questionId?: string; text: string }
+  /** What this side answered that question with. Only set with status 'answered'. */
+  answer?: string
+  reply?: string
+  durationMs?: number
+  toolCallCount?: number
+  settledAt?: number
+}
+
+/** An agent-conversation card's message payload: one card per agent per turn.
+ *  Live-updated in place by `agent_conversation_update` events; reconstructed from the
+ *  transcript (tool rows + [session report] user turns) on history reload. */
+export interface AgentConversationRef {
+  /** `pending:<exchangeId>` until a created session reports its real id. */
+  agentSessionId: string
+  provider: AgentId
+  /** Prompt-derived at dispatch; upgraded to the CLI slug once it lands. */
+  title: string
+  /** Working directory; already the worktree path for worktree-backed agents. */
+  cwd: string
+  model?: string
+  reasoningEffort?: string
+  origin: AgentConversationOrigin
+  /** Launched with create_session's 'fire_and_forget' mode: no reply is owed to
+   *  this conversation, so the card rests collapsed to its header. Cleared the
+   *  moment this side prompts or watches the session — that is a conversation. */
+  fireAndForget?: boolean
+  /** The other agent was stopped, or its side ended the conversation. */
+  closedByAgent?: boolean
+  exchanges: AgentExchange[]
+}
+
+/** Structured agent-conversation lifecycle updates, broadcast to the caller's tabs.
+ *  The model-facing [session report] prose is separate and never rendered. */
+export type AgentConversationUpdate =
+  | { phase: 'dispatched'; agentSessionId: string; exchangeId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  /** A card dispatched against a not-yet-existing session (create_session) binds
+   *  to its real agent session id once startup resolves. Keyed by exchangeId. */
+  | { phase: 'attached'; exchangeId: string; agentSessionId: string; cwd?: string }
+  | { phase: 'awaiting_input'; agentSessionId: string; exchangeId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; questionText: string }
+  /** This side answered the peer's question or ruled on its plan. No exchangeId
+   *  — the answering tool never learns one; the tracker patches the agent's last
+   *  awaiting exchange in place. */
+  | { phase: 'answered'; agentSessionId: string; answerText: string }
+  | { phase: 'settled'; agentSessionId: string; exchangeId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'stopped'; agentSessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string }
+  /** Extended-thinking span boundaries. The transcript never renders the thought
+   *  itself — only how long it took, folded into the following activity block. */
+  | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string }
   | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean }
-  | { type: 'assistant_message'; text: string; parentToolUseId?: string }
+  | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   | { type: 'background_task_started'; taskId: string; toolUseId?: string }
+  | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   | { type: 'error'; message: string; isError: boolean; sessionId?: string }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
-  | { type: 'usage'; usage: UsageData; sessionUsage?: UsageData }
+  | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[] }
   | { type: 'permission_resolved'; questionId: string }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[] }
+  /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
+   *  form is answered with an extra `__action` entry, so anything answering this
+   *  request has to be able to tell the two apart. */
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; kind?: 'standard' | 'mcp_form' | 'mcp_url' }
   | { type: 'pending_input_sync'; pendingInputEvents: NormalizedEvent[] }
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
-  | { type: 'progress'; todos: TodoItem[] }
+  | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'checkpoint'; checkpointId: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: 'automation'; automationId?: string; automationName?: string }
-  | { type: 'prompt_queued'; text: string; queueId: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }> }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string }
+  | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; via?: PromptVia }
   | { type: 'prompt_dequeued'; queueId: string }
+  | { type: 'prompt_queue_updated'; queueId: string; text: string }
   | { type: 'rate_limit_resolved'; sessionId: string; action: RateLimitDecisionAction }
   | { type: 'goal_updated'; goal: ThreadGoal }
   | { type: 'goal_cleared'; threadId: string }
@@ -747,15 +1160,29 @@ export type NormalizedEvent =
   | { type: 'artifact_created'; kind: 'html' | 'image'; html?: string; path?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
-  | { type: 'session_created'; agentSessionId: string; title: string; provider: AgentId; cwd: string }
-  | { type: 'session_prompted'; agentSessionId: string; promptPreview: string; provider: AgentId; cwd: string }
-  | { type: 'session_stopped'; agentSessionId: string; provider: AgentId; cwd: string }
+  | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
   | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
 
+export type PromptDelivery = 'steer' | 'queue'
+
+/** Non-human origin of an injected prompt. 'session-report' marks another agent's
+ *  session's report — turn input for the model, never rendered as a bubble. */
+export type PromptVia = 'automation' | 'session-report'
+
+export interface PromptDispatchResult {
+  disposition: 'started' | 'steered' | 'queued'
+  queueId?: string
+}
+
 export interface PromptOptions {
   prompt: string
+  /** Stable renderer-generated identity for correlating optimistic delivery state. */
+  clientPromptId?: string
+  /** How to deliver input when the target already has an active turn.
+   *  User input defaults to steering; background callers should opt into FIFO queueing. */
+  delivery?: PromptDelivery
   /** User-visible prompt text. `prompt` may include internal attachment/reference context. */
   displayPrompt?: string
   /** Image attachments sent as real content blocks rather than flattened into `prompt`.
@@ -765,14 +1192,21 @@ export interface PromptOptions {
    *  process hydrates the ticket and prepends its context to `prompt`, so the
    *  agent starts already knowing it. Only meaningful on session start. */
   taskId?: string
+  /** Goal objective attached to a fresh session dispatch. Main persists it as
+   *  soon as the provider issues the session id, before a fast turn can finish. */
+  goalObjective?: string
   systemPrompt?: string
   maxTurns?: number
   maxBudgetUsd?: number
   /** Path to SOLUS-scoped settings file with hook config (passed via --settings) */
   hookSettingsPath?: string
-  /** Marks the prompt as injected by an automation firing in-thread, so the UI
-   *  can badge the user message ("Sent via automation"). */
-  via?: 'automation'
+  /** Marks the prompt as injected by an automation firing in-thread (badged on
+   *  the bubble) or as an agent conversation report (suppressed from rendering). */
+  via?: PromptVia
+  /** Present when `via === 'session-report'`: the agent session and exchange the
+   *  report settles, so the renderer can correlate without parsing prose. */
+  agentSessionId?: string
+  agentExchangeId?: string
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
@@ -825,6 +1259,8 @@ export interface SettingsCtx {
   reviewAgent: AgentId | null
   reviewModel: string | null
   reviewReasoning: ReasoningEffort | null
+  /** Experimental: infer pull request lineage and present stacked PRs. */
+  stackedPrsEnabled: boolean
   /** Per-project opt-in resolved by the renderer before crossing IPC. */
   reviewWarmingEnabled: boolean
   worktreeEnabled: boolean
@@ -892,10 +1328,6 @@ export interface SessionRunInput {
   fastMode: boolean
   permissionMode: 'ask' | 'auto' | 'plan'
   rateLimitBehavior: SettingsCtx['rateLimitBehavior']
-  /** Restricts provider tools for unattended automation runs. Interactive is
-   *  the default; automation omits automation CRUD/run tools to prevent recursive
-   *  automation spawning. */
-  toolProfile?: 'interactive' | 'automation'
   /** App-wide instructions appended to every agent system prompt. */
   extraInstructions: string
   /** Extra instructions scoped to the model in use, resolved from settings.modelInstructions at dispatch time. */
@@ -933,8 +1365,12 @@ export interface BackendSession {
 }
 
 export interface RuntimeSessionInfo {
-  modelConfig: ModelConfig
-  permissionMode: 'ask' | 'auto' | 'plan'
+  /** Null when the live session has no `runInput` to read the config back from —
+   *  a stale exit can tear the record down and a re-`session_init` rebuild it
+   *  without one. The run is still alive, so reattach must still succeed: the
+   *  client keeps its own persisted config instead of losing the session. */
+  modelConfig: ModelConfig | null
+  permissionMode: 'ask' | 'auto' | 'plan' | null
   status: SessionStatus
   queuedPrompts: QueuedPromptSnapshot[]
   rateLimitInfo: RateLimitInfo | null
@@ -944,6 +1380,10 @@ export interface RuntimeSessionInfo {
 export interface SessionProviderSwitchResult {
   fromProvider: AgentId
   fromSessionId: string
+  /** Present when switching back before the target provider has started. The
+   *  original session is restored instead of creating a redundant handoff. */
+  restoredSessionId?: string
+  handoffFrom?: SessionHandoffLineage
 }
 
 export type QueuedPromptReason = 'busy' | 'rate_limit'
@@ -968,6 +1408,7 @@ export interface TabRegistryEntry {
 
 export interface QueuedPromptSnapshot {
   queueId: string
+  clientPromptId?: string
   text: string
   enqueuedAt: number
   reason: QueuedPromptReason
@@ -978,6 +1419,28 @@ export interface QueuedPromptSnapshot {
   images?: Array<{ mimeType: string; dataUrl: string }>
 }
 
+export type OutboundPromptState = 'steering' | 'queueing' | 'queued' | 'failed'
+
+/** One renderer-side representation for every prompt waiting to be accepted,
+ *  queued, or retried. `clientPromptId` is generated before dispatch and is the
+ *  sole correlation key used to reconcile backend events. */
+export interface OutboundPrompt {
+  clientPromptId: string
+  queueId?: string
+  text: string
+  state: OutboundPromptState
+  enqueuedAt: number
+  reason?: QueuedPromptReason
+  releaseAt?: number
+  rateLimitType?: string
+  images?: Array<{ mimeType: string; dataUrl: string }>
+  attachments?: Message['attachments']
+  planRefs?: PlanReference[]
+  workRefs?: WorkReference[]
+  sessionRefs?: SessionReference[]
+  error?: string
+}
+
 export interface RateLimitInfo {
   resetsAt: number
   rateLimitType: string
@@ -985,9 +1448,31 @@ export interface RateLimitInfo {
   queuedPrompt: string
 }
 
+/** One subscription quota window (rolling 5h or weekly). */
+export interface UsageWindow {
+  usedPercent: number
+  /** Epoch ms. Null when the provider only gives a localized label. */
+  resetsAt: number | null
+  /** Provider's own reset wording, when that's all we get (Claude). */
+  resetsLabel: string | null
+}
+
+/** Normalized quota snapshot for one provider. Both windows are nullable:
+ *  Codex accounts may not report a 5h window, and a Claude parse miss must
+ *  degrade to null rather than invent a number. */
+export interface AgentUsageLimits {
+  provider: AgentId
+  fiveHour: UsageWindow | null
+  weekly: UsageWindow | null
+  planType: string | null
+  fetchedAt: number
+  /** Last refresh failed — these numbers are old, not live. */
+  stale: boolean
+}
+
 export type RateLimitDecisionAction = 'send_now' | 'stop' | 'wait'
 
-export type ThreadGoalStatus = 'active' | 'complete' | 'blocked' | 'budgetLimited' | 'usageLimited'
+export type ThreadGoalStatus = 'active' | 'paused' | 'complete' | 'blocked' | 'budgetLimited' | 'usageLimited'
 
 export interface ThreadGoal {
   threadId: string
@@ -1056,6 +1541,14 @@ export interface ProjectEntry {
   path: string          // decoded real path
   folderName: string    // last path segment
   addedAt: string       // ISO timestamp first recorded
+}
+
+/** A known checkout keyed by its normalized origin identity across hosts. */
+export interface ProjectIdentity {
+  path: string
+  folderName: string
+  /** Lowercase `host/owner/repo`, derived from the checkout's origin remote. */
+  repoKey: string
 }
 
 // ─── Agent Types ───
@@ -1199,12 +1692,26 @@ export interface DirectoryEntry {
   name: string
   isDir: boolean
   path: string
+  // The three fields below are only populated when `listDirectory` is asked to
+  // annotate, and are best-effort: an unreadable folder simply stays bare.
+  /** The folder is a git checkout. */
+  isRepo?: boolean
+  /** The checked-out branch, when it resolves from `.git/HEAD`. */
+  branch?: string
+  /** Solus already knows this folder as a project on this host. */
+  isProject?: boolean
 }
 
 export interface DirectoryListResult {
   entries: DirectoryEntry[]
   parentPath: string | null
   currentPath: string
+  error: string | null
+}
+
+export interface CreateDirectoryResult {
+  /** Host-resolved absolute path, with `~` already expanded. */
+  path: string
   error: string | null
 }
 

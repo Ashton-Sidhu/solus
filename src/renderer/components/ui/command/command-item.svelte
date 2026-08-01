@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Command as CommandPrimitive } from "bits-ui";
 	import { cn } from "@renderer/lib/utils.js";
+	import { menuRowVariants } from "../menu/menu-row";
 
 	let {
 		ref = $bindable(null),
@@ -13,7 +14,8 @@
 	bind:ref
 	data-slot="command-item"
 	class={cn(
-		"group/command-item relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[selected]:bg-accent data-[selected]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
+		menuRowVariants({ stagger: false }),
+		"group/command-item",
 		className,
 	)}
 	{...restProps}

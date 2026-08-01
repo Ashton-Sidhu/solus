@@ -6,6 +6,7 @@
     getRunStore,
     getRunDockStore,
     getSettingsContext,
+    getSessionEnvironmentStore,
     environmentBranchKey,
   } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
@@ -27,6 +28,7 @@
     isMovableContent,
     isPageContent,
     type PaneContent,
+    type PaneSlot,
   } from "../../contexts/workspace/pane-view.store.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
@@ -34,14 +36,18 @@
     defaultWorkspaceRailWidth,
     focusedSplitChatTabId,
     isSecondaryContentVisible,
+    listSidebarPrimaryWidth,
+    MIN_LIST_PRIMARY_PANE_WIDTH,
+    MIN_PRIMARY_PANE_WIDTH,
     primaryPaneMinSize,
+    retainedConversationTabIds,
     secondaryPaneBounds,
     secondaryPaneDefaultSize,
     SECONDARY_CONTENT_DELAY_MS,
     SECONDARY_SHELL_EXIT_MS,
-    shouldCollapseProjectPanelForSecondary,
     visibleWorkspaceTabIds,
   } from "./lib/workspace-body";
+  import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
   import {
     paneBoundsPercent,
@@ -79,6 +85,7 @@
   const settings = getSettingsContext();
   const runStore = getRunStore();
   const runDock = getRunDockStore();
+  const environmentStore = getSessionEnvironmentStore();
   const panes = session.panes;
   let outerScrollTargets = $state<HTMLElement[]>([]);
   let outerScrollTarget = $state<HTMLElement | null>(null);
@@ -110,13 +117,12 @@
   const focusedChatTabId = $derived(
     session.focusedChatTabId ?? session.activeTabId,
   );
-  const focusedSess = $derived(session.sessionFor(focusedChatTabId));
-  const canShowFocusedDiffPanel = $derived(!!focusedSess?.workingDirectory);
+  const focusedEnvironment = $derived(
+    environmentStore.environmentFor(focusedChatTabId),
+  );
+  const canShowFocusedDiffPanel = $derived(!!focusedEnvironment.cwd);
   const secondaryVisible = $derived.by(() =>
     isSecondaryContentVisible(panes.secondaryVisible, session),
-  );
-  const secondaryCollapsesProjectPanel = $derived(
-    shouldCollapseProjectPanelForSecondary(panes.secondaryVisible, secondaryVisible),
   );
   const secondaryCollapsesSidebar = $derived(
     secondaryVisible && panes.secondaryVisible.kind !== "automation",
@@ -126,12 +132,14 @@
     sidebarOpen || secondaryCollapsesSidebar,
   );
 
-  // Any non-conversation content in the primary slot — a page, artifact, or
-  // review — covers the conversation pool (hidden, never unmounted) and its
-  // composer. A maximized secondary (e.g. the full-screen PR-review surface)
-  // covers the whole column too, so the composer has nothing to dock to.
-  const inputDockHidden = $derived(
-    panes.primaryContent.kind !== "conversation" || panes.maximized,
+  // The tab strip, the composer and the project rail are one set of chrome: all
+  // three belong to a conversation in the primary slot. Any non-conversation
+  // content — a page, artifact, or review — covers the conversation pool (hidden,
+  // never unmounted) and its composer, and a maximized secondary (e.g. the
+  // full-screen PR-review surface) covers the whole column, so the composer has
+  // nothing to dock to. They step aside together rather than each being told to.
+  const conversationChromeVisible = $derived(
+    panes.primaryContent.kind === "conversation" && !panes.maximized,
   );
   // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
   const runCwd = $derived(
@@ -141,51 +149,74 @@
   );
   const dockRuns = $derived(runStore.runsFor(runCwd) ?? []);
   const showRunDock = $derived(
-    enableRunDock && runDock.open && !inputDockHidden && dockRuns.length > 0,
+    enableRunDock && runDock.open && conversationChromeVisible && dockRuns.length > 0,
   );
 
-  const splitTabId = $derived(
-    panes.chatTabIn("secondary", session.activeTabId),
-  );
   const visibleTabIds = $derived.by(() =>
     visibleWorkspaceTabIds(
       session,
       session.activeTabId,
-      splitTabId,
-      (tabId) => environmentBranchKey(session.environment.environmentFor(tabId)),
+      panes.chatTabIn("secondary", session.activeTabId),
+      (tabId) =>
+        environmentBranchKey(
+          session.environment.environmentFor(tabId),
+          session.sessionFor(tabId)?.projectGroupPath,
+      ),
     ),
   );
 
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the
-  // first time it becomes the active tab (or is visible on load). This prevents
-  // 20 heavy component trees from being constructed and kept alive in memory
-  // for tabs the user may never actually visit in the current session.
-  // Start empty — the $effect below populates it reactively so Svelte tracks
-  // `visibleTabIds` properly rather than only capturing the initial value.
+  // first time it becomes the active tab. Split chats own a separate force-visible
+  // ConversationView in ConversationPane, so mounting them here would duplicate
+  // the heavy transcript tree. This also prevents 20 heavy component trees from
+  // being constructed and kept alive for tabs the user may never actually visit.
+  // Start empty — the $effect below populates it reactively.
   const mountedTabIds = new SvelteSet<string>();
+  const retainedTranscriptTabIds = new SvelteSet<string>();
+  const transcriptRecency: string[] = [];
   $effect(() => {
-    for (const id of visibleTabIds) mountedTabIds.add(id);
+    const displayedTabIds = [session.activeTabId].filter(
+      (tabId): tabId is string => !!tabId && !!session.tabs[tabId],
+    );
+    for (const id of displayedTabIds) mountedTabIds.add(id);
     for (const id of mountedTabIds) {
       if (!session.tabs[id]) mountedTabIds.delete(id);
+    }
+
+    const retained = retainedConversationTabIds(
+      transcriptRecency,
+      displayedTabIds,
+      session.tabOrder,
+    );
+    transcriptRecency.splice(0, transcriptRecency.length, ...retained);
+    for (const id of retained) retainedTranscriptTabIds.add(id);
+    for (const id of retainedTranscriptTabIds) {
+      if (!retained.includes(id)) retainedTranscriptTabIds.delete(id);
     }
   });
 
   let secondaryPaneEl: HTMLDivElement | null = $state(null);
   let secondaryPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
   let sidebarPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
-  let projectPanelPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
   let workspaceBodyWidth = $state(0);
+  // The conversation view — tab strip, conversation, and the rail beside it. The
+  // rail scales against this, and minimizes itself once the secondary pane has
+  // taken enough of it that both can't fit.
+  let workspaceColumnWidth = $state(0);
+  // The conversation view and the secondary pane together: the container the
+  // secondary's percentage geometry is measured in.
+  let conversationSplitWidth = $state(0);
   let conversationAreaEl: HTMLDivElement | undefined = $state();
-  let conversationAreaWidth = $state(0);
   // Measured so the floating run dock clears the input bar even as it grows
   // with multi-line input, instead of relying on a fixed bottom offset.
   let inputDockHeight = $state(0);
   let isResizingSecondary = $state(false);
 
-  // Scale the rails with the viewport instead of two coarse breakpoints:
+  // Scale the sidebar with the viewport instead of two coarse breakpoints:
   // narrower on laptops (more room for the conversation), wider on large
-  // displays so the rails don't look anemic beside a wide thread. Both rails
-  // share one width; ~19% of the viewport, bounded to a usable band.
+  // displays so it doesn't look anemic beside a wide thread. ~19% of the
+  // viewport, bounded to a usable band. The project rail scales the same way,
+  // but against its conversation view — see project-panel/lib/rail-width.
   const initialViewportWidth =
     typeof window !== "undefined" ? window.innerWidth : 1440;
   const defaultSidebarWidth = defaultWorkspaceRailWidth(initialViewportWidth);
@@ -193,21 +224,10 @@
   let sidebarOpen = $state(true);
   let sidebarClosedForOverlay = $state(false);
 
-  const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
-  let projectPanelClosedForSecondary = $state(false);
-
   const sidebarBounds = $derived(
     paneBoundsPercent(workspaceBodyWidth, 160, 400),
   );
-  const projectPanelBounds = $derived(
-    paneBoundsPercent(workspaceBodyWidth, 240, maxProjectPanelWidth),
-  );
   const sidebarDefaultSize = $derived(
-    workspaceBodyWidth > 0
-      ? pixelsToPercent(defaultSidebarWidth, workspaceBodyWidth)
-      : 19,
-  );
-  const projectPanelDefaultSize = $derived(
     workspaceBodyWidth > 0
       ? pixelsToPercent(defaultSidebarWidth, workspaceBodyWidth)
       : 19,
@@ -244,23 +264,19 @@
     }
   }
 
-  function closeProjectPanel() {
-    projectPanelPane?.collapse();
-    settings.update({ projectPanelOpen: false });
-    requestInputFocus();
-  }
-
-  function openProjectPanel() {
-    projectPanelPane?.expand();
-    settings.update({ projectPanelOpen: true });
-  }
-
-  function toggleProjectPanel() {
-    if (!settings.projectPanelOpen) {
-      openProjectPanel();
-    } else {
-      closeProjectPanel();
+  // Each conversation view owns its rail, so the shortcut acts on the one the
+  // user is in. The tab strip's button only ever reaches the primary — it lives
+  // in the primary's chrome; the split chat carries its own toggle.
+  function toggleProjectPanel(slot: PaneSlot = "primary") {
+    if (slot === "secondary") {
+      settings.update({
+        splitProjectPanelOpen: !settings.splitProjectPanelOpen,
+      });
+      return;
     }
+    const open = !settings.projectPanelOpen;
+    settings.update({ projectPanelOpen: open });
+    if (!open) requestInputFocus();
   }
 
   // Publish the frame-level expand controls so full-page sub-views (Folio,
@@ -270,7 +286,8 @@
   // this body is inactive (pill / mobile), report the panels as open so those
   // headers don't offer to expand chrome that isn't on screen.
   frameChrome.expandSidebar = toggleSidebar;
-  frameChrome.expandProjectPanel = toggleProjectPanel;
+  // Full-page views never host a split chat, so this only ever means the primary.
+  frameChrome.expandProjectPanel = () => toggleProjectPanel("primary");
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
     frameChrome.projectPanelOpen = active ? settings.projectPanelOpen : true;
@@ -279,13 +296,25 @@
   useKeybinding("global.toggle-sidebar", () => toggleSidebar(), {
     enabled: () => active,
   });
-  useKeybinding("global.toggle-project-panel", () => toggleProjectPanel(), {
-    enabled: () => active && enableProjectPanel,
-  });
+  useKeybinding(
+    "global.toggle-project-panel",
+    () =>
+      toggleProjectPanel(
+        panes.secondaryContent.kind === "conversation"
+          ? panes.focusedPane
+          : "primary",
+      ),
+    { enabled: () => active && enableProjectPanel },
+  );
   useKeybinding(
     "global.new-split-chat",
     async () => {
-      const tabId = await session.createTab(undefined, { activate: false });
+      if (panes.secondaryContent.kind === "conversation") {
+        session.closeSplitChat();
+        requestInputFocus();
+        return;
+      }
+      const tabId = await session.createTab(undefined, { activate: false, via: "keybinding" });
       session.openTabInSplit(tabId);
       requestInputFocus({ tabId });
     },
@@ -295,7 +324,13 @@
     "global.toggle-files",
     () => {
       if (panes.secondaryOverlay?.kind === "files") panes.closeOverlay();
-      else panes.openFiles(focusedChatTabId);
+      else {
+        panes.openFiles(
+          focusedChatTabId,
+          focusedEnvironment.cwd,
+          focusedEnvironment.checkout,
+        );
+      }
       requestInputFocus();
     },
     { enabled: () => active && canShowFocusedDiffPanel },
@@ -348,16 +383,34 @@
   }
 
   const secondaryContainerWidth = $derived(
-    conversationAreaWidth || conversationAreaEl?.clientWidth || windowCtx.workAreaWidth,
+    conversationSplitWidth || windowCtx.workAreaWidth,
   );
-  const autoSecondaryWidth = $derived(
+  // A PR review docks beside the PR inbox, which is a list sidebar rather than
+  // a chat column — it gets the narrower floor so the review keeps the width.
+  const primaryIsListSidebar = $derived(
+    isPageContent(panes.primaryContent) &&
+      panes.primaryContent.kind === "prs" &&
+      panes.secondaryContent.kind === "pr-review",
+  );
+  const minPrimaryWidth = $derived(
+    primaryIsListSidebar ? MIN_LIST_PRIMARY_PANE_WIDTH : MIN_PRIMARY_PANE_WIDTH,
+  );
+  const autoSecondaryWidth = $derived.by(() =>
     clampSecondaryPaneWidth(
-      Math.round(secondaryContainerWidth * panes.secondaryRatio),
+      primaryIsListSidebar
+        ? secondaryContainerWidth -
+            listSidebarPrimaryWidth(secondaryContainerWidth)
+        : Math.round(secondaryContainerWidth * panes.secondaryRatio),
       secondaryContainerWidth,
+      minPrimaryWidth,
     ),
   );
-  const secondaryBounds = $derived(secondaryPaneBounds(secondaryContainerWidth));
-  const primaryMinSize = $derived(primaryPaneMinSize(secondaryContainerWidth));
+  const secondaryBounds = $derived(
+    secondaryPaneBounds(secondaryContainerWidth, minPrimaryWidth),
+  );
+  const primaryMinSize = $derived(
+    primaryPaneMinSize(secondaryContainerWidth, minPrimaryWidth),
+  );
   const secondaryDefaultSize = $derived.by(() => {
     const width = panes.hasResized ? panes.secondaryWidth : autoSecondaryWidth;
     return secondaryPaneDefaultSize(
@@ -368,10 +421,11 @@
   });
 
   function handleSecondaryLayout(layout: number[]) {
-    if (layout.length !== 2 || conversationAreaWidth <= 0) return;
+    if (layout.length !== 2 || conversationSplitWidth <= 0) return;
     panes.secondaryWidth = clampSecondaryPaneWidth(
-      percentToPixels(layout[1], conversationAreaWidth),
-      conversationAreaWidth,
+      percentToPixels(layout[1], conversationSplitWidth),
+      conversationSplitWidth,
+      minPrimaryWidth,
     );
   }
 
@@ -427,7 +481,11 @@
   let secondaryContentTimer: ReturnType<typeof setTimeout> | null = null;
   let secondaryShellTimer: ReturnType<typeof setTimeout> | null = null;
   function requestSplitFocusAfterRender(content: PaneContent) {
-    const tabId = focusedSplitChatTabId(content, panes.focusedPane, splitTabId);
+    const tabId = focusedSplitChatTabId(
+      content,
+      panes.focusedPane,
+      panes.chatTabIn("secondary", session.activeTabId),
+    );
     if (!tabId) return;
     requestAnimationFrame(() => {
       const currentSplitTabId = panes.chatTabIn("secondary", session.activeTabId);
@@ -497,16 +555,29 @@
     };
   });
 
+  // As soon as the secondary stops owning layout space, reopen the rail in the
+  // same transition instead of waiting for the fading secondary shell to unmount.
+  // Use the split container's final width while returning to the primary view so
+  // the rail starts toward one stable target rather than retargeting after the
+  // primary column's ResizeObserver catches up.
+  const projectRailContainerWidth = $derived(
+    secondaryVisible
+      ? workspaceColumnWidth
+      : conversationSplitWidth || workspaceColumnWidth,
+  );
+  const railOpen = $derived(
+    enableProjectPanel &&
+      conversationChromeVisible &&
+      isProjectRailOpen(
+        settings.projectPanelOpen,
+        projectRailContainerWidth,
+        secondaryVisible,
+      ),
+  );
+
   function toggleSecondaryMaximize() {
     panes.maximized = !panes.maximized;
   }
-
-  // A work/plan document shell in the primary pane should claim the full width
-  // like the diff panel does — collapse the project panel while it's open and
-  // restore it on close. The session sidebar deliberately stays put.
-  const documentShellOpen = $derived(
-    isArtifactContent(panes.primaryContent),
-  );
 
   // Collapse the session sidebar while a full-width overlay is up — a secondary
   // pane, review guide, or the settings page — and restore it on close, the same
@@ -527,44 +598,15 @@
     }
   });
 
-  // Edge-triggered on the collapse condition only: fire on the transition, not
-  // on every projectPanelOpen change. Otherwise re-opening the panel (e.g. via
-  // the expand button) while a shell is open would immediately re-collapse it.
-  let prevPanelCollapseTrigger = false;
-  $effect(() => {
-    const trigger =
-      secondaryCollapsesProjectPanel ||
-      documentShellOpen ||
-      primaryReviewOpen ||
-      session.settingsOpen;
-    if (trigger === prevPanelCollapseTrigger) return;
-    prevPanelCollapseTrigger = trigger;
-    if (trigger) {
-      if (settings.projectPanelOpen) {
-        projectPanelClosedForSecondary = true;
-        closeProjectPanel();
-      }
-    } else if (projectPanelClosedForSecondary) {
-      projectPanelClosedForSecondary = false;
-      openProjectPanel();
-    }
-  });
-
-  // PaneForge owns the geometry while Solus owns whether these durable panes are
-  // logically open. These effects bridge toolbar/keybinding state to the
-  // imperative collapse API without unmounting either panel.
+  // PaneForge owns the geometry while Solus owns whether the sidebar is
+  // logically open. This effect bridges toolbar/keybinding state to the
+  // imperative collapse API without unmounting the panel. The project rail needs
+  // no equivalent: it is not a pane, and its visibility is derived.
   $effect(() => {
     const pane = sidebarPane;
     if (!pane) return;
     if (sidebarOpen && pane.isCollapsed()) pane.expand();
     else if (!sidebarOpen && !pane.isCollapsed()) pane.collapse();
-  });
-
-  $effect(() => {
-    const pane = projectPanelPane;
-    if (!pane) return;
-    if (settings.projectPanelOpen && pane.isCollapsed()) pane.expand();
-    else if (!settings.projectPanelOpen && !pane.isCollapsed()) pane.collapse();
   });
 
   // Opening a new secondary surface deliberately resets to its content-specific
@@ -582,7 +624,7 @@
 
 {#snippet dragBar()}
   <div class="drag-bar flex-shrink-0">
-    {#if !inputDockHidden}
+    {#if conversationChromeVisible}
       <TabStrip
         variant="editor"
         tabIds={visibleTabIds}
@@ -592,7 +634,7 @@
           ? settings.projectPanelOpen
           : undefined}
         onToggleProjectPanel={enableProjectPanel
-          ? toggleProjectPanel
+          ? () => toggleProjectPanel("primary")
           : undefined}
       />
     {:else}
@@ -608,8 +650,10 @@
   class:is-resizing={isResizingSecondary}
   class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
-  class:project-panel-open={enableProjectPanel && settings.projectPanelOpen}
-  class:project-panel-collapsed={enableProjectPanel && !settings.projectPanelOpen}
+  class:page-flush={panes.primaryContent.kind === "settings" ||
+    primaryIsListSidebar}
+  class:project-panel-open={railOpen}
+  class:project-panel-collapsed={enableProjectPanel && !railOpen}
   bind:clientWidth={workspaceBodyWidth}
 >
   <OuterScrollbar target={active ? outerScrollTarget : null} />
@@ -644,12 +688,40 @@
     />
 
     <Resizable.Pane order={2} class="min-w-0">
-      <div class="content-column flex h-full flex-col min-h-0 min-w-0 relative">
+      <!-- Conversation view | secondary. The conversation view owns the tab strip
+           AND the project rail, so the strip spans exactly what it belongs to and
+           its right edge tracks the secondary divider in this same layout pass —
+           no measured width, no lag. The rail rides inside, which is why it needs
+           no collapse rules of its own. -->
+      <div
+        class="conversation-split relative flex h-full min-h-0 min-w-0"
+        bind:clientWidth={conversationSplitWidth}
+      >
+        <Resizable.PaneGroup
+          direction="horizontal"
+          keyboardResizeBy={2}
+          class="flex-1 min-w-0"
+          onLayoutChange={handleSecondaryLayout}
+        >
+          <Resizable.Pane
+            order={1}
+            minSize={renderSecondaryShell ? primaryMinSize : 100}
+            class="min-w-0"
+          >
+            <div
+              class="workspace-column flex h-full min-h-0 min-w-0 flex-col"
+              bind:clientWidth={workspaceColumnWidth}
+            >
+              {@render dragBar()}
+              <div class="conversation-view flex min-h-0 min-w-0 flex-1">
+      <div class="content-column flex h-full flex-1 flex-col min-h-0 min-w-0 relative">
     <div class="conversation-card flex-1 flex flex-col min-h-0">
+      <!-- Tagged so modals portaled into the global overlay layer (the directory
+           picker) can centre on the conversation instead of the window. -->
       <div
         class="conversation-area flex-1 flex min-h-0 relative"
+        data-conversation-space
         bind:this={conversationAreaEl}
-        bind:clientWidth={conversationAreaWidth}
       >
         <SessionPicker
           open={active && session.sessionPickerOpen}
@@ -659,19 +731,7 @@
           portalTarget={conversationAreaEl}
         />
 
-        <Resizable.PaneGroup
-          direction="horizontal"
-          keyboardResizeBy={2}
-          class="flex-1 min-w-0 relative"
-          onLayoutChange={handleSecondaryLayout}
-        >
-          <Resizable.Pane
-            order={1}
-            minSize={renderSecondaryShell ? primaryMinSize : 100}
-            class="min-w-0"
-          >
-          <div class="primary-column relative flex h-full flex-col min-w-0">
-            {@render dragBar()}
+          <div class="primary-column relative flex h-full flex-1 flex-col min-w-0">
             <!-- Frame-level session-expand affordance. Rendered once here so
                  full-page views other than settings show it in the identical
                  top-left spot instead of each page placing its own. Self-gates
@@ -709,6 +769,7 @@
                   >
                     <ConversationView
                       tabId={tId}
+                      retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
                       onDiffToggle={() =>
                         panes.toggleDiff(
                           !!session.sessionFor(tId)?.workingDirectory,
@@ -747,15 +808,31 @@
             {/if}
 
             <div
-              class="input-dock no-drag flex-shrink-0"
-              class:mode-hidden={inputDockHidden}
-              style="padding:10px 16px 12px;background:var(--solus-container-bg)"
+              class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
+              class:mode-hidden={!conversationChromeVisible}
               bind:clientHeight={inputDockHeight}
               onfocusin={() => panes.focusPane("primary")}
             >
               {@render inputRow()}
             </div>
           </div>
+      </div>
+    </div>
+      </div>
+                <!-- The rail is chrome of THIS conversation, so it mounts and
+                     unmounts with the tab strip and sizes itself against the
+                     column. A secondary pane minimizes it temporarily without
+                     changing the user's persisted preference. -->
+                {#if enableProjectPanel && conversationChromeVisible}
+                  <ProjectPanel
+                    tabId={session.activeTabId}
+                    slot="primary"
+                    containerWidth={projectRailContainerWidth}
+                    minimized={secondaryVisible}
+                  />
+                {/if}
+              </div>
+            </div>
           </Resizable.Pane>
 
           {#if renderSecondaryShell}
@@ -780,8 +857,6 @@
                 ? "secondary-pane-wrap--closing"
                 : ""} ${isArtifactContent(displayedSecondaryContent) ||
               displayedSecondaryContent.kind === "review" ||
-              displayedSecondaryContent.kind === "pr-review" ||
-              displayedSecondaryContent.kind === "pr-review-loading" ||
               isPageContent(displayedSecondaryContent)
                 ? "secondary-pane-wrap--framed"
                 : ""} ${isResizingSecondary ? "is-resizing" : ""}`}
@@ -805,46 +880,20 @@
           {/if}
         </Resizable.PaneGroup>
       </div>
-    </div>
-      </div>
     </Resizable.Pane>
-
-    {#if enableProjectPanel}
-      <Resizable.Handle
-        aria-label="Resize project panel"
-        disabled={!settings.projectPanelOpen}
-        class={!settings.projectPanelOpen
-          ? "pointer-events-none opacity-0"
-          : ""}
-      />
-      <Resizable.Pane
-        bind:this={projectPanelPane}
-        order={3}
-        defaultSize={settings.projectPanelOpen ? projectPanelDefaultSize : 0}
-        minSize={projectPanelBounds.min}
-        maxSize={projectPanelBounds.max}
-        collapsedSize={0}
-        collapsible
-        onCollapse={closeProjectPanel}
-        onExpand={openProjectPanel}
-        aria-hidden={!settings.projectPanelOpen}
-        class="workspace-rail-pane"
-      >
-        <ProjectPanel
-          open={settings.projectPanelOpen}
-          managedWidth
-          onClose={closeProjectPanel}
-        />
-      </Resizable.Pane>
-    {/if}
   </Resizable.PaneGroup>
 </div>
 
 <style>
   .workspace-body {
     position: relative;
+    /* Where every pane's content box stops, so a composer docked in any pane —
+       primary conversation, split chat, diff, review guide — lands on the same
+       line. Both pane containers below spend it; nothing else should. */
+    --solus-pane-gutter: 8px;
   }
   :global(.workspace-rail-pane) {
+    background: var(--solus-container-bg);
     transition: flex-grow 240ms cubic-bezier(0.2, 0, 0, 1);
   }
   :global(
@@ -858,16 +907,17 @@
     flex-shrink: 0;
     position: relative;
   }
-  /* The secondary pane now spans the full card height, so its header sits in
-     the same chrome row as the tab strip. Pane headers consume these vars to
-     match the tab bar's height and continue its bottom seam as one line. */
+  /* Horizontal room the pane's floating chrome cluster (PaneChrome) occupies at
+     the top-right. In-content top strips reserve it as padding so their own
+     controls never slide under the cluster. */
+  .primary-column,
   :global(.secondary-pane-wrap) {
-    --solus-chrome-row-h: 2.5rem;
-    --solus-chrome-row-border: color-mix(
-      in srgb,
-      var(--solus-container-border) 50%,
-      transparent
-    );
+    --solus-pane-chrome-inset: 5.5rem;
+  }
+  /* The secondary pane is a sibling of the primary one, not a child of
+     .content-column, so it has to spend the gutter itself. */
+  :global(.secondary-pane-wrap) {
+    padding-bottom: var(--solus-pane-gutter);
     opacity: 1;
     transform: translateX(0);
     transition:
@@ -891,21 +941,24 @@
     inset: 0;
     z-index: 10040;
     background: var(--solus-container-bg);
-    /* Maximized panes cover the whole window (inset:0), so their header lands at
-       the top-left under the macOS traffic lights. Publish the lead inset so the
-       pane's chrome-row header clears them — this is the "diff fully expanded"
-       and "PR review" case. */
+    /* Maximized panes cover the whole window (inset:0), so their top-left lands
+       under the macOS traffic lights. Publish the lead inset so the surface's
+       leading control strip clears them — this is the "diff fully expanded" and
+       "PR review" case. */
     --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
   }
   :global(.secondary-pane-wrap--framed) {
     border-left: 1px solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);
+    /* The thread stays the brighter surface: a pane opened beside it steps back
+       by 1.5% so the eye keeps the conversation as the primary object. */
+    background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
   }
   .content-column {
-    padding: 0 8px 8px 0;
+    padding: 0 var(--solus-pane-gutter) var(--solus-pane-gutter) 0;
   }
   .workspace-body.sidebar-collapsed .content-column {
-    padding-left: 8px;
+    padding-left: var(--solus-pane-gutter);
   }
   /* With the sidebar collapsed the primary column is the leftmost chrome, so a
      primary-slot pane header or full-page view header sits under the traffic
@@ -913,11 +966,20 @@
      also holds the right-hand secondary pane) so only the leftmost surface
      reserves the space. The secondary pane provides its own inset when
      maximized. No-op off the mac editor window (the inset var is 0). */
+  .workspace-body.sidebar-collapsed .workspace-column,
   .workspace-body.sidebar-collapsed .primary-column {
     --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
   }
   .workspace-body.project-panel-open .content-column {
     padding-right: 0;
+  }
+  /* Settings and the docked PR inbox both own edge-to-edge surfaces, so the
+     card gutter reads as their background failing to reach the window edge.
+     Drop the padding while either owns the primary slot. Declared last so it
+     beats the sidebar-collapsed and project-panel rules above (equal
+     specificity). */
+  .workspace-body.page-flush .content-column {
+    padding: 0;
   }
   .conversation-card {
     background: var(--solus-container-bg);

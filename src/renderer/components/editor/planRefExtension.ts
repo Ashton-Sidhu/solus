@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
+import { serializeReferenceToken } from './reference-tokens'
 import { tokenClassName, TOKEN_ICONS, type TokenVariant } from './tokenStyle'
 
 export interface PlanRefAttrs {
@@ -60,14 +61,14 @@ export const PlanRefExtension = Node.create({
   },
 
   renderMarkdown(node) {
-    const params = new URLSearchParams({
+    return serializeReferenceToken({
+      kind: 'plan',
       planId: node.attrs?.planId,
       sessionId: node.attrs?.sessionId,
       planToolUseId: node.attrs?.planToolUseId,
       status: node.attrs?.status,
+      title: node.attrs?.title ?? '',
     })
-    const safeTitle = (node.attrs?.title ?? '').replace(/[\[\]]/g, '\\$&')
-    return `[${safeTitle}](plan://ref?${params})`
   },
 
   addAttributes() {

@@ -5,6 +5,7 @@ import Input from "./command-input.svelte";
 import Item from "./command-item.svelte";
 import List from "./command-list.svelte";
 import Shortcut from "./command-shortcut.svelte";
+import Viewport from "./command-viewport.svelte";
 
 export {
 	Root,
@@ -14,6 +15,7 @@ export {
 	Item,
 	List,
 	Shortcut,
+	Viewport,
 	//
 	Root as Command,
 	Empty as CommandEmpty,
@@ -22,4 +24,5 @@ export {
 	Item as CommandItem,
 	List as CommandList,
 	Shortcut as CommandShortcut,
+	Viewport as CommandViewport,
 };

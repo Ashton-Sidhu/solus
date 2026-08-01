@@ -1,29 +1,27 @@
 import { z } from 'zod'
-import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
+import type { AgentTool } from '../agents/tools/agent-tool'
 import { basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { getSessionMessages, listProjectRoots, searchIndexedSessions } from '../db/session-indexer'
 import { formatPendingInputReport } from './session-report'
 import { MODEL_PROFILES } from '../../shared/types'
-import type { AgentId, NormalizedEvent, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
+import type { AgentConversationUpdate, AgentId, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '../../shared/types'
 import type { SessionLoadMessage } from '../../shared/session-history'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
 /**
  * Single source of truth for the agent-facing `create_session` tool, which spawns
- * a brand-new Solus chat session running a given prompt. Like work-tools.ts and
- * automation-tools.ts it exports three shapes from one zod schema: a Claude SDK
- * `tool()`, a Codex JSON-schema descriptor, and a shared executor. The tool
- * returns error TEXT (never throws) so a bad call degrades to a recoverable
- * message.
+ * a brand-new Solus chat session running a given prompt. Tools return error
+ * text rather than throwing so a bad call remains recoverable.
  *
  * The session is created via an injected `SessionCreator` (wired to the
  * ControlPlane in the server layer) so this module stays decoupled from the
  * control plane — mirroring `setAutomationSessionDispatcher`.
  */
 
-const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'] as const
+const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const
 // Providers that can start a session. 'opencode' is excluded — same constraint
 // the automation runner applies (no headless runner yet).
 const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
@@ -47,15 +45,41 @@ export function setSessionCreator(creator: SessionCreator): void {
   sessionCreator = creator
 }
 
+/** An armed agent exchange: settle/awaiting reports for `targetSessionId`
+ *  will be correlated back to this exchange in the caller's thread. */
+export interface AgentConversationWatchRequest {
+  exchangeId: string
+  dispatchedAt: number
+  /** When false the renderer still receives agent-conversation updates, but no [session
+   *  report] prose is injected into the caller's turn input. */
+  notifyModel: boolean
+  /** Which run settles this exchange: 'active' = the run in flight when the
+   *  exchange was armed (started/steered dispatches, watches, created
+   *  sessions); otherwise the queueId whose future run it awaits. */
+  runKey: 'active' | (string & {})
+}
+
 export interface SessionController {
   listSessions(providers: AgentId[], projectPath: string): Promise<SessionMeta[]>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit: number): Promise<SessionLoadMessage[]>
   liveStatus(agentSessionId: string): SessionStatus | null
   pendingInputEvents(agentSessionId: string): NormalizedEvent[]
-  promptSession(agentSessionId: string, prompt: string): Promise<{ queued: boolean }>
-  watchSessionSettled(targetSessionId: string, callerSessionId: string): void
+  promptSession(
+    agentSessionId: string,
+    prompt: string,
+    delivery?: PromptDelivery,
+    options?: { permissionMode?: 'ask' | 'auto' | 'plan' },
+  ): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
+  watchSessionSettled(targetSessionId: string, callerSessionId: string, watch: AgentConversationWatchRequest): void
   stopSession(agentSessionId: string): boolean
+  /** Resolve a peer's pending question / plan permission. Both key on the
+   *  questionId carried by the pending input event, so no tab is involved. */
+  answerQuestion(questionId: string, answers: Record<string, string>): boolean
+  respondPermission(questionId: string, optionId: string, revisedPlan?: string): boolean
+  loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
+  listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
+  invalidatePlanCaches(sessionId: string): void
 }
 
 let sessionController: SessionController | null = null
@@ -63,35 +87,13 @@ export function setSessionController(controller: SessionController): void {
   sessionController = controller
 }
 
+/** The same controller `session-review-tools` acts through — one wiring point
+ *  in `server/index.ts` serves both modules. */
+export function getSessionController(): SessionController | null {
+  return sessionController
+}
+
 // ─── Side-effect callback + per-call context ───
-
-export interface SessionCreatedPayload {
-  agentSessionId: string
-  title: string
-  provider: AgentId
-  cwd: string
-}
-
-/** Fired once a session is created, so the calling thread can render a card that
- *  opens the new session in a tab. */
-export type OnSessionCreated = (session: SessionCreatedPayload) => void
-
-export interface SessionPromptedPayload {
-  agentSessionId: string
-  promptPreview: string
-  provider: AgentId
-  cwd: string
-}
-
-export type OnSessionPrompted = (session: SessionPromptedPayload) => void
-
-export interface SessionStoppedPayload {
-  agentSessionId: string
-  provider: AgentId
-  cwd: string
-}
-
-export type OnSessionStopped = (session: SessionStoppedPayload) => void
 
 export interface SessionToolCtx {
   agentProvider: AgentId
@@ -101,9 +103,9 @@ export interface SessionToolCtx {
 
 export interface SessionToolDeps {
   ctx?: SessionToolCtx
-  onSessionCreated?: OnSessionCreated
-  onSessionPrompted?: OnSessionPrompted
-  onSessionStopped?: OnSessionStopped
+  /** Fired for each lifecycle step so the calling thread updates its
+   *  agent-conversation card. */
+  onAgentConversationUpdate?: (update: AgentConversationUpdate) => void
 }
 
 // ─── Schema ───
@@ -117,7 +119,7 @@ const createSessionShape = {
   model_id: z
     .string()
     .min(1)
-    .describe("Required model id to run with (e.g. 'claude-opus-4-8', 'gpt-5.5'). Must be valid for the chosen provider."),
+    .describe("Required model id to run with (e.g. 'claude-opus-5', 'gpt-5.5'). Must be valid for the chosen provider."),
   reasoning_effort: z
     .enum(REASONING_VALUES)
     .optional()
@@ -130,6 +132,9 @@ const createSessionShape = {
     .string()
     .optional()
     .describe('Optional base branch to create an isolated worktree for the new session.'),
+  mode: z
+    .enum(['delegate', 'fire_and_forget'])
+    .describe("Required intent — there is no default; choose deliberately. 'delegate': you need the new session's reply to continue your own work — finish your turn and its first reply arrives here later as a [session report]. 'fire_and_forget': the user just wants the task started ('kick off', 'launch', 'in the background', 'don't wait') — no report will arrive and you must not wait or poll for one; if you genuinely need to catch up later, use read_session."),
 }
 
 const listSessionsShape = {
@@ -164,7 +169,11 @@ const searchSessionsShape = {
 
 const promptSessionShape = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
-  prompt: z.string().describe('Prompt to send into the target session. Queues if that session is busy.'),
+  prompt: z.string().describe('Prompt to send into the target session.'),
+  delivery: z
+    .enum(['queue', 'steer'])
+    .default('queue')
+    .describe("How to deliver the prompt when the target is busy. Use 'steer' when this message should interrupt or redirect the target's current line of work—for example to correct its approach, add a missing constraint, or reprioritize what it is doing now. Use 'queue' (default) for additional or sequential work that should wait until the current turn finishes. Steering is consumed at the provider's next decision point and automatically falls back to queueing if the active turn can no longer accept it."),
   notify_on_completion: z.boolean().default(true).describe("When true, this conversation receives the target session's reply later as a [session report]. Defaults to true."),
 }
 
@@ -177,15 +186,15 @@ const stopSessionShape = {
 }
 
 export const CREATE_SESSION_DESC =
-  'Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. model_id is required and must be a valid model id for the chosen provider. A card appears in the conversation; clicking it opens the new session in a tab. Use this to spin off a parallel task into its own thread. Call it once per session you want to start. Returns the new session id.'
+  "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. The required `mode` declares your intent: 'delegate' when you need the new session's answer to continue your own work — finish your turn and its first reply arrives here later as a [session report]; 'fire_and_forget' when the user asked to kick off / launch / run something in the background and does not need you to see the result — tell the user the session was started and move on; no report will come, and you must NOT poll read_session or wait for it; the user follows the session through its card. model_id is required and must be a valid model id for the chosen provider. A live agent-conversation card tracks the session's progress in this conversation in both modes. Call it once per session you want to start. Returns the new session id."
 const LIST_SESSIONS_DESC =
-  'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions. Session references are clickable links that open in any project. When citing a session in a reply, copy its link exactly as given in the tool output: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>).'
+  'List Solus sessions for this project so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
 const SEARCH_SESSIONS_DESC =
-  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for this WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query`; leave `project` unset (topic and working directory routinely differ — see that param). Each result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer. When citing a session in a reply, use exactly [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>)."
+  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for this WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query`; leave `project` unset (topic and working directory routinely differ — see that param). Each result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status plus message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. Session references are clickable links that open in any project. When citing a session in a reply, copy its link exactly as given: [<slug or short-id>](session://open?provider=<providerId>&sessionId=<sessionId>&cwd=<encoded-cwd>).'
+  'Load a Solus session by id: its status plus message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead.'
 const PROMPT_SESSION_DESC =
-  "Send a prompt into another Solus session by session id. If the target is busy, the prompt is queued. By default, its reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
+  "Send a prompt into another Solus session by session id. Choose delivery: 'steer' only when the target's work in progress should change now—for example to correct, interrupt, redirect, constrain, or reprioritize its current approach. Choose 'queue' for independent or sequential follow-up that should begin after the current turn; queue is the default. Steering is consumed at the provider's next decision point rather than cancelling the session, and automatically falls back to queueing if the turn is ending or cannot be steered. By default, the target's reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
 const WAIT_FOR_SESSION_DESC =
   "Watch an already-running Solus session for its next completion or request for human input. Returns immediately with the current status; the reply arrives later in this conversation as a [session report]. Watchers do not survive app restart, so fall back to read_session. Does not register if the target is not currently running/busy. Cannot target your own session."
 const STOP_SESSION_DESC =
@@ -206,7 +215,7 @@ function truncate(text: string, max: number): string {
   return oneLine.length > max ? `${oneLine.slice(0, Math.max(0, max - 1))}…` : oneLine
 }
 
-function sessionLink(meta: Pick<SessionMeta, 'provider' | 'sessionId' | 'slug' | 'cwd'>): string {
+export function sessionLink(meta: Pick<SessionMeta, 'provider' | 'sessionId' | 'slug' | 'cwd'>): string {
   const label = meta.slug || meta.sessionId.slice(0, 8)
   const cwd = meta.cwd ? `&cwd=${encodeURIComponent(meta.cwd)}` : ''
   return `[${label}](session://open?provider=${meta.provider}&sessionId=${meta.sessionId}${cwd})`
@@ -237,9 +246,15 @@ function isBusy(status: SessionStatus | undefined): boolean {
   return status === 'connecting' || status === 'running' || status === 'awaiting_input' || status === 'awaiting_plan' || status === 'rate_limited'
 }
 
-async function findSession(sessionId: string): Promise<SessionMeta | null> {
+export async function findSession(sessionId: string): Promise<SessionMeta | null> {
   if (!sessionController) return null
   return sessionController.getSessionInfo(sessionId)
+}
+
+/** Display title for the other agent: CLI slug once it exists, else the first
+ *  message, else the short id. */
+export function peerTitle(meta: SessionMeta): string {
+  return meta.slug || truncate(meta.firstMessage ?? '', 80) || meta.sessionId.slice(0, 8)
 }
 
 function formatTail(messages: SessionLoadMessage[]): string {
@@ -366,6 +381,7 @@ export async function executeSessionTool(
           `Session ${sessionLink(meta)}`,
           `status: ${status}${stuck}`,
           `provider: ${meta.provider}`,
+          ...(meta.model ? [`model: ${meta.model}${meta.reasoningEffort ? ` (reasoning: ${meta.reasoningEffort})` : ''}`] : []),
           `cwd: ${meta.cwd}`,
           `lastTimestamp: ${meta.lastTimestamp}`,
           '',
@@ -469,12 +485,43 @@ export async function executeSessionTool(
       }
       const prompt = typeof args.prompt === 'string' ? args.prompt : ''
       if (!prompt.trim()) return { ok: false, text: 'prompt_session requires a non-empty prompt.' }
+      const delivery: PromptDelivery = args.delivery === 'steer' ? 'steer' : 'queue'
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
-      const result = await sessionController.promptSession(sessionId, prompt)
-      if (notifyOnCompletion) sessionController.watchSessionSettled(sessionId, callerSessionId!)
-      deps.onSessionPrompted?.({ agentSessionId: sessionId, promptPreview: truncate(prompt, 80), provider: meta.provider, cwd: meta.cwd })
-      const dispatch = result.queued ? 'Queued prompt for' : 'Prompt dispatched to'
+      const result = await sessionController.promptSession(sessionId, prompt, delivery)
+      const exchangeId = randomUUID()
+      const dispatchedAt = Date.now()
+      // Always arm the exchange when we know the caller — the renderer's
+      // agent-conversation card needs the settle even when the model opted out.
+      // Queued dispatches bind to their queueId's future run; started/steered
+      // ones ride the run now in flight.
+      if (callerSessionId) {
+        sessionController.watchSessionSettled(sessionId, callerSessionId, {
+          exchangeId,
+          dispatchedAt,
+          notifyModel: notifyOnCompletion,
+          runKey: result.disposition === 'queued' && result.queueId ? result.queueId : 'active',
+        })
+      }
+      deps.onAgentConversationUpdate?.({
+        phase: 'dispatched',
+        agentSessionId: sessionId,
+        exchangeId,
+        origin: 'prompted',
+        prompt,
+        delivery,
+        provider: meta.provider,
+        title: peerTitle(meta),
+        cwd: meta.cwd,
+        model: meta.model,
+        reasoningEffort: meta.reasoningEffort,
+        dispatchedAt,
+      })
+      const dispatch = result.disposition === 'queued'
+        ? 'Queued prompt for'
+        : result.disposition === 'steered'
+          ? 'Steered the active turn in'
+          : 'Prompt dispatched to'
       const completion = notifyOnCompletion
         ? " You'll receive its reply in this conversation when it finishes (note: pending replies are lost if the app restarts — use read_session to catch up)."
         : ''
@@ -498,7 +545,22 @@ export async function executeSessionTool(
           text: `Session ${sessionLink(meta)} is currently ${status}, not running/busy; no watcher was registered. Use read_session to inspect its latest reply.`,
         }
       }
-      sessionController.watchSessionSettled(sessionId, callerSessionId)
+      const watchExchangeId = randomUUID()
+      const watchDispatchedAt = Date.now()
+      sessionController.watchSessionSettled(sessionId, callerSessionId, { exchangeId: watchExchangeId, dispatchedAt: watchDispatchedAt, notifyModel: true, runKey: 'active' })
+      deps.onAgentConversationUpdate?.({
+        phase: 'dispatched',
+        agentSessionId: sessionId,
+        exchangeId: watchExchangeId,
+        origin: 'watched',
+        prompt: '',
+        provider: meta.provider,
+        title: peerTitle(meta),
+        cwd: meta.cwd,
+        model: meta.model,
+        reasoningEffort: meta.reasoningEffort,
+        dispatchedAt: watchDispatchedAt,
+      })
       return {
         ok: true,
         text: `Watching session ${sessionLink(meta)} (current status: ${liveStatus}). This call returns immediately; its reply will arrive later in this conversation as a [session report].`,
@@ -513,7 +575,7 @@ export async function executeSessionTool(
       const meta = await findSession(sessionId)
       if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
       const stopped = sessionController.stopSession(sessionId)
-      if (stopped) deps.onSessionStopped?.({ agentSessionId: sessionId, provider: meta.provider, cwd: meta.cwd })
+      if (stopped) deps.onAgentConversationUpdate?.({ phase: 'stopped', agentSessionId: sessionId })
       return stopped
         ? { ok: true, text: `Stopped session ${sessionId}.` }
         : { ok: true, text: `Session ${sessionId} is not currently running.` }
@@ -523,6 +585,11 @@ export async function executeSessionTool(
 
     const prompt = typeof args.prompt === 'string' ? args.prompt : ''
     if (!prompt.trim()) return { ok: false, text: 'create_session requires a non-empty prompt.' }
+    // Required so the caller commits to an intent instead of inheriting a default.
+    const mode = args.mode === 'delegate' || args.mode === 'fire_and_forget' ? args.mode : null
+    if (!mode) {
+      return { ok: false, text: "create_session requires mode: 'delegate' (you need the reply — it arrives later as a [session report]) or 'fire_and_forget' (just start the task; no report, do not wait or poll)." }
+    }
     if (!sessionCreator) {
       return { ok: false, text: 'create_session is unavailable — it requires the app to be running with an active control plane.' }
     }
@@ -549,87 +616,109 @@ export async function executeSessionTool(
     const worktreeBaseBranch = typeof args.worktree_base_branch === 'string' && args.worktree_base_branch.trim()
       ? args.worktree_base_branch.trim()
       : null
-    const { agentSessionId } = await sessionCreator({ prompt, provider: p, modelId, reasoningEffort, contextWindow, cwd, worktreeBaseBranch })
+    const exchangeId = randomUUID()
+    const dispatchedAt = Date.now()
 
-    deps.onSessionCreated?.({ agentSessionId, title, provider: p, cwd })
+    // The card appears the moment the prompt is dispatched — starting a session
+    // can take a while (worktree setup, provider handshake) and that work must
+    // never be invisible. It binds to the real session id via `attached`.
+    deps.onAgentConversationUpdate?.({
+      phase: 'dispatched',
+      agentSessionId: `pending:${exchangeId}`,
+      exchangeId,
+      origin: 'created',
+      prompt,
+      provider: p,
+      title,
+      cwd,
+      model: modelId,
+      reasoningEffort,
+      fireAndForget: mode === 'fire_and_forget',
+      dispatchedAt,
+    })
+
+    let agentSessionId: string
+    try {
+      ;({ agentSessionId } = await sessionCreator({ prompt, provider: p, modelId, reasoningEffort, contextWindow, cwd, worktreeBaseBranch }))
+    } catch (err: any) {
+      // Settle the card rather than leaving it dispatching forever.
+      deps.onAgentConversationUpdate?.({
+        phase: 'settled',
+        agentSessionId: `pending:${exchangeId}`,
+        exchangeId,
+        status: 'failed',
+        replyText: '',
+        settledAt: Date.now(),
+      })
+      throw err
+    }
+
+    // Once started, the indexed cwd is the worktree path for worktree-backed
+    // sessions; the pre-worktree cwd stood in until now.
+    const created = await findSession(agentSessionId)
+    deps.onAgentConversationUpdate?.({ phase: 'attached', exchangeId, agentSessionId, cwd: created?.cwd })
+
+    // The renderer's agent-conversation card always gets the first reply; the model's
+    // [session report] only fires in delegate mode.
+    const callerSessionId = deps.ctx?.sessionId
+    const notifyModel = mode === 'delegate'
+    if (callerSessionId && sessionController) {
+      sessionController.watchSessionSettled(agentSessionId, callerSessionId, {
+        exchangeId,
+        dispatchedAt,
+        notifyModel,
+        runKey: 'active',
+      })
+    }
+    const followUp = notifyModel
+      ? " Its first reply will arrive in this conversation as a [session report] — finish your turn rather than polling (pending reports are lost if the app restarts; use read_session to catch up)."
+      : ' Fire-and-forget: no report will arrive here. Do not wait or poll — the user follows the session through its card.'
     return {
       ok: true,
-      text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} running on ${p}/${modelId} (reasoning: ${reasoningEffort}). A card to open it was added to the conversation.`,
+      text: `Created session ${sessionLink({ provider: p, sessionId: agentSessionId, slug: null, cwd })} running on ${p}/${modelId} (reasoning: ${reasoningEffort}). A card to open it was added to the conversation.${followUp}`,
     }
   } catch (err: any) {
-    log.error(`executeSessionTool(${name}) failed: ${String(err)}`)
+    log.error('session_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Session tool error: ${String(err?.message ?? err)}` }
   }
 }
 
-// ─── Shape 1: Claude SDK tool (composed into the `solus` MCP server) ───
-
-function toToolResult(r: SessionToolResult) {
+function sessionAgentTool(
+  name: string,
+  description: string,
+  inputShape: z.ZodRawShape,
+  requiresApproval: boolean,
+): AgentTool {
   return {
-    content: [{ type: 'text' as const, text: r.text }],
-    ...(r.ok ? {} : { isError: true as const }),
+    name,
+    description,
+    inputShape,
+    requiresApproval,
+    execute: async (args, context) => executeSessionTool(name, args, {
+      ctx: {
+        agentProvider: context.provider,
+        cwd: context.cwd,
+        sessionId: context.sessionId(),
+      },
+      onAgentConversationUpdate: (update) => context.emit({ type: 'agent_conversation_update', update }),
+    }),
   }
 }
 
-/** Origin context for tool calls, resolved lazily (sessionId lands after init). */
-export interface SessionSdkDeps {
-  agentProvider: AgentId
-  cwd: string
-  sessionId: () => string | undefined
-  onSessionCreated?: OnSessionCreated
-  onSessionPrompted?: OnSessionPrompted
-  onSessionStopped?: OnSessionStopped
-}
+export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESSIONS_DESC, listSessionsShape, false)
+export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionShape, false)
+export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, false)
+export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionShape, false)
+export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, false)
+export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionShape, false)
+export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionShape, false)
 
-export function sessionSdkTools(deps: SessionSdkDeps) {
-  const mk = (): SessionToolDeps => ({
-    ctx: { agentProvider: deps.agentProvider, cwd: deps.cwd, sessionId: deps.sessionId() },
-    onSessionCreated: deps.onSessionCreated,
-    onSessionPrompted: deps.onSessionPrompted,
-    onSessionStopped: deps.onSessionStopped,
-  })
-  return [
-    tool('list_sessions', LIST_SESSIONS_DESC, listSessionsShape, async (args) =>
-      toToolResult(await executeSessionTool('list_sessions', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('read_session', READ_SESSION_DESC, readSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('read_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsShape, async (args) =>
-      toToolResult(await executeSessionTool('search_sessions', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('create_session', CREATE_SESSION_DESC, createSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('create_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('prompt_session', PROMPT_SESSION_DESC, promptSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('prompt_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('wait_for_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-    tool('stop_session', STOP_SESSION_DESC, stopSessionShape, async (args) =>
-      toToolResult(await executeSessionTool('stop_session', (args ?? {}) as Record<string, unknown>, mk())),
-    ),
-  ]
-}
-
-// ─── Shape 2: Codex dynamicTools JSON-schema descriptors ───
-
-export interface SessionToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-}
-
-export const SESSION_TOOL_JSON_SCHEMAS: SessionToolDescriptor[] = [
-  { name: 'list_sessions', description: LIST_SESSIONS_DESC, inputSchema: z.toJSONSchema(z.object(listSessionsShape)) as Record<string, unknown> },
-  { name: 'read_session', description: READ_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(readSessionShape)) as Record<string, unknown> },
-  { name: 'search_sessions', description: SEARCH_SESSIONS_DESC, inputSchema: z.toJSONSchema(z.object(searchSessionsShape)) as Record<string, unknown> },
-  { name: 'create_session', description: CREATE_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(createSessionShape)) as Record<string, unknown> },
-  { name: 'prompt_session', description: PROMPT_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(promptSessionShape)) as Record<string, unknown> },
-  { name: 'wait_for_session', description: WAIT_FOR_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(waitForSessionShape)) as Record<string, unknown> },
-  { name: 'stop_session', description: STOP_SESSION_DESC, inputSchema: z.toJSONSchema(z.object(stopSessionShape)) as Record<string, unknown> },
+export const sessionAgentTools: AgentTool[] = [
+  listSessionsAgentTool,
+  readSessionAgentTool,
+  searchSessionsAgentTool,
+  createSessionAgentTool,
+  promptSessionAgentTool,
+  waitForSessionAgentTool,
+  stopSessionAgentTool,
 ]
-
-export const SESSION_TOOL_NAMES = new Set(SESSION_TOOL_JSON_SCHEMAS.map((t) => t.name))
-export const SESSION_MUTATING_TOOLS = new Set(['prompt_session', 'stop_session'])

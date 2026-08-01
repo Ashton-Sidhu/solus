@@ -24,6 +24,7 @@ export type Scope =
   | 'design-annotation'
   | 'plan-action-bar'
   | 'attachment-preview'
+  | 'saved-prompts'
   | 'diagram'
   | 'command-palette'
   | 'shortcuts-help'

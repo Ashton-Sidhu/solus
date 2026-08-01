@@ -201,3 +201,24 @@ describe('getSessionMessages', () => {
     expect(indexer.getSessionMessages('s-order').map((r) => r.text)).toEqual(['first', 'second'])
   })
 })
+
+describe('resetSession', () => {
+  // A reset means "re-read this file from offset 0" — it must clear the message
+  // index (or re-reading duplicates every row) and NOTHING else. The sessions
+  // row is the durable record of a session's model config, written once at
+  // session_init; promptSession depends on it to re-launch any non-resident
+  // session. Agent-created sessions get exactly one session_init, and the file
+  // watcher resets every brand-new JSONL, so a delete here is a permanent wipe.
+  test('clears indexed messages but never de-lists the session', () => {
+    indexer.persistIndexedSessionStart('child-1', 'claude-code', '/Users/test/proj', PROJECT, 'claude-opus-5', 'low')
+    indexer.indexSessionMessages('child-1', 'claude-code', [
+      msg('user', 'talk to me about the weather', 10),
+    ])
+    indexer.resetSession('/tmp/fake/child-1.jsonl', 'child-1', 42, Date.now())
+    expect(indexer.getSessionMessages('child-1')).toEqual([])
+    const meta = indexer.getIndexedSession('child-1')
+    expect(meta).not.toBeNull()
+    expect(meta!.model).toBe('claude-opus-5')
+    expect(meta!.reasoningEffort).toBe('low')
+  })
+})

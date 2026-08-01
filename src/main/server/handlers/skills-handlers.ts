@@ -49,11 +49,11 @@ export function registerSkillsHandlers(server: SolusServer, deps: { controlPlane
 
     try {
       await Promise.all(targets.map((target) => appendInstructionFile(target, text)))
-      log.info(`${UPDATE_AGENT_FILES_COMMAND}: wrote ${targets.length} file(s) in ${cwd}`)
+      log.info('agent_files_updated', { command: UPDATE_AGENT_FILES_COMMAND, fileCount: targets.length, cwd })
       return { success: true, files: targets }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      log.warn(`${UPDATE_AGENT_FILES_COMMAND} failed: ${message}`)
+      log.warn('agent_files_update_failed', { command: UPDATE_AGENT_FILES_COMMAND, error: message })
       return { success: false, err: message }
     }
   })

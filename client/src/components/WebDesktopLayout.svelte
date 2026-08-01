@@ -4,7 +4,7 @@
   import WorkspaceBody from "@renderer/components/layout/WorkspaceBody.svelte";
   import { connectionStatusLabel } from "@client-core/connection-display";
   import { runtime } from "@renderer/contexts";
-  import { tooltip } from "@renderer/lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { webState } from "../lib/web-state.svelte";
   import WebPushBell from "./WebPushBell.svelte";
 
@@ -38,9 +38,11 @@
       >
         {#snippet trailingActions()}
           {#if showConnectionStatus}
-            <span
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <span {...tooltipProps}
               class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-[0.75rem] tabular-nums text-(--solus-text-tertiary)"
-              use:tooltip={connectionLabel}
             >
               <span
                 class="h-1.5 w-1.5 rounded-full bg-(--solus-accent)"
@@ -50,17 +52,27 @@
                 {connectionLabel}
               </span>
             </span>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={connectionLabel} />
+            </TooltipUI.Root>
           {/if}
           <WebPushBell />
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             class="ws-logout-btn"
             onclick={() =>
               document.dispatchEvent(new CustomEvent("solus:logout"))}
-            use:tooltip={"Switch server"}
             aria-label="Switch server"
           >
             <SignOutIcon size={13} />
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content value={"Switch server"} />
+          </TooltipUI.Root>
         {/snippet}
       </EditorInputCard>
     {/snippet}

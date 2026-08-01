@@ -10,7 +10,7 @@
   import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
   import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
   import DiffStream from "./DiffStream.svelte";
-  import DiffFindBar from "./DiffFindBar.svelte";
+  import { FindBar } from "../ui/find-bar";
   import DiffResizableContent from "./DiffResizableContent.svelte";
   import { DiffState, type DiffFindMatch } from "../../lib/diff-state.svelte";
   import { orderDiffFiles } from "../../lib/diff-order";
@@ -56,7 +56,6 @@
     targetBranch,
     isWorktree = false,
     onClose,
-    maximized = false,
     onToggleMaximize,
     initialScope = { kind: "session" },
     initialFilePath,
@@ -79,7 +78,6 @@
     targetBranch: string;
     isWorktree?: boolean;
     onClose: () => void;
-    maximized?: boolean;
     onToggleMaximize?: () => void;
     initialScope?: DiffScope;
     initialFilePath?: string;
@@ -176,7 +174,7 @@
   let mobileTreeOpen = $state(false);
   let treeInstance: FileTree | null = $state(null);
   let streamRef: DiffStream | null = $state(null);
-  let findBarRef: DiffFindBar | null = $state(null);
+  let findBarRef: FindBar | null = $state(null);
   let findOpen = $state(false);
   let findQuery = $state("");
   let findIndex = $state(0);
@@ -648,7 +646,7 @@
     if (total === 0) return;
     findIndex = (((findIndex + dir) % total) + total) % total;
     await revealMatch(findMatches[findIndex]);
-    findBarRef?.focusInput();
+    findBarRef?.focusInput(false);
   }
 
   useScope("diff-panel");
@@ -789,8 +787,8 @@
   });
   const treeGitStatus = $derived(toGitStatusEntries(treeFiles));
 
-  // A review guide keeps its authored section/file order. The unguided Diff
-  // panel instead uses a stable entry → core → tests → config narrative.
+  // Keep the stream, keyboard navigation, find results, and mobile file sheet
+  // in the same hierarchical order as the file tree.
   const orderedFiles = $derived(orderDiffFiles(treeFiles));
 
   function toFullPath(p: string): string {
@@ -856,7 +854,8 @@
 </script>
 
 <div
-  class="relative flex flex-col h-full diff-panel-border"
+  class="relative flex h-full flex-col diff-panel-selectable"
+  class:diff-panel-bordered={!embedded}
   style="background:var(--solus-container-bg)"
   bind:clientWidth={panelWidth}
   role="region"
@@ -887,10 +886,6 @@
     commentsCount={diffComments.length + navigableThreads.length}
     commentsOpen={commentsPopoverOpen}
     onToggleComments={() => (commentsPopoverOpen = !commentsPopoverOpen)}
-    {maximized}
-    onToggleMaximize={onToggleMaximize ?? null}
-    {onClose}
-    {embedded}
     commentsAnchorRef={(el) => (commentsAnchorEl = el)}
     turns={patchOverride === null && !embedded ? turns : []}
     {selectedTurnIndex}
@@ -931,11 +926,14 @@
     >
         <div class="relative flex h-full min-h-0 min-w-0">
         {#if findOpen}
-          <DiffFindBar
+          <FindBar
             bind:this={findBarRef}
             query={findQuery}
             current={findMatches.length === 0 ? 0 : findIndex + 1}
             total={findMatches.length}
+            placeholder="Find in diff"
+            ariaLabel="Find in diff"
+            debounceMs={120}
             onQueryChange={(v) => {
               findQuery = v;
               findIndex = 0;
@@ -949,6 +947,7 @@
         <DiffStream
           bind:this={streamRef}
           fileDiffs={orderedFiles}
+          loadDiffFiles={patchOverride === null ? diffState.loadDiffFiles : undefined}
           isBinaryFile={(path) => diffState.isBinaryFile(path)}
           isDark={theme.isDark}
           diffStyle={effectiveDiffStyle}
@@ -1008,14 +1007,13 @@
 </div>
 
 <style>
-  :global(.diff-panel-border) {
+  :global(.diff-panel-bordered) {
     border-left: 0.0625rem solid
       color-mix(in srgb, var(--solus-container-border) 45%, transparent);
   }
   @media (max-width: 767px) {
-    :global(.diff-panel-border) {
+    :global(.diff-panel-bordered) {
       border-left: none;
     }
   }
-
 </style>

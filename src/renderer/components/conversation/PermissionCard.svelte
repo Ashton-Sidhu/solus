@@ -1,11 +1,21 @@
 <script lang="ts">
-  import * as Card from "../ui/card";
-  import { fly } from 'svelte/transition'
-  import { ShieldWarningIcon, TerminalIcon, PencilSimpleIcon, GlobeIcon, WrenchIcon } from 'phosphor-svelte'
-  import type { Component } from 'svelte'
+  import { CaretRightIcon } from 'phosphor-svelte'
   import { getWorkspaceContext } from '../../contexts'
-  import type { PermissionRequest } from '../../../shared/types'
+  import type { PermissionRequest, PermissionOption } from '../../../shared/types'
+  import { abbreviateHome, truncateMiddle } from '../../lib/paths'
+  import CopyButton from '../ui/CopyButton.svelte'
   import { fileChangePreviews } from './lib/fileChangePreview'
+  import {
+    formatWaiting,
+    permissionArgv,
+    permissionCwd,
+    permissionFooterOrder,
+    permissionKicker,
+    splitPathTail,
+  } from './lib/interrupt'
+  import { formatReleaseTime } from './lib/queued-prompts'
+  import InterruptCard from './InterruptCard.svelte'
+  import TranscriptChip from './TranscriptChip.svelte'
 
   interface Props {
     tabId: string
@@ -16,34 +26,26 @@
   let { tabId, permission, queueLength = 1 }: Props = $props()
 
   const session = getWorkspaceContext()
+  const sess = $derived(session.sessionFor(tabId))
   let responded = $state(false)
+  // A session holding on a permission is *waiting*, and the footer says how long
+  // it has held — the same clock the question card runs.
+  let askedAt = $state(Date.now())
+  let now = $state(Date.now())
+  let detailsOpen = $state(false)
 
   $effect(() => {
     void permission.questionId
     responded = false
+    detailsOpen = false
+    askedAt = Date.now()
   })
 
-  const TOOL_ICON_MAP: Record<string, Component> = {
-    Bash: TerminalIcon,
-    Edit: PencilSimpleIcon,
-    Write: PencilSimpleIcon,
-    WebSearch: GlobeIcon,
-    WebFetch: GlobeIcon,
-  }
-  const SENSITIVE_RE = /token|password|secret|key|auth|credential|api.?key/i
-
-  function formatInput(input?: Record<string, unknown>): string | null {
-    if (!input) return null
-    const entries = Object.entries(input)
-    if (entries.length === 0) return null
-    const parts: string[] = []
-    for (const [key, value] of entries) {
-      if (SENSITIVE_RE.test(key)) { parts.push(`${key}: ***`); continue }
-      const val = typeof value === 'string' ? value : JSON.stringify(value)
-      parts.push(`${key}: ${val.length > 120 ? val.substring(0, 117) + '...' : val}`)
-    }
-    return parts.join('\n')
-  }
+  $effect(() => {
+    if (responded) return
+    const timer = setInterval(() => (now = Date.now()), 1000)
+    return () => clearInterval(timer)
+  })
 
   const isEdit = $derived(permission.toolTitle === 'Edit')
   const isWrite = $derived(permission.toolTitle === 'Write')
@@ -53,150 +55,228 @@
     typeof input?.old_string === 'string' || typeof input?.new_string === 'string'
   )
   const hasEditDetails = $derived(editChanges.length > 0 || hasEditStringDetails)
-  const inputPreview = $derived((isWrite || (isEdit && hasEditDetails)) ? null : formatInput(input))
-  const ToolIcon = $derived(TOOL_ICON_MAP[permission.toolTitle] || WrenchIcon)
+
+  // The full argv is the hero and is never truncated — approving a command you
+  // can't fully read is the failure mode this card exists to prevent.
+  const argv = $derived(permissionArgv(permission))
+  const kicker = $derived(permissionKicker(permission))
+  const cwd = $derived(permissionCwd(permission, sess))
+  // The head can lose its middle; the worktree name never can.
+  const cwdParts = $derived.by(() => {
+    if (!cwd) return null
+    const { head, tail } = splitPathTail(abbreviateHome(cwd))
+    return { head: truncateMiddle(head, 36), tail }
+  })
+  const waiting = $derived(formatWaiting(now - askedAt))
+  // Escape hatch left, affirmative right. Never the reverse, on any interrupt.
+  const actions = $derived(permissionFooterOrder(permission.options))
 
   function handleOption(optionId: string) {
     if (responded) return
     responded = true
     session.respondPermission(tabId, permission.questionId, optionId)
   }
+
+  function classFor(option: PermissionOption): string {
+    // Even a destructive request keeps neutral buttons — the affirmative is the
+    // card's one terracotta, and the strip carries the warning.
+    if (option === actions.affirmative) return 'interrupt-btn interrupt-btn--primary'
+    if (option === actions.escape) return 'interrupt-btn'
+    return 'interrupt-btn interrupt-btn--secondary'
+  }
+
+  /** The key hints are the card's contract, so they act rather than decorate. */
+  function handleKeydown(e: KeyboardEvent) {
+    if (tabId !== session.activeTabId || responded) return
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    const target = e.target as HTMLElement | null
+    const tag = target?.tagName
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || target?.isContentEditable === true) return
+
+    if (e.key === 'Enter' && actions.affirmative) {
+      e.preventDefault()
+      handleOption(actions.affirmative.optionId)
+    } else if (e.key === 'Escape' && actions.escape) {
+      e.preventDefault()
+      handleOption(actions.escape.optionId)
+    }
+  }
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 {#snippet loadingDiff()}
-  <div
-    class="grid min-h-16 place-items-center text-xs sm:text-[0.625rem] text-(--solus-text-tertiary)"
-    role="status"
-  >
+  <div class="grid min-h-16 place-items-center text-[0.65625rem] text-(--muted-foreground)" role="status">
     Loading preview…
   </div>
 {/snippet}
 
-<div transition:fly={{ y: 8, duration: 200 }} class="mx-auto mt-2 mb-2 w-[88%]" data-testid="permission-card">
-  <Card.Root
-    class="gap-0 overflow-hidden border border-(--solus-permission-border) bg-(--solus-container-bg) py-0"
-    style="border-radius:0.75rem;box-shadow:var(--solus-permission-shadow)"
-  >
-    <Card.Header
-      class="flex grid-cols-none grid-rows-none items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-permission-header-bg) px-3 py-1.5"
-    >
-      <ShieldWarningIcon size={12} class="text-(--solus-status-permission)" />
-      <span class="text-xs sm:text-[0.6875rem] font-semibold text-(--solus-status-permission)">Permission Required</span>
-    </Card.Header>
+<InterruptCard
+  eyebrow={kicker.label}
+  title={kicker.title}
+  tone={kicker.tone === 'destructive' ? 'destructive' : 'neutral'}
+  testId="permission-card"
+>
+  {#snippet chip()}
+    <TranscriptChip state={kicker.tone === 'destructive' ? 'destructive' : 'warning'}>
+      {kicker.chip}
+    </TranscriptChip>
+  {/snippet}
 
-    <Card.Content class="px-3 py-2.5">
-      <div class="flex items-center gap-1.5 mb-1">
-        <span class="text-(--solus-text-tertiary)"><ToolIcon size={14} /></span>
-        <span class="text-[0.75rem] font-medium text-(--solus-text-primary)">{permission.toolTitle}</span>
-      </div>
+  {#snippet meta()}
+    <span class="shrink-0">{permission.toolTitle}</span>
+    {#if cwdParts}
+      <span class="shrink-0 opacity-60">·</span>
+      <span class="min-w-0 truncate font-mono text-[0.71875rem]"
+        >{cwdParts.head}<span class="font-medium text-(--foreground)">{cwdParts.tail}</span></span
+      >
+    {/if}
+    {#if queueLength > 1}
+      <span class="shrink-0 opacity-60">·</span>
+      <span class="shrink-0">1 of {queueLength} waiting</span>
+    {/if}
+  {/snippet}
 
-      {#if permission.toolDescription}
-        <p class="text-sm sm:text-xs leading-[1.4] mb-1.5 text-(--solus-text-secondary)">
-          {permission.toolDescription}
-        </p>
-      {/if}
-
-      {#if isEdit && editChanges.length > 0}
-        <div class="mb-2 space-y-1.5">
-          {#each editChanges as change (change.path)}
-            <div class="overflow-hidden rounded-md border border-(--solus-permission-header-border)">
-              <div class="flex items-center gap-1.5 border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] text-(--solus-text-secondary)">
-                <span class="truncate min-w-0 flex-1">{change.path}</span>
-                <span class="shrink-0 text-(--solus-text-tertiary)">{change.kind}</span>
-              </div>
-              <div class="max-h-[11.25rem] overflow-auto bg-(--solus-container-bg)">
-                {#await import('../diff/Diff.svelte')}
-                  {@render loadingDiff()}
-                {:then diffModule}
-                  {@const Diff = diffModule.default}
-                  <Diff patch={change.diff} />
-                {/await}
-              </div>
-            </div>
-          {/each}
+  <div class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4">
+    {#if argv}
+      <div class="interrupt-payload">
+        <div class="interrupt-payload-bar">
+          <span class="interrupt-payload-label">{argv.label}</span>
+          <div class="flex-1"></div>
+          <CopyButton text={argv.text} title="Copy command" />
         </div>
-      {:else if isEdit && input && hasEditStringDetails}
-        {@const oldStr = typeof input.old_string === 'string' ? input.old_string : ''}
-        {@const newStr = typeof input.new_string === 'string' ? input.new_string : ''}
-        {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
-        <div class="mb-2 overflow-hidden rounded-md border border-(--solus-permission-header-border)">
-          {#if typeof input.file_path === 'string'}
-            <div class="truncate border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] text-(--solus-text-secondary)">
-              {input.file_path}
-            </div>
-          {/if}
-          <div class="max-h-[11.25rem] overflow-auto bg-(--solus-container-bg)">
+        <pre class="interrupt-payload-body">{argv.text}</pre>
+      </div>
+    {/if}
+
+    {#if isEdit && editChanges.length > 0}
+      {#each editChanges as change (change.path)}
+        <div class="interrupt-payload">
+          <div class="interrupt-payload-bar">
+            <span class="interrupt-payload-label">{change.path}</span>
+            <div class="flex-1"></div>
+            <span class="shrink-0 text-[0.65625rem] text-(--muted-foreground)">{change.kind}</span>
+          </div>
+          <div class="max-h-[11.25rem] overflow-auto">
             {#await import('../diff/Diff.svelte')}
               {@render loadingDiff()}
             {:then diffModule}
               {@const Diff = diffModule.default}
-              <Diff
-                oldFile={{ name: filePath, contents: oldStr }}
-                newFile={{ name: filePath, contents: newStr }}
-              />
+              <Diff patch={change.diff} />
             {/await}
           </div>
         </div>
-      {/if}
+      {/each}
+    {:else if isEdit && input && hasEditStringDetails}
+      {@const oldStr = typeof input.old_string === 'string' ? input.old_string : ''}
+      {@const newStr = typeof input.new_string === 'string' ? input.new_string : ''}
+      {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
+      <div class="interrupt-payload">
+        <div class="interrupt-payload-bar">
+          <span class="interrupt-payload-label">{filePath}</span>
+        </div>
+        <div class="max-h-[11.25rem] overflow-auto">
+          {#await import('../diff/Diff.svelte')}
+            {@render loadingDiff()}
+          {:then diffModule}
+            {@const Diff = diffModule.default}
+            <Diff oldFile={{ name: filePath, contents: oldStr }} newFile={{ name: filePath, contents: newStr }} />
+          {/await}
+        </div>
+      </div>
+    {/if}
 
-      {#if isWrite && input}
-        <div class="mb-2 overflow-hidden rounded-md border border-(--solus-permission-header-border)">
-          {#if typeof input.file_path === 'string'}
-            <div class="truncate border-b border-(--solus-permission-header-border) bg-(--solus-code-bg) px-2 py-1 text-xs sm:text-[0.625rem] text-(--solus-text-secondary)">
-              {input.file_path}
-            </div>
-          {/if}
-          {#if typeof input.content === 'string'}
-            {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
-            <div class="max-h-[11.25rem] overflow-auto bg-(--solus-container-bg)">
-              {#await import('../diff/Diff.svelte')}
-                {@render loadingDiff()}
-              {:then diffModule}
-                {@const Diff = diffModule.default}
-                <Diff
-                  newFile={{ name: filePath, contents: input.content }}
-                />
-              {/await}
-            </div>
-          {/if}
+    {#if isWrite && input && typeof input.content === 'string'}
+      {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
+      {@const contents = input.content}
+      <div class="interrupt-payload">
+        <div class="interrupt-payload-bar">
+          <span class="interrupt-payload-label">{filePath}</span>
+        </div>
+        <div class="max-h-[11.25rem] overflow-auto">
+          {#await import('../diff/Diff.svelte')}
+            {@render loadingDiff()}
+          {:then diffModule}
+            {@const Diff = diffModule.default}
+            <Diff newFile={{ name: filePath, contents }} />
+          {/await}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Ids belong behind one disclosure, never in a dump that steals the card's
+         height from the decision itself. -->
+    <div class="flex flex-col gap-1.5">
+      <button
+        type="button"
+        class="interrupt-disclosure self-start"
+        aria-expanded={detailsOpen}
+        onclick={() => (detailsOpen = !detailsOpen)}
+      >
+        <span class="interrupt-caret" class:is-open={detailsOpen}>
+          <CaretRightIcon size={9} weight="bold" />
+        </span>
+        Request details
+      </button>
+      {#if detailsOpen}
+        <div class="interrupt-detail-table">
+          <span class="text-(--muted-foreground)">request</span><span>{permission.questionId}</span>
+          <span class="text-(--muted-foreground)">tool</span><span>{permission.toolTitle}</span>
+          <span class="text-(--muted-foreground)">cwd</span><span>{cwd || '—'}</span>
+          <span class="text-(--muted-foreground)">requested</span><span
+            >{formatReleaseTime(askedAt / 1000)} · {waiting} ago</span
+          >
         </div>
       {/if}
+    </div>
+  </div>
 
-      {#if inputPreview}
-        <pre
-          class="text-xs sm:text-[0.625rem] leading-[1.4] px-2 py-1.5 rounded-md overflow-x-auto whitespace-pre-wrap break-all mb-2 bg-(--solus-code-bg) text-(--solus-text-secondary)"
-          style="max-height:5rem"
-        >{inputPreview}</pre>
+  {#snippet footer()}
+    {#if actions.escape}
+      <button
+        type="button"
+        class={classFor(actions.escape)}
+        disabled={responded}
+        data-testid="permission-option"
+        data-kind="deny"
+        onclick={() => handleOption(actions.escape!.optionId)}
+      >
+        {actions.escape.label}
+        <span class="interrupt-key">esc</span>
+      </button>
+    {/if}
+    <div class="flex-1"></div>
+    {#each actions.middle as option (option.optionId)}
+      <button
+        type="button"
+        class={classFor(option)}
+        disabled={responded}
+        data-testid="permission-option"
+        data-kind="other"
+        onclick={() => handleOption(option.optionId)}
+      >
+        {option.label}
+      </button>
+    {/each}
+    <span class="shrink-0 text-[0.71875rem] text-(--muted-foreground)">
+      {#if responded}
+        Answered
+      {:else}
+        Holding · <span class="font-mono text-[0.6875rem]">{waiting}</span>
       {/if}
-
-      <div class="flex items-center gap-2 flex-wrap">
-        {#each permission.options as opt (opt.optionId)}
-          {@const isAllow = opt.kind === 'allow' || opt.label.toLowerCase().includes('allow') || opt.label.toLowerCase().includes('yes')}
-          {@const isDeny = opt.kind === 'deny' || opt.label.toLowerCase().includes('deny') || opt.label.toLowerCase().includes('no') || opt.label.toLowerCase().includes('reject')}
-          {@const bg = isAllow ? 'var(--solus-permission-allow-bg)' : isDeny ? 'var(--solus-permission-deny-bg)' : 'var(--solus-accent-light)'}
-          {@const hoverBg = isAllow ? 'var(--solus-permission-allow-hover-bg)' : isDeny ? 'var(--solus-permission-deny-hover-bg)' : 'var(--solus-accent-soft)'}
-          {@const textColor = isAllow ? 'var(--solus-status-complete)' : isDeny ? 'var(--solus-status-error)' : 'var(--solus-accent)'}
-          {@const borderColor = isAllow ? 'var(--solus-permission-allow-border)' : isDeny ? 'var(--solus-permission-deny-border)' : 'var(--solus-accent-soft)'}
-          <button
-            onclick={() => handleOption(opt.optionId)}
-            disabled={responded}
-            data-testid="permission-option"
-            data-kind={isAllow ? 'allow' : isDeny ? 'deny' : 'other'}
-            class="text-xs sm:text-[0.6875rem] font-medium px-3 py-1.5 rounded-full transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            style="background:{bg};color:{textColor};border:0.0625rem solid {borderColor}"
-            onmouseenter={(e) => { if (!responded) (e.currentTarget as HTMLElement).style.background = hoverBg }}
-            onmouseleave={(e) => { if (!responded) (e.currentTarget as HTMLElement).style.background = bg }}
-          >
-            {opt.label}
-          </button>
-        {/each}
-
-        {#if queueLength > 1}
-          <span class="text-xs sm:text-[0.625rem] px-2 py-0.5 rounded-full bg-(--solus-accent-light) text-(--solus-accent)">
-            +{queueLength - 1} more
-          </span>
-        {/if}
-      </div>
-    </Card.Content>
-  </Card.Root>
-</div>
+    </span>
+    {#if actions.affirmative}
+      <button
+        type="button"
+        class={classFor(actions.affirmative)}
+        disabled={responded}
+        data-testid="permission-option"
+        data-kind="allow"
+        onclick={() => handleOption(actions.affirmative!.optionId)}
+      >
+        {actions.affirmative.label}
+        <span class="interrupt-key">⏎</span>
+      </button>
+    {/if}
+  {/snippet}
+</InterruptCard>

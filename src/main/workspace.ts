@@ -1,8 +1,8 @@
-import { homedir } from 'os'
 import { join, sep } from 'path'
+import { solusDir } from './platform/paths'
 
 /** The user's general-purpose workspace — the app's default working directory. */
-export const WORKSPACE_DIR = join(homedir(), '.solus', 'my-workspace')
+export const WORKSPACE_DIR = join(solusDir(), 'my-workspace')
 
 /** True when a working directory is the workspace root or any folder nested under it. */
 export function isWorkspacePath(cwd: string | null | undefined): boolean {

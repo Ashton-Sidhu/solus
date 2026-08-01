@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
 import { CodexTurnNormalizer } from '../../src/main/agents/codex/codex-event-normalizer'
-import { codexItemToMessage } from '../../src/main/agents/codex/codex-utils'
+import { codexItemToMessage, codexTurnToMessages } from '../../src/main/agents/codex/codex-utils'
 import type { NormalizedEvent } from '../../src/shared/types'
 
 type RawCodexEvent = { method: string; params: any }
@@ -44,12 +44,39 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('normalizes Codex collab agent starts as subagent tool calls', () => {
+  test('preserves the final-answer marker for assembled headless messages', () => {
+    const normalizer = new CodexTurnNormalizer({
+      planMode: false,
+      assembledAgentMessages: true,
+    })
+
+    expect(normalizer.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          text: 'Finished the requested changes.',
+          phase: 'final_answer',
+        },
+      },
+    })).toEqual([
+      {
+        type: 'assistant_message',
+        text: 'Finished the requested changes.',
+        isFinal: true,
+      },
+    ])
+  })
+
+  test('normalizes Codex spawn-agent starts as subagent tool calls', () => {
     expect(normalizeCodexNotification('item/started', {
       item: {
         id: 'agent-1',
         type: 'collabAgentToolCall',
-        tool: 'researcher',
+        tool: 'spawnAgent',
         prompt: 'Read auth files and report risks',
         model: 'gpt-5.5',
         reasoningEffort: 'high',
@@ -60,11 +87,11 @@ describe('normalizeCodexNotification', () => {
     })).toEqual([
       {
         type: 'tool_call',
-        toolName: 'researcher',
+        toolName: 'spawnAgent',
         toolId: 'agent-1',
         index: 0,
         toolInput: JSON.stringify({
-          subagent_type: 'researcher',
+          subagent_type: 'spawnAgent',
           description: 'Inspect the auth flow',
           prompt: 'Read auth files and report risks',
           model: 'gpt-5.5',
@@ -72,7 +99,81 @@ describe('normalizeCodexNotification', () => {
         }),
         parentToolUseId: undefined,
         isSubagent: true,
-        subagentType: 'researcher',
+        subagentType: 'codex',
+      },
+    ])
+  })
+
+  test('deduplicates paired sub-agent lifecycle events and parents child events', async () => {
+    const { events } = await normalizeCodexFixture('codex-subagent-activity.jsonl', { planMode: false })
+
+    expect(events).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'spawnAgent',
+        toolId: 'call-agent-1',
+        index: 0,
+        toolInput: JSON.stringify({
+          subagent_type: 'codex',
+          description: 'investigate split crash',
+          agent_thread_id: 'child-thread',
+          agent_path: '/root/investigate_split_crash',
+        }),
+        parentToolUseId: undefined,
+        isSubagent: true,
+        subagentType: 'codex',
+      },
+      {
+        type: 'assistant_message',
+        text: 'The split fix is safe.',
+        parentToolUseId: 'call-agent-1',
+        isFinal: true,
+      },
+    ])
+  })
+
+  test('settles completed-only interrupted sub-agent activity as an error', () => {
+    expect(normalizeCodexNotification('item/completed', {
+      item: {
+        type: 'subAgentActivity',
+        id: 'call-agent-1',
+        kind: 'interrupted',
+        agentThreadId: 'child-thread',
+        agentPath: '/root/investigate_split_crash',
+      },
+    })).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'call-agent-1',
+        content: 'Interrupted',
+        isError: true,
+        parentToolUseId: undefined,
+      },
+    ])
+  })
+
+  test('normalizes Codex wait operations as ordinary tool calls', () => {
+    expect(normalizeCodexNotification('item/started', {
+      item: {
+        id: 'wait-1',
+        type: 'collabAgentToolCall',
+        tool: 'wait',
+        status: 'inProgress',
+        receiverThreadIds: [],
+      },
+    })).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'wait',
+        toolId: 'wait-1',
+        index: 0,
+        toolInput: JSON.stringify({
+          subagent_type: 'wait',
+          description: 'wait',
+        }),
+        parentToolUseId: undefined,
+        isSubagent: false,
+        subagentType: undefined,
       },
     ])
   })
@@ -108,14 +209,16 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('drops streamed child agent text and delivers it whole on completion', () => {
-    // Sub-agent prose no longer streams; parented deltas are dropped and the full
-    // text lands on item/completed as a parented assistant_message.
+  test('streams child agent text before reconciling the assembled completion', () => {
     expect(normalizeCodexNotification('item/agentMessage/delta', {
       itemId: 'msg-2',
       parentItemId: 'agent-1',
       delta: 'Found the auth handler.',
-    })).toEqual([])
+    })).toEqual([{
+      type: 'text_chunk',
+      text: 'Found the auth handler.',
+      parentToolUseId: 'agent-1',
+    }])
 
     expect(normalizeCodexNotification('item/completed', {
       item: { id: 'msg-2', type: 'agentMessage', text: 'Found the auth handler.' },
@@ -125,19 +228,33 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
-  test('normalizes Codex collab agent completion as a tool result', () => {
+  test('settles a Codex subagent without overwriting its launch metadata', () => {
     expect(normalizeCodexNotification('item/completed', {
       item: {
         id: 'agent-1',
         type: 'collabAgentToolCall',
-        tool: 'researcher',
+        tool: 'spawnAgent',
         result: 'No auth regressions found.',
         status: 'completed',
       },
     })).toEqual([
-      { type: 'tool_call_update', toolId: 'agent-1', toolInput: 'No auth regressions found.' },
       { type: 'tool_call_complete', index: 0, toolId: 'agent-1' },
       { type: 'tool_result', toolUseId: 'agent-1', content: 'No auth regressions found.', isError: false },
+    ])
+  })
+
+  test('completes a Codex wait without replacing its input with the status', () => {
+    expect(normalizeCodexNotification('item/completed', {
+      item: {
+        id: 'wait-1',
+        type: 'collabAgentToolCall',
+        tool: 'wait',
+        status: 'completed',
+        receiverThreadIds: [],
+      },
+    })).toEqual([
+      { type: 'tool_call_complete', index: 0, toolId: 'wait-1' },
+      { type: 'tool_result', toolUseId: 'wait-1', content: 'completed', isError: false },
     ])
   })
 
@@ -172,7 +289,7 @@ describe('normalizeCodexNotification', () => {
         item: {
           id: 'agent-1',
           type: 'collabAgentToolCall',
-          tool: 'spawn_agent',
+          tool: 'spawnAgent',
           receiverThreadIds: ['child-thread'],
           prompt: 'Inspect the auth flow',
         },
@@ -199,6 +316,36 @@ describe('normalizeCodexNotification', () => {
       },
     ])
   })
+
+  test('streams child-thread text into the subagent card', () => {
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+
+    normalizer.push({
+      method: 'item/started',
+      params: {
+        threadId: 'parent-thread',
+        item: {
+          type: 'subAgentActivity',
+          id: 'agent-1',
+          kind: 'started',
+          agentThreadId: 'child-thread',
+          agentPath: '/root/investigate',
+        },
+      },
+    })
+
+    expect(normalizer.push({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'child-thread',
+        delta: 'Still investigating',
+      },
+    })).toEqual([{
+      type: 'text_chunk',
+      text: 'Still investigating',
+      parentToolUseId: 'agent-1',
+    }])
+  })
 })
 
 describe('CodexTurnNormalizer', () => {
@@ -209,7 +356,7 @@ describe('CodexTurnNormalizer', () => {
     expect(normalizer.push({
       method: 'item/agentMessage/delta',
       params: { threadId: 'thread-1', delta: 'partial' },
-    })).toEqual([])
+    })).toEqual([{ type: 'text_chunk', text: 'partial' }])
     expect(normalizer.push({
       method: 'item/completed',
       params: { threadId: 'thread-1', item: { id: 'msg-1', type: 'agentMessage', text: 'Complete answer.' } },
@@ -237,21 +384,22 @@ describe('CodexTurnNormalizer', () => {
         content: '/Users/sidhu/solus\n',
       },
       { type: 'tool_call_complete', index: 0, toolId: 'cmd-1' },
+      // `last` is the window as it stands; `total` is what the whole thread has
+      // spent — the two must not be read as the same number.
       {
         type: 'usage',
-        usage: {
+        context: {
+          usedTokens: 112,
+          windowTokens: 200000,
           inputTokens: 60,
-          outputTokens: 12,
           cacheReadTokens: 40,
-          reasoningTokens: 5,
-          contextWindowTokens: 200000,
+          outputTokens: 12,
         },
-        sessionUsage: {
+        run: {
           inputTokens: 100,
           outputTokens: 20,
           cacheReadTokens: 50,
           reasoningTokens: undefined,
-          contextWindowTokens: 200000,
         },
       },
       {
@@ -366,6 +514,97 @@ describe('CodexTurnNormalizer', () => {
 })
 
 describe('Codex subagent history', () => {
+  test('rehydrates a failed turn with its terminal error', () => {
+    const messages = codexTurnToMessages({
+      status: 'failed',
+      error: { message: 'API Error: 500 Internal server error' },
+      startedAt: 1_000,
+      completedAt: 1_060,
+      items: [
+        { type: 'userMessage', content: [{ type: 'text', text: 'Inspect it' }] },
+        { type: 'commandExecution', command: 'grep failed state' },
+      ],
+    })
+
+    expect(messages.at(-1)).toEqual({
+      role: 'system',
+      content: 'Error: API Error: 500 Internal server error',
+      timestamp: 1_060_000,
+    })
+  })
+
+  test('preserves persisted turn duration when rebuilding transcript timestamps', () => {
+    const messages = codexTurnToMessages({
+      startedAt: 1_000,
+      completedAt: 1_090,
+      durationMs: 90_000,
+      items: [
+        { type: 'userMessage', content: [{ type: 'text', text: 'Fix it' }] },
+        { type: 'agentMessage', text: 'Fixed.' },
+      ],
+    })
+
+    expect(messages.map((message) => message.timestamp)).toEqual([
+      1_000_000,
+      1_090_000,
+    ])
+  })
+
+  test('hydrates persisted plans with the same stable id as live plan events', () => {
+    expect(codexItemToMessage({
+      id: 'plan-item-1',
+      type: 'plan',
+      text: '# Plan\n\n- Ship it',
+    }, 123)).toEqual({
+      role: 'plan',
+      content: '',
+      planContent: '# Plan\n\n- Ship it',
+      planToolUseId: 'codex-plan-plan-item-1',
+      timestamp: 123,
+    })
+  })
+
+  test('hydrates started sub-agent activity as a running Codex card', () => {
+    expect(codexItemToMessage({
+      id: 'call-agent-1',
+      type: 'subAgentActivity',
+      kind: 'started',
+      agentThreadId: 'child-thread',
+      agentPath: '/root/investigate_split_crash',
+    }, 123)).toEqual({
+      role: 'tool',
+      content: '',
+      toolName: 'spawnAgent',
+      toolId: 'call-agent-1',
+      toolInput: JSON.stringify({
+        subagent_type: 'codex',
+        description: 'investigate split crash',
+        agent_thread_id: 'child-thread',
+        agent_path: '/root/investigate_split_crash',
+      }),
+      toolStatus: 'running',
+      isSubagent: true,
+      subagentType: 'codex',
+      timestamp: 123,
+    })
+  })
+
+  test('hydrates interrupted sub-agent activity as an error result', () => {
+    expect(codexItemToMessage({
+      id: 'call-agent-1',
+      type: 'subAgentActivity',
+      kind: 'interrupted',
+      agentThreadId: 'child-thread',
+      agentPath: '/root/investigate_split_crash',
+    }, 124)).toEqual({
+      role: 'tool_result',
+      content: 'Interrupted',
+      toolResultForId: 'call-agent-1',
+      toolResultIsError: true,
+      timestamp: 124,
+    })
+  })
+
   test('keeps the Claude dynamic tool input and final answer for card reloads', () => {
     const input = { prompt: 'Inspect auth', description: 'Review auth' }
     expect(codexItemToMessage({

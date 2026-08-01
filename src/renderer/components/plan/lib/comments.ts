@@ -2,28 +2,6 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { PlanComment } from "../../../shared/types";
 
-/**
- * True when the editor's current selection was made by the user's cursor — a
- * mouse drag or keyboard selection — rather than a programmatic
- * `setTextSelection` (find/replace, comment-mark restore, agent rewrites).
- *
- * ProseMirror stamps every selection it derives from a real DOM event with an
- * origin ("pointer" | "key") and a timestamp; programmatic selections leave
- * both stale. We read that stamp directly (it's what PM itself consults — see
- * `readDOMChange`) within a short recency window, so the floating "Comment"
- * affordance only fires for intentional selections. Consult it at the top of a
- * `selectionUpdate` handler.
- */
-export function isUserSelection(editor: Editor): boolean {
-  // `input` is ProseMirror's internal InputState — not in the public typings.
-  const { input } = editor.view as unknown as {
-    input: { lastSelectionOrigin: string | null; lastSelectionTime: number };
-  };
-  const origin = input?.lastSelectionOrigin;
-  if (origin !== "pointer" && origin !== "key") return false;
-  return Date.now() - input.lastSelectionTime < 100;
-}
-
 export function prosePosToTextOffset(
   editor: Editor,
   prosePos: number,
@@ -113,16 +91,38 @@ export function flashMark(mark: HTMLElement): void {
   setTimeout(() => mark.classList.remove("plan-comment-flash"), 800);
 }
 
+/** The document's own scroll curve: 240ms of ease-out, short enough to read as
+ *  a jump and long enough to say which way the page went. `behavior: "smooth"`
+ *  is the browser's duration, which is neither. */
+const SCROLL_MS = 240;
+
+function animateScrollBy(el: HTMLElement, delta: number): void {
+  if (Math.abs(delta) < 1) return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    el.scrollTop += delta;
+    return;
+  }
+  const from = el.scrollTop;
+  const start = performance.now();
+  const step = (at: number) => {
+    const t = Math.min(1, (at - start) / SCROLL_MS);
+    el.scrollTop = from + delta * (1 - Math.pow(1 - t, 3));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/**
+ * Bring a mark to a third of the reading viewport — not to the top, where the
+ * line you were sent to has nothing above it to read it in context.
+ */
 export function scrollAndFlashMark(
   scrollContainer: HTMLDivElement,
   mark: HTMLElement,
 ): void {
-  const containerTop = scrollContainer.getBoundingClientRect().top;
+  const container = scrollContainer.getBoundingClientRect();
   const markTop = mark.getBoundingClientRect().top;
-  scrollContainer.scrollBy({
-    top: markTop - containerTop - 80,
-    behavior: "smooth",
-  });
+  animateScrollBy(scrollContainer, markTop - container.top - container.height / 3);
   flashMark(mark);
 }
 
@@ -142,6 +142,18 @@ export function resolveHoveredComment(
     comment,
     anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
   };
+}
+
+/**
+ * The mark state a thread should be wearing. Every annotation state has to
+ * stay legible with the rail hidden, so the mark carries the thread's state
+ * rather than merely its existence: a resolved thread keeps a dotted sage
+ * trace, one Solus wrote is dashed terracotta.
+ */
+export function markTypeFor(comment: PlanComment): string {
+  if (comment.resolvedAt) return "resolved";
+  if (comment.author === "solus") return "solus";
+  return "saved";
 }
 
 export function restoreCommentMarks(
@@ -165,10 +177,13 @@ export function restoreCommentMarks(
     const to = textBetweenIdxToPos(doc, idx + c.selectedText.length);
 
     if (from !== -1 && to !== -1) {
+      // addMark replaces any existing planComment mark over the range, so a
+      // thread that has just been resolved re-renders in its new state here
+      // rather than needing a separate mark mutation.
       tr.addMark(
         from,
         to,
-        markType.create({ commentId: c.id, type: "saved" }),
+        markType.create({ commentId: c.id, type: markTypeFor(c) }),
       );
     }
   }

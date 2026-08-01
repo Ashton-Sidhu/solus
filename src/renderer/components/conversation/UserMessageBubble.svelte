@@ -4,14 +4,15 @@
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownText from "./MarkdownText.svelte";
+  import MessageHoverRail from "./MessageHoverRail.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
-  import CopyButton from "../ui/CopyButton.svelte";
-  import { FileTextIcon, ImageIcon, FileCodeIcon, FileIcon, XIcon, LightningIcon } from "phosphor-svelte";
-  import { getSettingsContext, getWorkspaceContext, runtime } from "../../contexts";
+  import { FileTextIcon, ImageIcon, FileCodeIcon, FileIcon, LightningIcon } from "phosphor-svelte";
+  import { getWorkspaceContext, runtime } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { portal } from "../portal";
   import { formatMessageTime } from "../../lib/sessionUtils";
-  import type { Message } from "../../../shared/types";
+  import { formatWaited } from "./lib/queued-prompts";
+  import type { Message, OutboundPromptState } from "../../../shared/types";
   import type { Component } from "svelte";
 
   const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, text: MarkdownText };
@@ -20,17 +21,60 @@
     message?: Message;
     content?: string;
     attachments?: Message['attachments'];
-    queued?: boolean;
-    queueId?: string;
-    onCancel?: (queueId: string) => void;
+    deliveryState?: 'sent' | OutboundPromptState;
+    /** Position in the queue, printed beside the bubble. Only set when more than
+     *  one prompt is held — a lone bubble has no order to state. */
+    ordinal?: number;
+    /** Rewrite a held prompt in place, keeping its slot in the queue. */
+    onEditSubmit?: (text: string) => void;
+    /** Drop a held prompt. The queue's only per-message escape. */
+    onRemove?: () => void;
     skipMotion?: boolean;
   }
-  let { message, content, attachments, queued = false, queueId, onCancel, skipMotion = false }: Props = $props();
+  let { message, content, attachments, deliveryState = 'sent', ordinal, onEditSubmit, onRemove, skipMotion = false }: Props = $props();
 
-  const theme = getSettingsContext();
   const session = getWorkspaceContext();
 
   const text = $derived(content ?? message?.content ?? "");
+  const isPending = $derived(deliveryState !== 'sent');
+  const isAutomation = $derived(message?.via === "automation");
+  const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove));
+  // The wait is only worth stating on the bubble that actually served it.
+  const waitedLabel = $derived(
+    message?.queuedWaitMs
+      ? `sent ${formatMessageTime(message.timestamp)} · waited ${formatWaited(message.queuedWaitMs)}`
+      : '',
+  );
+
+  let isEditing = $state(false);
+  let draft = $state("");
+  let editEl = $state<HTMLTextAreaElement | null>(null);
+
+  function startEdit() {
+    draft = text;
+    isEditing = true;
+  }
+
+  function commitEdit() {
+    const next = draft.trim();
+    isEditing = false;
+    if (next && next !== text) onEditSubmit?.(next);
+  }
+
+  function handleEditKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      isEditing = false;
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      commitEdit();
+    }
+  }
+
+  $effect(() => {
+    if (isEditing) editEl?.focus();
+  });
+
   const allAttachments = $derived(attachments ?? message?.attachments);
   const imageAttachments = $derived(
     allAttachments?.filter((a) => a.dataUrl && a.type !== 'file') ?? [],
@@ -110,36 +154,112 @@
   {/if}
 
   {#if text}
-    <div class="relative flex items-end gap-2 max-w-[85%]">
-      <div class="relative group/queued min-w-0">
-        <div
-          class="overflow-hidden px-3 leading-normal {queued
-            ? 'rounded-[0.875rem_0.875rem_0.25rem_0.875rem] border border-dashed border-(--solus-user-bubble-border) bg-(--solus-user-bubble) text-[0.75rem] leading-[1.5] text-(--solus-user-bubble-text) opacity-65'
-            : 'rounded-[1rem_1rem_0.375rem_1rem] border border-(--solus-user-bubble-border) bg-(--solus-user-bubble) tracking-[-0.01em] text-(--solus-user-bubble-text) shadow-(--bubble-shadow)'}"
-          class:py-1={!queued}
-          class:py-1.5={queued}
-          style:--bubble-shadow={theme.isDark
-            ? 'inset 0 0.0625rem 0 rgba(255,255,255,0.06), 0 0.0625rem 0.1875rem rgba(0,0,0,0.2)'
-            : 'inset 0 0.0625rem 0 rgba(255,255,255,0.8), 0 0.0625rem 0.1875rem rgba(0,0,0,0.06)'}
-        >
-          <div class="prose-cloud prose-user-bubble">
-            <SvelteMarkdown source={text} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
-          </div>
-        </div>
-        {#if queued && queueId && onCancel}
+    <!-- Three shapes, no hue: a 2% fill means a person typed it, a hairline
+         card means an agent or automation sent it, and a fill plus an outline
+         means it exists but hasn't gone out yet. -->
+    <div class="flex w-full items-center justify-end gap-2">
+      {#if ordinal !== undefined}
+        <!-- Ordinals carry the order, so nothing inside the bubble has to. -->
+        <span class="shrink-0 font-mono text-[0.59375rem] text-(--muted-foreground) opacity-45">
+          {ordinal}
+        </span>
+      {/if}
+      <!-- A held prompt is its own focusable region: its controls only paint on
+           hover, so focus is what keeps them reachable from the keyboard. The
+           tabindex is the point of the pattern, not an oversight. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        data-delivery={deliveryState}
+        role={hasControls ? "group" : undefined}
+        aria-label={hasControls ? "Queued prompt" : undefined}
+        tabindex={hasControls ? 0 : undefined}
+        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
+          ? 'min-w-[9.5rem]'
+          : 'min-w-0'} {isPending
+          ? 'queued-bubble'
+          : isAutomation
+            ? 'bg-card shadow-[shadow:var(--solus-tx-hairline)]'
+            : 'bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
+      >
+        {#if isAutomation}
+          <!-- Required origin label: the only thing separating an agent-sent
+               message from a person's is this line plus the missing fill. -->
           <button
             type="button"
-            onclick={() => onCancel!(queueId!)}
-            title="Remove from queue"
-            aria-label="Remove from queue"
-            class="absolute -top-1.5 right-0 flex h-4 w-4 items-center justify-center rounded-full border border-(--solus-surface-tertiary) bg-(--solus-surface-secondary) text-(--solus-text-tertiary) transition-opacity duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/queued:opacity-100'}"
+            title={message?.automationName
+              ? `Open automation: ${message.automationName}`
+              : "Open automation"}
+            onclick={() => session.openAutomations(message?.automationId)}
+            class="mb-[0.1875rem] flex items-center gap-1 text-[0.5625rem] font-medium tracking-[0.05em] text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
           >
-            <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
-            <XIcon size={8} weight="bold" />
+            <LightningIcon size={9} weight="fill" />
+            <span>{message?.automationName || "Automation"}</span>
           </button>
+        {/if}
+        {#if isEditing}
+          <!-- Editing keeps the prompt's slot in the queue, so it stays inside
+               the bubble that owns it rather than travelling to the composer. -->
+          <textarea
+            bind:this={editEl}
+            bind:value={draft}
+            onkeydown={handleEditKeydown}
+            onblur={commitEdit}
+            rows={Math.min(8, draft.split("\n").length + 1)}
+            class="w-full resize-none bg-transparent text-[0.8125rem] leading-[1.55] text-(--solus-text-primary) outline-none"
+          ></textarea>
+        {:else}
+          <div
+            class="prose-cloud prose-transcript-user {isPending ? 'opacity-[0.6]' : ''}"
+            data-conversation-message-content
+            data-conversation-message-id={message?.id}
+          >
+            <SvelteMarkdown source={text} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+          </div>
+        {/if}
+        {#if hasControls && !isEditing}
+          <!-- Collapsed to nothing until reached for: the bubble is only as tall
+               as its words, and grows into the controls on hover or focus. The
+               0fr→1fr row is what makes that a movement rather than a jump, so
+               the prompts below it slide instead of snapping. The bubble's
+               min-width stops "Edit … Remove" clipping under a short prompt. -->
+          <div
+            class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out group-hover/bubble:grid-rows-[1fr] group-focus-within/bubble:grid-rows-[1fr]"
+          >
+            <div class="overflow-hidden">
+              <div
+                class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 opacity-0 transition-opacity duration-150 ease-out group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100"
+              >
+                {#if onEditSubmit}
+                  <button
+                    type="button"
+                    onclick={startEdit}
+                    class="cursor-pointer text-[0.65625rem] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+                  >
+                    Edit
+                  </button>
+                {/if}
+                <span class="flex-1"></span>
+                {#if onRemove}
+                  <button
+                    type="button"
+                    onclick={onRemove}
+                    class="cursor-pointer text-[0.6875rem] text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
+                  >
+                    Remove
+                  </button>
+                {/if}
+              </div>
+            </div>
+          </div>
         {/if}
       </div>
     </div>
+    {#if waitedLabel}
+      <!-- The wait is over, so the caption is a fact, not a countdown. -->
+      <div class="mt-1.5 flex justify-end font-mono text-[0.625rem] text-(--muted-foreground)">
+        {waitedLabel}
+      </div>
+    {/if}
   {/if}
 
   {#if previewSrc}
@@ -163,70 +283,56 @@
   {/if}
 {/snippet}
 
-<!-- Stamp in the reading column's right margin (mirrors the assistant left-gutter
-     stamp) in both modes — gutter room comes from the centered reading column in
-     editor mode and from the pill column's horizontal inset in pill mode. The row
-     opts out of content-visibility (.cv-stamp-host, handled by ConversationView's
-     opt-out rule) so the margin stamp isn't clipped; the heavy content keeps the
-     off-screen optimization via .user-cv-body. -->
+<!-- The rail hangs in the message's outer margin and aligns with the bottom of
+     the bubble. The heavy body retains its off-screen rendering optimization. -->
 <div
   data-testid="user-message"
   data-nav-msg-id={message?.id}
-  class="cv-stamp-host group/user relative {skipMotion
-    ? ''
-    : 'animate-msg-in-up'}"
+  class="cv-rail-host relative {skipMotion ? '' : 'animate-msg-in-up'}"
 >
-  {#if message?.timestamp && !queued && !runtime.isMobileViewport}
-    <span
-      class="cv-stamp-gutter-right text-[0.625rem] text-(--solus-text-tertiary) tabular-nums select-none transition-opacity duration-100 {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/user:opacity-100'}"
-    >
-      {formatMessageTime(message.timestamp)}
-    </span>
+  <!-- A held message has nothing worth copying yet and states its own time in
+       the caption, so it gets no rail. -->
+  {#if !runtime.isMobileViewport && !isPending}
+    <MessageHoverRail timestamp={message?.timestamp} text={text} side="right" />
   {/if}
-  <div class="user-cv-body flex flex-col items-end gap-1.5 pt-4 pb-1.5">
-    {#if message?.via === "automation"}
-      <button
-        type="button"
-        title={message.automationName
-          ? `Open automation: ${message.automationName}`
-          : "Open automation"}
-        onclick={() => session.openAutomations(message?.automationId)}
-        class="flex items-center gap-1 pr-1 text-[0.6875rem] font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:outline-none focus-visible:text-(--solus-text-secondary)"
-      >
-        <LightningIcon size={11} weight="fill" />
-        <span>Sent via automation</span>
-      </button>
-    {/if}
+  <!-- Held prompts stack as one block at 6px, not as separate messages: the
+       queue is a single object in the transcript, and its group caption has to
+       sit flush under the last bubble. -->
+  <div
+    class="user-cv-body flex flex-col items-end gap-1.5 {isPending
+      ? 'py-[0.1875rem]'
+      : 'pt-4 pb-1.5'}"
+  >
     {@render bubbleBody()}
   </div>
-  {#if !queued && text && !runtime.isMobileViewport}
-    <div
-      class="absolute top-full right-0 -mt-1 z-10 transition-opacity duration-100 {runtime.isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover/user:opacity-100'}"
-    >
-      <CopyButton text={text} />
-    </div>
-  {/if}
 </div>
 
 <style>
-  /* Heavy content keeps the off-screen render skip; the row root opts out (see
-     .cv-stamp-host opt-out in ConversationView) so the margin stamp isn't clipped. */
+  /* Typed but held — the limit is spent or the session is mid-turn. No fill at
+     all, and the only dashed edge in the transcript: the shell says the words
+     exist, the missing fill says they haven't been sent. */
+  .queued-bubble {
+    background: none;
+    border: 0.0625rem dashed
+      color-mix(in oklch, var(--foreground) 18%, transparent);
+  }
+
+  /* Reaching for a held prompt firms it up: the shell it will keep once it
+     sends, minus the fill it has not earned yet. The text comes forward with
+     it, because you are about to act on those words. */
+  .queued-bubble:hover,
+  .queued-bubble:focus-within {
+    border-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+    background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  }
+  .queued-bubble:hover :global(.prose-transcript-user),
+  .queued-bubble:focus-within :global(.prose-transcript-user) {
+    opacity: 0.75;
+  }
+
   .user-cv-body {
     content-visibility: auto;
     contain-intrinsic-size: auto 3rem;
-  }
-
-  /* Timestamp in the reading column's right margin, mirroring the assistant's
-     left-gutter stamp. left:100% anchors its left edge to the panel's right edge
-     and it extends into the gutter. bottom is tuned to the bubble's last text
-     line (line-height:1 keeps the stamp's own baseline predictable). */
-  .cv-stamp-gutter-right {
-    position: absolute;
-    left: 100%;
-    bottom: 1.15rem;
-    margin-left: 0.375rem;
-    line-height: 1;
-    white-space: nowrap;
   }
 
 </style>

@@ -150,7 +150,7 @@
   const sourceEnd = $derived(cardinality ? cardinality[0] : null)  // '1' or 'n'
   const targetEnd = $derived(cardinality ? cardinality[2] : null)  // '1' or 'n'
   const markerColor = $derived(
-    (data?.color as string | undefined) ?? (selected ? 'var(--solus-accent)' : 'var(--solus-text-tertiary)')
+    (data?.color as string | undefined) ?? (selected ? 'var(--solus-accent)' : 'var(--diagram-edge-arrow)')
   )
 
   function positionAngle(pos: Position): number {
@@ -368,9 +368,11 @@
 {/snippet}
 
 <style>
+  /* The chip's job is to knock the trunk line out behind the text — so it takes
+     the canvas background, not the card's, and carries no border or halo. */
   .edge-label-display {
-    padding: 0.0625rem 0.25rem;
-    border-radius: 0.25rem;
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.3125rem;
     font-size: 0.6875rem;
     font-weight: 500;
     color: var(--solus-text-tertiary);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SessionProgress } from "../../../shared/types";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { buildSessionProgressRing } from "./lib/session-progress-ring";
 
   interface Props {
@@ -11,12 +11,14 @@
   const ring = $derived(buildSessionProgressRing(progress));
 </script>
 
-<span
+<TooltipUI.Root>
+  <TooltipUI.Trigger>
+    {#snippet child({ props: tooltipProps })}
+      <span {...tooltipProps}
   class="session-progress-ring"
   data-mode={ring.mode}
   role="img"
   aria-label={ring.label}
-  use:tooltip={ring.label}
 >
   <svg viewBox="0 0 20 20" aria-hidden="true">
     {#each ring.segments as segment, index (`${ring.mode}-${index}`)}
@@ -32,6 +34,10 @@
     {/each}
   </svg>
 </span>
+    {/snippet}
+  </TooltipUI.Trigger>
+  <TooltipUI.Content value={ring.label} />
+</TooltipUI.Root>
 
 <style>
   .session-progress-ring {

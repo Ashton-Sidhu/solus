@@ -4,6 +4,7 @@
     CodeView,
     type CodeViewDiffItem,
     type DiffLineAnnotation,
+    type FileDiffContentsLoader,
     type FileDiffMetadata,
     type SelectedLineRange,
     type SelectionSide,
@@ -63,6 +64,7 @@
 
   interface Props {
     fileDiffs: FileDiffMetadata[];
+    loadDiffFiles?: FileDiffContentsLoader;
     isBinaryFile: (path: string) => boolean;
     isDark: boolean;
     diffStyle: "unified" | "split";
@@ -97,6 +99,7 @@
 
   let {
     fileDiffs,
+    loadDiffFiles,
     isBinaryFile,
     isDark,
     diffStyle,
@@ -409,13 +412,14 @@
     if (!canOpenInEditor) return null;
     const button = document.createElement("button");
     button.type = "button";
+    // Labelled, not icon-only: this is the header's one escape hatch out of the
+    // review pane, so it names itself rather than hiding behind a tooltip.
     button.className = "open-editor-btn header-action-btn";
-    button.setAttribute("aria-label", "Open file in editor");
-    button.setAttribute("title", "Open file in editor");
     button.innerHTML =
       `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 256 256">` +
       `<path d="M224,104a8,8,0,0,1-16,0V59.32l-82.34,82.34a8,8,0,0,1-11.32-11.32L196.68,48H152a8,8,0,0,1,0-16h64a8,8,0,0,1,8,8Zm-40,24a8,8,0,0,0-8,8v72H48V80h72a8,8,0,0,0,0-16H48A16,16,0,0,0,32,80V208a16,16,0,0,0,16,16H176a16,16,0,0,0,16-16V136A8,8,0,0,0,184,128Z"></path>` +
-      `</svg>`;
+      `</svg>` +
+      `<span>Open in editor</span>`;
     button.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -479,12 +483,15 @@
     return wrap;
   }
 
-  // Paint each file's item an opaque container background so the inter-file gap
-  // (the scroll container's --solus-edge-bg showing through) reads as a subtle
-  // separator. Items recycle on scroll, so this is reapplied from onPostRender.
+  // The project tree is transparent over the shared diff-panel surface. Keep
+  // recycled code items transparent too so both panes resolve to the exact same
+  // physical paint layer instead of merely using similarly named color tokens.
   function paintItemBackgrounds() {
+    const firstFilePath = fileDiffs[0]?.name;
     for (const item of codeView?.getRenderedItems() ?? []) {
-      item.element.style.backgroundColor = "var(--solus-container-bg)";
+      item.element.style.backgroundColor = "transparent";
+      if (item.id === firstFilePath) delete item.element.dataset.solusFileBoundary;
+      else item.element.dataset.solusFileBoundary = "";
       if (collapseState.isUnreviewed(item.id)) item.element.dataset.solusUnreviewed = "";
       else delete item.element.dataset.solusUnreviewed;
     }
@@ -494,7 +501,7 @@
     const container = rootEl?.firstElementChild;
     const stickyContainer = container?.children[1];
     if (container instanceof HTMLElement) {
-      container.style.backgroundColor = "var(--solus-edge-bg)";
+      container.style.backgroundColor = "transparent";
     }
     if (stickyContainer instanceof HTMLElement) {
       stickyContainer.style.backgroundColor = "transparent";
@@ -514,17 +521,18 @@
       lineHoverHighlight: "number" as const,
       overflow: "wrap" as const,
       // "line-info-basic" trades the @@-metadata rule for "N unchanged lines"
-      // with up/down/expand-all controls. The buttons only appear on files whose
-      // metadata carries full file contents (see diff-expandable.ts); everything
-      // else keeps a plain, inert separator.
+      // with up/down/expand-all controls. @pierre/diffs requests full contents
+      // through loadDiffFiles only when the reader expands a partial patch.
       hunkSeparators: "line-info-basic" as const,
+      loadDiffFiles,
       // Lines revealed per click (library default 100 — too big a jump to keep
       // your place) and the gap size below which we just render the lines
       // inline instead of asking for a click (default 1).
       expansionLineCount: 20,
       collapsedContextThreshold: 10,
       disableFileHeader: false,
-      disableErrorHandling: true,
+      // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
+      disableErrorHandling: !loadDiffFiles,
       enableLineSelection: true,
       enableGutterUtility: true,
       stickyHeaders: true,
@@ -572,7 +580,6 @@
           target,
           props: {
             comment: annotation.metadata.comment,
-            variant: "minimal",
             onEdit: onEditComment,
             onDelete: onDeleteComment,
           },
@@ -662,6 +669,7 @@
     void isDark;
     void diffHeaderHeight;
     void tokenHighlight;
+    void loadDiffFiles;
     if (!codeView) return;
     void setDiffWorkerPoolTheme(isDark);
     void setDiffWorkerPoolLineDiffType(tokenHighlight);
@@ -966,6 +974,20 @@
     box-shadow: inset 0.125rem 0 0 color-mix(in srgb, var(--solus-accent) 70%, transparent);
   }
 
+  /* Virtualized items cannot take a real border without changing their measured
+     height. Paint an inset hairline instead, leaving the existing 8px file gap
+     as breathing room around the boundary. */
+  :global([data-solus-file-boundary]) {
+    background-image: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--solus-container-border) 72%, transparent),
+      color-mix(in srgb, var(--solus-container-border) 72%, transparent)
+    );
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-size: calc(100% - 1.5rem) 0.0625rem;
+  }
+
   :global(.header-action-btn) {
     border: 0;
     background: transparent;
@@ -990,6 +1012,24 @@
     opacity: 1 !important;
     color: var(--solus-accent);
     background: var(--solus-surface-hover);
+  }
+
+  /* The labelled variant: a text button rather than a 20px icon target, so it
+     sizes off its content and hovers to plain foreground instead of accent —
+     accent is reserved for the pane's unsent-work signals. */
+  :global(.open-editor-btn) {
+    width: auto;
+    height: 1.625rem;
+    gap: 0.375rem;
+    padding-inline: 0.5rem;
+    border-radius: 0.5rem;
+    font-size: 0.71875rem;
+    white-space: nowrap;
+    opacity: 1;
+  }
+
+  :global(.open-editor-btn:hover) {
+    color: var(--solus-text-primary);
   }
 
   :global(.header-action-btn:focus-visible) {

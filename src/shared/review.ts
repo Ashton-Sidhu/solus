@@ -127,6 +127,18 @@ export interface ReviewProgressEvent {
   step: ReviewProgressStep
 }
 
+export type SessionGuideStatus = 'queued' | 'generating' | 'ready' | 'failed' | 'cancelled'
+
+export interface SessionGuideStatusEvent {
+  repoRoot: string
+  key: string
+  status: SessionGuideStatus
+  headSha: string
+  step?: ReviewProgressStep
+  updatedAt: number
+  error?: string
+}
+
 /** Lifecycle of an explicitly requested background PR-guide generation. */
 export type PrGuideStatus = 'queued' | 'generating' | 'ready' | 'failed'
 

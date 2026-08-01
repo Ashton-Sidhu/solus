@@ -49,7 +49,7 @@
               class="text-[0.8125rem] leading-4 transition-colors {state === 'active'
                 ? 'font-medium text-(--solus-text-primary)'
                 : state === 'done'
-                  ? 'text-(--solus-text-secondary)'
+                  ? 'font-secondary text-(--solus-text-secondary)'
                   : 'text-(--solus-text-tertiary)'}"
             >
               {s.label}

@@ -11,6 +11,88 @@ afterEach(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
+describe('SessionConfigController provider switching', () => {
+  test('adds a divider after handing the session to another agent', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const messages = [{ id: 'answer-1', role: 'assistant', content: 'Done', timestamp: 1 }]
+    const session = {
+      provider: 'codex',
+      status: 'idle',
+      agentSessionId: 'codex-session',
+      modelConfig: {},
+      messages,
+      workingDirectory: '/repo',
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const settings = {
+      activeAgent: 'codex',
+      tabGroupMode: 'flat',
+      update(patch: { activeAgent?: string }) {
+        if (patch.activeAgent) this.activeAgent = patch.activeAgent
+      },
+    }
+
+    let switchCount = 0
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const controller = new SessionConfigController({
+      settings: settings as any,
+      registry: {
+        activeTabId: 'tab-1',
+        activeSession: session,
+        sessionFor: () => session,
+      } as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      createTab: async () => 'tab-1',
+      ctx: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: 'tab-1' } }) as IpcContext,
+      apiFor: () => ({
+        switchSessionAgent: async () => {
+          switchCount++
+          return switchCount === 1
+            ? { fromProvider: 'codex', fromSessionId: 'codex-session' }
+            : {
+                fromProvider: 'claude-code',
+                fromSessionId: 'codex-session',
+                restoredSessionId: 'codex-session',
+              }
+        },
+      }) as any,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    await controller.switchActiveAgent('claude-code')
+
+    // WHY: the agent handoff changes who answers from this point onward, so the
+    // transcript must mark the boundary before the next prompt is sent.
+    expect(session.messages).toBe(messages)
+    expect(session.messages.at(-1)).toMatchObject({
+      role: 'system',
+      content: 'Switched to Claude Code',
+      agentChangedTo: 'Claude Code',
+    })
+    expect(session.handoffFrom).toEqual({ provider: 'codex', sessionId: 'codex-session' })
+
+    await controller.switchActiveAgent('codex')
+
+    expect(switchCount).toBe(2)
+    expect(session.provider).toBe('codex')
+    expect(session.agentSessionId).toBe('codex-session')
+    expect(session.handoffFrom).toBeUndefined()
+    expect(session.messages).toBe(messages)
+    expect(session.messages.at(-1)).toMatchObject({
+      role: 'system',
+      content: 'Switched to Codex',
+      agentChangedTo: 'Codex',
+    })
+  })
+})
+
 describe('SessionConfigController branch switching', () => {
   test('preserves a started session and switches the new active tab to the selected worktree', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -152,6 +234,76 @@ describe('SessionConfigController branch switching', () => {
 })
 
 describe('SessionConfigController session start target', () => {
+  test('materializes a tab with the selected worktree context from the tab-less home', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const restored = {
+      repoRoot: '/repo',
+      branch: 'feature',
+      targetBranch: 'main',
+      worktreePath: '/repo/.solus-worktrees/feature',
+    }
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        dispatchEvent: () => true,
+        solus: {
+          resetTabSession: async () => {},
+          worktreeRestore: async () => restored,
+        },
+      },
+    })
+
+    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const session = {
+      workingDirectory: '/repo',
+      gitContext: null,
+      worktreeBaseBranch: null,
+      agentSessionId: null,
+      pluginCommands: { global: [], project: [] },
+    } as unknown as Session
+    const registry = {
+      activeSession: undefined as Session | undefined,
+      activeTabId: '',
+      tabOrder: [] as string[],
+      sessionFor: () => registry.activeSession,
+    }
+    let createdCwd: string | undefined
+    const controller = new SessionConfigController({
+      settings: { activeAgent: 'codex', tabGroupMode: 'flat', worktreeEnabled: false } as any,
+      registry: registry as any,
+      statusBar: { ctx: { workingDirectory: '/repo' } } as any,
+      setPluginCommands: () => {},
+      createTab: async (cwd) => {
+        createdCwd = cwd
+        registry.activeSession = session
+        registry.activeTabId = 'new-tab'
+        registry.tabOrder.push('new-tab')
+        return 'new-tab'
+      },
+      ctx: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
+      ctxForDirectory: () => ({ session: { tabId: registry.activeTabId } }) as IpcContext,
+      refreshPluginCommands: () => {},
+      refreshGitRefs: () => {},
+      refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    })
+
+    await controller.switchToWorktree(restored.worktreePath)
+
+    // WHY: Pill mode can show the home without any tabs. Choosing an existing
+    // worktree must establish a real composer context rather than leaving the
+    // user on the generic "new session" home with only global defaults changed.
+    expect(createdCwd).toBe('/repo')
+    expect(registry.activeTabId).toBe('new-tab')
+    expect(session.workingDirectory).toBe('/repo')
+    expect(session.gitContext).toEqual(restored)
+    expect(session.worktreeBaseBranch).toBeNull()
+  })
+
   test('materializes a tab when a project is selected from the tab-less home', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

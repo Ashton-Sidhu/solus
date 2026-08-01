@@ -24,7 +24,7 @@
   }: Props = $props()
 
   const layer = getPopoverLayer()
-  const scrollThumb = `color-mix(in srgb, var(--solus-text-tertiary) 40%, transparent)`
+  const scrollThumb = `color-mix(in srgb, var(--muted-foreground) 40%, transparent)`
   let listEl: HTMLDivElement | null = $state(null)
 
   $effect(() => {
@@ -48,9 +48,9 @@
       style="max-height:12.25rem;backdrop-filter:blur(1.25rem);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
     >
       {#if isLoading && pullRequests.length === 0}
-        <div class="flex items-center gap-2 px-3 py-[0.4375rem] text-(--solus-text-tertiary)">
+        <div class="flex items-center gap-2 px-3 py-[0.4375rem] text-muted-foreground">
           <SpinnerGapIcon size={13} class="animate-spin flex-shrink-0" />
-          <span class="text-[0.75rem]">Loading pull requests...</span>
+          <span class="text-[11.5px]">Loading pull requests...</span>
         </div>
       {:else}
         {#each pullRequests as pullRequest, index (pullRequest.number)}
@@ -60,22 +60,22 @@
             role="option"
             onclick={() => onSelect(pullRequest)}
             aria-selected={isSelected}
-            class="pr-menu-row flex w-full items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-(--solus-surface-hover)"
-            style="background:{isSelected ? 'var(--solus-accent-light)' : 'transparent'};box-shadow:{isSelected ? 'inset 0.125rem 0 0 var(--solus-accent)' : 'none'}"
+            class="pr-menu-row flex w-full items-center gap-2 px-3 py-[0.3125rem] text-left hover:bg-muted"
+            style="background:{isSelected ? 'var(--secondary)' : 'transparent'};box-shadow:{isSelected ? 'inset 0.125rem 0 0 var(--primary)' : 'none'}"
           >
             <GitPullRequestIcon
               size={13}
               weight="bold"
-              class="shrink-0 text-(--solus-accent)"
+              class="shrink-0 text-primary"
             />
             <div class="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
-              <span class="shrink-0 font-mono text-[0.625rem] text-(--solus-text-tertiary)">
+              <span class="shrink-0 font-mono text-[10.5px] text-muted-foreground">
                 #{pullRequest.number}
               </span>
-              <span class="truncate text-[0.75rem] font-medium {isSelected ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">
+              <span class="truncate text-[11.5px] font-medium {isSelected ? 'text-primary' : 'text-foreground'}">
                 {pullRequest.title}
               </span>
-              <span class="ml-auto shrink-0 truncate text-[0.625rem] text-(--solus-text-tertiary)">
+              <span class="ml-auto shrink-0 truncate text-[10.5px] text-muted-foreground">
                 {pullRequest.author}
               </span>
             </div>

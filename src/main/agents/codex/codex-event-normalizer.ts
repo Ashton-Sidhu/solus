@@ -1,7 +1,9 @@
-import type { NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/types'
+import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/types'
 import { findResetTimestamp } from '../../rate-limits'
 import {
   codexImageArtifactPath,
+  codexSpawnedThreadLinks,
+  codexSubagentActivityInput,
   codexToolNameForItem,
   isInterruptedTurnStatus,
   planFromCompletedItem,
@@ -69,12 +71,15 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
       return threadId ? [{ type: 'goal_cleared', threadId }] : []
     }
 
-    case 'item/agentMessage/delta':
-      if (opts?.assembledAgentMessages) return []
-      // Sub-agent text no longer streams — it arrives whole on item/completed.
-      return typeof params?.delta === 'string' && params.delta && !codexParentToolUseId(params)
-        ? [{ type: 'text_chunk', text: params.delta }]
-        : []
+    case 'item/agentMessage/delta': {
+      if (typeof params?.delta !== 'string' || !params.delta) return []
+      const parentToolUseId = codexParentToolUseId(params)
+      return [{
+        type: 'text_chunk',
+        text: params.delta,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
+      }]
+    }
 
     case 'item/started':
       return normalizeItemStarted(params)
@@ -96,7 +101,11 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
           status: normalizePlanItemStatus(p.status),
         }))
         .filter((p: { content: string }) => p.content)
-      return todos.length > 0 ? [{ type: 'progress', todos }] : []
+      // A sub-agent's plan belongs to its own card. Untagged it would overwrite
+      // the main agent's tracker, since the reducer routes on this id alone.
+      return todos.length > 0
+        ? [{ type: 'progress', todos, parentToolUseId: codexParentToolUseId(params) }]
+        : []
     }
 
     case 'turn/completed':
@@ -114,6 +123,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   private streamedPlanId: string | null = null
   private turnId: string | null = null
   private readonly subagentParentByThreadId = new Map<string, string>()
+  private readonly seenSubagentActivity = new Set<string>()
   private readonly planMode: boolean
   private readonly assembledAgentMessages: boolean
   private readonly turnSummary: TurnSummary = {
@@ -136,8 +146,11 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
     const { method } = raw
     const params = this.withSubagentParent(raw.params)
     this.captureTurnId(params)
-    if (isInterruptedTurnStatus(params?.turn?.status)) this.interrupted = true
+    if (isInterruptedTurnStatus(params?.turn?.status) && !codexParentToolUseId(params)) {
+      this.interrupted = true
+    }
     if (this.interrupted) return []
+    if (this.isDuplicateSubagentActivity(method, params)) return []
 
     const events: NormalizedEvent[] = []
     if (this.planMode) {
@@ -194,18 +207,28 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   }
 
   private withSubagentParent(params: any): any {
-    const item = params?.item
-    if (item?.type === 'collabAgentToolCall' && typeof item.id === 'string') {
-      for (const threadId of item.receiverThreadIds ?? []) {
-        if (typeof threadId === 'string' && threadId) {
-          this.subagentParentByThreadId.set(threadId, item.id)
-        }
-      }
+    for (const link of codexSpawnedThreadLinks(params?.item)) {
+      this.subagentParentByThreadId.set(link.threadId, link.toolId)
     }
 
     if (codexParentToolUseId(params)) return params
     const parentToolUseId = this.subagentParentByThreadId.get(params?.threadId)
     return parentToolUseId ? { ...params, parentToolUseId } : params
+  }
+
+  private isDuplicateSubagentActivity(method: string, params: any): boolean {
+    const item = params?.item
+    if (
+      (method !== 'item/started' && method !== 'item/completed') ||
+      item?.type !== 'subAgentActivity' ||
+      typeof item.id !== 'string'
+    ) {
+      return false
+    }
+    const key = `${item.id}:${String(item.kind ?? '')}`
+    if (this.seenSubagentActivity.has(key)) return true
+    this.seenSubagentActivity.add(key)
+    return false
   }
 
   interrupt(): void {
@@ -257,6 +280,7 @@ export function normalizeThreadGoal(value: unknown): ThreadGoal | null {
 
 function isThreadGoalStatus(value: string): value is ThreadGoal['status'] {
   return value === 'active' ||
+    value === 'paused' ||
     value === 'complete' ||
     value === 'blocked' ||
     value === 'budgetLimited' ||
@@ -270,29 +294,13 @@ function finiteOptionalNumber(value: unknown): number | undefined {
 function normalizeCodexTokenCount(method: string, params: any): UsageEvent | null {
   if (method === 'thread/tokenUsage/updated') {
     const tokenUsage = params?.tokenUsage
-    const rawUsage = tokenUsage?.last
-    if (!rawUsage || typeof rawUsage !== 'object') return null
-
-    const usage = normalizedCodexUsage(
-      rawUsage.inputTokens,
-      rawUsage.cachedInputTokens,
-      rawUsage.outputTokens,
-      tokenUsage.modelContextWindow,
-      rawUsage.reasoningOutputTokens,
-    )
-    if (!usage) return null
-
-    const rawTotalUsage = tokenUsage?.total
-    if (!rawTotalUsage || typeof rawTotalUsage !== 'object') return usage
-
-    const totalUsage = normalizedCodexUsage(
-      rawTotalUsage.inputTokens,
-      rawTotalUsage.cachedInputTokens,
-      rawTotalUsage.outputTokens,
-      tokenUsage.modelContextWindow,
-      rawTotalUsage.reasoningOutputTokens,
-    )
-    return totalUsage ? { ...usage, sessionUsage: totalUsage.usage } : usage
+    // `last` is the prompt of the turn that just ran — the window as it stands.
+    // `total` sums every turn in the thread, so it passes the window many times
+    // over and only means anything as cumulative spend.
+    const context = codexContextUsage(tokenUsage?.last, finiteTokenCount(tokenUsage?.modelContextWindow) || undefined)
+    const run = codexRunUsage(tokenUsage?.total)
+    if (!context && !run) return null
+    return { type: 'usage', ...(context ? { context } : {}), ...(run ? { run } : {}) }
   }
 
   const payload = [
@@ -305,42 +313,66 @@ function normalizeCodexTokenCount(method: string, params: any): UsageEvent | nul
   const info = payload?.info
   if (!info || typeof info !== 'object') return null
 
-  const rawUsage = info.last_token_usage || info.total_token_usage || info.usage
-  if (!rawUsage || typeof rawUsage !== 'object') return null
-
-  return normalizedCodexUsage(
-    rawUsage.input_tokens,
-    rawUsage.cached_input_tokens,
-    rawUsage.output_tokens,
-  )
+  const context = codexContextUsage(info.last_token_usage || info.usage)
+  const run = codexRunUsage(info.total_token_usage || info.usage)
+  if (!context && !run) return null
+  return { type: 'usage', ...(context ? { context } : {}), ...(run ? { run } : {}) }
 }
 
 type UsageEvent = Extract<NormalizedEvent, { type: 'usage' }>
 
-function normalizedCodexUsage(
-  rawInputTokens: unknown,
-  rawCachedInputTokens: unknown,
-  rawOutputTokens: unknown,
-  rawContextWindowTokens?: unknown,
-  rawReasoningOutputTokens?: unknown,
-): UsageEvent | null {
-  const inputTokens = finiteTokenCount(rawInputTokens)
-  const cachedInputTokens = finiteTokenCount(rawCachedInputTokens)
-  const outputTokens = finiteTokenCount(rawOutputTokens)
+interface CodexTokenBreakdown {
+  totalTokens: number
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+}
+
+/** Reads a Codex token breakdown in either the v2 camelCase or the older
+ *  snake_case spelling — the two protocol versions report the same numbers. */
+function codexTokenBreakdown(raw: any): CodexTokenBreakdown | null {
+  if (!raw || typeof raw !== 'object') return null
+  const inputTokens = finiteTokenCount(raw.inputTokens ?? raw.input_tokens)
+  const cachedInputTokens = finiteTokenCount(raw.cachedInputTokens ?? raw.cached_input_tokens)
+  const outputTokens = finiteTokenCount(raw.outputTokens ?? raw.output_tokens)
   if (!inputTokens && !cachedInputTokens && !outputTokens) return null
-
-  // Codex/OpenAI reports cached input as part of input_tokens. Solus UsageData
-  // keeps cache tokens separate so the shared context meter can add them once.
-  const freshInputTokens = Math.max(0, inputTokens - cachedInputTokens)
-  const usage: UsageData = {
-    inputTokens: freshInputTokens,
-    outputTokens: outputTokens,
-    cacheReadTokens: cachedInputTokens,
-    reasoningTokens: finiteTokenCount(rawReasoningOutputTokens) || undefined,
-    contextWindowTokens: finiteTokenCount(rawContextWindowTokens) || undefined,
+  return {
+    totalTokens: finiteTokenCount(raw.totalTokens ?? raw.total_tokens) || inputTokens + outputTokens,
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    reasoningTokens: finiteTokenCount(raw.reasoningOutputTokens ?? raw.reasoning_output_tokens),
   }
+}
 
-  return { type: 'usage', usage }
+function codexContextUsage(raw: any, windowTokens?: number): ContextUsage | null {
+  const breakdown = codexTokenBreakdown(raw)
+  if (!breakdown) return null
+  // Codex/OpenAI counts cached input inside inputTokens. Split it out so the
+  // meter's composition rows sum to the total instead of counting cache twice.
+  const inputTokens = Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens)
+  return {
+    // Codex's own context indicator uses `last.totalTokens`: after a response,
+    // the assistant output is retained in history too. Counting input alone
+    // makes the meter lag increasingly far behind on output-heavy turns.
+    usedTokens: breakdown.totalTokens,
+    windowTokens,
+    inputTokens,
+    cacheReadTokens: breakdown.cachedInputTokens,
+    outputTokens: breakdown.outputTokens,
+  }
+}
+
+function codexRunUsage(raw: any): UsageData | null {
+  const breakdown = codexTokenBreakdown(raw)
+  if (!breakdown) return null
+  return {
+    inputTokens: Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens),
+    outputTokens: breakdown.outputTokens,
+    cacheReadTokens: breakdown.cachedInputTokens,
+    reasoningTokens: breakdown.reasoningTokens || undefined,
+  }
 }
 
 function finiteTokenCount(value: unknown): number {
@@ -434,11 +466,42 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id || !item?.type) return []
 
+  // The transcript prints how long the agent thought, never the thought itself.
+  if (item.type === 'reasoning') {
+    return [{ type: 'thinking', state: 'start', parentToolUseId: codexParentToolUseId(params) }]
+  }
+
+  if (item.type === 'subAgentActivity') {
+    if (item.kind === 'started') {
+      return [{
+        type: 'tool_call',
+        toolName: 'spawnAgent',
+        toolId: item.id,
+        index: 0,
+        toolInput: codexSubagentActivityInput(item),
+        parentToolUseId: codexParentToolUseId(params),
+        isSubagent: true,
+        subagentType: 'codex',
+      }]
+    }
+    if (item.kind === 'interrupted') {
+      return [{
+        type: 'tool_result',
+        toolUseId: item.id,
+        content: 'Interrupted',
+        isError: true,
+        parentToolUseId: codexParentToolUseId(params),
+      }]
+    }
+    return []
+  }
+
   const toolName = codexToolNameForItem(item)
   if (!toolName) return []
   const isClaudeSubagent = item.type === 'dynamicToolCall' &&
     toolName.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
-  const isSubagent = item.type === 'collabAgentToolCall' || isClaudeSubagent
+  const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+  const isSubagent = isCodexSubagent || isClaudeSubagent
 
   return [{
     type: 'tool_call',
@@ -448,7 +511,7 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
     toolInput: codexStartedToolInput(item),
     parentToolUseId: codexParentToolUseId(params),
     isSubagent,
-    subagentType: isClaudeSubagent ? 'claude' : isSubagent ? toolName : undefined,
+    subagentType: isClaudeSubagent ? 'claude' : isCodexSubagent ? 'codex' : undefined,
   }]
 }
 
@@ -469,25 +532,45 @@ function normalizeToolUpdate(params: any): NormalizedEvent[] {
 function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: boolean }): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id) return []
+  // Codex emits sub-agent lifecycle records as completed items without a
+  // preceding item/started notification. Treat the record itself as the
+  // lifecycle event: "started" opens the still-running card, while
+  // "interrupted" settles it through the same normalization used above.
+  if (item.type === 'subAgentActivity') return normalizeItemStarted(params)
+  if (item.type === 'reasoning') {
+    return [{ type: 'thinking', state: 'stop', parentToolUseId: codexParentToolUseId(params) }]
+  }
   const parentToolUseId = codexParentToolUseId(params)
   const toolName = codexToolNameForItem(item)
   const isClaudeSubagent = item.type === 'dynamicToolCall' &&
     toolName?.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent'
+  const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+  const isSubagent = isCodexSubagent || isClaudeSubagent
 
   if (item.type === 'agentMessage') {
-    // Not parented: main-thread paragraph separator between streamed messages.
-    // Parented: sub-agent prose no longer streams, so deliver the full text here
-    // as the assembled assistant message the reducer lands in the sub-agent card.
+    // Not parented: headless transcript mode emits the assembled message so the
+    // renderer can reconcile it with streamed chunks; regular mode adds a
+    // paragraph separator. Parented Codex collaboration messages still arrive
+    // assembled here because their deltas are filtered above.
     if (!parentToolUseId) {
       if (opts?.assembledAgentMessages) {
         return typeof item.text === 'string' && item.text
-          ? [{ type: 'assistant_message', text: item.text }]
+          ? [{
+              type: 'assistant_message',
+              text: item.text,
+              ...(item.phase === 'final_answer' ? { isFinal: true } : {}),
+            }]
           : []
       }
       return [{ type: 'text_chunk', text: '\n\n' }]
     }
     return typeof item.text === 'string' && item.text
-      ? [{ type: 'assistant_message', text: item.text, parentToolUseId }]
+      ? [{
+          type: 'assistant_message',
+          text: item.text,
+          parentToolUseId,
+          ...(item.phase === 'final_answer' ? { isFinal: true } : {}),
+        }]
       : []
   }
 
@@ -522,13 +605,13 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       toolId: item.id,
       toolInput: JSON.stringify({ changes: item.changes }),
     })
-  } else if (!isClaudeSubagent) {
-    const payload = item.aggregatedOutput || item.result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null) || item.status
+  } else if (!isSubagent) {
+    const payload = item.aggregatedOutput || item.result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null)
     if (payload) {
       updates.push({
         type: 'tool_call_update',
         toolId: item.id,
-        toolInput: typeof payload === 'string' ? payload : JSON.stringify(payload),
+        content: typeof payload === 'string' ? payload : JSON.stringify(payload),
       })
     }
   }
@@ -637,6 +720,34 @@ function codexParentToolUseId(params: any): string | undefined {
 
 function normalizeTurnCompleted(params: any): NormalizedEvent[] {
   const turn = params?.turn || {}
+  const parentToolUseId = codexParentToolUseId(params)
+  if (parentToolUseId) {
+    if (turn.status === 'failed') {
+      const message = typeof turn.error === 'string' ? turn.error : turn.error?.message
+      return [{
+        type: 'tool_result',
+        toolUseId: parentToolUseId,
+        content: message || 'Codex subagent failed',
+        isError: true,
+        parentToolUseId,
+      }]
+    }
+    if (
+      turn.status === 'interrupted' ||
+      turn.status === 'cancelled' ||
+      turn.status === 'canceled' ||
+      turn.status === 'aborted'
+    ) {
+      return [{
+        type: 'tool_result',
+        toolUseId: parentToolUseId,
+        content: 'Interrupted',
+        isError: true,
+        parentToolUseId,
+      }]
+    }
+    return []
+  }
   if (turn.status === 'interrupted' || turn.status === 'cancelled' || turn.status === 'canceled' || turn.status === 'aborted') return []
   if (turn.status === 'failed') {
     const events: NormalizedEvent[] = []

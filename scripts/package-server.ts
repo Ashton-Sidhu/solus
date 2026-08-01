@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
     const out = join(releaseDir, `solus-server-${targetName}.tar.gz`)
     rmSync(out, { force: true })
-    await run('tar', ['-czf', out, '-C', staging, '.'])
+    await run('tar', ['--no-xattrs', '-czf', out, '-C', staging, '.'])
     writeSha256Sums(releaseDir)
     console.log(`Wrote ${out}`)
   } finally {
@@ -124,6 +124,7 @@ async function buildServerBundle(staging: string): Promise<void> {
     '--format=cjs',
     '--log-level=warning',
     '--define:import.meta.url=__filename',
+    `--define:process.env.SOLUS_GITHUB_CLIENT_ID=${JSON.stringify(process.env.SOLUS_GITHUB_CLIENT_ID ?? '')}`,
     `--outfile=${join(outdir, 'standalone.js')}`,
     '--external:electron',
     '--external:electron-updater',
@@ -156,14 +157,30 @@ function writeLaunchers(staging: string): void {
   mkdirSync(binDir, { recursive: true })
   writeExecutable(join(binDir, 'solus'), `#!/usr/bin/env sh
 set -eu
-SELF_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK=$(readlink "$SELF")
+  case "$LINK" in
+    /*) SELF="$LINK" ;;
+    *) SELF="$(dirname "$SELF")/$LINK" ;;
+  esac
+done
+SELF_DIR=$(CDPATH= cd "$(dirname "$SELF")" && pwd)
 ROOT=$(CDPATH= cd "$SELF_DIR/.." && pwd)
 export SOLUS_INSTALL_DIR="$ROOT"
 exec "$ROOT/bin/node" "$ROOT/libexec/cli/solus.js" "$@"
 `)
   writeExecutable(join(binDir, 'solus-server'), `#!/usr/bin/env sh
 set -eu
-SELF_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK=$(readlink "$SELF")
+  case "$LINK" in
+    /*) SELF="$LINK" ;;
+    *) SELF="$(dirname "$SELF")/$LINK" ;;
+  esac
+done
+SELF_DIR=$(CDPATH= cd "$(dirname "$SELF")" && pwd)
 ROOT=$(CDPATH= cd "$SELF_DIR/.." && pwd)
 export SOLUS_INSTALL_DIR="$ROOT"
 exec "$ROOT/bin/node" "$ROOT/libexec/server/standalone.js" "$@"

@@ -3,7 +3,7 @@ import { AppPage } from '../helpers/app.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
-const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .solus-md-editor`
+const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-content`
 const USER_MESSAGE = `${ACTIVE_TAB} [data-testid="user-message"]`
 
 async function typeAndSend(page: import('@playwright/test').Page, text: string) {
@@ -14,9 +14,9 @@ async function typeAndSend(page: import('@playwright/test').Page, text: string) 
 }
 
 test.describe('Input markdown entity serialization', () => {
-  test('does not carry inline code styling past the closing backtick', async ({ page }) => {
-    // WHY: closing a typed inline-code span used to leave Tiptap's stored code
-    // mark active, so following prose rendered with the code colour.
+  test('keeps inline-code markdown and following prose as literal text', async ({ page }) => {
+    // WHY: the prompt editor is source-first; typing after a closing backtick
+    // must append plain text without any hidden rich-text mark state.
     const app = new AppPage(page)
     await app.waitForAppReady()
 
@@ -24,14 +24,13 @@ test.describe('Input markdown entity serialization', () => {
     await input.click()
     await page.keyboard.type('`code` rest')
 
-    await expect(input.locator('code')).toHaveCount(1)
-    await expect(input.locator('code')).toHaveText('code')
-    await expect(input).toHaveText('code rest')
+    await expect(input.locator('code')).toHaveCount(0)
+    await expect(input).toHaveText('`code` rest')
   })
 
-  test('keeps the space before typed inline code', async ({ page }) => {
-    // WHY: the inline-code conversion must not consume prose immediately
-    // before the opening backtick, especially the word-separating space.
+  test('keeps the space before typed inline-code markdown', async ({ page }) => {
+    // WHY: source editing must preserve every typed character exactly,
+    // especially the word-separating space before an opening backtick.
     const app = new AppPage(page)
     await app.waitForAppReady()
 
@@ -39,8 +38,7 @@ test.describe('Input markdown entity serialization', () => {
     await input.click()
     await page.keyboard.type('before `code`')
 
-    await expect(input.locator('code')).toHaveText('code')
-    await expect(input).toHaveText('before code')
+    await expect(input).toHaveText('before `code`')
   })
 
   test('keeps literal entities inside inline code when sending', async ({ page }) => {
@@ -55,9 +53,9 @@ test.describe('Input markdown entity serialization', () => {
     await expect(message.locator('code')).toHaveText('a &lt; b')
   })
 
-  test('still unescapes prose entities created by the markdown serializer', async ({ page }) => {
-    // WHY: the prose unescape preserves the existing visible-text behavior for
-    // normal messages containing angle brackets.
+  test('preserves literal angle brackets in prose', async ({ page }) => {
+    // WHY: CodeMirror emits source text directly, without a rich-text
+    // serializer that can entity-encode ordinary prose.
     const app = new AppPage(page)
     await app.waitForAppReady()
 

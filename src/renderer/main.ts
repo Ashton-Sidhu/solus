@@ -1,7 +1,9 @@
 import './index.css'
 import { TransportDisconnectedError, type ConnectionStatus } from '@client-core/ws-transport'
 import { setConnectionState } from '@client-core/connection-state'
-import { installWsBackedSolusApi, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
+import { installWsBackedSolusApi, localServerTarget, resolveActiveServerTarget, type SolusServerTarget } from '@client-core/server-connection'
+import { serverConnections } from '@client-core/server-connections'
+import { renderConnecting, renderFatal } from './boot-scene'
 import { setTabPersistenceServerInstallationId } from './contexts/workspace/tab-persistence'
 import type { LocalConnectionInfo, NativeSolusAPI } from '../preload'
 
@@ -11,121 +13,12 @@ window.addEventListener('unhandledrejection', (event) => {
 
 const root = document.getElementById('root')!
 
-function ensureBootStyles(): void {
-  if (document.getElementById('solus-boot-styles')) return
-  const style = document.createElement('style')
-  style.id = 'solus-boot-styles'
-  style.textContent = `
-    .solus-boot {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      background: #18181b;
-      color: rgba(250, 250, 250, 0.92);
-      font-family: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-    .solus-boot-card {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem 0.875rem;
-      border-radius: 0.875rem;
-      background: rgba(39, 39, 42, 0.82);
-      box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.08),
-        0 12px 30px rgba(0, 0, 0, 0.24);
-    }
-    .solus-boot-spinner {
-      width: 1rem;
-      height: 1rem;
-      border-radius: 9999px;
-      border: 0.125rem solid rgba(250, 250, 250, 0.22);
-      border-top-color: rgba(250, 250, 250, 0.9);
-      animation: solus-boot-spin 900ms linear infinite;
-      flex: none;
-    }
-    .solus-boot-copy {
-      display: flex;
-      flex-direction: column;
-      gap: 0.125rem;
-      min-width: 0;
-    }
-    .solus-boot-title {
-      font-size: 0.8125rem;
-      line-height: 1.1;
-      font-weight: 600;
-      letter-spacing: 0;
-      white-space: nowrap;
-    }
-    .solus-boot-detail {
-      font-size: 0.6875rem;
-      line-height: 1.2;
-      color: rgba(250, 250, 250, 0.55);
-      letter-spacing: 0;
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
-    }
-    @keyframes solus-boot-spin {
-      to { transform: rotate(360deg); }
-    }
-    @media (prefers-color-scheme: light) {
-      .solus-boot {
-        background: #fafafa;
-        color: rgba(24, 24, 27, 0.92);
-      }
-      .solus-boot-card {
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow:
-          0 0 0 1px rgba(0, 0, 0, 0.06),
-          0 1px 2px -1px rgba(0, 0, 0, 0.06),
-          0 14px 32px rgba(0, 0, 0, 0.08);
-      }
-      .solus-boot-spinner {
-        border-color: rgba(24, 24, 27, 0.16);
-        border-top-color: rgba(24, 24, 27, 0.78);
-      }
-      .solus-boot-detail {
-        color: rgba(24, 24, 27, 0.55);
-      }
-    }
-  `
-  document.head.appendChild(style)
-}
-
-function renderBootState(title: string, detail: string): void {
-  ensureBootStyles()
-  const safeTitle = escapeHtml(title)
-  const safeDetail = escapeHtml(detail)
-  root.innerHTML = `
-    <div class="solus-boot">
-      <div class="solus-boot-card">
-        <div class="solus-boot-spinner" aria-hidden="true"></div>
-        <div class="solus-boot-copy">
-          <div class="solus-boot-title">${safeTitle}</div>
-          <div class="solus-boot-detail">${safeDetail}</div>
-        </div>
-      </div>
-    </div>
-  `
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
-}
-
-function renderBootError(err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err)
-  renderBootState('Unable to connect', message)
-  requestAnimationFrame(() => {
-    window.solusNative?.rendererReady(currentRendererMode())
-  })
-}
+/**
+ * Boot can fail before a target resolves, so the error scene needs a host name
+ * that is correct at every point in the sequence — not just after the target
+ * has been read.
+ */
+let bootTarget: SolusServerTarget | null = null
 
 function currentRendererMode(): 'editor' | 'pill' {
   return new URLSearchParams(window.location.search).get('mode') === 'editor'
@@ -133,11 +26,15 @@ function currentRendererMode(): 'editor' | 'pill' {
     : 'pill'
 }
 
-function connectionDetail(status: ConnectionStatus, attempt: number, target: SolusServerTarget): string {
-  if (status === 'connected') return 'Connected'
-  if (status === 'reconnecting') return attempt > 0 ? `Retrying (${attempt})` : 'Retrying'
-  if (status === 'connecting') return `Opening ${target.local ? 'local' : target.label} WebSocket`
-  return `Waiting for ${target.label}`
+function renderBootError(err: unknown): void {
+  renderFatal(root, {
+    hostLabel: bootTarget?.label ?? 'Solus',
+    isLocalHost: bootTarget?.local ?? true,
+    error: err,
+  })
+  requestAnimationFrame(() => {
+    window.solusNative?.rendererReady(currentRendererMode())
+  })
 }
 
 async function getLocalConnection(nativeApi: NativeSolusAPI): Promise<LocalConnectionInfo> {
@@ -154,29 +51,36 @@ async function boot(): Promise<void> {
   const rendererMode = currentRendererMode()
   const local = await getLocalConnection(nativeApi)
   const target = resolveActiveServerTarget(local)
+  bootTarget = target
+  serverConnections.registerTarget(localServerTarget(local), () => nativeApi.refreshLocalSessionToken())
 
   // The local server accepts the socket instantly, and RPC calls made before it
   // opens queue and flush automatically (see WsTransport.invoke/send) — so there
   // is nothing to wait for locally. Leave the boot shell up and mount straight
   // into the app, letting its own per-surface skeletons cover in-flight data
   // instead of gating first paint on a "Connecting" splash. Only a remote target,
-  // where the WebSocket handshake is a genuine network round trip, replaces the
-  // shell with the connecting splash.
-  if (!target.local) renderBootState('Connecting to Solus', connectionDetail('connecting', 0, target))
+  // where the WebSocket handshake is a genuine network round trip, grows the
+  // shell into the staged connecting scene.
+  const showConnecting = (status: ConnectionStatus, attempt: number) => {
+    renderConnecting(root, { hostLabel: target.label, hostUrl: target.url, status, attempt })
+  }
+  if (!target.local) showConnecting('connecting', 0)
 
   setConnectionState({ status: 'connecting', attempt: 0, target })
   setTabPersistenceServerInstallationId(target.installationId ?? target.id, { migrateLegacy: target.local })
 
   let appMounted = false
-  const { transport } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
+  const { transport, api } = installWsBackedSolusApi(target, nativeApi as unknown as Record<string, unknown>, {
     onStatusChange: (status, attempt) => {
+      serverConnections.updateStatus(target.id, status, attempt)
       setConnectionState({ status, attempt, target })
-      if (!appMounted && !target.local) renderBootState('Connecting to Solus', connectionDetail(status, attempt, target))
+      if (!appMounted && !target.local) showConnecting(status, attempt)
     },
     onAuthFailed: () => {
       if (!appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
     },
   })
+  serverConnections.registerPrimary(target.id, api, transport, target)
 
   transport.start()
 

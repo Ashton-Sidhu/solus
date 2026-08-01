@@ -6,22 +6,22 @@ const log = createLogger('main', 'updater.ts')
 
 export function initAutoUpdater(onBeforeQuitAndInstall?: () => void): void {
   if (!app.isPackaged) {
-    log.info('Skipping auto-updater in development mode')
+    log.info('auto_updater_skipped_dev')
     return
   }
 
   autoUpdater.logger = {
-    info: (msg: string) => log.info(msg),
-    warn: (msg: string) => log.warn(msg),
-    error: (msg: string) => log.error(msg),
-    debug: (msg: string) => log.debug(msg),
+    info: (msg: string) => log.info('electron_updater_log', { message: msg }),
+    warn: (msg: string) => log.warn('electron_updater_log', { message: msg }),
+    error: (msg: string) => log.error('electron_updater_log', { message: msg }),
+    debug: (msg: string) => log.debug('electron_updater_log', { message: msg }),
   }
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('update-available', async (info) => {
-    log.info(`Update available: ${info.version}`)
+    log.info('update_available', { version: info.version })
     const { response } = await dialog.showMessageBox({
       type: 'info',
       title: 'Update Available',
@@ -37,7 +37,7 @@ export function initAutoUpdater(onBeforeQuitAndInstall?: () => void): void {
   })
 
   autoUpdater.on('update-downloaded', async (info) => {
-    log.info(`Update downloaded: ${info.version}`)
+    log.info('update_downloaded', { version: info.version })
     const { response } = await dialog.showMessageBox({
       type: 'info',
       title: 'Update Ready',
@@ -58,18 +58,18 @@ export function initAutoUpdater(onBeforeQuitAndInstall?: () => void): void {
   })
 
   autoUpdater.on('error', (err) => {
-    log.error(`Auto-updater error: ${err.message}`)
+    log.error('auto_updater_error', { error: err.message })
   })
 
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      log.warn(`Update check failed: ${err.message}`)
+      log.warn('update_check_failed', { error: err.message })
     })
   }, 10_000)
 
   setInterval(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      log.warn(`Periodic update check failed: ${err.message}`)
+      log.warn('periodic_update_check_failed', { error: err.message })
     })
   }, 4 * 60 * 60 * 1000)
 }

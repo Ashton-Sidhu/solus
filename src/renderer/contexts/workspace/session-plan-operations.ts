@@ -2,7 +2,8 @@ import type { AgentId, Plan, PlanDescriptor, PermissionOption, PlanReference, Re
 import { MODEL_PROFILES, planKey, encodePathAsFolder } from '../../../shared/types'
 import type { ModelProfile } from '../../../shared/types'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
-import { formatInlineComments } from './session.utils'
+import { formatInlineComments, nextMsgId } from './session.utils'
+import { track } from '../../lib/analytics'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 // ─── Active plan waiting state ───
@@ -33,17 +34,34 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
   let targetPlanId = planId || (ref?.sessionId && ref.planToolUseId ? planKey(ref.sessionId, ref.planToolUseId) : '')
   if (!targetPlanId) return
 
-  let plan = ctx.planStore.plans[targetPlanId]
-  if (plan?.content?.trim()) {
-    await ctx.planStore.hydrateAnnotations(targetPlanId)
-  } else {
-    const sessionId = ref?.sessionId ?? plan?.sessionId ?? targetPlanId.split('__')[0]
-    const planToolUseId = ref?.planToolUseId ?? plan?.planToolUseId ?? targetPlanId.split('__').slice(1).join('__')
-    const cwd = plan?.cwd ?? ctx.activeSession?.workingDirectory ?? ctx.globalDefaults.workingDirectory
-    const projectPath = plan?.projectPath ?? encodePathAsFolder(cwd)
-    if (!sessionId || !planToolUseId || !cwd) return
+  // `secondary` forces the plan beside the conversation in the secondary pane
+  // (the conversation-ref "pop out to side" action); otherwise it takes Focus.
+  const reveal = (id: string) => {
+    if (opts.secondary) ctx.panes.moveToSecondary({ kind: 'plan', planId: id })
+    else ctx.panes.openPlan(id)
+    ctx.isExpanded = true
+  }
 
-    targetPlanId = await ctx.planStore.loadFromDisk({
+  const plan = ctx.planStore.plans[targetPlanId]
+  if (plan?.content?.trim()) {
+    reveal(targetPlanId)
+    await ctx.planStore.hydrateAnnotations(targetPlanId)
+    return
+  }
+
+  const sessionId = ref?.sessionId ?? plan?.sessionId ?? targetPlanId.split('__')[0]
+  const planToolUseId = ref?.planToolUseId ?? plan?.planToolUseId ?? targetPlanId.split('__').slice(1).join('__')
+  const cwd = plan?.cwd ?? ctx.activeSession?.workingDirectory ?? ctx.globalDefaults.workingDirectory
+  const projectPath = plan?.projectPath ?? encodePathAsFolder(cwd)
+  if (!sessionId || !planToolUseId || !cwd) return
+
+  // Reveal on the id the read will resolve to, so the click lands on the plan
+  // surface's skeleton instead of on nothing while the body comes off disk.
+  targetPlanId = planKey(sessionId, planToolUseId)
+  reveal(targetPlanId)
+
+  try {
+    await ctx.planStore.loadFromDisk({
       sessionId,
       planToolUseId,
       projectPath,
@@ -52,16 +70,13 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
       ctx: ctx.ctx,
       provider: ctx.activeSession?.provider,
     })
+  } catch {}
+
+  // Nothing on disk: retract the surface rather than leave it loading forever
+  // — unless the user has already moved it on to something else.
+  if (!ctx.planStore.plans[targetPlanId]?.content?.trim() && ctx.panes.activePlanId === targetPlanId) {
+    ctx.panes.close()
   }
-
-  plan = ctx.planStore.plans[targetPlanId]
-  if (!plan?.content?.trim()) return
-
-  // `secondary` forces the plan beside the conversation in the secondary pane
-  // (the conversation-ref "pop out to side" action); otherwise it takes Focus.
-  if (opts.secondary) ctx.panes.moveToSecondary({ kind: 'plan', planId: targetPlanId })
-  else ctx.panes.openPlan(targetPlanId)
-  ctx.isExpanded = true
 }
 
 export function closePlanModal(ctx: WorkspaceContext): void {
@@ -82,6 +97,8 @@ export interface ApprovePlanOptions {
   reasoningEffort?: ReasoningEffort
   generalComment?: string
   useWorktree?: boolean
+  /** Defaults to true to preserve the existing approval behavior. */
+  startNewSession?: boolean
   /** Extra references from the approval note's editor. */
   planRefs?: PlanReference[]
   workRefs?: WorkReference[]
@@ -110,18 +127,52 @@ export async function approvePlanWithModel(
   const isActive = session.status === 'running' || session.status === 'connecting'
     || session.status === 'awaiting_plan' || session.status === 'awaiting_input'
   if (isActive) {
-    await window.solus.stopTab(ctx.ctx)
-    ctx.interruptTab(tabId)
+    await ctx.apiFor(tabId).stopTab(ctx.ctxFor(tabId))
+    // The planning run ends because the work is moving to the implementation
+    // session, not because the reader stopped it — the approval note and the
+    // session boundary below already tell that story. Writing a stop notice here
+    // put "Stopped by you" across every accepted plan.
+    ctx.interruptTab(tabId, { notice: false })
   }
 
-  window.solus.resetTabSession(ctx.ctx)
-  session.agentSessionId = null
+  const providerChanged = !!opts.provider && opts.provider !== session.provider
+  if (providerChanged) {
+    await ctx.switchActiveAgent(opts.provider!, tabId)
+    // switchActiveAgent owns handoff errors and leaves the original provider in
+    // place. Do not accidentally submit the approved work to that provider.
+    if (session.provider !== opts.provider) {
+      ctx.planStore.setStatus(planId, 'pending')
+      return
+    }
+  }
+
+  // A cross-provider handoff already detaches the old provider session and
+  // preserves it as lineage for the next run. Resetting here would erase that
+  // pending handoff. Same-provider model changes still require a fresh session.
+  const shouldStartNewSession = !providerChanged
+    && (opts.startNewSession !== false || !!(opts.provider && opts.modelId))
+  if (shouldStartNewSession) {
+    ctx.apiFor(tabId).resetTabSession(ctx.ctxFor(tabId))
+    session.agentSessionId = null
+    // The implementation run starts on a fresh agent session carrying only the
+    // plan, so everything above this point is another session's context. Say so
+    // — otherwise the reset is indistinguishable from the thread forgetting.
+    session.messages.push({
+      id: nextMsgId(),
+      role: 'system',
+      content: '',
+      timestamp: Date.now(),
+      newSessionForPlanId: planId,
+    })
+  }
 
   if (opts.provider && opts.modelId) {
-    session.provider = opts.provider
-    ctx.settings.update({ activeAgent: opts.provider })
+    if (!providerChanged) {
+      session.provider = opts.provider
+      ctx.settings.update({ activeAgent: opts.provider })
+    }
     const profile = MODEL_PROFILES[opts.provider as keyof typeof MODEL_PROFILES]?.[opts.modelId]
-    session.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: null, fastMode: false }
+    session.modelConfig = { modelId: opts.modelId, reasoningEffort: opts.reasoningEffort ?? (profile as ModelProfile)?.defaultReasoningEffort ?? 'high', contextWindow: (profile as ModelProfile)?.defaultContextWindow ?? null, fastMode: false }
     session.sessionModel = null
   } else if (opts.reasoningEffort) {
     session.modelConfig.reasoningEffort = opts.reasoningEffort
@@ -160,6 +211,7 @@ export async function approvePlanWithModel(
   ]
   tab.input.workRefs = opts.workRefs ? [...opts.workRefs] : []
   ctx.sendMessage(message)
+  track('plan_approved', { mode })
   requestConversationScrollToBottom(tabId)
 }
 
@@ -169,18 +221,28 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
   if (!plan) return
   const tabId = resolvePlanTabId(ctx, plan)
   const session = ctx.sessionFor(tabId)
-  const sessionIsLive = plan.questionId && plan.options?.length && session?.status === 'running'
+  // A run holding a plan up for review reports `awaiting_plan`, never 'running' —
+  // gating on 'running' alone sent every revise down the abort path, which kills
+  // the turn, prints "Stopped by you", and folds the whole planning turn away.
+  // Answering the permission with its deny option leaves the run alive, so the
+  // revise note steers into the same turn with all of its context.
+  const sessionIsLive = !!plan.questionId && !!plan.options?.length
+    && (session?.status === 'running' || session?.status === 'awaiting_plan' || session?.status === 'awaiting_input')
 
   if (sessionIsLive) {
     const denyOption = plan.options!.find((o: PermissionOption) => o.kind === 'deny') ?? plan.options![plan.options!.length - 1]
-    window.solus.respondPermission(ctx.ctx, plan.questionId!, denyOption.id)
-    ctx.interruptTab(tabId)
+    // Awaited so the deny lands before the note, otherwise the note can steer
+    // into a turn that is still blocked on the unanswered plan permission.
+    await ctx.apiFor(tabId).respondPermission(ctx.ctxFor(tabId), plan.questionId!, denyOption.id)
   } else {
-    window.solus.stopTab(ctx.ctx)
-    ctx.interruptTab(tabId)
+    // Only a run that was actually cancelled was stopped. Revising a plan whose
+    // run has already exited cancels nothing, so it must not claim otherwise.
+    const cancelled = await ctx.apiFor(tabId).stopTab(ctx.ctxFor(tabId))
+    ctx.interruptTab(tabId, { notice: cancelled })
   }
 
   ctx.planStore.setStatus(planId, 'rejected')
+  track('plan_rejected', { has_comment: !!comment || plan.comments.length > 0 })
   clearPlanWaiting(ctx, plan.sessionId)
 
   const inlineComments = plan.comments
@@ -254,20 +316,31 @@ async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Pro
 }
 
 export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
+  const planId = planKey(d.sessionId, d.planToolUseId)
   const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, d.provider)
   if (existing) {
-    await loadDescriptorPlan(ctx, d)
     ctx.plansGalleryOpen = false
     ctx.selectTab(existing)
-    openPlanModal(ctx, planKey(d.sessionId, d.planToolUseId))
+    ctx.panes.openPlan(planId)
+    ctx.isExpanded = true
+    await loadDescriptorPlan(ctx, d)
+    // Reveal (already done) plus annotation hydration, and the retract if the
+    // descriptor pointed at a plan that is no longer on disk.
+    openPlanModal(ctx, planId)
     return
   }
 
-  const planId = await loadDescriptorPlan(ctx, d)
+  // The gallery card gives way to the plan surface's skeleton straight away —
+  // the descriptor already names the plan, only its body has to come off disk.
   ctx.plansGalleryOpen = false
   ctx.planStore.previewDescriptor = d
-  ctx.planStore.openPreview(planId)
   ctx.panes.openPlan(planId)
+
+  await loadDescriptorPlan(ctx, d)
+
+  if (ctx.panes.activePlanId !== planId) return
+  if (ctx.planStore.plans[planId]?.content?.trim()) ctx.planStore.openPreview(planId)
+  else closePlanPreview(ctx)
 }
 
 export async function resumeFromPreview(ctx: WorkspaceContext): Promise<void> {

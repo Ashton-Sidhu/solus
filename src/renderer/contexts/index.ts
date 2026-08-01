@@ -30,9 +30,25 @@ export { getRunDockStore } from './run/run-dock.store.svelte'
 export { projectsStore } from './projects/projects.store.svelte'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
 
+/** Composer drafts parked for later, scoped per project. */
+export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'
+
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'
+export {
+  compareNearbyHosts,
+  discoveredServerUrl,
+  filterUnsavedDiscoveredServers,
+  mergeNearbyHosts,
+  NEARBY_HOST_TTL_MS,
+  unannouncedDiscoveredServers,
+} from './connections/discovery'
+export {
+  hostAffinityGlyph,
+  hostStatusDotClass,
+  hostStatusLabel,
+} from './connections/host-affinity'
 
 /** Session sidebar navigation and historical-session loading. */
 export { getSessionSidebarStore } from './workspace/session-sidebar.store.svelte'
@@ -50,4 +66,6 @@ export type { AgentContext } from './app/agent.context.svelte'
 export type { SessionEnvironmentStore } from './git/session-environment.store.svelte'
 export type { PlanStore } from './plans/plan.store.svelte'
 export type { ConnectionEndpoint } from './connections/connections.store.svelte'
-export type { ServerItem, ServerItemStatus } from './connections/servers.store.svelte'
+export type { DiscoveryFilterInput, NearbyHost } from './connections/discovery'
+export type { HostAffinityGlyph, HostAffinityTarget } from './connections/host-affinity'
+export type { ServerItem, ServerItemStatus, UnknownRemoteHost } from './connections/servers.store.svelte'

@@ -1,0 +1,138 @@
+<script lang="ts">
+  import type { DiagramEdge } from '../../../../shared/diagram-types'
+  import { EDGE_SHAPES, type EdgeUpdates } from '../lib/inspector-model'
+
+  interface Props {
+    edge: Pick<DiagramEdge, 'id' | 'source' | 'target' | 'shape'>
+    sourceLabel: string
+    targetLabel: string
+    update: EdgeUpdates
+    /** Endpoint rows are navigation as well as fields. */
+    onOpenEndpoint: (nodeId: string) => void
+    onReverse: () => void
+  }
+
+  let { edge, sourceLabel, targetLabel, update, onOpenEndpoint, onReverse }: Props = $props()
+
+  const activeShape = $derived(edge.shape ?? 'smooth')
+</script>
+
+<div class="inspector-field">
+  <span class="inspector-label">Routing</span>
+  <div class="inspector-segments" role="group" aria-label="Routing">
+    {#each EDGE_SHAPES as { shape, label, hint, path } (shape)}
+      <button
+        type="button"
+        class="inspector-segment"
+        class:inspector-segment--active={activeShape === shape}
+        aria-pressed={activeShape === shape}
+        title={hint}
+        onclick={() => update.shape(edge.id, shape)}
+      >
+        <svg viewBox="0 0 21 12" width="34" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d={path} />
+        </svg>
+        {label}
+      </button>
+    {/each}
+  </div>
+</div>
+
+<div class="inspector-field">
+  <span class="inspector-label">Endpoints</span>
+  <div class="endpoints">
+    <!-- Clicking an end selects that node and hands the rail back to the node
+         inspector: the two panels are one selection, never two. -->
+    <button type="button" class="endpoint" onclick={() => onOpenEndpoint(edge.source)}>
+      <span class="endpoint__role">source</span>
+      <span class="endpoint__node">{sourceLabel}</span>
+      <span class="endpoint__go" aria-hidden="true">›</span>
+    </button>
+    <button type="button" class="endpoint" onclick={() => onOpenEndpoint(edge.target)}>
+      <span class="endpoint__role">target</span>
+      <span class="endpoint__node">{targetLabel}</span>
+      <span class="endpoint__go" aria-hidden="true">›</span>
+    </button>
+  </div>
+  <button type="button" class="reverse" onclick={onReverse}>⇄ Reverse direction</button>
+</div>
+
+<style>
+  .endpoints {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .endpoint {
+    display: flex;
+    align-items: center;
+    gap: 0.5625rem;
+    padding: 0.5rem 0.625rem;
+    border: 0.0625rem solid transparent;
+    border-radius: 0.5rem;
+    background: var(--solus-surface-hover);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--duration-quick) var(--ease-premium);
+  }
+
+  .endpoint:hover { border-color: var(--solus-tool-border); }
+
+  .endpoint:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.125rem;
+  }
+
+  .endpoint__role {
+    flex: none;
+    width: 2.375rem;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.65625rem;
+    color: var(--solus-text-tertiary);
+  }
+
+  .endpoint__node {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.78125rem;
+    color: var(--solus-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .endpoint__go {
+    flex: none;
+    font-size: 0.71875rem;
+    color: var(--solus-accent);
+  }
+
+  .reverse {
+    padding: 0.4375rem 0.625rem;
+    border: 0.0625rem dashed var(--solus-tool-border);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    font-size: 0.71875rem;
+    text-align: center;
+    cursor: pointer;
+    transition:
+      border-color var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+
+  .reverse:hover {
+    border-color: var(--solus-accent-border);
+    color: var(--solus-accent);
+  }
+
+  .reverse:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.125rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .endpoint, .reverse { transition: none; }
+  }
+</style>

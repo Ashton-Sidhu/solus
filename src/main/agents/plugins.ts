@@ -1,9 +1,8 @@
 import { existsSync } from 'node:fs'
 import { cp, lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../logger'
-import { appVersion } from '../platform/paths'
+import { appVersion, solusDir } from '../platform/paths'
 
 const log = createLogger('Plugins', 'plugins.ts')
 
@@ -14,7 +13,7 @@ const BUNDLED_PLUGINS_DIR = join(__dirname, '../../resources/plugins')
 
 /** Installed destination — co-located with the rest of Solus's config so the
  *  Claude Code and Codex CLIs can load plugins from a real filesystem path. */
-export const PLUGINS_DIR = join(homedir(), '.solus', 'plugins')
+export const PLUGINS_DIR = join(solusDir(), 'plugins')
 export const SOLUS_PLUGINS_DIR = join(PLUGINS_DIR, 'solus')
 
 /** Marks a packaged copy with the app version that produced it, so a warm
@@ -42,7 +41,7 @@ async function copyAlreadyCurrent(): Promise<boolean> {
 }
 
 /**
- * Link the app-bundled plugins into ~/.solus/plugins. Runs once on startup,
+ * Link the app-bundled plugins into the active Solus state dir. Runs once on startup,
  * before any agent is invoked. In dev this keeps agents pointed at the working
  * tree so plugin changes are immediately testable. Packaged builds still copy
  * from app.asar because external CLIs cannot follow a symlink into asar.
@@ -67,6 +66,6 @@ export async function syncBundledPlugins(): Promise<void> {
     }
     await symlink(BUNDLED_PLUGINS_DIR, PLUGINS_DIR, 'dir')
   } catch (err) {
-    log.warn(`Failed to sync bundled plugins: ${(err as Error).message}`)
+    log.warn('bundled_plugins_sync_failed', { error: (err as Error).message })
   }
 }

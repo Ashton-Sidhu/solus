@@ -15,11 +15,15 @@ export function registerStackHandlers(server: SolusServer): void {
   server.register('stackGet', async (args) => {
     const [ctx] = args as [IpcContext]
     const repoRoot = await repoRootFor(ctx)
+    if (!ctx.settings.stackedPrsEnabled) return { repoRoot, graph: emptyStackGraph() }
     return { repoRoot, graph: (await readStackGraph(repoRoot)) ?? emptyStackGraph() }
   })
 
   server.register('stackDetect', async (args) => {
     const [ctx] = args as [IpcContext]
+    if (!ctx.settings.stackedPrsEnabled) {
+      return { repoRoot: await repoRootFor(ctx), graph: emptyStackGraph() }
+    }
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     const graph = await detectStackGraph({ repoRoot, repo, provider })
     server.broadcast('stack-graph-update', repoRoot, graph)
@@ -28,6 +32,7 @@ export function registerStackHandlers(server: SolusServer): void {
 
   server.register('stackAddManualEdge', async (args) => {
     const [ctx, parent, child] = args as [IpcContext, number, number]
+    if (!ctx.settings.stackedPrsEnabled) throw new Error('Stacked pull requests are disabled.')
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     let graph = await readStackGraph(repoRoot)
     if (!graph?.headShas[parent] || !graph.headShas[child]) {
@@ -40,6 +45,7 @@ export function registerStackHandlers(server: SolusServer): void {
 
   server.register('stackRemoveManualEdge', async (args) => {
     const [ctx, parent, child] = args as [IpcContext, number, number]
+    if (!ctx.settings.stackedPrsEnabled) throw new Error('Stacked pull requests are disabled.')
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     await removeManualStackEdge(repoRoot, parent, child)
     // Removing intent immediately exposes any still-live inferred relationship.

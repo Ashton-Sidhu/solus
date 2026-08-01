@@ -1,9 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
-import { join } from 'path'
-import { randomUUID } from 'crypto'
+import { lstat, readlink } from 'fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
-import type { ChangedFileStat, DiffResult, DiffScope, TurnSnapshot } from '../../shared/types'
+import type {
+  ChangedFileStat,
+  DiffFileContent,
+  DiffFileContentsRequest,
+  DiffFileContentsResult,
+  DiffResult,
+  DiffScope,
+  TurnSnapshot,
+} from '../../shared/types'
 
 const log = createLogger('SessionSnapshots', 'session-snapshots.ts')
 
@@ -13,6 +22,24 @@ const SNAPSHOT_AUTHOR_EMAIL = 'snapshot@solus.local'
 interface Sidecar {
   baseSha: string
   turns: TurnSnapshot[]
+  /** Tree captured by the latest turn (or the session base before turn 0). */
+  latestTreeSha?: string
+  /** Authoritative net paths from the base to the latest captured tree. */
+  sessionChangedFiles?: string[]
+}
+
+const snapshotQueueByRepo = new Map<string, Promise<void>>()
+
+async function inSnapshotQueue<T>(repoRoot: string, task: () => Promise<T>): Promise<T> {
+  const previous = snapshotQueueByRepo.get(repoRoot) ?? Promise.resolve()
+  const run = previous.catch(() => {}).then(task)
+  const tail = run.then(() => {}, () => {})
+  snapshotQueueByRepo.set(repoRoot, tail)
+  try {
+    return await run
+  } finally {
+    if (snapshotQueueByRepo.get(repoRoot) === tail) snapshotQueueByRepo.delete(repoRoot)
+  }
 }
 
 function refForBase(sessionId: string): string {
@@ -61,6 +88,10 @@ function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void 
 }
 
 export async function initSessionBase(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
+  return inSnapshotQueue(repoRoot, () => initSessionBaseQueued(repoRoot, sessionId, baseSha))
+}
+
+async function initSessionBaseQueued(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
   if (!sessionId || !baseSha) return
   const ref = refForBase(sessionId)
   try {
@@ -72,14 +103,20 @@ export async function initSessionBase(repoRoot: string, sessionId: string, baseS
   await runAsync('git', ['update-ref', ref, baseSha], repoRoot)
   ensureSolusDirs(repoRoot)
   if (!readSidecar(repoRoot, sessionId)) {
-    writeSidecar(repoRoot, sessionId, { baseSha, turns: [] })
+    const latestTreeSha = await runAsync('git', ['rev-parse', `${baseSha}^{tree}`], repoRoot)
+    writeSidecar(repoRoot, sessionId, {
+      baseSha,
+      turns: [],
+      latestTreeSha,
+      sessionChangedFiles: [],
+    })
   }
 }
 
-async function resolvePrev(repoRoot: string, sessionId: string, turnIndex: number): Promise<{ commit: string; tree: string } | null> {
-  const ref = turnIndex === 0 ? refForBase(sessionId) : refForTurn(sessionId, turnIndex - 1)
+async function resolvePrev(repoRoot: string, sidecar: Sidecar): Promise<{ commit: string; tree: string } | null> {
+  const commit = sidecar.turns.at(-1)?.sha ?? sidecar.baseSha
+  if (sidecar.latestTreeSha) return { commit, tree: sidecar.latestTreeSha }
   try {
-    const commit = await runAsync('git', ['rev-parse', '--verify', ref], repoRoot)
     const tree = await runAsync('git', ['rev-parse', `${commit}^{tree}`], repoRoot)
     return { commit, tree }
   } catch {
@@ -126,15 +163,24 @@ export async function snapshotTurn(
   sessionId: string,
   opts: SnapshotOpts = {},
 ): Promise<SnapshotTurnResult | null> {
+  return inSnapshotQueue(repoRoot, () => snapshotTurnQueued(workTree, repoRoot, sessionId, opts))
+}
+
+async function snapshotTurnQueued(
+  workTree: string,
+  repoRoot: string,
+  sessionId: string,
+  opts: SnapshotOpts,
+): Promise<SnapshotTurnResult | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) {
-    log.warn(`Cannot snapshot — no base ref for session ${sessionId}`)
+    log.warn('snapshot_skipped_no_base_ref', { sessionId })
     return null
   }
   const turnIndex = sidecar.turns.length
-  const prev = await resolvePrev(repoRoot, sessionId, turnIndex)
+  const prev = await resolvePrev(repoRoot, sidecar)
   if (!prev) {
-    log.warn(`Cannot snapshot — previous ref missing for session ${sessionId} turn ${turnIndex}`)
+    log.warn('snapshot_skipped_prev_ref_missing', { sessionId, turnIndex })
     return null
   }
 
@@ -144,7 +190,6 @@ export async function snapshotTurn(
   const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
 
   try {
-    const baseSha = await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
     await runAsync('git', [...treeArgs, 'read-tree', prev.tree], repoRoot, { env: indexEnv })
 
     if (opts.sessionChangedFiles) {
@@ -154,6 +199,40 @@ export async function snapshotTurn(
     }
 
     const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
+    if (treeSha === prev.tree) {
+      let sessionChangedFiles: string[] | null = sidecar.sessionChangedFiles ?? null
+      if (!sessionChangedFiles && prev.commit === sidecar.baseSha) {
+        sessionChangedFiles = []
+      } else if (!sessionChangedFiles) {
+        try {
+          sessionChangedFiles = parseChangedFileStats(await runAsync('git', [
+            '-c',
+            'core.quotepath=false',
+            'diff',
+            sidecar.baseSha,
+            prev.commit,
+            '--numstat',
+          ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER })).map((file) => file.path)
+        } catch (err) {
+          log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      const snap: TurnSnapshot = {
+        index: turnIndex,
+        sha: prev.commit,
+        timestamp: Date.now(),
+        partial: !!opts.partial,
+        userMessagePreview: opts.userMessagePreview ?? '',
+        filesChanged: 0,
+        additions: 0,
+        deletions: 0,
+      }
+      sidecar.turns.push(snap)
+      sidecar.latestTreeSha = treeSha
+      if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
+      writeSidecar(repoRoot, sessionId, sidecar)
+      return { snapshot: snap, sessionChangedFiles }
+    }
 
     const commitEnv: NodeJS.ProcessEnv = {
       ...indexEnv,
@@ -182,26 +261,28 @@ export async function snapshotTurn(
       deletions: stats.deletions,
     }
     sidecar.turns.push(snap)
-    writeSidecar(repoRoot, sessionId, sidecar)
     let sessionChangedFiles: string[] | null = null
     try {
-      const sessionStats = baseSha === commitSha
+      const sessionStats = sidecar.baseSha === commitSha
         ? []
         : parseChangedFileStats(await runAsync('git', [
           '-c',
           'core.quotepath=false',
           'diff',
-          baseSha,
+          sidecar.baseSha,
           commitSha,
           '--numstat',
         ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER }))
       sessionChangedFiles = sessionStats.map((file) => file.path)
     } catch (err) {
-      log.warn(`Session path reconciliation failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+      log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
     }
+    sidecar.latestTreeSha = treeSha
+    if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
+    writeSidecar(repoRoot, sessionId, sidecar)
     return { snapshot: snap, sessionChangedFiles }
   } catch (err) {
-    log.error(`snapshotTurn failed sid=${sessionId} turn=${turnIndex}: ${err}`)
+    log.error('snapshot_turn_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
     return null
   } finally {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
@@ -211,12 +292,7 @@ export async function snapshotTurn(
 async function resolveScope(repoRoot: string, sessionId: string, scope: DiffScope): Promise<{ from: string; to: string } | null> {
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) return null
-  let baseSha: string
-  try {
-    baseSha = await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
-  } catch {
-    return null
-  }
+  const baseSha = sidecar.baseSha
   if (scope.kind === 'session') {
     if (sidecar.turns.length === 0) return { from: baseSha, to: baseSha }
     const latest = sidecar.turns[sidecar.turns.length - 1]
@@ -325,7 +401,7 @@ async function buildLiveTree(
     }
   } catch (err) {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
-    log.error(`buildLiveTree failed sid=${sessionId}: ${err}`)
+    log.error('build_live_tree_failed', { sessionId, error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }
@@ -335,17 +411,9 @@ async function buildLiveTree(
 const COMBINED_DIFF_MAX_BUFFER = 256 * 1024 * 1024
 
 // Explicit prefixes + quotepath off keep renderer-side @pierre/diffs parsing
-// stable against the user's gitconfig. `contextLines` is the renderer's lever
-// for a full-context patch (see FULL_CONTEXT_LINES), which it re-parses to
-// recover whole file contents for hunk expansion.
-function diffFormatArgs(contextLines = 3): string[] {
-  return ['--no-ext-diff', `--unified=${contextLines}`, '--src-prefix=a/', '--dst-prefix=b/']
-}
-
-/** A patch built with a non-default context is content, not display text: its
- *  last line may legitimately be blank, so stdout must not be trimmed. */
-function diffExecOptions(contextLines: number | undefined, env?: NodeJS.ProcessEnv) {
-  return { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: contextLines !== undefined }
+// stable against the user's gitconfig.
+function diffFormatArgs(): string[] {
+  return ['--no-ext-diff', '--unified=3', '--src-prefix=a/', '--dst-prefix=b/']
 }
 
 const EMPTY_DIFF: DiffResult = { patch: '' }
@@ -385,13 +453,12 @@ export async function getEpisodeDiff(
   workTree: string,
   repoRoot: string,
   baseSha: string,
-  contextLines?: number,
 ): Promise<DiffResult> {
   const combined = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
     runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', baseSha, ...diffFormatArgs(contextLines)],
+      ['-c', 'core.quotepath=false', 'diff', baseSha, ...diffFormatArgs()],
       workTree,
-      diffExecOptions(contextLines, env),
+      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
     ),
   )
   return { patch: combined }
@@ -481,15 +548,14 @@ export async function getDiff(
   scope: DiffScope,
   sessionId: string | null,
   livePaths: string[],
-  contextLines?: number,
 ): Promise<DiffResult | null> {
   if (scope.kind === 'working-tree') {
     if (!workTree) return null
     const combined = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
       runAsync('git',
-        ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...diffFormatArgs(contextLines)],
+        ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...diffFormatArgs()],
         workTree,
-        diffExecOptions(contextLines, env),
+        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
       ),
     )
     return { patch: combined }
@@ -500,7 +566,7 @@ export async function getDiff(
   if (scope.kind === 'pr') {
     if (!workTree) return null
     const base = await resolvePrDiffBase(workTree, repoRoot, scope)
-    return getEpisodeDiff(workTree, repoRoot, base, contextLines)
+    return getEpisodeDiff(workTree, repoRoot, base)
   }
 
   if (!sessionId) return null
@@ -513,9 +579,9 @@ export async function getDiff(
         if (live.baseSha === live.treeSha) return EMPTY_DIFF
         return {
           patch: await runAsync('git',
-            ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, ...diffFormatArgs(contextLines)],
+            ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, ...diffFormatArgs()],
             repoRoot,
-            diffExecOptions(contextLines),
+            { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
           ),
         }
       } finally {
@@ -530,11 +596,129 @@ export async function getDiff(
   if (range.from === range.to) return EMPTY_DIFF
   return {
     patch: await runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', range.from, range.to, ...diffFormatArgs(contextLines)],
+      ['-c', 'core.quotepath=false', 'diff', range.from, range.to, ...diffFormatArgs()],
       repoRoot,
-      diffExecOptions(contextLines),
+      { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
     ),
   }
+}
+
+function matchesExpectedObjectId(actual: string, expected?: string): boolean {
+  return !expected || /^0+$/.test(expected) || actual.startsWith(expected)
+}
+
+async function readBlobAt(
+  repoRoot: string,
+  ref: string,
+  path: string,
+): Promise<DiffFileContent | null> {
+  try {
+    const objectId = await runAsync('git', ['rev-parse', '--verify', `${ref}:${path}`], repoRoot)
+    const contents = await runAsync('git', ['cat-file', 'blob', objectId], repoRoot, {
+      maxBuffer: COMBINED_DIFF_MAX_BUFFER,
+      raw: true,
+    })
+    return { name: path, contents, cacheKey: objectId }
+  } catch {
+    return null
+  }
+}
+
+async function readWorktreeFile(
+  workTree: string,
+  path: string,
+): Promise<DiffFileContent | null> {
+  const absolutePath = resolve(workTree, path)
+  const relativePath = relative(workTree, absolutePath)
+  if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) return null
+
+  try {
+    const fileStat = await lstat(absolutePath)
+    if (fileStat.isSymbolicLink()) {
+      const contents = await readlink(absolutePath)
+      const objectFormat = await runAsync('git', ['rev-parse', '--show-object-format'], workTree)
+      const bytes = Buffer.from(contents)
+      const objectId = createHash(objectFormat)
+        .update(`blob ${bytes.byteLength}\0`)
+        .update(bytes)
+        .digest('hex')
+      return { name: path, contents, cacheKey: objectId }
+    }
+
+    // `--path` applies the repository's clean filters (including autocrlf), so
+    // the returned text and object id match the patch rather than raw disk bytes.
+    // Writing the unreferenced blob lets cat-file return that canonical content.
+    const objectId = await runAsync('git', ['hash-object', '-w', `--path=${path}`, '--', path], workTree)
+    const contents = await runAsync('git', ['cat-file', 'blob', objectId], workTree, {
+      maxBuffer: COMBINED_DIFF_MAX_BUFFER,
+      raw: true,
+    })
+    return { name: path, contents, cacheKey: objectId }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Load just the two blobs needed to hydrate one partial diff. The comparison
+ * endpoints mirror `getDiff` exactly, including session-isolated live trees.
+ * Object ids from the displayed patch reject a response if the working tree
+ * changed between rendering the patch and requesting expansion.
+ */
+export async function getDiffFileContents(
+  workTree: string | null,
+  repoRoot: string,
+  sessionId: string | null,
+  request: DiffFileContentsRequest,
+): Promise<DiffFileContentsResult | null> {
+  const oldPath = request.previousPath ?? request.path
+  let oldFile: DiffFileContent | null
+  let newFile: DiffFileContent | null
+
+  if (request.scope.kind === 'working-tree') {
+    if (!workTree) return null
+    ;[oldFile, newFile] = await Promise.all([
+      readBlobAt(repoRoot, 'HEAD', oldPath),
+      readWorktreeFile(workTree, request.path),
+    ])
+  } else if (request.scope.kind === 'pr') {
+    if (!workTree) return null
+    const base = await resolvePrDiffBase(workTree, repoRoot, request.scope)
+    ;[oldFile, newFile] = await Promise.all([
+      readBlobAt(repoRoot, base, oldPath),
+      readWorktreeFile(workTree, request.path),
+    ])
+  } else {
+    if (!sessionId) return null
+    const livePaths = request.livePaths?.filter(Boolean) ?? []
+    if (request.scope.kind === 'session' && workTree && livePaths.length > 0) {
+      const live = await buildLiveTree(workTree, repoRoot, sessionId, livePaths)
+      if (!live) return null
+      try {
+        ;[oldFile, newFile] = await Promise.all([
+          readBlobAt(repoRoot, live.baseSha, oldPath),
+          readBlobAt(repoRoot, live.treeSha, request.path),
+        ])
+      } finally {
+        live.cleanup()
+      }
+    } else {
+      const range = await resolveScope(repoRoot, sessionId, request.scope)
+      if (!range) return null
+      ;[oldFile, newFile] = await Promise.all([
+        readBlobAt(repoRoot, range.from, oldPath),
+        readBlobAt(repoRoot, range.to, request.path),
+      ])
+    }
+  }
+
+  if (
+    (oldFile && !matchesExpectedObjectId(oldFile.cacheKey, request.expectedOldObjectId)) ||
+    (newFile && !matchesExpectedObjectId(newFile.cacheKey, request.expectedNewObjectId))
+  ) {
+    return null
+  }
+  return { oldFile, newFile }
 }
 
 /**

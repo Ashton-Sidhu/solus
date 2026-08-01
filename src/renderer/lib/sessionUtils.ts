@@ -95,6 +95,16 @@ export function getAttentionIcon(state: AttentionState): StatusIcon | null {
   return null
 }
 
+/** True once a session has left pre-flight — it has an agent, a transcript, or
+ *  is no longer idle. Where a session runs (host, worktree) can only be chosen
+ *  before this point, so the surfaces that offer that choice unmount here. */
+export function hasSessionStarted(session: Session | undefined): boolean {
+  return (
+    !!session &&
+    (session.agentSessionId !== null || session.messages.length > 0 || session.status !== 'idle')
+  )
+}
+
 export function sessionTitle(sess: Session, tab: Tab): string {
   if (tab.title && tab.title !== 'New Tab') return tab.title
   for (const m of sess.messages) {

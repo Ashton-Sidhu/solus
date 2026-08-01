@@ -132,7 +132,7 @@ function readTailscaleStatus(): unknown | null {
   try {
     return JSON.parse(execFileSync(bin, ['status', '--json'], { encoding: 'utf8', timeout: 1500 }))
   } catch (err) {
-    log.debug(`tailscale not reachable: ${err}`)
+    log.debug('tailscale_not_reachable', { error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }

@@ -1,12 +1,9 @@
 <script lang="ts">
-  import {
-    FloppyDiskIcon,
-    WarningCircleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+  import { FloppyDiskIcon, WarningCircleIcon } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import type { IpcContext } from "../../../shared/types";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { getWorkspaceContext } from "../../contexts";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
   import {
@@ -26,6 +23,7 @@
   }
 
   let { ctx, cwd, isDark, file, onClose }: Props = $props();
+  const workspace = getWorkspaceContext();
 
   ensureIconCollections();
 
@@ -84,7 +82,7 @@
     size = null;
     saveState = "idle";
 
-    const result = await window.solus.readProjectFile(ctx, { path, cwd });
+    const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd });
     if (generation !== loadGeneration) return;
     if (result.ok) {
       filePath = result.path;
@@ -108,8 +106,10 @@
 </script>
 
 <div class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)">
-  <header
-    class="flex h-(--solus-chrome-row-h,var(--solus-tap-target-lg)) shrink-0 items-center gap-2 border-b border-(--solus-chrome-row-border,var(--solus-container-border)) pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+  <!-- In-content path line, not a chrome row. The pane's close lives in the
+       floating PaneChrome cluster, which the right gutter reserves room for. -->
+  <div
+    class="flex shrink-0 items-center gap-2 py-1.5 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
     {#if headerIcon}
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
@@ -142,15 +142,7 @@
         Reload
       </button>
     {/if}
-    <button
-      type="button"
-      class="flex size-(--solus-tap-target) shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent)"
-      aria-label="Close file editor"
-      onclick={closeEditor}
-    >
-      <XIcon size={13} />
-    </button>
-  </header>
+  </div>
 
   {#if loading}
     <div class="flex flex-1 items-center justify-center text-[0.75rem] text-(--solus-text-tertiary)">
@@ -163,6 +155,7 @@
     </div>
   {:else if contents !== null}
     <FilePreviewStream
+      api={workspace.apiFor(ctx.session.tabId)}
       {ctx}
       {cwd}
       {filePath}

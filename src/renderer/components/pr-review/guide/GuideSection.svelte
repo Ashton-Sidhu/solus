@@ -1,10 +1,10 @@
 <script lang="ts">
   import { ArrowSquareOutIcon } from "phosphor-svelte";
+  import type { FileDiffContentsLoader } from "@pierre/diffs";
   import Icon from "@iconify/svelte";
   import { SvelteSet } from "svelte/reactivity";
   import type { GuideSection, LedgerRecord } from "../../../../shared/review";
   import type { DiffComment } from "../../../../shared/types";
-  import type { FileVersions } from "../../../lib/diff-expandable";
   import { fileTypeIcon } from "../../../lib/fileTypeIcon";
   import { detectMovedBlocksInPatches } from "../../../lib/diff-moves";
   import { ensureIconCollections } from "../../diagram/iconify";
@@ -26,7 +26,7 @@
     section,
     records,
     patchByPath,
-    fileVersions,
+    loadDiffFiles,
     onFileJump,
     comments = [],
     onCommentSave,
@@ -37,8 +37,7 @@
     section: GuideSection;
     records: LedgerRecord[];
     patchByPath: Map<string, string>;
-    /** Both versions of each changed file, so a card's hunk gaps can expand. */
-    fileVersions?: Map<string, FileVersions>;
+    loadDiffFiles?: FileDiffContentsLoader;
     /** When set, the diff-card "open" action routes here (the PR-review surface
      *  switches to its Diff tab) instead of opening a separate file editor. */
     onFileJump?: (path: string) => void;
@@ -169,7 +168,7 @@
             >
               {@render typeBadge(file.path)}
               <span
-                class="min-w-0 flex-1 truncate font-mono text-[0.75rem] text-(--solus-text-secondary)"
+                class="min-w-0 flex-1 truncate font-mono text-[0.75rem] font-secondary text-(--solus-text-secondary)"
               >
                 <span class="text-(--solus-text-primary)"
                   >{fileName(file.path)}</span
@@ -260,7 +259,7 @@
                 <GuideFileDiff
                   {patch}
                   filePath={file.path}
-                  versions={fileVersions?.get(file.path)}
+                  {loadDiffFiles}
                   {moveAnalysis}
                   comments={commentsByPath.get(file.path) ?? []}
                   onSaveComment={onCommentSave}

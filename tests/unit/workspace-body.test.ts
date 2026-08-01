@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { visibleWorkspaceTabIds } from '../../src/renderer/components/layout/lib/workspace-body'
+import {
+  listSidebarPrimaryWidth,
+  retainedConversationTabIds,
+  visibleWorkspaceTabIds,
+} from '../../src/renderer/components/layout/lib/workspace-body'
 
 // The strip groups by the same environment-derived branch key the sidebar uses,
 // supplied here as a per-tab lookup so the test stays independent of the Git
@@ -104,5 +108,47 @@ describe('workspace tab visibility', () => {
     expect(
       visibleWorkspaceTabIds(workspace as any, 'open-tab', null, () => 'x'),
     ).toEqual(['open-tab'])
+  })
+})
+
+describe('conversation transcript retention', () => {
+  test('keeps visible chats and only the most recent hidden transcripts', () => {
+    expect(
+      retainedConversationTabIds(
+        ['tab-d', 'tab-c', 'tab-b', 'tab-a'],
+        ['tab-e'],
+        ['tab-a', 'tab-b', 'tab-c', 'tab-d', 'tab-e'],
+        4,
+      ),
+    ).toEqual(['tab-e', 'tab-d', 'tab-c', 'tab-b'])
+  })
+
+  test('keeps every visible split chat even when the retention limit is smaller', () => {
+    expect(
+      retainedConversationTabIds(
+        ['tab-a'],
+        ['tab-b', 'tab-c'],
+        ['tab-a', 'tab-b', 'tab-c'],
+        1,
+      ),
+    ).toEqual(['tab-b', 'tab-c'])
+  })
+
+  test('drops closed tabs from the retained set', () => {
+    expect(
+      retainedConversationTabIds(
+        ['closed-tab', 'recent-tab'],
+        ['active-tab'],
+        ['active-tab', 'recent-tab'],
+      ),
+    ).toEqual(['active-tab', 'recent-tab'])
+  })
+})
+
+describe('docked list sidebar sizing', () => {
+  test('keeps the PR inbox compact while leaving the review the remaining width', () => {
+    expect(listSidebarPrimaryWidth(1000)).toBe(228)
+    expect(listSidebarPrimaryWidth(1440)).toBe(274)
+    expect(listSidebarPrimaryWidth(2400)).toBe(340)
   })
 })

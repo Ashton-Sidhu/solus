@@ -7,11 +7,13 @@ import {
 import { connectionsStore } from '../contexts/connections/connections.store.svelte'
 import { toasts } from '../contexts/app/toast.store.svelte'
 import { requestInputFocus } from './inputFocus'
+import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 
 export class GitActions {
   commitPushing = $state(false)
   commitPushed = $state(false)
   commitPushError = $state<string | null>(null)
+  discarding = $state(false)
   syncing = $state(false)
   synced = $state(false)
   syncError = $state<string | null>(null)
@@ -36,6 +38,10 @@ export class GitActions {
     }
   }
 
+  private api(): typeof window.solus {
+    return this.session.apiFor?.(this.tabId) ?? window.solus
+  }
+
   async commitPush(): Promise<void> {
     const target = this.target()
     if (this.commitPushing || !target.gitContext) return
@@ -44,7 +50,7 @@ export class GitActions {
     this.commitPushed = false
     this.commitPushError = null
     try {
-      const result = await window.solus.gitCommitPush(target.ctx)
+      const result = await this.api().gitCommitPush(target.ctx)
       if (result.success) {
         this.commitPushed = true
         if (this.commitTimer) clearTimeout(this.commitTimer)
@@ -53,7 +59,7 @@ export class GitActions {
           this.commitTimer = null
         }, 1800)
       } else {
-        this.commitPushError = result.error || 'Commit & push failed'
+        this.commitPushError = result.error || 'Commit and push failed'
         toasts.error(result.outcome === 'committed-only'
           ? `Committed locally, but couldn't push: ${this.commitPushError}`
           : `Couldn't commit and push: ${this.commitPushError}`)
@@ -72,6 +78,71 @@ export class GitActions {
     }
   }
 
+  /** Commit without publishing. Shares the commit row's phase state with
+   *  `commitPush` — only one of the two can be in flight, and the row shows
+   *  whichever ran. */
+  async commit(): Promise<void> {
+    const target = this.target()
+    if (this.commitPushing || !target.gitContext) return
+    const gitCwd = target.cwd
+    this.commitPushing = true
+    this.commitPushed = false
+    this.commitPushError = null
+    try {
+      const result = await this.api().gitCommit(target.ctx)
+      if (result.success) {
+        this.commitPushed = true
+        if (this.commitTimer) clearTimeout(this.commitTimer)
+        this.commitTimer = setTimeout(() => {
+          this.commitPushed = false
+          this.commitTimer = null
+        }, 1800)
+        if (result.outcome === 'unchanged') toasts.info('Nothing to commit.')
+      } else {
+        this.commitPushError = result.error || 'Commit failed'
+        toasts.error(`Couldn't commit: ${this.commitPushError}`)
+      }
+    } catch (error) {
+      this.commitPushError = error instanceof Error ? error.message : String(error)
+      toasts.error(`Couldn't commit: ${this.commitPushError}`)
+    } finally {
+      if (gitCwd) {
+        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+          .catch(() => null)
+      }
+      this.commitPushing = false
+      requestInputFocus()
+    }
+  }
+
+  /** Irreversible: resets tracked files to HEAD and removes untracked ones.
+   *  Callers are expected to have confirmed with the user first. */
+  async discard(): Promise<void> {
+    const target = this.target()
+    if (this.discarding || !target.gitContext) return
+    const gitCwd = target.cwd
+    this.discarding = true
+    try {
+      const result = await this.api().gitDiscard(target.ctx)
+      if (result.success) {
+        toasts.success(result.discarded === 0
+          ? 'Nothing to discard.'
+          : `Discarded ${result.discarded} change${result.discarded === 1 ? '' : 's'}.`)
+      } else {
+        toasts.error(`Couldn't discard changes: ${result.error || 'Discard failed'}`)
+      }
+    } catch (error) {
+      toasts.error(`Couldn't discard changes: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      if (gitCwd) {
+        await this.environmentStore.refreshTab(this.session, { tabId: this.tabId, cwd: gitCwd, level: 'details' })
+          .catch(() => null)
+      }
+      this.discarding = false
+      requestInputFocus()
+    }
+  }
+
   async sync(): Promise<void> {
     const target = this.target()
     if (this.syncing || !target.gitContext) return
@@ -80,7 +151,7 @@ export class GitActions {
     this.synced = false
     this.syncError = null
     try {
-      const result = await window.solus.gitSync(target.ctx)
+      const result = await this.api().gitSync(target.ctx)
       if (result.success) {
         this.synced = true
         if (this.syncTimer) clearTimeout(this.syncTimer)
@@ -106,7 +177,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable) return
+    if (!connectionsStore.desktopHandlersAvailable || this.session.sessionFor(this.tabId)?.serverId !== LOCAL_SERVER_ID) return
     void window.solus.openWorktreeTerminal(this.target().ctx)
     requestInputFocus()
   }
@@ -117,7 +188,7 @@ export class GitActions {
     this.creatingPR = true
     this.prError = null
     try {
-      const result = await window.solus.worktreePR(target.ctx)
+      const result = await this.api().worktreePR(target.ctx)
       if (result.success) this.prUrl = result.url || null
       else {
         this.prError = result.error || 'Create pull request failed'

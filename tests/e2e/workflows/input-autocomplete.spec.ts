@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
-const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .solus-md-editor`
+const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-content`
 
 async function replaceInput(page: import('@playwright/test').Page, text: string) {
   const input = page.locator(INPUT_EDITOR)
@@ -90,6 +90,7 @@ test.describe('Input autocomplete menus', () => {
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
     await expect(page.locator('.file-menu-list')).not.toBeVisible()
-    await expect(page.locator(`${INPUT_EDITOR} span[data-file-ref]`)).toBeVisible()
+    await expect(page.locator(`${INPUT_EDITOR} [data-reference-kind="file"]`)).toBeVisible()
   })
+
 })

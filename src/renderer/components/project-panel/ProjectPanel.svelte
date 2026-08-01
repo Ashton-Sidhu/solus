@@ -6,7 +6,13 @@
     getSessionEnvironmentStore,
     toasts,
   } from "../../contexts";
-  import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/pane-view.store.svelte";
+  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
+  import {
+    isProjectRailOpen,
+    PROJECT_RAIL_MAX_WIDTH,
+    PROJECT_RAIL_MIN_WIDTH,
+    projectRailWidth,
+  } from "./lib/rail-width";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -19,23 +25,35 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";
+  import GoalSection from "./GoalSection.svelte";
+  import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import WorksSection from "./WorksSection.svelte";
-  import TasksSection from "./TasksSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import { buildAutomationBoard } from "./lib/automation-board";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { sessionWorks } from "./lib/session-works";
   import { matchesOpenProjects } from "../../lib/sessionUtils";
-  import { comboHint } from "../../lib/keybindings/manifest";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   interface Props {
-    open?: boolean;
-    managedWidth?: boolean;
-    onClose: () => void;
+    /** The conversation this rail describes — it lives inside that view. */
+    tabId: string;
+    /** Which pane hosts this rail. Every piece of the rail's view state — open,
+     *  and which sections are collapsed — is stored per slot, so adjusting the
+     *  split chat's rail never moves the primary's. */
+    slot: PaneSlot;
+    /** Width of the hosting conversation view; the rail scales against it. */
+    containerWidth: number;
+    /** Temporarily minimize without changing the slot's persisted preference. */
+    minimized?: boolean;
   }
-  let { open = true, managedWidth = false, onClose }: Props = $props();
+  let {
+    tabId: panelTabId,
+    slot,
+    containerWidth,
+    minimized = false,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -47,27 +65,36 @@
     if (!outerScrollbar || !sectionsElement) return;
     return outerScrollbar.register(sectionsElement);
   });
-  const maxProjectPanelWidth = DEFAULT_PANEL_WIDTH;
 
-  const panelTabId = $derived(
-    session.focusedChatTabId ?? session.activeTabId,
+  // Both rails render the same component, so every piece of their view state is
+  // stored per slot. Reading it through one pair of deriveds is what keeps a
+  // split chat's rail from moving the primary's when either is adjusted.
+  const isSplit = $derived(slot === "secondary");
+  const preferOpen = $derived(
+    isSplit ? settings.splitProjectPanelOpen : settings.projectPanelOpen,
   );
+  const collapsedSections = $derived(
+    isSplit
+      ? settings.splitProjectPanelCollapsed
+      : settings.projectPanelCollapsed,
+  );
+
+  // The slot owns the preference; this owns whether the current layout can
+  // honour it. Temporary minimization leaves that preference intact, so the
+  // rail returns when the secondary panel closes.
+  const open = $derived(
+    isProjectRailOpen(preferOpen, containerWidth, minimized),
+  );
+
   const panelSession = $derived(session.sessionFor(panelTabId));
-  const panelEnvironment = $derived(environmentStore.environmentFor(panelTabId));
+  const panelEnvironment = $derived(
+    environmentStore.environmentFor(panelTabId),
+  );
   const cwd = $derived(
     panelSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
-  const gitCtx = $derived(
-    panelEnvironment.checkout,
-  );
+  const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
-  const isSplitScope = $derived(panelTabId !== session.activeTabId);
-  const projectName = $derived(() => {
-    const dir = cwd?.replace(/\/$/, "");
-    if (!dir || dir === "~") return "~";
-    const parts = dir.split("/");
-    return parts[parts.length - 1] || "~";
-  });
 
   // Works the focused session created or updated — derived from the same messages
   // that drive the conversation, so it's correct live and after a history reload.
@@ -115,19 +142,40 @@
     if (cwd) void session.worksStore.loadAll(cwd);
   });
 
+  // A split chat mounts a second rail, so both instances register these ids and
+  // the dispatcher fires only the first enabled handler. Each rail arms its
+  // bindings solely while its own conversation holds focus, so the shortcut acts
+  // on the chat the user is actually in rather than always the primary one.
+  const focused = $derived(
+    (session.focusedChatTabId ?? session.activeTabId) === panelTabId,
+  );
+
   // Registered here (not in GitSection) so the shortcuts keep working while
   // the Git section is collapsed and unmounted.
-  useKeybinding("orb.sync", () => {
-    if (gitCtx) void gitActionsFor(panelTabId, session, environmentStore).sync();
-  });
-  useKeybinding("orb.commit-push", () => {
-    if (gitCtx)
-      void gitActionsFor(panelTabId, session, environmentStore).commitPush();
-  });
+  useKeybinding(
+    "orb.sync",
+    () => {
+      if (gitCtx)
+        void gitActionsFor(panelTabId, session, environmentStore).sync();
+    },
+    { enabled: () => focused },
+  );
+  useKeybinding(
+    "orb.commit-push",
+    () => {
+      if (gitCtx)
+        void gitActionsFor(panelTabId, session, environmentStore).commitPush();
+    },
+    { enabled: () => focused },
+  );
 
   function toggleSection(id: ProjectPanelSectionId) {
-    settings.projectPanelCollapsed[id] = !settings.projectPanelCollapsed[id];
-    settings.update({ projectPanelCollapsed: settings.projectPanelCollapsed });
+    collapsedSections[id] = !collapsedSections[id];
+    settings.update(
+      isSplit
+        ? { splitProjectPanelCollapsed: collapsedSections }
+        : { projectPanelCollapsed: collapsedSections },
+    );
   }
 
   type RefreshState = "idle" | "spinning" | "success" | "error";
@@ -162,19 +210,21 @@
 
   function openFiles() {
     if (!gitCwd) return;
-    session.panes.openFiles(panelTabId, panelEnvironment.cwd, panelEnvironment.checkout);
+    session.panes.openFiles(
+      panelTabId,
+      panelEnvironment.cwd,
+      panelEnvironment.checkout,
+    );
     requestInputFocus();
   }
 
-  function newTask() {
-    if (isUnconfiguredCwd(gitCwd)) return;
-    session.ui.openTaskComposer(gitCwd);
+  function newAutomation() {
+    session.openAutomationBuilder(null);
     requestInputFocus();
   }
-
 </script>
 
-{#snippet gitHeaderExtra()}
+{#snippet environmentHeaderExtra()}
   <span class="header-extra">
     <button
       class="tiny-icon"
@@ -205,18 +255,17 @@
   </span>
 {/snippet}
 
-{#snippet tasksHeaderExtra()}
+{#snippet automationsHeaderExtra()}
   <span class="header-extra">
     <Button
       variant="ghost"
       size="icon-xs"
       class="text-(--solus-text-tertiary)"
       type="button"
-      aria-label="New task"
-      disabled={isUnconfiguredCwd(gitCwd)}
+      aria-label="New automation"
       onclick={(e) => {
         e.stopPropagation();
-        newTask();
+        newAutomation();
       }}
     >
       <PlusIcon size={14} />
@@ -224,30 +273,14 @@
   </span>
 {/snippet}
 
-{#snippet panelHeaderActions()}
-  {#if isSplitScope}
-    <span
-      class="inline-flex h-4 items-center rounded-full bg-(--solus-surface-hover) px-1.5 text-[0.5625rem] font-semibold tracking-[0.04em] text-(--solus-text-tertiary) uppercase"
-      aria-label="Project panel scoped to split pane"
-    >
-      Split
-    </span>
-  {/if}
-{/snippet}
-
 <SidePanel
-  title={projectName() ?? "Project"}
   side="right"
   {open}
-  {managedWidth}
-  minWidth={240}
-  maxWidth={maxProjectPanelWidth}
-  onAction={onClose}
-  actionTooltip={`Close project panel (${comboHint("global.toggle-project-panel")})`}
-  actionAriaLabel="Close project panel"
-  headerActions={panelHeaderActions}
-  background="color-mix(in srgb, var(--solus-container-bg) 90%, color-mix(in srgb, var(--solus-input-pill-bg) 70%, var(--solus-surface-primary)) 10%)"
-  headerTopPadding="compact"
+  flush
+  width={projectRailWidth(containerWidth)}
+  minWidth={PROJECT_RAIL_MIN_WIDTH}
+  maxWidth={PROJECT_RAIL_MAX_WIDTH}
+  background="var(--solus-container-bg)"
 >
   <div
     bind:this={sectionsElement}
@@ -256,16 +289,38 @@
   >
     <PanelSection
       title="Environment"
-      collapsed={settings.projectPanelCollapsed.git}
-      onToggle={() => toggleSection("git")}
-      headerExtra={gitHeaderExtra}
+      collapsed={collapsedSections.environment}
+      onToggle={() => toggleSection("environment")}
+      headerExtra={environmentHeaderExtra}
     >
-      <GitSection tabId={panelTabId} active={open} onOpenFiles={openFiles} />
+      <EnvironmentSection
+        tabId={panelTabId}
+        active={open}
+        onOpenFiles={openFiles}
+      />
     </PanelSection>
+    {#if panelEnvironment.branch}
+      <PanelSection
+        title="Git"
+        collapsed={collapsedSections.git}
+        onToggle={() => toggleSection("git")}
+      >
+        <GitSection tabId={panelTabId} />
+      </PanelSection>
+    {/if}
+    <!-- The section exists only while a goal is set. It owns its own card
+         because the header controls share edit/confirm state with the body. -->
+    {#if panelSession?.goal}
+      <GoalSection
+        tabId={panelTabId}
+        collapsed={collapsedSections.goal}
+        onToggle={() => toggleSection("goal")}
+      />
+    {/if}
     {#if sessionWorkItems.length > 0}
       <PanelSection
         title="Works"
-        collapsed={settings.projectPanelCollapsed.works}
+        collapsed={collapsedSections.works}
         onToggle={() => toggleSection("works")}
       >
         <WorksSection items={sessionWorkItems} />
@@ -274,20 +329,14 @@
     {#if automationBoard.total > 0}
       <PanelSection
         title="Automations"
-        collapsed={settings.projectPanelCollapsed.automations}
+        headerDetail={automationBoard.summary}
+        collapsed={collapsedSections.automations}
         onToggle={() => toggleSection("automations")}
+        headerExtra={automationsHeaderExtra}
       >
         <AutomationsSection board={automationBoard} />
       </PanelSection>
     {/if}
-    <PanelSection
-      title="Tasks"
-      collapsed={settings.projectPanelCollapsed.tasks}
-      onToggle={() => toggleSection("tasks")}
-      headerExtra={tasksHeaderExtra}
-    >
-      <TasksSection cwd={gitCwd} active={open} />
-    </PanelSection>
   </div>
 </SidePanel>
 
@@ -295,11 +344,17 @@
   .project-sections {
     --project-icon-blue: oklch(0.62 0.18 252);
     --project-icon-green: oklch(0.65 0.16 148);
-    --project-icon-amber: oklch(0.74 0.17 75);
     display: flex;
     flex: 1;
     min-height: 0;
     flex-direction: column;
+    /* The rail is the same surface as the conversation view beside it — no tray,
+       no recess — so the section cards separate themselves with a hairline. The
+       even gutter still makes a collapsed section read as a gap, not a shorter
+       list. */
+    background: var(--solus-container-bg);
+    gap: 0.5rem;
+    padding: 0.5rem;
     overflow-y: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;

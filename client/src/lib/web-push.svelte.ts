@@ -1,5 +1,6 @@
 import { base64UrlToUint8Array } from "@client-core/push";
 import type { WebPushSubscriptionJSON } from "@shared/types";
+import { track } from "@renderer/lib/analytics";
 
 class WebPushState {
   supported = $state(false);
@@ -31,6 +32,7 @@ class WebPushState {
       } else {
         this.permission = Notification.permission;
       }
+      track('push_permission_result', { granted: this.permission === 'granted' });
       if (this.permission === "granted") await this.subscribe();
     } finally {
       this.busy = false;

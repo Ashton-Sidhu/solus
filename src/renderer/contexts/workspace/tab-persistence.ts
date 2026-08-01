@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, ModelConfig, SessionHandoffLineage, StartInfo } from '../../../shared/types'
+import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, StartInfo } from '../../../shared/types'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -67,16 +67,30 @@ function readStorageWithMigration(base: string): string | null {
 export interface PersistedTab {
   tabId: string
   title: string
+  /** Saved-server registry id used for routing. Missing in legacy snapshots means local. */
+  serverId?: string
+  /** Stable server identity used to recover from a changed registry id after re-pairing. */
+  serverInstallationId?: string
   agentSessionId: string | null
   provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
   workingDirectory: string
+  /** Stable sidebar grouping path for a checkout dispatched to another host. */
+  projectGroupPath?: string | null
   additionalDirs: string[]
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /** Missing in legacy snapshots and false for projects merely opened remotely. */
+  worktreeRequired?: boolean
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean
+  /** Provider history may omit the synthetic terminal error emitted live. */
+  terminalFailure?: { content: string; timestamp: number } | null
+  /** Neither provider's transcript carries token counts, so a resumed session
+   *  would report an empty window until its next turn. Kept here and refreshed
+   *  by the first usage report after resume. */
+  contextUsage?: ContextUsage | null
 }
 
 export interface PersistedTabs {

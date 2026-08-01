@@ -146,7 +146,7 @@
     "[outline:0.0625rem_solid_transparent] transition-[background-color] duration-120 hover:bg-(--solus-surface-hover) " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]";
   const ICON_BTN =
-    "grid size-7 place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) cursor-pointer " +
+    "grid size-7 place-items-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) cursor-pointer " +
     "transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-accent) " +
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)";
   const CRUMB_LINK =
@@ -170,7 +170,7 @@
     "w-full rounded-[0.625rem] px-2 -mx-2 bg-transparent border-0 [outline:0.0625rem_solid_transparent] " +
     "transition-[background-color,outline-color] duration-120";
   const DESC_TEXT =
-    "text-[0.8125rem] leading-[1.6] text-(--solus-text-secondary)";
+    "text-[0.8125rem] leading-[1.6] font-secondary text-(--solus-text-secondary)";
   // Make the description editor stretch to fill the page: the wrapper, the inner
   // editor div and the ProseMirror surface all flex-grow so the writing area (and
   // its click target) runs the full available height rather than a fixed cap.
@@ -484,7 +484,7 @@
         {#if canDelete}
           <button
             type="button"
-            class="grid size-7 place-items-center rounded-lg border-0 bg-transparent text-(--solus-text-secondary) cursor-pointer transition-colors duration-150 hover:bg-[#cf222e]/12 hover:text-[#cf222e] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#cf222e] [.dark_&]:hover:bg-[#f85149]/12 [.dark_&]:hover:text-[#f85149] [.dark_&]:focus-visible:outline-[#f85149]"
+            class="grid size-7 place-items-center rounded-lg border-0 bg-transparent font-secondary text-(--solus-text-secondary) cursor-pointer transition-colors duration-150 hover:bg-[#cf222e]/12 hover:text-[#cf222e] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#cf222e] [.dark_&]:hover:bg-[#f85149]/12 [.dark_&]:hover:text-[#f85149] [.dark_&]:focus-visible:outline-[#f85149]"
             onclick={() => onDelete(display)}
             aria-label="Delete task"
             title="Delete"
@@ -616,7 +616,7 @@
                       class={prStateColor(pr.state)}
                     />
                     <span
-                      class="truncate text-[0.75rem] text-(--solus-text-secondary)"
+                      class="truncate text-[0.75rem] font-secondary text-(--solus-text-secondary)"
                       >{pr.title}</span
                     >
                     <span
@@ -714,7 +714,7 @@
                       >
                     </div>
                     <div
-                      class="github-markdown prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] text-(--solus-text-secondary) [--solus-font-weight-body:400]"
+                      class="github-markdown prose-cloud mt-1.5 text-pretty text-[0.8125rem] leading-[1.55] font-secondary text-(--solus-text-secondary) [--solus-font-weight-body:400]"
                     >
                       <SvelteMarkdown
                         source={c.body}
@@ -899,7 +899,7 @@
                     class={GHOST_INPUT}
                   />
                 {:else if display.assignee}
-                  <span class="text-xs text-(--solus-text-secondary)"
+                  <span class="text-xs font-secondary text-(--solus-text-secondary)"
                     >@{display.assignee}</span
                   >
                 {:else}

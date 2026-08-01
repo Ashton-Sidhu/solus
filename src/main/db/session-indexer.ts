@@ -96,12 +96,16 @@ function deleteSessionFile(filePath: string): void {
   })
 }
 
-function resetSession(filePath: string, sessionId: string, size: number, mtime: number): void {
+/** Clear a file's message index so it re-reads from offset 0. The sessions row
+ *  is deliberately left alone: re-indexing upserts over it, and deleting it here
+ *  would race the model-config write from session_init that promptSession needs
+ *  to re-launch a non-resident session. De-listing a session is a separate
+ *  concern owned by deleteSessionFile and the sidechain branch of indexFile. */
+export function resetSession(filePath: string, sessionId: string, size: number, mtime: number): void {
   withTx(() => {
     const db = getDb()
     db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
-    db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId)
     db.prepare(`
       INSERT INTO session_files(path, provider, size, mtime, last_offset, indexed_at)
       VALUES (?, 'claude', ?, ?, 0, ?)
@@ -278,6 +282,13 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<vo
   if (activeGeneration !== generation) return
   if (!meta.validated || meta.isSidechain) {
     resetSession(filePath, sessionId, fileStat.size, mtime)
+    // De-list sidechain/unparseable files — but a session file mid-write can
+    // transiently fail head validation, so (like deleteSessionFile) never drop
+    // a row carrying the model config persisted at session_init.
+    getDb().prepare(`
+      DELETE FROM sessions
+      WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
+    `).run(sessionId)
     getDb().prepare(`
       UPDATE session_files
       SET last_offset = ?, indexed_at = ?
@@ -393,7 +404,7 @@ async function sweepAll(activeGeneration: number): Promise<void> {
     try {
       await indexFile(filePath, activeGeneration)
     } catch (error) {
-      log.warn(`Failed to index ${filePath}: ${error}`)
+      log.warn('session_index_file_failed', { filePath, error: error instanceof Error ? error.message : String(error) })
     }
     await yieldToMain()
   }
@@ -434,16 +445,16 @@ function scheduleSweep(filename: string | Buffer | null): void {
           (promise, filePath) => promise.then(() => indexFile(filePath, activeGeneration)),
           Promise.resolve(),
         ))
-    void sweepQueue.catch((error) => log.warn(`Session index sweep failed: ${error}`))
+    void sweepQueue.catch((error) => log.warn('session_index_sweep_failed', { error: error instanceof Error ? error.message : String(error) }))
   }, WATCH_DEBOUNCE_MS)
 }
 
 function installWatcher(): void {
   try {
     watcher = watch(PROJECTS_ROOT, { recursive: true }, (_event, filename) => scheduleSweep(filename))
-    watcher.on('error', (error) => log.warn(`Session index watcher failed: ${error}`))
+    watcher.on('error', (error) => log.warn('session_index_watcher_failed', { error: error instanceof Error ? error.message : String(error) }))
   } catch (error: any) {
-    if (error?.code !== 'ENOENT') log.warn(`Unable to watch Claude sessions: ${error}`)
+    if (error?.code !== 'ENOENT') log.warn('session_index_watch_unavailable', { error: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -452,7 +463,7 @@ export function startSessionIndexer(): void {
   const activeGeneration = generation
   ready = false
   void sweepAll(activeGeneration)
-    .catch((error) => log.warn(`Initial session index sweep failed: ${error}`))
+    .catch((error) => log.warn('session_index_initial_sweep_failed', { error: error instanceof Error ? error.message : String(error) }))
     .finally(() => {
       if (activeGeneration !== generation) return
       ready = true

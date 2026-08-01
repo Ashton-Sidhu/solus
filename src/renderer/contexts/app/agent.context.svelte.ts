@@ -1,5 +1,5 @@
 import { createContext } from 'svelte'
-import type { AgentMetadata } from '../../../shared/types'
+import type { AgentMetadata, AgentUsageLimits } from '../../../shared/types'
 import type { SettingsContext } from './settings.context.svelte'
 
 /**
@@ -8,6 +8,9 @@ import type { SettingsContext } from './settings.context.svelte'
  */
 export class AgentContext {
   agents = $state<AgentMetadata[]>([])
+  /** Subscription quota per provider, keyed by `AgentId`. Providers that don't
+   *  report quota are simply absent. */
+  usage = $state<Record<string, AgentUsageLimits>>({})
   metadata: Record<string, AgentMetadata | null> = $derived(
     Object.fromEntries(this.agents.map((meta) => [meta.id, meta])),
   )
@@ -24,6 +27,18 @@ export class AgentContext {
 
   hydrate(agents: AgentMetadata[]): void {
     this.agents = agents
+  }
+
+  applyUsage(snapshots: AgentUsageLimits[]): void {
+    // Per-key assign, not an object spread: a new record reference would
+    // invalidate every reader on each 5-minute poll.
+    for (const snapshot of snapshots) this.usage[snapshot.provider] = snapshot
+  }
+
+  /** Also tells the backend someone is watching — its poll self-suspends when
+   *  nobody asks for a while. */
+  async refreshUsage(): Promise<void> {
+    this.applyUsage(await window.solus.usageLimits())
   }
 }
 

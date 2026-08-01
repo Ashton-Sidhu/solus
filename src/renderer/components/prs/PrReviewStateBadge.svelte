@@ -16,7 +16,7 @@
   // flexible login, and a shrinkable badge collapses its own label instead of
   // letting the login truncate.
   const base =
-    "inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pr-1.5 pl-1 text-[0.625rem] font-medium leading-none whitespace-nowrap";
+    "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap";
 </script>
 
 {#if state === "APPROVED"}
@@ -30,17 +30,17 @@
     Changes
   </span>
 {:else if state === "COMMENTED"}
-  <span class="{base} text-(--solus-text-tertiary) bg-(--solus-art-raised)">
+  <span class="{base} text-muted-foreground bg-muted">
     <ChatCircleIcon size={10} weight="fill" />
     Commented
   </span>
 {:else if state === "DISMISSED"}
-  <span class="{base} text-(--solus-text-tertiary) bg-(--solus-art-raised)">
+  <span class="{base} text-muted-foreground bg-muted">
     <MinusCircleIcon size={10} weight="fill" />
     Dismissed
   </span>
 {:else}
-  <span class="{base} px-1.5 text-(--solus-text-tertiary) bg-(--solus-art-raised)">
+  <span class="{base} text-muted-foreground bg-muted">
     Pending
   </span>
 {/if}

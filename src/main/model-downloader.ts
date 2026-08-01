@@ -22,6 +22,7 @@ const MODEL_FILES = [
   { name: 'vocab.txt', sha256: 'd58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d' },
 ] as const
 
+// Intentionally global: this large, content-addressed, checksum-verified cache is shared across isolated runs.
 export const PARAKEET_MODEL_DIR = join(homedir(), '.solus', 'models', MODEL_NAME)
 
 let installPromise: Promise<string> | null = null
@@ -102,6 +103,7 @@ async function downloadAndInstall(): Promise<string> {
     return PARAKEET_MODEL_DIR
   }
 
+  // Keep temporary downloads beside the shared global model cache.
   const modelsDir = join(homedir(), '.solus', 'models')
   const tempDir = join(modelsDir, `.${MODEL_NAME}-${randomUUID()}`)
   await mkdir(tempDir, { recursive: true })
@@ -110,7 +112,7 @@ async function downloadAndInstall(): Promise<string> {
     aggregateReceivedBytes = 0
     aggregateTotalBytes = 0
     setStatus({ state: 'downloading', receivedBytes: 0, totalBytes: 0 }, { immediate: true })
-    log.info(`Downloading ${MODEL_NAME} ${MODEL_VERSION}`)
+    log.info('model_download_started', { model: MODEL_NAME, version: MODEL_VERSION })
     for (const file of MODEL_FILES) {
       await downloadFile(`${MODEL_BASE_URL}/${file.name}`, join(tempDir, file.name), file.sha256)
     }
@@ -118,7 +120,7 @@ async function downloadAndInstall(): Promise<string> {
     await writeFile(join(tempDir, INSTALL_MARKER), MODEL_VERSION, 'utf8')
     await rm(PARAKEET_MODEL_DIR, { recursive: true, force: true })
     await rename(tempDir, PARAKEET_MODEL_DIR)
-    log.info(`Installed ${MODEL_NAME} ${MODEL_VERSION}`)
+    log.info('model_installed', { model: MODEL_NAME, version: MODEL_VERSION })
     setStatus({ state: 'ready' }, { immediate: true })
     return PARAKEET_MODEL_DIR
   } catch (err) {

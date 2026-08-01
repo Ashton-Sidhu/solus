@@ -238,9 +238,9 @@ test.describe('Session status transitions', () => {
     await card.waitFor({ state: 'visible', timeout: 8000 })
 
     // Then: queue, send now, and stop buttons are visible
-    await expect(card.getByText('Queue it')).toBeVisible()
+    await expect(card.getByText('Queue until reset')).toBeVisible()
     await expect(card.getByText('Send now')).toBeVisible()
-    await expect(card.getByText('Stop')).toBeVisible()
+    await expect(card.getByText('Stop & discard')).toBeVisible()
   })
 
   test('rate limited session recovers when the user sends queued work now', async ({ page }) => {

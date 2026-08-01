@@ -58,6 +58,7 @@ interface SessionEnvironmentWorkspace {
   settings: { worktreeEnabled: boolean }
   sessionFor(tabId: string): Session | undefined
   ctxFor(tabId: string): IpcContext
+  apiFor?(tabId: string): typeof window.solus
 }
 
 export type EnvironmentKind = 'workspace' | 'branch' | 'worktree'
@@ -76,14 +77,14 @@ export interface SessionEnvironment {
   status: GitState | null | undefined
 }
 
-export function environmentProjectKey(environment: SessionEnvironment): string {
-  return environment.repoRoot ?? environment.cwd ?? '~'
+export function environmentProjectKey(environment: SessionEnvironment, projectGroupPath?: string | null): string {
+  return projectGroupPath ?? environment.repoRoot ?? environment.cwd ?? '~'
 }
 
-export function environmentBranchKey(environment: SessionEnvironment): string {
+export function environmentBranchKey(environment: SessionEnvironment, projectGroupPath?: string | null): string {
   const branch = environment.branch ?? 'no branch'
   const worktreeSuffix = environment.isolated ? ' (worktree)' : ''
-  return `${environmentProjectKey(environment)}::${branch}${worktreeSuffix}`
+  return `${environmentProjectKey(environment, projectGroupPath)}::${branch}${worktreeSuffix}`
 }
 
 const WORKSPACE_NAME = 'Workspace'
@@ -102,9 +103,18 @@ export class SessionEnvironmentStore {
   private detailWatchers = new Map<string, number>()
   private detailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private versions = new Map<string, number>()
+  private apiByCwd = new Map<string, typeof window.solus>()
 
   bindWorkspace(workspace: SessionEnvironmentWorkspace): void {
     this.workspace = workspace
+  }
+
+  bindCwd(cwd: string | null | undefined, api: typeof window.solus): void {
+    if (cwd && cwd !== '~') this.apiByCwd.set(cwd, api)
+  }
+
+  private apiForCwd(cwd: string): typeof window.solus {
+    return this.apiByCwd.get(cwd) ?? window.solus
   }
 
   /** One projection for every surface that displays a session's environment. */
@@ -171,6 +181,8 @@ export class SessionEnvironmentStore {
       ?? workspace.globalDefaults.workingDirectory
     const level = opts.level ?? 'status'
     if (!cwd || cwd === '~') return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
+    const api = session ? (workspace.apiFor?.(tabId) ?? window.solus) : window.solus
+    this.bindCwd(cwd, api)
 
     const worktreePath = session?.gitContext?.worktreePath
     const worktreeRequested = opts.worktreeRequested
@@ -185,7 +197,7 @@ export class SessionEnvironmentStore {
       ? session.gitContext === null
       : workspace.tabOrder.length === 0 && !workspace.globalDefaults.gitContext
     if (coldTarget && this.statusFor(cwd) === undefined) {
-      const identity = await window.solus.gitIdentity(cwd).catch(() => null)
+      const identity = await api.gitIdentity(cwd).catch(() => null)
       const current = workspace.sessionFor(tabId)
       const currentCwd = current?.gitContext?.worktreePath ?? current?.workingDirectory
       const stale = session
@@ -230,7 +242,7 @@ export class SessionEnvironmentStore {
       session.worktreeBaseBranch = worktreeBaseBranch
       let registrationError: string | undefined
       try {
-        await window.solus.gitRegisterEnvironment(
+        await api.gitRegisterEnvironment(
           $state.snapshot(workspace.ctxFor(tabId)),
           cwd,
           $state.snapshot(gitContext),
@@ -326,7 +338,7 @@ export class SessionEnvironmentStore {
       return this.refreshStatus(cwd, opts)
     }
     const version = this.versions.get(cwd) ?? 0
-    const promise = window.solus.gitRefreshState(cwd, includeDetails
+    const promise = this.apiForCwd(cwd).gitRefreshState(cwd, includeDetails
       ? { includeDetails: true, bypassCache: opts.bypassCache === true }
       : undefined)
       .then((status): GitFacetOutcome => {
@@ -447,9 +459,11 @@ export class SessionEnvironmentStore {
       await existing
       return this.refreshRefsOutcome(projectRoot, ctx, opts)
     }
+    const api = this.workspace?.apiFor?.(ctx.session.tabId) ?? window.solus
+    this.bindCwd(projectRoot, api)
     const promise = Promise.allSettled([
-      window.solus.worktreeListProject($state.snapshot(ctx)),
-      window.solus.worktreeBranches($state.snapshot(ctx)),
+      api.worktreeListProject($state.snapshot(ctx)),
+      api.worktreeBranches($state.snapshot(ctx)),
     ])
       .then(([worktreesResult, branchesResult]): GitFacetOutcome => {
         const previous = this.refsFor(projectRoot)

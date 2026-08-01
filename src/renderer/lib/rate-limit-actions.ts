@@ -4,23 +4,23 @@ function makeErrorStub(message: string): EnrichedError {
   return { message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 }
 }
 
-function dispatch(ctx: IpcContext, action: RateLimitDecisionAction, onError: (err: EnrichedError) => void): Promise<boolean> {
-  return window.solus.rateLimitDecision(ctx, action).catch((err: Error) => {
+function dispatch(api: typeof window.solus, ctx: IpcContext, action: RateLimitDecisionAction, onError: (err: EnrichedError) => void): Promise<boolean> {
+  return api.rateLimitDecision(ctx, action).catch((err: Error) => {
     onError(makeErrorStub(err.message))
     return false
   })
 }
 
-export function sendRateLimitedNow(ctx: IpcContext, rateLimited: boolean, onError: (err: EnrichedError) => void): Promise<boolean> {
+export function sendRateLimitedNow(api: typeof window.solus, ctx: IpcContext, rateLimited: boolean, onError: (err: EnrichedError) => void): Promise<boolean> {
   if (!rateLimited) return Promise.resolve(false)
-  return dispatch(ctx, 'send_now', onError)
+  return dispatch(api, ctx, 'send_now', onError)
 }
 
-export function cancelRateLimitedMessages(ctx: IpcContext, onError: (err: EnrichedError) => void): void {
-  dispatch(ctx, 'stop', onError)
+export function cancelRateLimitedMessages(api: typeof window.solus, ctx: IpcContext, onError: (err: EnrichedError) => void): void {
+  dispatch(api, ctx, 'stop', onError)
 }
 
-export function queueRateLimitedWait(ctx: IpcContext, rateLimited: boolean, onError: (err: EnrichedError) => void): Promise<boolean> {
+export function queueRateLimitedWait(api: typeof window.solus, ctx: IpcContext, rateLimited: boolean, onError: (err: EnrichedError) => void): Promise<boolean> {
   if (!rateLimited) return Promise.resolve(false)
-  return dispatch(ctx, 'wait', onError)
+  return dispatch(api, ctx, 'wait', onError)
 }

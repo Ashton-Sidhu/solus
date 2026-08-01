@@ -45,7 +45,7 @@ Already built — do not rebuild:
   IP via `tailscale status --json` (:60).
 - **Connections surface**: `src/main/server/handlers/connections-handlers.ts`
   (`connectionsGetServerInfo`, `connectionsListEndpoints`, `connectionsGeneratePairToken`,
-  `connectionsListSessions`, `connectionsRevokeDevice`) + renderer
+  `connectionsListSessions`, `connectionsBootstrapDiscoveredServer`, `connectionsRevokeDevice`) + renderer
   `connections.store.svelte.ts` + `ConnectionsPanel.svelte` (pair link format
   `http://host:port/pair#token=…`, :35).
 - **Multi-client session observation works**: control plane fans events to every tab with a
@@ -308,10 +308,15 @@ Electron coupling in server-path code is exactly:
   (`tailscale status --json` — desktop Electron only; the main process runs it via an RPC on the
   *local* server) and mDNS later (defer mDNS — Tailscale first). For each peer, `GET /health`
   with short timeout; surface `claimable` servers.
-- Renderer: toast/card "New Solus server found: <name>. Claim it?" → claim flow (enter the
-  terminal code) → added to server registry. Follow existing toast store pattern.
+- Renderer: toast/card "New Solus server found: <name>. Connect?" → resolve a likely SSH target
+  from local SSH config/known hosts → run batch-mode SSH first → if SSH needs a password or key
+  passphrase, prompt locally and retry through `SSH_ASKPASS` → mint a scoped Solus session
+  credential with `solus auth session create --json` on the remote host and save it in the server
+  registry. Keep the one-time code as a fallback only for web/mobile or non-SSH environments.
+  Discovery packets never carry an authorization secret.
 - Acceptance: fresh `--headless` instance on a tailnet machine appears in the desktop app within
-  ~30s of boot; claim completes without typing a URL.
+  ~30s of boot; connect completes without typing a URL or Solus code when SSH keys/agent work;
+  password/passphrase auth uses only the local Solus prompt.
 
 ### D7. First-run setup checklist (server home)
 - New feature folder `src/renderer/components/server-setup/` + colocated store; shown for a
@@ -330,12 +335,158 @@ Electron coupling in server-path code is exactly:
 - Checklist disappears once all capabilities are green; steps are re-runnable from settings.
 - Acceptance: from a bare Linux container with only the tarball: claim → checklist → install
   claude → sign in → clone repo → run first session, all without SSH.
+- **Superseded.** The standalone checklist was never mounted and has been deleted
+  (`src/renderer/components/server-setup/**`). Its intent now lives in the *New project on a host*
+  flow: the readiness rail in `servers/NewProjectDialog.svelte` probes git, commit identity, GitHub
+  and the agent CLI on the **selected** host and repairs each in place, and the same dialog owns
+  repo listing and cloning. The gap is fixed where the user hits it — while starting work on that
+  host — rather than as a one-time gate on a server home the user may never open.
 
 ### D8. "Take it with you" QR handoff
 - Connections panel (`ConnectionsPanel.svelte`): render the existing pair link as a QR (small
   QR-SVG lib or canvas; keep it dependency-light). Shown at the end of the D7 checklist and
   permanently in Connections.
 - Acceptance: phone scans → web client pairing completes.
+
+---
+
+## Workstream G — Dispatch & host onboarding UX
+
+Vocabulary is locked in `CONTEXT.md` (host, Solus server, host readiness, host onboarding, base
+checkout, session worktree, dispatch). Use those words in UI copy — no "server"/"machine"/"remote"
+synonyms in anything user-facing.
+
+### G0. Host-affinity iconography (codify what already exists)
+
+`DesktopTowerIcon` = the host you're working on. `GlobeSimpleIcon` = any other host. Already used
+consistently in `ServerSwitcher.svelte:128`, `RunOnPicker.svelte:221/310`, `HostDirectory.svelte`,
+`TabStrip.svelte:396`. Two rules that fall out of it:
+
+- **Quiet by default.** Local is the unmarked case — no badge, no chip. `TabStrip` gets this right
+  (`{#if remoteServer}`, :384): a local session is visually unchanged, a dispatched one earns a
+  globe. Do not add a desktop-tower badge to local sessions "for symmetry"; it doubles the
+  chrome for the majority case and buys nothing.
+- **The globe carries liveness — in the glyph, not beside it.** The whole question a user has
+  about a dispatched session is "is that machine still there", so the badge has to answer it. But
+  **no status dots**: a dot is a second element competing for a 12px slot, and it marks all three
+  states with equal weight when only one of them is worth interrupting for. Express state through
+  the glyph itself:
+
+  | Host state | Glyph |
+  |---|---|
+  | Online | `GlobeSimpleIcon`, `--solus-text-tertiary` — the unmarked, expected case |
+  | Connecting | same glyph, `animate-pulse`, `--solus-accent` |
+  | Offline | `CloudSlashIcon`, `--solus-status-error` — a different glyph, so it reads at a glance without relying on colour alone |
+
+  Colour never carries the meaning by itself (the offline state changes shape too), which keeps it
+  legible in both themes and for colour-vision deficiency. `TabStrip.svelte:392` currently renders
+  a ringed dot — replace it with this.
+
+  `HostDirectory.svelte` has the same dot (`dotClass`, :29) sitting next to a `statusLabel` that
+  already says "Online" / "Offline" in words. Drop the dot there rather than restyling it: a row
+  with room for text doesn't need a glyph repeating the text.
+
+### G1. Surfaces missing host affinity
+
+| Surface | Today | Needed |
+|---|---|---|
+| `TabStrip.svelte` | ⚠️ globe + `Runs on <host>` tooltip, but liveness is a ringed dot (:392) | swap the dot for the G0 glyph states; then it's the reference implementation |
+| `NewTabHome.svelte` | ✅ "on \<host\>" switcher button (:421) | — |
+| `SessionSidebar.svelte` | ❌ **nothing** | Session history mixes hosts with no way to tell them apart. Needs the globe badge per row, same shape as TabStrip. |
+| Recent projects (`NewTabHome`, :87) | ❌ **nothing** | The same repo checked out on two hosts renders as two identical rows. Needs the host on the row, and dedupe/grouping by `repoKey`. |
+| `StatusBarControls.svelte` | ❌ nothing | The active host belongs here — it's the ambient "where am I" indicator. |
+| `GitSection.svelte` / project panel | ❌ nothing | A dispatched session's branch lives on another machine; the git surface should say which. |
+
+### G2. Host onboarding surface
+
+- Runs after a successful claim (`ClaimServerModal.svelte`), **always skippable** — never a gate.
+- Resumable from a **Set up** action on the host's row in `HostDirectory.svelte`, which today has no
+  such affordance. The row should show readiness at a glance (ready / needs setup) so the action
+  isn't hidden behind a click.
+- The rail contains only authentication choices: **GitHub** → credential helper → `gh auth` →
+  add providers. Adding Claude Code or Codex installs it when missing and authenticates it in the
+  same action.
+  The helper and `gh` steps `execFileSync` the stored token and throw outright without it
+  (`setup-handlers.ts:311/325`), so GitHub cannot float later in the list.
+- Credential-helper and `gh` wiring are non-interactive: **run them and report**, don't ask. Host
+  naming comes from claim, clone location has a host-local fallback, and git/commit identity are
+  repaired contextually when first needed.
+- **Agent sign-in card** (new): spawn the agent CLI's device flow server-side, scrape the URL +
+  code off stdout, render as a click-to-open card. Same `runSetupProcess` + `setup-log` streaming
+  the install steps already use. This is the one step with no RPC today.
+
+### G3. Dispatch feedback
+
+Dispatch is optimistic — no pre-flight probe — so the status card is the whole safety net.
+Extend `buildWorktreeCard` (`control-plane.ts:1525`) with a clone step:
+
+```
+Cloning <repo> → Creating branch & worktree → Linking workspace → Starting agent session
+```
+
+Failure surfaces, each an actionable card rather than a git error:
+
+- **Clone failed (auth)** → "«host» can't read this repo yet · Set up" → opens the readiness rail
+  with the GitHub step focused. Cheap failure: seconds, no tokens spent.
+- **Destination occupied** — `assertEmptyDestination` throws when the host already has a folder at
+  `projectsRoot/<repo>` that Solus never registered → offer **"«host» already has a folder here —
+  use it?"**, which `recordProject`s it and continues.
+- **Anonymous clone succeeded** → non-blocking note: "«host» can read this repo but can't push
+  yet · Set up". This is the one failure that would otherwise surface 25 minutes late, at PR time.
+- **Push/PR failed** → same rail, `gh auth` step focused.
+
+### G4. Dispatch availability
+
+- A project with **no git remote** must not offer other hosts in `RunOnPicker` — it is reachable
+  only by opening a folder on that host, or by switching to it. Show the constraint, don't hide the
+  picker.
+- Guard it in `retargetSessionHost` (`run-on.ts:42`) too, not just the UI: it currently does
+  `if (path) session.workingDirectory = path`, so a dispatch with no resolvable remote path
+  silently keeps the *local* directory and starts the session in a path that doesn't exist on the
+  target.
+- A **non-GitHub remote** (GitLab, self-hosted) is dispatchable only over SSH —
+  `git-credential.ts` serves `github.com` only — so the HTTPS fallback has no credential to offer.
+  Don't promise more than that in copy.
+
+### G5. Standing rules (CLAUDE.md)
+
+Every surface above: dark + light, keyboard navigable, refocus the active input after any action,
+Tailwind v4 utilities, no logic in `.svelte` (host-affinity helpers go in a colocated `lib/`).
+
+### G6. Parallelisation
+
+Decisions are recorded in [ADR-0001](../adr/0001-https-token-provisioning-ssh-first-cloning.md)
+and [ADR-0002](../adr/0002-dispatch-carries-the-repository-not-your-working-tree.md).
+
+**What actually constrains parallelism is file ownership, not logical dependency.**
+`setup-handlers.ts` (613 lines) and `control-plane.ts` are each single-writer — three agents
+editing `setup-handlers.ts` concurrently will conflict no matter how independent their tasks read
+on paper. Lanes are drawn around files first, features second.
+
+**Prerequisite, not parallelisable:** agree the RPC names and payloads up front — `HostReadiness`
+gaining an `agent` field, and the agent sign-in RPC. Both lanes A and the wave-2 UI encode them.
+Fan out only after those signatures are written down.
+
+#### Wave 1 — four lanes, fully parallel
+
+| Lane | Owns | Work (sequential within the lane) |
+|---|---|---|
+| **A** | `setup-handlers.ts`, `shared/rpc.ts`, `shared/types.ts` | SSH-first clone attempt + `BatchMode`/`StrictHostKeyChecking`/`ConnectTimeout` flags (ADR-0001); agent sign-in RPC streaming the CLI device flow over `setup-log`; fold agent installed/signed-in into `HostReadiness` |
+| **B** | `control-plane.ts` | Dispatch orchestration: clone-when-missing, then `createWorktree` with no `baseBranch`; extend `buildWorktreeCard` with the clone step |
+| **C** | `components/servers/lib/`, `TabStrip.svelte`, `HostDirectory.svelte` | G0 glyph states as a shared helper, then apply to both existing dot sites |
+| **D** | `run-on.ts`, `RunOnPicker.svelte` | Guard dispatch when no remote resolves (ADR-0002); reflect availability in the picker |
+
+Lane C's helper is the only shared artefact in wave 1 — land it first within the lane, then
+**C-2, C-3, C-4 fan out to three agents in parallel**, one file each and no overlap:
+`SessionSidebar.svelte`, recent-projects rows in `NewTabHome.svelte`, `StatusBarControls.svelte`.
+
+#### Wave 2 — needs wave 1's RPCs and card steps
+
+- **Host onboarding surface** + the Set-up affordance on the host row — needs lane A.
+- **Dispatch failure cards** (clone auth, occupied destination, anonymous-clone warning, push
+  failure) — needs lanes A and B.
+
+These two are independent of each other and parallelisable with one another.
 
 ---
 

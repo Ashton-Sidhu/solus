@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { tool } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../logger'
+import type { AgentTool } from '../agents/tools/agent-tool'
 
 const log = createLogger('folio', 'artifact-tools.ts')
 
@@ -14,10 +14,8 @@ const log = createLogger('folio', 'artifact-tools.ts')
  * ImageGeneration tool, normalized into the same `artifact_created` event and
  * rendered by the shared ArtifactView.
  *
- * Exports the same three shapes as work-tools.ts (SDK `tool(...)`, a Codex
- * JSON-schema descriptor, and a plain executor) so both backends + the mock can
- * drive it. The executor returns error TEXT (never throws), matching
- * `executeWorkTool`, so a bad call degrades to a message the agent recovers from.
+ * The executor returns error text rather than throwing so a bad call degrades
+ * to a message the agent can recover from.
  */
 
 export interface ArtifactPayload {
@@ -57,27 +55,21 @@ export async function executeArtifactTool(
     deps.onArtifact?.({ html })
     return { ok: true, text: 'Rendered the HTML artifact in the conversation.' }
   } catch (err: any) {
-    log.error(`executeArtifactTool failed: ${String(err)}`)
+    log.error('artifact_tool_failed', { error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `render_artifact error: ${String(err?.message ?? err)}` }
   }
 }
 
-// ─── Shape 1: Claude SDK tool (registered on the shared solus MCP server) ───
-
-export function artifactTool(deps: ArtifactToolDeps) {
-  return tool(ARTIFACT_TOOL_NAME, ARTIFACT_TOOL_DESC, artifactShape, async (args) => {
-    const r = await executeArtifactTool(args as Record<string, unknown>, deps)
-    return {
-      content: [{ type: 'text' as const, text: r.text }],
-      ...(r.ok ? {} : { isError: true as const }),
-    }
-  })
-}
-
-// ─── Shape 2: Codex dynamicTools JSON-schema descriptor ───
-
-export const ARTIFACT_TOOL_JSON_SCHEMA = {
+export const renderArtifactAgentTool: AgentTool = {
   name: ARTIFACT_TOOL_NAME,
   description: ARTIFACT_TOOL_DESC,
-  inputSchema: z.toJSONSchema(z.object(artifactShape)) as Record<string, unknown>,
+  inputShape: artifactShape,
+  requiresApproval: false,
+  execute: async (args, context) => executeArtifactTool(args, {
+    onArtifact: (artifact) => context.emit({
+      type: 'artifact_created',
+      kind: 'html',
+      html: artifact.html,
+    }),
+  }),
 }

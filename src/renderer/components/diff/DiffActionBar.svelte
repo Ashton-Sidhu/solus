@@ -3,10 +3,12 @@
   import { ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import { getWorkspaceContext, getStatusBarContext } from "../../contexts";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import type { DiffComment } from "../../../shared/types";
 
   interface Props {
+    /** Tab that owns the queued comments and receives current-session feedback. */
+    tabId?: string;
     /** Currently-viewed file — used for "Send to new session" context. */
     filePath?: string | null;
     /** Raw diff for the current scope. */
@@ -27,6 +29,7 @@
   }
 
   let {
+    tabId,
     filePath = null,
     diffText = "",
     branchContext,
@@ -39,14 +42,16 @@
 
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
-  const tab = $derived(session.tabs[session.activeTabId]);
-  const sess = $derived(session.sessionFor(session.activeTabId));
+  const targetTabId = $derived(tabId ?? session.activeTabId);
+  const tab = $derived(session.tabs[targetTabId]);
+  const sess = $derived(session.sessionFor(targetTabId));
   const diffComments = $derived<DiffComment[]>(tab?.diffComments ?? []);
   const generalComment = $derived(tab?.diffGeneralComment ?? "");
 
   let submitting = $state(false);
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null);
   let useWorktree = $state(false);
+  let collapsed = $state(true);
 
   // The "send to new session" path spins up a fresh session, so an isolated
   // worktree is meaningful — offer it whenever the source is a real repo that
@@ -58,6 +63,12 @@
   const inlineCount = $derived(
     diffComments.length + (pendingInlineDraft ? 1 : 0),
   );
+  let previousInlineCount = 0;
+  $effect(() => {
+    const count = inlineCount;
+    if (count > previousInlineCount) collapsed = false;
+    previousInlineCount = count;
+  });
   // A typed-but-unsaved inline comment (pendingInlineDraft) counts: beforeSend
   // commits it before the send fires, so the queued comments alone can submit
   // with nothing in the text input.
@@ -77,7 +88,7 @@
 
   /** Composer picks that differ from the session's effective config. */
   function changedConfig(payload: PromptComposerSubmit) {
-    const current = statusBar.ctxFor(session.activeTabId);
+    const current = statusBar.ctxFor(targetTabId);
     const providerChanged = payload.provider !== current.activeAgent;
     const modelChanged = payload.modelId !== (current.model || null);
     const effortChanged = payload.reasoningEffort !== current.reasoningEffort;
@@ -95,13 +106,16 @@
     beforeSend?.();
     submitting = true;
     if (changedConfig(payload).changed) {
-      session.updateModelConfig({
-        modelId: payload.modelId,
-        reasoningEffort: payload.reasoningEffort,
-      });
+      session.updateModelConfig(
+        {
+          modelId: payload.modelId,
+          reasoningEffort: payload.reasoningEffort,
+        },
+        targetTabId,
+      );
     }
     applyRefs(payload);
-    const sent = session.submitDiffFeedback(payload.text);
+    const sent = session.submitDiffFeedback(payload.text, targetTabId);
     submitting = false;
     if (sent) {
       composerRef?.clear();
@@ -125,6 +139,7 @@
         ? { modelId: payload.modelId, reasoningEffort: payload.reasoningEffort }
         : undefined,
       useWorktree: useWorktree || undefined,
+      sourceTabId: targetTabId,
     });
     submitting = false;
     if (sent) {
@@ -142,14 +157,19 @@
   }
 </script>
 
-<div class="px-3 pt-2 pb-3" style="background:var(--solus-container-bg)">
+<div
+  class={collapsed
+    ? "absolute bottom-2.5 left-4 z-20"
+    : "shrink-0 px-4 pt-2.5 pb-2.5"}
+  style:background={collapsed ? "transparent" : "var(--solus-container-bg)"}
+>
   <PromptComposer
     bind:this={composerRef}
-    bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v)}
-    tabId={session.activeTabId}
+    bind:value={() => generalComment, (v) => session.setDiffGeneralComment(v, targetTabId)}
+    bind:collapsed
+    tabId={targetTabId}
     workingDirectory={sess?.workingDirectory}
     canSubmitWhenEmpty={inlineCount > 0}
-    allowAgentSwitch={workingTree}
     showWorktree={showWorktree}
     bind:useWorktree
     onKeyDown={handleKeyDown}
@@ -159,19 +179,28 @@
   >
     {#snippet trailing()}
       {#if inlineCount > 0}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={() => onShowComments?.()}
           class="comments-chip"
           aria-label={`View ${inlineCount} queued comment${inlineCount === 1 ? "" : "s"}`}
-          use:tooltip={"View queued comments"}
         >
           <ChatCircleTextIcon size={10} weight="fill" />
           <span class="tabular-nums">{inlineCount}</span>
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"View queued comments"} />
+        </TooltipUI.Root>
       {/if}
       {#if canSubmit && !workingTree}
-        <button
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
           type="button"
           onclick={() => {
             const payload = composerRef?.payload();
@@ -180,12 +209,15 @@
           disabled={submitting}
           aria-label="Send to new session"
           class="split-btn relative flex size-6 items-center justify-center rounded-full cursor-pointer"
-          use:tooltip={"Send to new session · ⌘⇧↵"}
           transition:fly={{ x: 4, duration: 120 }}
         >
           <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
           <ArrowsSplitIcon size={12} weight="bold" />
         </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Send to new session · ⌘⇧↵"} />
+        </TooltipUI.Root>
       {/if}
     {/snippet}
   </PromptComposer>

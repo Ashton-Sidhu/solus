@@ -1,16 +1,10 @@
-import type { AgentId } from '../../../shared/types'
+import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session } from '../../../shared/types'
+import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makeInputState, makeSession, makeTab } from './session.factories'
-import { buildHandoffDividerMessage, loadSessionTranscript } from './session-transcript'
-import { hasConversation, progressFromMessages } from './session.utils'
+import { loadSessionTranscript } from './session-transcript'
+import { applyRuntimeConfig, hasConversation, nextMsgId, progressFromMessages } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
-
-/**
- * How many recent messages to hydrate per tab on startup. Older messages stay on
- * disk and are pulled in on demand when the user scrolls to the top. Matches the
- * conversation's initial render cap so the windowed load fills the first screen.
- */
-const HISTORY_WINDOW = 100
 
 interface DeferredHydrationState {
   pending: Map<string, PersistedTab>
@@ -25,6 +19,19 @@ const deferredHydrations = new WeakMap<WorkspaceContext, DeferredHydrationState>
 const materializations = new WeakMap<WorkspaceContext, { snapshot: PersistedTabs | null }>()
 /** Guards the async attach step against a re-running boot effect. */
 const attached = new WeakSet<WorkspaceContext>()
+
+/** History hydration replaces the provider transcript wholesale. Preserve a
+ * configuration divider added while a restored tab was still loading: it is
+ * renderer state newer than the transcript request and would otherwise disappear. */
+export function replaceHydratedMessages(session: Pick<Session, 'messages'>, hydrated: Message[]): void {
+  const hydratedIds = new Set(hydrated.map((message) => message.id))
+  const pendingConfigurationChanges = session.messages.filter(
+    (message) =>
+      message.agentChangedTo &&
+      !hydratedIds.has(message.id),
+  )
+  session.messages.splice(0, session.messages.length, ...hydrated, ...pendingConfigurationChanges)
+}
 
 function scheduleIdle(callback: () => void): void {
   if ('requestIdleCallback' in window) {
@@ -124,34 +131,34 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
  * Re-register tabs with the server and re-bind any alive sessions without
  * clearing client state. Used by the network-gap recovery path.
  */
-export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
+export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): Promise<void> {
   ctx.runtimeSyncing = true
-  // Clear in-flight streaming state so replayed text doesn't double-append.
   try {
-    ctx.streaming.text = {}
-    ctx.turnSnapshots = {}
-
-    const tabIds = [...ctx.tabOrder]
+    const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.serverId === serverId)
+    // Clear only the affected host's in-flight state so replayed text doesn't
+    // double-append without churning healthy tabs on other connections.
+    for (const tabId of tabIds) {
+      if (typeof ctx.clearStreamingText === 'function') ctx.clearStreamingText(tabId)
+      else delete ctx.streaming.text[tabId]
+      delete ctx.turnSnapshots[tabId]
+    }
     await Promise.all(tabIds.map(async (tabId) => {
       const tab = ctx.tabs[tabId]
       const session = tab ? ctx.sessions[tab.sessionId] : undefined
       if (!tab || !session) return
 
       // Re-register with the server so event routing is alive again.
-      await window.solus.createTab(tabId).catch(() => null)
+      const api = ctx.apiFor?.(tabId) ?? window.solus
+      await api.createTab(tabId).catch(() => null)
 
       // Same as hydrateTab: Git doesn't depend on the bind below, so don't queue
       // it behind one. Registration needs the createTab above, hence not earlier.
       const environmentRefresh = ctx.environment.refreshTab(ctx, { tabId, level: 'status' }).catch(() => null)
 
       if (session.agentSessionId) {
-        const info = await window.solus.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
+        const info = await api.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
         if (info && session) {
-          session.modelConfig.modelId = info.modelConfig.modelId
-          session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
-          session.modelConfig.contextWindow = info.modelConfig.contextWindow
-          session.modelConfig.fastMode = info.modelConfig.fastMode
-          session.permissionMode = info.permissionMode
+          applyRuntimeConfig(session, info)
           session.status = info.status
           session.rateLimitInfo = info.rateLimitInfo
           ctx.reconcileQueuedPrompts(tabId, info.queuedPrompts)
@@ -160,12 +167,22 @@ export async function resyncRuntime(ctx: WorkspaceContext): Promise<void> {
           session.status = 'idle'
           session.rateLimitInfo = null
         }
+        void ctx.refreshThreadGoal(tabId)
       }
       await environmentRefresh
     }))
   } finally {
     ctx.runtimeSyncing = false
   }
+}
+
+/** Snapshots written before tabs carried a window have `contextWindow: null`,
+ *  which would keep those tabs on the provider default forever. Backfill from
+ *  the model's profile; an explicit choice already in the snapshot wins. */
+function restoredModelConfig(snapTab: PersistedTab): ModelConfig {
+  const modelConfig = { ...snapTab.modelConfig }
+  modelConfig.contextWindow ??= defaultContextWindowFor(snapTab.provider, modelConfig.modelId)
+  return modelConfig
 }
 
 /** Synchronous builder: create tabs/sessions from the snapshot and restore order +
@@ -177,23 +194,36 @@ function _materializeTabs(
   activeTabId: string,
   drafts: TabDrafts | null,
 ): void {
+  const savedServers = loadServers()
   for (const snapTab of persistedTabs) {
     let tab = ctx.tabs[snapTab.tabId]
     let session = tab ? ctx.sessions[tab.sessionId] : undefined
     const draftText = drafts?.tabs[snapTab.tabId] ?? ''
 
     if (!tab || !session) {
+      const serverId = snapTab.serverInstallationId
+        ? savedServers.find((server) => server.installationId === snapTab.serverInstallationId)?.id
+          ?? snapTab.serverId
+          ?? LOCAL_SERVER_ID
+        : snapTab.serverId ?? LOCAL_SERVER_ID
       session = makeSession(ctx.settings, {
+        serverId,
         agentSessionId: snapTab.agentSessionId,
         provider: snapTab.provider,
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
         status: 'idle',
         workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~',
+        projectGroupPath: snapTab.projectGroupPath ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         gitContext: snapTab.gitContext,
         worktreeBaseBranch: snapTab.worktreeBaseBranch,
-        modelConfig: snapTab.modelConfig ? { ...snapTab.modelConfig } : undefined,
+        worktreeRequired: snapTab.worktreeRequired ?? false,
+        modelConfig: snapTab.modelConfig ? restoredModelConfig(snapTab) : undefined,
         permissionMode: snapTab.permissionMode as any,
+        terminalFailure: snapTab.terminalFailure
+          ? { ...snapTab.terminalFailure }
+          : null,
+        contextUsage: snapTab.contextUsage ? { ...snapTab.contextUsage } : null,
       })
       tab = makeTab(session.id, {
         id: snapTab.tabId,
@@ -226,10 +256,34 @@ async function _attachRuntimeTabs(
   ctx: WorkspaceContext,
   persistedTabs: PersistedTab[],
 ): Promise<void> {
-  // Re-register all tabs with the server in parallel.
-  await Promise.all(Object.keys(ctx.tabs).map((tabId) =>
-    window.solus.createTab(tabId).catch(() => null),
-  ))
+  // Start registrations independently. A request queued on an offline host must
+  // not prevent healthy hosts from hydrating their tabs.
+  for (const tabId of Object.keys(ctx.tabs)) {
+    void ctx.apiFor(tabId).createTab(tabId).catch(() => null)
+  }
+
+  // Transcript hydration for inactive tabs is intentionally deferred, but their
+  // tab-strip status must still reflect live work immediately after refresh.
+  // getSessionInfo is side-effect free, unlike bindRuntimeSession, which may
+  // replay in-flight events before the persisted transcript has loaded.
+  for (const snapTab of persistedTabs) {
+    if (!snapTab.agentSessionId) continue
+    void ctx.apiFor(snapTab.tabId)
+      .getSessionInfo(snapTab.agentSessionId)
+      .then((meta) => {
+        const tab = ctx.tabs[snapTab.tabId]
+        const session = tab ? ctx.sessions[tab.sessionId] : undefined
+        if (
+          session?.agentSessionId === snapTab.agentSessionId
+          && session.status === 'idle'
+          && meta?.status
+          && isSessionBusyStatus(meta.status)
+        ) {
+          session.status = meta.status
+        }
+      })
+      .catch(() => null)
+  }
 
   if (!ctx.tabs[ctx.activeTabId]) {
     ctx.activeTabId = ctx.tabOrder.find((id) => ctx.tabs[id]) ?? ''
@@ -240,7 +294,7 @@ async function _attachRuntimeTabs(
   // flag drives the conversation skeleton). Remaining tabs are intentionally
   // serialized through idle time; selecting one promotes it immediately.
   const activeSnap = persistedTabs.find((t) => t.tabId === ctx.activeTabId)
-  if (activeSnap) await hydrateTab(ctx, activeSnap).catch(() => {})
+  if (activeSnap) void hydrateTab(ctx, activeSnap).catch(() => {})
 
   const rest = persistedTabs.filter((t) => t.tabId !== ctx.activeTabId)
   const deferredState: DeferredHydrationState = {
@@ -297,7 +351,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
               displayCwd,
               provider: handoffFrom.provider,
               ctx: ctx.ctxFor(tabId),
-              limit: HISTORY_WINDOW,
               shouldApply,
             })
           : null
@@ -308,7 +361,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
               displayCwd,
               provider,
               ctx: ctx.ctxFor(tabId),
-              limit: HISTORY_WINDOW,
               shouldApply,
             })
           : { messages: [], planIds: [], progress: null, truncated: false }
@@ -317,24 +369,37 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         if (s && !hasConversation(s) && handoffFrom) {
           const predecessorMessages = [...(predecessorTranscript?.messages ?? [])]
           const currentMessages = [...transcript.messages]
-          const divider = buildHandoffDividerMessage({
-            fromProvider: handoffFrom.provider,
-            toProvider: provider,
-            truncated: predecessorTranscript?.truncated ?? false,
-          })
-          const stitchedMessages = [...predecessorMessages, divider, ...currentMessages]
-          s.messages.splice(0, s.messages.length, ...stitchedMessages)
+          // Provider boundaries are an implementation detail. Rehydrate one
+          // continuous transcript so switching agents never interrupts the thread.
+          const stitchedMessages = [...predecessorMessages, ...currentMessages]
+          replaceHydratedMessages(s, stitchedMessages)
           s.progress = progressFromMessages(stitchedMessages)
           s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
           ctx.recomputeChangedFiles(tabId)
           const planIds = [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]
           for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)
         } else if (s && transcript.messages.length > 0) {
-          s.messages.splice(0, s.messages.length, ...transcript.messages)
+          replaceHydratedMessages(s, transcript.messages)
           s.progress = transcript.progress
           s.historyTruncated = transcript.truncated
           ctx.recomputeChangedFiles(tabId)
           for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
+        }
+        if (
+          s &&
+          snapTab.terminalFailure &&
+          !s.messages.some(
+            (message) =>
+              message.role === 'system' &&
+              message.content === snapTab.terminalFailure?.content,
+          )
+        ) {
+          s.messages.push({
+            id: nextMsgId(),
+            role: 'system',
+            content: snapTab.terminalFailure.content,
+            timestamp: snapTab.terminalFailure.timestamp,
+          })
         }
       } finally {
         const t = ctx.tabs[tabId]
@@ -345,20 +410,23 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   }
 
   if (snapTab.agentSessionId) {
-    const info = await window.solus.bindRuntimeSession(ctx.ctxFor(snapTab.tabId)).catch(() => null)
+    const info = await (ctx.apiFor?.(snapTab.tabId) ?? window.solus)
+      .bindRuntimeSession(ctx.ctxFor(snapTab.tabId))
+      .catch(() => null)
     if (info && session) {
-      session.modelConfig.modelId = info.modelConfig.modelId
-      session.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
-      session.modelConfig.contextWindow = info.modelConfig.contextWindow
-      session.modelConfig.fastMode = info.modelConfig.fastMode
-      session.permissionMode = info.permissionMode
+      applyRuntimeConfig(session, info)
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       if (info.handoffFrom) session.handoffFrom = info.handoffFrom
       ctx.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
+    } else if (info === null && isSessionBusyStatus(session.status)) {
+      // An optimistic status probe may race the session settling before its
+      // deferred bind. Reconcile that stale busy state when no runtime remains.
+      session.status = 'idle'
+      session.rateLimitInfo = null
     }
+    void ctx.refreshThreadGoal(snapTab.tabId)
   }
 
   await environmentRefresh
-  void ctx.refreshPluginCommands(session.workingDirectory, snapTab.tabId)
 }

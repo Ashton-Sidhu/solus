@@ -113,7 +113,7 @@ async function computeGitStateUncached(
   // a repo whose status scan failed is worth a warning.
   if (!identity) return null
   if (statusRaw === null) {
-    log.warn(`computeGitState: git status failed for ${cwd}`)
+    log.warn('git_status_failed', { cwd })
     return null
   }
 
@@ -181,7 +181,7 @@ export async function resolveRepoRoot(workTree: string): Promise<string | null> 
     const absolute = path.isAbsolute(commonDir) ? commonDir : path.resolve(workTree, commonDir)
     return path.dirname(absolute)
   } catch (err: any) {
-    log.warn('resolveRepoRoot failed', {
+    log.warn('resolve_repo_root_failed', {
       cwd: workTree,
       error: err?.message ?? String(err),
       stderr: typeof err?.stderr === 'string' ? err.stderr.trim() : undefined,

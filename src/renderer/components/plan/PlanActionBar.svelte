@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { XIcon, ArrowCounterClockwiseIcon, RobotIcon, CheckIcon, GitForkIcon } from 'phosphor-svelte'
+  import { XIcon, ArrowCounterClockwiseIcon, RobotIcon, CheckIcon, GitForkIcon, ChatsIcon } from 'phosphor-svelte'
   import { getWorkspaceContext, getStatusBarContext, runtime } from '../../contexts'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { Button } from '../ui/button'
   import * as DropdownMenu from '../ui/dropdown-menu'
   import { PromptComposer } from '../ui/prompt-composer'
+  import * as TooltipUI from '../ui/tooltip'
   import PlanApproveButton from './PlanApproveButton.svelte'
   import Kbd from '../ui/Kbd.svelte'
 
@@ -14,10 +15,18 @@
     inlineCommentCount?: number
     compact?: boolean
     forceShowWorktreeToggle?: boolean
+    collapsed?: boolean
     onDone?: () => void
   }
 
-  let { planId, inlineCommentCount = 0, compact = false, forceShowWorktreeToggle = false, onDone }: Props = $props()
+  let {
+    planId,
+    inlineCommentCount = 0,
+    compact = false,
+    forceShowWorktreeToggle = false,
+    collapsed = $bindable(false),
+    onDone,
+  }: Props = $props()
 
   const session = getWorkspaceContext()
   const statusBar = getStatusBarContext()
@@ -26,14 +35,11 @@
   let composerRef: ReturnType<typeof PromptComposer> | null = $state(null)
   let menuOpen = $state(false)
   let triggerEl: HTMLButtonElement | null = $state(null)
-  // Owned here so ⌥D can drive the composer's collapse and the worktree binding
-  // can stand down while its switch is off screen.
-  let collapsed = $state(false)
-
   const sess = $derived(session.sessionFor(session.activeTabId))
   const hasGit = $derived(!!sess?.gitContext)
   const alreadyInWorktree = $derived(!!sess?.gitContext?.worktreePath)
   let useWorktree = $state(false)
+  let startNewSession = $state(true)
   const showWorktreeToggle = $derived((hasGit || forceShowWorktreeToggle) && !alreadyInWorktree)
 
   const hasRevise = $derived(actionComment.trim().length > 0 || inlineCommentCount > 0)
@@ -70,6 +76,7 @@
       reasoningEffort: picked?.reasoningEffort,
       generalComment: actionComment.trim() || undefined,
       useWorktree: useWorktree || undefined,
+      startNewSession,
       planRefs: picked?.planRefs,
       workRefs: picked?.workRefs,
     })
@@ -94,19 +101,53 @@
 </script>
 
 
-<div class="plan-action-bar">
+<div class="plan-action-bar" class:pointer-events-none={collapsed}>
   <PromptComposer
     bind:this={composerRef}
     bind:value={actionComment}
     bind:collapsed
     tabId={session.activeTabId}
     workingDirectory={sess?.workingDirectory}
-    allowAgentSwitch
     menuPlacement="up"
     showWorktree={showWorktreeToggle && !compact}
     bind:useWorktree
     placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
   >
+    {#snippet afterPicker()}
+      {#if !compact}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                onclick={() => {
+                  startNewSession = !startNewSession
+                  composerRef?.focus()
+                }}
+                class="relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) after:absolute after:left-1/2 after:top-1/2 after:size-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-[''] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {startNewSession
+                  ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+                  : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                data-testid="plan-action-new-session"
+                aria-label="Start approved work in a new session"
+                aria-pressed={startNewSession}
+              >
+                <ChatsIcon
+                  size={15}
+                  weight={startNewSession ? "bold" : "regular"}
+                />
+              </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content
+            value={startNewSession
+              ? "New session on — click to continue in this session"
+              : "New session off — click to start approved work in a new session"}
+          />
+        </TooltipUI.Root>
+      {/if}
+    {/snippet}
+
     {#snippet trailing()}
       {#if compact}
         <button
@@ -115,21 +156,21 @@
           onclick={() => { menuOpen = !menuOpen }}
           class="flex size-9 cursor-pointer items-center justify-center rounded-md border transition-[background-color,color,border-color,transform] duration-(--duration-quick) ease-(--ease-premium) active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {menuOpen
             ? 'border-(--solus-accent-border) bg-(--solus-surface-hover) text-(--solus-text-primary)'
-            : 'border-(--solus-tool-border) bg-transparent text-(--solus-text-secondary) hover:border-[color-mix(in_srgb,var(--solus-tool-border)_50%,var(--solus-text-tertiary))] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
+            : 'border-(--solus-tool-border) bg-transparent font-secondary text-(--solus-text-secondary) hover:border-[color-mix(in_srgb,var(--solus-tool-border)_50%,var(--solus-text-tertiary))] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)'}"
           title="More actions"
           aria-expanded={menuOpen}
         >
           <svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>
         </button>
       {:else if hasRevise}
-        <Button data-testid="plan-action-revise" variant="outline" size="lg" class="text-[0.8rem] hover:text-(--solus-error)" onclick={handleRevise}>
-          <ArrowCounterClockwiseIcon size={14} />
+        <Button data-testid="plan-action-revise" variant="outline" size="sm" class="hover:text-(--solus-error) max-md:h-9" onclick={handleRevise}>
+          <ArrowCounterClockwiseIcon size={13} />
           Revise
           {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥V</Kbd>{/if}
         </Button>
       {:else}
-        <Button data-testid="plan-action-reject" variant="outline" size="lg" class="text-[0.8rem] hover:text-(--solus-error)" onclick={handleReject}>
-          <XIcon size={14} />
+        <Button data-testid="plan-action-reject" variant="outline" size="sm" class="hover:text-(--solus-error) max-md:h-9" onclick={handleReject}>
+          <XIcon size={13} />
           Reject
           {#if !isMobile}<Kbd variant="inline" class="ml-1">⌥R</Kbd>{/if}
         </Button>
@@ -137,6 +178,8 @@
 
       <PlanApproveButton
         bind:useWorktree
+        bind:startNewSession
+        showNewSessionOption={compact}
         showWorktreeToggle={false}
         onApprove={handleApprove}
       />
@@ -175,4 +218,3 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {/if}
-

@@ -29,18 +29,24 @@ export const RPC_INVOKE_METHODS = [
   'resetTabSession',
   'switchSessionAgent',
 
+  // Agent conversations (cards drive sessions that have no bound tab)
+  'createHeadlessSession',
+  'promptSession',
+  'stopSession',
+
   // Permission / interaction
   'respondPermission',
   'respondQuestion',
   'rateLimitDecision',
   'cancelQueuedPrompt',
+  'editQueuedPrompt',
   'writePlanFile',
   'rewindFiles',
 
   // Files / media
-  'selectDirectory',
   'saveFileDialog',
   'openExternal',
+  'openInFileManager',
   'openInTerminal',
   'openWorktreeTerminal',
   'attachFiles',
@@ -53,6 +59,7 @@ export const RPC_INVOKE_METHODS = [
   'logVoiceTranscription',
   'searchFiles',
   'listDirectory',
+  'createDirectory',
   'readProjectFile',
   'listProjectFiles',
   'writeFile',
@@ -87,10 +94,13 @@ export const RPC_INVOKE_METHODS = [
   // Worktree / diff / git
   'worktreeListProject',
   'diff',
+  'diffFileContents',
   'diffStats',
   'listTurnSnapshots',
   'worktreePR',
+  'gitCommit',
   'gitCommitPush',
+  'gitDiscard',
   'gitSync',
   'gitCheckoutBranch',
   'worktreeBranches',
@@ -107,6 +117,7 @@ export const RPC_INVOKE_METHODS = [
   'projectConfigLoad',
   'projectConfigSave',
   'listProjects',
+  'listProjectIdentities',
   'deleteProject',
 
   // Skills (skills.sh registry — opt-in install across active providers)
@@ -116,6 +127,11 @@ export const RPC_INVOKE_METHODS = [
   // Pinned sessions (sidebar pins persisted to ~/.solus/pinned-sessions.json)
   'pinnedSessionsList',
   'togglePinnedSession',
+
+  // Saved prompts (per-project composer drafts in ~/.solus/solus.db)
+  'savedPromptsList',
+  'savedPromptsCreate',
+  'savedPromptsDelete',
 
   // Design mode
   'enterDesignMode',
@@ -127,16 +143,32 @@ export const RPC_INVOKE_METHODS = [
   'connectionsListEndpoints',
   'connectionsGeneratePairToken',
   'connectionsListSessions',
+  'connectionsBootstrapDiscoveredServer',
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
+  'setAnalyticsConsent',
   'discoverServers',
   'getServerCapabilities',
   'setServerName',
+  'setProjectsBaseDirectory',
   'setupInstallAgentCli',
   'setupCheckAgentAuth',
+  'setupAgentSignIn',
+  'setupSubmitAgentSignInCode',
+  'setupCancelAgentSignIn',
   'setupListGithubRepos',
+  'setupPrepareProject',
   'setupCloneProject',
+  'setupSyncProject',
+  'setupAdoptProject',
+  'setupHostReadiness',
+  'setupInstallGit',
+  'setupInstallGh',
+  'setupSetGitIdentity',
+  'setupCheckSshAccess',
+  'setupAuthorizeGhCli',
+  'setupInstallGitCredentialHelper',
 
   // Attention (server-side per-session needs-attention state; outlives clients)
   'listAttention',
@@ -201,6 +233,8 @@ export const RPC_INVOKE_METHODS = [
   'writeLedger',
   'getReviewContext',
   'generateGuide',
+  'requestSessionGuide',
+  'sessionGuideStatus',
   'cancelGenerateGuide',
   'readGuide',
   'readReviewState',
@@ -238,6 +272,9 @@ export const RPC_INVOKE_METHODS = [
   // PR checks cache + renderer activity hint
   'prChecks',
   'prChecksActivity',
+
+  // Subscription quota per agent provider
+  'usageLimits',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
@@ -272,12 +309,16 @@ export const RPC_TOPICS = [
   'automations-changed',
   'provider-device-code',
   'review-progress',
+  'session-guide-status',
   'tasks-changed',
   'prs-changed',
+  'annotations-changed',
   'attention-changed',
+  'session-status-changed',
   'stack-graph-update',
   'pr-checks-update',
   'pr-guide-status',
+  'usage-limits-update',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]

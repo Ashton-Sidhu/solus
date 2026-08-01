@@ -2,6 +2,7 @@ import type EventEmitter from 'events'
 import type {
   AgentId,
   AgentMetadata,
+  AgentUsageLimits,
   EnrichedError,
   IpcContext,
   NormalizedEvent,
@@ -14,6 +15,7 @@ import type {
   ThreadGoalSetRequest,
 } from '../../shared/types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../../shared/session-history'
+import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
 
 export interface PermissionResponder {
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined
@@ -25,6 +27,7 @@ export interface PermissionResponder {
 
 export interface RunHandle {
   sessionId: string | null
+  persistence: 'session' | 'ephemeral'
   /** Attached by ControlPlane for pre-session-init UI routing. */
   sourceTabId?: string
   startedAt: number
@@ -55,7 +58,14 @@ export interface AgentBackend extends EventEmitter {
   readonly id: AgentId
   readonly metadata: AgentMetadata
 
-  startRun(input: SessionRunInput, options: PromptOptions): RunHandle
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle
+  /** Append input to the provider's active turn. Expected turn-boundary races
+   *  return null; provider failures reject. The accepted run handle anchors the
+   *  caller's completion lifecycle to the exact turn that consumed the input. */
+  steerSession(
+    sessionId: string,
+    options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
+  ): Promise<RunHandle | null>
   cancelSession(sessionId: string): boolean
   isSessionRunning(sessionId: string): boolean
   getSessionHandle(sessionId: string): RunHandle | undefined
@@ -67,6 +77,7 @@ export interface AgentBackend extends EventEmitter {
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>
   listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
+  invalidatePlanCache?(sessionId: string): void
   loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   getThreadGoal?(threadId: string): Promise<ThreadGoal | null>
   setThreadGoal?(request: ThreadGoalSetRequest): Promise<ThreadGoal>
@@ -77,6 +88,8 @@ export interface AgentBackend extends EventEmitter {
   refreshPluginCommands(): Promise<void>
   /** Incrementally refreshes durable session metadata when the provider supports it. */
   refreshSessionIndex?(): Promise<void>
+  /** Subscription quota windows, when the provider exposes them. */
+  readUsageLimits?(): Promise<AgentUsageLimits | null>
 
   shutdown?(): void
   rewindFiles?(sessionId: string, checkpointId: string, projectPath: string): Promise<void>

@@ -49,23 +49,30 @@
 </button>
 
 <style>
+  /* Mirrors the `menu-row` utility in index.css rather than composing with it:
+     Svelte's scoped `.dd-item` would outrank the global utility's state rules. */
   .dd-item {
     position: relative;
     width: 100%;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.6875rem;
+    gap: 0.625rem;
+    height: 2rem;
+    padding: 0 0.625rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
     font-family: inherit;
     color: var(--solus-text-secondary);
-    font-weight: var(--solus-font-weight-secondary);
+    /* One row type everywhere: regular. Weight is spent on the current row
+       (`.dd-item--selected`), never on the list at rest — same contract as
+       `@utility menu-surface`. */
+    font-weight: 400;
     background: transparent;
     border: none;
     cursor: pointer;
     text-align: left;
-    transition: background var(--duration-quick) var(--ease-premium),
+    transition: box-shadow var(--duration-quick) var(--ease-premium),
                 color var(--duration-quick) var(--ease-premium);
   }
 
@@ -75,21 +82,21 @@
     }
   }
 
+  /* A wash rather than a fill, so hovering the current row keeps its state. */
   .dd-item:hover:not(:disabled),
   .dd-item--focused {
-    background: var(--solus-surface-hover);
+    box-shadow: inset 0 0 0 62rem var(--solus-menu-hover-ink);
     color: var(--solus-text-primary);
   }
 
   .dd-item--selected {
     color: var(--solus-text-primary);
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .dd-item--danger:hover:not(:disabled),
   .dd-item--danger.dd-item--focused {
     color: var(--solus-error);
-    background: var(--solus-surface-hover);
   }
 
   .dd-item:disabled {
@@ -97,7 +104,7 @@
     cursor: not-allowed;
   }
   .dd-item:disabled:hover {
-    background: transparent;
+    box-shadow: none;
     color: var(--solus-text-secondary);
   }
 

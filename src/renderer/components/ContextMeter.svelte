@@ -1,151 +1,225 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../contexts";
-  import { tooltip } from "../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
+  import { GaugeIcon } from "phosphor-svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import * as Popover from "./ui/popover";
   import {
     contextTokensUsed,
-    resolveContextWindow,
-    contextFraction,
+    contextLimit,
+    contextUsedFraction,
+    formatTokens,
   } from "../lib/contextUsage";
 
   let { tabId }: { tabId: string } = $props();
 
-  const session = getWorkspaceContext();
-  const sess = $derived(session.sessionFor(tabId));
+  const workspace = getWorkspaceContext();
+  const session = $derived(workspace.sessionFor(tabId));
 
-  const usage = $derived(sess?.sessionUsage ?? null);
-  const total = $derived(resolveContextWindow(sess));
-  const used = $derived(contextTokensUsed(usage));
-  const fraction = $derived(contextFraction(used, total));
-  const pct = $derived(Math.round(fraction * 100));
-  // Past 80% the context is getting tight — warn with the error hue.
-  const warn = $derived(fraction >= 0.8);
+  const context = $derived(session?.contextUsage ?? null);
+  const limit = $derived(contextLimit(session));
+  const used = $derived(contextTokensUsed(session));
+  const usedFraction = $derived(contextUsedFraction(used, limit));
+  const usedPct = $derived(Math.round(usedFraction * 100));
+  const remaining = $derived(Math.max(0, limit - used));
+  // Past 80% the session is close to compacting — warn.
+  const warn = $derived(usedFraction >= 0.8);
+  // Always a figure, never a placeholder: a tab that hasn't run a turn reads 0%
+  // and fills in from there. The popover carries the caveat that nothing has
+  // been reported yet.
+  const label = $derived(`${usedPct}%`);
+  // Only a compaction threshold is worth naming; a raw window is just the limit.
+  const compactAt = $derived(context?.compactAtTokens ?? null);
 
-  const result = $derived(sess?.lastResult ?? null);
+  const fillColor = $derived(
+    warn
+      ? "var(--solus-status-error)"
+      : "color-mix(in oklch, var(--solus-text-primary) 30%, transparent)",
+  );
+
+  const result = $derived(session?.lastResult ?? null);
+  const runUsage = $derived(session?.runUsage ?? null);
 
   let open = $state(false);
 
-  const rows = $derived(
+  const windowRows = $derived(
     [
-      { label: "Input", value: usage?.inputTokens ?? 0 },
-      { label: "Cache read", value: usage?.cacheReadTokens ?? 0 },
-      { label: "Cache write", value: usage?.cacheCreationTokens ?? 0 },
-      { label: "Output", value: usage?.outputTokens ?? 0 },
-      { label: "Reasoning output", value: usage?.reasoningTokens ?? 0 },
-    ].filter((r) => r.value > 0),
+      { label: "Input", value: context?.inputTokens ?? 0 },
+      { label: "Cache read", value: context?.cacheReadTokens ?? 0 },
+      { label: "Cache write", value: context?.cacheCreationTokens ?? 0 },
+      { label: "Output", value: context?.outputTokens ?? 0 },
+    ].filter((row) => row.value > 0),
+  );
+
+  const runRows = $derived(
+    [
+      { label: "Output", value: runUsage?.outputTokens ?? 0 },
+      { label: "Reasoning output", value: runUsage?.reasoningTokens ?? 0 },
+    ].filter((row) => row.value > 0),
   );
 </script>
+
+<!-- Status, not action: a rule that stays monochrome until the window is
+     genuinely tight, then goes red. The inline meter and the popover's own read
+     the same way — one shape, two sizes — so the panel confirms the chip rather
+     than restating it in another form. -->
+{#snippet meter(sizing: string)}
+  <span
+    class="block overflow-hidden rounded-full bg-[color-mix(in_oklch,var(--solus-text-primary)_12%,transparent)] {sizing}"
+  >
+    {#if context}
+      <span
+        class="block h-full rounded-full transition-[width] duration-300 ease-out"
+        style="width:{Math.max(usedPct, 2)}%;background:{fillColor}"
+      ></span>
+    {/if}
+  </span>
+{/snippet}
+
+{#snippet statRow(rowLabel: string, value: string)}
+  <div class="flex min-h-5 items-center justify-between gap-3">
+    <span class="min-w-0 truncate text-(--solus-text-tertiary)">{rowLabel}</span>
+    <span class="shrink-0 font-secondary text-(--solus-text-primary) tabular-nums"
+      >{value}</span
+    >
+  </div>
+{/snippet}
 
 {#if tabId}
   <div class="flex items-center" data-testid="context-meter">
     <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus() }}>
       <Popover.Trigger>
         {#snippet child({ props })}
-          <button
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button {...tooltipProps}
             {...props}
             type="button"
             aria-haspopup="dialog"
-            aria-label={`${pct}% of context window used`}
+            aria-label={context
+              ? `${usedPct}% of context used`
+              : "Context usage not reported yet"}
             data-testid="context-meter-trigger"
-            class="group flex items-center rounded-full p-1 cursor-pointer transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
-            use:tooltip={`${pct}% of context window used`}
+            class="flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.6875rem] text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
           >
-      <svg
-        class="h-4 w-4 -rotate-90"
-        viewBox="0 0 16 16"
-        aria-hidden="true"
+      {@render meter("h-[0.1875rem] w-[2.625rem] shrink-0")}
+      <span
+        class="tabular-nums {context ? 'font-mono opacity-65' : 'opacity-55'}"
+        data-testid="context-meter-label">{label}</span
       >
-        <circle
-          cx="8"
-          cy="8"
-          r="6"
-          fill="none"
-          stroke="var(--solus-surface-active)"
-          stroke-width="2"
-        />
-        <circle
-          cx="8"
-          cy="8"
-          r="6"
-          fill="none"
-          stroke={warn ? "var(--solus-status-error)" : "var(--solus-accent)"}
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-dasharray={2 * Math.PI * 6}
-          stroke-dashoffset={2 * Math.PI * 6 * (1 - Math.max(fraction, 0.02))}
-          class="transition-[stroke-dashoffset] duration-300 ease-out"
-        />
-      </svg>
           </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content
+              value={!context
+                ? "Context usage is reported after the first response"
+                : compactAt
+                  ? `${usedPct}% of context used — auto-compacts at ${formatTokens(compactAt)}`
+                  : `${usedPct}% of context used`}
+            />
+          </TooltipUI.Root>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content side="bottom" align="start" sideOffset={6} class="z-[10002] w-[224px] gap-0 overflow-hidden rounded-[14px] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 shadow-(--solus-popover-shadow) ring-0 backdrop-blur-xl">
-      <div
+      <!-- Same surface as the orb's progress and changed-files popovers: the
+           popover tokens, a 1rem radius and a hairline border, an icon tile
+           leading the head. The `shadow:` type hint is what evicts
+           Popover.Content's stock `shadow-md` — without it tailwind-merge reads
+           the arbitrary value as a shadow *colour* and both survive.
+           `lg:text-[0.75rem]` restates the size for the primitive's
+           `lg:text-[0.9375rem]`, which is its own merge group. -->
+      <Popover.Content
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
         role="dialog"
         aria-label="Context usage details"
         data-testid="context-meter-popover"
+        class="z-[10002] w-[17rem] gap-0 overflow-hidden rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-[0.75rem] lg:text-[0.75rem] text-(--solus-text-secondary) shadow-[shadow:var(--solus-popover-shadow)] ring-0"
       >
-        <div
-          class="flex items-center justify-between px-3 py-1.5 border-b border-(--solus-permission-border)"
+        <Popover.Header
+          class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-3.5 text-[0.75rem] lg:text-[0.75rem]"
         >
-          <span class="text-[0.6875rem] font-semibold text-(--solus-text-secondary)"
-            >Context window</span
-          >
           <span
-            class="text-[0.6875rem] tabular-nums {warn
-              ? 'text-(--solus-status-error)'
-              : 'text-(--solus-accent)'}">{pct}%</span
+            class="inline-flex size-8 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--solus-text-tertiary)_8%,transparent)] text-(--solus-text-secondary)"
+            aria-hidden="true"
           >
-        </div>
-
-        <div class="px-3 py-1.5 border-b border-(--solus-permission-border)">
-          <div
-            class="flex items-center justify-between text-[0.6875rem] text-(--solus-text-secondary) tabular-nums"
-          >
-            <span>{used.toLocaleString()}</span>
-            <span class="text-(--solus-text-tertiary)"
-              >of {total.toLocaleString()}</span
+            <GaugeIcon size={16} weight="regular" />
+          </span>
+          <div class="flex min-w-0 items-baseline gap-2">
+            <Popover.Title
+              class="truncate text-[0.8125rem] leading-[1.25] font-semibold text-(--solus-text-primary)"
+              >Context window</Popover.Title
+            >
+            <span
+              class="shrink-0 leading-[1.25] font-medium text-(--solus-text-tertiary) tabular-nums"
+              >{formatTokens(limit)}</span
             >
           </div>
           <span
-            class="mt-1 block h-[0.25rem] w-full rounded-full overflow-hidden bg-(--solus-surface-active)"
+            class="shrink-0 font-secondary tabular-nums {warn
+              ? 'text-(--solus-status-error)'
+              : 'text-(--solus-text-primary)'}">{usedPct}%</span
           >
+        </Popover.Header>
+
+        <!-- Both states share this shape — a headline pair, the bar, then one
+             footnote line — so opening the popover before the first turn shows
+             the same meter, just unfilled, instead of a stray paragraph. -->
+        <div
+          class="border-b border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-3"
+        >
+          <div class="flex items-baseline justify-between gap-2">
             <span
-              class="block h-full rounded-full"
-              style="width:{Math.max(pct, 2)}%;background:{warn
-                ? 'var(--solus-status-error)'
-                : 'var(--solus-accent)'}"
-            ></span>
-          </span>
+              class="font-secondary tabular-nums {context
+                ? 'text-(--solus-text-primary)'
+                : 'text-(--solus-text-tertiary)'}"
+              >{context ? `${formatTokens(used)} used` : "Not measured yet"}</span
+            >
+            <span class="text-(--solus-text-tertiary) tabular-nums"
+              >{context ? `${formatTokens(remaining)} left` : "no report yet"}</span
+            >
+          </div>
+          {@render meter("mt-2 h-[0.25rem] w-full")}
+          <Popover.Description
+            class="mt-2 block text-[0.6875rem] leading-[1.35] text-(--solus-text-tertiary) tabular-nums"
+          >
+            {#if !context}
+              Fills in after the first response
+            {:else if compactAt}
+              Auto-compacts at {formatTokens(compactAt)}
+            {:else}
+              {formatTokens(limit)} window
+            {/if}
+          </Popover.Description>
         </div>
 
-        <div class="px-3 py-1.5 flex flex-col gap-1">
-          {#each rows as row (row.label)}
-            <div
-              class="flex items-center justify-between text-[0.6875rem] tabular-nums"
+        {#if windowRows.length > 0}
+          <div class="flex flex-col gap-1 px-4 py-2.5">
+            {#each windowRows as row (row.label)}
+              {@render statRow(row.label, row.value.toLocaleString())}
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Spend for the last run. Deliberately below its own heading: these
+             tokens are billed but never occupy the window above. -->
+        {#if runRows.length > 0 || (result && result.totalCostUsd > 0)}
+          <div
+            class="flex flex-col gap-1 border-t border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-2.5"
+          >
+            <span class="font-semibold text-(--solus-text-secondary)"
+              >This run</span
             >
-              <span class="text-(--solus-text-tertiary)">{row.label}</span>
-              <span class="text-(--solus-text-secondary)"
-                >{row.value.toLocaleString()}</span
-              >
-            </div>
-          {/each}
-          {#if result}
-            <div class="my-0.5 h-px bg-(--solus-permission-border)"></div>
-            {#if result.totalCostUsd > 0}
-              <div
-                class="flex items-center justify-between text-[0.6875rem] tabular-nums"
-              >
-                <span class="text-(--solus-text-tertiary)">Cost</span>
-                <span class="text-(--solus-text-secondary)"
-                  >${result.totalCostUsd.toFixed(4)}</span
-                >
-              </div>
+            {#each runRows as row (row.label)}
+              {@render statRow(row.label, row.value.toLocaleString())}
+            {/each}
+            {#if result && result.totalCostUsd > 0}
+              {@render statRow("Cost", `$${result.totalCostUsd.toFixed(4)}`)}
             {/if}
-          {/if}
-        </div>
-      </div>
+          </div>
+        {/if}
       </Popover.Content>
     </Popover.Root>
   </div>

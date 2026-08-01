@@ -368,7 +368,7 @@
         variant="outline"
         size="icon-sm"
         type="button"
-        class="absolute right-2.5 bottom-2.5 text-(--solus-text-secondary)"
+        class="absolute right-2.5 bottom-2.5 font-secondary text-(--solus-text-secondary)"
         onclick={jumpToLatest}
         title="Jump to latest"
         aria-label="Jump to latest output"
@@ -662,7 +662,7 @@
       color-mix(in srgb, var(--solus-text-tertiary) 10%, transparent) 63%
     );
     background-size: 400% 100%;
-    animation: shimmer 1.4s ease infinite;
+    animation: shimmer 1.4s ease 1 both;
   }
   .shimmer span:nth-child(1) {
     width: 100%;

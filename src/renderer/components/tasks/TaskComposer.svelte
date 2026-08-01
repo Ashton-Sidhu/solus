@@ -124,7 +124,7 @@
   // composer is opened from the command palette it mounts in the same tick the
   // palette tears down, and a microtask-timed focus loses to the browser moving
   // focus to <body> as the palette's search input is removed. rAF lands the
-  // focus after that teardown settles. (Same reason MarkdownEditor.focus() and
+  // focus after that teardown settles. (Same reason PromptEditor.focus() and
   // the input bar reach for rAF on a visibility transition.)
   $effect(() => {
     const raf = requestAnimationFrame(() =>
@@ -338,23 +338,22 @@
 
   // Shared property-pill trigger styling (neutral chip, accent on hover/focus).
   const PILL =
-    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-[0.6875rem] text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
+    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-[0.6875rem] font-secondary text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
   // Square ghost icon button in the header (expand / close).
   const ICON_BTN =
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.75rem] text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[0.75rem] font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-semibold data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
-  // prompt area — the MarkdownEditor ships no border/background of its own, so the
+  // prompt area — the plain-text editor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.
   const DESCRIPTION_FIELD = $derived(
     "flex flex-col min-h-0 w-full bg-transparent " +
-      "[&_.solus-md-editor-wrap]:flex [&_.solus-md-editor-wrap]:flex-col [&_.solus-md-editor-wrap]:min-h-0 " +
-      "[&_.solus-md-editor]:flex [&_.solus-md-editor]:flex-col [&_.solus-md-editor]:min-h-0 " +
-      "[&_.solus-md-editor_.ProseMirror]:![font-weight:400] " +
+      "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:min-h-0 " +
+      "[&_.cm-editor]:flex [&_.cm-editor]:min-h-0 [&_.cm-content]:![font-weight:400] " +
       (expanded
-        ? "flex-1 overflow-y-auto [&_.solus-md-editor-wrap]:flex-1 [&_.solus-md-editor]:flex-1 [&_.solus-md-editor_.ProseMirror]:flex-1 [&_.solus-md-editor_.ProseMirror]:min-h-full [&_.solus-md-editor_.ProseMirror]:max-h-none!"
+        ? "flex-1 overflow-y-auto [&_[data-testid=message-input]]:flex-1 [&_.cm-editor]:flex-1 [&_.cm-content]:min-h-full [&_.cm-scroller]:max-h-none!"
         : ""),
   );
 </script>
@@ -404,7 +403,7 @@
       {#if initialParentId && parentEpic}
         <span class="text-(--solus-text-tertiary)">›</span>
         <span
-          class="min-w-0 truncate text-[0.75rem] text-(--solus-text-secondary)"
+          class="min-w-0 truncate text-[0.75rem] font-secondary text-(--solus-text-secondary)"
           >{parentEpic.title}</span
         >
       {/if}
@@ -669,7 +668,7 @@
               type="date"
               bind:value={dueDate}
               aria-label="Custom due date"
-              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.75rem] text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
+              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.75rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
             />
           </div>
           {#if dueDate}
@@ -736,7 +735,7 @@
             type="text"
             placeholder="Add a label…"
             aria-label="Add a label"
-            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.75rem] text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
+            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-[0.75rem] font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

@@ -16,15 +16,15 @@ const MESSAGE_INPUT = `${ACTIVE_SHELL} [data-testid="message-input"]`
 // ipcMain listener) — this asserts the actual cross-process contract.
 async function spyQuoteContext(electronApp: import('@playwright/test').ElectronApplication) {
   await electronApp.evaluate(({ ipcMain }) => {
-    const g = globalThis as unknown as { __quoteCalls: boolean[] }
+    const g = globalThis as unknown as { __quoteCalls: Array<string | null> }
     g.__quoteCalls = []
-    ipcMain.on('solus:set-quote-context', (_e, active: boolean) => g.__quoteCalls.push(active))
+    ipcMain.on('solus:set-quote-context', (_e, tabId: string | null) => g.__quoteCalls.push(tabId))
   })
 }
 
 function lastQuoteCall(electronApp: import('@playwright/test').ElectronApplication) {
   return electronApp.evaluate(() => {
-    const calls = (globalThis as unknown as { __quoteCalls: boolean[] }).__quoteCalls
+    const calls = (globalThis as unknown as { __quoteCalls: Array<string | null> }).__quoteCalls
     return calls && calls.length ? calls[calls.length - 1] : null
   })
 }
@@ -55,16 +55,16 @@ test.describe('Quote in reply', () => {
 
     await spyQuoteContext(electronApp)
 
-    // Selecting assistant output → quotable.
+    // Selecting assistant output → its source conversation is quotable.
     await selectContents(page, ASSISTANT_MSG)
-    await expect.poll(() => lastQuoteCall(electronApp)).toBe(true)
+    await expect.poll(() => lastQuoteCall(electronApp)).toEqual(expect.any(String))
 
     // Selecting text in the composer (editable, outside the conversation) → not quotable.
     const input = page.locator(MESSAGE_INPUT)
     await input.click()
     await input.pressSequentially('draft text')
     await selectContents(page, MESSAGE_INPUT)
-    await expect.poll(() => lastQuoteCall(electronApp)).toBe(false)
+    await expect.poll(() => lastQuoteCall(electronApp)).toBeNull()
   })
 
   test('picking "Quote in reply" inserts the snippet as a blockquote in the composer', async ({ page, electronApp }) => {
@@ -80,9 +80,17 @@ test.describe('Quote in reply', () => {
 
     // Simulate the user choosing "Quote in reply" from the native menu: main
     // sends the selected text to the renderer over the same channel.
-    await electronApp.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0].webContents.send('solus:quote-selection', 'specific claim')
-    })
+    const sourceTabId = await page
+      .locator(`${ACTIVE_TAB} .conversation-selectable`)
+      .getAttribute('data-conversation-tab-id')
+    expect(sourceTabId).toBeTruthy()
+    await electronApp.evaluate(({ BrowserWindow }, tabId) => {
+      BrowserWindow.getAllWindows()[0].webContents.send(
+        'solus:quote-selection',
+        'specific claim',
+        tabId,
+      )
+    }, sourceTabId)
 
     const quote = page.locator(`${MESSAGE_INPUT} blockquote`)
     await expect(quote).toHaveText(/specific claim/, { timeout: 5_000 })

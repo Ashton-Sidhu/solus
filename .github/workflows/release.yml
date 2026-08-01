@@ -90,6 +90,49 @@ jobs:
           files: release/*.dmg
           generate_release_notes: true
 
+      - name: Checkout tap repo
+        if: ${{ !contains(github.ref_name, '-') }}
+        uses: actions/checkout@v4
+        with:
+          repository: Ashton-Sidhu/homebrew-tap
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update desktop cask
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          cask="homebrew-tap/Casks/solus.rb"
+          dmg="release/Solus-$VERSION-arm64.dmg"
+          cp packaging/homebrew/solus.rb "$cask"
+          sha=$(shasum -a 256 "$dmg" | cut -d' ' -f1)
+          VERSION="$VERSION" SHA="$sha" ruby -pi -e '
+            gsub(/^  version "[^"]*"$/, "  version \"#{ENV.fetch("VERSION")}\"")
+            gsub(/^  sha256 "[^"]*"$/, "  sha256 \"#{ENV.fetch("SHA")}\"")
+          ' "$cask"
+
+      - name: Commit and push cask
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "Cask already up to date; nothing to commit."
+            exit 0
+          fi
+          git add Casks/solus.rb
+          git commit -m "solus ${GITHUB_REF_NAME#v}"
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            git pull --rebase
+          done
+          exit 1
+
       - name: Cleanup keychain
         if: always()
         run: security delete-keychain $RUNNER_TEMP/build.keychain 2>/dev/null || true

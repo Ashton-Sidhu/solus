@@ -10,6 +10,10 @@
   ).matches;
 
   interface Props {
+    /** One word naming the payload type — Session, Plan, Document, Image. It is
+     *  the only thing that names the type, which is what frees the chip to carry
+     *  state and the header to carry no colour at all. */
+    kicker: string;
     title: string;
     subtitle?: string;
     actionLabel?: string;
@@ -24,14 +28,21 @@
     onOpen: () => void;
     onOpenSecondary?: () => void;
     secondaryActionLabel?: string;
-    icon: Snippet;
     actions?: Snippet;
+    /** Status chip beside the title. */
+    chip?: Snippet;
     /** Rich second line under the title; replaces `subtitle` when present. */
     statusSlot?: Snippet;
     children?: Snippet;
+    /** Action rail along the bottom; the card draws no rail without one. */
+    footer?: Snippet;
+    /** A picture, not prose: the body fills the card edge to edge and skips the
+     *  three-lines-then-fade treatment that text bodies get. */
+    bleedBody?: boolean;
   }
 
   let {
+    kicker,
     title,
     subtitle,
     actionLabel = "Open",
@@ -44,10 +55,12 @@
     onOpen,
     onOpenSecondary,
     secondaryActionLabel = "Open in side pane",
-    icon,
     actions,
+    chip,
     statusSlot,
     children,
+    footer,
+    bleedBody = false,
   }: Props = $props();
 
   function isNestedInteractive(
@@ -63,6 +76,11 @@
 
   function handleClick(e: MouseEvent) {
     if (isNestedInteractive(e.target, e.currentTarget)) return;
+    // Cmd-click opens into the pane — the same thing the split button does.
+    if ((e.metaKey || e.ctrlKey) && onOpenSecondary) {
+      onOpenSecondary();
+      return;
+    }
     onOpen();
   }
 
@@ -77,7 +95,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <Card.Root
-    class="conversation-ref-card group mx-auto w-[88%] gap-0 rounded-lg py-0 {extraClass}"
+    class="conversation-ref-card group mx-auto w-[88%] gap-0 rounded-xl py-0 shadow-none {extraClass}"
     data-testid={dataTestId}
     onclick={handleClick}
     role="button"
@@ -86,29 +104,44 @@
     aria-expanded={expandable ? expanded : undefined}
     onkeydown={handleKeydown}
   >
+    <!-- No icon tile and no header wash: the header sits on the card surface and
+         is separated from the body by a 6% hairline alone. -->
     <div class="conversation-ref-card__header flex items-center gap-3">
-      <span
-        class="conversation-ref-card__icon inline-flex shrink-0 items-center justify-center"
-        aria-hidden="true"
-      >
-        {@render icon()}
-      </span>
-      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span
-          class="conversation-ref-card__title min-w-0 truncate text-sm font-semibold text-(--solus-text-primary)"
-        >
-          {title}
+      <span class="flex min-w-0 flex-1 flex-col">
+        <span class="conversation-ref-card__kicker">{kicker}</span>
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="conversation-ref-card__title min-w-0 truncate">
+            {title}
+          </span>
+          {#if chip}
+            {@render chip()}
+          {/if}
         </span>
         {#if statusSlot}
           {@render statusSlot()}
         {:else if subtitle}
-          <span
-            class="conversation-ref-card__subtitle truncate text-xs text-(--solus-text-tertiary)"
-          >
+          <span class="conversation-ref-card__subtitle truncate">
             {subtitle}
           </span>
         {/if}
       </span>
+      <!-- Always present, never hover-only: the split affordance has to be
+           discoverable on a static card, including one whose primary is a
+           toggle. -->
+      {#if onOpenSecondary}
+        <button
+          type="button"
+          class="conversation-ref-card__secondary-action shrink-0 cursor-pointer"
+          title={secondaryActionLabel}
+          aria-label={secondaryActionLabel}
+          onclick={(e) => {
+            e.stopPropagation();
+            onOpenSecondary();
+          }}
+        >
+          <ArrowLineRightIcon size={13} />
+        </button>
+      {/if}
       {#if actions}
         {@render actions()}
       {:else if expandable}
@@ -121,32 +154,16 @@
             : ''}"
         />
       {:else}
-        <span class="conversation-ref-card__actions">
-          {#if onOpenSecondary}
-            <button
-              type="button"
-              class="conversation-ref-card__secondary-action cursor-pointer"
-              title={secondaryActionLabel}
-              aria-label={secondaryActionLabel}
-              onclick={(e) => {
-                e.stopPropagation();
-                onOpenSecondary();
-              }}
-            >
-              <ArrowLineRightIcon size={14} />
-            </button>
-          {/if}
-          <button
-            type="button"
-            class="conversation-ref-card__action shrink-0 cursor-pointer"
-            onclick={(e) => {
-              e.stopPropagation();
-              onOpen();
-            }}
-          >
-            {actionLabel}
-          </button>
-        </span>
+        <button
+          type="button"
+          class="conversation-ref-card__action shrink-0 cursor-pointer"
+          onclick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+        >
+          {actionLabel}
+        </button>
       {/if}
     </div>
     {#if children}
@@ -158,39 +175,49 @@
               easing: cubicOut,
             }}
           >
-            <div class="conversation-ref-card__body">
+            <div class="conversation-ref-card__body" class:is-bleed={bleedBody}>
               {@render children()}
             </div>
           </div>
         {/if}
       {:else}
-        <div class="conversation-ref-card__body">
+        <div class="conversation-ref-card__body" class:is-bleed={bleedBody}>
           {@render children()}
+          <!-- Three lines then a fade — a card is a reference to a page, not the
+               page. -->
+          {#if !bleedBody}
+            <div class="conversation-ref-card__fade" aria-hidden="true"></div>
+          {/if}
         </div>
       {/if}
+    {/if}
+    {#if footer}
+      <div class="conversation-ref-card__rail flex items-center gap-1">
+        {@render footer()}
+      </div>
     {/if}
   </Card.Root>
 </div>
 
 <style>
   :global(.conversation-ref-card) {
-    background: linear-gradient(
-      180deg,
-      color-mix(
-        in srgb,
-        var(--solus-container-bg) 96%,
-        var(--solus-surface-primary)
-      ),
-      var(--solus-container-bg)
-    );
+    background: var(--solus-tx-card-bg);
+    /* The edge is a ring inside the shadow, not a border: it keeps the card's
+       box the same width as the flush cards beside it. */
+    border: none;
+    box-shadow: var(--solus-tx-card-shadow);
     cursor: pointer;
     overflow: hidden;
-    box-shadow: 0 0 0 0.0625rem
-      color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
     transition:
-      box-shadow var(--duration-base) var(--ease-premium),
       transform var(--duration-quick) var(--ease-premium),
-      background var(--duration-base) var(--ease-premium);
+      box-shadow var(--duration-quick) var(--ease-premium);
+  }
+
+  /* A card that opens something answers the pointer by rising, not by washing:
+     the fill stays paper so the body text underneath never shifts value. */
+  :global(.conversation-ref-card):hover {
+    box-shadow: var(--solus-tx-card-shadow-hover);
+    transform: translateY(-0.0625rem);
   }
 
   :global(.conversation-ref-card):active {
@@ -203,70 +230,68 @@
   }
 
   .conversation-ref-card__header {
-    padding: 0.75rem;
+    padding: 0.9375rem 1.0625rem 0.8125rem;
   }
 
-  .conversation-ref-card__icon {
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--solus-accent-light) 72%, transparent);
-    box-shadow: inset 0 0 0 0.0625rem
-      color-mix(in srgb, var(--solus-accent-border) 42%, transparent);
+  .conversation-ref-card__kicker {
+    margin-bottom: 0.3125rem;
+    font-size: 0.59375rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    opacity: 0.7;
   }
 
   .conversation-ref-card__title {
-    letter-spacing: 0;
-    text-wrap: balance;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    color: var(--solus-text-primary);
   }
 
   .conversation-ref-card__subtitle {
+    margin-top: 0.125rem;
+    font-size: 0.71875rem;
+    color: var(--muted-foreground);
     text-wrap: pretty;
-  }
-
-  .conversation-ref-card__actions {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.25rem;
   }
 
   .conversation-ref-card__action,
   .conversation-ref-card__secondary-action {
-    min-width: 2.5rem;
-    height: 2rem;
+    height: 1.75rem;
     border: none;
-    border-radius: 0.4375rem;
+    border-radius: 0.5rem;
     background: transparent;
-    padding: 0 0.625rem;
-    color: var(--solus-text-tertiary);
+    padding: 0 0.75rem;
+    color: var(--muted-foreground);
     font-size: 0.75rem;
-    font-weight: 550;
+    font-weight: 500;
     transition:
       background var(--duration-quick) var(--ease-premium),
       color var(--duration-quick) var(--ease-premium),
-      opacity var(--duration-quick) var(--ease-premium),
       transform 80ms var(--ease-premium);
+  }
+
+  .conversation-ref-card__action {
+    background: color-mix(in oklch, var(--foreground) 6%, transparent);
   }
 
   .conversation-ref-card__secondary-action {
     display: inline-flex;
-    min-width: 2rem;
+    width: 1.75rem;
     align-items: center;
     justify-content: center;
     padding: 0;
   }
 
-  :global(.conversation-ref-card):hover .conversation-ref-card__action,
-  :global(.conversation-ref-card):hover .conversation-ref-card__secondary-action,
-  :global(.conversation-ref-card):focus-within .conversation-ref-card__secondary-action,
-  :global(.conversation-ref-card):focus-within .conversation-ref-card__action {
-    color: var(--solus-text-secondary);
+  .conversation-ref-card__secondary-action:hover {
+    background: color-mix(in oklch, var(--foreground) 7%, transparent);
+    color: var(--solus-text-primary);
   }
 
-  .conversation-ref-card__action:hover,
-  .conversation-ref-card__secondary-action:hover {
-    background: var(--solus-surface-hover);
+  .conversation-ref-card__action:hover {
+    background: color-mix(in oklch, var(--foreground) 11%, transparent);
     color: var(--solus-text-primary);
   }
 
@@ -282,30 +307,26 @@
   }
 
   .conversation-ref-card__body {
-    box-shadow: inset 0 0.0625rem 0
-      color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--solus-code-tint) 54%, transparent),
-      color-mix(in srgb, var(--solus-container-bg) 88%, var(--solus-code-tint))
-    );
+    position: relative;
+    padding: 0.875rem 1rem 0;
+    border-top: 0.0625rem solid var(--solus-tx-rule);
+    font-size: 0.78125rem;
+    line-height: 1.6;
+    color: var(--muted-foreground);
+    text-wrap: pretty;
   }
 
-  @media (hover: hover) and (pointer: fine) {
-    .conversation-ref-card__action {
-      opacity: 0.64;
-    }
+  .conversation-ref-card__body.is-bleed {
+    padding: 0;
+  }
 
-    .conversation-ref-card__secondary-action {
-      opacity: 0;
-    }
+  .conversation-ref-card__fade {
+    height: 1.875rem;
+    background: linear-gradient(to bottom, transparent, var(--solus-tx-card-bg));
+  }
 
-    :global(.conversation-ref-card):hover .conversation-ref-card__action,
-    :global(.conversation-ref-card):hover .conversation-ref-card__secondary-action,
-    :global(.conversation-ref-card):focus-within .conversation-ref-card__action,
-    :global(.conversation-ref-card):focus-within
-      .conversation-ref-card__secondary-action {
-      opacity: 1;
-    }
+  .conversation-ref-card__rail {
+    padding: 0.5rem 0.625rem;
+    border-top: 0.0625rem solid var(--solus-tx-rule);
   }
 </style>

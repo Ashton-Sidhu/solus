@@ -1,12 +1,20 @@
 import type { AgentId, GitCheckout, IpcContext, ModelConfig, ModelProfile, ReasoningEffort, Session } from '../../../shared/types'
+import type { Via } from '../../../shared/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
-import { analytics } from '../../lib/analytics'
+import { track } from '../../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from '../app/toast.store.svelte'
-import { buildHandoffDividerMessage } from './session-transcript'
+import { isDispatchedSession } from '../../components/servers/run-on'
+import { nextMsgId } from './session.utils'
+
+const AGENT_LABELS: Record<AgentId, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+}
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
@@ -16,6 +24,7 @@ export interface SessionConfigControllerDeps {
   createTab(cwd?: string): Promise<string>
   ctx(tabId?: string): IpcContext
   ctxForDirectory(dir: string): IpcContext
+  apiFor?(tabId?: string): typeof window.solus
   refreshPluginCommands(dir: string, tabId?: string): void
   refreshGitRefs(projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { tabId?: string; cwd?: string; worktreeRequested?: boolean }): Promise<GitRefreshResult>
@@ -45,6 +54,10 @@ export class SessionConfigController {
     this.tabGroupMode = deps.settings.tabGroupMode
   }
 
+  private apiFor(tabId?: string): typeof window.solus {
+    return this.deps.apiFor?.(tabId) ?? window.solus
+  }
+
   /** Single write path for the global Git start target: environment resolution
    * applies a resolved target, and tab creation clears a consumed one. */
   applyGlobalStartTarget(target: {
@@ -71,7 +84,9 @@ export class SessionConfigController {
       const profile = MODEL_PROFILES[provider as keyof typeof MODEL_PROFILES]?.[patch.modelId ?? '']
       mc.modelId = patch.modelId!
       mc.reasoningEffort = patch.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high'
-      mc.contextWindow = patch.contextWindow ?? null
+      // Each model carries its own window; keeping the outgoing model's value
+      // would run the new one against a limit it never agreed to.
+      mc.contextWindow = patch.contextWindow ?? profile?.defaultContextWindow ?? null
       mc.fastMode = patch.fastMode ?? (profile?.supportsFastMode ? mc.fastMode : false)
       return
     }
@@ -81,8 +96,9 @@ export class SessionConfigController {
     if ('fastMode' in patch) mc.fastMode = patch.fastMode!
   }
 
-  async switchActiveAgent(agentId: AgentId): Promise<void> {
-    const session = this.deps.registry.activeSession
+  async switchActiveAgent(agentId: AgentId, tabId?: string, via: Via = 'click'): Promise<void> {
+    const targetTabId = tabId ?? this.deps.registry.activeTabId
+    const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (this.handoffInProgress) return
     if (session) {
       if (session.provider === agentId) return
@@ -90,8 +106,8 @@ export class SessionConfigController {
     }
 
     const newModelConfig = this.defaultModelConfigFor(agentId)
-    if (!session?.agentSessionId) {
-      analytics.agentSwitched({ from: this.deps.settings.activeAgent, to: agentId })
+    if (!session?.agentSessionId && !session?.handoffFrom) {
+      track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
@@ -109,29 +125,34 @@ export class SessionConfigController {
       return
     }
 
-    const tabId = this.deps.registry.activeTabId
     this.handoffInProgress = true
     try {
-      const result = await window.solus.switchSessionAgent(tabId, agentId)
-      analytics.agentSwitched({ from: result.fromProvider, to: agentId })
+      const result = await this.apiFor(targetTabId).switchSessionAgent(targetTabId, agentId)
+      track('agent_switched', { from: result.fromProvider, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
       session.provider = agentId
-      session.agentSessionId = null
+      session.agentSessionId = result.restoredSessionId ?? null
       session.modelConfig = { ...newModelConfig }
       session.sessionModel = null
       session.sessionSkills = []
       session.pluginCommands = { global: [], project: [] }
-      session.handoffFrom = {
-        provider: result.fromProvider,
-        sessionId: result.fromSessionId,
-      }
-      session.messages.push(buildHandoffDividerMessage({
-        fromProvider: result.fromProvider,
-        toProvider: agentId,
-      }))
-      this.deps.refreshPluginCommands(session.workingDirectory, tabId)
+      session.handoffFrom = result.restoredSessionId
+        ? result.handoffFrom
+        : {
+            provider: result.fromProvider,
+            sessionId: result.fromSessionId,
+          }
+      const agentChangedTo = AGENT_LABELS[agentId]
+      session.messages.push({
+        id: nextMsgId(),
+        role: 'system',
+        content: `Switched to ${agentChangedTo}`,
+        timestamp: Date.now(),
+        agentChangedTo,
+      })
+      this.deps.refreshPluginCommands(session.workingDirectory, targetTabId)
     } catch (error) {
       toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -162,6 +183,8 @@ export class SessionConfigController {
       const session = this.deps.registry.sessionFor(tabId)
       if (!session || session.agentSessionId || session.gitContext?.worktreePath) continue
       if (session.status === 'connecting' || session.status === 'running') continue
+      // A dispatched session's worktree is not the global default's to revoke.
+      if (isDispatchedSession(session)) continue
       session.worktreeBaseBranch = enabled ? (session.gitContext?.targetBranch ?? null) : null
     }
   }
@@ -180,6 +203,10 @@ export class SessionConfigController {
       return
     }
     if (session.gitContext?.worktreePath) return
+    // A dispatched session always gets its own worktree: its base checkout sits
+    // on a host nobody is watching, so a collision there has no one to untangle
+    // it. The surface shows the toggle disabled rather than accepting the click.
+    if (isDispatchedSession(session)) return
     if (session.worktreeBaseBranch) {
       session.worktreeBaseBranch = null
     } else {
@@ -188,27 +215,24 @@ export class SessionConfigController {
   }
 
   async switchToWorktree(worktreePath: string, tabId?: string): Promise<void> {
-    const targetSession = tabId
-      ? this.deps.registry.sessionFor(tabId)
-      : this.deps.registry.activeSession
-    const workingDirectory = targetSession?.workingDirectory
-      ?? this.globalDefaults.workingDirectory
-      ?? this.deps.statusBar.ctx.workingDirectory
-    if (!workingDirectory || workingDirectory === '~') return
     if (!tabId && this.deps.registry.activeSession?.agentSessionId) {
       await this.deps.createTab()
+    }
+    const isSolusWorktree = isSolusWorktreePath(worktreePath)
+    const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
+    if (!tabId && !this.deps.registry.activeSession) {
+      await this.deps.createTab(projectRoot)
     }
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const session = tabId
       ? this.deps.registry.sessionFor(tabId)
       : this.deps.registry.activeSession
-    const isSolusWorktree = isSolusWorktreePath(worktreePath)
-    const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
     const repoCtx = this.deps.ctxForDirectory(projectRoot)
-    if (session) window.solus.resetTabSession(this.deps.ctx(targetTabId))
+    const api = this.apiFor(targetTabId)
+    if (session) api.resetTabSession(this.deps.ctx(targetTabId))
     const restored: GitCheckout | null = isSolusWorktree
-      ? await window.solus.worktreeRestore(repoCtx, worktreePath, { includePr: false })
-      : gitCheckoutFromState(await window.solus.gitRefreshState(worktreePath).catch(() => null))
+      ? await api.worktreeRestore(repoCtx, worktreePath, { includePr: false })
+      : gitCheckoutFromState(await api.gitRefreshState(worktreePath).catch(() => null))
     if (session) {
       session.workingDirectory = projectRoot
       session.gitContext = restored
@@ -246,7 +270,8 @@ export class SessionConfigController {
         ? this.deps.registry.sessionFor(tabId)
         : this.deps.registry.activeSession
       const ctx = this.deps.ctxForDirectory(projectRoot)
-      const result = await window.solus.gitCheckoutBranch(ctx, branch)
+      const api = this.apiFor(targetTabId)
+      const result = await api.gitCheckoutBranch(ctx, branch)
       if (!result.success || !result.gitContext) {
         toasts.error(result.error ? `Couldn't switch branch: ${result.error}` : "Couldn't switch branch")
         return false
@@ -261,7 +286,7 @@ export class SessionConfigController {
         session.pluginCommands = { global: [], project: [] }
         this.deps.refreshPluginCommands(projectRoot, targetTabId)
         try {
-          await window.solus.resetTabSession(this.deps.ctx(targetTabId))
+          await api.resetTabSession(this.deps.ctx(targetTabId))
         } catch (error) {
           toasts.error(`Switched branch, but couldn't reset the tab session: ${error instanceof Error ? error.message : String(error)}`)
         }
@@ -288,8 +313,8 @@ export class SessionConfigController {
       await this.deps.createTab()
     }
     if (!tabId && this.deps.registry.tabOrder.length === 0) {
-      await this.deps.createTab(dir)
-      void window.solus.trackRecentProject(dir)
+      const createdTabId = await this.deps.createTab(dir)
+      void this.apiFor(createdTabId).trackRecentProject(dir)
       return
     }
     const targetTabId = tabId ?? this.deps.registry.activeTabId
@@ -305,7 +330,8 @@ export class SessionConfigController {
     session.worktreeBaseBranch = null
     session.readOnlyReason = null
     session.pluginCommands = { global: [], project: [] }
-    window.solus.resetTabSession(this.deps.ctx(targetTabId))
+    const api = this.apiFor(targetTabId)
+    api.resetTabSession(this.deps.ctx(targetTabId))
     this.deps.refreshPluginCommands(dir, targetTabId)
     await this.trackSessionStartTargetResolution(
       targetTabId,
@@ -315,11 +341,23 @@ export class SessionConfigController {
         worktreeRequested: this.deps.settings.worktreeEnabled,
       }),
     )
-    void window.solus.trackRecentProject(dir)
+    void api.trackRecentProject(dir)
   }
 
   pendingSessionStartTarget(tabId?: string): Promise<void> | null {
     return this.sessionStartTargetResolutions.get(tabId ?? '') ?? null
+  }
+
+  /** Registers a host/project move on the same gate the first prompt awaits. */
+  refreshSessionStartTarget(
+    tabId: string,
+    cwd: string,
+    worktreeRequested: boolean,
+  ): Promise<void> {
+    return this.trackSessionStartTargetResolution(
+      tabId,
+      this.deps.refreshGitState({ tabId, cwd, worktreeRequested }),
+    )
   }
 
   private async trackSessionStartTargetResolution(
@@ -359,7 +397,7 @@ export class SessionConfigController {
     return {
       modelId,
       reasoningEffort: (profile as ModelProfile).defaultReasoningEffort,
-      contextWindow: null,
+      contextWindow: (profile as ModelProfile).defaultContextWindow ?? null,
       fastMode: false,
     }
   }

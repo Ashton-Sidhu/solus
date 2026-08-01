@@ -3,6 +3,18 @@ import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 
+function warmPlanDescriptorsWhenIdle(session: WorkspaceContext): void {
+  const warm = () => {
+    void import('../../components/plan/PlanGallery.svelte')
+    session.planStore.preloadAllDescriptors(session.ctx)
+  }
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(warm, { timeout: 1_500 })
+    return
+  }
+  window.setTimeout(warm, 250)
+}
+
 /** Ignore expected connection gaps while still surfacing unrelated read failures. */
 export function logConnectionReadError(operation: string, error: unknown): void {
   if (error instanceof TransportDisconnectedError) return
@@ -27,6 +39,7 @@ export function initializeRuntime(
     .then(async () => {
       await bootstrapRuntimeTabs(session)
       void sidebarStore.loadPinnedSessions()
+      warmPlanDescriptorsWhenIdle(session)
     })
     .catch((error) => logConnectionReadError('runtime initialization', error))
 }

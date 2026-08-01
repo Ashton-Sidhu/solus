@@ -49,6 +49,7 @@ web/.wrangler
 web/static/demo/
 
 .solus/**
+.solus-local/
 .solus-worktrees/**
 
 # Playwright test artifacts
@@ -56,3 +57,7 @@ test-results/
 playwright-report/
 workerpool.md
 claudestreaming.md
+
+# design-sync
+ds-bundle/
+.ds-work/

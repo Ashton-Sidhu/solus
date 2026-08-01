@@ -87,10 +87,10 @@
   <g transform="translate(170, 200)" filter="url(#goldGlow)">
 
     <!-- Solid core -->
-    <circle cx="0" cy="0" r="31.2" fill="#c9a84c" opacity="0.95"/>
+    <circle cx="0" cy="0" r="31.2" fill="#B45A3C" opacity="0.95"/>
 
     <!-- Three corona arcs sweeping clockwise (r=52) -->
-    <g fill="none" stroke="#c9a84c" stroke-width="10.4" stroke-linecap="round" opacity="0.95">
+    <g fill="none" stroke="#D97757" stroke-width="10.4" stroke-linecap="round" opacity="0.95">
       <path d="M 0,-52 A 52,52 0 0 1 52,0"/>
       <path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92"/>
       <path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64"/>

@@ -15,7 +15,8 @@
     TableHeader,
     TableCell,
   } from "@tiptap/extension-table";
-  import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+  import { CellFocus } from "./cellFocus";
+  import { DocCodeBlock } from "./codeBlockView";
   import DragHandle from "@tiptap/extension-drag-handle";
   import { lowlight } from "./lowlight";
   import { SearchExtension } from "./searchExtension";
@@ -24,11 +25,14 @@
     SlashCommandExtension,
     filterCommands,
     executeSlashCommand,
+    askSolusCommand,
     type EditorBlockCommand,
   } from "./slashCommands";
   import EditorSlashMenu from "./EditorSlashMenu.svelte";
   import EditorLinkPopover from "./EditorLinkPopover.svelte";
   import TableContextMenu from "./TableContextMenu.svelte";
+  import TableBlockBar from "./TableBlockBar.svelte";
+  import TableGrips from "./TableGrips.svelte";
 
   interface Props {
     value: string;
@@ -50,6 +54,9 @@
     onFileRefClick?: (path: string) => void;
     onFocus?: () => void;
     onBlur?: () => void;
+    /** When set, the slash menu offers "Ask Solus to draft…". Surfaces without
+     *  an agent behind them simply don't pass it. */
+    onAskSolus?: () => void;
     class?: string;
     style?: string;
     /** Whether the hover-to-grab block drag handle is mounted. Off for surfaces
@@ -73,6 +80,7 @@
     onFileRefClick,
     onFocus,
     onBlur,
+    onAskSolus,
     class: klass = "",
     style = "",
     dragHandle = true,
@@ -104,7 +112,13 @@
   } | null>(null);
   let slashDismissed = $state(false);
 
-  let tableMenuCoords = $state<{ x: number; y: number } | null>(null);
+  // `axis` is set only when a grip opened the menu — right-click has no axis to
+  // go on, so it gets the whole verb list.
+  let tableMenuCoords = $state<{
+    x: number;
+    y: number;
+    axis?: "row" | "column";
+  } | null>(null);
   let linkPopover = $state<{
     coords: { left: number; top: number; bottom: number };
     from: number;
@@ -112,7 +126,8 @@
     initialHref: string;
   } | null>(null);
 
-  const slashFiltered = $derived(filterCommands(slashQuery));
+  const slashExtras = $derived(onAskSolus ? [askSolusCommand(onAskSolus)] : []);
+  const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
 
   function getMd(editor: Editor): string {
     return editor.getMarkdown();
@@ -133,7 +148,6 @@
       extensions: [
         StarterKit.configure({
           codeBlock: false,
-          hardBreak: false,
           trailingNode: false,
           undoRedo: { depth: 100 },
           link: { openOnClick: false, autolink: true },
@@ -147,7 +161,7 @@
           },
         }),
         Markdown.configure({ marked: createMarkdownParser() }),
-        CodeBlockLowlight.configure({ lowlight }),
+        DocCodeBlock.configure({ lowlight }),
         // Whole-doc placeholder when empty, otherwise a "/" command hint on the
         // current empty line so the slash menu is discoverable.
         Placeholder.configure({
@@ -170,10 +184,13 @@
         TaskList,
         TaskItem.configure({ nested: true }),
         Image.configure({ allowBase64: true }),
-        Table.configure({ resizable: true }),
+        // A slightly wider resize target keeps the cursor stable as it crosses
+        // a column boundary. cellMinWidth keeps resized columns readable.
+        Table.configure({ resizable: true, handleWidth: 8, cellMinWidth: 96 }),
         TableRow,
         TableHeader,
         TableCell,
+        CellFocus,
         SlashCommandExtension,
         SearchExtension,
         // Hover-to-grab block drag handle. Defaults render a `.drag-handle`
@@ -659,10 +676,22 @@
     />
   {/if}
 
+  {#if mode === "rich"}
+    <TableBlockBar
+      editor={editorInstance}
+      onMore={(coords) => (tableMenuCoords = coords)}
+    />
+    <TableGrips
+      editor={editorInstance}
+      onMenu={(coords) => (tableMenuCoords = coords)}
+    />
+  {/if}
+
   {#if tableMenuCoords && editorInstance}
     <TableContextMenu
       editor={editorInstance}
       coords={tableMenuCoords}
+      axis={tableMenuCoords.axis}
       onClose={() => (tableMenuCoords = null)}
     />
   {/if}
@@ -711,7 +740,6 @@
     width: 0.1875rem;
     background: var(--solus-accent);
     opacity: 0;
-    transition: opacity var(--duration-quick) var(--ease-premium);
     pointer-events: none;
   }
   :global(.solus-doc-editor .ProseMirror.resize-cursor) {

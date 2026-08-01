@@ -42,10 +42,12 @@
 
   const interactive = $derived(!!onReply || !!onToggleResolve);
 
-  // Comment bodies are GitHub markdown — same pipeline as the Activity tab's
-  // thread cards, scaled to the inline card's 12px type.
+  // Comment bodies are GitHub markdown — the same `.prose-pr` typography as the
+  // PR description and the Activity tab's thread cards, stepped down to this
+  // card's 12px type by the compact modifier. Sizes/colour can't be set with
+  // utilities here: the `.prose-cloud` rules are unlayered and win.
   const bodyProseClass =
-    "github-markdown prose-cloud mt-0.5 text-[0.75rem] leading-relaxed text-(--solus-text-secondary) [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+    "github-markdown prose-cloud prose-pr prose-pr-compact mt-0.5";
 
   let replying = $state(false);
   let replyText = $state("");

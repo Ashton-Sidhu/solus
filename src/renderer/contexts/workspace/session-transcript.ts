@@ -1,28 +1,12 @@
-import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
+import type { AgentId, AutomationTrigger, IpcContext, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
 import { encodePathAsFolder } from '../../../shared/types'
 import type { SessionLoadMessage } from '../../../shared/session-history'
 import { uuid } from '../../../shared/uuid'
-import { agentLabel } from '../../lib/agentAvailability'
-import { nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 // ─── Transcript loader ───
-
-export function buildHandoffDividerMessage(args: {
-  fromProvider: AgentId
-  toProvider: AgentId
-  truncated?: boolean
-}): Message {
-  const truncated = args.truncated ?? false
-  const truncationNote = truncated ? ' (earlier context truncated)' : ''
-  return {
-    id: nextMsgId(),
-    role: 'system',
-    content: `Handed off from ${agentLabel(args.fromProvider)} to ${agentLabel(args.toProvider)} — context carried over${truncationNote}`,
-    handoffDivider: { fromProvider: args.fromProvider, toProvider: args.toProvider, truncated },
-    timestamp: Date.now(),
-  }
-}
 
 /** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
 function isCreateWorkTool(name: string | undefined): boolean {
@@ -102,7 +86,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
   limit?: number
   shouldApply?: () => boolean
 }): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
-  const history = await window.solus.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
+  const history = await ctx.apiFor(args.ctx.session.tabId).loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
   // A full window of messages means older ones were left on disk.
   const truncated = !!args.limit && history.length >= args.limit
   if (args.shouldApply && !args.shouldApply()) {
@@ -119,6 +103,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
   // Tool messages by tool_use id (main thread + nested) so sub-agent children
   // and the Agent tool's own result can be reattached to their tool message.
   const toolById = new Map<string, any>()
+  // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
+  // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
+  const agentConversations = new AgentConversationTranscriptBuilder(messages)
 
   // Automation cards resolve against the store; ensure it's hydrated if this
   // transcript created/updated any automations.
@@ -127,10 +114,18 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
   }
 
   const loadedHistory = history as SessionLoadMessage[]
+  // Thinking is never rendered as a turn — only its duration is, folded onto the
+  // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
+  // no span boundaries, so the run of reasoning turns is bracketed by the first
+  // one's timestamp and the message that ends the run.
+  let thinkingRunStartedAt: number | null = null
   for (const m of loadedHistory) {
     // Reasoning/thinking turns ride along in the transcript for provider handoffs;
-    // the conversation view doesn't render them, so drop them on replay.
-    if (m.role === 'reasoning') continue
+    // the conversation view shows how long they took, never their text.
+    if (m.role === 'reasoning') {
+      if (thinkingRunStartedAt === null) thinkingRunStartedAt = m.timestamp ?? null
+      continue
+    }
     if (m.role === 'tool_result') {
       // Land the result on its tool message — the Agent tool's own result flips
       // its card to done; an inner tool's result lands in subMessages. Never a
@@ -138,11 +133,17 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
       const target = m.toolResultForId ? toolById.get(m.toolResultForId) : undefined
       if (target) {
         target.toolResult = m.content
-        target.toolResultIsError = false
-        target.toolStatus = 'completed'
+        target.toolResultIsError = m.toolResultIsError ?? false
+        target.toolStatus = m.toolResultIsError ? 'error' : 'completed'
+        if (m.timestamp) target.toolCompletedAt = m.timestamp
       }
       continue
     }
+
+    // Whatever message follows the run of reasoning turns ends it, whether or not
+    // it has anywhere to print the figure.
+    const thinkingRunEndedAt = thinkingRunStartedAt
+    thinkingRunStartedAt = null
 
     // Sub-agent activity reconstructs into the spawning tool's nested transcript,
     // mirroring the live reducer — never the flat thread.
@@ -176,6 +177,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
       // Parent missing (truncated window) → fall through to render inline.
     }
 
+    const msgTimestamp = m.timestamp ?? Date.now()
     const msg: any = {
       id: nextMsgId(),
       role: m.role,
@@ -183,16 +185,25 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
       toolName: m.toolName,
       toolId: m.toolId,
       toolInput: m.toolInput,
-      toolStatus: m.toolName ? 'completed' : undefined,
+      toolStatus: m.toolStatus ?? (m.toolName ? 'completed' : undefined),
       planToolUseId: m.planToolUseId,
-      timestamp: m.timestamp ?? Date.now(),
+      timestamp: msgTimestamp,
+    }
+    // Only a tool call keeps the figure — the activity block is the one place
+    // with somewhere to print it.
+    if (thinkingRunEndedAt !== null && m.role === 'tool') {
+      const ms = msgTimestamp - thinkingRunEndedAt
+      if (ms > 0) msg.thinkingMs = ms
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
 
-    // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a SubagentCard,
-    // not a plain tool row. The live reducer sets subMessages via isSubagent; reload
+    // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a
+    // SubagentGroup row, not a plain tool row. The live reducer sets subMessages via isSubagent; reload
     // has no such flag, so re-seed it here. The tool_result pass above reattaches the answer.
-    if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
+    if (m.role === 'tool' && m.isSubagent) {
+      msg.subMessages = []
+      msg.subagentType = m.subagentType
+    } else if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
       msg.subMessages = []
       msg.subagentType = 'codex'
     } else if (m.role === 'tool' && m.toolName?.slice(m.toolName.lastIndexOf('.') + 1) === 'claude_subagent') {
@@ -279,6 +290,23 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
         })
       } catch {}
       continue
+    } else if (m.role === 'tool' && isAgentConversationTool(m.toolName)) {
+      // A session-orchestration call replays as a tool row (debug visibility)
+      // followed by its agent-conversation card; report user turns below fill replies in.
+      messages.push(msg)
+      agentConversations.applyToolRow(
+        m.toolName!,
+        m.toolInput,
+        m.content || toolResultTextFor(loadedHistory, m.toolId),
+        m.timestamp ?? Date.now(),
+      )
+      continue
+    } else if (m.role === 'user') {
+      // A [session report] turn is model context, never a bubble — its payload
+      // lands in the agent-conversation card it settles. A genuine user turn cuts the
+      // one-card-per-agent-per-turn boundary.
+      if (agentConversations.applyUserRow(m.content || '', msgTimestamp)) continue
+      if (!isAgentNotice(m.content || '')) agentConversations.closeTurn()
     } else if (m.role === 'tool' && isCodexImageGenerationTool(m.toolName)) {
       // The image path was already resolved in the main process (codexItemToMessage).
       try {
@@ -328,9 +356,27 @@ export function syncPendingInputFromEvent(ctx: WorkspaceContext, session: Sessio
 }
 
 export function reconcileQueuedPromptsForSession(session: Session, queuedPrompts: QueuedPromptSnapshot[]): void {
-  session.serverQueuedPrompts.splice(
+  const serverClientPromptIds = new Set(
+    queuedPrompts.flatMap((prompt) => prompt.clientPromptId ? [prompt.clientPromptId] : []),
+  )
+  const localPrompts = session.outboundPrompts.filter(
+    (prompt) => prompt.state !== 'queued' && !serverClientPromptIds.has(prompt.clientPromptId),
+  )
+  const serverPrompts = queuedPrompts.map((prompt) => {
+    const existing = prompt.clientPromptId
+      ? session.outboundPrompts.find((outbound) => outbound.clientPromptId === prompt.clientPromptId)
+      : undefined
+    return {
+      ...existing,
+      ...prompt,
+      clientPromptId: prompt.clientPromptId ?? `queued:${prompt.queueId}`,
+      state: 'queued' as const,
+    }
+  })
+  session.outboundPrompts.splice(
     0,
-    session.serverQueuedPrompts.length,
-    ...queuedPrompts.map((prompt) => ({ ...prompt })),
+    session.outboundPrompts.length,
+    ...localPrompts,
+    ...serverPrompts,
   )
 }

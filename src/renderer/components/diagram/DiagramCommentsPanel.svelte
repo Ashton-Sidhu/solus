@@ -94,7 +94,6 @@
     }}
     onCancelEdit={() => (editingCommentId = null)}
     {onDelete}
-    {onClose}
   >
     {#snippet footer()}
       <div class="diagram-comments__composer">
@@ -158,12 +157,24 @@
     width: clamp(18rem, 34vw, 21rem);
     max-width: calc(100% - 1rem);
     z-index: 10;
+    /* The rail draws margin threads on the page it belongs to — a document
+       gutter. Over a canvas there is no page, so the frame the other right-side
+       drawers use is supplied here rather than by the rail. */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--solus-sidebar-bg-right, var(--solus-sidebar-bg));
+    border: 0.0625rem solid var(--solus-container-border);
+    border-radius: 1rem;
   }
 
-  /* The rail carries its own gutter for the plan sleeve; the drawer geometry
-     above already provides the inset, so strip it here. */
   .diagram-comments :global(.plan-comments-rail) {
-    padding: 0;
+    padding: 0.75rem 0.75rem 0;
+  }
+  .diagram-comments :global(.plan-comments-rail__footer) {
+    margin-top: 0.5rem;
+    margin-inline: -0.75rem;
+    border-top: 0.0625rem solid var(--solus-container-border);
   }
 
   .diagram-comments__composer {

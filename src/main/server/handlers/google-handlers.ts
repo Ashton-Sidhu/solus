@@ -33,7 +33,7 @@ export function registerGoogleHandlers(server: SolusServer, deps: GoogleHandlers
     } catch (err) {
       console.log(err)
       const message = err instanceof Error ? err.message : String(err)
-      log.error(`googleUploadDoc failed: ${message}`)
+      log.error('google_upload_doc_failed', { error: message })
       return { error: message }
     }
   })

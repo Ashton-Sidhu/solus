@@ -5,7 +5,6 @@
   import { fly } from "svelte/transition";
   import {
     XIcon,
-    CheckIcon,
     TextBIcon,
     TextItalicIcon,
     TextStrikethroughIcon,
@@ -27,35 +26,42 @@
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import FindReplaceBar from "../editor/FindReplaceBar.svelte";
-  import PlanTableOfContents from "../plan/PlanTableOfContents.svelte";
+  import DocumentOutline from "./DocumentOutline.svelte";
+  import SelectionBubble from "./SelectionBubble.svelte";
   import { portal } from "../portal";
   import { extractHeadings, type PlanHeading } from "./headings";
+  import { countThreadsByHeading } from "../comments/lib/anchors";
+  import { sectionJumpIndex } from "./lib/outline";
+  import { bylineContent } from "./lib/byline";
   import { formatSavedAgo } from "./saveStatus";
   import { isActive, cmd } from "./toolbar";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import type { Scope } from "../../lib/keybindings/types";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
 
   interface Props {
-    /** Document title shown in the header. */
+    /** Document title. Shown in the header's title cluster (alongside the pane
+     *  tab and the document's own H1), and drives the aria-label and rename. */
     title: string;
-    /** When set, the title becomes click-to-rename (works only, not plans). */
+    /** Where the document lives, shown in mono ahead of the title (e.g. the
+     *  project it is stored in). Omitted when there is nothing above it. */
+    breadcrumb?: string;
+    /** When set, the header title becomes a click-to-rename button. */
     onRenameTitle?: (title: string) => void;
     /** Markdown content rendered in the editor (also the source for Copy). */
     content: string;
     placeholder?: string;
     /** Renders full-pane (editor mode) vs floating modal + backdrop (pill mode). */
     inline?: boolean;
-    /** Collapse header action labels when the shell is hosted in the split pane. */
-    iconOnlyHeaderActions?: boolean;
+    /** Split-pane documents keep the outline folded until it is needed. */
+    minimizeOutline?: boolean;
     /** Consumer-specific class on the editor, used to own its content width/typography. */
     editorClass: string;
     extraExtensions?: AnyExtension[];
 
     /** Keybinding scope pushed while mounted, and the close/save/copy ids within it. */
     scope: Scope;
-    bindings: { close: BindingId; save: BindingId; copy: BindingId; googleUpload?: BindingId; find?: BindingId };
+    bindings: { close: BindingId; save: BindingId; copy: BindingId; googleUpload?: BindingId; find?: BindingId; pinOutline?: BindingId };
 
     onSave: (md: string) => void | Promise<void>;
     /** Fires true when there are unsaved edits, false once saved. Lets the host
@@ -72,11 +78,31 @@
     scrollAriaLabel?: string;
 
     /** Marker class on the root, so consumers can scope responsive overrides of
-        shared shell elements (toolbar row, root sizing) to their own instances. */
+        shared shell elements (header, root sizing) to their own instances. */
     rootClass?: string;
 
-    /** Extra classes appended to the scroll region (e.g. plan's no-rail gutter). */
-    scrollClass?: string;
+    /** Starts a comment on the current selection. Provided by surfaces that
+     *  have comments; the bubble's Comment action appears only with it. */
+    onCommentSelection?: () => void;
+    /** Whether the current selection can actually anchor a comment (the host
+     *  owns that rule — e.g. a minimum length). Gates the Comment action so it
+     *  is never offered as a button that would do nothing. */
+    canCommentSelection?: boolean;
+    /** Hands the selected text to the surface's agent. Works only. */
+    onAskSolus?: (selectedText: string) => void;
+
+    /** Document position of each comment thread's mark. Drives the outline's
+     *  per-section thread counts; surfaces without comments omit it. */
+    threadAnchors?: { id: string; pos: number }[];
+    /** Width of the margin the `rail` snippet draws threads in, as a CSS
+     *  length. Reserved in the page block whether or not threads are showing,
+     *  so toggling them never moves the prose. Omitted by surfaces with no
+     *  threads at all — they get no margin and centre on the measure alone. */
+    railWidth?: string;
+    /** Pane width below which the margin stops being a column, in px. The
+     *  measure is protected before the margin is: past this the rail folds away
+     *  and its surface is told so, rather than the prose shrinking to keep it. */
+    railFoldBelow?: number;
 
     /** Called after the shell wires the editor, so consumers can add listeners. */
     onEditorReady?: (editor: Editor) => void;
@@ -86,28 +112,34 @@
     /** Consumers set true around programmatic edits to suppress autosave. */
     suppressSave?: boolean;
 
-    titleIcon?: Snippet;
-    headerMeta?: Snippet;
-    headerActions?: Snippet<[{
+    /** Surface-specific status rendered in the header's action cluster (e.g.
+     *  the plan's revision picker). */
+    documentMeta?: Snippet;
+    /** Surface-specific actions rendered at the right end of the header. */
+    documentActions?: Snippet<[{
       copied: boolean;
       copy: () => void;
       /** Defined only when this shell has a google-upload binding. */
       googleUpload?: () => void;
       uploading: boolean;
       uploaded: boolean;
+      /** Defined only when the title is renameable — flips the header's title
+       *  cluster into the rename input. */
+      startRename?: () => void;
     }]>;
-    rail?: Snippet;
+    rail?: Snippet<[{ folded: boolean }]>;
     footer?: Snippet;
     overlays?: Snippet;
   }
 
   let {
     title,
+    breadcrumb,
     onRenameTitle,
     content,
     placeholder = "",
     inline = false,
-    iconOnlyHeaderActions = false,
+    minimizeOutline = false,
     editorClass,
     extraExtensions = [],
     scope,
@@ -120,22 +152,31 @@
     closeTestId,
     scrollAriaLabel = "Document",
     rootClass = "",
-    scrollClass = "",
+    onCommentSelection,
+    canCommentSelection = false,
+    onAskSolus,
+    threadAnchors = [],
+    railWidth = "0px",
+    railFoldBelow = 920,
     onEditorReady,
     tiptapEditor = $bindable(null),
     scrollContainer = $bindable(null),
     suppressSave = $bindable(false),
-    titleIcon,
-    headerMeta,
-    headerActions,
+    documentMeta,
+    documentActions,
     rail,
     footer,
     overlays,
   }: Props = $props();
 
   const isMobile = $derived(runtime.isMobileViewport);
-  const isCompact = $derived(runtime.isCompactViewport);
-  const showTocRail = $derived(!isMobile && (!isCompact || runtime.isTouchDevice));
+
+  // Pane width, not window width: a narrow split pane on a wide monitor has to
+  // fold its margin too, or the measure pays for a rail nobody can read.
+  let shellWidth = $state(0);
+  const railFolded = $derived(
+    railWidth !== "0px" && shellWidth > 0 && shellWidth < railFoldBelow,
+  );
 
   let editorRef: DocumentEditor | null = $state(null);
   let editorMode = $state<"rich" | "raw">("rich");
@@ -221,21 +262,15 @@
 
   const showSaving = $derived(hasPendingSave || isSaving);
 
-  // Live word/token counts shown in the toolbar. Driven off stateVersion, which
-  // is bumped once per frame on every edit — so they update live as you type
-  // (a 500ms timer made them lag and never settle during continuous typing).
-  const counts = $derived.by(() => {
+  // Live word count for the document's byline. Driven off stateVersion, which
+  // is bumped once per frame on every edit — so it updates live as you type
+  // (a 500ms timer made it lag and never settle during continuous typing).
+  const wordCount = $derived.by(() => {
     stateVersion;
-    const editor = tiptapEditor;
-    if (!editor) return { words: 0, tokens: 0 };
-    const text = editor.state.doc.textContent;
-    const trimmed = text.trim();
-    return {
-      words: trimmed ? trimmed.split(/\s+/).length : 0,
-      // Rough GPT-style estimate: ~4 chars/token. Good enough for a writing aid.
-      tokens: Math.ceil(text.length / 4),
-    };
+    const trimmed = tiptapEditor?.state.doc.textContent.trim();
+    return trimmed ? trimmed.split(/\s+/).length : 0;
   });
+  const byline = $derived(bylineContent(wordCount));
 
   // Toolbar undo/redo affordance — re-read on each batched stateVersion bump.
   const canUndo = $derived.by(() => {
@@ -248,7 +283,29 @@
   });
 
   let tocHeadings = $state<PlanHeading[]>([]);
+  // Presence only — the rail's width collapse is a container query on the pane,
+  // so a narrow split pane on a wide monitor drops it too.
+  const showTocRail = $derived(tocHeadings.length >= 2);
   let activeHeadingPos = $state<number | null>(null);
+  const threadCounts = $derived(
+    countThreadsByHeading(threadAnchors, tocHeadings.map((h) => h.pos)),
+  );
+  // Held open by the reader; released only by the same shortcut.
+  let outlinePinned = $state(false);
+  // Held open while a keyboard jump is settling, so the reader can see where
+  // they landed before the labels dissolve.
+  let outlineJumping = $state(false);
+  // The full contents stay visible at the top in a floating document, then
+  // fold to measure bars as soon as the reader scrolls into the document.
+  // Split-pane documents stay minimized so the outline does not consume the
+  // narrow pane's visual space; hover, pinning, and keyboard jumps can still
+  // reveal it on demand.
+  let outlineAtTop = $state(true);
+  // The reading viewport's height. The margin rail sticks to the top of the
+  // scroll region, so it needs the viewport's height rather than the
+  // document's — a sticky element cannot get that from its own parent.
+  let scrollHeight = $state(0);
+  let outlineJumpTimer: ReturnType<typeof setTimeout> | null = null;
   let tocTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressScrollSpy = false;
   let suppressScrollSpyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -279,8 +336,29 @@
     return () => {
       if (tocTimer) clearTimeout(tocTimer);
       if (suppressScrollSpyTimer) clearTimeout(suppressScrollSpyTimer);
+      if (outlineJumpTimer) clearTimeout(outlineJumpTimer);
     };
   });
+
+  /**
+   * ⌥1…⌥9 jump to the nth section, and hold the outline open long enough for
+   * the reader to see where the jump landed.
+   *
+   * Nine digits would be nine manifest entries per shell scope, so this rides
+   * on the root element instead of the global keybinding registry: it fires
+   * only while focus is inside this document, which is the same gate the
+   * scope would have given it.
+   */
+  function handleSectionJump(e: KeyboardEvent) {
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    const index = sectionJumpIndex(e.code, tocHeadings.length);
+    if (index === null) return;
+    e.preventDefault();
+    outlineJumping = true;
+    if (outlineJumpTimer) clearTimeout(outlineJumpTimer);
+    outlineJumpTimer = setTimeout(() => (outlineJumping = false), 900);
+    scrollToHeading(tocHeadings[index].pos);
+  }
 
   // Heading scroll-spy: choose the heading whose top is closest above the
   // viewport. P5: coalesce to one rAF per frame so a fast scroll doesn't run
@@ -291,6 +369,7 @@
     const compute = () => {
       scrollPending = false;
       if (!tiptapEditor || !scrollContainer || suppressScrollSpy) return;
+      if (!minimizeOutline) outlineAtTop = scrollContainer.scrollTop <= 1;
       const atBottom =
         scrollContainer.scrollTop + scrollContainer.clientHeight >=
         scrollContainer.scrollHeight - 2;
@@ -312,6 +391,8 @@
       activeHeadingPos = active;
     };
     const handler = () => {
+      // Fold immediately rather than waiting for the scroll-spy's next frame.
+      if (!minimizeOutline && scrollContainer) outlineAtTop = scrollContainer.scrollTop <= 1;
       if (scrollPending) return;
       scrollPending = true;
       requestAnimationFrame(compute);
@@ -330,6 +411,7 @@
   useKeybinding(() => bindings.copy, () => handleCopy());
   useKeybinding(() => bindings.googleUpload!, handleGoogleUpload, { enabled: () => !!bindings.googleUpload });
   useKeybinding(() => bindings.find!, () => { findOpen = true; }, { enabled: () => !!bindings.find });
+  useKeybinding(() => bindings.pinOutline!, () => { outlinePinned = !outlinePinned; }, { enabled: () => !!bindings.pinOutline });
 
   // P2: one batched bump per frame instead of a queueMicrotask bump per
   // transaction (the toolbar's ~17 isActive reads only need to refresh once).
@@ -500,11 +582,23 @@
     }
   }
 
+  /** Hand the selected prose to the surface's agent. Reads the live selection
+   *  rather than tracking it, so it can't go stale between click and send. */
+  function handleAskSolus() {
+    const editor = tiptapEditor;
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const selected = editor.state.doc.textBetween(from, to, " ").trim();
+    if (selected) onAskSolus?.(selected);
+  }
+
   function scrollToHeading(pos: number) {
     if (!tiptapEditor || !scrollContainer) return;
     const coords = tiptapEditor.view.coordsAtPos(pos);
     const containerTop = scrollContainer.getBoundingClientRect().top;
-    const toolbarHeight = 52;
+    // The header sits above the scroll region now, so this is plain breathing
+    // room rather than clearance for an overlay.
+    const headroom = 24;
     activeHeadingPos = pos;
     suppressScrollSpy = true;
     if (suppressScrollSpyTimer) clearTimeout(suppressScrollSpyTimer);
@@ -512,11 +606,58 @@
       suppressScrollSpy = false;
     }, 600);
     scrollContainer.scrollBy({
-      top: coords.top - containerTop - toolbarHeight - 12,
+      top: coords.top - containerTop - headroom,
       behavior: "smooth",
     });
   }
 </script>
+
+{#snippet renameField()}
+  <!-- svelte-ignore a11y_autofocus -->
+  <input
+    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
+    bind:value={renameValue}
+    onblur={commitRename}
+    onkeydown={renameKeydown}
+    autofocus
+    aria-label="Rename document"
+    data-testid="rename-work-input"
+  />
+{/snippet}
+
+{#snippet saveStatusChip()}
+  <div class="doc-shell-save-status ml-1 inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap text-[0.71875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
+    {#if showSaving}
+      <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
+      <span>Saving…</span>
+    {:else if saveFailed}
+      <button
+        type="button"
+        class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium transition-[background,color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
+        onclick={() => void flushSave()}
+        title="The last save failed — click to retry"
+      >
+        Retry save
+      </button>
+    {:else if lastSavedAt !== null}
+      <!-- Sage, the one hue that means "saved / resolved" everywhere in the
+           document — a dot rather than a tick, so the header stays type. -->
+      <span class="size-[0.3125rem] shrink-0 rounded-full bg-(--solus-art-3)" aria-hidden="true"></span>
+      <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet toolbarActions()}
+  {@render documentActions?.({
+    copied,
+    copy: handleCopy,
+    googleUpload: bindings.googleUpload ? handleGoogleUpload : undefined,
+    uploading,
+    uploaded,
+    startRename: onRenameTitle ? startRename : undefined,
+  })}
+{/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 {#snippet shellInner()}
@@ -524,80 +665,120 @@
   <div
     data-testid={rootTestId}
     data-solus-ui
+    bind:clientWidth={shellWidth}
     role="dialog"
     aria-label={title}
     aria-modal={inline ? undefined : "true"}
-    class="doc-shell-root {rootClass} [container:doc-shell/inline-size] flex flex-col {inline
+    tabindex="-1"
+    onkeydown={handleSectionJump}
+    class="doc-shell-root {rootClass} relative [container:doc-shell/inline-size] flex flex-col {inline
       ? 'h-full'
       : 'doc-shell-root--floating h-[min(86vh,90vh)] w-[min(100rem,96vw)] rounded-2xl'} overflow-hidden bg-(--solus-container-bg) {inline
       ? ''
       : 'border border-(--solus-tool-border)'}"
   >
-    <!-- Header -->
-    <div class="doc-shell-header relative flex h-[var(--solus-chrome-row-h,var(--solus-tap-target-lg))] shrink-0 items-center justify-between gap-1.5 border-b border-b-[var(--solus-chrome-row-border,var(--solus-tool-border))] px-5 pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]">
-      {#if inline}
-        <FrameExpandButton variant="sidebar" />
-      {/if}
-      <div class="doc-shell-header__meta flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-        {@render titleIcon?.()}
-        {#if renaming}
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            class="doc-shell-title-input mx-[-0.25rem] min-w-24 max-w-96 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1 py-0.5 text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] outline-none"
-            bind:value={renameValue}
-            onblur={commitRename}
-            onkeydown={renameKeydown}
-            autofocus
-            aria-label="Rename document"
-            data-testid="rename-work-input"
-          />
-        {:else if onRenameTitle}
-          <button
-            type="button"
-            class="doc-shell-title doc-shell-title--editable mx-[-0.25rem] cursor-text truncate rounded-md border-0 bg-transparent px-1 py-0.5 text-left text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] transition-[background] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
-            onclick={startRename}
-            title="Rename"
-            data-testid="rename-work"
-          >{title}</button>
-        {:else}
-          <span class="doc-shell-title text-[0.8125rem] font-semibold text-(--solus-text-primary) tracking-[-0.01em] truncate">{title}</span>
+    <!-- Pane-level chrome lives in the floating PaneChrome cluster; the floating
+         (pill) modal has no pane around it, so it keeps its own corner close. -->
+    {#if !inline}
+      <button
+        type="button"
+        data-testid={closeTestId}
+        onclick={onClose}
+        class="doc-shell-close absolute right-3 top-3 z-30"
+        aria-label="Close"
+        title="Close"
+      >
+        <XIcon size={16} />
+      </button>
+    {/if}
+
+    <!-- Header, full-bleed above the TOC rail and the text column so it never
+         overlays the reading measure. It holds only what stays visible at every
+         width: where you are, whether it saved, and the surface's own actions.
+         Formatting is not here — it lives at the selection. -->
+    <header class="doc-shell-toolbar relative flex shrink-0 items-center">
+      {#if !isMobile}
+      <!-- Left: where you are, and whether it saved. Nothing else earns a
+           permanent seat on this side. -->
+      <div class="doc-shell-title-cluster flex min-w-0 items-center gap-2.5">
+        {#if breadcrumb}
+          <span class="doc-shell-breadcrumb" title={breadcrumb}>{breadcrumb} /</span>
         {/if}
-        {@render headerMeta?.()}
-        <div class="doc-shell-save-status inline-flex min-w-0 items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) transition-opacity duration-(--duration-base)">
-          {#if showSaving}
-            <span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-hidden="true"></span>
-            <span>Saving…</span>
-          {:else if saveFailed}
-            <button
-              type="button"
-              class="mx-[-0.25rem] cursor-pointer whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-px text-[inherit] font-medium transition-[background,color] duration-(--duration-quick) ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) motion-reduce:transition-none"
-              onclick={() => void flushSave()}
-              title="The last save failed — click to retry"
-            >
-              Retry save
-            </button>
-          {:else if lastSavedAt !== null}
-            <CheckIcon size={11} />
-            <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
+        {#if renaming}
+          {@render renameField()}
+        {:else if onRenameTitle}
+          <button type="button" class="doc-shell-title" onclick={startRename} title="{title} — click to rename">{title}</button>
+        {:else}
+          <span class="doc-shell-title" title={title}>{title}</span>
+        {/if}
+        {@render saveStatusChip()}
+      </div>
+
+      <div class="min-w-4 flex-auto"></div>
+
+      <!-- Right: verbs only. Word count moved to the document's own byline and
+           find is ⌘F — neither is a button here any more. -->
+      <div class="doc-shell-header-actions flex shrink-0 items-center gap-0.75">
+        <button
+          type="button"
+          class="doc-shell-header-btn"
+          onclick={() => editorRef?.toggleMode()}
+          title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"}
+        >{editorMode === "rich" ? "Markdown" : "Editor"}</button>
+        {@render documentMeta?.()}
+        {@render toolbarActions()}
+      </div>
+      {:else}
+      <!-- Mobile: curated essentials in one scrollable strip, the rest behind "⋯". -->
+      <div class="doc-shell-toolbar-row flex items-center gap-1">
+        {#if renaming}
+        {@render renameField()}
+        {:else}
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} aria-pressed={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBold())} title="Bold" aria-label="Bold"><TextBIcon size={18} weight="bold" /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "italic")} aria-pressed={isActive(tiptapEditor, stateVersion, "italic")} onclick={() => cmd(tiptapEditor, (c) => c.toggleItalic())} title="Italic" aria-label="Italic"><TextItalicIcon size={18} /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "link")} aria-pressed={isActive(tiptapEditor, stateVersion, "link")} onclick={() => editorRef?.openLinkPopover()} title="Link" aria-label="Link"><LinkSimpleIcon size={18} /></button>
+
+        <div class="doc-shell-toolbar-sep"></div>
+
+        <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 1 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 1 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 1 }))} title="Heading 1">H<sub>1</sub></button>
+        <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 2 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 2 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 2 }))} title="Heading 2">H<sub>2</sub></button>
+
+        <div class="doc-shell-toolbar-sep"></div>
+
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bulletList")} aria-pressed={isActive(tiptapEditor, stateVersion, "bulletList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBulletList())} title="Bullet list" aria-label="Bullet list"><ListBulletsIcon size={18} /></button>
+        <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "taskList")} aria-pressed={isActive(tiptapEditor, stateVersion, "taskList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleTaskList())} title="Task list" aria-label="Task list"><ListBulletsIcon size={18} /></button>
+
+        <button type="button" class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="More formatting" aria-label="More formatting"><DotsThreeIcon size={20} weight="bold" /></button>
+
+        <div class="min-w-2 flex-auto"></div>
+
+        <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
+          {#if editorMode === "rich"}<MarkdownLogoIcon size={17} />{:else}<TextAaIcon size={17} />{/if}
+        </button>
+        {/if}
+        {@render documentMeta?.()}
+        {@render toolbarActions()}
+      </div>
+
+      {#if overflowOpen}
+        <button type="button" class="doc-shell-overflow-backdrop" aria-label="Close menu" onclick={() => (overflowOpen = false)}></button>
+        <div class="doc-shell-overflow-menu menu-surface" transition:fly={{ y: -6, duration: 130, opacity: 0 }}>
+          <button type="button" class="doc-shell-toolbar-btn" disabled={!canUndo} onclick={() => { cmd(tiptapEditor, (c) => c.undo()); overflowOpen = false; }} title="Undo" aria-label="Undo"><ArrowUUpLeftIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" disabled={!canRedo} onclick={() => { cmd(tiptapEditor, (c) => c.redo()); overflowOpen = false; }} title="Redo" aria-label="Redo"><ArrowUUpRightIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "strike")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleStrike()); overflowOpen = false; }} title="Strikethrough" aria-label="Strikethrough"><TextStrikethroughIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "code")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleCode()); overflowOpen = false; }} title="Inline code" aria-label="Inline code"><CodeIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 3 })} onclick={() => { cmd(tiptapEditor, (c) => c.toggleHeading({ level: 3 })); overflowOpen = false; }} title="Heading 3">H<sub>3</sub></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "orderedList")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleOrderedList()); overflowOpen = false; }} title="Numbered list" aria-label="Numbered list"><ListNumbersIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "blockquote")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleBlockquote()); overflowOpen = false; }} title="Blockquote" aria-label="Blockquote"><QuotesIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" onclick={() => { cmd(tiptapEditor, (c) => c.setHorizontalRule()); overflowOpen = false; }} title="Divider" aria-label="Divider"><MinusIcon size={18} /></button>
+          <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "table")} onclick={() => { cmd(tiptapEditor, (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true })); overflowOpen = false; }} title="Insert table" aria-label="Insert table"><TableIcon size={18} /></button>
+          {#if bindings.find}
+            <button type="button" class="doc-shell-toolbar-btn" class:active={findOpen} onclick={() => { findOpen = !findOpen; overflowOpen = false; }} title="Find & replace" aria-label="Find and replace"><MagnifyingGlassIcon size={18} /></button>
           {/if}
         </div>
-      </div>
-      <div class="doc-shell-header__actions flex shrink-0 items-center gap-1" class:doc-shell-header__actions--icon-only={iconOnlyHeaderActions}>
-        {@render headerActions?.({
-          copied,
-          copy: handleCopy,
-          googleUpload: bindings.googleUpload ? handleGoogleUpload : undefined,
-          uploading,
-          uploaded,
-        })}
-        <button type="button" data-testid={closeTestId} onclick={onClose} class="doc-shell-close" title="Close">
-          <XIcon size={16} />
-        </button>
-        {#if inline}
-          <FrameExpandButton variant="projectPanel" />
-        {/if}
-      </div>
-    </div>
+      {/if}
+      {/if}
+    </header>
 
     <!-- Content area -->
     <div class="relative flex flex-1 min-h-0">
@@ -607,120 +788,45 @@
         </div>
       {/if}
       {#if showTocRail}
-        <div class="doc-shell-toc-sleeve w-60 shrink-0 overflow-y-auto overscroll-y-contain px-3 py-6 [-webkit-overflow-scrolling:touch]">
-          <PlanTableOfContents headings={tocHeadings} activePos={activeHeadingPos} onScrollTo={scrollToHeading} />
+        <div class="doc-shell-toc-sleeve ml-3 shrink-0 grow-0 basis-22 @min-[90rem]:basis-38 pt-10 pr-3.5 pb-8">
+          <DocumentOutline
+            headings={tocHeadings}
+            activePos={activeHeadingPos}
+            {threadCounts}
+            pinned={outlinePinned}
+            jumping={outlineJumping}
+            atTop={minimizeOutline ? false : outlineAtTop}
+            onScrollTo={scrollToHeading}
+          />
         </div>
       {/if}
 
+      <!-- Scroll region and footer share one column, so a footer composer lines up
+           under the text column without having to guess the rails' widths. -->
+      <!-- The byline hangs off the document's own H1 (index.css), so it rides
+           in as the `content` of a pseudo-element rather than as chrome. -->
+      <div
+        class="doc-shell-column flex min-w-0 flex-1 flex-col"
+        style:--solus-doc-byline={byline}
+        style:--solus-doc-rail-w={railFolded ? "0px" : railWidth}
+      >
       <!-- svelte-ignore a11y_no_noninteractive_tabindex: Focusable so keyboard users can scroll immediately on open. -->
       <div
         bind:this={scrollContainer}
-        class="doc-shell-scroll min-w-0 flex-1 overflow-y-auto overscroll-y-contain outline-none [-webkit-overflow-scrolling:touch] {scrollClass}"
+        bind:clientHeight={scrollHeight}
+        class="doc-shell-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain outline-none [-webkit-overflow-scrolling:touch]"
         style:padding-bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}
         tabindex="0"
         role="region"
         aria-label={scrollAriaLabel}
       >
-        <!-- Static formatting toolbar -->
-        <div class="doc-shell-toolbar sticky top-0 z-10">
-          {#if !isMobile}
-          <div class="doc-shell-toolbar-row flex items-center gap-1 px-8 pt-3 pb-2">
-            <button type="button" class="doc-shell-toolbar-btn" disabled={!canUndo} onclick={() => cmd(tiptapEditor, (c) => c.undo())} title="Undo (⌘Z)" aria-label="Undo"><ArrowUUpLeftIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" disabled={!canRedo} onclick={() => cmd(tiptapEditor, (c) => c.redo())} title="Redo (⌘⇧Z)" aria-label="Redo"><ArrowUUpRightIcon size={15} /></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} aria-pressed={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBold())} title="Bold"><TextBIcon size={15} weight="bold" /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "italic")} aria-pressed={isActive(tiptapEditor, stateVersion, "italic")} onclick={() => cmd(tiptapEditor, (c) => c.toggleItalic())} title="Italic"><TextItalicIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "strike")} aria-pressed={isActive(tiptapEditor, stateVersion, "strike")} onclick={() => cmd(tiptapEditor, (c) => c.toggleStrike())} title="Strikethrough"><TextStrikethroughIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "code")} aria-pressed={isActive(tiptapEditor, stateVersion, "code")} onclick={() => cmd(tiptapEditor, (c) => c.toggleCode())} title="Inline code"><CodeIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "link")} aria-pressed={isActive(tiptapEditor, stateVersion, "link")} onclick={() => editorRef?.openLinkPopover()} title="Link (⌥⇧K)"><LinkSimpleIcon size={15} /></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 1 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 1 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 1 }))} title="Heading 1">H<sub>1</sub></button>
-            <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 2 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 2 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 2 }))} title="Heading 2">H<sub>2</sub></button>
-            <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 3 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 3 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 3 }))} title="Heading 3">H<sub>3</sub></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bulletList")} aria-pressed={isActive(tiptapEditor, stateVersion, "bulletList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBulletList())} title="Bullet list"><ListBulletsIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "orderedList")} aria-pressed={isActive(tiptapEditor, stateVersion, "orderedList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleOrderedList())} title="Numbered list"><ListNumbersIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "taskList")} aria-pressed={isActive(tiptapEditor, stateVersion, "taskList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleTaskList())} title="Task list"><ListBulletsIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "blockquote")} aria-pressed={isActive(tiptapEditor, stateVersion, "blockquote")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBlockquote())} title="Blockquote"><QuotesIcon size={15} /></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn" onclick={() => cmd(tiptapEditor, (c) => c.setHorizontalRule())} title="Divider"><MinusIcon size={15} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "table")} aria-pressed={isActive(tiptapEditor, stateVersion, "table")} onclick={() => cmd(tiptapEditor, (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} title="Insert table"><TableIcon size={15} /></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-mode" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"}>
-              {#if editorMode === "rich"}
-                <MarkdownLogoIcon size={14} /><span>Markdown</span>
-              {:else}
-                <TextAaIcon size={14} /><span>Editor</span>
-              {/if}
-            </button>
-
-            <div class="min-w-2 flex-auto"></div>
-
-            {#if counts.words > 0}
-              <span class="doc-shell-count shrink-0 select-none whitespace-nowrap px-1 text-[0.6875rem] text-(--solus-text-tertiary) tabular-nums" title="{counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens">
-                {counts.words.toLocaleString()} words · ~{counts.tokens.toLocaleString()} tokens
-              </span>
-            {/if}
-            {#if bindings.find}
-              <button type="button" class="doc-shell-toolbar-btn" class:active={findOpen} aria-pressed={findOpen} onclick={() => (findOpen = !findOpen)} title="Find & replace (⌘F)" aria-label="Find and replace"><MagnifyingGlassIcon size={15} /></button>
-            {/if}
-          </div>
-          {:else}
-          <!-- Mobile: curated essentials, the rest behind a "⋯" overflow menu. -->
-          <div class="doc-shell-toolbar-row flex items-center gap-1">
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} aria-pressed={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBold())} title="Bold" aria-label="Bold"><TextBIcon size={18} weight="bold" /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "italic")} aria-pressed={isActive(tiptapEditor, stateVersion, "italic")} onclick={() => cmd(tiptapEditor, (c) => c.toggleItalic())} title="Italic" aria-label="Italic"><TextItalicIcon size={18} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "link")} aria-pressed={isActive(tiptapEditor, stateVersion, "link")} onclick={() => editorRef?.openLinkPopover()} title="Link" aria-label="Link"><LinkSimpleIcon size={18} /></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 1 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 1 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 1 }))} title="Heading 1">H<sub>1</sub></button>
-            <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 2 })} aria-pressed={isActive(tiptapEditor, stateVersion, "heading", { level: 2 })} onclick={() => cmd(tiptapEditor, (c) => c.toggleHeading({ level: 2 }))} title="Heading 2">H<sub>2</sub></button>
-
-            <div class="doc-shell-toolbar-sep"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bulletList")} aria-pressed={isActive(tiptapEditor, stateVersion, "bulletList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleBulletList())} title="Bullet list" aria-label="Bullet list"><ListBulletsIcon size={18} /></button>
-            <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "taskList")} aria-pressed={isActive(tiptapEditor, stateVersion, "taskList")} onclick={() => cmd(tiptapEditor, (c) => c.toggleTaskList())} title="Task list" aria-label="Task list"><ListBulletsIcon size={18} /></button>
-
-            <button type="button" class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="More formatting" aria-label="More formatting"><DotsThreeIcon size={20} weight="bold" /></button>
-
-            <div class="min-w-2 flex-auto"></div>
-
-            <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
-              {#if editorMode === "rich"}<MarkdownLogoIcon size={17} />{:else}<TextAaIcon size={17} />{/if}
-            </button>
-          </div>
-
-          {#if overflowOpen}
-            <button type="button" class="doc-shell-overflow-backdrop" aria-label="Close menu" onclick={() => (overflowOpen = false)}></button>
-            <div class="doc-shell-overflow-menu" transition:fly={{ y: -6, duration: 130, opacity: 0 }}>
-              <button type="button" class="doc-shell-toolbar-btn" disabled={!canUndo} onclick={() => { cmd(tiptapEditor, (c) => c.undo()); overflowOpen = false; }} title="Undo" aria-label="Undo"><ArrowUUpLeftIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn" disabled={!canRedo} onclick={() => { cmd(tiptapEditor, (c) => c.redo()); overflowOpen = false; }} title="Redo" aria-label="Redo"><ArrowUUpRightIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "strike")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleStrike()); overflowOpen = false; }} title="Strikethrough" aria-label="Strikethrough"><TextStrikethroughIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "code")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleCode()); overflowOpen = false; }} title="Inline code" aria-label="Inline code"><CodeIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn doc-shell-toolbar-text" class:active={isActive(tiptapEditor, stateVersion, "heading", { level: 3 })} onclick={() => { cmd(tiptapEditor, (c) => c.toggleHeading({ level: 3 })); overflowOpen = false; }} title="Heading 3">H<sub>3</sub></button>
-              <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "orderedList")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleOrderedList()); overflowOpen = false; }} title="Numbered list" aria-label="Numbered list"><ListNumbersIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "blockquote")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleBlockquote()); overflowOpen = false; }} title="Blockquote" aria-label="Blockquote"><QuotesIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn" onclick={() => { cmd(tiptapEditor, (c) => c.setHorizontalRule()); overflowOpen = false; }} title="Divider" aria-label="Divider"><MinusIcon size={18} /></button>
-              <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "table")} onclick={() => { cmd(tiptapEditor, (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true })); overflowOpen = false; }} title="Insert table" aria-label="Insert table"><TableIcon size={18} /></button>
-              {#if bindings.find}
-                <button type="button" class="doc-shell-toolbar-btn" class:active={findOpen} onclick={() => { findOpen = !findOpen; overflowOpen = false; }} title="Find & replace" aria-label="Find and replace"><MagnifyingGlassIcon size={18} /></button>
-              {/if}
-            </div>
-          {/if}
-          {/if}
-        </div>
-
+        <!-- The page: text and its margin threads, one centered block, the way
+             a marked-up sheet of paper is one object. The threads live *inside*
+             the scroll region so the page's scrollbar stays out at the pane
+             edge instead of drawing a rule between the prose and its margin —
+             the rail then sticks to the top of the viewport so cards can hold
+             their anchors' lines while the text moves under them. -->
+        <div class="doc-shell-page" style:--doc-viewport-h="{scrollHeight}px">
         <!-- Editor -->
         <DocumentEditor
           bind:this={editorRef}
@@ -729,16 +835,30 @@
           onInput={handleEditorInput}
           onEditorReady={handleEditorReady}
           onModeChange={(m) => (editorMode = m)}
+          onAskSolus={onAskSolus ? () => onAskSolus("") : undefined}
           {extraExtensions}
           {placeholder}
           class={editorClass}
         />
+        {@render rail?.({ folded: railFolded })}
+        </div>
       </div>
 
-      {@render rail?.()}
+      {@render footer?.()}
+      </div>
     </div>
 
-    {@render footer?.()}
+    <!-- Formatting lives at the selection, not in a bar. Desktop only: touch
+         has no hover and the OS owns the selection menu there, so the mobile
+         header keeps its own scrollable strip instead. -->
+    {#if !isMobile}
+      <SelectionBubble
+        editor={tiptapEditor}
+        onLink={() => editorRef?.openLinkPopover()}
+        onComment={onCommentSelection && canCommentSelection ? onCommentSelection : undefined}
+        onAskSolus={onAskSolus ? handleAskSolus : undefined}
+      />
+    {/if}
   </div>
 {/snippet}
 
@@ -747,7 +867,7 @@
 {:else}
   <div
     use:portal={document.body}
-    class="doc-shell-backdrop fixed inset-0 z-[10000] flex items-center justify-center bg-(--solus-modal-scrim) backdrop-blur-lg backdrop-saturate-[1.05] motion-reduce:backdrop-blur-none"
+    class="doc-shell-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
     onclick={(e) => {
       if (e.target === e.currentTarget) onClose();
     }}
@@ -760,6 +880,13 @@
 {@render overlays?.()}
 
 <style>
+  .doc-shell-backdrop {
+    background: radial-gradient(
+      circle at 50% 38%,
+      color-mix(in srgb, var(--solus-modal-scrim) 82%, transparent) 0%,
+      var(--solus-modal-scrim) 72%
+    );
+  }
   .doc-shell-root--floating {
     box-shadow:
       var(--solus-popover-shadow),
@@ -796,26 +923,116 @@
     outline-offset: 0.0625rem;
   }
 
-  /* Toolbar */
+  /* Header — full-bleed above the rail and the text column. It sits *on* the
+     page rather than over it (the scroll region is a sibling below, not
+     underneath), so there is no rule and no blur to separate them: the chrome
+     and the paper are one surface, and only the type says which is which. */
   .doc-shell-toolbar {
-    background: color-mix(in srgb, var(--solus-container-bg) 92%, transparent);
-    backdrop-filter: blur(1.25rem) saturate(1.1);
-    -webkit-backdrop-filter: blur(1.25rem) saturate(1.1);
-    box-shadow:
-      0 0.0625rem 0 var(--solus-message-divider),
-      0 0.25rem 0.75rem rgba(0, 0, 0, 0.04);
+    height: 2.875rem;
+    padding-left: 1.375rem;
   }
-  .doc-shell-toolbar-row {
-    max-width: 65rem;
+  /* Where the document lives, in the same mono face as the section numerals. */
+  .doc-shell-breadcrumb {
+    flex-shrink: 0;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'Geist Mono', var(--solus-code-font-family);
+    font-size: 0.6875rem;
+    letter-spacing: 0.02em;
+    color: var(--solus-text-tertiary);
+  }
+  .doc-shell-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.78125rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--solus-text-primary);
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-align: left;
+  }
+  button.doc-shell-title {
+    cursor: pointer;
+  }
+  button.doc-shell-title:hover {
+    color: var(--solus-accent);
+  }
+  button.doc-shell-title:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.125rem;
+    border-radius: 0.25rem;
+  }
+  /* The header's own verbs are unfilled type — the only filled surface in the
+     cluster is the surface's primary action, so the eye finds it first. */
+  .doc-shell-header-btn {
+    flex-shrink: 0;
+    height: 1.75rem;
+    padding: 0 0.625rem;
+    border-radius: 0.4375rem;
+    font-size: 0.78125rem;
+    font-weight: 400;
+    color: var(--solus-text-tertiary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+  .doc-shell-header-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .doc-shell-header-btn:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+  .doc-shell-header-actions {
+    /* Reserve the room the pane's floating chrome cluster occupies so the
+       right-hand document actions never slide under it. Falls back to the
+       floating modal's own corner close when there is no pane around us. */
+    padding-right: max(0.875rem, var(--solus-pane-chrome-inset, 3.25rem));
+  }
+  /* No rule between the rail and the column: the ticks are a margin mark on the
+     same page, not a sidebar. Overflow stays visible so the outline can unfold
+     over the text — the ticks do their own scrolling inside. */
+  .doc-shell-toc-sleeve {
+    position: relative;
+    z-index: 20;
+  }
+  /* The page — text and its margin threads as one centered block, the width of
+     the reading measure plus the margin the threads live in. The rail width is
+     reserved whether or not threads are showing, so hiding them never slides
+     the prose sideways. 7rem is the editor's own side gutters at the top step
+     of the ladder; below that the block is flexing and the cap never binds. */
+  .doc-shell-page {
+    display: flex;
+    align-items: flex-start;
+    width: min(100%, calc(var(--solus-doc-measure) + 7rem + var(--solus-doc-rail-w, 0px)));
     margin-inline: auto;
+  }
+  /* The editor's own `width: 100%` would resolve against the whole page block
+     — margin included — so it has to yield to the flex share instead. */
+  .doc-shell-page > :global(.solus-doc-editor-wrap) {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
   }
   .doc-shell-toolbar-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.625rem;
-    height: 1.625rem;
-    border-radius: 0.375rem;
+    width: 1.875rem;
+    height: 1.875rem;
+    border-radius: 0.4375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
     color: var(--solus-text-tertiary);
     background: transparent;
     border: none;
@@ -830,7 +1047,7 @@
     color: var(--solus-text-primary);
   }
   .doc-shell-toolbar-btn:active {
-    transform: scale(0.94);
+    transform: scale(0.96);
   }
   .doc-shell-toolbar-btn.active {
     background: var(--solus-accent-light);
@@ -852,7 +1069,7 @@
   .doc-find-sleeve {
     position: absolute;
     top: 0.75rem;
-    right: 1.25rem;
+    right: max(1.25rem, var(--solus-pane-chrome-inset, 0px));
     z-index: 30;
   }
   .doc-shell-toolbar-text {
@@ -869,48 +1086,58 @@
   }
   .doc-shell-toolbar-sep {
     width: 0.0625rem;
-    height: 1rem;
-    margin: 0 0.375rem;
+    height: 1.125rem;
+    margin: 0 0.25rem;
     background: var(--solus-container-border);
-    opacity: 0.4;
-  }
-  .doc-shell-toolbar-mode {
-    width: auto;
-    gap: 0.3125rem;
-    padding: 0 0.5rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    border-radius: 0.4375rem;
-    box-shadow: inset 0 0 0 0.0625rem var(--solus-tool-border);
-  }
-  .doc-shell-toolbar-mode:hover {
-    box-shadow: inset 0 0 0 0.0625rem var(--solus-popover-border);
-    background: var(--solus-surface-hover);
   }
 
-  /* Inner scrollbars fade in only while the column is interacted with. */
-  .doc-shell-scroll,
-  .doc-shell-toc-sleeve {
+  /* Pane-width ladder. There is no longer a bank of formatting buttons to shed
+     by priority — that was the whole reason the old bar broke first in split
+     view. What is left is what the design keeps visible at every width: where
+     you are, whether it saved, and the surface's own actions. Only the rail
+     steps down, and an 88px rail of ticks survives widths the old labelled one
+     could not. Driven off the shell container, so a narrow split pane on a wide
+     monitor steps down too. */
+  @container doc-shell (max-width: 45rem) {
+    .doc-shell-toc-sleeve {
+      display: none;
+    }
+  }
+
+  /* Exactly one element in the document scrolls, and this is it — the margin
+     rail is a layer inside it rather than a second pane, so the bar rides the
+     viewport's right edge, past the rail, and never draws a rule between the
+     prose and its threads. The gutter is reserved so a bar appearing on a long
+     document can't nudge the rail sideways. */
+  .doc-shell-scroll {
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
     transition: scrollbar-color var(--duration-base) var(--ease-premium);
   }
   .doc-shell-scroll:hover,
-  .doc-shell-scroll:focus-within,
-  .doc-shell-toc-sleeve:hover,
-  .doc-shell-toc-sleeve:focus-within {
+  .doc-shell-scroll:focus-within {
     scrollbar-color: var(--solus-scroll-thumb) transparent;
   }
-  .doc-shell-scroll::-webkit-scrollbar-thumb,
-  .doc-shell-toc-sleeve::-webkit-scrollbar-thumb {
+  .doc-shell-scroll::-webkit-scrollbar {
+    width: 0.5625rem;
+  }
+  /* No arrows, no border, no track — the inset keeps the thumb a slim pill. */
+  .doc-shell-scroll::-webkit-scrollbar-thumb {
     background: transparent;
+    border: 0.125rem solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
     transition: background var(--duration-base) var(--ease-premium);
   }
   .doc-shell-scroll:hover::-webkit-scrollbar-thumb,
-  .doc-shell-scroll:focus-within::-webkit-scrollbar-thumb,
-  .doc-shell-toc-sleeve:hover::-webkit-scrollbar-thumb,
-  .doc-shell-toc-sleeve:focus-within::-webkit-scrollbar-thumb {
-    background: var(--solus-scroll-thumb);
+  .doc-shell-scroll:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
+    background-clip: padding-box;
+  }
+  .doc-shell-scroll::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--solus-text-tertiary) 32%, transparent);
+    background-clip: padding-box;
   }
 
   @media (max-width: 767px) {
@@ -920,18 +1147,18 @@
       border-radius: 0 !important;
       border: none !important;
     }
-    .doc-shell-backdrop {
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
-    .doc-shell-save-status {
-      display: none;
+    /* The header is the strip on mobile: no title cluster (the pane tab already
+       shows it), so the row inside sizes the header instead of a fixed 52px. */
+    .doc-shell-toolbar {
+      display: block;
+      height: auto;
+      padding-left: 0;
     }
     /* Scrollable formatting strip with real touch targets (Notion/Docs pattern). */
     .doc-shell-toolbar-row {
-      max-width: none;
       gap: 0.125rem;
-      padding: 0.375rem 0.625rem;
+      padding: 0.375rem max(0.625rem, var(--solus-pane-chrome-inset, 3.25rem))
+        0.375rem 0.625rem;
       overflow-x: auto;
       scrollbar-width: none;
       flex-wrap: nowrap;
@@ -953,21 +1180,10 @@
     .doc-shell-toolbar-text {
       font-size: 1rem;
     }
-    .doc-shell-toolbar-mode {
-      height: 2.5rem;
-      gap: 0.375rem;
-      padding: 0 0.625rem;
-      font-size: 0.75rem;
-    }
     .doc-shell-toolbar-sep {
       height: 1.375rem;
-      margin: 0 0.25rem;
     }
-    /* Word/token count would only crowd the curated strip on mobile. */
-    .doc-shell-count {
-      display: none;
-    }
-    /* Overflow ("⋯") formatting menu — anchored under the sticky toolbar. */
+    /* Overflow ("⋯") formatting menu — anchored under the header. */
     .doc-shell-overflow-backdrop {
       position: fixed;
       inset: 0;
@@ -985,10 +1201,6 @@
       grid-template-columns: repeat(5, 2.5rem);
       gap: 0.125rem;
       padding: 0.375rem;
-      background: var(--solus-popover-bg);
-      border: 0.0625rem solid var(--solus-popover-border);
-      border-radius: 0.875rem;
-      box-shadow: var(--solus-popover-shadow);
     }
     .doc-find-sleeve {
       left: 0.75rem;
@@ -1003,7 +1215,7 @@
     .doc-shell-close,
     .doc-shell-toolbar,
     .doc-shell-toolbar-btn,
-    .doc-shell-toolbar-mode,
+    .doc-shell-header-btn,
     .doc-shell-root {
       transition: none !important;
     }

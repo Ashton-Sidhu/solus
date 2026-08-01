@@ -201,10 +201,9 @@ test.describe('Agent work tools — open viewer (editor mode)', () => {
     const modal = page.getByTestId('document-modal')
     await expect(modal).toBeVisible({ timeout: 5_000 })
 
-    // Agent update snapshots the prior version → "View changes" appears in the
-    // overflow (⋯) menu.
+    // Agent update snapshots the prior version → "History" appears in the
+    // header, which keeps it visible at every width rather than in the ⋯ menu.
     await conversation.typeAndSend('__MOCK_WORK_UPDATE__ tighten it')
-    await page.getByTestId('work-actions-menu').click()
     const viewChanges = page.getByTestId('view-changes')
     await expect(viewChanges).toBeVisible({ timeout: 6_000 })
     await viewChanges.click()

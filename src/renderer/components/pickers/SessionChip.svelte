@@ -1,18 +1,23 @@
 <script lang="ts">
-  import { CaretDownIcon, CodeIcon, SpinnerGapIcon } from "phosphor-svelte";
+  import { CaretDownIcon, CheckIcon, CodeIcon, SpinnerGapIcon } from "phosphor-svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { REASONING_EFFORT_LABELS, type ReasoningEffort, type AgentId } from "../../../shared/types";
-  import { tooltip } from "../../lib/tooltip";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { MenuFooter } from "../ui/menu";
   import {
     clampReasoningEffort,
     defaultModelIdFor,
+    defaultReasoningFor,
+    modelPickerNavigationTarget,
     modelOptionsFor,
     reasoningLevelsFor,
+    type ModelPickerColumn,
     type PickerSelection,
   } from "./lib/picker-selection";
 
@@ -26,14 +31,9 @@
      *  and never touches the session's model config or active agent. The host
      *  applies the choice at dispatch. */
     selection?: PickerSelection;
-    /** Detached mode only — unlock the agent submenu (the dispatch target is a
-     *  new or reset session, so switching backends is safe). */
-    allowAgentSwitch?: boolean;
     menuSide?: "top" | "bottom";
-    /** Compact trigger for the embedded composer — smaller glyph, text, height. */
-    dense?: boolean;
   }
-  let { tabId, selection = $bindable(), allowAgentSwitch = false, menuSide = "top", dense = false }: Props = $props();
+  let { tabId, selection = $bindable(), menuSide = "top" }: Props = $props();
 
   const detached = $derived(selection !== undefined);
 
@@ -44,13 +44,6 @@
     !detached && (sess?.status === "running" || sess?.status === "connecting"),
   );
   const handoffInProgress = $derived(!detached && session.handoffInProgress);
-  // Agent switching flips app-global state (active agent, default model
-  // config), so a split-scoped chip never offers it.
-  const isAgentLocked = $derived(
-    detached
-      ? !allowAgentSwitch
-      : tabId !== undefined || isBusy || handoffInProgress,
-  );
 
   const activeAgent = $derived(selection?.provider ?? ctx.activeAgent);
 
@@ -76,11 +69,11 @@
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
 
-  // Agent
+  // Agent. Unavailable agents stay on the list, disabled: dropping them left the
+  // flyout blank whenever a binary probe came back empty, with nothing on screen
+  // to say why there was nothing to pick.
   const agentRows = $derived(
-    buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata).filter(
-      (a) => a.enabled,
-    ),
+    buildAgentAvailabilityRows(agentContext.agents, agentContext.metadata),
   );
   const agentName = $derived(agentLabel(activeAgent, agentContext.metadata));
 
@@ -91,6 +84,38 @@
 
   let open = $state(false);
   let triggerEl: HTMLButtonElement | null = $state(null);
+  let contentEl: HTMLElement | null = $state(null);
+
+  // Hovering a model previews the effort that picking it would land on, so the
+  // consequence of the choice is visible before committing to it. The preview
+  // survives the trip across the divider (see the Content pointerleave), which
+  // is what lets a click in the Reasoning column apply the pair in one go.
+  let hoveredModelId: string | null = $state(null);
+  let hoveredLevel: ReasoningEffort | null = $state(null);
+  const previewModelLabel = $derived(
+    hoveredModelId ? (models.find((m) => m.id === hoveredModelId)?.label ?? null) : null,
+  );
+  const previewReasoning = $derived(
+    hoveredModelId && hoveredModelId !== currentModelId
+      ? defaultReasoningFor(activeAgent, hoveredModelId)
+      : null,
+  );
+  // The right column tracks whatever model is under the cursor — otherwise the
+  // preview check can land on a level that model doesn't offer.
+  const shownReasoningLevels = $derived(
+    hoveredModelId ? reasoningLevelsFor(activeAgent, hoveredModelId) : reasoningLevels,
+  );
+  // Models offer different numbers of levels (Haiku 4, Sonnet 5, Opus 7), so the
+  // column is held at the deepest set on offer. Without the reservation the menu
+  // resizes — and, being top-anchored, repositions — under the cursor on every
+  // model you pass over.
+  const reservedLevelRows = $derived(
+    models.reduce(
+      (deepest, model) =>
+        Math.max(deepest, reasoningLevelsFor(activeAgent, model.id).length),
+      reasoningLevels.length,
+    ),
+  );
 
   function openFromShortcut(targetTabId?: string) {
     // The shortcut targets the input bar's session-mutating chip, never a
@@ -111,14 +136,25 @@
     open = true;
   }
 
+  // Clicking a level commits the previewed model with it — the levels on offer
+  // are that model's own, so no clamping is needed. The model patch has to ride
+  // along in the same call: updateModelConfig's model branch would otherwise
+  // overwrite the effort with the model's default.
   function selectReasoning(effort: ReasoningEffort) {
+    const pendingModelId =
+      hoveredModelId && hoveredModelId !== currentModelId ? hoveredModelId : null;
     if (selection) {
+      if (pendingModelId) selection.modelId = pendingModelId;
       selection.reasoningEffort = effort;
       return;
     }
-    session.updateModelConfig({ reasoningEffort: effort }, tabId);
+    session.updateModelConfig(
+      pendingModelId ? { modelId: pendingModelId, reasoningEffort: effort } : { reasoningEffort: effort },
+      tabId,
+    );
   }
   function selectModel(modelId: string) {
+    hoveredModelId = null;
     if (selection) {
       selection.modelId = modelId;
       selection.reasoningEffort = clampReasoningEffort(selection.provider, modelId, selection.reasoningEffort);
@@ -134,7 +170,60 @@
       selection.reasoningEffort = clampReasoningEffort(id, modelId, selection.reasoningEffort);
       return;
     }
-    void session.switchActiveAgent(id);
+    void session.switchActiveAgent(id, tabId);
+  }
+
+  function pickerItems(column: ModelPickerColumn): HTMLElement[] {
+    return contentEl
+      ? Array.from(
+          contentEl.querySelectorAll<HTMLElement>(
+            `[data-picker-column="${column}"]`,
+          ),
+        )
+      : [];
+  }
+
+  function handlePickerKeyDown(event: KeyboardEvent) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const focusedItem =
+      event.target instanceof HTMLElement
+        ? event.target.closest<HTMLElement>("[data-picker-column]")
+        : null;
+    const column = focusedItem?.dataset.pickerColumn as
+      | ModelPickerColumn
+      | undefined;
+    if (!focusedItem || !column) return;
+
+    const columnItems = pickerItems(column);
+    const index = columnItems.indexOf(focusedItem);
+    if (index === -1) return;
+
+    const oppositeColumn: ModelPickerColumn =
+      column === "model" ? "reasoning" : "model";
+    const oppositeItems = pickerItems(oppositeColumn);
+    const preferredValue =
+      oppositeColumn === "reasoning"
+        ? (previewReasoning ?? reasoningEffort)
+        : (hoveredModelId ?? currentModelId);
+    const preferredOppositeIndex = Math.max(
+      0,
+      oppositeItems.findIndex(
+        (item) => item.dataset.pickerValue === preferredValue,
+      ),
+    );
+    const destination = modelPickerNavigationTarget({
+      key: event.key,
+      column,
+      index,
+      columnLength: columnItems.length,
+      oppositeColumnLength: oppositeItems.length,
+      preferredOppositeIndex,
+    });
+    if (!destination) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    pickerItems(destination.column)[destination.index]?.focus();
   }
 
   $effect(() => {
@@ -148,65 +237,163 @@
   });
 </script>
 
-<DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next && !detached && tabId === undefined) requestInputFocus() }}>
+<DropdownMenu.Root bind:open onOpenChange={(next) => { hoveredModelId = null; hoveredLevel = null; if (!next && !detached) requestInputFocus({ tabId }) }}>
   <DropdownMenu.Trigger disabled={isBusy || handoffInProgress} bind:ref={triggerEl}>
     {#snippet child({ props })}
-      <button {...props} type="button" class="flex items-center min-w-0 rounded-full transition-[background-color,color,scale] text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {dense ? 'h-6 gap-1 pl-0.5 pr-1.5 text-[0.75rem]' : 'h-8 gap-1.5 pl-1 pr-2 text-[0.8125rem]'}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}" use:tooltip={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Stop the task to change session settings" : "Session settings"}>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <!-- Same shell as the permission picker, never merged with it: mode
+                 and model are two decisions, so they are two hit targets. The
+                 brand mark is the model's category glyph and carries the only
+                 accent on the control. -->
+            <button {...tooltipProps} {...props} type="button" class="flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.78125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {open ? 'bg-(--solus-surface-hover)' : ''}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+        <!-- Codex's mark is solid black, so it keeps a white plate to stay
+             legible in dark mode; the others take the accent directly. -->
         <span
-          class={`flex flex-shrink-0 items-center justify-center rounded-full ${dense ? "h-5 w-5" : "h-6 w-6"} ${isCodex ? "bg-white" : "bg-(--solus-accent-light) text-(--solus-accent)"}`}
+          class="flex flex-shrink-0 items-center justify-center text-(--solus-accent) {isCodex
+            ? 'h-5 w-5 rounded-full bg-white'
+            : ''}"
         >
           {#if isClaude}
-            <ClaudeIcon size={dense ? 12 : 14} />
+            <ClaudeIcon size={13} />
           {:else if isCodex}
-            <OpenAIBlossom size={dense ? 12 : 14} />
+            <OpenAIBlossom size={13} />
           {:else}
-            <CodeIcon size={dense ? 12 : 14} class="flex-shrink-0" />
+            <CodeIcon size={13} class="flex-shrink-0" />
           {/if}
         </span>
         {#if handoffInProgress}
           <span class="flex min-w-0 items-center gap-1 font-medium text-(--solus-text-tertiary)">
-            <SpinnerGapIcon size={dense ? 10 : 11} class="flex-shrink-0 animate-spin motion-reduce:animate-none" />
+            <SpinnerGapIcon size={11} class="flex-shrink-0 animate-spin motion-reduce:animate-none" />
             <span class="truncate">Handing off…</span>
           </span>
         {:else}
           <span class="truncate max-w-28 font-medium text-(--solus-text-primary)">{modelLabel}</span>
           <span class="flex-shrink-0 text-(--solus-text-tertiary)">{reasoningLabel}</span>
-          <CaretDownIcon size={dense ? 10 : 11} style="opacity:0.6" />
+          <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
         {/if}
       </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Stop the task to change session settings" : "Session settings"} />
+      </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
-  <DropdownMenu.Content side={menuSide} align="end" sideOffset={6} class="w-[236px] overflow-visible">
-    <DropdownMenu.Group>
-      <DropdownMenu.GroupHeading>Reasoning</DropdownMenu.GroupHeading>
-      <DropdownMenu.RadioGroup value={reasoningEffort}>
-        {#each reasoningLevels as level (level)}
-          <DropdownMenu.RadioItem value={level} onSelect={() => selectReasoning(level)}>{REASONING_EFFORT_LABELS[level] ?? level}</DropdownMenu.RadioItem>
-        {/each}
-      </DropdownMenu.RadioGroup>
-    </DropdownMenu.Group>
-    <DropdownMenu.Separator />
-    <DropdownMenu.Sub>
-      <DropdownMenu.SubTrigger><span class="flex-1">Model</span><span class="truncate text-(--solus-text-tertiary)">{modelLabel}</span></DropdownMenu.SubTrigger>
-      <DropdownMenu.SubContent class="w-[208px]">
+  <!-- Model and effort are one decision, so they sit side by side instead of
+       behind a flyout: hovering a model previews the effort it lands on. -->
+  <!-- overflow-visible: the Agent sub-content renders inside this element
+       rather than a portal, so a clipping surface would cut the flyout off. -->
+  <DropdownMenu.Content
+    bind:ref={contentEl}
+    side={menuSide}
+    align="end"
+    sideOffset={6}
+    class="w-[452px] overflow-visible p-0"
+    onkeydown={handlePickerKeyDown}
+    onpointerleave={() => {
+      hoveredModelId = null;
+      hoveredLevel = null;
+    }}
+  >
+    <div class="flex items-stretch">
+      <div class="min-w-0 flex-1 p-1.5">
+        <!-- The preview clears on the way out of the whole surface, never on a
+             row: row-level leave/enter pairs flash the column back to the
+             current model between every two rows you sweep across, and clearing
+             at the column edge would drop the pending model on the walk to the
+             level you're about to click. -->
         <DropdownMenu.RadioGroup value={currentModelId ?? undefined}>
           <DropdownMenu.GroupHeading>Model</DropdownMenu.GroupHeading>
           {#each models as model (model.id)}
-            <DropdownMenu.RadioItem value={model.id} onSelect={() => selectModel(model.id)}>{model.label}</DropdownMenu.RadioItem>
+            <DropdownMenu.RadioItem
+              value={model.id}
+              data-picker-column="model"
+              data-picker-value={model.id}
+              onSelect={() => selectModel(model.id)}
+              onfocus={() => {
+                hoveredModelId = model.id;
+                hoveredLevel = null;
+              }}
+              onpointerenter={() => {
+                hoveredModelId = model.id;
+                // Back in the model column the level under the cursor is stale —
+                // the footer would advertise a pair that isn't on offer.
+                hoveredLevel = null;
+              }}
+            >
+              <span class="min-w-0 flex-1 truncate">{model.label}</span>
+            </DropdownMenu.RadioItem>
           {/each}
         </DropdownMenu.RadioGroup>
-      </DropdownMenu.SubContent>
-    </DropdownMenu.Sub>
-    <DropdownMenu.Sub>
-      <DropdownMenu.SubTrigger disabled={isAgentLocked} title={isAgentLocked ? "Agent is fixed for this session" : undefined}><span class="flex-1">Agent</span><span class="truncate text-(--solus-text-tertiary)">{agentName}</span></DropdownMenu.SubTrigger>
-      <DropdownMenu.SubContent class="w-[208px]">
-        <DropdownMenu.RadioGroup value={activeAgent}>
-          <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
-          {#each agentRows as agent (agent.id)}
-            <DropdownMenu.RadioItem value={agent.id} onSelect={() => selectAgent(agent.id)}>{agent.label}</DropdownMenu.RadioItem>
-          {/each}
+      </div>
+
+      <div class="w-px shrink-0 bg-(--solus-menu-hairline)"></div>
+
+      <div class="flex w-[184px] shrink-0 flex-col p-1.5">
+        <DropdownMenu.RadioGroup value={previewReasoning ? undefined : reasoningEffort}>
+          <DropdownMenu.GroupHeading>Reasoning</DropdownMenu.GroupHeading>
+          <div style="min-height:{reservedLevelRows * 2}rem">
+            {#each shownReasoningLevels as level (level)}
+              <!-- No entry stagger: this list re-renders as the cursor moves down
+                   the model column, and replaying the animation — the tail rows
+                   land a quarter-second late — reads as flicker. -->
+              <DropdownMenu.RadioItem
+                value={level}
+                data-picker-column="reasoning"
+                data-picker-value={level}
+                onSelect={() => selectReasoning(level)}
+                onfocus={() => (hoveredLevel = level)}
+                onpointerenter={() => (hoveredLevel = level)}
+                data-menu-current={previewReasoning === level ? "" : undefined}
+                style="animation:none"
+              >
+                <span class="min-w-0 flex-1 truncate">{REASONING_EFFORT_LABELS[level] ?? level}</span>
+                {#if previewReasoning === level}
+                  <CheckIcon size={12} class="absolute right-2 shrink-0 text-(--solus-accent) opacity-40" />
+                {/if}
+              </DropdownMenu.RadioItem>
+            {/each}
+          </div>
         </DropdownMenu.RadioGroup>
-      </DropdownMenu.SubContent>
-    </DropdownMenu.Sub>
+        <!-- Always rendered, one line tall: appearing on hover would grow the
+             column and shift everything under it. -->
+        <p
+          class="h-[1.375rem] truncate px-2.5 pt-1.5 text-[0.6875rem] leading-4 text-(--solus-text-tertiary)"
+          class:invisible={!(previewModelLabel && previewReasoning)}
+        >
+          Default for {previewModelLabel ?? ""}
+        </p>
+
+        <div class="min-h-2 flex-1"></div>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Sub>
+          <DropdownMenu.SubTrigger data-picker-column="reasoning">
+            <span class="flex-1 text-(--solus-text-tertiary)">Agent</span>
+            <span class="truncate">{agentName}</span>
+          </DropdownMenu.SubTrigger>
+          <DropdownMenu.SubContent class="w-[216px]">
+            <DropdownMenu.RadioGroup value={activeAgent}>
+              <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
+              <!-- Picking an agent is the start of a choice, not the end of one:
+                   the menu stays up so its models and levels can follow. The
+                   flyout closes on its own once the pointer reaches them. -->
+              {#each agentRows as agent (agent.id)}
+                <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
+                  <span class="min-w-0 flex-1 truncate">{agent.label}</span>
+                  {#if !agent.enabled}
+                    <span class="shrink-0 text-[0.6875rem] text-(--solus-text-tertiary)">Not installed</span>
+                  {/if}
+                </DropdownMenu.RadioItem>
+              {/each}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.SubContent>
+        </DropdownMenu.Sub>
+      </div>
+    </div>
+    <MenuFooter
+      hints={[["↑↓", "within"], ["←→", "columns"], [comboHint("global.cycle-model"), "cycle"]]}
+      summary="{previewModelLabel ?? modelLabel} · {REASONING_EFFORT_LABELS[hoveredLevel ?? previewReasoning ?? reasoningEffort]}"
+    />
   </DropdownMenu.Content>
 </DropdownMenu.Root>

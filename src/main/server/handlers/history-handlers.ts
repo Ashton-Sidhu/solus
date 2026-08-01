@@ -5,7 +5,6 @@ import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
-import { _planListCache } from '../../agents/claude/claude-plan-helpers'
 import { searchIndexedSessions } from '../../db/session-indexer'
 import { takeSessionScanBatch } from '../session-scan'
 
@@ -16,19 +15,13 @@ export interface HistoryDeps {
   agentIdFromContext(ctx?: IpcContext): AgentId
 }
 
-/** Drop only the cached plan lists that could contain `sessionId`, instead of
- *  wiping every project's cached list on a single bookmark/comment edit. */
-function invalidatePlanListCacheForSession(sessionId: string): void {
-  _planListCache.invalidateWhere((_key, descriptors) => descriptors.some((d) => d.sessionId === sessionId))
-}
-
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
   const { controlPlane, agentIdFromContext } = deps
 
   server.register('listSessions', async (args, handlerCtx) => {
     const [projectPath, , , streamId, requestedLimit] = args as [string | undefined, unknown, unknown, string | undefined, number | undefined]
     const limitPerProvider = Number.isSafeInteger(requestedLimit) && requestedLimit! > 0 ? requestedLimit : undefined
-    log.info(`RPC listSessions ${projectPath ? `(path=${projectPath})` : ''}${streamId ? ` stream=${streamId}` : ''}`)
+    log.info('rpc_list_sessions', { projectPath, streamId, limitPerProvider })
     if (!projectPath) return []
     const t0 = Date.now()
     try {
@@ -63,10 +56,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
           server.sendTo(handlerCtx.clientId, 'session-scan', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
         }
       }
-      log.metric('listSessions', Date.now() - t0, { count: sessions.length })
+      log.metric('list_sessions', Date.now() - t0, { count: sessions.length })
       return sessions
     } catch (err) {
-      log.error(`listSessions error: ${err}`)
+      log.error('list_sessions_failed', { error: String(err), projectPath, streamId })
       if (streamId) {
         if (handlerCtx.clientId) {
           server.sendTo(handlerCtx.clientId, 'session-scan', { streamId, type: 'done', totalSessions: 0 } satisfies SessionScanEvent)
@@ -86,7 +79,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         sinceTs: request.sinceTs,
       }, request.limit)
     } catch (err) {
-      log.error(`searchSessions error: ${err}`)
+      log.error('search_sessions_failed', { error: String(err) })
       return []
     }
   })
@@ -95,10 +88,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const t0 = Date.now()
     try {
       const projects = await listRecentProjects()
-      log.metric('listRecentProjects', Date.now() - t0, { count: projects.length })
+      log.metric('list_recent_projects', Date.now() - t0, { count: projects.length })
       return projects
     } catch (err) {
-      log.error(`listRecentProjects error: ${err}`)
+      log.error('list_recent_projects_failed', { error: String(err) })
       return []
     }
   })
@@ -108,18 +101,18 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       await trackRecentProject(path)
     } catch (err) {
-      log.error(`trackRecentProject error: ${err}`)
+      log.error('track_recent_project_failed', { error: String(err), path })
     }
   })
 
   server.register('loadSession', async (args) => {
     const [sessionId, projectPath, ctx, provider, limit] = args as [string, string | undefined, IpcContext | undefined, AgentId | undefined, number | undefined]
     const agentId = provider ?? agentIdFromContext(ctx)
-    log.info(`RPC loadSession ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}${limit ? ` (limit=${limit})` : ''}`)
+    log.info('rpc_load_session', { sessionId, projectPath, limit })
     try {
       return await controlPlane.loadSession(agentId, sessionId, projectPath, limit)
     } catch (err) {
-      log.error(`loadSession error: ${err}`)
+      log.error('load_session_failed', { error: String(err), sessionId, projectPath })
       return []
     }
   })
@@ -127,11 +120,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('loadSessionPreview', async (args) => {
     const [sessionId, projectPath, ctx, provider] = args as [string, string | undefined, IpcContext | undefined, AgentId | undefined]
     const agentId = provider ?? agentIdFromContext(ctx)
-    log.info(`RPC loadSessionPreview ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}`)
+    log.info('rpc_load_session_preview', { sessionId, projectPath })
     try {
       return await controlPlane.loadSessionPreview(agentId, sessionId, projectPath)
     } catch (err) {
-      log.error(`loadSessionPreview error: ${err}`)
+      log.error('load_session_preview_failed', { error: String(err), sessionId, projectPath })
       return { head: [], tail: [], totalMessages: 0 }
     }
   })
@@ -141,21 +134,21 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       return await controlPlane.getSessionInfo(sessionId)
     } catch (err) {
-      log.error(`getSessionInfo error: ${err}`)
+      log.error('get_session_info_failed', { error: String(err), sessionId })
       return null
     }
   })
 
   server.register('listPlans', async (args) => {
     const [projectPath, allProjects] = args as [string | undefined, boolean | undefined]
-    log.info(`RPC listPlans ${allProjects ? '(all projects)' : projectPath ? `(path=${projectPath})` : ''}`)
+    log.info('rpc_list_plans', { projectPath, allProjects: !!allProjects })
     const t0 = Date.now()
     try {
       const plans = await controlPlane.listPlansForProviders(controlPlane.getBackendIds(), projectPath, !!allProjects)
-      log.metric('listPlans', Date.now() - t0, { count: plans.length, allProjects: !!allProjects })
+      log.metric('list_plans', Date.now() - t0, { count: plans.length, allProjects: !!allProjects })
       return plans
     } catch (err) {
-      log.error(`listPlans error: ${err}`)
+      log.error('list_plans_failed', { error: String(err), projectPath })
       return []
     }
   })
@@ -163,14 +156,14 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('loadPlanContent', async (args) => {
     const [sessionId, projectPath, planToolUseId, ctx, provider] = args as [string, string, string, IpcContext | undefined, AgentId | undefined]
     const agentId = provider ?? agentIdFromContext(ctx)
-    log.info(`RPC loadPlanContent session=${sessionId} toolUse=${planToolUseId}`)
+    log.info('rpc_load_plan_content', { sessionId, planToolUseId })
     const t0 = Date.now()
     try {
       const content = await controlPlane.loadPlanContent(agentId, sessionId, projectPath, planToolUseId)
-      log.metric('loadPlanContent', Date.now() - t0, { sessionId, planToolUseId })
+      log.metric('load_plan_content', Date.now() - t0, { sessionId, planToolUseId })
       return content
     } catch (err) {
-      log.error(`loadPlanContent error: ${err}`)
+      log.error('load_plan_content_failed', { error: String(err), sessionId, planToolUseId })
       return null
     }
   })
@@ -180,7 +173,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       return await loadAnnotations(sessionId, planToolUseId)
     } catch (err) {
-      log.error(`loadPlanAnnotations error: ${err}`)
+      log.error('load_plan_annotations_failed', { error: String(err), sessionId, planToolUseId })
       return null
     }
   })
@@ -189,10 +182,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [annotations] = args as [PlanAnnotations]
     try {
       await saveAnnotations(annotations)
-      invalidatePlanListCacheForSession(annotations.sessionId)
+      controlPlane.invalidatePlanCaches(annotations.sessionId)
       return { ok: true }
     } catch (err) {
-      log.error(`savePlanAnnotations error: ${err}`)
+      log.error('save_plan_annotations_failed', { error: String(err), sessionId: annotations.sessionId })
       return { ok: false }
     }
   })
@@ -200,7 +193,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('toggleBookmarkPlan', async (args) => {
     const [sessionId, projectPath, cwd, planToolUseId, title] = args as [string, string, string, string, string]
     const merged = await toggleBookmarkAnnotations(sessionId, projectPath, cwd, planToolUseId, title)
-    invalidatePlanListCacheForSession(sessionId)
+    controlPlane.invalidatePlanCaches(sessionId)
     return merged
   })
 }

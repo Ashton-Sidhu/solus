@@ -4,8 +4,10 @@
 
   interface Props {
     text: string;
+    /** Tooltip naming what gets copied, for callers outside a message. */
+    title?: string;
   }
-  let { text }: Props = $props();
+  let { text, title = "Copy response" }: Props = $props();
 
   let copied = $state(false);
 
@@ -39,7 +41,7 @@
   class:text-(--solus-status-complete)={copied}
   class:bg-transparent={!copied}
   class:text-(--solus-text-tertiary)={!copied}
-  title="Copy response"
+  {title}
 >
   <span class="icon-swap">
     <CopyIcon size={11} style="position:absolute;transition:opacity 0.2s cubic-bezier(0.2,0,0,1),transform 0.2s cubic-bezier(0.2,0,0,1),filter 0.2s cubic-bezier(0.2,0,0,1);opacity:{copied ? 0 : 1};transform:scale({copied ? 0.25 : 1});filter:blur({copied ? '0.25rem' : '0'})" />

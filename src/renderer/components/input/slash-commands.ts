@@ -1,6 +1,6 @@
 import { NotePencilIcon, TrashIcon, RobotIcon } from "phosphor-svelte";
 import type { Component } from "svelte";
-import type { IpcContext } from "../../../shared/types";
+import type { AgentId, IpcContext } from "../../../shared/types";
 
 export interface SlashCommand {
   command: string;
@@ -23,9 +23,24 @@ export interface SlashCommandRunContext {
 
 export interface CategorizedSlashCommands {
   solus: SlashCommand[];
+  codex: SlashCommand[];
   claudeCode: SlashCommand[];
   global: SlashCommand[];
   project: SlashCommand[];
+}
+
+/** Codex app-server does not report its TUI built-ins through skills/list.
+ * Keep the small set Solus handles itself explicit rather than pretending it
+ * was discovered from the provider. */
+export const CODEX_SLASH_COMMANDS: SlashCommand[] = [
+  {
+    command: "/goal",
+    description: "Set or view the persistent goal for this session",
+  },
+];
+
+export function codexSlashCommands(provider: AgentId, includeSolusCommands: boolean): SlashCommand[] {
+  return includeSolusCommands && provider === "codex" ? CODEX_SLASH_COMMANDS : [];
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -82,6 +97,7 @@ export function getFilteredFromCategorized(
   const pass = (c: SlashCommand) => c.command.startsWith(q);
   return [
     ...commands.solus.filter(pass),
+    ...commands.codex.filter(pass),
     ...commands.claudeCode.filter(pass),
     ...commands.global.filter(pass),
     ...commands.project.filter(pass),
