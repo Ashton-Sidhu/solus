@@ -161,7 +161,14 @@ export class PermissionManager {
   ): (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any> {
     return async (toolName: string, input: any, options?: { toolUseID?: string }) => {
       const sessionId = sessionRef.current
-      if (unattended && (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode')) {
+      // EnterPlanMode is denied too: nobody can approve the resulting plan, so a
+      // run that enters plan mode can never leave it.
+      if (
+        unattended &&
+        (toolName === 'AskUserQuestion' ||
+          toolName === 'ExitPlanMode' ||
+          toolName === 'EnterPlanMode')
+      ) {
         return {
           behavior: 'deny',
           message: 'This background run is unattended. Continue with the supplied scope and your best judgment.',

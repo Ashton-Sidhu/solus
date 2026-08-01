@@ -147,6 +147,8 @@ describe('SessionEventReducer sub-agent transcript events', () => {
       isFinal: true,
     })
     expect(parent.toolStatus).toBe('completed')
+    // The card freezes elapsed time from this boundary after its live clock stops.
+    expect(parent.toolCompletedAt).toBeGreaterThan(parent.timestamp)
   })
 
   test('settles the card when the child turn fails', async () => {
@@ -194,5 +196,23 @@ describe('SessionEventReducer sub-agent transcript events', () => {
       durationMs: 4500,
       lastToolName: 'Read',
     })
+  })
+
+  test('records when a background sub-agent settles so its elapsed time does not reset', async () => {
+    const { parent, reducer } = await createReducer()
+
+    reducer.apply('tab-1', {
+      type: 'background_task_started',
+      taskId: 'task-1',
+      toolUseId: 'parent-tool',
+    })
+    reducer.apply('tab-1', {
+      type: 'background_task_settled',
+      taskId: 'task-1',
+      status: 'completed',
+    })
+
+    expect(parent.toolStatus).toBe('completed')
+    expect(parent.toolCompletedAt).toBeGreaterThan(parent.timestamp)
   })
 })

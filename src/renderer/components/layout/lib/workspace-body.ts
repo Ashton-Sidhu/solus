@@ -28,6 +28,30 @@ export function listSidebarPrimaryWidth(containerWidth: number): number {
 }
 export const MAX_RETAINED_CONVERSATION_TRANSCRIPTS = 4
 
+/** A tab may already own a local Session before its first prompt is sent. */
+export function hasStartedConversation(
+  session: Pick<Session, 'agentSessionId' | 'messages' | 'status'> | undefined,
+): boolean {
+  return !!session && (
+    session.agentSessionId !== null ||
+    session.messages.length > 0 ||
+    session.status !== 'idle'
+  )
+}
+
+/**
+ * A fresh tab starts without the project rail, even when the user's conversation
+ * preference is open. The rail may still be revealed explicitly; once the
+ * session starts, its persisted conversation preference takes over.
+ */
+export function primaryProjectPanelOpen(
+  hasStartedSession: boolean,
+  persistedOpen: boolean,
+  newTabPoppedOut: boolean,
+): boolean {
+  return hasStartedSession ? persistedOpen : newTabPoppedOut
+}
+
 /**
  * Keep heavy transcript rows for the visible chats plus the most recently
  * visited hidden chats. ConversationView itself stays mounted, preserving its

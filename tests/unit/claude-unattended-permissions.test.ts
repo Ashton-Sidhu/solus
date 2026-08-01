@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { PermissionManager } from '../../src/main/agents/claude/claude-permissions'
 
 describe('Claude unattended permissions', () => {
-  test.each(['AskUserQuestion', 'ExitPlanMode'])(
+  test.each(['AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode'])(
     'denies %s immediately instead of waiting for hidden UI',
     async (toolName) => {
       const manager = new PermissionManager()

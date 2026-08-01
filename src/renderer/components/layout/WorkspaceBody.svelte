@@ -35,11 +35,13 @@
     clampSecondaryPaneWidth,
     defaultWorkspaceRailWidth,
     focusedSplitChatTabId,
+    hasStartedConversation,
     isSecondaryContentVisible,
     listSidebarPrimaryWidth,
     MIN_LIST_PRIMARY_PANE_WIDTH,
     MIN_PRIMARY_PANE_WIDTH,
     primaryPaneMinSize,
+    primaryProjectPanelOpen,
     retainedConversationTabIds,
     secondaryPaneBounds,
     secondaryPaneDefaultSize,
@@ -114,6 +116,30 @@
   });
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
+  const hasStartedSession = $derived(hasStartedConversation(sess));
+  const activeProjectPanelTabKey = $derived(session.activeTabId || "new-tab-home");
+  let projectPanelPopoutTabKey = $state<string | null>(null);
+  const newTabProjectPanelPoppedOut = $derived(
+    projectPanelPopoutTabKey === activeProjectPanelTabKey,
+  );
+  const isPrimaryProjectPanelOpen = $derived(
+    primaryProjectPanelOpen(
+      hasStartedSession,
+      settings.projectPanelOpen,
+      newTabProjectPanelPoppedOut,
+    ),
+  );
+  // Popping the rail out on a fresh tab is intentionally transient. Starting
+  // that session or moving to another tab returns control to the normal rule.
+  $effect(() => {
+    if (
+      hasStartedSession ||
+      (projectPanelPopoutTabKey !== null &&
+        projectPanelPopoutTabKey !== activeProjectPanelTabKey)
+    ) {
+      projectPanelPopoutTabKey = null;
+    }
+  });
   const focusedChatTabId = $derived(
     session.focusedChatTabId ?? session.activeTabId,
   );
@@ -274,6 +300,17 @@
       });
       return;
     }
+    if (!hasStartedSession) {
+      const open = !newTabProjectPanelPoppedOut;
+      projectPanelPopoutTabKey = open ? activeProjectPanelTabKey : null;
+      // An explicit reveal becomes the user's conversation preference once the
+      // first session starts; hiding the empty-home rail remains transient.
+      if (open && !settings.projectPanelOpen) {
+        settings.update({ projectPanelOpen: true });
+      }
+      if (!open) requestInputFocus();
+      return;
+    }
     const open = !settings.projectPanelOpen;
     settings.update({ projectPanelOpen: open });
     if (!open) requestInputFocus();
@@ -290,7 +327,7 @@
   frameChrome.expandProjectPanel = () => toggleProjectPanel("primary");
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
-    frameChrome.projectPanelOpen = active ? settings.projectPanelOpen : true;
+    frameChrome.projectPanelOpen = active ? isPrimaryProjectPanelOpen : true;
   });
 
   useKeybinding("global.toggle-sidebar", () => toggleSidebar(), {
@@ -569,7 +606,7 @@
     enableProjectPanel &&
       conversationChromeVisible &&
       isProjectRailOpen(
-        settings.projectPanelOpen,
+        isPrimaryProjectPanelOpen,
         projectRailContainerWidth,
         secondaryVisible,
       ),
@@ -631,7 +668,7 @@
         sidebarOpen={sidebarOpenForChrome}
         onToggleSidebar={toggleSidebar}
         projectPanelOpen={enableProjectPanel
-          ? settings.projectPanelOpen
+          ? isPrimaryProjectPanelOpen
           : undefined}
         onToggleProjectPanel={enableProjectPanel
           ? () => toggleProjectPanel("primary")
@@ -828,7 +865,8 @@
                     tabId={session.activeTabId}
                     slot="primary"
                     containerWidth={projectRailContainerWidth}
-                    minimized={secondaryVisible}
+                    minimized={secondaryVisible ||
+                      (!hasStartedSession && !newTabProjectPanelPoppedOut)}
                   />
                 {/if}
               </div>

@@ -65,6 +65,9 @@
   // One environment model drives the pill echo. displayBranch stays the raw
   // branch (the GitDropdown switches by exact name); pending comes from env.
   const env = $derived(environmentStore.environmentFor(targetTabId));
+  const worktrees = $derived(
+    environmentStore.refsFor(env.repoRoot ?? git?.repoRoot).worktrees,
+  );
   const worktreeModePending = $derived(env.pending);
   const creatingWorktree = $derived(session.isContinuingInWorktree(targetTabId));
   // While the worktree is being created, hold the pending label instead of the
@@ -119,16 +122,37 @@
     gitOpen = !gitOpen;
   }
 
-  function selectBranch(branch: string) {
+  async function selectBranch(branch: string) {
     if (!tab?.id) return;
-    // The branch you are already on means this checkout as it stands,
-    // uncommitted work and all, so it names no base to cut a worktree from.
-    session.setWorktreeBaseBranch(branch === displayBranch ? null : branch);
+    const entry = worktrees.find((worktree) => worktree.branch === branch);
+    if (entry) {
+      await selectWorktree(entry);
+      return;
+    }
+    const ok = await session.switchToBranch(branch, tab.id);
+    if (!ok) {
+      requestInputFocus({ tabId: tab.id });
+      return;
+    }
+    settleOnDestination(tab.id);
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
     await session.switchToWorktree(worktree.path, tab?.id);
-    requestInputFocus(tab?.id ? { tabId: tab.id } : undefined);
+    settleOnDestination(tab?.id);
+  }
+
+  function settleOnDestination(destinationTabId?: string) {
+    const targetSession = destinationTabId
+      ? session.sessionFor(destinationTabId)
+      : undefined;
+    const nextCwd =
+      targetSession?.gitContext?.worktreePath ??
+      targetSession?.workingDirectory ??
+      session.globalDefaults.gitContext?.worktreePath ??
+      session.globalDefaults.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
+    requestInputFocus(destinationTabId ? { tabId: destinationTabId } : undefined);
   }
 
 </script>

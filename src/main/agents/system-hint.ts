@@ -22,7 +22,7 @@ const ARTIFACT_GUIDANCE = [
 // variant (project vs general workspace, claude vs codex, plan mode) stays
 // clean and singular — no stacked/conflicting instructions in the context.
 
-function preamble(agent: 'claude' | 'codex'): string {
+function preamble(agent: 'claude' | 'codex', subagent: boolean): string {
   return [
     'IMPORTANT: You are NOT running in a terminal. You are running inside Solus,',
     `a desktop chat application with a rich UI that renders full markdown. Solus wraps ${agent === 'claude' ? 'Claude Code' : 'Codex'} —`,
@@ -34,8 +34,9 @@ function preamble(agent: 'claude' | 'codex'): string {
     '- Use code blocks with language tags for syntax highlighting.',
     '- Images render too, so embed them when they help: find real URLs via WebSearch/WebFetch and render with ![alt](url).',
     '  Never guess or construct an image URL — if you cannot find a real one, link to the page instead and say so briefly.',
-    '',
-    'When coming up with a plan, switch to plan mode.'
+    // A subagent has no user to approve a plan, so entering plan mode would only
+    // strand it there — it reports its plan as its final text instead.
+    ...(subagent ? [] : ['', 'When coming up with a plan, switch to plan mode.']),
   ].join('\n')
 }
 
@@ -122,6 +123,8 @@ export interface SystemPromptOptions {
   modelInstructions?: string
   /** Codex-only plan mode. */
   planMode?: boolean
+  /** Delegated headless run with no user attached to answer prompts. */
+  subagent?: boolean
   /** When set, appends a PR-review context hint (the session's chat tab reviews this PR). */
   prReview?: PrHintContext | null
 }
@@ -135,7 +138,7 @@ function userInstructionBlock(title: string, body: string): string | null {
 /** Compose the Solus system prompt from clean, non-overlapping parts. */
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const parts: string[] = [
-    preamble(opts.agent),
+    preamble(opts.agent, opts.subagent === true),
     opts.general ? GENERAL_ASSISTANT_ROLE : SOFTWARE_ENGINEER_ROLE,
   ]
   // The TodoWrite cadence fits a code project, not a general chat. Automations

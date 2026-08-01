@@ -14,13 +14,24 @@ export function goalStatusLabel(status: ThreadGoalStatus): string {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-/** Dot colour: running while the goal is being pursued, complete when it lands,
- *  idle for a deliberate pause, error for the states that stopped it. */
+/** The label's colour reads as severity, not as identity — the word already
+ *  names the state. Green while the goal is healthy (being pursued, or landed),
+ *  grey for a deliberate hold, amber for a limit the user can lift, red only for
+ *  the one state that stopped the goal for good. Brand terracotta is reserved
+ *  for "agent working" elsewhere, so an active goal takes the live green. */
 export function goalStatusColor(status: ThreadGoalStatus): string {
-  if (status === 'active') return 'var(--solus-status-running)'
+  if (status === 'active') return 'var(--solus-status-live)'
   if (status === 'complete') return 'var(--solus-status-complete)'
   if (status === 'paused') return 'var(--solus-status-idle)'
-  return 'var(--solus-status-error)'
+  if (status === 'blocked') return 'var(--solus-status-error)'
+  return 'var(--solus-art-2)'
+}
+
+/** The card clamps at six lines, so anything that can't fit inside them earns a
+ *  "Show more". Cheap enough to run per render: characters cover long prose,
+ *  newlines cover the short-bulleted objectives that wrap far taller. */
+export function objectiveOverflows(objective: string): boolean {
+  return objective.length > 260 || objective.split('\n').length > 6
 }
 
 /** The card's one-line footnote: what the goal has cost, the budget it is

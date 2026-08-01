@@ -60,7 +60,7 @@
          agent didn't write. Collapsed it states what it asked for and what the
          run cost the checkout; opened it is the prompt, verbatim. -->
     <div
-      class="mb-5 max-w-[46.25rem] rounded-xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+      class="mb-5 w-full rounded-xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
     >
       <button
         type="button"
@@ -116,9 +116,9 @@
       {running ? "Still working — the answer lands here." : "This agent returned no answer."}
     </div>
   {:else if !outline}
-    <!-- No ordered headings, so no rail and no washes — the same measure and the
-         same type, but nothing the agent didn't write. -->
-    <div class="max-w-[46.25rem]">
+    <!-- No ordered headings, so no rail and no washes — the same type, but
+         nothing the agent didn't write. -->
+    <div class="w-full">
       <div class="prose-cloud prose-transcript prose-report-lead min-w-0">
         <SvelteMarkdown
           source={report}
@@ -129,8 +129,8 @@
     </div>
   {:else}
     {#if outline.lead}
-      <!-- The verdict, at reading size and ahead of the evidence. -->
-      <div class="mb-1 max-w-[46.25rem]">
+      <!-- The verdict leads at reading size and ahead of the evidence. -->
+      <div class="mb-1 w-full">
         <div class="prose-cloud prose-transcript prose-report-lead min-w-0">
           <SvelteMarkdown
             source={outline.lead}
@@ -156,7 +156,7 @@
           {String(section.n).padStart(2, "0")}
         </div>
         <div
-          class="max-w-[46.25rem] border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] {section.n ===
+          class="min-w-0 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] {section.n ===
           1
             ? 'pt-4'
             : 'mt-2 pt-6'}"

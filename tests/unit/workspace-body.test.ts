@@ -1,9 +1,47 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  hasStartedConversation,
   listSidebarPrimaryWidth,
+  primaryProjectPanelOpen,
   retainedConversationTabIds,
   visibleWorkspaceTabIds,
 } from '../../src/renderer/components/layout/lib/workspace-body'
+
+describe('primary project rail visibility', () => {
+  test('treats a tab-backed empty session as an unstarted draft', () => {
+    expect(hasStartedConversation({
+      agentSessionId: null,
+      messages: [],
+      status: 'idle',
+    })).toBe(false)
+  })
+
+  test('recognizes resumed and newly dispatched conversations as started', () => {
+    expect(hasStartedConversation({
+      agentSessionId: 'provider-session',
+      messages: [],
+      status: 'idle',
+    })).toBe(true)
+    expect(hasStartedConversation({
+      agentSessionId: null,
+      messages: [{ role: 'user' } as any],
+      status: 'connecting',
+    })).toBe(true)
+  })
+
+  test('starts hidden on a new tab even when conversations prefer it open', () => {
+    expect(primaryProjectPanelOpen(false, true, false)).toBe(false)
+  })
+
+  test('can be explicitly popped out before a session starts', () => {
+    expect(primaryProjectPanelOpen(false, false, true)).toBe(true)
+  })
+
+  test('returns to the persisted preference once a session exists', () => {
+    expect(primaryProjectPanelOpen(true, true, false)).toBe(true)
+    expect(primaryProjectPanelOpen(true, false, true)).toBe(false)
+  })
+})
 
 // The strip groups by the same environment-derived branch key the sidebar uses,
 // supplied here as a per-tab lookup so the test stays independent of the Git

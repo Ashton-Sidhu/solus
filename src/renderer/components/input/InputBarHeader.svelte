@@ -70,6 +70,9 @@
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
   const git = $derived(environmentStore.statusFor(gitStatusCwd));
+  const worktrees = $derived(
+    environmentStore.refsFor(gitHome.projectRoot ?? env.repoRoot).worktrees,
+  );
   const worktreeBaseBranch = $derived(
     sess?.worktreeBaseBranch ??
       (!sess && session.settings.worktreeEnabled
@@ -131,17 +134,40 @@
     branchTooltipOpen = next && !gitOpen;
   }
 
-  function selectBranch(branch: string) {
+  async function selectBranch(branch: string) {
     if (!targetTabId) return;
-    // The branch you are already on means this checkout as it stands,
-    // uncommitted work and all, so it names no base to cut a worktree from.
-    session.setWorktreeBaseBranch(branch === displayBranch ? null : branch);
+    // A branch checked out elsewhere names that existing worktree. Navigating
+    // there avoids turning the selection into a request for another worktree.
+    const entry = worktrees.find((worktree) => worktree.branch === branch);
+    if (entry) {
+      await selectWorktree(entry);
+      return;
+    }
+    const ok = await session.switchToBranch(branch, targetTabId);
+    if (!ok) {
+      requestInputFocus({ tabId: targetTabId });
+      return;
+    }
+    settleOnDestination();
   }
 
   async function selectWorktree(worktree: WorktreeEntry) {
     // Honour this header's own tab: the editor input bar mounts one per pane,
     // so a split pane must not retarget the primary chat.
     await session.switchToWorktree(worktree.path, targetTabId ?? undefined);
+    settleOnDestination();
+  }
+
+  function settleOnDestination() {
+    const targetSession = targetTabId
+      ? session.sessionFor(targetTabId)
+      : undefined;
+    const nextCwd =
+      targetSession?.gitContext?.worktreePath ??
+      targetSession?.workingDirectory ??
+      session.globalDefaults.gitContext?.worktreePath ??
+      session.globalDefaults.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
     requestInputFocus(targetTabId ? { tabId: targetTabId } : undefined);
   }
 </script>

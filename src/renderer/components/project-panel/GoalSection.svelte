@@ -4,7 +4,13 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";
-  import { goalMetaLine, goalStatusColor, goalStatusLabel, isGoalTerminal } from "./lib/goal-status";
+  import {
+    goalMetaLine,
+    goalStatusColor,
+    goalStatusLabel,
+    isGoalTerminal,
+    objectiveOverflows,
+  } from "./lib/goal-status";
 
   interface Props {
     tabId: string;
@@ -30,6 +36,12 @@
       ? Math.min(100, Math.round((goal.tokensUsed / goal.tokenBudget) * 100))
       : null,
   );
+
+  // A multi-paragraph objective would otherwise push the meta line, the budget
+  // bar and every section below it off the rail, so the card reads six lines and
+  // the rest is opt-in. Expanding scrolls inside the card, it doesn't grow it.
+  const isLongObjective = $derived(!!goal && objectiveOverflows(goal.objective));
+  let objectiveExpanded = $state(false);
 
   let isEditing = $state(false);
   let objectiveDraft = $state("");
@@ -193,9 +205,22 @@
       {:else}
         <!-- The objective is the subject of the card, so it carries the primary
              ink; every reading below it steps down from here. -->
-        <p class="m-0 text-[0.8125rem] leading-5 text-pretty whitespace-pre-wrap text-(--solus-text-primary)">
+        <p
+          class="m-0 text-[0.8125rem] leading-5 text-pretty whitespace-pre-wrap text-(--solus-text-primary) {objectiveExpanded
+            ? 'max-h-56 overflow-y-auto overscroll-contain'
+            : 'line-clamp-6'}"
+        >
           {goal.objective}
         </p>
+        {#if isLongObjective}
+          <button
+            class="-mt-0.5 cursor-pointer self-start border-none bg-transparent p-0 text-[0.6875rem] text-(--solus-text-tertiary) transition-colors duration-150 hover:text-(--solus-text-primary)"
+            type="button"
+            onclick={() => (objectiveExpanded = !objectiveExpanded)}
+          >
+            {objectiveExpanded ? "Show less" : "Show more"}
+          </button>
+        {/if}
       {/if}
 
       <!-- Cost and elapsed are footnotes to the objective, not readings worth a

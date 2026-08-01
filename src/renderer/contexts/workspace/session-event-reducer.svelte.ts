@@ -320,6 +320,7 @@ export class SessionEventReducer {
         if (msg && msg.toolStatus === 'running') {
           msg.toolStatus = event.status === 'completed' ? 'completed' : 'error'
           msg.toolResultIsError = event.status !== 'completed'
+          msg.toolCompletedAt = Date.now()
         }
         break
       }
@@ -960,7 +961,10 @@ export class SessionEventReducer {
         } else if (!(lastSub?.role === 'assistant' && !lastSub.toolName && lastSub.content === text)) {
           subs.push({ id: nextMsgId(), role: 'assistant', content: text, timestamp: Date.now() })
         }
-        if (event.isFinal) parent.toolStatus = 'completed'
+        if (event.isFinal) {
+          parent.toolStatus = 'completed'
+          parent.toolCompletedAt = Date.now()
+        }
         break
       }
     }

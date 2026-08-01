@@ -79,10 +79,12 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
         reasoningEffort,
         permissionMode: readOnly ? 'plan' : 'auto',
         persistence: 'ephemeral',
+        unattended: true,
         systemPrompt: buildSystemPrompt({
           agent: 'claude',
           general: isWorkspacePath(context.cwd),
           planMode: readOnly,
+          subagent: true,
         }),
         onEvent: (event) => {
           if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return

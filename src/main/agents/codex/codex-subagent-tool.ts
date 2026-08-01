@@ -68,6 +68,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
           agent: 'codex',
           general: isWorkspacePath(context.cwd),
           planMode: args.read_only === true,
+          subagent: true,
         }),
         onEvent: (event) => {
           if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
