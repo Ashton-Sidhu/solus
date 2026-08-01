@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { liveActivityLabel } from '../../src/renderer/components/conversation/lib/activity-summary'
+import {
+  getToolDescription,
+  liveActivityLabel,
+} from '../../src/renderer/components/conversation/lib/activity-summary'
 
 describe('liveActivityLabel', () => {
   test('keeps fast startup phases visible before the agent begins thinking', () => {
@@ -21,5 +24,33 @@ describe('liveActivityLabel', () => {
 
   test('describes the pause between tool calls as planning the next step', () => {
     expect(liveActivityLabel('Thinking...', 0, true)).toBe('Planning the next step…')
+  })
+})
+
+describe('getToolDescription', () => {
+  test('shows arguments for bare Codex Solus tools', () => {
+    // WHY: repeated Solus calls are indistinguishable in the activity trace
+    // when their query or target is hidden.
+    expect(
+      getToolDescription(
+        'search_sessions',
+        JSON.stringify({ query: 'host selection', role: 'any', limit: 10 }),
+        { truncate: false },
+      ),
+    ).toBe('search_sessions: {"query":"host selection","role":"any","limit":10}')
+  })
+
+  test('shows the same arguments for Claude-prefixed Solus tools', () => {
+    expect(
+      getToolDescription(
+        'mcp__solus__read_session',
+        JSON.stringify({ session_id: 'session-123', tail: 20 }),
+        { truncate: false },
+      ),
+    ).toBe('read_session: {"session_id":"session-123","tail":20}')
+  })
+
+  test('keeps argument-free Solus tools concise', () => {
+    expect(getToolDescription('list_sessions', '{}', { truncate: false })).toBe('list_sessions')
   })
 })

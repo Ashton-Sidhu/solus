@@ -9,10 +9,12 @@
     PushPinIcon,
     CaretRightIcon,
     HardDrivesIcon,
+    BinocularsIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@renderer/contexts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
   import { getAttentionIcon, attentionLabel, type AttentionState } from "@renderer/lib/sessionUtils";
+  import { sessionGuideStatusStore } from "@renderer/components/review/session-guide-status.store.svelte";
 
   interface Props {
     /** Close the drawer after a navigation action. */
@@ -61,6 +63,13 @@
     action();
     onSessionSelect();
   }
+
+  function isReviewRunning(tabId: string | null | undefined): boolean {
+    return !!tabId && sessionGuideStatusStore.isRunningFor(
+      session.apiFor(tabId),
+      session.sessionFor(tabId),
+    );
+  }
 </script>
 
 {#snippet attentionMark(att: AttentionState)}
@@ -79,6 +88,16 @@
       </span>
     {/if}
   {/if}
+{/snippet}
+
+{#snippet reviewMark()}
+  <span
+    class="shrink-0 flex items-center text-(--solus-accent)"
+    title="Review running"
+    aria-label="Review running"
+  >
+    <BinocularsIcon size={14} weight="bold" />
+  </span>
 {/snippet}
 
 {#snippet activeBar()}
@@ -123,6 +142,7 @@
       {#each store.pinnedSessions as pin (pin.sessionId)}
         {@const openTabId = store.openTabIdForPinned(pin)}
         {@const isActive = !!openTabId && openTabId === session.activeTabId}
+        {@const reviewRunning = isReviewRunning(openTabId)}
         <button
           class="{rowBase} {isActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
           onclick={() => nav(() => store.openPinnedSession(pin))}
@@ -130,6 +150,9 @@
           {#if isActive}{@render activeBar()}{/if}
           <span class="shrink-0 flex items-center {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}"><PushPinIcon size={14} weight="fill" /></span>
           <span class="flex-1 min-w-0 truncate text-[0.8125rem] font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{pin.title}</span>
+          {#if reviewRunning}
+            {@render reviewMark()}
+          {/if}
         </button>
       {/each}
     {/if}
@@ -141,6 +164,7 @@
           {@const multiBranch = group.branches.length > 1 || branch.tabIds.length > 1}
           {#each branch.tabIds as tabId (tabId)}
             {@const child = store.childForTab(tabId)}
+            {@const reviewRunning = isReviewRunning(tabId)}
             <div
               class="{rowBase} {child.active ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
               role="button"
@@ -163,6 +187,9 @@
               </span>
               {#if child.attention}
                 {@render attentionMark(child.attention)}
+              {/if}
+              {#if reviewRunning}
+                {@render reviewMark()}
               {/if}
               <button
                 class="shrink-0 w-9 h-9 flex items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-muted) cursor-pointer transition-colors duration-100 active:bg-(--solus-surface-tertiary) active:text-(--solus-text-secondary) [-webkit-tap-highlight-color:transparent]"

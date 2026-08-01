@@ -9,9 +9,11 @@ import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEven
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
+let solusToolbox: typeof import('../../src/main/agents/tools/solus-toolbox')['solusToolbox']
 type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
 beforeAll(async () => {
   ;({ ControlPlane } = await import('../../src/main/control-plane'))
+  ;({ solusToolbox } = await import('../../src/main/agents/tools/solus-toolbox'))
 })
 
 const GRACE_MS = 5 * 60_000
@@ -318,7 +320,65 @@ function promptContext(tabId: string, provider: AgentId, agentSessionId: string)
   } as IpcContext
 }
 
+describe('ControlPlane subagent text routing', () => {
+  test('preserves the parent tool id instead of batching child text into the main reply', () => {
+    // WHY: cross-provider subagents stream through the parent backend. Dropping
+    // this id turns their live report into an ordinary assistant message even
+    // though the completed result still lands on the subagent card.
+    const env = setup()
+    planes.push(env.controlPlane)
+    env.seedSession('session-1')
+    env.registerWatch('tab-1', 'ws:a', 'device-1', 'session-1')
+    env.events.splice(0, env.events.length)
+
+    env.backend.emit('normalized', 'session-1', {
+      type: 'text_chunk',
+      text: 'Child report',
+      parentToolUseId: 'subagent-tool-1',
+    } satisfies NormalizedEvent)
+
+    expect(env.events).toEqual([{
+      tabId: 'tab-1',
+      event: {
+        type: 'text_chunk',
+        text: 'Child report',
+        parentToolUseId: 'subagent-tool-1',
+      },
+    }])
+  })
+})
+
 describe('ControlPlane headless sessions', () => {
+  test('gives create_session the same tools as a normal new session', async () => {
+    // WHY: create_session bypasses submitPrompt and has no tab. It must still
+    // receive every provider-neutral Solus tool and the provider subagent tool
+    // that an ordinary new session receives.
+    const providerNeutralToolNames = Object.values(solusToolbox)
+      .flatMap((group) => Object.values(group).map((tool) => tool.name))
+
+    for (const [provider, subagentToolName] of [
+      ['codex', 'claude_subagent'],
+      ['claude-code', 'codex_subagent'],
+    ] as const) {
+      const env = setup({ backendIds: [provider] })
+      planes.push(env.controlPlane)
+
+      await env.controlPlane.createSession({
+        prompt: 'Start through create_session',
+        provider,
+        modelId: 'test-model',
+        reasoningEffort: 'medium',
+        contextWindow: null,
+        cwd: process.cwd(),
+      })
+      const createdToolNames = env.backend.lastInput?.tools.map((tool) => tool.name)
+
+      expect(createdToolNames).toEqual([...providerNeutralToolNames, subagentToolName])
+      expect(createdToolNames).toContain('create_session')
+      expect(createdToolNames).toContain(subagentToolName)
+    }
+  })
+
   test('starts a headless session without creating tab-scoped state', async () => {
     const env = setup()
     planes.push(env.controlPlane)
@@ -845,6 +905,45 @@ describe('ControlPlane provider handoff', () => {
     await expect(
       env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
     ).rejects.toThrow('must be idle before switching providers')
+  })
+
+  test('allows switching away from a rate-limited provider and clears its parked prompt', async () => {
+    const env = setup({ backendIds: ['codex', 'claude-code'] })
+    planes.push(env.controlPlane)
+    env.seedSession('limited-session', {
+      backendId: 'codex',
+      status: 'running',
+      runInput: sampleRunInput('codex', 'limited-session'),
+    })
+    env.seedActiveRun('limited-session', 'queue')
+    env.registerWatch('tab-a', 'ws:a', 'device-1', 'limited-session')
+
+    env.backend.emit('normalized', 'limited-session', {
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: Math.ceil(Date.now() / 1000) + 3_600,
+      rateLimitType: 'Codex 5h',
+      isUsingOverage: false,
+    } satisfies NormalizedEvent)
+
+    await expect(
+      env.controlPlane.switchSessionProvider('tab-a', 'claude-code'),
+    ).resolves.toEqual({
+      fromProvider: 'codex',
+      fromSessionId: 'limited-session',
+    })
+
+    const tab = (env.controlPlane as unknown as {
+      tabs: Map<string, { provider: AgentId; sessionId: string | null; status: SessionStatus }>
+    }).tabs.get('tab-a')
+    expect(tab).toMatchObject({
+      provider: 'claude-code',
+      sessionId: null,
+      status: 'idle',
+    })
+    expect(env.controlPlane.liveSessionStatus('limited-session')).toBe('idle')
+    expect(env.events.some(({ event }) => event.type === 'prompt_dequeued')).toBe(true)
+    expect(env.events.some(({ event }) => event.type === 'rate_limit_resolved')).toBe(true)
   })
 })
 

@@ -17,6 +17,8 @@ export interface AgentRunRequest {
   reasoningEffort?: ReasoningEffort
   permissionMode: 'ask' | 'auto' | 'plan'
   persistence: 'session' | 'ephemeral'
+  /** Background utility runs must never park on an interaction no surface can answer. */
+  unattended?: boolean
   sessionId?: string | null
   forkSession?: boolean
   additionalDirectories?: string[]

@@ -25,9 +25,10 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";
+  import GoalSection from "./GoalSection.svelte";
+  import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import WorksSection from "./WorksSection.svelte";
-  import TasksSection from "./TasksSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import { buildAutomationBoard } from "./lib/automation-board";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
@@ -86,13 +87,13 @@
   );
 
   const panelSession = $derived(session.sessionFor(panelTabId));
-  const panelEnvironment = $derived(environmentStore.environmentFor(panelTabId));
+  const panelEnvironment = $derived(
+    environmentStore.environmentFor(panelTabId),
+  );
   const cwd = $derived(
     panelSession?.workingDirectory ?? session.globalDefaults.workingDirectory,
   );
-  const gitCtx = $derived(
-    panelEnvironment.checkout,
-  );
+  const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
 
   // Works the focused session created or updated — derived from the same messages
@@ -154,7 +155,8 @@
   useKeybinding(
     "orb.sync",
     () => {
-      if (gitCtx) void gitActionsFor(panelTabId, session, environmentStore).sync();
+      if (gitCtx)
+        void gitActionsFor(panelTabId, session, environmentStore).sync();
     },
     { enabled: () => focused },
   );
@@ -208,13 +210,11 @@
 
   function openFiles() {
     if (!gitCwd) return;
-    session.panes.openFiles(panelTabId, panelEnvironment.cwd, panelEnvironment.checkout);
-    requestInputFocus();
-  }
-
-  function newTask() {
-    if (isUnconfiguredCwd(gitCwd)) return;
-    session.ui.openTaskComposer(gitCwd);
+    session.panes.openFiles(
+      panelTabId,
+      panelEnvironment.cwd,
+      panelEnvironment.checkout,
+    );
     requestInputFocus();
   }
 
@@ -222,10 +222,9 @@
     session.openAutomationBuilder(null);
     requestInputFocus();
   }
-
 </script>
 
-{#snippet gitHeaderExtra()}
+{#snippet environmentHeaderExtra()}
   <span class="header-extra">
     <button
       class="tiny-icon"
@@ -258,14 +257,6 @@
 
 {#snippet automationsHeaderExtra()}
   <span class="header-extra">
-    {#if automationBoard.summary}
-      <span
-        class="min-w-0 truncate text-[0.6875rem] font-normal text-(--solus-text-tertiary)"
-        aria-live="polite"
-      >
-        {automationBoard.summary}
-      </span>
-    {/if}
     <Button
       variant="ghost"
       size="icon-xs"
@@ -275,25 +266,6 @@
       onclick={(e) => {
         e.stopPropagation();
         newAutomation();
-      }}
-    >
-      <PlusIcon size={14} />
-    </Button>
-  </span>
-{/snippet}
-
-{#snippet tasksHeaderExtra()}
-  <span class="header-extra">
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      class="text-(--solus-text-tertiary)"
-      type="button"
-      aria-label="New task"
-      disabled={isUnconfiguredCwd(gitCwd)}
-      onclick={(e) => {
-        e.stopPropagation();
-        newTask();
       }}
     >
       <PlusIcon size={14} />
@@ -317,12 +289,34 @@
   >
     <PanelSection
       title="Environment"
-      collapsed={collapsedSections.git}
-      onToggle={() => toggleSection("git")}
-      headerExtra={gitHeaderExtra}
+      collapsed={collapsedSections.environment}
+      onToggle={() => toggleSection("environment")}
+      headerExtra={environmentHeaderExtra}
     >
-      <GitSection tabId={panelTabId} active={open} onOpenFiles={openFiles} />
+      <EnvironmentSection
+        tabId={panelTabId}
+        active={open}
+        onOpenFiles={openFiles}
+      />
     </PanelSection>
+    {#if panelEnvironment.branch}
+      <PanelSection
+        title="Git"
+        collapsed={collapsedSections.git}
+        onToggle={() => toggleSection("git")}
+      >
+        <GitSection tabId={panelTabId} />
+      </PanelSection>
+    {/if}
+    <!-- The section exists only while a goal is set. It owns its own card
+         because the header controls share edit/confirm state with the body. -->
+    {#if panelSession?.goal}
+      <GoalSection
+        tabId={panelTabId}
+        collapsed={collapsedSections.goal}
+        onToggle={() => toggleSection("goal")}
+      />
+    {/if}
     {#if sessionWorkItems.length > 0}
       <PanelSection
         title="Works"
@@ -335,6 +329,7 @@
     {#if automationBoard.total > 0}
       <PanelSection
         title="Automations"
+        headerDetail={automationBoard.summary}
         collapsed={collapsedSections.automations}
         onToggle={() => toggleSection("automations")}
         headerExtra={automationsHeaderExtra}
@@ -342,14 +337,6 @@
         <AutomationsSection board={automationBoard} />
       </PanelSection>
     {/if}
-    <PanelSection
-      title="Tasks"
-      collapsed={collapsedSections.tasks}
-      onToggle={() => toggleSection("tasks")}
-      headerExtra={tasksHeaderExtra}
-    >
-      <TasksSection cwd={gitCwd} active={open} />
-    </PanelSection>
   </div>
 </SidePanel>
 

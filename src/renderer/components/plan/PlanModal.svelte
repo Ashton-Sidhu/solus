@@ -2,11 +2,7 @@
   import "./PlanModal.css";
 
   import type { Editor } from "@tiptap/core";
-  import { tick } from "svelte";
-  import { fly } from "svelte/transition";
-  import { uuid } from "../../../shared/uuid";
   import {
-    XIcon,
     CheckIcon,
     CopyIcon,
     BookmarkSimpleIcon,
@@ -14,33 +10,18 @@
     CheckCircleIcon,
     XCircleIcon,
     ArrowUpRightIcon,
+    ArrowSquareOutIcon,
     DotsThreeIcon,
   } from "phosphor-svelte";
-  import { runtime, getWorkspaceContext, getPlanStore, toasts } from "../../contexts";
+  import { runtime, getWorkspaceContext, getPlanStore } from "../../contexts";
   import PlanActionBar from "./PlanActionBar.svelte";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
+  import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
-  import PlanCommentsRail from "./PlanCommentsRail.svelte";
-  import { commentMarkPositions, measureAnchors, type MeasuredAnchor } from "../comments/lib/anchors";
-  import type { Plan, PlanComment } from "../../../shared/types";
-  import { portal } from "../portal";
-  import {
-    prosePosToTextOffset,
-    restoreCommentMarks,
-    findMarkElement,
-    addCommentMark,
-    removeCommentMark,
-    scrollAndFlashMark,
-    flashMark,
-    resolveHoveredComment,
-    isUserSelection,
-  } from "./lib/comments";
+  import type { Plan, PlanComment, PlanCommentReply } from "../../../shared/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import Kbd from "../ui/Kbd.svelte";
-  import { MarkdownTextarea } from "../ui/markdown-field";
-  import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { ArrowSquareOutIcon } from "phosphor-svelte";
 
   const commentExtensions = [CommentMark];
 
@@ -76,160 +57,25 @@
   let scrollContainer: HTMLDivElement | null = $state(null);
   let suppressSave = $state(false);
 
-  // Comment creation state
-  let selectionRange = $state<{
-    from: number;
-    to: number;
-    selectedText: string;
-    top: number;
-    bottom: number;
-    left: number;
-    right: number;
-  } | null>(null);
-  let commentInput = $state("");
-  let commentFormAnchor = $state<{
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
-  let commentInputEl: HTMLTextAreaElement | null = $state(null);
-
-  // Comments rail
+  // Comments. The layer itself is shared with the document editor — this
+  // surface only says where the threads are persisted and what the margin's
+  // footer holds.
+  let commentLayer: CommentLayer | null = $state(null);
+  let canComment = $state(false);
   let commentsRailOpen = $state(false);
   let composerCollapsed = $state(false);
   let commentsRailPlanId = $state<string | null>(null);
-  let activeRailCommentId = $state<string | null>(null);
-  let editingCommentId = $state<string | null>(null);
-  // Comment whose mark is hovered in the editor — transiently highlights its
-  // rail card without disturbing a pinned (scrolled-to) selection.
-  let hoveredMarkId = $state<string | null>(null);
-
-  $effect(() => {
-    if (commentFormAnchor === null) return;
-    void tick().then(() => commentInputEl?.focus());
-  });
-
-  // Hovering a comment mark in the document lights up its card in the rail.
-  $effect(() => {
-    const el = scrollContainer;
-    if (!el) return;
-    const onOver = (e: MouseEvent) => {
-      const resolved = resolveHoveredComment(e, comments);
-      hoveredMarkId = resolved ? resolved.comment.id : null;
-    };
-    el.addEventListener("pointerover", onOver);
-    return () => el.removeEventListener("pointerover", onOver);
-  });
-
-  // Clicking a highlighted span surfaces its comment: open the rail (if hidden)
-  // and select + flash the matching card so the comment text is visible.
-  $effect(() => {
-    const el = scrollContainer;
-    if (!el) return;
-    const onClick = (e: MouseEvent) => {
-      const resolved = resolveHoveredComment(e, comments);
-      if (!resolved) return;
-      commentsRailOpen = true;
-      activeRailCommentId = resolved.comment.id;
-      // The clicked mark is already in view — flash it in place rather than
-      // re-scrolling the document under the user.
-      const mark = findMarkElement(scrollContainer, resolved.comment.id);
-      if (mark) flashMark(mark);
-    };
-    el.addEventListener("click", onClick);
-    return () => el.removeEventListener("click", onClick);
-  });
-
-  // Re-apply comment marks whenever the comment set changes.
-  $effect(() => {
-    const c = comments;
-    const editor = tiptapEditor;
-    if (!editor || c.length === 0) return;
-    suppressSave = true;
-    restoreCommentMarks(editor, c);
-    suppressSave = false;
-  });
-
-  // Where each highlight sits, so the rail can put a thread on its own line.
-  let anchors = $state<MeasuredAnchor[]>([]);
-  // False while the rail is moving — connectors are suppressed until it settles
-  // so nothing flickers across the margin.
-  let anchorsSettled = $state(true);
-  let settleTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // On mobile the rail is a full-screen overlay, so there is no margin to
-  // anchor into — the threads stack the way a list should.
-  const railPlacement = $derived(isMobile ? "stacked" : "anchored");
 
   // Document position of each thread's mark, for the outline's section counts.
   let threadAnchors = $state<{ id: string; pos: number }[]>([]);
-
-  $effect(() => {
-    comments;
-    tiptapEditor?.state.doc;
-    scrollContainer;
-    void tick().then(() => {
-      anchors = measureAnchors(scrollContainer, comments);
-      threadAnchors = commentMarkPositions(tiptapEditor);
-    });
-  });
-
-  $effect(() => {
-    const el = scrollContainer;
-    if (!el) return;
-    // One rAF per frame: a fast scroll must not run a layout read per event.
-    let pending = false;
-    const remeasure = () => {
-      anchorsSettled = false;
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => (anchorsSettled = true), 140);
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(() => {
-        pending = false;
-        anchors = measureAnchors(el, comments);
-      });
-    };
-    el.addEventListener("scroll", remeasure, { passive: true });
-    const observer = new ResizeObserver(remeasure);
-    observer.observe(el);
-    return () => {
-      el.removeEventListener("scroll", remeasure);
-      observer.disconnect();
-      if (settleTimer) clearTimeout(settleTimer);
-    };
-  });
 
   $effect(() => {
     const previousPlanId = commentsRailPlanId;
     if (previousPlanId === plan.id) return;
     commentsRailPlanId = plan.id;
     if (previousPlanId === null) return;
-    commentsRailOpen = !isMobile && comments.length > 0;
-    activeRailCommentId = null;
-    editingCommentId = null;
+    commentsRailOpen = comments.length > 0;
   });
-
-  // Dismiss floating comment / revision dropdown on outside click.
-  $effect(() => {
-    const handler = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (
-        !t.closest("[data-floating-comment]") &&
-        !t.closest("[data-inline-comment-form]")
-      ) {
-        clearCommentDraft();
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  });
-
-  function clearCommentDraft() {
-    selectionRange = null;
-    commentFormAnchor = null;
-    commentInput = "";
-  }
 
   async function handleToggleBookmark() {
     await planStore.toggleBookmark(plan.id);
@@ -243,19 +89,6 @@
     else session.closePlanModal();
   }
 
-  function handleEscape() {
-    if (commentFormAnchor) clearCommentDraft();
-    else if (editingCommentId) editingCommentId = null;
-    else closeModal();
-  }
-
-  useKeybinding(
-    "plan-modal.start-comment",
-    () => {
-      if (selectionRange && !commentFormAnchor) handleStartComment();
-    },
-    { enabled: () => !!(selectionRange && !commentFormAnchor) },
-  );
   useKeybinding("plan-modal.toggle-bookmark", () => handleToggleBookmark());
   useKeybinding("plan-modal.toggle-comments", () => {
     commentsRailOpen = !commentsRailOpen;
@@ -279,155 +112,27 @@
     return planStore.flushContentSave(plan.id);
   }
 
-  // Wire comment selection + initial mark restore once the shell's editor is ready.
-  function handleEditorReady(editor: Editor) {
-    editor.on("selectionUpdate", () => {
-      // Only surface the comment affordance for a real cursor selection — ignore
-      // programmatic ones (find/replace, mark restore, agent rewrites).
-      if (!isUserSelection(editor)) {
-        selectionRange = null;
-        return;
-      }
-      const { from, to } = editor.state.selection;
-      if (from === to) {
-        selectionRange = null;
-        return;
-      }
-      const selectedText = editor.state.doc.textBetween(from, to, " ");
-      if (selectedText.trim().length < 3) {
-        selectionRange = null;
-        return;
-      }
-      const startCoords = editor.view.coordsAtPos(from);
-      const endCoords = editor.view.coordsAtPos(to);
-      selectionRange = {
-        from,
-        to,
-        selectedText: selectedText.trim(),
-        top: startCoords.top,
-        bottom: endCoords.bottom,
-        left: startCoords.left,
-        right: endCoords.right,
-      };
-    });
-
-    suppressSave = true;
-    restoreCommentMarks(editor, plan.comments);
-    suppressSave = false;
+  // Comment persistence. Everything else about the margin — the selection
+  // rules, the form, the marks, the thread cards — is CommentLayer's.
+  function addComment(comment: PlanComment) {
+    planStore.addComment(plan.id, comment);
   }
-
-  // --- Comments ---
-
-  function handleStartComment() {
-    if (!selectionRange || !scrollContainer) return;
-    const formWidth = Math.min(500, window.innerWidth - 32);
-    commentFormAnchor = {
-      left: Math.min(selectionRange.left, window.innerWidth - formWidth - 16),
-      top: selectionRange.bottom + 8,
-      width: formWidth,
-    };
-    commentInput = "";
-  }
-
-  async function handleSaveComment() {
-    if (!selectionRange || !commentInput.trim() || !tiptapEditor) return;
-    const container = scrollContainer;
-    const savedScroll = container?.scrollTop ?? 0;
-
-    // Persist any pending content edits before the comment mark is added.
-    await shell?.flushSave();
-
-    const textOffset = prosePosToTextOffset(tiptapEditor, selectionRange.from);
-    const newComment: PlanComment = {
-      id: uuid(),
-      selectedText: selectionRange.selectedText,
-      comment: commentInput.trim(),
-      textOffset,
-      author: "you",
-      createdAt: Date.now(),
-      readAt: Date.now(),
-    };
-    planStore.addComment(plan.id, newComment);
-
-    const { from, to } = selectionRange;
-    suppressSave = true;
-    addCommentMark(tiptapEditor, from, to, newComment.id);
-    suppressSave = false;
-
-    clearCommentDraft();
-    commentsRailOpen = true;
-
-    await tick();
-    if (container) {
-      container.scrollTop = savedScroll;
-      requestAnimationFrame(() => {
-        container.scrollTop = savedScroll;
-      });
-    }
-  }
-
-  function handleSaveCommentEdit(commentId: string, text: string) {
+  function editComment(commentId: string, text: string) {
     planStore.updateComment(plan.id, commentId, text);
-    editingCommentId = null;
   }
-
-  function handleCancelCommentEdit() {
-    editingCommentId = null;
-  }
-
-  function handleDeleteComment(commentId: string) {
-    const deleted = comments.find((c) => c.id === commentId);
+  function deleteComment(commentId: string) {
     planStore.removeComment(plan.id, commentId);
-    if (editingCommentId === commentId) editingCommentId = null;
-    if (tiptapEditor) {
-      suppressSave = true;
-      removeCommentMark(tiptapEditor, commentId);
-      suppressSave = false;
-    }
-    // Offer an undo: re-adding the comment lets the mark-restore effect re-anchor it.
-    if (deleted) {
-      toasts.undo("Comment deleted", () => {
-        planStore.addComment(plan.id, deleted);
-        commentsRailOpen = true;
-      });
-    }
   }
-
-  function handleScrollToComment(commentId: string) {
-    activeRailCommentId = commentId;
-    // Focus is mutual, and opening a thread is what reading it means.
-    planStore.markCommentRead(plan.id, commentId);
-    const mark = findMarkElement(scrollContainer, commentId);
-    if (!mark || !scrollContainer) return;
-    scrollAndFlashMark(scrollContainer, mark);
+  function replyToComment(commentId: string, reply: PlanCommentReply) {
+    planStore.addReply(plan.id, commentId, reply);
   }
-
-  function handleReplyToComment(commentId: string, text: string) {
-    planStore.addReply(plan.id, commentId, {
-      id: uuid(),
-      author: "you",
-      text,
-      createdAt: Date.now(),
-    });
-    activeRailCommentId = commentId;
-  }
-
-  function handleResolveComment(commentId: string, resolved: boolean) {
+  function resolveComment(commentId: string, resolved: boolean) {
     planStore.setCommentResolved(plan.id, commentId, resolved ? "you" : null);
-    if (resolved && activeRailCommentId === commentId) activeRailCommentId = null;
+  }
+  function readComment(commentId: string) {
+    planStore.markCommentRead(plan.id, commentId);
   }
 
-  function handleHoverRailComment(commentId: string | null) {
-    if (!scrollContainer) return;
-    if (commentId) {
-      const mark = findMarkElement(scrollContainer, commentId);
-      mark?.classList.add("plan-comment-active");
-    } else {
-      scrollContainer
-        .querySelectorAll("mark.plan-comment-active")
-        .forEach((m) => m.classList.remove("plan-comment-active"));
-    }
-  }
 </script>
 
 <DocumentShell
@@ -443,10 +148,8 @@
   extraExtensions={commentExtensions}
   onSave={handleSave}
   onClose={closeModal}
-  onEscape={handleEscape}
-  onEditorReady={handleEditorReady}
-  onCommentSelection={handleStartComment}
-  canCommentSelection={!!selectionRange && !commentFormAnchor}
+  onCommentSelection={() => commentLayer?.startComment()}
+  canCommentSelection={canComment}
   {threadAnchors}
   railWidth="clamp(13.5rem, 26cqi, 18rem)"
   bind:tiptapEditor
@@ -565,35 +268,26 @@
     </DropdownMenu.Root>
   {/snippet}
 
-  {#snippet rail()}
-    {#if commentsRailOpen}
-      <div
-        class="plan-comments-rail-sleeve"
-        transition:fly={{ x: 264, duration: 200, opacity: 0 }}
-      >
-        <PlanCommentsRail
-          {comments}
-          activeCommentId={hoveredMarkId ?? activeRailCommentId}
-          {editingCommentId}
-          emptyHint="Select text or press ⌘M to add one."
-          placement={railPlacement}
-          {anchors}
-          settled={anchorsSettled}
-          onScrollTo={handleScrollToComment}
-          onHover={handleHoverRailComment}
-          onResolve={handleResolveComment}
-          onReply={handleReplyToComment}
-          onStartEdit={(commentId) => {
-            editingCommentId = commentId;
-            activeRailCommentId = commentId;
-          }}
-          onSaveEdit={handleSaveCommentEdit}
-          onCancelEdit={handleCancelCommentEdit}
-          onDelete={handleDeleteComment}
-          onClose={() => (commentsRailOpen = false)}
-        />
-      </div>
-    {/if}
+  {#snippet rail({ folded })}
+    <CommentLayer
+      bind:this={commentLayer}
+      editor={tiptapEditor}
+      railFolded={folded}
+      {scrollContainer}
+      {comments}
+      onAdd={addComment}
+      onEdit={editComment}
+      onDelete={deleteComment}
+      onReply={replyToComment}
+      onResolve={resolveComment}
+      onRead={readComment}
+      startCommentBinding="plan-modal.start-comment"
+      flushSave={() => shell?.flushSave() ?? Promise.resolve()}
+      bind:suppressSave
+      bind:canComment
+      bind:railOpen={commentsRailOpen}
+      bind:threadAnchors
+    />
   {/snippet}
 
   {#snippet footer()}
@@ -617,57 +311,4 @@
     </div>
   {/snippet}
 
-  {#snippet overlays()}
-    <!-- Inline comment form -->
-    {#if commentFormAnchor}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        use:portal={document.body}
-        data-inline-comment-form
-        data-solus-ui
-        class="fixed plan-comment-form-in plan-comment-form-position"
-        style="--cf-left:{commentFormAnchor.left}px;--cf-top:{commentFormAnchor.top}px;--cf-width:{commentFormAnchor.width}px;z-index:10001"
-      >
-        <div class="plan-inline-comment-form flex flex-col gap-1.5 rounded-[0.625rem] border border-(--solus-accent-border) bg-(--solus-popover-bg) px-[0.625rem] pb-2 pt-2 shadow-(--solus-popover-shadow) backdrop-blur-[1.25rem] max-md:rounded-b-none">
-          <MarkdownTextarea
-            bind:ref={commentInputEl}
-            bind:value={commentInput}
-            bare
-            mic
-placeholder="Add comment…"
-            rows={1}
-            submitOn="enter"
-            onSubmit={handleSaveComment}
-            class="plan-inline-comment-form__textarea"
-            onkeydown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) e.stopPropagation();
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                clearCommentDraft();
-              }
-            }}
-          />
-          <div class="flex items-center justify-end gap-1.5">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onclick={clearCommentDraft}
-              class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-              title="Cancel (Esc)"
-            >
-              <XIcon size={13} />
-            </Button>
-            <Button
-              size="sm"
-              onclick={handleSaveComment}
-              disabled={!commentInput.trim()}
-            >
-              Comment
-            </Button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-  {/snippet}
 </DocumentShell>

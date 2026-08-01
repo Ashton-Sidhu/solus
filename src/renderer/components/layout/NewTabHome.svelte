@@ -6,7 +6,6 @@
     getWorkspaceContext,
     getWindowContext,
     runtime,
-    serversStore,
   } from "../../contexts";
 
   export function invalidateHomeCache(): void {
@@ -34,7 +33,10 @@
   import { formatTimeAgo } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { sessionHistorySourcesFromRoots } from "../../lib/sessionPickerHistory";
-  import { formatBranchDisplayName, homeGitDetails } from "../../lib/git-context";
+  import {
+    formatBranchDisplayName,
+    homeGitDetails,
+  } from "../../lib/git-context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import type {
     Tab,
@@ -56,12 +58,6 @@
     projectCarouselIndex,
     sessionTitle,
   } from "./lib/new-tab-home";
-  import {
-    alsoOnLabel,
-    alsoOnTooltip,
-    recentProjectRows,
-  } from "./lib/recent-projects";
-  import { LOCAL_SERVER_ID } from "@client-core/server-registry";
   import { isDispatchedSession } from "../servers/run-on";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { relativeTime } from "../automations/lib/automation-format";
@@ -91,36 +87,7 @@
   let sessionsLoaded = $state(false);
   let sessionsLoadSeq = 0;
   const projectMetadata = projectsStore;
-  // Recents come from whichever host is connected, so the host they belong to
-  // and the hosts that share the repo both have to be resolved here.
-  const recentsHostId = $derived(
-    serversStore.activeServer?.id ?? LOCAL_SERVER_ID,
-  );
-  const projects = $derived(
-    recentProjectRows({
-      recents: projectMetadata.recentProjects,
-      identities: serversStore.projectIdentitiesFor(recentsHostId),
-      otherHosts: serversStore.servers
-        .filter((server) => server.id !== recentsHostId)
-        .map((server) => ({
-          id: server.id,
-          label: server.label,
-          identities: serversStore.projectIdentitiesFor(server.id),
-        })),
-      limit: 3,
-    }),
-  );
-  // Nothing else on this screen asks which hosts hold which repo, and without
-  // the answer the rows below can't dedupe or name a second host. Reading
-  // `remotes` rather than `servers` keeps this off the status the probe writes,
-  // which would otherwise re-trigger it forever.
-  let probedHostCount = $state(0);
-  $effect(() => {
-    const hostCount = serversStore.remotes.length;
-    if (hostCount === 0 || hostCount === probedHostCount) return;
-    probedHostCount = hostCount;
-    void serversStore.probeRunOnServers();
-  });
+  const projects = $derived(projectMetadata.recentProjects.slice(0, 3));
   const recentSessions = createSessionHistoryStore();
   const sessions = $derived(recentSessions.sessions);
 
@@ -128,7 +95,11 @@
     sess?.workingDirectory || session.globalDefaults.workingDirectory || "~",
   );
   const gitHome = $derived(
-    homeGitDetails(currentDir, sess?.gitContext, session.globalDefaults.gitContext),
+    homeGitDetails(
+      currentDir,
+      sess?.gitContext,
+      session.globalDefaults.gitContext,
+    ),
   );
   const projectRoot = $derived(gitHome.projectRoot);
   const gitRefs = $derived(environmentStore.refsFor(projectRoot));
@@ -759,19 +730,6 @@
             class="flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-(--solus-text-tertiary)"
           >
             <span class="shrink-0">{formatTimeAgo(proj.lastOpened)}</span>
-            {#if proj.alsoOn.length > 0}
-              <span aria-hidden="true">·</span>
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props: tooltipProps })}
-                    <span {...tooltipProps} class="truncate">
-                {alsoOnLabel(proj.alsoOn)}
-              </span>
-                  {/snippet}
-                </TooltipUI.Trigger>
-                <TooltipUI.Content value={alsoOnTooltip(proj.alsoOn)} />
-              </TooltipUI.Root>
-            {/if}
           </div>
         </button>
       {/each}
@@ -874,10 +832,6 @@
                     <span class="shrink-0"
                       >{formatTimeAgo(proj.lastOpened)}</span
                     >
-                    {#if proj.alsoOn.length > 0}
-                      <span aria-hidden="true">·</span>
-                      <span class="truncate">{alsoOnLabel(proj.alsoOn)}</span>
-                    {/if}
                   </div>
                 </button>
               {/each}

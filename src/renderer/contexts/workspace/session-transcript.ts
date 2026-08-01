@@ -3,7 +3,7 @@ import { encodePathAsFolder } from '../../../shared/types'
 import type { SessionLoadMessage } from '../../../shared/session-history'
 import { uuid } from '../../../shared/uuid'
 import { isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
-import { isSessionRelayTool, RelayTranscriptBuilder } from './relay-transcript'
+import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 // ─── Transcript loader ───
@@ -103,9 +103,9 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
   // Tool messages by tool_use id (main thread + nested) so sub-agent children
   // and the Agent tool's own result can be reattached to their tool message.
   const toolById = new Map<string, any>()
-  // Relay cards rebuild from session-tool rows + [session report] user turns,
-  // mirroring the live RelayTracker's one-card-per-peer-per-turn keying.
-  const relays = new RelayTranscriptBuilder(messages)
+  // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
+  // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
+  const agentConversations = new AgentConversationTranscriptBuilder(messages)
 
   // Automation cards resolve against the store; ensure it's hydrated if this
   // transcript created/updated any automations.
@@ -290,11 +290,11 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
         })
       } catch {}
       continue
-    } else if (m.role === 'tool' && isSessionRelayTool(m.toolName)) {
+    } else if (m.role === 'tool' && isAgentConversationTool(m.toolName)) {
       // A session-orchestration call replays as a tool row (debug visibility)
-      // followed by its relay card; the report user turns below fill replies in.
+      // followed by its agent-conversation card; report user turns below fill replies in.
       messages.push(msg)
-      relays.applyToolRow(
+      agentConversations.applyToolRow(
         m.toolName!,
         m.toolInput,
         m.content || toolResultTextFor(loadedHistory, m.toolId),
@@ -303,10 +303,10 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: {
       continue
     } else if (m.role === 'user') {
       // A [session report] turn is model context, never a bubble — its payload
-      // lands in the relay card it settles. A genuine user turn cuts the
-      // one-card-per-peer-per-turn boundary.
-      if (relays.applyUserRow(m.content || '')) continue
-      if (!isAgentNotice(m.content || '')) relays.closeTurn()
+      // lands in the agent-conversation card it settles. A genuine user turn cuts the
+      // one-card-per-agent-per-turn boundary.
+      if (agentConversations.applyUserRow(m.content || '', msgTimestamp)) continue
+      if (!isAgentNotice(m.content || '')) agentConversations.closeTurn()
     } else if (m.role === 'tool' && isCodexImageGenerationTool(m.toolName)) {
       // The image path was already resolved in the main process (codexItemToMessage).
       try {

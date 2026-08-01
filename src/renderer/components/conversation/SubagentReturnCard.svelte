@@ -44,7 +44,7 @@
 </script>
 
 <section
-  class="return-card mx-auto w-[88%] overflow-hidden rounded-xl bg-card"
+  class="return-card mx-auto w-[88%] overflow-hidden rounded-xl bg-(--solus-tx-card-bg)"
   class:is-open={isOpen}
   aria-label="Sub-agent"
   data-testid="subagent-group"
@@ -195,26 +195,19 @@
 </section>
 
 <style>
-  /* Same flush shell as the running chassis. The highlight is white in both
-     themes because it represents a light source rather than a colour. */
+  /* Same shell as the running chassis — see the --solus-tx-card-* tokens. */
   .return-card {
-    box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 10%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55);
-  }
-
-  :global(.dark) .return-card {
-    box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.07);
+    box-shadow: var(--solus-tx-card-shadow);
   }
 
   /* Which card the pane is showing, stated as a ring rather than a fill — the
-     same signal the running chassis gives. */
+     same signal the running chassis gives. It keeps the shared lift so an open
+     card doesn't drop back down to the page. */
   .return-card.is-open {
     box-shadow:
       0 0 0 0.0625rem color-mix(in oklch, var(--primary) 34%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55);
+      inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+      var(--solus-tx-card-lift);
   }
 
   .return-card button:focus-visible {

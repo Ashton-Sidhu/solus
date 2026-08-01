@@ -150,8 +150,8 @@
   {#if !loader.loading && loader.guide}
     <div
       class={composerCollapsed
-        ? "absolute bottom-3 left-3 z-20"
-        : "shrink-0 bg-(--solus-container-bg) px-3 pt-2 pb-3"}
+        ? "absolute bottom-2.5 left-4 z-20"
+        : "shrink-0 bg-(--solus-container-bg) px-4 pt-2.5 pb-2.5"}
     >
       <PromptComposer
         bind:this={composerRef}

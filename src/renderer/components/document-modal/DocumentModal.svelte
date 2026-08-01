@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { Editor } from "@tiptap/core";
+  import { ArrowUpIcon } from "phosphor-svelte";
+  import * as TooltipUI from "@renderer/components/ui/tooltip";
+  import { Button } from "../ui/button";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import CommentLayer from "../comments/CommentLayer.svelte";
@@ -154,18 +157,31 @@
     requestInputFocus({ tabId });
   }
 
+  // Mirror the standard submit-to-agent flow (InputBar / diff feedback): guard
+  // against double-sends while the chat tab is being opened.
+  let sending = $state(false);
+  async function handleSendComments() {
+    if (sending || openCount === 0) return;
+    sending = true;
+    try {
+      await sendCommentsToAgent();
+    } finally {
+      sending = false;
+    }
+  }
+
   async function sendCommentsToAgent() {
     if (!workId) return;
-    const sending = openThreads(comments);
-    if (sending.length === 0) return;
-    const body = formatInlineComments(sending);
+    const unresolved = openThreads(comments);
+    if (unresolved.length === 0) return;
+    const body = formatInlineComments(unresolved);
     const msg = `Please address these comments on "${doc.title}" (work_id: ${workId}):\n${body}`;
 
     // Handed to the agent, so the threads are settled — they *resolve* rather
     // than vanish. The mark keeps its dotted sage trace, so the reader can
     // still see where the conversation happened; deleting them outright made
     // a whole round of feedback disappear from the page with no record.
-    for (const c of sending) {
+    for (const c of unresolved) {
       session.worksStore.setAnnotationResolved(workId, c.id, "solus");
     }
     persist();
@@ -262,13 +278,40 @@
         onReply={replyToComment}
         onResolve={resolveComment}
         onRead={readComment}
-        onSendToAgent={sendCommentsToAgent}
+        startCommentBinding="document-modal.start-comment"
         flushSave={() => shell?.flushSave() ?? Promise.resolve()}
         bind:suppressSave
         bind:canComment
         bind:railOpen
         bind:threadAnchors
-      />
+      >
+        {#snippet footer()}
+          <div class="dm-send-bar">
+            <span class="dm-send-bar__hint">
+              {openCount} open thread{openCount === 1 ? "" : "s"}
+            </span>
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <span {...tooltipProps} class="inline-flex">
+                    <Button
+                      size="icon"
+                      class="rounded-full"
+                      data-testid="send-comments"
+                      disabled={sending || openCount === 0}
+                      onclick={handleSendComments}
+                      aria-label="Send comments to agent"
+                    >
+                      <ArrowUpIcon size={16} weight="bold" />
+                    </Button>
+                  </span>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={"Send to agent"} />
+            </TooltipUI.Root>
+          </div>
+        {/snippet}
+      </CommentLayer>
     {/if}
   {/snippet}
 </DocumentShell>
@@ -322,6 +365,25 @@
   }
   .dm-comment-count--on .dm-comment-count__swatch {
     background: var(--solus-art-2);
+  }
+
+  /* Submit lives at the bottom of the comments rail and uses the canonical accent
+     send button shared with the input bar and diff-feedback composer, so sending
+     comments to the agent looks and feels identical to every other page. */
+  .dm-send-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    /* A hairline, not a footer bar — the margin has no second surface in it. */
+    margin-top: 0.5rem;
+    padding: 0.625rem 0.125rem 0;
+    border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
+  }
+  .dm-send-bar__hint {
+    font-size: 0.6875rem;
+    color: var(--solus-text-tertiary);
+    font-variant-numeric: tabular-nums;
   }
 
   /* Narrow pane (split, or a compact window): collapse actions to icon-only. */

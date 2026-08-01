@@ -26,6 +26,7 @@
     getSessionEnvironmentStore,
     runtime,
     serversStore,
+    toasts,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { KEYBINDINGS, type BindingId } from "../../lib/keybindings/manifest";
@@ -33,6 +34,10 @@
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import {
+    sessionGuideIdentity,
+    sessionGuideStatusStore,
+  } from "../review/session-guide-status.store.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import Kbd from "../ui/Kbd.svelte";
   import * as Popover from "../ui/popover";
@@ -123,6 +128,13 @@
   const sessionReviewGuideKey = $derived(
     sess?.agentSessionId ? `session-${sess.agentSessionId}` : null,
   );
+  const sessionReviewIdentity = $derived(sessionGuideIdentity(sess));
+  const sharedReviewStatus = $derived(
+    sessionGuideStatusStore.statusFor(
+      session.apiFor(tabId),
+      sessionReviewIdentity,
+    ),
+  );
   const showReview = $derived(
     hasSessionChanges && sessionReviewGuideKey !== null,
   );
@@ -162,11 +174,56 @@
   let reviewGuideKey = $state<string | null>(null);
   let reviewPopoverOpen = $state(false);
   let reviewRunId = 0;
+  let lastReviewFailureAt = 0;
   // Fingerprint of the change set the current "done" guide covered. When the
   // session keeps editing past it, drop back to "Review" instead of latching
   // "View Review" on a walkthrough of an older change.
   let reviewSnapshot = $state<string | null>(null);
   const changesFingerprint = $derived(sessionChangedFiles.join("|"));
+
+  $effect(() => {
+    const identity = sessionReviewIdentity;
+    if (!identity) return;
+    const api = session.apiFor(tabId);
+    void sessionGuideStatusStore.load(
+      api,
+      session.ctxFor(tabId),
+      identity,
+    );
+  });
+
+  $effect(() => {
+    const status = sharedReviewStatus;
+    if (!status) return;
+    if (status.step) reviewProgressStep = status.step;
+    if (status.status === "queued" || status.status === "generating") {
+      reviewStatus = "generating";
+      return;
+    }
+    if (status.status === "ready" && sessionReviewGuideKey === status.key) {
+      reviewGuideKey = status.key;
+      reviewSnapshot = changesFingerprint;
+      reviewStatus = "done";
+      return;
+    }
+    if (
+      reviewStatus === "generating" &&
+      (status.status === "failed" || status.status === "cancelled")
+    ) {
+      reviewStatus = "idle";
+    }
+    if (
+      status.status === "failed" &&
+      status.updatedAt !== lastReviewFailureAt
+    ) {
+      lastReviewFailureAt = status.updatedAt;
+      toasts.error(
+        status.error
+          ? `Review stopped: ${status.error}`
+          : "Review stopped before a guide was produced. Try again.",
+      );
+    }
+  });
 
   // Latch keyed by tabId → the change-set fingerprint we last probed for a cached
   // guide. Without it, every re-activation of a dirty tab whose probe found no
@@ -550,27 +607,19 @@
     reviewProgressStep = "preparing";
     const api = session.apiFor(tabId);
 
-    // Progress events broadcast to every subscriber; only track this session's
-    // generation so a concurrent branch/other-tab run can't drive our steps.
-    const unsubscribe = api.onReviewProgress((event) => {
-      if (event.key !== expectedGuideKey) return;
-      reviewProgressStep = event.step;
-    });
-
     try {
-      const gen = await api.generateGuide(session.ctxFor(tabId), {
+      const status = await api.requestSessionGuide(session.ctxFor(tabId), {
         ...resolveReviewAgent(theme, agentContext),
-        scope: "session",
       });
       if (runId !== reviewRunId) return;
-      reviewGuideKey =
-        gen?.persisted && gen.key === expectedGuideKey ? gen.key : null;
-      reviewSnapshot = changesFingerprint;
-      reviewStatus = reviewGuideKey ? "done" : "idle";
+      if (!status || status.key !== expectedGuideKey) {
+        reviewStatus = "idle";
+        return;
+      }
+      sessionGuideStatusStore.set(api, status);
     } catch {
       if (runId === reviewRunId) reviewStatus = "idle";
     } finally {
-      unsubscribe();
       if (runId !== reviewRunId) return;
       requestInputFocus();
     }
@@ -693,7 +742,7 @@
     "global.continue-worktree",
     () => {
       if (showContinueWorktree && !isCreatingWorktree) {
-        session.continueInWorktree(tabId);
+        session.continueInWorktree(tabId, "keybinding");
         requestInputFocus();
       }
     },

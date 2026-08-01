@@ -23,7 +23,7 @@ import {
   validateCloneUrl,
 } from '../../src/main/server/handlers/setup-commands'
 import { SolusServer } from '../../src/main/server/server'
-import type { SetupCloneProjectResult, SetupStatusEvent, SetupStepResult } from '../../src/shared/types'
+import type { SetupCloneProjectResult, SetupPrepareProjectResult, SetupStatusEvent, SetupStepResult } from '../../src/shared/types'
 
 const temporaryDirectories: string[] = []
 const resolveTestProjectKey = (path: string) => `project:${path}`
@@ -284,6 +284,49 @@ describe('clone destination resolution', () => {
 })
 
 describe('server setup clone dispatch', () => {
+  test('the destination host clones when its own project registry has no checkout', async () => {
+    // WHY: the client sends only repository intent; checkout discovery and the
+    // resulting filesystem action must happen on the destination host.
+    const root = await temporaryDirectory()
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      findProjectCheckout: async () => null,
+      projectsRoot: () => root,
+      loadGithubToken: () => null,
+      registerProject: async (path) => resolveTestProjectKey(path),
+      spawnProcess: processSequence(calls, [{ code: 0 }]),
+    })
+
+    const result = await server.handle('setupPrepareProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+    }], { deviceId: 'test-device' }) as SetupPrepareProjectResult
+
+    expect(result).toEqual({
+      path: join(root, 'solus'),
+      projectKey: resolveTestProjectKey(join(root, 'solus')),
+      action: 'cloned',
+    })
+    expect(calls[0].args[0]).toBe('clone')
+  })
+
+  test('the destination host validates its matching checkout instead of cloning another', async () => {
+    // WHY: a stale or invalid registry path must fail where Host V can explain
+    // it; the renderer must not fall back to a second checkout behind its back.
+    const checkout = await temporaryDirectory()
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      findProjectCheckout: async () => checkout,
+      spawnProcess: processSequence(calls, []),
+    })
+
+    await expect(server.handle('setupPrepareProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+    }], { deviceId: 'test-device' })).rejects.toThrow(`no git checkout at ${checkout}`)
+    expect(calls).toEqual([])
+  })
+
   test('derives SSH from the repository, cleans its partial checkout, then falls back to anonymous HTTPS', async () => {
     const root = await temporaryDirectory()
     const destination = join(root, 'solus')

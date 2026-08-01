@@ -3,6 +3,9 @@
   import ConversationView from "@renderer/components/conversation/ConversationView.svelte";
   import NewTabHome from "@renderer/components/layout/NewTabHome.svelte";
   import SessionPicker from "@renderer/components/session/SessionPicker.svelte";
+  // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
+  // so it cannot sit behind one itself.
+  import DocumentModalSkeleton from "@renderer/components/document-modal/DocumentModalSkeleton.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getPlanStore, getWorkspaceContext, runtime } from "@renderer/contexts";
   import WebMobileLayout from "./WebMobileLayout.svelte";
@@ -322,7 +325,10 @@
     {#if !session.plansGalleryOpen && !session.folioGalleryOpen}
       {#if activeWork}
         {#await import("@renderer/components/document-modal/DocumentModal.svelte")}
-          {@render loadingSurface("Loading document…")}
+          <!-- No workId on mobile, so no comment margin to reserve. -->
+          <div class="mobile-surface flex min-h-0 flex-1 flex-col">
+            <DocumentModalSkeleton inline title={activeWork.title} railWidth="0px" />
+          </div>
         {:then documentModule}
           {@const DocumentModal = documentModule.default}
           <div class="mobile-surface flex min-h-0 flex-1 flex-col">

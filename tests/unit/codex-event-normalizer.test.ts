@@ -384,21 +384,22 @@ describe('CodexTurnNormalizer', () => {
         content: '/Users/sidhu/solus\n',
       },
       { type: 'tool_call_complete', index: 0, toolId: 'cmd-1' },
+      // `last` is the window as it stands; `total` is what the whole thread has
+      // spent — the two must not be read as the same number.
       {
         type: 'usage',
-        usage: {
+        context: {
+          usedTokens: 112,
+          windowTokens: 200000,
           inputTokens: 60,
-          outputTokens: 12,
           cacheReadTokens: 40,
-          reasoningTokens: 5,
-          contextWindowTokens: 200000,
+          outputTokens: 12,
         },
-        sessionUsage: {
+        run: {
           inputTokens: 100,
           outputTokens: 20,
           cacheReadTokens: 50,
           reasoningTokens: undefined,
-          contextWindowTokens: 200000,
         },
       },
       {

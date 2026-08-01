@@ -1,5 +1,6 @@
 import { join } from 'path'
 import { createLogger, flushLogs } from './logger'
+import { shutdownAnalytics } from './analytics'
 import { coerceGitCredentialAction, runGitCredentialHelper, type GitCredentialAction } from './providers/github/git-credential'
 import { bestEndpoint, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
 import type { BootCore } from './boot-core'
@@ -105,7 +106,11 @@ function installShutdownHandlers(core: BootCore): void {
     shuttingDown = true
     process.stdout.write(`\nReceived ${signal}; shutting down Solus server...\n`)
     try {
-      await core.shutdown()
+      try {
+        await core.shutdown()
+      } finally {
+        await shutdownAnalytics()
+      }
       flushLogs()
       process.exit(0)
     } catch (err) {

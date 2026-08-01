@@ -1,8 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
 import { createLogger } from '../logger'
+import { solusDir } from '../platform/paths'
 
 const log = createLogger('main', 'auth')
 
@@ -355,7 +355,7 @@ function persistKeys(): void {
 }
 
 function keysDir(): string {
-  return process.env.SOLUS_DATA_DIR || join(homedir(), '.solus')
+  return solusDir()
 }
 
 function keysFile(): string {

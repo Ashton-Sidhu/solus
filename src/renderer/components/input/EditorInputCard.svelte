@@ -45,29 +45,33 @@
   {#if !started}
     <InputBarHeader {tabId} />
   {/if}
+  <!--
+    One card, one hairline, one accent. The card sits flat on the page — a
+    half-pixel outline and nothing behind it — so terracotta is spent on focus
+    and on send, never on the resting border.
+  -->
   <div
     class={cn(
-      "min-h-[5.5rem] overflow-hidden rounded-[1.375rem] border bg-(--solus-input-pill-bg) transition-[border-color,box-shadow] duration-[180ms]",
+      "overflow-hidden rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3 transition-[box-shadow] duration-[180ms]",
       focused
-        ? "border-(--solus-input-focus-border) shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
-        : "border-(--solus-container-border)",
+        ? "shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]"
+        : "shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]",
     )}
     onfocusin={() => (focused = true)}
     onfocusout={() => (focused = false)}
   >
-    <div class="px-3.5 pt-1 pb-2">
-      <InputBar mode="editor" {tabId}>
-        {#snippet leadingActions()}
-          <InputToolbar
-            mode="editor"
-            {tabId}
-            {onAttachFile}
-            {onScreenshot}
-            {onDesignMode}
-            {trailingActions}
-          />
-        {/snippet}
-      </InputBar>
-    </div>
+    <InputBar mode="editor" {tabId}>
+      {#snippet leadingActions(savedPromptsControl)}
+        <InputToolbar
+          mode="editor"
+          {tabId}
+          {onAttachFile}
+          {onScreenshot}
+          {onDesignMode}
+          {savedPromptsControl}
+          {trailingActions}
+        />
+      {/snippet}
+    </InputBar>
   </div>
 </div>

@@ -22,7 +22,7 @@
   const activeServerId = $derived(serversStore.activeServer?.id ?? null);
 
   onMount(() => {
-    void serversStore.probeRunOnServers().then(() =>
+    void serversStore.probeHosts().then(() =>
       hostSetupStore.probeUnprobedOnline(serversStore.servers),
     );
   });

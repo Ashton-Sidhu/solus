@@ -37,10 +37,9 @@
 
   const diffHunk = $derived(thread.comments[0]?.diffHunk);
 
-  // Comment bodies are GitHub markdown — same pipeline + prose scale as the
-  // activity timeline's conversation rows.
-  const bodyProseClass =
-    "github-markdown prose-cloud text-[12.5px] leading-relaxed text-foreground [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+  // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
+  // typography as the PR description and the timeline's conversation rows.
+  const bodyProseClass = "github-markdown prose-cloud prose-pr";
 
   let replying = $state(false);
   let replyText = $state("");

@@ -29,7 +29,7 @@ import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved'
 
 const DISCOVERY_INTERVAL_MS = 30_000
-const RUN_ON_PROBE_STALE_MS = 30_000
+const HOST_PROBE_STALE_MS = 30_000
 const RECENT_PROJECTS_STALE_MS = 30_000
 interface ServerConnectionState {
   transportStatus: ConnectionStatus
@@ -75,14 +75,14 @@ class ServersStore {
   discoveryBusy = $state(false)
   private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
-  probingServers = $state(false)
+  probingHosts = $state(false)
   readonly nearby = new SvelteMap<string, NearbyHost>()
   readonly toastSnoozedInstallationIds = new SvelteSet<string>()
 
   private initialized = false
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
-  private lastRunOnProbeAt = 0
+  private lastHostProbeAt = 0
   private readonly recentProjectsByServer = new Map<string, RecentProjectsCacheEntry>()
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
@@ -350,24 +350,26 @@ class ServersStore {
     return !!health
   }
 
-  async probeRunOnServers(): Promise<void> {
-    if (this.probingServers || Date.now() - this.lastRunOnProbeAt < RUN_ON_PROBE_STALE_MS) return
-    this.probingServers = true
+  async probeHosts(): Promise<void> {
+    if (this.probingHosts || Date.now() - this.lastHostProbeAt < HOST_PROBE_STALE_MS) return
+    this.probingHosts = true
     try {
-      await Promise.all(this.servers.map(async (server) => {
-        if (!(await this.checkReachable(server.id))) return
-        try {
-          this.projectIdentitiesByServer[server.id] = await serverConnections.withTemporaryConnection(
-            server.id,
-            () => serverConnections.projectIdentities(server.id),
-          )
-        } catch {
-          this.projectIdentitiesByServer[server.id] = []
-        }
-      }))
+      await Promise.all(this.servers.map((server) => this.checkReachable(server.id)))
     } finally {
-      this.probingServers = false
-      this.lastRunOnProbeAt = Date.now()
+      this.probingHosts = false
+      this.lastHostProbeAt = Date.now()
+    }
+  }
+
+  /** Loads repository identity only from the host that owns the source path. */
+  async loadProjectIdentities(serverId: string): Promise<void> {
+    try {
+      this.projectIdentitiesByServer[serverId] = await serverConnections.withTemporaryConnection(
+        serverId,
+        () => serverConnections.projectIdentities(serverId),
+      )
+    } catch {
+      this.projectIdentitiesByServer[serverId] = []
     }
   }
 

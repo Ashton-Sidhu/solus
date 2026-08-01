@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
 import type { Server as HttpServer } from 'http'
 import { SolusServer } from './server'
 import { buildHttpServer } from './http'
@@ -8,7 +7,7 @@ import { getServerSettings, setRemoteAccess } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { attachWebSocketTransport } from '../transports/websocket'
 import type { ControlPlane } from '../control-plane'
-import type { NormalizedEvent, EnrichedError, PromptDelivery, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
+import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
@@ -23,13 +22,16 @@ import { startAutomationScheduler, stopAutomationScheduler } from '../automation
 import { setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher } from '../automations/automation-runner'
 import { setAutomationsChangedListener } from '../automations/automations-store'
 import { setSessionController, setSessionCreator } from '../sessions/session-tools'
+import { setAnnotationsChangedNotifier } from '../annotations/annotation-events'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
-import { startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
+import { registerSettingsHandlers } from './handlers/settings-handlers'
+import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
 import { setPrsChangedNotifier } from '../providers/pr-tools'
 import { registerStackHandlers } from './handlers/stack-handlers'
 import { registerChecksHandlers } from './handlers/checks-handlers'
+import { registerUsageHandlers } from './handlers/usage-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
 import { registerSavedPromptsHandlers } from './handlers/saved-prompts-handlers'
@@ -43,12 +45,9 @@ import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries
 import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../package.json'
-import { transcribeAudio } from '../transcription'
+import { solusDir } from '../platform/paths'
 
 const log = createLogger('main', 'server-boot')
-
-const SOLUS_DIR = join(homedir(), '.solus')
-const LOCK_FILE = join(SOLUS_DIR, 'server.lock')
 
 export interface BootOptions {
   controlPlane: ControlPlane
@@ -64,6 +63,8 @@ export interface BootOptions {
   port?: number
   /** Path to the bundled web client static files. */
   staticDir?: string
+  /** Optional voice transcription implementation supplied by the desktop host. */
+  transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
   runManager?: RunManager
 }
 
@@ -93,9 +94,10 @@ interface LockFileBody {
 }
 
 function readLock(): LockFileBody | null {
-  if (!existsSync(LOCK_FILE)) return null
+  const lockFile = join(solusDir(), 'server.lock')
+  if (!existsSync(lockFile)) return null
   try {
-    const raw = readFileSync(LOCK_FILE, 'utf-8')
+    const raw = readFileSync(lockFile, 'utf-8')
     const parsed = JSON.parse(raw) as LockFileBody
     if (!parsed?.pid) return null
     return parsed
@@ -114,7 +116,9 @@ function isAlive(pid: number): boolean {
  * locks (dead PID) are reclaimed.
  */
 export function acquireLock(host: string, port: number): { release(): void } | null {
-  if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
+  const stateDir = solusDir()
+  const lockFile = join(stateDir, 'server.lock')
+  if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true })
 
   const existing = readLock()
   if (existing && isAlive(existing.pid)) {
@@ -123,14 +127,14 @@ export function acquireLock(host: string, port: number): { release(): void } | n
   }
 
   const body: LockFileBody = { pid: process.pid, port, host, startedAt: Date.now() }
-  writeFileSync(LOCK_FILE, JSON.stringify(body, null, 2), { mode: 0o600 })
+  writeFileSync(lockFile, JSON.stringify(body, null, 2), { mode: 0o600 })
 
   let released = false
   return {
     release: () => {
       if (released) return
       released = true
-      try { if (existsSync(LOCK_FILE)) unlinkSync(LOCK_FILE) } catch {}
+      try { if (existsSync(lockFile)) unlinkSync(lockFile) } catch {}
     },
   }
 }
@@ -156,6 +160,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     agentIdFromContext: opts.agentIdFromContext,
   }
   registerSessionHandlers(server, sessionDeps)
+  registerSettingsHandlers(server)
 
   registerWorktreeHandlers(server, { controlPlane: opts.controlPlane })
   // Browsing a host's filesystem must work headless — that is the whole point
@@ -194,17 +199,27 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.controlPlane.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.controlPlane.liveSessionStatus(sessionId),
     pendingInputEvents: (sessionId) => opts.controlPlane.pendingInputEventsForSession(sessionId),
-    promptSession: (sessionId, prompt, delivery) => opts.controlPlane.promptSession(sessionId, prompt, delivery),
+    promptSession: (sessionId, prompt, delivery, options) => opts.controlPlane.promptSession(sessionId, prompt, delivery, options),
     watchSessionSettled: (targetSessionId, callerSessionId, watch) => opts.controlPlane.watchSessionSettled(targetSessionId, callerSessionId, watch),
     stopSession: (sessionId) => opts.controlPlane.stopSession(sessionId),
+    answerQuestion: (questionId, answers) => opts.controlPlane.respondToQuestion(questionId, answers),
+    respondPermission: (questionId, optionId, revisedPlan) => opts.controlPlane.respondToPermission(questionId, optionId, revisedPlan),
+    loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
+      opts.controlPlane.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
+    listPlans: (provider, projectPath, allProjects) => opts.controlPlane.listPlans(provider, projectPath, allProjects),
+    invalidatePlanCaches: (sessionId) => opts.controlPlane.invalidatePlanCaches(sessionId),
   })
-  // Relay cards drive peer sessions that have no bound tab in the renderer.
+  setAnnotationsChangedNotifier((change) => server.broadcast('annotations-changed', change))
+  // Agent-conversation cards drive sessions that have no bound tab in the renderer.
   server.register('promptSession', async (args) => {
-    const [sessionId, prompt, delivery] = args as [string, string, PromptDelivery | undefined]
-    return opts.controlPlane.promptSession(sessionId, prompt, delivery)
+    const [sessionId, prompt, delivery] = args as [unknown, unknown, unknown]
+    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('promptSession requires a session id')
+    if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
+    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue')
   })
   server.register('stopSession', async (args) => {
-    const [sessionId] = args as [string]
+    const [sessionId] = args as [unknown]
+    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('stopSession requires a session id')
     return opts.controlPlane.stopSession(sessionId)
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the
@@ -220,6 +235,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   registerStackHandlers(server)
   registerChecksHandlers(server)
+  registerUsageHandlers(server, { controlPlane: opts.controlPlane })
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
   registerSavedPromptsHandlers(server)
@@ -273,7 +289,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.controlPlane.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
     server.broadcast('session-index-updated', event)
   })
-  // Global session-status feed: relay cards live-track peers without tabs.
+  // Global session-status feed: agent-conversation cards track agents without tabs.
   opts.controlPlane.on('session-status', (event: { sessionId: string; status: SessionStatus; at: number }) => {
     server.broadcast('session-status-changed', event)
   })
@@ -286,7 +302,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     staticDir: opts.staticDir,
     getHost: () => host,
     getPort: () => actualPort,
-    transcribeAudio,
+    transcribeAudio: opts.transcribeAudio,
   })
   let ws = attachWebSocketTransport(http, server, { requireAuth: () => requireAuth })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
@@ -384,19 +400,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     log.warn('lock_acquisition_failed')
   }
 
+  const noLanDiscovery: LanDiscoveryService = {
+    discoverServers: async () => [],
+    close: async () => {},
+  }
   let lanDiscovery: LanDiscoveryService
-  try {
-    lanDiscovery = await startLanDiscoveryService(() => ({
-      port: actualPort,
-      installationId: getInstallationId(),
-      claimable: isClaimable(),
-      isReachable: !isLoopbackHost(host),
-    }))
-  } catch (err) {
-    log.warn('lan_discovery_unavailable', { error: err instanceof Error ? err.message : String(err) })
-    lanDiscovery = {
-      discoverServers: async () => [],
-      close: async () => {},
+  if (isLanDiscoveryDisabled()) {
+    log.info('lan_discovery_skipped')
+    lanDiscovery = noLanDiscovery
+  } else {
+    try {
+      lanDiscovery = await startLanDiscoveryService(() => ({
+        port: actualPort,
+        installationId: getInstallationId(),
+        claimable: isClaimable(),
+        isReachable: !isLoopbackHost(host),
+      }))
+    } catch (err) {
+      log.warn('lan_discovery_unavailable', { error: err instanceof Error ? err.message : String(err) })
+      lanDiscovery = noLanDiscovery
     }
   }
 

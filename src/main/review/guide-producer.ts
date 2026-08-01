@@ -1,9 +1,9 @@
 import type { IpcContext, AgentId, ReasoningEffort } from '../../shared/types'
-import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewProgressEvent, type ReviewProgressStep } from '../../shared/review'
+import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewProgressEvent, type ReviewProgressStep, type SessionGuideStatus, type SessionGuideStatusEvent } from '../../shared/review'
 import { getEpisodeDiff, getSessionBaseSha, resolvePrDiffBase } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
-import { readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide } from './ledger'
+import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide } from './ledger'
 import { runReviewAgent } from './review-agent'
 import { normalizeGuide } from './review-guide-tool'
 import { guideKeyFor } from './review-target'
@@ -94,6 +94,36 @@ type InFlightGuide = {
 }
 
 const inFlight = new Map<string, InFlightGuide>()
+const guideStatuses = new Map<string, SessionGuideStatusEvent>()
+
+type EmitStatus = (event: SessionGuideStatusEvent) => void
+
+function statusEvent(
+  review: ReviewContext,
+  target: GuideTarget,
+  status: SessionGuideStatus,
+  details: Pick<SessionGuideStatusEvent, 'step' | 'error'> = {},
+): SessionGuideStatusEvent {
+  return {
+    repoRoot: review.repoRoot,
+    key: target.guideKey,
+    status,
+    headSha: review.headSha,
+    updatedAt: Date.now(),
+    ...(details.step ? { step: details.step } : {}),
+    ...(details.error ? { error: details.error } : {}),
+  }
+}
+
+function setGuideStatus(
+  dedupeKey: string,
+  event: SessionGuideStatusEvent,
+  onStatus?: EmitStatus,
+): SessionGuideStatusEvent {
+  guideStatuses.set(dedupeKey, event)
+  onStatus?.(event)
+  return event
+}
 
 /**
  * The producer. Always reviews the diff; enriches with the ledger when one
@@ -111,6 +141,7 @@ export async function generateGuide(
   ctx: IpcContext,
   opts: GenerateGuideOptions = {},
   onProgress?: (event: ReviewProgressEvent) => void,
+  onStatus?: EmitStatus,
 ): Promise<GeneratedGuide | null> {
   // Resolve from the actual checkout (the worktree, for PR review / isolation) so
   // the guide is keyed on that branch — matching the key the renderer reads.
@@ -123,24 +154,127 @@ export async function generateGuide(
   const running = inFlight.get(dedupeKey)
   if (running) {
     log.info('review_generation_joined_inflight', { guideKey: target.guideKey })
+    const current = guideStatuses.get(dedupeKey)
+    if (current) onStatus?.(current)
     return running.promise
   }
 
   // Stamp the (scope-resolved) key onto every phase event so the renderer can
   // match it to the guide it asked for (events broadcast to all subscribers).
-  const emit: EmitProgress | undefined = onProgress
-    ? (step) => onProgress({ key: target.guideKey, step })
-    : undefined
+  let entry: InFlightGuide | undefined
+  const emit: EmitProgress = (step) => {
+    if (entry && inFlight.get(dedupeKey) !== entry) return
+    onProgress?.({ key: target.guideKey, step })
+    setGuideStatus(dedupeKey, statusEvent(review, target, 'generating', { step }), onStatus)
+  }
 
   const abortController = new AbortController()
-  const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, emit).finally(() => inFlight.delete(dedupeKey))
-  inFlight.set(dedupeKey, { promise: run, abortController })
+  setGuideStatus(dedupeKey, statusEvent(review, target, 'generating', { step: 'preparing' }), onStatus)
+  const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, emit)
+    .then((generated) => {
+      if (inFlight.get(dedupeKey) !== entry) return generated
+      const status: SessionGuideStatus = abortController.signal.aborted
+        ? 'cancelled'
+        : generated?.persisted
+          ? 'ready'
+          : 'failed'
+      setGuideStatus(
+        dedupeKey,
+        statusEvent(
+          review,
+          target,
+          status,
+          status === 'failed' && generated?.guide.summary
+            ? { error: generated.guide.summary }
+            : {},
+        ),
+        onStatus,
+      )
+      return generated
+    })
+    .catch((error) => {
+      if (inFlight.get(dedupeKey) !== entry) throw error
+      const status: SessionGuideStatus = abortController.signal.aborted ? 'cancelled' : 'failed'
+      setGuideStatus(dedupeKey, statusEvent(review, target, status, {
+        error: error instanceof Error ? error.message : String(error),
+      }), onStatus)
+      throw error
+    })
+    .finally(() => {
+      if (entry && inFlight.get(dedupeKey) === entry) inFlight.delete(dedupeKey)
+    })
+  entry = { promise: run, abortController }
+  inFlight.set(dedupeKey, entry)
   return run
+}
+
+export async function requestSessionGuide(
+  dispatcher: AgentDispatcher,
+  ctx: IpcContext,
+  opts: Omit<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> = {},
+  onProgress?: (event: ReviewProgressEvent) => void,
+  onStatus?: EmitStatus,
+): Promise<SessionGuideStatusEvent | null> {
+  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  if (!review) return null
+  const target = await resolveTarget(ctx, review, { ...opts, scope: 'session' })
+  const dedupeKey = `${review.repoRoot}::${target.guideKey}`
+  const running = inFlight.get(dedupeKey)
+  if (running) {
+    const current = guideStatuses.get(dedupeKey)
+      ?? statusEvent(review, target, 'generating', { step: 'preparing' })
+    onStatus?.(current)
+    return current
+  }
+
+  const queued = setGuideStatus(
+    dedupeKey,
+    statusEvent(review, target, 'queued', { step: 'preparing' }),
+    onStatus,
+  )
+  void Promise.resolve()
+    .then(() => generateGuide(
+      dispatcher,
+      ctx,
+      { ...opts, scope: 'session' },
+      onProgress,
+      onStatus,
+    ))
+    .catch((error) => {
+      log.warn('session_review_generation_failed', {
+        guideKey: target.guideKey,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  return queued
+}
+
+export async function getSessionGuideStatus(
+  ctx: IpcContext,
+): Promise<SessionGuideStatusEvent | null> {
+  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  if (!review) return null
+  const target = await resolveTarget(ctx, review, { scope: 'session' })
+  const dedupeKey = `${review.repoRoot}::${target.guideKey}`
+  const current = guideStatuses.get(dedupeKey)
+  if (current && current.headSha !== review.headSha) guideStatuses.delete(dedupeKey)
+  const currentForHead = current?.headSha === review.headSha ? current : null
+  if (inFlight.has(dedupeKey) || currentForHead?.status === 'queued' || currentForHead?.status === 'generating') {
+    return currentForHead ?? statusEvent(review, target, 'generating', { step: 'preparing' })
+  }
+  if (currentForHead) return currentForHead
+
+  const cached = await readGuideByKey(review.repoRoot, target.guideKey)
+  const workTree = reviewCheckout(ctx) ?? review.repoRoot
+  const headSha = getHeadCommit(workTree)
+  if (!cached || (headSha && cached.headSha !== headSha)) return null
+  return setGuideStatus(dedupeKey, statusEvent(review, target, 'ready'))
 }
 
 export async function cancelGenerateGuide(
   ctx: IpcContext,
   opts: Pick<GenerateGuideOptions, 'scope' | 'ownDeltaBase'> = {},
+  onStatus?: EmitStatus,
 ): Promise<boolean> {
   const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   if (!review) return false
@@ -150,6 +284,7 @@ export async function cancelGenerateGuide(
   if (!running) return false
   running.abortController.abort()
   inFlight.delete(dedupeKey)
+  setGuideStatus(dedupeKey, statusEvent(review, target, 'cancelled'), onStatus)
   return true
 }
 

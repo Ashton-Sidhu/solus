@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from 'fs'
 import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
-import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
 import type { SolusServer, HandlerCtx } from '../server'
 import { getCliEnv } from '../../cli-env'
 import { runAsync } from '../../git/exec'
@@ -67,6 +67,8 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   hasCommand?: (command: string) => boolean
   loadGithubToken?: typeof loadGithubToken
   registerProject?: (path: string) => Promise<string>
+  findProjectCheckout?: (repoKey: string) => Promise<string | null>
+  projectsRoot?: () => string
 }
 
 export interface AgentAuthProbeDeps {
@@ -214,6 +216,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   const spawnProcess = deps.spawnProcess ?? nodeSpawn
   const hasCommand = deps.hasCommand ?? commandExists
   const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
+  const projectsRoot = deps.projectsRoot ?? setupProjectsRoot
   /** The last step of both cloning and adopting; returns the key both promise. Loaded on demand — see `probeServerCapabilities`. */
   const registerProject = deps.registerProject ?? (async (path: string) => {
     const [{ recordProject }, { resolveProjectKey }] = await Promise.all([
@@ -222,6 +225,12 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     ])
     await recordProject(path)
     return resolveProjectKey(path)
+  })
+  const findProjectCheckout = deps.findProjectCheckout ?? (async (repoKey: string) => {
+    const { listProjectIdentities } = await import('../../project-config/project-identities')
+    const identities = await listProjectIdentities()
+    const normalizedRepoKey = repoKey.toLowerCase()
+    return identities.find((identity) => identity.repoKey.toLowerCase() === normalizedRepoKey)?.path ?? null
   })
   const activeSteps = new Set<SetupStreamStep>()
   const activeAgentSignIns = new Map<SetupAgent, {
@@ -486,6 +495,23 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { ok: true }
   })
 
+  server.register('setupPrepareProject', async (args, ctx): Promise<SetupPrepareProjectResult> => {
+    requireAuthenticatedSetupContext(ctx)
+    const [{ cloneUrl }] = args as [{ cloneUrl: unknown }]
+    const parsed = validateCloneUrl(String(cloneUrl ?? ''))
+    const repoKey = cloneRepoKey(parsed.cloneUrl)
+    if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
+
+    const checkoutPath = await findProjectCheckout(repoKey)
+    if (checkoutPath) {
+      const result = await server.handle('setupSyncProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
+      return { ...result, action: 'updated' }
+    }
+
+    const result = await server.handle('setupCloneProject', [{ cloneUrl: parsed.cloneUrl }], ctx) as SetupCloneProjectResult
+    return { path: result.path, projectKey: result.projectKey, action: 'cloned' }
+  })
+
   server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
     const [{ cloneUrl, name, destination, protocol, clean }] = args as [{
@@ -506,7 +532,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const step: SetupStreamStep = 'clone'
 
     return runExclusive(step, async () => {
-      const projectsRoot = setupProjectsRoot()
+      const hostProjectsRoot = projectsRoot()
       // Only a directory this host's own clone left behind can be removed, so a
       // stray `clean` can never delete a folder the user chose. It runs before the
       // destination resolves: a retry that names no destination must land back on
@@ -519,7 +545,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
         destination: typeof destination === 'string' && destination.trim() ? expandHome(destination.trim()) : undefined,
         name: typeof name === 'string' ? name : undefined,
         repoName: parsed.repoName,
-        projectsRoot,
+        projectsRoot: hostProjectsRoot,
       })
       await assertEmptyDestination(targetPath)
       const targetExistedBeforeClone = existsSync(targetPath)

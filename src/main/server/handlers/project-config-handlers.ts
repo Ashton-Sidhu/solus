@@ -1,5 +1,5 @@
-import type { ProjectConfig, ProjectIdentity } from '../../../shared/types'
-import { resolveRepoRef } from '../../git/git-helpers'
+import type { ProjectConfig } from '../../../shared/types'
+import { listProjectIdentities } from '../../project-config/project-identities'
 import { loadProjectConfig, saveProjectConfig } from '../../project-config/project-config'
 import { deleteProject, listProjects, recordProject } from '../../project-config/projects-manifest'
 import { invalidateTaskProvider } from '../../tasks/task-service'
@@ -20,19 +20,7 @@ export function registerProjectConfigHandlers(server: SolusServer): void {
     return saved
   })
   server.register('listProjects', () => listProjects())
-  server.register('listProjectIdentities', async () => {
-    const projects = await listProjects()
-    const identities = await Promise.all(projects.map(async (project): Promise<ProjectIdentity | null> => {
-      const repo = await resolveRepoRef(project.path)
-      if (!repo) return null
-      return {
-        path: project.path,
-        folderName: project.folderName,
-        repoKey: `${repo.host}/${repo.owner}/${repo.repo}`.toLowerCase(),
-      }
-    }))
-    return identities.filter((identity): identity is ProjectIdentity => identity !== null)
-  })
+  server.register('listProjectIdentities', () => listProjectIdentities())
   server.register('deleteProject', (args) => {
     const [projectPath] = args as [string]
     return deleteProject(projectPath)

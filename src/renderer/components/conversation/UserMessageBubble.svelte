@@ -160,13 +160,22 @@
     <div class="flex w-full items-center justify-end gap-2">
       {#if ordinal !== undefined}
         <!-- Ordinals carry the order, so nothing inside the bubble has to. -->
-        <span class="shrink-0 font-mono text-[0.59375rem] text-(--solus-text-tertiary) opacity-45">
+        <span class="shrink-0 font-mono text-[0.59375rem] text-(--muted-foreground) opacity-45">
           {ordinal}
         </span>
       {/if}
+      <!-- A held prompt is its own focusable region: its controls only paint on
+           hover, so focus is what keeps them reachable from the keyboard. The
+           tabindex is the point of the pattern, not an oversight. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         data-delivery={deliveryState}
-        class="group/bubble min-w-0 max-w-[41.25rem] overflow-hidden rounded-xl px-3 py-2.5 {isPending
+        role={hasControls ? "group" : undefined}
+        aria-label={hasControls ? "Queued prompt" : undefined}
+        tabindex={hasControls ? 0 : undefined}
+        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
+          ? 'min-w-[9.5rem]'
+          : 'min-w-0'} {isPending
           ? 'queued-bubble'
           : isAutomation
             ? 'bg-card shadow-[shadow:var(--solus-tx-hairline)]'
@@ -208,35 +217,46 @@
           </div>
         {/if}
         {#if hasControls && !isEditing}
+          <!-- Collapsed to nothing until reached for: the bubble is only as tall
+               as its words, and grows into the controls on hover or focus. The
+               0fr→1fr row is what makes that a movement rather than a jump, so
+               the prompts below it slide instead of snapping. The bubble's
+               min-width stops "Edit … Remove" clipping under a short prompt. -->
           <div
-            class="mt-[0.4375rem] flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 opacity-0 transition-opacity duration-100 group-hover/bubble:opacity-100 focus-within:opacity-100"
+            class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out group-hover/bubble:grid-rows-[1fr] group-focus-within/bubble:grid-rows-[1fr]"
           >
-            {#if onEditSubmit}
-              <button
-                type="button"
-                onclick={startEdit}
-                class="cursor-pointer text-[0.65625rem] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+            <div class="overflow-hidden">
+              <div
+                class="mt-2 flex items-center gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] pt-1.5 opacity-0 transition-opacity duration-150 ease-out group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100"
               >
-                Edit
-              </button>
-            {/if}
-            <span class="flex-1"></span>
-            {#if onRemove}
-              <button
-                type="button"
-                onclick={onRemove}
-                class="cursor-pointer text-[0.6875rem] text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
-              >
-                Remove
-              </button>
-            {/if}
+                {#if onEditSubmit}
+                  <button
+                    type="button"
+                    onclick={startEdit}
+                    class="cursor-pointer text-[0.65625rem] text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none"
+                  >
+                    Edit
+                  </button>
+                {/if}
+                <span class="flex-1"></span>
+                {#if onRemove}
+                  <button
+                    type="button"
+                    onclick={onRemove}
+                    class="cursor-pointer text-[0.6875rem] text-(--solus-text-tertiary) opacity-60 transition-all duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
+                  >
+                    Remove
+                  </button>
+                {/if}
+              </div>
+            </div>
           </div>
         {/if}
       </div>
     </div>
     {#if waitedLabel}
       <!-- The wait is over, so the caption is a fact, not a countdown. -->
-      <div class="mt-1.5 flex justify-end font-mono text-[0.625rem] text-(--solus-text-tertiary)">
+      <div class="mt-1.5 flex justify-end font-mono text-[0.625rem] text-(--muted-foreground)">
         {waitedLabel}
       </div>
     {/if}
@@ -275,7 +295,14 @@
   {#if !runtime.isMobileViewport && !isPending}
     <MessageHoverRail timestamp={message?.timestamp} text={text} side="right" />
   {/if}
-  <div class="user-cv-body flex flex-col items-end gap-1.5 pt-4 pb-1.5">
+  <!-- Held prompts stack as one block at 6px, not as separate messages: the
+       queue is a single object in the transcript, and its group caption has to
+       sit flush under the last bubble. -->
+  <div
+    class="user-cv-body flex flex-col items-end gap-1.5 {isPending
+      ? 'py-[0.1875rem]'
+      : 'pt-4 pb-1.5'}"
+  >
     {@render bubbleBody()}
   </div>
 </div>
@@ -291,10 +318,16 @@
   }
 
   /* Reaching for a held prompt firms it up: the shell it will keep once it
-     sends, minus the fill it has not earned yet. */
-  .queued-bubble:hover {
+     sends, minus the fill it has not earned yet. The text comes forward with
+     it, because you are about to act on those words. */
+  .queued-bubble:hover,
+  .queued-bubble:focus-within {
     border-color: color-mix(in oklch, var(--foreground) 30%, transparent);
     background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  }
+  .queued-bubble:hover :global(.prose-transcript-user),
+  .queued-bubble:focus-within :global(.prose-transcript-user) {
+    opacity: 0.75;
   }
 
   .user-cv-body {

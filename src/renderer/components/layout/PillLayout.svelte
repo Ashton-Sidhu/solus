@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import TabStrip from "./TabStrip.svelte";
+  import GoalSection from "../project-panel/GoalSection.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import InputBar from "../input/InputBar.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
@@ -9,6 +10,11 @@
   import { getWorkspaceContext, getPlanStore, getWindowContext } from "../../contexts";
   import NewTabHome from "./NewTabHome.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  // Eager, unlike the surfaces below: these are what cover an async boundary,
+  // so they cannot sit behind one themselves.
+  import PlanModalSkeleton from "../plan/PlanModalSkeleton.svelte";
+  import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
+  import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { retainedConversationTabIds } from "./lib/workspace-body";
 
@@ -47,6 +53,9 @@
     if (!plan?.content.trim()) return null;
     return plan;
   });
+  // A plan surface is open on an id whose body has not arrived yet — the pane
+  // opens first so the click has somewhere to land.
+  const pillPlanPending = $derived(!!session.panes.activePlanId && !pillPlanModal);
   const pillWorkModal = $derived.by(() => {
     const workId = session.panes.activeWorkId;
     return workId ? session.worksStore.get(workId) : null;
@@ -54,6 +63,12 @@
   const showPillDiagram = $derived(
     !!pillWorkModal && !isEditorMode && pillWorkModal.type === "diagram",
   );
+  const pillGoalTabId = $derived(
+    session.panes.secondaryContent.kind === "goal"
+      ? session.panes.secondaryContent.tabId
+      : null,
+  );
+  let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
 
@@ -230,7 +245,23 @@
                 />
               </div>
             {:else}
-              <div class="relative" style="{showPillDiagram ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
+              <div class="relative" style="{showPillDiagram || pillGoalTabId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
+                {#if pillGoalTabId}
+                  <PaneChrome
+                    onClose={() => { session.panes.closeSecondary(); requestInputFocus() }}
+                    closeLabel="Close goal"
+                  />
+                  <!-- The pill has no project rail, so the goal card the rail
+                       hosts in editor mode fills the pill body instead. -->
+                  <div class="h-full overflow-y-auto p-2 pt-10">
+                    <GoalSection
+                      tabId={pillGoalTabId}
+                      collapsed={pillGoalCollapsed}
+                      onToggle={() => (pillGoalCollapsed = !pillGoalCollapsed)}
+                      onCleared={() => { session.panes.closeSecondary(); requestInputFocus() }}
+                    />
+                  </div>
+                {/if}
                 {#if showPillDiagram}
                   <!-- The diagram renders in the pill body rather than as a
                        portaled modal, so its close lives in the shared pane
@@ -240,7 +271,7 @@
                     closeLabel="Close diagram"
                   />
                   {#await import("../diagram/DiagramShell.svelte")}
-                    {@render loadingSurface("Loading diagram…")}
+                    <DiagramShellSkeleton />
                   {:then diagramModule}
                     {@const DiagramShell = diagramModule.default}
                     <DiagramShell
@@ -256,7 +287,7 @@
                 <!-- Persistent conversation pool: hidden (not unmounted) while a
                      diagram overlays, so closing it reveals the conversation
                      instantly with all state preserved. -->
-                <div class:tab-hidden={showPillDiagram}>
+                <div class:tab-hidden={showPillDiagram || !!pillGoalTabId}>
                   {#if noTabs}
                     <NewTabHome />
                   {/if}
@@ -277,7 +308,10 @@
               </div>
               {#if pillWorkModal && !isEditorMode && pillWorkModal.type !== "diagram"}
                 {#await import("../document-modal/DocumentModal.svelte")}
-                  {@render loadingSurface("Loading document…")}
+                  <DocumentModalSkeleton
+                    title={pillWorkModal.title}
+                    workStorage={pillWorkModal.storage}
+                  />
                 {:then documentModule}
                   {@const DocumentModal = documentModule.default}
                   <DocumentModal
@@ -290,11 +324,13 @@
                 {/await}
               {:else if pillPlanModal && !isEditorMode}
                 {#await import("../plan/PlanModal.svelte")}
-                  {@render loadingSurface("Loading plan…")}
+                  <PlanModalSkeleton />
                 {:then planModalModule}
                   {@const PlanModal = planModalModule.default}
                   <PlanModal plan={pillPlanModal} />
                 {/await}
+              {:else if pillPlanPending && !isEditorMode}
+                <PlanModalSkeleton />
               {/if}
             {/if}
           {/if}

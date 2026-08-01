@@ -1,4 +1,4 @@
-import type { NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/types'
+import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData } from '../../../shared/types'
 import { findResetTimestamp } from '../../rate-limits'
 import {
   codexImageArtifactPath,
@@ -280,6 +280,7 @@ export function normalizeThreadGoal(value: unknown): ThreadGoal | null {
 
 function isThreadGoalStatus(value: string): value is ThreadGoal['status'] {
   return value === 'active' ||
+    value === 'paused' ||
     value === 'complete' ||
     value === 'blocked' ||
     value === 'budgetLimited' ||
@@ -293,29 +294,13 @@ function finiteOptionalNumber(value: unknown): number | undefined {
 function normalizeCodexTokenCount(method: string, params: any): UsageEvent | null {
   if (method === 'thread/tokenUsage/updated') {
     const tokenUsage = params?.tokenUsage
-    const rawUsage = tokenUsage?.last
-    if (!rawUsage || typeof rawUsage !== 'object') return null
-
-    const usage = normalizedCodexUsage(
-      rawUsage.inputTokens,
-      rawUsage.cachedInputTokens,
-      rawUsage.outputTokens,
-      tokenUsage.modelContextWindow,
-      rawUsage.reasoningOutputTokens,
-    )
-    if (!usage) return null
-
-    const rawTotalUsage = tokenUsage?.total
-    if (!rawTotalUsage || typeof rawTotalUsage !== 'object') return usage
-
-    const totalUsage = normalizedCodexUsage(
-      rawTotalUsage.inputTokens,
-      rawTotalUsage.cachedInputTokens,
-      rawTotalUsage.outputTokens,
-      tokenUsage.modelContextWindow,
-      rawTotalUsage.reasoningOutputTokens,
-    )
-    return totalUsage ? { ...usage, sessionUsage: totalUsage.usage } : usage
+    // `last` is the prompt of the turn that just ran — the window as it stands.
+    // `total` sums every turn in the thread, so it passes the window many times
+    // over and only means anything as cumulative spend.
+    const context = codexContextUsage(tokenUsage?.last, finiteTokenCount(tokenUsage?.modelContextWindow) || undefined)
+    const run = codexRunUsage(tokenUsage?.total)
+    if (!context && !run) return null
+    return { type: 'usage', ...(context ? { context } : {}), ...(run ? { run } : {}) }
   }
 
   const payload = [
@@ -328,42 +313,66 @@ function normalizeCodexTokenCount(method: string, params: any): UsageEvent | nul
   const info = payload?.info
   if (!info || typeof info !== 'object') return null
 
-  const rawUsage = info.last_token_usage || info.total_token_usage || info.usage
-  if (!rawUsage || typeof rawUsage !== 'object') return null
-
-  return normalizedCodexUsage(
-    rawUsage.input_tokens,
-    rawUsage.cached_input_tokens,
-    rawUsage.output_tokens,
-  )
+  const context = codexContextUsage(info.last_token_usage || info.usage)
+  const run = codexRunUsage(info.total_token_usage || info.usage)
+  if (!context && !run) return null
+  return { type: 'usage', ...(context ? { context } : {}), ...(run ? { run } : {}) }
 }
 
 type UsageEvent = Extract<NormalizedEvent, { type: 'usage' }>
 
-function normalizedCodexUsage(
-  rawInputTokens: unknown,
-  rawCachedInputTokens: unknown,
-  rawOutputTokens: unknown,
-  rawContextWindowTokens?: unknown,
-  rawReasoningOutputTokens?: unknown,
-): UsageEvent | null {
-  const inputTokens = finiteTokenCount(rawInputTokens)
-  const cachedInputTokens = finiteTokenCount(rawCachedInputTokens)
-  const outputTokens = finiteTokenCount(rawOutputTokens)
+interface CodexTokenBreakdown {
+  totalTokens: number
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+}
+
+/** Reads a Codex token breakdown in either the v2 camelCase or the older
+ *  snake_case spelling — the two protocol versions report the same numbers. */
+function codexTokenBreakdown(raw: any): CodexTokenBreakdown | null {
+  if (!raw || typeof raw !== 'object') return null
+  const inputTokens = finiteTokenCount(raw.inputTokens ?? raw.input_tokens)
+  const cachedInputTokens = finiteTokenCount(raw.cachedInputTokens ?? raw.cached_input_tokens)
+  const outputTokens = finiteTokenCount(raw.outputTokens ?? raw.output_tokens)
   if (!inputTokens && !cachedInputTokens && !outputTokens) return null
-
-  // Codex/OpenAI reports cached input as part of input_tokens. Solus UsageData
-  // keeps cache tokens separate so the shared context meter can add them once.
-  const freshInputTokens = Math.max(0, inputTokens - cachedInputTokens)
-  const usage: UsageData = {
-    inputTokens: freshInputTokens,
-    outputTokens: outputTokens,
-    cacheReadTokens: cachedInputTokens,
-    reasoningTokens: finiteTokenCount(rawReasoningOutputTokens) || undefined,
-    contextWindowTokens: finiteTokenCount(rawContextWindowTokens) || undefined,
+  return {
+    totalTokens: finiteTokenCount(raw.totalTokens ?? raw.total_tokens) || inputTokens + outputTokens,
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    reasoningTokens: finiteTokenCount(raw.reasoningOutputTokens ?? raw.reasoning_output_tokens),
   }
+}
 
-  return { type: 'usage', usage }
+function codexContextUsage(raw: any, windowTokens?: number): ContextUsage | null {
+  const breakdown = codexTokenBreakdown(raw)
+  if (!breakdown) return null
+  // Codex/OpenAI counts cached input inside inputTokens. Split it out so the
+  // meter's composition rows sum to the total instead of counting cache twice.
+  const inputTokens = Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens)
+  return {
+    // Codex's own context indicator uses `last.totalTokens`: after a response,
+    // the assistant output is retained in history too. Counting input alone
+    // makes the meter lag increasingly far behind on output-heavy turns.
+    usedTokens: breakdown.totalTokens,
+    windowTokens,
+    inputTokens,
+    cacheReadTokens: breakdown.cachedInputTokens,
+    outputTokens: breakdown.outputTokens,
+  }
+}
+
+function codexRunUsage(raw: any): UsageData | null {
+  const breakdown = codexTokenBreakdown(raw)
+  if (!breakdown) return null
+  return {
+    inputTokens: Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens),
+    outputTokens: breakdown.outputTokens,
+    cacheReadTokens: breakdown.cachedInputTokens,
+    reasoningTokens: breakdown.reasoningTokens || undefined,
+  }
 }
 
 function finiteTokenCount(value: unknown): number {

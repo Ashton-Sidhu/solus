@@ -326,6 +326,7 @@ so state survives transitions.
 - Use a worktree-local or temporary `SOLUS_DATA_DIR` for any standalone server you start.
 - Do not point development builds at the live desktop `userData` directory or `~/.solus`.
 - Do not open browser windows or use computer control without permission.
+- For an explicitly requested isolated headless app run, follow `.claude/skills/run-app/SKILL.md`; subagents reuse the running instance rather than launching their own.
 - Do not modify generated provider types by hand. Use the generator script when the task
   explicitly requires regenerated Codex types.
 
@@ -359,6 +360,33 @@ after the implementation is complete and the developer has agreed to it.
 Backend behavior changes should ship with focused tests. Prefer deterministic event,
 receipt, and lifecycle assertions over sleeps or polling. A test that passes only because
 of an arbitrary timeout is unreliable.
+
+## Dev logs
+
+The running dev server writes two files at the repo root. Read them instead of starting a
+dev server of your own.
+
+- **`dev.log`** — every main-process log entry as structured NDJSON, one JSON object per
+  line: `ts`, `level`, `tag`, `file`, `msg`, plus the call's data fields. `msg` is a stable
+  snake_case event name, never a prose sentence, so it is safe to match exactly. The file is
+  truncated on each app boot, so it only holds the current run.
+- **`dev-console.log`** — raw process output: vite and electron noise, build errors, and
+  stray stack traces that never reached the logger.
+
+Query `dev.log` with `jq` rather than reading it whole. Session ids, tab ids, and task ids
+are top-level fields, so scoping to one session is a single filter:
+
+```bash
+jq -c 'select(.sessionId == "<id>")' dev.log          # one session's full timeline
+jq -c 'select(.level == "error")' dev.log             # errors across all sessions
+jq -c 'select(.msg == "worktree_created")' dev.log    # every occurrence of one event
+grep '"sessionId":"<id>"' dev.log | jq .              # cheap pre-filter on a large file
+```
+
+When you add a log, keep that contract: `log.info('event_name', { sessionId, ...facts })`.
+Never interpolate an id or other value into the message string — it becomes ungreppable. In
+a code path scoped to one session, call `log.child({ sessionId })` once and every entry
+below it carries the id automatically.
 
 ## Pull requests
 

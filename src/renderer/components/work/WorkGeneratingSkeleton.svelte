@@ -40,10 +40,9 @@
 <style>
   .work-skeleton {
     min-height: clamp(11rem, 24svh, 15rem);
-    background: var(--card);
-    /* Same border declaration as ConversationRefCard so the swap is seamless. */
-    border: 0.03125rem solid
-      color-mix(in oklch, var(--foreground) 11%, transparent);
+    /* Same shell as ConversationRefCard so the swap is seamless. */
+    background: var(--solus-tx-card-bg);
+    box-shadow: var(--solus-tx-card-shadow);
   }
 
   .work-skeleton__kicker {

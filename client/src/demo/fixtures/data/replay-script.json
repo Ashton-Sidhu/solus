@@ -308,7 +308,21 @@
     }
   },
   {
-    "delayMs": 4000,
+    "delayMs": 3900,
+    "tabId": "demo-tab-ratelimit",
+    "event": {
+      "type": "usage",
+      "context": {
+        "usedTokens": 20820,
+        "windowTokens": 200000,
+        "compactAtTokens": 168000,
+        "inputTokens": 8420,
+        "cacheReadTokens": 12400
+      }
+    }
+  },
+  {
+    "delayMs": 100,
     "tabId": "demo-tab-ratelimit",
     "event": {
       "type": "task_complete",

@@ -31,6 +31,22 @@ export function draftAutomationPrompt(description: string, cwd: string): string 
 
 export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   {
+    id: 'weekly-work-report',
+    name: 'Weekly work report',
+    description:
+      'Reads the past seven days of sessions across every project and drafts a concise update for your manager.',
+    prompt: [
+      'Draft a manager-ready report of what I accomplished in the past seven days.',
+      '',
+      'Use the Solus session-history tools to find every session active during that exact seven-day window across all projects and worktrees, then read each relevant session. Do not rely on memory, and do not limit the review to this automation\'s working directory. Deduplicate follow-up sessions and parallel agent work that contributed to the same outcome. If the available history or tools prevent complete coverage, state the gap clearly instead of guessing.',
+      '',
+      'Organize the report by outcome, not by session or chronology. For each outcome, explain what changed, why it mattered, and the current status. Include a short Highlights section, a concise project-by-project summary, and separate sections for In progress, Blockers or decisions needed, and Next week. Omit empty sections.',
+      '',
+      'Write in first person, expand internal shorthand, and keep the tone factual and suitable to send directly to a manager. Do not expose private chain-of-thought, raw prompts, session IDs, tool logs, or implementation noise. Preserve concrete evidence such as shipped features, fixed defects, tests, releases, documentation, and measurable results when the sessions support it.',
+    ].join('\n'),
+    trigger: { type: 'cron', expr: '0 12 * * 5' },
+  },
+  {
     id: 'architecture-diagram',
     name: 'Architecture diagram, kept current',
     description:

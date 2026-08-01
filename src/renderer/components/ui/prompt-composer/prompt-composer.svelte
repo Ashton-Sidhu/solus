@@ -215,12 +215,14 @@
   </TooltipUI.Root>
 {/if}
 
-<!-- Hidden rather than unmounted while collapsed: the Tiptap instance, the
-     draft, and its plan/work refs all survive the round trip. -->
+<!-- The input bar's card, at the same measurements (see EditorInputCard): a
+     hairline, nothing behind it, terracotta spent only on focus. Hidden rather
+     than unmounted while collapsed, so the editor instance, the draft, and its
+     plan/work refs all survive the round trip. -->
 <div
-  class="flex flex-col border bg-(--solus-input-pill-bg) transition-[border-color,box-shadow] duration-150 min-h-[5.5rem] rounded-[1.375rem] px-3.5 pt-1 pb-2 {focused
-    ? 'border-(--solus-input-focus-border) shadow-[0_0_0_0.1875rem_var(--solus-input-focus-ring)]'
-    : 'border-(--solus-container-border)'}"
+  class="flex flex-col rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3 transition-[box-shadow] duration-[180ms] {focused
+    ? 'shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]'
+    : 'shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]'}"
   style:display={collapsed ? "none" : null}
 >
   {#if hasMountedWaveform}
@@ -230,7 +232,7 @@
       </div>
     </div>
   {/if}
-  <div style:display={showWaveform ? "none" : null}>
+  <div class="px-1.5" style:display={showWaveform ? "none" : null}>
     <PromptEditor
       bind:this={editorEl}
       {value}
@@ -263,13 +265,14 @@
       enterInsertsNewline
       {menuPlacement}
       maxHeight={260}
+      class="[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]"
     />
   </div>
   <!-- Same geometry as the input bar's toolbar row (InputBar.svelte): the
        controls stay proportional to the composer text preference. -->
   <div
-    class="flex items-center gap-1 w-full"
-    style="padding-top:0.125rem;zoom:var(--solus-font-scale,1)"
+    class="flex items-center gap-2 w-full"
+    style="zoom:var(--solus-font-scale,1)"
   >
     {#if collapsible}
       <TooltipUI.Root>
@@ -280,7 +283,7 @@
         onclick={() => (collapsed = true)}
         aria-label="Collapse composer"
         aria-expanded="true"
-        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--solus-text-tertiary) transition-[background-color] duration-150 hover:bg-(--solus-surface-hover)"
+        class="flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color,color] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
       >
         <CaretDownIcon size={14} weight="bold" />
       </button>
@@ -290,12 +293,12 @@
       </TooltipUI.Root>
     {/if}
     {#if pickerVisible}
-      <SessionChip bind:selection menuSide={menuPlacement === "down" ? "bottom" : "top"} dense />
+      <SessionChip bind:selection menuSide={menuPlacement === "down" ? "bottom" : "top"} />
     {/if}
     {@render afterPicker?.()}
     {#if showWorktree}
       <label
-        class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-1 text-xs font-medium transition-colors {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
+        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-1 text-[0.78125rem] font-medium transition-colors {useWorktree ? 'text-(--solus-accent)' : 'font-secondary text-(--solus-text-secondary)'}"
         title={useWorktree ? "Worktree enabled — run in an isolated branch (⌥W)" : "Enable worktree — run in an isolated branch (⌥W)"}
       >
         <GitForkIcon size={14} />
@@ -303,13 +306,9 @@
         <Switch size="sm" bind:checked={useWorktree} data-testid="composer-worktree" aria-label="Run in an isolated worktree" />
       </label>
     {/if}
-    <div
-      class="flex items-center gap-1 shrink-0 ml-auto"
-      style="padding-bottom:0.125rem"
-    >
+    <div class="flex items-center gap-2 shrink-0 ml-auto">
       <RecordingControls
         variant="bar"
-        dense
         state={voiceState}
         rmsRef={dictation.rmsRef}
         disabled={!voiceReady || disabled}
@@ -322,10 +321,10 @@
 
       {@render trailing?.()}
 
-      <!-- Like the input bar, the send button only exists once there's something
-           to send. It stays mounted while `submitting`/`disabled` so it doesn't
-           vanish under the cursor mid-dispatch. -->
-      {#if onSubmit && hasContent}
+      <!-- Like the input bar, the button holds its corner and goes neutral
+           rather than disappearing: fill is spent on send, and only once there
+           is something to send. -->
+      {#if onSubmit}
         <TooltipUI.Root>
           <TooltipUI.Trigger>
             {#snippet child({ props: tooltipProps })}
@@ -334,14 +333,15 @@
           onclick={handleSubmit}
           disabled={!canSend}
           aria-label="Send"
-          class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform,opacity] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.96] disabled:active:scale-100"
-          style="opacity:{canSend ? 1 : 0.4};cursor:{canSend ? 'pointer' : 'default'}"
+          class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {canSend
+            ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
+            : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
         >
           <ArrowUpIcon size={14} weight="bold" />
         </button>
             {/snippet}
           </TooltipUI.Trigger>
-          <TooltipUI.Content value={"Send · ⌘↵"} />
+          <TooltipUI.Content value={canSend ? "Send · ⌘↵" : null} />
         </TooltipUI.Root>
       {/if}
     </div>

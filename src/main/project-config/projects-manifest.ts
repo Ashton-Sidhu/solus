@@ -1,15 +1,15 @@
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import path, { basename } from 'node:path'
 import type { ProjectEntry } from '../../shared/types'
 import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
+import { solusDir } from '../platform/paths'
 import { resolveProjectKey } from './project-config'
 
 const log = createLogger('main', 'projects-manifest')
 
-const PROJECTS_DIR = path.join(homedir(), '.solus', 'projects')
+const PROJECTS_DIR = path.join(solusDir(), 'projects')
 
 interface ProjectRow {
   key: string

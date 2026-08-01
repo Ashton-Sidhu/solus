@@ -16,6 +16,7 @@ const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'font
 
 export default defineConfig({
   root: resolve(__dirname),
+  envDir: resolve(__dirname, '..'),
   publicDir: resolve(__dirname, 'public'),
   resolve: {
     alias: {

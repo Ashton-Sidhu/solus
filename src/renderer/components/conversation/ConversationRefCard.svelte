@@ -201,12 +201,23 @@
 
 <style>
   :global(.conversation-ref-card) {
-    background: var(--card);
-    border: 0.03125rem solid
-      color-mix(in oklch, var(--foreground) 11%, transparent);
+    background: var(--solus-tx-card-bg);
+    /* The edge is a ring inside the shadow, not a border: it keeps the card's
+       box the same width as the flush cards beside it. */
+    border: none;
+    box-shadow: var(--solus-tx-card-shadow);
     cursor: pointer;
     overflow: hidden;
-    transition: transform var(--duration-quick) var(--ease-premium);
+    transition:
+      transform var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
+  }
+
+  /* A card that opens something answers the pointer by rising, not by washing:
+     the fill stays paper so the body text underneath never shifts value. */
+  :global(.conversation-ref-card):hover {
+    box-shadow: var(--solus-tx-card-shadow-hover);
+    transform: translateY(-0.0625rem);
   }
 
   :global(.conversation-ref-card):active {
@@ -311,7 +322,7 @@
 
   .conversation-ref-card__fade {
     height: 1.875rem;
-    background: linear-gradient(to bottom, transparent, var(--card));
+    background: linear-gradient(to bottom, transparent, var(--solus-tx-card-bg));
   }
 
   .conversation-ref-card__rail {

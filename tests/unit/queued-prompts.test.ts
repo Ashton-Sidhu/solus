@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { formatClock, formatWaited, queuedCaption } from '../../src/renderer/components/conversation/lib/queued-prompts'
+import { formatClock, formatLimitWindow, formatWaited, queuedCaption } from '../../src/renderer/components/conversation/lib/queued-prompts'
 import type { OutboundPrompt } from '../../src/shared/types'
 
 const NOW = 1_700_000_000_000
@@ -29,6 +29,39 @@ describe('queuedCaption', () => {
     expect(caption?.detail).toStartWith('rate limit resets ')
     expect(caption?.clock).toBe('30:12')
     expect(caption?.canSendNow).toBe(true)
+  })
+
+  // Which window ran out decides whether the wait is worth sitting through: a
+  // 5h reset is a coffee break, a weekly one is not. Naming it is the whole
+  // difference between an informed wait and an unexplained pause.
+  it('names the window that ran out ahead of "rate limit"', () => {
+    const weekly = queuedCaption([heldPrompt()], {
+      isRateLimited: true,
+      resetsAt: NOW / 1000 + 60,
+      rateLimitType: 'weekly',
+      now: NOW,
+    })
+    expect(weekly?.detail).toStartWith('weekly rate limit resets ')
+
+    // The provider's own prefix is not the user's business — only the window is.
+    const fiveHour = queuedCaption([heldPrompt()], {
+      isRateLimited: true,
+      resetsAt: NOW / 1000 + 60,
+      rateLimitType: 'Codex 5h',
+      now: NOW,
+    })
+    expect(fiveHour?.detail).toStartWith('5h rate limit resets ')
+  })
+
+  // A provider that reports no window must not leave a gap where the label was.
+  it('omits the window rather than printing an empty one', () => {
+    const caption = queuedCaption([heldPrompt()], {
+      isRateLimited: true,
+      resetsAt: NOW / 1000 + 60,
+      rateLimitType: '   ',
+      now: NOW,
+    })
+    expect(caption?.detail).toStartWith('rate limit resets ')
   })
 
   // The countdown only earns its place while there is a reset to count to.
@@ -81,6 +114,35 @@ describe('queuedCaption', () => {
     const caption = queuedCaption([heldPrompt()], { isRateLimited: true, now: NOW })
     expect(caption?.clock).toBe('')
     expect(caption?.detail).toBe('runs when this turn ends')
+  })
+})
+
+describe('formatLimitWindow', () => {
+  // Providers name their windows for their own plumbing. Whatever they send,
+  // what reaches the transcript has to be the duration a person would say.
+  it('reduces every provider spelling to the same spoken duration', () => {
+    expect(formatLimitWindow('five_hour')).toBe('5h')
+    expect(formatLimitWindow('Codex 5h')).toBe('5h')
+    expect(formatLimitWindow('5-hour')).toBe('5h')
+    expect(formatLimitWindow('weekly')).toBe('weekly')
+    expect(formatLimitWindow('seven_day')).toBe('7d')
+    expect(formatLimitWindow('Codex secondary weekly')).toBe('weekly')
+  })
+
+  // The Codex normalizer emits multi-week windows as `Nw`, so a one-week window
+  // has two spellings that must land on the same word.
+  it('says "weekly" for a single week however it arrives, and counts the rest', () => {
+    expect(formatLimitWindow('Codex secondary 1w')).toBe('weekly')
+    expect(formatLimitWindow('Codex secondary 2w')).toBe('2w')
+  })
+
+  // Printing an unrecognised internal key at someone is worse than saying
+  // nothing — the caption reads fine without a window, and lying is not an
+  // option, so an unknown one resolves to empty.
+  it('yields nothing rather than echoing a key it cannot read', () => {
+    expect(formatLimitWindow('opus')).toBe('')
+    expect(formatLimitWindow(undefined)).toBe('')
+    expect(formatLimitWindow('   ')).toBe('')
   })
 })
 

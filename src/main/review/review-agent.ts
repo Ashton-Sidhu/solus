@@ -9,6 +9,7 @@ import {
 } from './review-guide-tool'
 
 const log = createLogger('review', 'review-agent.ts')
+const REVIEW_AGENT_TIMEOUT_MS = 10 * 60_000
 
 export interface ReviewAgentInput {
   /** Directory the agent runs git in — the worktree holding the live edits. */
@@ -64,10 +65,12 @@ export async function runReviewAgent(
       reasoningEffort,
       permissionMode: 'plan',
       persistence: 'ephemeral',
+      unattended: true,
+      timeoutMs: REVIEW_AGENT_TIMEOUT_MS,
       systemPrompt: buildSystemPrompt({
         agent: input.agent === 'codex' ? 'codex' : 'claude',
         general: false,
-        planMode: true,
+        planMode: false,
       }),
     })
     const cancel = () => run.cancel()
@@ -99,26 +102,11 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
   parts.push(
     'Use the pr-review-guide skill.',
     '',
-    // 'You are reviewing an agent-authored code change and producing a GUIDED REVIEW for Solus.',
-    // 'The skill defines the review workflow, concern ordering, ledger usage, and submit_review_guide output contract.',
-    // '',
-    // `Branch: ${context.branch} (target: ${context.targetBranch}, base ${context.baseSha.slice(0, 8)})`,
-    // `Reviewer: ${reviewer}`,
-    // '',
-    // 'INSPECT THE CHANGE YOURSELF — do this before composing the guide. The diff is NOT inlined below;',
-    // 'gather it with your tools so you can read it at the right altitude:',
-    // `  • The change is everything between base commit ${input.base} and the current working tree.`,
-    // `    Your working directory (${input.workTree}) is that worktree.`,
-    // `  • Start with \`git diff ${input.base} --stat\` for the file list, then \`git diff ${input.base}\``,
-    // '    (scope to a file with `-- <path>`) to read the hunks.',
-    // '  • New files in this change are untracked and will NOT appear in `git diff`. List them with',
-    // '    `git ls-files --others --exclude-standard` and Read each in full — they are part of the change.',
-    // '  • Use Read/Grep/Glob to inspect surrounding code for the context a hunk needs.',
-    // '  • You are strictly read-only: only read-only git commands and file reads are permitted.',
-    // '  • Account for EVERY changed file: each one must appear in at least one concern (place purely',
-    // '    mechanical files in a low-signal concern). For each file record its path exactly as it appears',
-    // '    in the diff plus its added/removed line counts.',
-    // '  • Follow the pr-review-guide skill when deciding section boundaries and significance.',
+    'You are reviewing an agent-authored code change and producing a guided review for Solus.',
+    `The review scope is already decided: everything between base commit ${input.base} and the current`,
+    `working tree at ${input.workTree}. Do not ask the user to choose a commit, path, or narrower scope.`,
+    'This is an unattended background run. Resolve ambiguity with your best judgment and finish the guide.',
+    'Stay strictly read-only.',
     '',
   )
 
@@ -128,6 +116,13 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
       'with git; review it directly. It already includes new/untracked files (as additions with full',
       `content) and everything between base ${input.base} and the current working tree. If a hunk needs`,
       'surrounding context, use Read/Grep on the working tree; otherwise you need no git commands.',
+      '',
+    )
+  } else {
+    parts.push(
+      `Gather exactly this scope with \`git diff ${input.base} --stat\` and \`git diff ${input.base}\`.`,
+      'Scope individual reads with `-- <path>` when useful, but account for every changed file.',
+      'List untracked files with `git ls-files --others --exclude-standard` and read each one in full.',
       '',
     )
   }
@@ -145,12 +140,11 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
     )
   }
 
-  // parts.push(
-  //   `When you are done, call the \`${SUBMIT_REVIEW_GUIDE_TOOL_NAME}\` tool EXACTLY ONCE with the whole`,
-  //   'guide as its arguments — title, summary, and the ordered sections. The tool arguments ARE the',
-  //   'deliverable; do not also write the guide as prose. Do not call the tool until you have inspected',
-  //   'the full change.',
-  // )
+  parts.push(
+    'When you are done, call `submit_review_guide` exactly once with the complete guide.',
+    'The tool arguments are the deliverable; do not also write the guide as prose.',
+    '',
+  )
 
   if (input.inlineDiff) {
     parts.push(

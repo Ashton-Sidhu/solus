@@ -2,28 +2,6 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { PlanComment } from "../../../shared/types";
 
-/**
- * True when the editor's current selection was made by the user's cursor — a
- * mouse drag or keyboard selection — rather than a programmatic
- * `setTextSelection` (find/replace, comment-mark restore, agent rewrites).
- *
- * ProseMirror stamps every selection it derives from a real DOM event with an
- * origin ("pointer" | "key") and a timestamp; programmatic selections leave
- * both stale. We read that stamp directly (it's what PM itself consults — see
- * `readDOMChange`) within a short recency window, so the floating "Comment"
- * affordance only fires for intentional selections. Consult it at the top of a
- * `selectionUpdate` handler.
- */
-export function isUserSelection(editor: Editor): boolean {
-  // `input` is ProseMirror's internal InputState — not in the public typings.
-  const { input } = editor.view as unknown as {
-    input: { lastSelectionOrigin: string | null; lastSelectionTime: number };
-  };
-  const origin = input?.lastSelectionOrigin;
-  if (origin !== "pointer" && origin !== "key") return false;
-  return Date.now() - input.lastSelectionTime < 100;
-}
-
 export function prosePosToTextOffset(
   editor: Editor,
   prosePos: number,

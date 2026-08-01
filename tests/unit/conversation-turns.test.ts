@@ -91,6 +91,24 @@ describe('turn collapse', () => {
     expect(settled.tail.map(itemKey)).toEqual(moved.map(itemKey))
   })
 
+  test('keeps an agent-change divider outside the preceding turn fold', () => {
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'fix the bug' }),
+      msg({ role: 'assistant', content: 'Fixed.' }),
+      msg({
+        role: 'system',
+        content: 'Switched to Claude Code',
+        agentChangedTo: 'Claude Code',
+      }),
+    ])
+
+    expect(turns).toHaveLength(2)
+    expect(turns[1].lead?.kind).toBe('system')
+    expect(
+      turns[1].lead?.kind === 'system' && turns[1].lead.message.agentChangedTo,
+    ).toBe('Claude Code')
+  })
+
   test('the live row only appears when nothing else is reporting the run', () => {
     const prompt = msg({ role: 'user', content: 'rewrite the call sites' })
 
@@ -189,8 +207,8 @@ describe('turn collapse', () => {
       tool('Read', '{"file_path":"a.ts"}'),
       msg({
         role: 'assistant',
-        relayRef: {
-          peerSessionId: 'session-1',
+        agentConversationRef: {
+          agentSessionId: 'session-1',
           provider: 'codex',
           title: 'Review worker',
           cwd: '/repo',
@@ -216,36 +234,86 @@ describe('turn collapse', () => {
     expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual([
       'artifact',
       'automation',
-      'relay-group',
+      'agent-conversation-group',
       'document',
     ])
     expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
   })
 
-  test('a turn\'s relay cards stack at the first dispatch despite interleaved tool rows', () => {
+  test('a stopped turn still hands back the work it did before the stop', () => {
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'plan the exchange protocol' }),
+      tool('Grep', '{"pattern":"agentExchange"}'),
+      msg({ role: 'assistant', content: 'Here is what I found.' }),
+      msg({ role: 'system', content: '[Request interrupted by user]' }),
+    ])
+
+    // WHY: reviewing a plan stops the run that produced it. The stop is an event
+    // that closed the turn, not a description of it, so the turn keeps the shape
+    // every other finished turn has — a summary row over the work it discloses,
+    // with the ending stated after. Collapsing the two loses the transcript.
+    expect(turn.end?.kind).toBe('stopped')
+    expect(turn.end?.cause).toBe('by you')
+    expect(turn.body.map((item) => item.kind)).toEqual(['tool-group'])
+    expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
+    expect(hasVisibleTurnBody(turn)).toBe(true)
+  })
+
+  test('keeps the plan on screen after the turn that produced it collapses', () => {
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'plan the exchange protocol' }),
+      tool('Grep', '{"pattern":"agentExchange"}'),
+      msg({ role: 'plan', planId: 'agent-session-1__plan-tool-1' }),
+      msg({ role: 'system', content: '[Request interrupted by user]' }),
+    ])
+
+    // WHY: the plan is the outcome the reader still has to accept or revise, not
+    // a step taken on the way there. Folding it away with the tool calls leaves
+    // the decision with nothing to decide about.
+    expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['plan'])
+  })
+
+  test('a new-session divider opens its own turn instead of joining the previous fold', () => {
+    const turns = turnsFor([
+      msg({ role: 'user', content: 'plan the exchange protocol' }),
+      tool('Grep', '{"pattern":"agentExchange"}'),
+      msg({ role: 'system', newSessionForPlanId: 'agent-session-1__plan-tool-1' }),
+      msg({ role: 'user', content: 'Implement this plan: …' }),
+    ])
+
+    // WHY: accepting a plan restarts on a fresh agent session that carries none
+    // of the planning context. That boundary is a statement about the thread, so
+    // no turn fold may hide it — otherwise a deliberate reset is indistinguishable
+    // from the conversation losing its memory.
+    expect(turns).toHaveLength(3)
+    expect(turns[1].lead?.kind === 'system' && turns[1].lead.message.newSessionForPlanId)
+      .toBe('agent-session-1__plan-tool-1')
+  })
+
+  test('a turn\'s agent-conversation cards stack at the first dispatch despite interleaved tool rows', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'brief all three' }),
       tool('mcp__solus__prompt_session', '{"session_id":"a"}'),
       msg({
         role: 'assistant',
-        relayRef: { peerSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'prompted', exchanges: [] },
+        agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'prompted', exchanges: [] },
       }),
       tool('mcp__solus__prompt_session', '{"session_id":"b"}'),
       msg({
         role: 'assistant',
-        relayRef: { peerSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'prompted', exchanges: [] },
+        agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'prompted', exchanges: [] },
       }),
       msg({ role: 'assistant', content: 'Briefed both.' }),
     ])
 
-    // WHY: several peers dispatched by one decision are one roster, not two
+    // WHY: several agents dispatched by one decision are one roster, not two
     // cards separated by their own plumbing rows — the stack anchors where the
     // first dispatch happened and later dispatches join it in place.
-    const relayGroups = turn.body.filter((item) => item.kind === 'relay-group')
-    expect(relayGroups).toHaveLength(1)
+    const agentConversationGroups = turn.body.filter((item) => item.kind === 'agent-conversation-group')
+    expect(agentConversationGroups).toHaveLength(1)
     expect(
-      relayGroups[0].kind === 'relay-group'
-        ? relayGroups[0].messages.map((m) => m.relayRef?.peerSessionId)
+      agentConversationGroups[0].kind === 'agent-conversation-group'
+        ? agentConversationGroups[0].messages.map((m) => m.agentConversationRef?.agentSessionId)
         : [],
     ).toEqual(['a', 'b'])
   })

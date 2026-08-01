@@ -41,7 +41,7 @@
 </script>
 
 <section
-  class="run-card mx-auto w-[88%] overflow-hidden rounded-xl bg-card"
+  class="run-card mx-auto w-[88%] overflow-hidden rounded-xl bg-(--solus-tx-card-bg)"
   class:is-failed={failed}
   class:is-open={isOpen}
   aria-label="Sub-agent"
@@ -167,32 +167,19 @@
 </section>
 
 <style>
-  /* A 0.5px ring plus one inset top highlight is the whole flush shell. The
-     highlight is white in both themes because it is a light source, not a
-     colour. */
+  /* A ring, an inset top highlight and a short lift are the whole shell — see
+     the --solus-tx-card-* tokens for the recipe and how it turns over in dark
+     mode. */
   .run-card {
-    box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 10%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55);
-  }
-
-  :global(.dark) .run-card {
-    box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.07);
+    box-shadow: var(--solus-tx-card-shadow);
   }
 
   /* State changes the ring's hue and nothing else about the shell. */
   .run-card.is-failed {
     box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--destructive) 22%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55);
-  }
-
-  :global(.dark) .run-card.is-failed {
-    box-shadow:
-      0 0 0 0.03125rem color-mix(in oklch, var(--destructive) 32%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.07);
+      0 0 0 0.03125rem color-mix(in oklch, var(--destructive) 26%, transparent),
+      inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+      var(--solus-tx-card-lift);
   }
 
   /* The open agent keeps a ring rather than a fill, so the pane's target stays
@@ -200,7 +187,8 @@
   .run-card.is-open {
     box-shadow:
       0 0 0 0.0625rem color-mix(in oklch, var(--primary) 34%, transparent),
-      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.55);
+      inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+      var(--solus-tx-card-lift);
   }
 
   .run-card button:focus-visible {

@@ -51,8 +51,6 @@
 <div class="activity-block">
   <div
     class="activity-row"
-    class:is-open={expanded}
-    class:is-stacked={stacked}
     class:is-static={!onToggle}
     data-testid={testid}
   >
@@ -103,19 +101,30 @@
 
   .activity-row {
     display: flex;
-    width: calc(100% + 1rem);
+    width: calc(100% + 1.5rem);
     align-items: flex-start;
     gap: 0.625rem;
-    margin-inline: -0.5rem;
-    padding: 0.375rem 0.5rem;
-    border-radius: 0.5rem;
-    /* The wash appears on hover only — a finished row is a caption. */
-    transition: background var(--duration-quick) var(--ease-premium);
+    /* The chassis has to clear the text on both ends, or a row this wide reads
+       as a full-bleed slab glued to the container edge. 10px stays inside the
+       transcript's own 16px gutter and the subagent grid's 12px column gap. */
+    margin-inline: -0.75rem;
+    padding: 0.4375rem 0.75rem;
+    /* Fully round: at this row's height a corner radius reads as a cut no matter
+       how large it gets, so the ends are capped instead. */
+    border-radius: 999px;
+    /* Hover only — an open row is still a caption, and the rotated caret plus
+       the detail's rule already say it is open. */
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
   }
 
-  .activity-row:not(.is-static):hover,
-  .activity-row.is-open:not(.is-stacked) {
-    background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  /* A defined edge rather than a floating patch of grey: the same chip chassis
+     the dispatch card uses — barely-there fill under a hairline ring. */
+  .activity-row:not(.is-static):hover {
+    background: color-mix(in oklch, var(--foreground) 2.5%, transparent);
+    box-shadow: inset 0 0 0 0.5px
+      color-mix(in oklch, var(--foreground) 11%, transparent);
   }
 
   .activity-disclose {

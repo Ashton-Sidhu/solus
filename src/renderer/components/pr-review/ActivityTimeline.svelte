@@ -63,10 +63,10 @@
     onResolve: (threadId: string, resolved: boolean) => Promise<void>;
   } = $props();
 
-  // Comment/review bodies are GitHub markdown — same pipeline as the PR
-  // description, scaled to the timeline's 13px type with edge margins trimmed.
-  const bodyProseClass =
-    "github-markdown prose-cloud mt-1.5 text-[12.5px] leading-[1.6] text-foreground [--solus-font-weight-body:400] [&>:first-child]:mt-0 [&>:last-child]:mb-0";
+  // Comment/review bodies are GitHub markdown — same pipeline *and* the same
+  // `.prose-pr` typography as the description above them. Sizes/colour can't be
+  // set with utilities here: the `.prose-cloud` rules are unlayered and win.
+  const bodyProseClass = "github-markdown prose-cloud prose-pr mt-1.5";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a

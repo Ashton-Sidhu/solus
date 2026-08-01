@@ -57,8 +57,12 @@ export function measureAnchors(
  * it survives a heading being scrolled out of view.
  */
 export function commentMarkPositions(editor: Editor | null): { id: string; pos: number }[] {
-  const markType = editor?.schema.marks.planComment
-  if (!editor || !markType) return []
+  // Tiptap nulls its schema during destroy. A measurement queued with `tick`
+  // can still run during that teardown, so reject the stale editor before
+  // reading any of the fields destroy clears.
+  if (!editor || editor.isDestroyed) return []
+  const markType = editor.schema.marks.planComment
+  if (!markType) return []
   const seen = new Set<string>()
   const positions: { id: string; pos: number }[] = []
   editor.state.doc.descendants((node, pos) => {

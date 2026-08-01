@@ -3,7 +3,7 @@ import { registerSessionHandlers } from '../../src/main/server/handlers/session-
 import { automationDraftSessionRequest } from '../../src/renderer/contexts/automations/automation-draft-session'
 
 describe('automation draft sessions', () => {
-  test('builds a low-reasoning headless request with no tab fields', () => {
+  test('builds a low-reasoning headless request from the configured provider defaults', () => {
     expect(automationDraftSessionRequest(
       'Create a weekly cleanup automation',
       '/repo',

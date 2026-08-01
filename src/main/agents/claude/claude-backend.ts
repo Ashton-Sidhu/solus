@@ -22,6 +22,7 @@ import type {
   AgentId,
   AgentMetadata,
   AgentSlashCommand,
+  AgentUsageLimits,
   IpcContext,
   NormalizedEvent,
   PlanDescriptor,
@@ -149,7 +150,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const sessionId = request.sessionId ?? null
     const uiMode = request.permissionMode
     const sessionRef = { current: sessionId }
-    const canUseTool = this.permissions.createCanUseTool(sessionRef, uiMode)
+    const canUseTool = this.permissions.createCanUseTool(sessionRef, uiMode, request.unattended)
 
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
@@ -223,7 +224,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         } : undefined,
       })
 
-      await this._runLoop(handle, events, result, sessionRef, adaptedTools.observe)
+      await this._runLoop(handle, events, result, sessionRef)
     })().catch((err: any) => {
       const sessionId = handle.sessionId
       log.error('run_start_failed', { sessionId: sessionId ?? 'pending', error: err?.message })
@@ -239,11 +240,9 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     events: AsyncIterable<NormalizedEvent>,
     result: Promise<ClaudeRunResult>,
     sessionRef: { current: string | null },
-    observeToolEvent?: (event: NormalizedEvent) => void,
   ): Promise<void> {
     try {
       for await (const evt of events) {
-        observeToolEvent?.(evt)
         if (evt.type === 'session_init') {
           this.promoteToActive(handle, evt.sessionId)
           sessionRef.current = evt.sessionId
@@ -614,5 +613,18 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   async refreshPluginCommands(): Promise<void> {
     _pluginCmdCache.clear()
     this.commandDiscovery.clear()
+  }
+
+  async readUsageLimits(): Promise<AgentUsageLimits | null> {
+    const windows = await this.agent.readUsageReport()
+    if (!windows) return null
+    return {
+      provider: this.id,
+      ...windows,
+      // `/usage` names no plan tier, only the two windows.
+      planType: null,
+      fetchedAt: Date.now(),
+      stale: false,
+    }
   }
 }

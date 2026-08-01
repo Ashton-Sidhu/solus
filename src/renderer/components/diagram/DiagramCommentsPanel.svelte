@@ -94,7 +94,6 @@
     }}
     onCancelEdit={() => (editingCommentId = null)}
     {onDelete}
-    {onClose}
   >
     {#snippet footer()}
       <div class="diagram-comments__composer">

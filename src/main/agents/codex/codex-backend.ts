@@ -11,6 +11,7 @@ import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import type {
   AgentId,
   AgentMetadata,
+  AgentUsageLimits,
   NormalizedEvent,
   PlanDescriptor,
   PluginCommandsResult,
@@ -19,6 +20,7 @@ import type {
   SessionIndexUpdatedEvent,
   ThreadGoal,
   ThreadGoalSetRequest,
+  UsageWindow,
 } from '../../../shared/types'
 import type { SessionLoadMessage } from '../../../shared/session-history'
 import { MODEL_PROFILES } from '../../../shared/types'
@@ -341,7 +343,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return
       }
 
-      const isPlanMode = request.permissionMode === 'plan'
+      const isPlanMode = request.permissionMode === 'plan' && !request.unattended
       const input = await this.buildTurnInput(request.prompt, request.cwd, request.imageAttachments)
       const turnParams: CodexTurnStartParams = {
         threadId,
@@ -680,6 +682,31 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const watchedCwds = this.skillsByCwd.keys({ includeStale: true })
     this.skillsByCwd.clear()
     await Promise.all(watchedCwds.map((cwd) => this.listCodexSkills(cwd, true)))
+  }
+
+  async readUsageLimits(): Promise<AgentUsageLimits> {
+    const response = await this.client.request('account/rateLimits/read', {})
+    const snapshot = response.rateLimits
+    // `primary`/`secondary` carry no fixed meaning — the window duration is the
+    // only reliable discriminator, and either slot may be absent entirely.
+    const windowOf = (durationMins: number): UsageWindow | null => {
+      const match = [snapshot?.primary, snapshot?.secondary]
+        .find((window) => window?.windowDurationMins === durationMins)
+      if (!match) return null
+      return {
+        usedPercent: match.usedPercent,
+        resetsAt: match.resetsAt === null ? null : match.resetsAt * 1000,
+        resetsLabel: null,
+      }
+    }
+    return {
+      provider: this.id,
+      fiveHour: windowOf(300),
+      weekly: windowOf(10080),
+      planType: snapshot?.planType ?? null,
+      fetchedAt: Date.now(),
+      stale: false,
+    }
   }
 
   private onNotification(msg: JsonRpcNotification): void {

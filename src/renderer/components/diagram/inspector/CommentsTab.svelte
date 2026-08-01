@@ -4,6 +4,7 @@
   import PlanCommentEditor from '../../plan/PlanCommentEditor.svelte'
   import {
     authorInitials,
+    authorLabel,
     authorName,
     commentAuthor,
     isResolved,
@@ -68,7 +69,7 @@
                what it did. The full thread only ever opens on the canvas. -->
           <button type="button" class="ct-row ct-row--agent" onclick={() => onOpenThread(thread.id)}>
             <span class="ct-spark" aria-hidden="true">✦</span>
-            <span class="ct-agent-name">Solus</span>
+            <span class="ct-agent-name">{authorLabel(thread)}</span>
             <span class="ct-agent-note">{thread.comment}</span>
           </button>
         {:else}

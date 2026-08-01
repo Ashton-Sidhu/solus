@@ -1,12 +1,10 @@
 import type { StatusCardState, StatusCardStep } from '../../shared/types'
 
 export type RemoteDispatchPhase = 'connecting' | 'repository' | 'ready'
-export type RemoteRepositoryAction = 'pull' | 'clone'
 
 export interface RemoteDispatchCardOptions {
   tabId: string
   hostLabel: string
-  repositoryAction: RemoteRepositoryAction
   phase: RemoteDispatchPhase
   error?: { step: 'connection' | 'repository'; message: string }
 }
@@ -19,7 +17,7 @@ const FUTURE_STEPS: StatusCardStep[] = [
 
 /** One card that begins in the host picker and hands off to backend setup. */
 export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): StatusCardState {
-  const { tabId, hostLabel, repositoryAction, phase, error } = options
+  const { tabId, hostLabel, phase, error } = options
   const connectionDone = phase !== 'connecting' || error?.step === 'repository'
   const repositoryDone = phase === 'ready'
   const steps: StatusCardStep[] = [
@@ -31,7 +29,7 @@ export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): Sta
     },
     {
       id: 'repository',
-      label: repositoryAction === 'pull' ? 'Pulling latest changes' : 'Cloning repository',
+      label: 'Preparing repository',
       status: error?.step === 'repository'
         ? 'error'
         : repositoryDone

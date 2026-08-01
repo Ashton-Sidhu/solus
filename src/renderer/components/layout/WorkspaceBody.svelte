@@ -314,7 +314,7 @@
         requestInputFocus();
         return;
       }
-      const tabId = await session.createTab(undefined, { activate: false });
+      const tabId = await session.createTab(undefined, { activate: false, via: "keybinding" });
       session.openTabInSplit(tabId);
       requestInputFocus({ tabId });
     },
@@ -390,8 +390,7 @@
   const primaryIsListSidebar = $derived(
     isPageContent(panes.primaryContent) &&
       panes.primaryContent.kind === "prs" &&
-      (panes.secondaryContent.kind === "pr-review" ||
-        panes.secondaryContent.kind === "pr-review-loading"),
+      panes.secondaryContent.kind === "pr-review",
   );
   const minPrimaryWidth = $derived(
     primaryIsListSidebar ? MIN_LIST_PRIMARY_PANE_WIDTH : MIN_PRIMARY_PANE_WIDTH,
@@ -809,9 +808,8 @@
             {/if}
 
             <div
-              class="input-dock no-drag flex-shrink-0"
+              class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
               class:mode-hidden={!conversationChromeVisible}
-              style="padding:10px 16px 4px"
               bind:clientHeight={inputDockHeight}
               onfocusin={() => panes.focusPane("primary")}
             >
@@ -889,6 +887,10 @@
 <style>
   .workspace-body {
     position: relative;
+    /* Where every pane's content box stops, so a composer docked in any pane —
+       primary conversation, split chat, diff, review guide — lands on the same
+       line. Both pane containers below spend it; nothing else should. */
+    --solus-pane-gutter: 8px;
   }
   :global(.workspace-rail-pane) {
     background: var(--solus-container-bg);
@@ -912,7 +914,10 @@
   :global(.secondary-pane-wrap) {
     --solus-pane-chrome-inset: 5.5rem;
   }
+  /* The secondary pane is a sibling of the primary one, not a child of
+     .content-column, so it has to spend the gutter itself. */
   :global(.secondary-pane-wrap) {
+    padding-bottom: var(--solus-pane-gutter);
     opacity: 1;
     transform: translateX(0);
     transition:
@@ -950,10 +955,10 @@
     background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
   }
   .content-column {
-    padding: 0 8px 8px 0;
+    padding: 0 var(--solus-pane-gutter) var(--solus-pane-gutter) 0;
   }
   .workspace-body.sidebar-collapsed .content-column {
-    padding-left: 8px;
+    padding-left: var(--solus-pane-gutter);
   }
   /* With the sidebar collapsed the primary column is the leftmost chrome, so a
      primary-slot pane header or full-page view header sits under the traffic

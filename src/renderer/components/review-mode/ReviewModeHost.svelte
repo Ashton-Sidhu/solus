@@ -435,7 +435,7 @@
                   {@const item = items.find((candidate) => candidate.number === entry.prNumber)}
                   <PrReviewPane
                     pr={ready.pr}
-                    guideKey={ready.pr.branch.replace(/\//g, "__")}
+                    target={ready.pr}
                     activeTab={views.get(entry.prNumber) ?? defaultReviewModeView(item?.effort)}
                     onActiveTabChange={(view) => views.set(entry.prNumber, view)}
                     guideEnabled={item?.effort?.band !== "quick"}

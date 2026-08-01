@@ -6,6 +6,8 @@
   import { useScope, useKeybinding } from '../../lib/keybindings/use-keybinding.svelte'
   import { comboHint } from '../../lib/keybindings/manifest'
   import { requestInputFocus } from '../../lib/inputFocus'
+  import { track } from '../../lib/analytics'
+  import { sanitizeCommandId } from '../../../shared/analytics-events'
   import { cn } from '../../lib/utils'
   import {
     filterCommands,
@@ -112,6 +114,7 @@
     open = false
     page = null
     query = ''
+    track('palette_command_run', { command_id: sanitizeCommandId(cmd.id) })
     cmd.run?.()
   }
 

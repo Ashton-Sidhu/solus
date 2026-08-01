@@ -2,6 +2,7 @@ import { createContext } from 'svelte'
 import { KEYBINDINGS, type BindingId } from './manifest'
 import { comboFromEvent, comboIsTextInput, defaultCombo, eventMatches, isMac } from './match'
 import type { BindingDef, Handler, KeyCombo, RegisterOptions, Scope } from './types'
+import { track } from '../analytics'
 
 type ScopeEntry = { scope: Scope; exclusive: boolean }
 type HandlerEntry = { handler: Handler; opts: RegisterOptions }
@@ -129,6 +130,11 @@ export class KeybindingsContext {
                 `Its accent character may leak into the input. Rebind to a non-dead key.`,
             )
           }
+          track('keybinding_used', {
+            binding_id: id,
+            scope,
+            overridden: this.overrides[id] !== undefined,
+          })
           void Promise.resolve(entry.handler())
           return
         }

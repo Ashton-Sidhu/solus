@@ -13,7 +13,7 @@
   } from "phosphor-svelte";
   import type { PullRequestSummary } from "../../../shared/providers";
   import type { IpcContext } from "../../../shared/types";
-  import { getWorkspaceContext, toasts, runtime, getSessionSidebarStore } from "../../contexts";
+  import { getWorkspaceContext, getSettingsContext, toasts, runtime, getSessionSidebarStore } from "../../contexts";
   import {
     useKeybinding,
     useScope,
@@ -41,6 +41,7 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   const session = getWorkspaceContext();
+  const settings = getSettingsContext();
   const sessionSidebar = getSessionSidebarStore();
   const store = session.prsStore;
   const stacks = session.stacksStore;
@@ -155,7 +156,7 @@
     return activeProjectPath.split("/").filter(Boolean).pop() ?? "";
   });
 
-  const stackGraph = $derived(stacksReady ? stacks.graphFor() : null);
+  const stackGraph = $derived(settings.stackedPrsEnabled && stacksReady ? stacks.graphFor() : null);
   const groupedRows = $derived(groupStackedPrRows(filtered, stackGraph));
   const listNavigationItems = $derived(groupedRows.map((row) => row.pr));
 
@@ -231,11 +232,7 @@
   $effect(() => {
     const secondary = session.panes.secondaryContent;
     const reviewNumber =
-      secondary.kind === "pr-review"
-        ? secondary.pr.number
-        : secondary.kind === "pr-review-loading"
-          ? secondary.number
-          : null;
+      secondary.kind === "pr-review" ? secondary.target.number : null;
 
     if (reviewNumber !== null) {
       dockedReviewNumber = reviewNumber;
@@ -332,10 +329,7 @@
     selectedNumber = null;
     activeNumber = null;
     const review = session.panes.secondaryContent;
-    if (
-      (review.kind === "pr-review" && review.pr.number === number) ||
-      (review.kind === "pr-review-loading" && review.number === number)
-    ) {
+    if (review.kind === "pr-review" && review.target.number === number) {
       session.panes.closeSlot("secondary");
     }
   }
@@ -445,7 +439,7 @@
     if (!pr) return;
     await session.dockPrReview(pr.number, pr.title, { ctx: prsCtx() });
     const review = session.panes.secondaryContent;
-    if (review.kind === "pr-review" && review.pr.number === pr.number) {
+    if (review.kind === "pr-review" && review.target.number === pr.number) {
       session.panes.maximized = true;
       requestInputFocus();
     }

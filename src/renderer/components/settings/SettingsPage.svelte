@@ -12,6 +12,7 @@
     GithubLogoIcon,
     NotePencilIcon,
     FolderIcon,
+    FlaskIcon,
   } from "phosphor-svelte";
   import {
     getWorkspaceContext,
@@ -30,6 +31,7 @@
   import SettingsTabTools from "./SettingsTabTools.svelte";
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
+  import SettingsTabExperimental from "./SettingsTabExperimental.svelte";
   import SettingsTabProjects from "./SettingsTabProjects.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -47,6 +49,7 @@
     | "tools"
     | "skills"
     | "voice"
+    | "experimental"
     | "projects"
     | "keybindings";
 
@@ -134,9 +137,16 @@
     {
       id: "voice",
       label: "Voice",
-      description: "Dictation behaviour and the on-device speech model.",
+      description: "The on-device speech model used for dictation.",
       icon: MicrophoneIcon,
       group: "Input",
+    },
+    {
+      id: "experimental",
+      label: "Experimental",
+      description: "Opt in to beta features that may change or be removed.",
+      icon: FlaskIcon,
+      group: "Advanced",
     },
   ];
 
@@ -219,6 +229,8 @@
     <SettingsTabReview {searchQuery} />
   {:else if session.settingsTab === "voice"}
     <SettingsTabVoice />
+  {:else if session.settingsTab === "experimental"}
+    <SettingsTabExperimental {searchQuery} />
   {:else if session.settingsTab === "github"}
     <GitHubConnect />
   {:else if session.settingsTab === "api-access"}

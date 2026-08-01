@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { parseTailscalePeerCandidates } from '../../src/main/server/endpoints'
-import { parseLanDiscoveryMessage } from '../../src/main/server/lan-discovery'
+import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '../../src/main/server/lan-discovery'
 import {
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,
@@ -10,6 +10,12 @@ import {
 import type { DiscoveredServer } from '../../src/shared/types'
 
 describe('server discovery', () => {
+  test('disables LAN discovery for tests and explicitly isolated app runs', () => {
+    expect(isLanDiscoveryDisabled({ SOLUS_TEST_MODE: '1' })).toBe(true)
+    expect(isLanDiscoveryDisabled({ SOLUS_NO_LAN_DISCOVERY: '1' })).toBe(true)
+    expect(isLanDiscoveryDisabled({})).toBe(false)
+  })
+
   test('accepts a valid LAN discovery response', () => {
     const response = {
       protocol: 'solus-discovery',

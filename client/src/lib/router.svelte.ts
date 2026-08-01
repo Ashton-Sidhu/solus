@@ -4,6 +4,8 @@ type Route =
   | { name: 'plans' }
   | { name: 'settings'; tab?: string }
 
+import { track } from '@renderer/lib/analytics'
+
 class Router {
   current: Route = $state(parseHash(location.hash))
 
@@ -12,6 +14,7 @@ class Router {
   start() {
     this.listener = () => {
       this.current = parseHash(location.hash)
+      track('route_viewed', { route: this.current.name })
     }
     window.addEventListener('hashchange', this.listener)
     this.current = parseHash(location.hash)

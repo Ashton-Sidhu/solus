@@ -1,4 +1,4 @@
-import { analytics } from './analytics'
+import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 
 // Audio is held back from the buffer until a chunk crosses this rms — leading
@@ -97,7 +97,7 @@ export class VoiceRecorder {
     this.#setError(null, null)
     this.#cancelled = false
 
-    analytics.voiceRecordingStarted()
+    track('voice_recording_started', {})
 
     let stream: MediaStream
     try {

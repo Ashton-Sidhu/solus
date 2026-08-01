@@ -1,15 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { homedir } from 'os'
 import { join } from 'path'
 import { createLogger } from '../logger'
+import { solusDir } from '../platform/paths'
 
 const log = createLogger('main', 'server-settings')
 
-const SOLUS_DIR = process.env.SOLUS_DATA_DIR || join(homedir(), '.solus')
+const SOLUS_DIR = solusDir()
 const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 
 export interface ServerSettings {
   remoteAccess: boolean
+  /** Absent means analytics remain enabled for installations created before this setting. */
+  analytics?: boolean
   name?: string
   /**
    * Where projects live on this host: what "Open project" lists, and where its
@@ -19,7 +21,7 @@ export interface ServerSettings {
 }
 
 const DEFAULT_SETTINGS: ServerSettings = {
-  remoteAccess: false,
+  remoteAccess: true,
 }
 
 let _settings: ServerSettings | null = null
@@ -33,6 +35,7 @@ export function getServerSettings(): ServerSettings {
       const parsed = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
+        analytics: typeof parsed?.analytics === 'boolean' ? parsed.analytics : undefined,
         name: normalizeServerName(parsed?.name),
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
       }
@@ -49,6 +52,13 @@ export function getServerSettings(): ServerSettings {
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
   _settings = { ...getServerSettings(), remoteAccess }
   persistSettings(_settings)
+  return _settings
+}
+
+export function setAnalyticsConsent(analytics: boolean): ServerSettings {
+  _settings = { ...getServerSettings(), analytics }
+  persistSettings(_settings)
+  log.info('analytics_consent_changed', { analytics })
   return _settings
 }
 

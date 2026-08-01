@@ -13,6 +13,7 @@ import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
 import { launchInTerminal } from '../../terminal-launcher'
 import { getCliEnv } from '../../cli-env'
 import { createLogger } from '../../logger'
+import { solusDir } from '../../platform/paths'
 import { getFinder, refreshFinder } from '../file-finder'
 import { sortDirEntries } from './filesystem-handlers'
 import type { SolusServer } from '../server'
@@ -44,7 +45,7 @@ export interface FileDeps {
 
 const PROJECT_FILES_MAX_ENTRIES = 25_000
 const IS_DEV_MODE = Boolean(process.env.ELECTRON_RENDERER_URL)
-const VOICE_TRANSCRIPTIONS_CSV = join(homedir(), '.solus', 'voice-transcriptions.csv')
+const VOICE_TRANSCRIPTIONS_CSV = join(solusDir(), 'voice-transcriptions.csv')
 const VOICE_TRANSCRIPTIONS_CSV_HEADER = [
   'session_index',
   'first_started_at',

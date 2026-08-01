@@ -3,6 +3,7 @@
   import { claimServer, defaultDeviceLabel, pairServer, urlHost } from "@client-core/pairing";
   import { classifyConnectInput, probeServer } from "../lib/connect";
   import { toasts } from "../lib/toast.store.svelte";
+  import { track } from "@renderer/lib/analytics";
 
   interface Props {
     onConnect: (server: SavedServer) => void;
@@ -56,6 +57,7 @@
 
     busy = true;
     connectingServer = serverLabel || urlHost(classified.url);
+    let pairingMethod: "token" | "claim" = classified.kind === "link" ? "token" : "claim";
     try {
       let server: SavedServer;
       if (classified.kind === "link") {
@@ -82,6 +84,7 @@
             serverLabel: serverLabel || health.name,
           }));
         } else {
+          pairingMethod = "token";
           ({ server } = await pairServer({
             url: classified.url,
             pairToken: code,
@@ -91,11 +94,13 @@
         }
       }
       upsertServer(server);
+      track('pairing_completed', { method: pairingMethod });
       servers = loadServers();
       resetForm();
       view = "servers";
       onConnect(server);
     } catch (err) {
+      track('pairing_failed', { method: pairingMethod });
       toasts.error(err instanceof Error ? err.message : String(err));
     } finally {
       busy = false;

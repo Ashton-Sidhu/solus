@@ -4,6 +4,12 @@ import { hostname, networkInterfaces } from 'os'
 import { createLogger } from '../logger'
 import type { DiscoveredServer } from '../../shared/types'
 
+export function isLanDiscoveryDisabled(
+  env: { SOLUS_TEST_MODE?: string; SOLUS_NO_LAN_DISCOVERY?: string } = process.env,
+): boolean {
+  return env.SOLUS_TEST_MODE === '1' || env.SOLUS_NO_LAN_DISCOVERY === '1'
+}
+
 const log = createLogger('main', 'lan-discovery')
 
 const DISCOVERY_PORT = 34117

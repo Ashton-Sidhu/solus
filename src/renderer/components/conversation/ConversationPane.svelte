@@ -102,12 +102,12 @@
   </div>
 
   <div class="flex min-h-0 min-w-0 flex-1">
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col pb-2">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <div class="flex min-h-0 flex-1 flex-col">
         <ConversationView {tabId} onDiffToggle={toggleDiff} forceVisible />
       </div>
 
-      <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-3">
+      <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5">
         <EditorInputCard
           class="mx-auto max-w-(--solus-reading-max)"
           {tabId}

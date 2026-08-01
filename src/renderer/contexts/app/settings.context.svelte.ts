@@ -11,18 +11,22 @@ import { MOBILE_QUERY } from './runtime.svelte'
 export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
-export type ProjectPanelSectionId = 'git' | 'run' | 'works' | 'automations' | 'tasks'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'run' | 'works' | 'automations' | 'tasks'
 export type SplitLayoutSettings = {
   splitTabId: string
   secondaryRatio: number
 }
 
 const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
+  // The section only exists while a goal is set, so it opens on arrival — a
+  // collapsed default would hide the thing the user just asked to see.
+  goal: false,
+  environment: false,
   git: false,
   run: false,
   works: false,
-  automations: false,
-  tasks: false,
+  automations: true,
+  tasks: true,
 }
 
 /** Default height (px) of the bottom run-log dock. */
@@ -46,6 +50,7 @@ export type SettingsFields = {
   reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
   reviewModel: string | null      // review companion model; null → backend default
   reviewReasoning: ReasoningEffort | null  // review companion reasoning effort; null → model default
+  stackedPrsEnabled: boolean
   generatePrGuidesOnOpen: boolean
   reviewWarmingByProject: Record<string, boolean>
   rateLimitBehavior: RateLimitBehavior
@@ -242,6 +247,7 @@ function loadSettings(): SettingsFields {
         reviewAgent: VALID_AGENTS.includes(parsed.reviewAgent) ? parsed.reviewAgent : null,
         reviewModel: typeof parsed.reviewModel === 'string' ? parsed.reviewModel : null,
         reviewReasoning: parsed.reviewReasoning in REASONING_EFFORT_LABELS ? parsed.reviewReasoning : null,
+        stackedPrsEnabled: typeof parsed.stackedPrsEnabled === 'boolean' ? parsed.stackedPrsEnabled : false,
         generatePrGuidesOnOpen: typeof parsed.generatePrGuidesOnOpen === 'boolean' ? parsed.generatePrGuidesOnOpen : false,
         reviewWarmingByProject: loadBooleanRecord(parsed.reviewWarmingByProject),
         rateLimitBehavior: (['ask', 'queue', 'continue', 'stop'].includes(parsed.rateLimitBehavior) ? parsed.rateLimitBehavior : 'ask') as RateLimitBehavior,
@@ -278,6 +284,7 @@ function loadSettings(): SettingsFields {
     reviewAgent: null,
     reviewModel: null,
     reviewReasoning: null,
+    stackedPrsEnabled: false,
     generatePrGuidesOnOpen: false,
     reviewWarmingByProject: {},
     rateLimitBehavior: 'ask',
@@ -313,6 +320,7 @@ export class SettingsContext {
   reviewAgent = $state<AgentId | null>(null)
   reviewModel = $state<string | null>(null)
   reviewReasoning = $state<ReasoningEffort | null>(null)
+  stackedPrsEnabled = $state(false)
   generatePrGuidesOnOpen = $state(false)
   reviewWarmingByProject = $state<Record<string, boolean>>({})
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
@@ -350,6 +358,7 @@ export class SettingsContext {
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
     this.reviewReasoning = saved.reviewReasoning
+    this.stackedPrsEnabled = saved.stackedPrsEnabled
     this.generatePrGuidesOnOpen = saved.generatePrGuidesOnOpen
     this.reviewWarmingByProject = saved.reviewWarmingByProject
     this.rateLimitBehavior = saved.rateLimitBehavior
@@ -396,6 +405,7 @@ export class SettingsContext {
       reviewAgent: this.reviewAgent,
       reviewModel: this.reviewModel,
       reviewReasoning: this.reviewReasoning,
+      stackedPrsEnabled: this.stackedPrsEnabled,
       reviewWarmingEnabled: false,
       worktreeEnabled: this.worktreeEnabled,
       rateLimitBehavior: this.rateLimitBehavior,
@@ -441,6 +451,7 @@ export class SettingsContext {
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
     if (patch.reviewReasoning !== undefined) this.reviewReasoning = patch.reviewReasoning
+    if (patch.stackedPrsEnabled !== undefined) this.stackedPrsEnabled = patch.stackedPrsEnabled
     if (patch.generatePrGuidesOnOpen !== undefined) this.generatePrGuidesOnOpen = patch.generatePrGuidesOnOpen
     if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
     if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
@@ -467,6 +478,9 @@ export class SettingsContext {
     if (patch.analyticsEnabled !== undefined) {
       this.analyticsEnabled = patch.analyticsEnabled
       setAnalyticsEnabled(patch.analyticsEnabled!)
+      if (window.solus.getPlatform() !== 'web') {
+        void window.solus.setAnalyticsConsent(patch.analyticsEnabled!).catch(() => {})
+      }
     }
     if (patch.projectPanelOpen !== undefined) this.projectPanelOpen = patch.projectPanelOpen
     if (patch.splitProjectPanelOpen !== undefined)
@@ -503,6 +517,7 @@ export class SettingsContext {
         reviewAgent: this.reviewAgent,
         reviewModel: this.reviewModel,
         reviewReasoning: this.reviewReasoning,
+        stackedPrsEnabled: this.stackedPrsEnabled,
         generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
         reviewWarmingByProject: this.reviewWarmingByProject,
         rateLimitBehavior: this.rateLimitBehavior,

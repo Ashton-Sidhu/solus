@@ -6,6 +6,7 @@
     ClipboardTextIcon,
     DesktopTowerIcon,
     GitForkIcon,
+    PlusCircleIcon,
     TreeStructureIcon,
   } from "phosphor-svelte";
   import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
@@ -26,6 +27,7 @@
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import TranscriptStatusRow from "./TranscriptStatusRow.svelte";
   import TurnActivityRow from "./TurnActivityRow.svelte";
+  import TurnEndDivider from "./TurnEndDivider.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
 
   import UserMessageBubble from "./UserMessageBubble.svelte";
@@ -34,7 +36,8 @@
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
-  import RelayStack from "./relay/RelayStack.svelte";
+  import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
+  import { agentsAwaitingReply } from "./agent-conversation/lib/agent-conversation";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
@@ -47,6 +50,7 @@
     findConversationMatches,
     type ConversationFindMatch,
   } from "./lib/find";
+  import { questionAnchorScrollTop } from "./lib/question-scroll";
   import { ConversationFindHighlighter } from "./lib/find-highlight";
   import { noticeText } from "./lib/transient";
   import {
@@ -150,11 +154,11 @@
   // row the reader just clicked up and off the top of the view.
   let holdScroll = false;
   let holdScrollTimer: ReturnType<typeof setTimeout> | null = null;
-  function holdScrollForToggle() {
+  function holdAutomaticScroll() {
     holdScroll = true;
     if (holdScrollTimer) clearTimeout(holdScrollTimer);
-    // Long enough for the revealed rows to measure — the same settle the
-    // bottom-pin allows itself below.
+    // Long enough for a newly revealed row or interrupt card to measure before
+    // the ResizeObserver is allowed to resume bottom pinning.
     holdScrollTimer = setTimeout(() => {
       holdScroll = false;
       holdScrollTimer = null;
@@ -381,10 +385,39 @@
     return `${msgCount}:${permLen}:${qLen}:${outbound}`;
   });
 
+  let previousQuestionCount = 0;
   $effect(() => {
     void scrollTrigger;
+    const questionCount = sess?.questionQueue?.length ?? 0;
+    const questionMounted =
+      previousQuestionCount === 0 && questionCount > 0;
+    previousQuestionCount = questionCount;
     if (isVisible && isNearBottom) {
-      requestAnimationFrame(pinToBottom);
+      if (questionMounted) {
+        // A question needs the turn that led to it. Keep a slice of that turn
+        // above the card instead of pinning the card's (potentially very tall)
+        // bottom to the viewport.
+        holdAutomaticScroll();
+        requestAnimationFrame(() => {
+          const el = scrollEl;
+          const card = el?.querySelector<HTMLElement>(
+            '[data-testid="question-card"]',
+          );
+          if (!el || !card || !isVisible) return;
+          const scrollRect = el.getBoundingClientRect();
+          const cardRect = card.getBoundingClientRect();
+          el.scrollTop = questionAnchorScrollTop(
+            el.scrollTop,
+            cardRect.top - scrollRect.top,
+            el.clientHeight,
+          );
+          // Keep card expansion and textarea growth from immediately undoing
+          // this context-preserving anchor.
+          isNearBottom = false;
+        });
+      } else {
+        requestAnimationFrame(pinToBottom);
+      }
     }
   });
 
@@ -574,7 +607,7 @@
   // choice then wins and survives transcript re-renders.
   const turnExpansion = new SvelteMap<string, boolean>();
   function toggleTurn(id: string, expanded: boolean) {
-    holdScrollForToggle();
+    holdAutomaticScroll();
     turnExpansion.set(id, !expanded);
   }
 
@@ -974,6 +1007,13 @@
               <!-- A steer leaves earlier turns live too, and only the last one is
                    where the run is actually working. -->
               {@const working = live && isLastTurn}
+              <!-- A stop says nothing about the work, so it never stands in for
+                   the summary row: the row reports what ran and discloses it,
+                   and the stop's own divider follows the turn's content below.
+                   A failure keeps its row either way — it carries the error. -->
+              {@const hasSummaryRow =
+                !live &&
+                (turn.body.length > 0 || turn.end?.kind === "failed")}
               {#if turn.lead}
                 {@render transcriptItem(turn.lead, skipMotion)}
               {/if}
@@ -981,14 +1021,16 @@
                    transcript below renders exactly as it always did.
                    Retry re-runs the last prompt, so only the last turn can
                    honestly offer it; an older stop is history. -->
-              {#if !live && (turn.body.length > 0 || turn.end)}
+              {#if hasSummaryRow}
                 <TurnActivityRow
                   {turn}
                   live={false}
                   {expanded}
                   attempt={isLastTurn ? (sess.retryAttempt ?? 1) : 1}
                   onToggle={() => toggleTurn(turn.id, expanded)}
-                  onRetry={turn.end && isLastTurn ? handleRetry : undefined}
+                  onRetry={turn.end?.kind === "failed" && isLastTurn
+                    ? handleRetry
+                    : undefined}
                 />
               {/if}
               <!-- Folding hides this block, it never unmounts it — so ending a
@@ -1014,6 +1056,7 @@
                         working={working && itemIdx === turn.body.length - 1}
                         {activityLabel}
                         turnStart={working ? sess.currentTurnStart : null}
+                        waitingOn={working ? agentsAwaitingReply(turn.body) : []}
                       />
                     {:else}
                       {@render transcriptItem(item, skipMotion)}
@@ -1030,12 +1073,21 @@
                   {/each}
                 </div>
               {/if}
-              {#if !live && turn.tail.length > 0 && (turn.body.length > 0 || turn.end)}
+              {#if hasSummaryRow && turn.tail.length > 0}
                 <div class="turn-rule"></div>
               {/if}
               {#each turn.tail as item (itemKey(item))}
                 {@render transcriptItem(item, skipMotion)}
               {/each}
+              <!-- §17's transient endings, in the place they happened: after
+                   everything the turn produced, never in front of it. -->
+              {#if !live && turn.end && turn.end.kind !== "failed"}
+                <TurnEndDivider
+                  end={turn.end}
+                  onRetry={isLastTurn ? handleRetry : undefined}
+                  {skipMotion}
+                />
+              {/if}
               <!-- Only when nothing else is reporting the run: a tool group at
                    the tail already carries the spinner, and streaming text is
                    itself the evidence that work is happening. -->
@@ -1140,6 +1192,24 @@
                     Continued in worktree
                     {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
                   </TranscriptDivider>
+                {:else if item.message.newSessionForPlanId}
+                  <!-- The implementation run keeps none of the planning
+                       session's context, only the plan. Stating that is what
+                       separates a deliberate restart from a lost thread. -->
+                  {@const acceptedPlan = planStore.get(
+                    item.message.newSessionForPlanId,
+                  )}
+                  <TranscriptDivider
+                    glyphClass="text-(--solus-accent)"
+                    titleClass="text-(--solus-accent)"
+                    timestamp={item.message.timestamp}
+                    testid="plan-new-session-message"
+                    {skipMotion}
+                  >
+                    {#snippet glyph()}<PlusCircleIcon size={12} />{/snippet}
+                    New session implementing
+                    {#snippet title()}"{acceptedPlan?.title || "the plan"}"{/snippet}
+                  </TranscriptDivider>
                 {:else}
                   <!-- Cancellations, interrupts and errors alike: centred between
                        hairlines, never a bubble and never tinted. A transient
@@ -1192,8 +1262,8 @@
                 />
               {:else if item.kind === "task" && item.message.taskRef}
                 <TaskRefCard ref={item.message.taskRef} {skipMotion} />
-              {:else if item.kind === "relay-group"}
-                <RelayStack messages={item.messages} {tabId} {skipMotion} />
+              {:else if item.kind === "agent-conversation-group"}
+                <AgentConversationGroup messages={item.messages} {tabId} {skipMotion} />
               {:else if item.kind === "artifact" && item.message.artifact}
                 <ArtifactView artifact={item.message.artifact} {skipMotion} />
               {/if}
@@ -1297,6 +1367,18 @@
   .cv-list > :global(*) {
     content-visibility: auto;
     contain-intrinsic-size: auto 3rem;
+  }
+
+  /* content-visibility implies paint containment, which clips a child to its
+     padding box. An activity row's chassis bleeds into the column gutter so its
+     ends can round, and the clip was shearing those ends flat — the same trap
+     the rail hit below. These rows are a few spans and an icon, so there is
+     nothing worth skipping in them anyway. */
+  .cv-list > :global(.activity-block),
+  .cv-list > :global(.activity-host),
+  .turn-body > :global(.activity-host) {
+    content-visibility: visible;
+    contain-intrinsic-size: auto;
   }
 
   /* Pill mode provides the margin needed by the side-mounted message rails. */

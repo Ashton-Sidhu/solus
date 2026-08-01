@@ -20,6 +20,7 @@
     ListChecksIcon,
     GitPullRequestIcon,
     ChatsIcon,
+    BinocularsIcon,
   } from "phosphor-svelte";
   import type { PinnedSession } from "../../../shared/types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
@@ -35,6 +36,7 @@
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { sessionGuideStatusStore } from "../review/session-guide-status.store.svelte";
 
   interface Props {
     open?: boolean;
@@ -213,6 +215,13 @@
     session.openTabInSplit(tabId);
     onSessionSelect?.();
   }
+
+  function isReviewRunning(tabId: string | null | undefined): boolean {
+    return !!tabId && sessionGuideStatusStore.isRunningFor(
+      session.apiFor(tabId),
+      session.sessionFor(tabId),
+    );
+  }
 </script>
 
 {#snippet pinnedSection()}
@@ -226,6 +235,7 @@
           {#each sidebarStore.pinnedSessions as pin (pin.sessionId)}
             {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
             {@const isActive = !!openTabId && openTabId === session.activeTabId}
+            {@const reviewRunning = isReviewRunning(openTabId)}
             <Sidebar.MenuItem>
               <Sidebar.MenuButton
                 class="gap-1.5 rounded-[0.4375rem] border border-transparent pl-8 pr-8 font-normal active:scale-[0.96] {focusRing} {isActive
@@ -249,6 +259,9 @@
                     : 'text-[color-mix(in_srgb,var(--solus-text-primary)_62%,var(--solus-text-secondary))]'}"
                   >{pin.title}</span
                 >
+                {#if reviewRunning}
+                  {@render reviewMark()}
+                {/if}
               </Sidebar.MenuButton>
               <Sidebar.MenuAction
                 class="pointer-events-none opacity-0 transition-[opacity,background-color,color] duration-150 group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 group-focus-within/menu-item:pointer-events-auto group-focus-within/menu-item:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
@@ -489,11 +502,21 @@
         {/if}
       {/if}
     {/snippet}
+    {#snippet reviewMark()}
+      <span
+        class="flex flex-shrink-0 items-center justify-center leading-none text-(--solus-accent) group-hover:hidden"
+        title="Review running"
+        aria-label="Review running"
+      >
+        <BinocularsIcon size={11} weight="bold" />
+      </span>
+    {/snippet}
     <Sidebar.Menu class="gap-1">
       {#each sidebarStore.projectBranchGroups as pg (pg.projectKey)}
         {@const groupKey = `project:${pg.projectKey}`}
         {@const collapsed = collapsedGroups.has(groupKey)}
         {@const projectTabIds = pg.branches.flatMap((b) => b.tabIds)}
+        {@const projectReviewRunning = projectTabIds.some(isReviewRunning)}
         {@const isProjectActive = projectTabIds.includes(session.activeTabId)}
         {@const showProjectActive = isProjectActive && collapsed}
         <Sidebar.MenuItem>
@@ -522,6 +545,9 @@
             {#if collapsed && pg.attention}
               {@render attentionMark(pg.attention)}
             {/if}
+            {#if collapsed && projectReviewRunning}
+              {@render reviewMark()}
+            {/if}
             {@render rowActions(projectTabIds, pg.projectLabel, true)}
           </div>
           {#if !collapsed}
@@ -535,6 +561,7 @@
                   session.activeTabId,
                 )}
                 {@const showBranchActive = isActiveBranch && !isExpanded}
+                {@const branchReviewRunning = branch.tabIds.some(isReviewRunning)}
                 <div
                   class="group flex items-center gap-2 w-full h-8 px-2 rounded-[0.4375rem] border cursor-pointer outline-none font-secondary text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showBranchActive
                     ? `${rowActiveWash} ${rowActiveHoverWash} text-(--solus-text-primary)`
@@ -590,6 +617,9 @@
                   {#if branch.attention && !isExpanded}
                     {@render attentionMark(branch.attention)}
                   {/if}
+                  {#if branchReviewRunning && !isExpanded}
+                    {@render reviewMark()}
+                  {/if}
                   <button
                     class="flex-shrink-0 flex items-center justify-center size-[1.125rem] rounded bg-transparent text-(--solus-text-tertiary) cursor-pointer p-0 outline-none transition-[color,background,transform] duration-150 hover:text-(--solus-text-primary) hover:bg-(--solus-surface-hover) {focusRing} {isExpanded
                       ? 'rotate-90'
@@ -621,6 +651,7 @@
                       {@const child = sidebarStore.childForTab(tabId)}
                       {@const showChildActive = isActiveBranch && child.active}
                       {@const hostAffinity = serversStore.affinityFor(child.serverId)}
+                      {@const reviewRunning = isReviewRunning(tabId)}
                       <div
                         class="group flex items-center gap-1.5 w-full h-8 pl-7 pr-2 rounded-[0.4375rem] border cursor-pointer text-[0.8125rem] outline-none font-secondary text-(--solus-text-secondary) transition-[background,border-color,color] duration-150 {focusRing} {showChildActive
                           ? `${rowActiveWash} text-(--solus-text-primary)`
@@ -668,6 +699,9 @@
                         {/if}
                         {#if child.attention}
                           {@render attentionMark(child.attention)}
+                        {/if}
+                        {#if reviewRunning}
+                          {@render reviewMark()}
                         {/if}
                         {@render rowActions([tabId], child.label, false, true)}
                       </div>

@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import { fly } from "svelte/transition";
-  import { XIcon, ArrowUpIcon } from "phosphor-svelte";
+  import { XIcon } from "phosphor-svelte";
   import type { Editor } from "@tiptap/core";
   import type { PlanComment, PlanCommentReply } from "../../../shared/types";
   import { uuid } from "../../../shared/uuid";
   import { portal } from "../portal";
-  import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { MarkdownTextarea } from "../ui/markdown-field";
   import { Button } from "../ui/button";
   import { toasts } from "../../contexts";
+  import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import type { BindingId } from "../../lib/keybindings/manifest";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
   import PlanCommentPopover from "../plan/PlanCommentPopover.svelte";
   import { commentMarkPositions, measureAnchors, type MeasuredAnchor } from "./lib/anchors";
-  import { openThreads } from "./lib/thread";
   import {
     addCommentMark,
     removeCommentMark,
@@ -22,7 +22,6 @@
     findMarkElement,
     scrollAndFlashMark,
     resolveHoveredComment,
-    isUserSelection,
   } from "../plan/lib/comments";
 
   interface Props {
@@ -35,7 +34,12 @@
     onReply: (commentId: string, reply: PlanCommentReply) => void;
     onResolve: (commentId: string, resolved: boolean) => void;
     onRead: (commentId: string) => void;
-    onSendToAgent: () => void | Promise<void>;
+    /** Shortcut that opens the form on the live selection. Each host owns its
+     *  own scope, so the binding is named by the host rather than assumed. */
+    startCommentBinding: BindingId;
+    /** Action bar pinned below the threads. The margin holds whatever the
+     *  surface does with a round of feedback — send it, or nothing at all. */
+    footer?: Snippet;
     /** Persist content edits before a comment mark is added (avoids mark leak). */
     flushSave?: () => Promise<void>;
     /** Bound to the shell so mark mutations never trigger an autosave. */
@@ -66,7 +70,8 @@
     onReply,
     onResolve,
     onRead,
-    onSendToAgent,
+    startCommentBinding,
+    footer,
     flushSave,
     suppressSave = $bindable(false),
     canComment = $bindable(false),
@@ -102,17 +107,34 @@
 
   let activeRailCommentId = $state<string | null>(null);
   let hoveredRailCommentId = $state<string | null>(null);
+  let hoveredMarkId = $state<string | null>(null);
   let editingCommentId = $state<string | null>(null);
 
   const railVisible = $derived(railOpen && comments.length > 0 && !railFolded);
 
   /**
-   * Focus is mutual: the focused thread's highlight is deepened in the text, so
-   * the conversation the margin is showing is findable in the prose without
-   * reading the margin. Hovering a card previews the same thing — hover is not
-   * a state, so it never survives the pointer leaving.
+   * Focus is mutual, and so is hover: the focused thread's highlight is deepened
+   * in the text, so the conversation the margin is showing is findable in the
+   * prose without reading the margin — and hovering either end previews the
+   * other. Hover is not a state, so it never survives the pointer leaving.
    */
-  const highlightedCommentId = $derived(hoveredRailCommentId ?? activeRailCommentId);
+  const highlightedCommentId = $derived(
+    hoveredRailCommentId ?? hoveredMarkId ?? activeRailCommentId,
+  );
+  const focusedCardId = $derived(hoveredMarkId ?? activeRailCommentId);
+
+  // Hovering a highlight lights up its card in the margin — the reverse of the
+  // rail's own hover, which deepens the highlight.
+  $effect(() => {
+    const el = scrollContainer;
+    if (!el) return;
+    const onOver = (e: MouseEvent) => {
+      hoveredMarkId = resolveHoveredComment(e, comments)?.comment.id ?? null;
+    };
+    el.addEventListener("pointerover", onOver);
+    return () => el.removeEventListener("pointerover", onOver);
+  });
+
   $effect(() => {
     const el = scrollContainer;
     // Marks are re-created whenever the doc or the comment set changes, so the
@@ -185,19 +207,9 @@
     };
   });
 
-  // Mirror the standard submit-to-agent flow (InputBar / diff feedback): guard
-  // against double-sends while the chat tab is being opened.
-  let submitting = $state(false);
-  const openCount = $derived(openThreads(comments).length);
-  async function handleSend() {
-    if (submitting || openCount === 0) return;
-    submitting = true;
-    try {
-      await onSendToAgent();
-    } finally {
-      submitting = false;
-    }
-  }
+  useKeybinding(() => startCommentBinding, () => startComment(), {
+    enabled: () => canComment,
+  });
 
   // Wire selection tracking + initial mark restore whenever the editor changes.
   let wiredEditor: Editor | null = null;
@@ -206,9 +218,12 @@
     if (!ed || ed === wiredEditor) return;
     wiredEditor = ed;
     ed.on("selectionUpdate", () => {
-      // Only surface the comment affordance for a real cursor selection — ignore
-      // programmatic ones (find/replace, mark restore, agent rewrites).
-      if (!isUserSelection(ed)) {
+      // Focus is the whole gate, and it is the same rule the selection bubble
+      // draws itself by — so Comment is never missing from a bubble that is on
+      // screen. The programmatic selections this has to ignore (find/replace,
+      // mark restore, agent rewrites) all move the selection while the caret
+      // lives somewhere else.
+      if (!ed.view.hasFocus()) {
         selectionRange = null;
         return;
       }
@@ -276,10 +291,13 @@
   /** Called by the host when the selection bubble's Comment action is used. */
   export function startComment() {
     if (!selectionRange) return;
+    // Clamped to the window: a document in a right-hand pane makes its
+    // selections sit near the screen edge, where an unclamped form opens off it.
+    const width = Math.min(500, window.innerWidth - 32);
     commentFormAnchor = {
-      left: selectionRange.left,
+      left: Math.max(16, Math.min(selectionRange.left, window.innerWidth - width - 16)),
       top: selectionRange.bottom + 8,
-      width: 500,
+      width,
     };
     commentInput = "";
   }
@@ -498,7 +516,7 @@
   <div class="cl-rail-sleeve" transition:fly={{ x: 264, duration: 200, opacity: 0 }}>
     <PlanCommentsRail
       {comments}
-      activeCommentId={activeRailCommentId}
+      activeCommentId={focusedCardId}
       {editingCommentId}
       placement="anchored"
       {anchors}
@@ -517,35 +535,8 @@
       }}
       onCancelEdit={() => (editingCommentId = null)}
       onDelete={handleDeleteComment}
-      onClose={() => (railOpen = false)}
-    >
-      {#snippet footer()}
-        <div class="cl-send-bar">
-          <span class="cl-send-bar__hint">
-            {openCount} open thread{openCount === 1 ? "" : "s"}
-          </span>
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props: tooltipProps })}
-                <span {...tooltipProps} class="inline-flex">
-            <Button
-              size="icon"
-              class="rounded-full"
-              data-testid="send-comments"
-              disabled={submitting || openCount === 0}
-              onclick={handleSend}
-              aria-label="Send comments to agent"
-            >
-              <ArrowUpIcon size={16} weight="bold" />
-            </Button>
-          </span>
-              {/snippet}
-            </TooltipUI.Trigger>
-            <TooltipUI.Content value={"Send to agent"} />
-          </TooltipUI.Root>
-        </div>
-      {/snippet}
-    </PlanCommentsRail>
+      {footer}
+    />
   </div>
 {/if}
 
@@ -595,23 +586,5 @@
        viewport's edge, so nothing is drawn between the prose and its margin. */
     padding-right: 1.5rem;
     background: transparent;
-  }
-  /* Submit lives at the bottom of the comments rail and uses the canonical accent
-     send button shared with the input bar and diff-feedback composer, so sending
-     comments to the agent looks and feels identical to every other page. */
-  .cl-send-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    /* A hairline, not a footer bar — the margin has no second surface in it. */
-    margin-top: 0.5rem;
-    padding: 0.625rem 0.125rem 0;
-    border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
-  }
-  .cl-send-bar__hint {
-    font-size: 0.6875rem;
-    color: var(--solus-text-tertiary);
-    font-variant-numeric: tabular-nums;
   }
 </style>

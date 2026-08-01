@@ -124,7 +124,8 @@
       color: "var(--solus-text-primary)",
       backgroundColor: "transparent",
       fontFamily: "inherit",
-      fontSize: "calc(0.8125rem * var(--solus-font-scale, 1))",
+      fontSize:
+        "calc(var(--plain-editor-font-size, 0.8125rem) * var(--solus-font-scale, 1))",
       fontWeight: "var(--solus-font-weight-body, 400)",
     },
     "&.cm-focused": { outline: "none" },
@@ -132,7 +133,11 @@
       maxHeight: "var(--plain-editor-max-height, 8.75rem)",
       overflowY: "auto",
       fontFamily: "inherit",
-      lineHeight: "1.375rem",
+      // The font's own leading, which is also the box the browser draws the
+      // caret from beside a character. Any looser and the caret standing on an
+      // empty line — where it takes the whole line box — is visibly taller than
+      // the one that replaces it on the first keystroke.
+      lineHeight: "normal",
       scrollbarWidth: "auto",
     },
     ".cm-scroller::-webkit-scrollbar": {
@@ -156,20 +161,22 @@
         "color-mix(in srgb, var(--solus-text-secondary) 58%, transparent)",
     },
     ".cm-content": {
-      minHeight: "1.25rem",
-      padding: "0.75rem 0 0.75rem 0.25rem",
+      // The floor for an empty editor. A host that wants a taller resting well
+      // raises it; the composers instead size their well from symmetric
+      // padding, so the first line sits centred in it.
+      minHeight: "var(--plain-editor-min-height, 1.25rem)",
+      // The room the tightened leading gives up comes back here, so a one-line
+      // composer stands the height it always has.
+      padding: "var(--plain-editor-padding, 0.9375rem 0 0.9375rem 0.25rem)",
+      // The caret is text, so it takes the text's colour — never the accent.
       caretColor: "currentColor",
       wordBreak: "break-word",
       whiteSpace: "pre-wrap",
     },
     ".cm-line": { padding: "0" },
-    ".cm-placeholder": {
-      color: "var(--solus-placeholder)",
-      fontStyle: "normal",
-    },
-    ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: "currentColor",
-    },
+    // Colour only: inheriting the line's own metrics is what lands the
+    // placeholder's first character exactly where the first typed one goes.
+    ".cm-placeholder": { color: "var(--solus-placeholder)" },
   });
 
   function isCompositionEvent(event: KeyboardEvent): boolean {

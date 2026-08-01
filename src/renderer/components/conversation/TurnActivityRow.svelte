@@ -1,13 +1,6 @@
 <script lang="ts">
-  import {
-    ArrowCounterClockwiseIcon,
-    MinusIcon,
-    SquareIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+  import { ArrowCounterClockwiseIcon, WarningCircleIcon } from "phosphor-svelte";
   import ActivityRow from "./ActivityRow.svelte";
-  import TranscriptDivider from "./TranscriptDivider.svelte";
-  import { NO_REPLY_LABEL } from "./lib/transient";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
     activityKinds,
@@ -27,9 +20,14 @@
   /**
    * §16 — one row per turn, and never two. The live row and the summary row are
    * the same row: it rewrites itself in place when the turn ends, so a running
-   * indicator and a finished summary can never appear stacked. §17 gives it two
-   * more endings — a stop is a divider, while a failure keeps the row's
-   * geometry and adds its complete error, retry context, and one button.
+   * indicator and a finished summary can never appear stacked. §17's failure is
+   * the one ending it takes on itself, keeping the row's geometry and adding the
+   * complete error, retry context, and one button.
+   *
+   * A stop and a no-reply are not endings this row describes — they are events
+   * that closed the turn, and TurnEndDivider reports them after the turn's
+   * content. So the row keeps summarising and disclosing the work either way:
+   * being stopped never costs the reader the transcript of what ran.
    */
   interface Props {
     turn: Turn;
@@ -56,7 +54,12 @@
     onRetry,
   }: Props = $props();
 
-  const state = $derived(live ? "live" : (turn.end?.kind ?? "done"));
+  // Three states, because a stop and a no-reply say nothing about the work the
+  // row reports — the run did what it did, and then it was cut short. Their
+  // divider states the ending below, in the order the two things happened.
+  const state = $derived(
+    live ? "live" : turn.end?.kind === "failed" ? "failed" : "done",
+  );
   // A turn with nothing folded away keeps the chevron's slot — for the
   // geometry — but has nothing to open.
   // The error is part of the failed row now, not hidden detail. Only actual
@@ -127,103 +130,75 @@
 
 {#snippet liveTargetText()}{liveTarget}{/snippet}
 
-{#snippet stopGlyph()}<SquareIcon size={9} weight="bold" />{/snippet}
-
-{#snippet noReplyGlyph()}<MinusIcon size={10} weight="bold" />{/snippet}
-
-{#snippet dividerRetry()}
-  <button type="button" class="divider-action" onclick={onRetry}>
-    <ArrowCounterClockwiseIcon size={10} />{RETRY_LABEL}
-  </button>
-{/snippet}
-
 {#snippet rowRetry()}
   <button type="button" class="turn-action" onclick={onRetry}>
     <ArrowCounterClockwiseIcon size={11} />{RETRY_LABEL}
   </button>
 {/snippet}
 
-{#if state === "stopped" || state === "no-reply"}
-  <!-- §17 — the user stopped it, so the surface is the divider and the retry is
-       one ghost segment inside the pill. Never a second element under it. §1 puts
-       a turn that answered nothing in the same family, on the same surface. -->
-  <TranscriptDivider
-    glyph={state === "no-reply" ? noReplyGlyph : stopGlyph}
-    timestamp={turn.end?.timestamp}
-    action={onRetry ? dividerRetry : undefined}
-    testid="turn-row-{state}"
-  >
-    {#if state === "no-reply"}
-      {NO_REPLY_LABEL}
+<ActivityRow
+  {expanded}
+  onToggle={canExpand ? onToggle : undefined}
+  stacked={state === "failed"}
+  glyphClass={state === "failed" ? "is-destructive" : ""}
+  target={state === "live" && liveTarget ? liveTargetText : undefined}
+  actions={state === "failed" && onRetry ? rowRetry : undefined}
+  testid="turn-row-{state}"
+>
+  {#snippet glyph()}
+    {#if state === "live"}
+      {#if waiting}
+        <span class="activity-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+      {:else}
+        <span class="activity-spinner" aria-hidden="true"></span>
+      {/if}
+    {:else if state === "failed"}
+      <WarningCircleIcon size={14} />
     {:else}
-      Stopped{turn.end?.cause ? ` ${turn.end.cause}` : ""}
+      {#each kinds as kind (kind)}
+        {@const Glyph = KIND_ICONS[kind]}
+        <Glyph size={14} />
+      {/each}
     {/if}
-  </TranscriptDivider>
-{:else}
-  <ActivityRow
-    {expanded}
-    onToggle={canExpand ? onToggle : undefined}
-    stacked={state === "failed"}
-    glyphClass={state === "failed" ? "is-destructive" : ""}
-    target={state === "live" && liveTarget ? liveTargetText : undefined}
-    actions={state === "failed" && onRetry ? rowRetry : undefined}
-    testid="turn-row-{state}"
-  >
-    {#snippet glyph()}
-      {#if state === "live"}
-        {#if waiting}
-          <span class="activity-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-        {:else}
-          <span class="activity-spinner" aria-hidden="true"></span>
+  {/snippet}
+
+  {#snippet label()}
+    {#if state === "live"}
+      <span class:activity-shimmer={!waiting}>{liveLabel}</span>
+    {:else if state === "done"}
+      Worked{duration ? " for " : ""}<span class="turn-figure">{duration}</span>
+    {:else}
+      <!-- The error belongs inside this failed surface; the disclosure only
+           controls visible activity that led to it. Retry semantics already
+           live on the button, so the card does not repeat them. -->
+      <span class="turn-lines">
+        <span class="turn-ended-label">Failed</span>
+        {#if turn.end?.detail}
+          <span class="turn-error">{turn.end.detail}</span>
         {/if}
-      {:else if state === "failed"}
-        <WarningCircleIcon size={14} />
-      {:else}
-        {#each kinds as kind (kind)}
-          {@const Glyph = KIND_ICONS[kind]}
-          <Glyph size={14} />
-        {/each}
-      {/if}
-    {/snippet}
+        {#if filesTouched > 0}
+          <span class="turn-survived font-mono"
+            >{filesTouched} file{filesTouched === 1 ? "" : "s"} changed</span
+          >
+        {/if}
+      </span>
+    {/if}
+  {/snippet}
 
-    {#snippet label()}
-      {#if state === "live"}
-        <span class:activity-shimmer={!waiting}>{liveLabel}</span>
-      {:else if state === "done"}
-        Worked{duration ? " for " : ""}<span class="turn-figure">{duration}</span>
-      {:else}
-        <!-- The error belongs inside this failed surface; the disclosure only
-             controls visible activity that led to it. Retry semantics already
-             live on the button, so the card does not repeat them. -->
-        <span class="turn-lines">
-          <span class="turn-ended-label">Failed</span>
-          {#if turn.end?.detail}
-            <span class="turn-error">{turn.end.detail}</span>
-          {/if}
-          {#if filesTouched > 0}
-            <span class="turn-survived font-mono"
-              >{filesTouched} file{filesTouched === 1 ? "" : "s"} changed</span
-            >
-          {/if}
-        </span>
-      {/if}
-    {/snippet}
-
-    <!-- §16 — the rail counts, it never narrates: steps, then time. The count is
-         the only thing that says how much is folded behind the chevron. -->
-    {#snippet rail()}
-      {#if attempt > 1}
-        <span>attempt {attempt}</span>
-      {/if}
-      {#if steps > 0}
-        <span>{steps} step{steps === 1 ? "" : "s"}</span>
-      {/if}
-      {#if state !== "done"}
-        <span class="activity-rail-time">{duration}</span>
-      {/if}
-    {/snippet}
-  </ActivityRow>
-{/if}
+  <!-- §16 — the rail counts, it never narrates: steps, then time. The count is
+       the only thing that says how much is folded behind the chevron. -->
+  {#snippet rail()}
+    {#if attempt > 1}
+      <span>attempt {attempt}</span>
+    {/if}
+    {#if steps > 0}
+      <span>{steps} step{steps === 1 ? "" : "s"}</span>
+    {/if}
+    {#if state !== "done"}
+      <span class="activity-rail-time">{duration}</span>
+    {/if}
+  {/snippet}
+</ActivityRow>
 
 <style>
   /* The duration is the one figure worth scanning in a finished turn. */

@@ -2,6 +2,7 @@ import type EventEmitter from 'events'
 import type {
   AgentId,
   AgentMetadata,
+  AgentUsageLimits,
   EnrichedError,
   IpcContext,
   NormalizedEvent,
@@ -87,6 +88,8 @@ export interface AgentBackend extends EventEmitter {
   refreshPluginCommands(): Promise<void>
   /** Incrementally refreshes durable session metadata when the provider supports it. */
   refreshSessionIndex?(): Promise<void>
+  /** Subscription quota windows, when the provider exposes them. */
+  readUsageLimits?(): Promise<AgentUsageLimits | null>
 
   shutdown?(): void
   rewindFiles?(sessionId: string, checkpointId: string, projectPath: string): Promise<void>

@@ -12,11 +12,13 @@
     title: string;
     collapsed: boolean;
     onToggle: () => void;
+    headerDetail?: string;
     headerExtra?: Snippet;
     children: Snippet;
   }
 
-  let { title, collapsed, onToggle, headerExtra, children }: Props = $props();
+  let { title, collapsed, onToggle, headerDetail, headerExtra, children }: Props =
+    $props();
 
   function toggle() {
     onToggle();
@@ -40,7 +42,17 @@
       aria-expanded={!collapsed}
       onclick={toggle}
     >
-      <span class="inline-flex min-w-0 items-center truncate">{title}</span>
+      <span class="inline-flex min-w-0 items-baseline gap-1.5 truncate">
+        <span class="shrink-0">{title}</span>
+        {#if headerDetail}
+          <span
+            class="min-w-0 truncate text-[0.6875rem] font-normal tracking-normal text-(--solus-text-tertiary) normal-case"
+            aria-live="polite"
+          >
+            {headerDetail}
+          </span>
+        {/if}
+      </span>
     </button>
     {#if headerExtra}
       <!-- The header's trailing value is a reading, not a label: regular weight,

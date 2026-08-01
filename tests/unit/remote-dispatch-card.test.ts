@@ -5,11 +5,10 @@ import {
 } from '../../src/renderer/lib/remote-dispatch-card'
 
 describe('remote dispatch conversation card', () => {
-  test('shows connection and clone as the first stages of session startup', () => {
+  test('shows host-owned repository preparation as a session startup stage', () => {
     const card = buildRemoteDispatchCard({
       tabId: 'tab-1',
       hostLabel: 'Studio',
-      repositoryAction: 'clone',
       phase: 'repository',
     })
 
@@ -27,7 +26,6 @@ describe('remote dispatch conversation card', () => {
     const card = buildRemoteDispatchCard({
       tabId: 'tab-1',
       hostLabel: 'Studio',
-      repositoryAction: 'pull',
       phase: 'connecting',
       error: { step: 'connection', message: 'Host authentication expired.' },
     })
@@ -43,7 +41,6 @@ describe('remote dispatch conversation card', () => {
     const prepared = buildRemoteDispatchCard({
       tabId: 'tab-1',
       hostLabel: 'Studio',
-      repositoryAction: 'pull',
       phase: 'ready',
     })
     const merged = mergeRemoteDispatchProgress(prepared, {

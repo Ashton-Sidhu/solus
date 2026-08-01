@@ -1,6 +1,6 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { loadWork } from '../folio/works'
+import { solusDir } from '../platform/paths'
 import type { AutomationAction, Work } from '../../shared/types'
 
 // Mirrors the renderer's PromptComposer: plan/work references are rendered as
@@ -15,7 +15,7 @@ function workFilePath(work: Work): string {
       : work.storage.relativePath
     return join(base, fileName)
   }
-  return join(homedir(), '.solus', 'works', fileName)
+  return join(solusDir(), 'works', fileName)
 }
 
 /**

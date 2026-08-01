@@ -12,6 +12,8 @@
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
     onDesignMode?: (() => void) | null;
+    /** The bar's saved-prompts control, seated with the pickers it belongs with. */
+    savedPromptsControl?: Snippet;
     /** Extra controls appended to the right cluster (web: push bell, logout). */
     trailingActions?: Snippet;
   }
@@ -21,6 +23,7 @@
     onAttachFile,
     onScreenshot,
     onDesignMode,
+    savedPromptsControl,
     trailingActions,
   }: Props = $props();
 
@@ -33,10 +36,10 @@
 
 <!--
   Single input-bar toolbar row: add-files + mode + model pills on the left, the
-  project/usage/server cluster pushed right (before the bar's mic/send). Fed to
+  project/server cluster pushed right (before the bar's mic/send). Fed to
   InputBar via its `leadingActions` slot so it shares the row with mic/send.
 -->
-<div class="flex flex-1 min-w-0 items-center gap-2 px-1">
+<div class="flex flex-1 min-w-0 items-center gap-2">
   <AddFilesButton
     {onAttachFile}
     {onScreenshot}
@@ -45,6 +48,7 @@
   />
   <PermissionModePicker {tabId} />
   <SessionChip {tabId} />
+  {@render savedPromptsControl?.()}
 
   <div class="ml-auto flex min-w-0 items-center">
     <StatusBarControls {mode} {tabId} {trailingActions} />

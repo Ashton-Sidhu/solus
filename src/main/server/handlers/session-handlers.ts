@@ -9,7 +9,7 @@ import type { AgentId, AgentMetadata, HeadlessSessionRequest, IpcContext, Prompt
 import { AGENT_BIN } from '../../../shared/types'
 import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
-import { appVersion } from '../../platform/paths'
+import { appVersion, solusDir } from '../../platform/paths'
 import { warmFinder } from '../file-finder'
 import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
@@ -29,7 +29,7 @@ const _agentBinaryCache = new Map<AgentId, string | null>()
 // probe (and the async-warmed PATH lookup) entirely when the last-known binary
 // still exists on disk. A background re-probe still runs to self-heal moved/upgraded
 // binaries without blocking the `start` RPC on it.
-const SOLUS_DIR = join(homedir(), '.solus')
+const SOLUS_DIR = solusDir()
 const AGENT_BINARIES_FILE = join(SOLUS_DIR, 'agent-binaries.json')
 type PersistedAgentBinaries = Partial<Record<AgentId, string | null>>
 let _persistedBinaries: PersistedAgentBinaries | null = null
@@ -244,13 +244,13 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('respondPermission', (args) => {
     const [ctx, questionId, optionId, updatedPlan] = args as [IpcContext, string, string, string | undefined]
     log.info('rpc_respond_permission', { tabId: ctx.session.tabId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
-    return controlPlane.respondToPermission(ctx, questionId, optionId, updatedPlan)
+    return controlPlane.respondToPermission(questionId, optionId, updatedPlan)
   })
 
   server.register('respondQuestion', (args) => {
     const [ctx, questionId, answers] = args as [IpcContext, string, Record<string, string>]
     log.info('rpc_respond_question', { tabId: ctx.session.tabId, questionId })
-    return controlPlane.respondToQuestion(ctx, questionId, answers)
+    return controlPlane.respondToQuestion(questionId, answers)
   })
 
   server.register('rateLimitDecision', (args) => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { DownloadSimpleIcon } from "phosphor-svelte";
   import { setPopoverLayer } from "@renderer/components/popoverLayer.svelte";
   import {
@@ -17,6 +17,7 @@
     refreshTheme,
   } from "@renderer/contexts/app/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app/app-core";
+  import { subscribe } from "@client-core/connection-state";
   import { connectionsStore, serversStore, toasts as rendererToasts, runtime } from "@renderer/contexts";
   import { serverConnections } from "@client-core/server-connections";
   import { openProjectStore } from "@renderer/components/servers/open-project.store.svelte";
@@ -29,12 +30,55 @@
     installGlobalDispatcher,
   } from "@renderer/lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
+  import {
+    identifyInstallation,
+    initAnalytics,
+    registerSuperProps,
+    track,
+  } from "@renderer/lib/analytics";
   import { invalidateHomeCache } from "@renderer/components/layout/NewTabHome.svelte";
   import * as Tooltip from "@renderer/components/ui/tooltip";
   import WebLayout from "./components/WebLayout.svelte";
 
-  const { settings, planStore, runStore, sessionSidebarStore, session, agent, keybindings } =
-    createAppCore();
+  const {
+    settings,
+    windowCtx,
+    planStore,
+    runStore,
+    sessionSidebarStore,
+    session,
+    agent,
+    keybindings,
+  } = createAppCore();
+
+  const initialViewMode = windowCtx.viewMode;
+
+  initAnalytics({
+    enabled: settings.analyticsEnabled,
+    platform: initialViewMode === "pill" ? "web-mobile" : "web-desktop",
+    viewMode: initialViewMode,
+  });
+  track("app_opened", {});
+
+  $effect(() => {
+    const viewMode = windowCtx.viewMode;
+    registerSuperProps({
+      view_mode: viewMode,
+      platform: viewMode === "pill" ? "web-mobile" : "web-desktop",
+    });
+  });
+
+  $effect(() => {
+    const appVersion = session.staticInfo?.version;
+    if (appVersion) registerSuperProps({ app_version: appVersion });
+  });
+
+  onMount(() =>
+    subscribe((state) => {
+      const installationId = state.target?.installationId;
+      if (installationId) identifyInstallation(installationId);
+    }),
+  );
 
   // Materialize tabs synchronously during component init — before first paint — so
   // the tab strip, titles, drafts, and active tab render in the first mounted frame
@@ -238,9 +282,14 @@
   $effect(() => {
     const unsubRun = window.solus.onRunStatus((status) => runStore.apply(status));
     const unsubRunLog = window.solus.onRunLog((batch) => runStore.applyLog(batch));
+    const unsubUsage = window.solus.onUsageLimits((snapshots) =>
+      agent.applyUsage(snapshots),
+    );
+    void agent.refreshUsage();
     return () => {
       unsubRun();
       unsubRunLog();
+      unsubUsage();
     };
   });
 
@@ -271,7 +320,9 @@
   const detectReconnect = createReconnectDetector(webState.connectionStatus);
   $effect(() => {
     const connectionStatus = webState.connectionStatus;
-    if (detectReconnect(connectionStatus)) {
+    const reconnected = detectReconnect(connectionStatus);
+    if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
+    if (reconnected) {
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
@@ -288,11 +339,11 @@
   useKeybinding("global.open-host-project", () => {
     if (!isRunning) startOpenProject();
   });
-  useKeybinding("global.new-tab", () => session.createTab());
+  useKeybinding("global.new-tab", () => session.createTab(undefined, { via: "keybinding" }));
   useKeybinding("global.next-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
-      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length]);
+      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length], "keybinding");
   });
   useKeybinding("global.prev-tab", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -301,12 +352,13 @@
         visualTabOrder[
           (idx - 1 + visualTabOrder.length) % visualTabOrder.length
         ],
+        "keybinding",
       );
   });
   useKeybinding("global.next-session", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
-      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length]);
+      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length], "keybinding");
   });
   useKeybinding("global.prev-session", () => {
     const idx = visualTabOrder.indexOf(activeTabId);
@@ -315,6 +367,7 @@
         visualTabOrder[
           (idx - 1 + visualTabOrder.length) % visualTabOrder.length
         ],
+        "keybinding",
       );
   });
   useKeybinding("global.session-picker", () =>
@@ -330,14 +383,14 @@
         (modes.indexOf(permissionMode as (typeof modes)[number]) + 1) %
           modes.length
       ];
-    session.setPermissionMode(next);
+    session.setPermissionMode(next, undefined, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId);
+    if (activeTabId) session.closeTab(activeTabId, "keybinding");
   });
   useKeybinding("global.attach-file", handleAttachFile);
   useKeybinding("global.cycle-agent", async () => {
-    if (!isRunning) await cycleAgentProvider();
+    if (!isRunning) await cycleAgentProvider("keybinding");
   });
   useKeybinding("global.cycle-model", () => {
     if (isRunning) return;
@@ -352,7 +405,7 @@
     const idx = models.findIndex((m) => m.id === currentModel);
     session.updateModelConfig({
       modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
-    });
+    }, undefined, "keybinding");
   });
   useKeybinding("global.toggle-reasoning", () => {
     if (isRunning) return;
@@ -361,10 +414,10 @@
   useKeybinding("global.toggle-diff-panel", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-diff-panel")),
   );
-  useKeybinding("global.toggle-plans", () => session.togglePlansGallery());
-  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery());
+  useKeybinding("global.toggle-plans", () => session.togglePlansGallery("keybinding"));
+  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery("keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
-  useKeybinding("global.toggle-worktree", () => session.toggleWorktreeMode());
+  useKeybinding("global.toggle-worktree", () => session.toggleWorktreeMode(undefined, "keybinding"));
   useKeybinding("global.switch-worktree", () => {
     if (session.activeSession?.agentSessionId) return;
     window.dispatchEvent(new CustomEvent("solus:toggle-git-dropdown"));
@@ -579,7 +632,7 @@
     session.addAttachments(files, tabId);
   }
 
-  async function cycleAgentProvider() {
+  async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
     );
@@ -591,7 +644,7 @@
       (candidate) => candidate.id === currentAgent,
     );
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
-    session.switchActiveAgent(next.id);
+    session.switchActiveAgent(next.id, undefined, via);
   }
 
   let isDraggingFile = $state(false);

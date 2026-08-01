@@ -1,4 +1,4 @@
-import type { NormalizedEvent, UsageData } from '../../../shared/types'
+import type { ContextUsage, NormalizedEvent, UsageData } from '../../../shared/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '../../../shared/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { normalizeResetNumber } from '../../rate-limits'
@@ -298,6 +298,16 @@ function normalizeAssistant(event: AssistantEvent): NormalizedEvent[] {
   const parentToolUseId = event.parent_tool_use_id || undefined
   const events: NormalizedEvent[] = []
 
+  // Every API call reports the prompt it just saw, which is the window as it
+  // stands — so the meter tracks a turn as it runs, and still has a figure if
+  // the SDK's exact `getContextUsage()` report is unavailable at the result.
+  // A sub-agent runs its own window; letting its call overwrite the main
+  // thread's meter would replace 150K of real context with the agent's 8K.
+  if (!parentToolUseId) {
+    const context = contextUsageFrom(event.message?.usage)
+    if (context) events.push({ type: 'usage', context })
+  }
+
   const content = event.message?.content
   if (Array.isArray(content)) {
     const text = content
@@ -451,6 +461,21 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
     sessionId: event.session_id,
     ...(denials && denials.length > 0 ? { permissionDenials: denials } : {}),
   }]
+}
+
+/**
+ * The prompt one API call sent: fresh input plus everything read from or written
+ * to the cache. Output is excluded — it isn't in the window yet; it rolls into
+ * the next call's input, which that call's own report already covers.
+ */
+function contextUsageFrom(usage: ClaudeUsageData | undefined): ContextUsage | null {
+  if (!usage) return null
+  const inputTokens = usage.input_tokens ?? 0
+  const cacheReadTokens = usage.cache_read_input_tokens ?? 0
+  const cacheCreationTokens = usage.cache_creation_input_tokens ?? 0
+  const usedTokens = inputTokens + cacheReadTokens + cacheCreationTokens
+  if (usedTokens <= 0) return null
+  return { usedTokens, inputTokens, cacheReadTokens, cacheCreationTokens }
 }
 
 function normalizeClaudeUsage(usage: ClaudeUsageData | undefined): UsageData {

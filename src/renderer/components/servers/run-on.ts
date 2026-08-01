@@ -1,5 +1,4 @@
 import { serverConnections } from '@client-core/server-connections'
-import { rememberRunOnHost } from '@client-core/run-on-preferences'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
 import type { IpcContext, PendingHostDispatch, ProjectIdentity, Session } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
@@ -21,7 +20,7 @@ export interface RetargetSessionHostOptions {
   isLocalHost: boolean
   /** The working directory on the new host; omitted keeps whatever the session had. */
   path?: string
-  /** Remembered so the next session in this repo defaults to the same host. */
+  /** Stable repository identity used to preserve sidebar grouping across hosts. */
   repoKey?: string | null
   /** The Run on picker requires isolation; opening a project remotely does not. */
   requireWorktree?: boolean
@@ -56,7 +55,6 @@ export function retargetSessionHost(opts: RetargetSessionHostOptions): RetargetS
   if (movingHosts) {
     void workspace.apiFor(tabId).closeTab(workspace.ctxFor(tabId)).catch(() => {})
   }
-  rememberRunOnHost(repoKey ?? null, serverId)
   serverConnections.retain(serverId)
   if (!isLocalHost) serverConnections.ensure(serverId)
   session.serverId = serverId
@@ -109,18 +107,11 @@ export function repoKeyForPath(identities: ProjectIdentity[], path: string | nul
   return identities.find((identity) => identity.path === path)?.repoKey ?? null
 }
 
-export function checkoutForRepo(identities: ProjectIdentity[], repoKey: string | null): ProjectIdentity | null {
-  if (!repoKey) return null
-  const normalizedRepoKey = repoKey.toLowerCase()
-  return identities.find((identity) => identity.repoKey.toLowerCase() === normalizedRepoKey) ?? null
-}
-
 /** Records the picker choice without touching a connection or filesystem. */
 export function queueSessionHostDispatch(
   session: Session,
   target: PendingHostDispatch,
 ): void {
-  rememberRunOnHost(target.repoKey, target.serverId)
   if (target.serverId === session.serverId) {
     session.pendingHostDispatch = null
     return
@@ -147,16 +138,11 @@ export function cloneUrlForRepoKey(repoKey: string): string | null {
  * can never send the prompt to a stale or half-created directory.
  */
 export async function prepareHostCheckout(
-  api: Pick<SolusAPI, 'setupSyncProject' | 'setupCloneProject'>,
+  api: Pick<SolusAPI, 'setupPrepareProject'>,
   repoKey: string,
-  checkout: ProjectIdentity | null,
 ): Promise<PreparedHostCheckout> {
   const cloneUrl = cloneUrlForRepoKey(repoKey)
   if (!cloneUrl) throw new Error('This repository does not have a cloneable remote.')
-  if (checkout) {
-    const result = await api.setupSyncProject({ path: checkout.path, cloneUrl })
-    return { path: result.path, action: 'updated' }
-  }
-  const result = await api.setupCloneProject({ cloneUrl })
-  return { path: result.path, action: 'cloned' }
+  const result = await api.setupPrepareProject({ cloneUrl })
+  return { path: result.path, action: result.action }
 }

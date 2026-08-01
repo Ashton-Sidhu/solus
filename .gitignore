@@ -49,6 +49,7 @@ web/.wrangler
 web/static/demo/
 
 .solus/**
+.solus-local/
 .solus-worktrees/**
 
 # Playwright test artifacts

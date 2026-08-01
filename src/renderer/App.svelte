@@ -56,6 +56,7 @@
   import { materializeTabs } from "./contexts/workspace/session-bootstrap";
   import { loadServers, LOCAL_SERVER_ID } from "../client-core/server-registry";
   import { serverConnections } from "../client-core/server-connections";
+  import { connectionState } from "../client-core/connection-state";
   import {
     createReconnectDetector,
     initializeRuntime,
@@ -81,7 +82,12 @@
   import { initRootScaling } from "./lib/uiScale";
   import { dictation, isDictationTarget } from "./lib/dictation.svelte";
   import { branchKeyFor, buildTabSections } from "./lib/sessionUtils";
-  import { initAnalytics, analytics } from "./lib/analytics";
+  import {
+    identifyInstallation,
+    initAnalytics,
+    registerSuperProps,
+    track,
+  } from "./lib/analytics";
   import { setupSplitLayoutPersistence } from "./lib/splitLayoutPersistence.svelte";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
@@ -124,8 +130,20 @@
 
   // Electron-only: analytics is desktop-side. The editor is the sole boot
   // window; the pill is created lazily, so count the open from the editor only.
-  initAnalytics(settings.analyticsEnabled);
-  if (windowCtx.viewMode === "editor") analytics.appOpened();
+  initAnalytics({
+    enabled: settings.analyticsEnabled,
+    platform: "desktop",
+    viewMode: windowCtx.viewMode,
+  });
+  if (windowCtx.viewMode === "editor") track("app_opened", {});
+
+  $effect(() => {
+    const installationId = connectionState.target?.installationId;
+    const appVersion = session.staticInfo?.version;
+    if (!installationId || !appVersion) return;
+    identifyInstallation(installationId);
+    registerSuperProps({ app_version: appVersion });
+  });
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
@@ -164,6 +182,7 @@
           terminalFailure: sess?.terminalFailure
             ? { ...sess.terminalFailure }
             : null,
+          contextUsage: sess?.contextUsage ? { ...sess.contextUsage } : null,
         };
       });
     const snapshot: PersistedTabs = {
@@ -653,6 +672,10 @@
       voiceModelStore.apply(status),
     );
     void voiceModelStore.refresh();
+    const unsubUsage = window.solus.onUsageLimits((snapshots) =>
+      agent.applyUsage(snapshots),
+    );
+    void agent.refreshUsage();
     // Live automation state: scheduler fires, run transitions, and agent-tool
     // saves all land here. Failures get a toast — an unattended run breaking
     // is otherwise invisible until the user happens to open the page.
@@ -666,6 +689,13 @@
           },
         });
       }
+    });
+    // An agent left comment threads on a plan or a work. Re-read that target's
+    // annotations so the rail updates under the reader, rather than making them
+    // close and reopen the document to see the review.
+    const unsubAnnotations = window.solus.onAnnotationsChanged((change) => {
+      if (change.kind === "work") void session.worksStore.loadAnnotations(change.targetId);
+      else void session.planStore.hydrateAnnotations(change.targetId);
     });
     const unsubStackGraph = session.stacksStore.subscribe();
     const unsubChecks = session.prsStore.subscribeChecks(() => session.ctx);
@@ -690,7 +720,9 @@
       unsubRun();
       unsubRunLog();
       unsubVoiceModel();
+      unsubUsage();
       unsubAutomations();
+      unsubAnnotations();
       unsubStackGraph();
       unsubChecks();
       unsubGuideStatus();
@@ -798,7 +830,7 @@
   useKeybinding("global.select-project", () => {
     startOpenProject({ tabId: session.focusedChatTabId ?? undefined });
   });
-  useKeybinding("global.new-tab", () => session.createTab());
+  useKeybinding("global.new-tab", () => session.createTab(undefined, { via: "keybinding" }));
 
   function visualTabOrder(tabIds: string[]): string[] {
     return buildTabSections(
@@ -855,7 +887,7 @@
           branchKeyFor(session.sessionFor(nextId)),
         ) ?? nextId)
       : nextId;
-    session.selectTab(target);
+    session.selectTab(target, "keybinding");
     requestInputFocus();
   }
 
@@ -867,7 +899,7 @@
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
-      session.selectTab(order[(idx + 1) % order.length]);
+      session.selectTab(order[(idx + 1) % order.length], "keybinding");
       requestInputFocus();
     }
   });
@@ -876,7 +908,7 @@
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
-      session.selectTab(order[(idx - 1 + order.length) % order.length]);
+      session.selectTab(order[(idx - 1 + order.length) % order.length], "keybinding");
       requestInputFocus();
     }
   });
@@ -900,13 +932,13 @@
         (modes.indexOf(keyboardPermissionMode as (typeof modes)[number]) + 1) %
           modes.length
       ];
-    session.setPermissionMode(next, keyboardTabId);
+    session.setPermissionMode(next, keyboardTabId, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
-    if (activeTabId) session.closeTab(activeTabId);
+    if (activeTabId) session.closeTab(activeTabId, "keybinding");
   });
   useKeybinding("global.group-tabs", () => {
-    session.toggleTabGroupMode();
+    session.toggleTabGroupMode("keybinding");
   });
   useKeybinding("global.attach-file", () => handleAttachFile(keyboardTabId));
   useKeybinding(
@@ -926,7 +958,7 @@
   );
   useKeybinding("global.cycle-agent", async () => {
     if (isRunning) return;
-    await cycleAgentProvider();
+    await cycleAgentProvider("keybinding");
     requestInputFocus();
   });
   useKeybinding("global.cycle-model", () => {
@@ -950,6 +982,7 @@
         modelId: models[((idx === -1 ? 0 : idx) + 1) % models.length].id,
       },
       keyboardTabId,
+      "keybinding",
     );
     requestInputFocus();
   });
@@ -974,14 +1007,14 @@
       enabled: () => viewMode === "editor",
     },
   );
-  useKeybinding("global.toggle-plans", () => session.togglePlansGallery());
-  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery());
-  useKeybinding("global.toggle-automations", () => session.toggleAutomations());
-  useKeybinding("global.toggle-tasks", () => session.toggleTasks());
-  useKeybinding("global.settings", () => session.showSettings());
+  useKeybinding("global.toggle-plans", () => session.togglePlansGallery("keybinding"));
+  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery("keybinding"));
+  useKeybinding("global.toggle-automations", () => session.toggleAutomations("keybinding"));
+  useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
+  useKeybinding("global.settings", () => session.showSettings("general", "keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
   useKeybinding("global.toggle-worktree", () =>
-    session.toggleWorktreeMode(session.focusedChatTabId ?? undefined),
+    session.toggleWorktreeMode(session.focusedChatTabId ?? undefined, "keybinding"),
   );
   useKeybinding("global.switch-worktree", () => {
     const hasAgent = !!session.sessionFor(activeTabId)?.agentSessionId;
@@ -1112,7 +1145,7 @@
       icon: PlusIcon,
       hint: comboHint("global.new-tab"),
       keywords: ["create", "session", "tab"],
-      run: () => session.createTab(),
+      run: () => session.createTab(undefined, { via: "palette" }),
     },
     {
       id: "save-prompt",
@@ -1152,7 +1185,7 @@
       icon: GearSixIcon,
       hint: comboHint("global.settings"),
       keywords: ["preferences", "config"],
-      run: () => session.showSettings(),
+      run: () => session.showSettings("general", "palette"),
     },
     {
       id: "shortcuts",
@@ -1184,7 +1217,7 @@
       // last-seen times and connect. The switcher chip it used to open is not
       // rendered in editor mode at all.
       run: () => {
-        session.showSettings("api-access");
+        session.showSettings("api-access", "palette");
         void serversStore.scanForServers();
       },
     },
@@ -1204,7 +1237,7 @@
         .refsFor(projectRoot)
         .worktrees.find((wt) => wt.branch === branch);
       if (worktree) {
-        await session.switchToWorktree(worktree.path);
+        await session.switchToWorktree(worktree.path, undefined, "palette");
         const nextCwd =
           session.activeSession?.gitContext?.worktreePath ??
           session.activeSession?.workingDirectory;
@@ -1215,7 +1248,7 @@
       }
     }
 
-    const ok = await session.switchToBranch(branch);
+    const ok = await session.switchToBranch(branch, undefined, "palette");
     const nextCwd =
       session.activeSession?.gitContext?.worktreePath ??
       session.activeSession?.workingDirectory;
@@ -1284,7 +1317,7 @@
       group: "Plans",
       icon: ListBulletsIcon,
       keywords: [d.title ?? ""],
-      run: () => void session.openPlanFromDescriptor(d),
+      run: () => void session.openPlanFromDescriptor(d, "palette"),
     }));
     commands.push({
       id: "open-plan",
@@ -1309,7 +1342,7 @@
         group: "Documents",
         icon: FoldersIcon,
         keywords: [w.title],
-        run: () => void session.openWorkModal(w.id, w.title),
+        run: () => void session.openWorkModal(w.id, w.title, { via: "palette" }),
       }));
     commands.push({
       id: "open-work",
@@ -1327,7 +1360,7 @@
         group: "Automations",
         icon: ClockCounterClockwiseIcon,
         keywords: [a.name],
-        run: () => session.openAutomations(a.id),
+        run: () => session.openAutomations(a.id, "palette"),
       }),
     );
     commands.push({
@@ -1408,7 +1441,7 @@
       group: "View",
       icon: GitPullRequestIcon,
       keywords: ["pr", "pull request", "github", "review", "prs"],
-      run: () => session.openPrs(),
+      run: () => session.openPrs(null, "palette"),
     });
 
     const gitCtx =
@@ -1434,7 +1467,7 @@
             group: "Git",
             icon: GitForkIcon,
             keywords: ["git", "worktree", "branch", "checkout", wt.branch],
-            run: () => void session.switchToWorktree(wt.path),
+            run: () => void session.switchToWorktree(wt.path, undefined, "palette"),
           })),
       ];
       const existingWorktreeChildren: Command[] = worktrees
@@ -1447,8 +1480,8 @@
           keywords: ["session", "worktree", "existing", wt.branch, wt.path],
           run: () => {
             void (async () => {
-              await session.createTab();
-              await session.switchToWorktree(wt.path);
+              await session.createTab(undefined, { via: "palette" });
+              await session.switchToWorktree(wt.path, undefined, "palette");
             })();
           },
         }));
@@ -1462,7 +1495,7 @@
           keywords: ["session", "branch", "checkout", "switch", branch],
           run: () => {
             void (async () => {
-              await session.createTab();
+              await session.createTab(undefined, { via: "palette" });
               await switchPaletteBranch(branch);
             })();
           },
@@ -1491,7 +1524,7 @@
                   "fork",
                 ],
                 hint: comboHint("global.continue-worktree"),
-                run: () => void session.continueInWorktree(activeTabId),
+                run: () => void session.continueInWorktree(activeTabId, "palette"),
               } as Command,
             ]
           : []),
@@ -1553,6 +1586,7 @@
             run: () =>
               void session.enterPrReview(pr.number, pr.title, {
                 ctx: paletteGitTarget?.ctx,
+                via: "palette",
               }),
           })),
         },
@@ -1643,7 +1677,7 @@
     await window.solus.exitDesignMode();
   }
 
-  async function cycleAgentProvider() {
+  async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
     );
@@ -1655,7 +1689,7 @@
       (candidate) => candidate.id === currentAgent,
     );
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
-    session.switchActiveAgent(next.id);
+    session.switchActiveAgent(next.id, undefined, via);
   }
 
   $effect(() => {

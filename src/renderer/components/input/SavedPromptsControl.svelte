@@ -230,12 +230,12 @@
   The pill's two halves are one control — save on the left, the count opens the
   sheet on the right — sitting immediately left of the mic/send cluster.
 -->
-<!-- mx-1 answers the row's gap-1: the design gives this pill 8px of air on both
-     sides, and it needs it more than the icon buttons do because it carries a
-     word. -->
+<!-- One shell, two halves, one hairline between them: the bookmark writes the
+     draft to the library in place, the label opens it. The toolbar row's gap is
+     all the air it needs — it sits with the pickers, not the send cluster. -->
 <div
   bind:this={triggerEl}
-  class="mx-1 flex h-8 shrink-0 items-center rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) font-secondary text-(--solus-text-secondary) shadow-xs"
+  class="flex h-[1.875rem] shrink-0 items-center rounded-lg border-[0.5px] border-(--solus-container-border) font-secondary text-(--solus-text-secondary)"
 >
   <TooltipUI.Root>
     <TooltipUI.Trigger>
@@ -245,14 +245,11 @@
           type="button"
           onclick={() => (canSave ? save() : (open = true))}
           disabled={!projectRoot}
-          class="flex h-full items-center gap-1.5 rounded-l-lg px-2.5 text-[0.8125rem] transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
+          aria-label="Save prompt"
+          class="flex h-full w-[1.8125rem] items-center justify-center rounded-l-lg text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
           style="cursor:{projectRoot ? 'pointer' : 'not-allowed'}"
         >
-          <BookmarkSimpleIcon
-            size={13}
-            class="shrink-0 text-(--solus-text-tertiary)"
-          />
-          <span class="font-medium">Save</span>
+          <BookmarkSimpleIcon size={13} class="shrink-0" />
         </button>
       {/snippet}
     </TooltipUI.Trigger>
@@ -263,7 +260,7 @@
     />
   </TooltipUI.Root>
 
-  <div class="h-[1.125rem] w-px shrink-0 bg-(--solus-container-border)"></div>
+  <div class="h-4 w-px shrink-0 bg-(--solus-container-border)"></div>
 
   <TooltipUI.Root>
     <TooltipUI.Trigger>
@@ -275,11 +272,21 @@
           disabled={!projectRoot}
           aria-label="Saved prompts"
           aria-expanded={open}
-          class="flex h-full items-center gap-1 rounded-r-lg px-2 text-[0.8125rem] text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
+          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-[0.78125rem] text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
           style="cursor:{projectRoot ? 'pointer' : 'not-allowed'}"
         >
-          <span class="tabular-nums">{count}</span>
-          <CaretUpIcon size={9} class="shrink-0" />
+          <span>Saved</span>
+          <span class="font-mono text-[0.6875rem] tabular-nums opacity-60"
+            >{count}</span
+          >
+          <!-- The caret points at where the sheet appears, and flips while it
+               is up. -->
+          <CaretUpIcon
+            size={9}
+            class="shrink-0 transition-transform duration-150 {open
+              ? 'rotate-180'
+              : ''}"
+          />
         </button>
       {/snippet}
     </TooltipUI.Trigger>

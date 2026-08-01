@@ -1,4 +1,4 @@
-import type { PermissionOption, PermissionRequest } from '../../../../shared/types'
+import type { PermissionOption, PermissionRequest, Session } from '../../../../shared/types'
 
 /**
  * Interrupt cards reuse the card chassis and stay in neutral chrome;
@@ -33,32 +33,59 @@ export function permissionKicker(permission: PermissionRequest): InterruptKicker
   if (isDestructive(permission)) {
     return {
       label: 'Destructive',
-      title: 'Run an irreversible command?',
+      title: 'Run an irreversible command',
       chip: 'Destructive',
       tone: 'destructive',
     }
   }
   const tool = permission.toolTitle
+  // A title is a verb and an object the user recognises — never the payload, and
+  // never a claim about what the payload will do.
   const title =
     tool === 'Bash' || tool === 'exec_command'
-      ? 'Run a shell command?'
+      ? 'Run a shell command'
       : tool === 'Edit' || tool === 'Write'
-        ? 'Write to the worktree?'
+        ? 'Write to the worktree'
         : tool === 'WebFetch' || tool === 'WebSearch'
-          ? 'Reach the network?'
-          : `Use ${tool}?`
+          ? 'Reach the network'
+          : `Use ${tool}`
   return { label: 'Permission', title, chip: 'Not in allowlist', tone: 'warning' }
 }
 
-/** The command, verbatim and never truncated, plus what it runs against. */
+/** The command, verbatim and never truncated. Where it runs is provenance, so it
+ *  belongs on the header's meta line rather than in the payload bar. */
 export function permissionArgv(
   permission: PermissionRequest,
 ): { label: string; text: string } | null {
   const command = commandOf(permission)
   if (!command) return null
+  return { label: 'bash', text: command }
+}
+
+/**
+ * What the command runs against. The tool's own cwd is the authority when it
+ * carries one; otherwise the session's worktree, then its working directory.
+ * Every one of those is app-owned state — nothing here is inferred.
+ */
+export function permissionCwd(
+  permission: PermissionRequest,
+  session: Session | undefined,
+): string {
   const cwd = permission.toolInput?.cwd
-  const label = typeof cwd === 'string' && cwd ? `bash · cwd ${cwd}` : 'bash'
-  return { label, text: command }
+  if (typeof cwd === 'string' && cwd) return cwd
+  return session?.gitContext?.worktreePath || session?.workingDirectory || ''
+}
+
+/**
+ * Splits a path so its last segment — the worktree name, which is what the user
+ * identifies the run by — can take the emphasis while the head stays muted.
+ * Both halves render inside one span so the path never breaks across lines.
+ */
+export function splitPathTail(path: string): { head: string; tail: string } {
+  const trimmed = path.replace(/\/+$/, '')
+  const cut = trimmed.lastIndexOf('/')
+  if (cut < 0) return { head: '', tail: trimmed }
+  return { head: trimmed.slice(0, cut + 1), tail: trimmed.slice(cut + 1) }
 }
 
 /**

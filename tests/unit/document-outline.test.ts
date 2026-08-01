@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { Editor } from '@tiptap/core'
 import {
   afterDwell,
   holdsWithoutDwell,
@@ -7,7 +8,10 @@ import {
   sectionJumpIndex,
   type OutlineReason,
 } from '../../src/renderer/components/document-shell/lib/outline'
-import { countThreadsByHeading } from '../../src/renderer/components/comments/lib/anchors'
+import {
+  commentMarkPositions,
+  countThreadsByHeading,
+} from '../../src/renderer/components/comments/lib/anchors'
 
 // The outline holds itself open for several independent reasons at once. That
 // is the whole reason it is a set and not a boolean: releasing one hold must
@@ -53,6 +57,12 @@ describe('outline lifecycle', () => {
 })
 
 describe('thread counts per section', () => {
+  test('a queued measurement ignores an editor whose schema was cleared on destroy', () => {
+    const destroyedEditor = { isDestroyed: true, schema: null } as unknown as Editor
+
+    expect(commentMarkPositions(destroyedEditor)).toEqual([])
+  })
+
   test('a thread belongs to the last heading above it', () => {
     const counts = countThreadsByHeading(
       [

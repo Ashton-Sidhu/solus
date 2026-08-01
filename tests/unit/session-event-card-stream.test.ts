@@ -168,15 +168,15 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
   })
 
-  test('renders assistant text after a relay card as a separate message', async () => {
-    // WHY: a relay card is a structured block, not prose — streamed text after
+  test('renders assistant text after an agent-conversation card as a separate message', async () => {
+    // WHY: an agent-conversation card is a structured block, not prose — streamed text after
     // it must open its own assistant message instead of gluing onto the card.
-    const relayCard: Message = {
-      id: 'relay-card',
+    const agentConversationCard: Message = {
+      id: 'agent-conversation-card',
       role: 'assistant',
       content: '',
-      relayRef: {
-        peerSessionId: 'spawned-session',
+      agentConversationRef: {
+        agentSessionId: 'spawned-session',
         provider: 'codex',
         title: 'Investigate the issue',
         cwd: '/project',
@@ -191,77 +191,77 @@ describe('SessionEventReducer card stream boundaries', () => {
       },
       timestamp: 0,
     }
-    const { reducer, session } = await createReducer([relayCard])
+    const { reducer, session } = await createReducer([agentConversationCard])
 
     reducer.appendTextChunk('tab-1', session, 'I started a separate investigation.')
     reducer.commitPendingStream('tab-1')
 
     expect(session.messages).toHaveLength(2)
-    expect(session.messages[0]).toBe(relayCard)
-    expect(relayCard.content).toBe('')
+    expect(session.messages[0]).toBe(agentConversationCard)
+    expect(agentConversationCard.content).toBe('')
     expect(session.messages[1]).toMatchObject({
       role: 'assistant',
       content: 'I started a separate investigation.',
     })
   })
 
-  test('one relay card per peer per turn: dispatches append, settles land by exchange', async () => {
+  test('one agent-conversation card per agent per turn: dispatches append, settles land by exchange', async () => {
     const { reducer, session } = await createReducer([])
 
-    // WHY: three exchanges with one peer must produce ONE block, not three
-    // disjoint cards — that is the core contract of the relay redesign.
+    // WHY: three exchanges with one agent must produce ONE block, not three
+    // disjoint cards — that is the core agent-conversation contract.
     reducer.apply('tab-1', {
-      type: 'session_relay',
+      type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', peerSessionId: 'peer-1', exchangeId: 'x1', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x1', origin: 'prompted',
         prompt: 'First question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 1,
       },
     })
     reducer.apply('tab-1', {
-      type: 'session_relay',
+      type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', peerSessionId: 'peer-1', exchangeId: 'x2', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x2', origin: 'prompted',
         prompt: 'Second question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 2,
       },
     })
-    const relayMessages = session.messages.filter((m) => m.relayRef)
-    expect(relayMessages).toHaveLength(1)
-    expect(relayMessages[0].relayRef?.exchanges.map((x) => x.index)).toEqual([1, 2])
+    const agentConversationMessages = session.messages.filter((m) => m.agentConversationRef)
+    expect(agentConversationMessages).toHaveLength(1)
+    expect(agentConversationMessages[0].agentConversationRef?.exchanges.map((x) => x.index)).toEqual([1, 2])
 
     // A genuine user turn cuts the boundary; the next dispatch opens a new card…
     reducer.apply('tab-1', { type: 'user_message', text: 'carry on' })
     reducer.apply('tab-1', {
-      type: 'session_relay',
+      type: 'agent_conversation_update',
       update: {
-        phase: 'dispatched', peerSessionId: 'peer-1', exchangeId: 'x3', origin: 'prompted',
+        phase: 'dispatched', agentSessionId: 'agent-1', exchangeId: 'x3', origin: 'prompted',
         prompt: 'Third question', provider: 'codex', title: 'Peer', cwd: '/p', dispatchedAt: 3,
       },
     })
-    expect(session.messages.filter((m) => m.relayRef)).toHaveLength(2)
+    expect(session.messages.filter((m) => m.agentConversationRef)).toHaveLength(2)
 
     // …while a settle for an old exchange still lands in the OLD turn's card.
     reducer.apply('tab-1', {
-      type: 'session_relay',
+      type: 'agent_conversation_update',
       update: {
-        phase: 'settled', peerSessionId: 'peer-1', exchangeId: 'x1', status: 'completed',
+        phase: 'settled', agentSessionId: 'agent-1', exchangeId: 'x1', status: 'completed',
         replyText: 'First answer', settledAt: 4,
       },
     })
-    const first = session.messages.filter((m) => m.relayRef)[0]
-    expect(first.relayRef?.exchanges[0]).toMatchObject({ status: 'done', reply: 'First answer' })
+    const first = session.messages.filter((m) => m.agentConversationRef)[0]
+    expect(first.agentConversationRef?.exchanges[0]).toMatchObject({ status: 'done', reply: 'First answer' })
   })
 
   test('suppresses session-report prompts from the transcript entirely', async () => {
     const { reducer, session } = await createReducer([])
 
     // WHY: the report is turn input for the MODEL; rendering it as a user
-    // bubble is the exact failure the relay redesign removes.
+    // bubble is the exact failure the agent-conversation card removes.
     reducer.apply('tab-1', {
       type: 'user_message',
       text: '[session report] Session abc finished (status: completed). Final reply:\nhello',
       via: 'session-report',
-      relayPeerSessionId: 'abc',
-      relayExchangeId: 'x1',
+      agentSessionId: 'abc',
+      agentExchangeId: 'x1',
     })
     expect(session.messages).toHaveLength(0)
 
@@ -288,5 +288,62 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.commitPendingStream('tab-1')
     expect(session.messages.at(-1)?.content).toBe('first second')
     expect(reducer.streamingTextFor('tab-1', true)).toBe('')
+  })
+
+  test('separates consecutive logical assistant messages with a Markdown paragraph', async () => {
+    const { reducer, session } = await createReducer([{
+      id: 'user-1',
+      role: 'user',
+      content: 'Run the debate.',
+      timestamp: 1,
+    }])
+
+    reducer.apply('tab-1', { type: 'text_chunk', text: 'The openings are in.' })
+    reducer.apply('tab-1', { type: 'assistant_message', text: 'The openings are in.' })
+    reducer.apply('tab-1', { type: 'text_chunk', text: 'Starting the rebuttal round.' })
+    reducer.apply('tab-1', { type: 'assistant_message', text: 'Starting the rebuttal round.' })
+
+    // WHY: providers can emit multiple prose messages in one turn. They share
+    // one assistant surface, but each is a distinct thought and must not render
+    // as "in.Starting" (a single newline is only whitespace in Markdown).
+    expect(session.messages).toHaveLength(2)
+    expect(session.messages[1].content).toBe(
+      'The openings are in.\n\nStarting the rebuttal round.',
+    )
+  })
+
+  test('does not separate chunks committed by unrelated stream events', async () => {
+    const { reducer, session } = await createReducer([])
+
+    reducer.apply('tab-1', { type: 'text_chunk', text: 'One continuous' })
+    reducer.apply('tab-1', { type: 'usage', run: { inputTokens: 1, outputTokens: 1 } })
+    reducer.apply('tab-1', { type: 'text_chunk', text: ' thought.' })
+    reducer.commitPendingStream('tab-1')
+
+    // WHY: usage and status events can interrupt transport chunks inside one
+    // logical message. Only assistant_message is a prose boundary.
+    expect(session.messages).toHaveLength(1)
+    expect(session.messages[0].content).toBe('One continuous thought.')
+  })
+
+  test('keeps goal notifications after an interrupted turn', async () => {
+    const { reducer, session } = await createReducer([])
+    session.status = 'interrupted'
+    session.agentSessionId = 'thread-1'
+
+    // WHY: pausing or updating a persistent goal is independent of the last
+    // turn's terminal state; dropping the notification leaves the panel stale.
+    reducer.apply('tab-1', {
+      type: 'goal_updated',
+      goal: {
+        threadId: 'thread-1',
+        objective: 'Finish the feature',
+        status: 'paused',
+      },
+    })
+    expect(session.goal).toMatchObject({ status: 'paused' })
+
+    reducer.apply('tab-1', { type: 'goal_cleared', threadId: 'thread-1' })
+    expect(session.goal).toBeNull()
   })
 })

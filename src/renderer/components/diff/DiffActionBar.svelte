@@ -159,8 +159,8 @@
 
 <div
   class={collapsed
-    ? "absolute bottom-3 left-3 z-20"
-    : "shrink-0 px-3 pt-2 pb-3"}
+    ? "absolute bottom-2.5 left-4 z-20"
+    : "shrink-0 px-4 pt-2.5 pb-2.5"}
   style:background={collapsed ? "transparent" : "var(--solus-container-bg)"}
 >
   <PromptComposer

@@ -1,31 +1,7 @@
 /* Revision dropdown */
-  /* Comment form positioning — desktop: at selection, mobile: bottom sheet */
-  .plan-comment-form-position {
-    left: var(--cf-left);
-    top: var(--cf-top);
-    width: var(--cf-width);
-  }
-
-  /* Inline comment form */
   /* Rail width scales with the shell (container), not the viewport, so a narrow
      split pane gets a proportionally narrow rail instead of one sized off the
      full screen. The lower floor lets it shrink before crowding the editor. */
-  /* The margin of the page, not a panel beside it: the sleeve is a column of
-     the page block, and it sticks to the top of the reading viewport so cards
-     can hold their anchors' lines while the text scrolls under them. */
-  .plan-comments-rail-sleeve {
-    width: var(--solus-doc-rail-w);
-    flex-shrink: 0;
-    position: sticky;
-    top: 0;
-    align-self: flex-start;
-    height: var(--doc-viewport-h, 100%);
-    overflow: hidden;
-    /* The rail draws margin threads with no frame of their own, so the gutter
-       that keeps them off the shell edge belongs to the sleeve. */
-    padding-right: 0.75rem;
-  }
-
   /* Action-bar composer lines up under the text column: same reading measure,
      centered in the same box. It lives in the shell's editor column, which the
      shell now caps at the measure and centers together with the threads — so
@@ -146,17 +122,6 @@
       width: 1.75rem;
       height: 1.75rem;
     }
-    /* A phone has no margin to put threads in, so the rail stops being one and
-       becomes a full-screen sheet — which is why placement drops to stacked. */
-    .plan-comments-rail-sleeve {
-      position: fixed;
-      inset: 0;
-      width: 100%;
-      height: auto;
-      z-index: 10003;
-      padding-inline: 0.875rem;
-      background: var(--solus-container-bg);
-    }
     .plan-soft-pill__label {
       display: none;
     }
@@ -174,16 +139,8 @@
     }
     /* Text fields read at the mobile minimum (16px) so they line up with the
        document body and iOS doesn't zoom the viewport when they're focused. */
-    .plan-action-bar-sleeve .inp,
-    .plan-inline-comment-form .inp {
+    .plan-action-bar-sleeve .inp {
       font-size: 1rem;
-    }
-    .plan-comment-form-position {
-      left: 0 !important;
-      top: auto !important;
-      bottom: 0;
-      width: 100% !important;
-      padding: 0.5rem;
     }
   }
 

@@ -22,6 +22,36 @@ export function formatWaited(ms: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
+const NUMBER_WORDS: Record<string, string> = {
+  one: '1', two: '2', three: '3', four: '4', five: '5', six: '6',
+  seven: '7', eight: '8', nine: '9', ten: '10', twelve: '12',
+}
+
+/** Providers name their windows however they like — `five_hour`, `Codex 5h`,
+ *  `seven_day`. Reduce them to the duration a person would say out loud, and to
+ *  nothing at all when there is no window in there to find: a blank is better
+ *  than printing a provider's internal key at someone. */
+export function formatLimitWindow(rateLimitType?: string): string {
+  const raw = rateLimitType?.toLowerCase().replace(/[_-]+/g, ' ').trim()
+  if (!raw) return ''
+
+  const digits = raw.match(/(\d+)\s*(w|wk|wks|week|weeks|h|hr|hrs|hour|hours|d|day|days|m|min|mins|minute|minutes)\b/)
+  if (digits) return windowLabel(Number(digits[1]), digits[2][0])
+
+  const words = raw.match(/\b([a-z]+)\s+(week|weeks|hour|hours|day|days|minute|minutes)\b/)
+  const spelled = words && NUMBER_WORDS[words[1]]
+  if (spelled) return windowLabel(Number(spelled), words[2][0])
+
+  // A window named only in words ("weekly", "week") still has one duration.
+  return raw.includes('week') ? 'weekly' : ''
+}
+
+/** "weekly" reads better than "1w"; every other count keeps its number. */
+function windowLabel(count: number, unit: string): string {
+  if (unit === 'w') return count === 1 ? 'weekly' : `${count}w`
+  return `${count}${unit === 'h' ? 'h' : unit === 'd' ? 'd' : 'm'}`
+}
+
 export interface QueuedCaption {
   /** "2 queued" / "1 still queued" / "Steering" — the kicker. */
   label: string
@@ -35,6 +65,10 @@ export interface QueuedCaption {
 export interface QueuedCaptionInput {
   isRateLimited: boolean
   resetsAt?: number
+  /** The provider's raw name for the window that ran out ("Codex 5h",
+   *  "five_hour"). Reduced by `formatLimitWindow` and named in the caption, so
+   *  the wait reads as a known quantity rather than an unexplained pause. */
+  rateLimitType?: string
   /** Epoch ms. */
   now: number
 }
@@ -43,7 +77,7 @@ export interface QueuedCaptionInput {
  *  line carries count, cause and the single escape — stated once, at the end. */
 export function queuedCaption(
   prompts: OutboundPrompt[],
-  { isRateLimited, resetsAt, now }: QueuedCaptionInput,
+  { isRateLimited, resetsAt, rateLimitType, now }: QueuedCaptionInput,
 ): QueuedCaption | null {
   if (prompts.length === 0) return null
 
@@ -60,9 +94,10 @@ export function queuedCaption(
 
   if (isRateLimited && heldByLimit && resetsAt) {
     const secondsLeft = Math.max(0, Math.ceil(resetsAt - now / 1000))
+    const window = formatLimitWindow(rateLimitType)
     return {
       label,
-      detail: `rate limit resets ${formatReleaseTime(resetsAt)}`,
+      detail: `${window ? `${window} ` : ''}rate limit resets ${formatReleaseTime(resetsAt)}`,
       clock: formatClock(secondsLeft),
       canSendNow: true,
     }

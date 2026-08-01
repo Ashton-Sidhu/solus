@@ -1,14 +1,44 @@
 import { execSync } from 'child_process'
+import { homedir } from 'os'
 import { Options, PermissionMode, query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../logger'
 import { getCliEnv } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
-import type { AgentSlashCommand, NormalizedEvent, ReasoningEffort } from '../../../shared/types'
+import { parseClaudeUsageReport } from './claude-usage'
+import type { ClaudeUsageWindows } from './claude-usage'
+import type { AgentSlashCommand, ContextUsage, NormalizedEvent, ReasoningEffort } from '../../../shared/types'
 import type { ResultEvent } from '../../../shared/claude-types'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
+
+/**
+ * The SDK's own accounting of the window it is about to send: exact totals, the
+ * real limit for this model (not the profile's guess), and the threshold it will
+ * auto-compact at. Reported per turn because all three move — a compaction drops
+ * the total, and the threshold follows whatever the CLI is configured with.
+ * Returns null when the CLI predates the control request, leaving the meter on
+ * the per-message figures the normalizer derives.
+ */
+async function readContextUsage(
+  cquery: { getContextUsage(): Promise<any> },
+): Promise<ContextUsage | null> {
+  try {
+    const report = await cquery.getContextUsage()
+    if (typeof report?.totalTokens !== 'number') return null
+    return {
+      usedTokens: report.totalTokens,
+      windowTokens: typeof report.maxTokens === 'number' ? report.maxTokens : undefined,
+      compactAtTokens: report.isAutoCompactEnabled && typeof report.autoCompactThreshold === 'number'
+        ? report.autoCompactThreshold
+        : undefined,
+    }
+  } catch (e) {
+    log.warn('context_usage_read_failed', { error: e instanceof Error ? e.message : String(e) })
+    return null
+  }
+}
 
 function logRawClaudeEvent(sessionId: string | null, msg: unknown): void {
   if (isNormalStreamingTextEvent(msg)) return
@@ -200,6 +230,8 @@ export class ClaudeAgent {
             // a whole git snapshot, and a message accepted in that window would
             // be shown to the user and then never read.
             input?.seal()
+            const contextUsage = await readContextUsage(cquery)
+            if (contextUsage) yield { type: 'usage', context: contextUsage }
             if (state.sessionId && opts.onTurnComplete) {
               try {
                 const changedFiles = await opts.onTurnComplete(state.sessionId, {
@@ -300,6 +332,31 @@ export class ClaudeAgent {
       abortController.abort()
       await drain.catch(() => {})
     }
+  }
+
+  /**
+   * Read the subscription quota windows by running `/usage` headless. The slash
+   * command costs $0 and zero turns — it never reaches the model — so this is
+   * cheap enough to poll. Returns null when the report doesn't parse.
+   */
+  async readUsageReport(): Promise<ClaudeUsageWindows | null> {
+    const usageQuery = query({
+      prompt: '/usage',
+      options: {
+        // Quota is account-wide, so this deliberately runs outside any project:
+        // no project settings, no session file, nothing to leak into a transcript.
+        cwd: homedir(),
+        settingSources: [],
+        pathToClaudeCodeExecutable: claudeExecutablePath,
+        extraArgs: { 'no-session-persistence': null },
+        env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
+      } as Options,
+    })
+    for await (const message of usageQuery) {
+      if (message.type !== 'result') continue
+      return message.subtype === 'success' ? parseClaudeUsageReport(message.result) : null
+    }
+    return null
   }
 
   async rewindFiles(sessionId: string, checkpointId: string, projectPath: string): Promise<void> {

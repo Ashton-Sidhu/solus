@@ -117,7 +117,11 @@ const productionScopes = new Set(
 module.exports = {
   packagerConfig: {
     name: 'Solus',
-    asar: true,
+    // fff ships its search library as a dylib/so/dll rather than a .node file,
+    // so Forge's auto-unpack-natives plugin does not catch it.
+    asar: {
+      unpack: 'node_modules/@ff-labs/fff-bin-*/**/*',
+    },
     ignore: (filePath) => {
       if (filePath === '') return false;
       if (filePath === '/package.json') return false;

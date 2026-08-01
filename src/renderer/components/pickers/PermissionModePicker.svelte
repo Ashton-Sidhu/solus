@@ -60,12 +60,12 @@
             <button {...tooltipProps}
         {...props}
         type="button"
-        class="flex h-8 items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-2.5 font-secondary text-[0.8125rem] text-(--solus-text-secondary) shadow-xs transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
+        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.78125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
-        {#if isPlan}<PencilIcon size={13} weight="fill" class="text-(--solus-accent)" />{:else}<ShieldCheckIcon size={13} weight={isAuto ? 'fill' : 'regular'} class="text-(--solus-accent)" />{/if}
-        {#if !compact}{modeLabel}{/if}
-        <CaretDownIcon size={9} class="text-(--solus-text-tertiary)" />
+        {#if isPlan}<PencilIcon size={12} weight="fill" class="text-(--solus-accent)" />{:else}<ShieldCheckIcon size={12} weight={isAuto ? 'fill' : 'regular'} class="text-(--solus-accent)" />{/if}
+        {#if !compact}<span class="font-medium">{modeLabel}</span>{/if}
+        <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
           {/snippet}
         </TooltipUI.Trigger>

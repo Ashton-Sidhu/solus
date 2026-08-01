@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from 'fs'
 import { homedir, cpus } from 'os'
 import { join } from 'path'
 import * as ort from 'onnxruntime-node'
+import { cleanVoiceTranscript } from './clean-transcript'
 
 const MODEL_NAME = 'parakeet-tdt-0.6b-v3-int8'
+// Intentionally global: workers read the shared, checksum-verified model cache.
 const PARAKEET_MODEL_DIR = join(homedir(), '.solus', 'models', MODEL_NAME)
 const MAX_TOKENS_PER_STEP = 10
 const ORT_THREADS = Math.min(4, Math.max(1, cpus().length - 2))
@@ -191,10 +193,12 @@ async function transcribe(samples: Float32Array, phaseMs: PhaseMetrics): Promise
     // from the multilingual model. No real transcript starts with punctuation,
     // so strip every leading non-alphanumeric run (Unicode-aware) rather than a
     // fixed set — this is what keeps stray marks off the front of the partial.
-    const transcript = emitted.map((token) => vocab[token]).join('')
-      .replace(/\s+/g, ' ')
-      .replace(/^[^\p{L}\p{N}]+/u, '')
-      .trim()
+    const transcript = cleanVoiceTranscript(
+      emitted.map((token) => vocab[token]).join('')
+        .replace(/\s+/g, ' ')
+        .replace(/^[^\p{L}\p{N}]+/u, '')
+        .trim(),
+    )
     phaseMs.tokenize_ms = elapsedMs(phaseStartedAt)
     return transcript
   } finally {

@@ -3,7 +3,7 @@ import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
 import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
 import { fetchAndCheckoutPr } from '../../git/worktree-manager'
-import { readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
+import { emptyStackGraph, readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
 import { computePrInterdiff } from '../../git/interdiff'
 import { runAsync } from '../../git/exec'
 import { writeReviewCheckpoint } from '../../review/checkpoints'
@@ -234,13 +234,28 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     ])
     result.items = attachReviewAttention(result.items, viewer)
     const cwd = ctx.session.projectPath || ctx.session.workingDirectory
-    // Stack inference is advisory: even resolving the local repo root happens
-    // after the PR response is ready, so a slow/failing heuristic cannot delay it.
+    // Stack inference is experimental and advisory: even resolving the local
+    // repo root happens after the PR response is ready, so it cannot delay it.
     if (cwd) void resolveRepoRoot(cwd).then((repoRoot) => {
       if (!repoRoot) return
       const isOpenPage = (!filter?.state || filter.state === 'open') && !filter?.author
       if (!isOpenPage) return
       const isCompleteOpenList = page === 1 && !result.hasMore
+      if (!ctx.settings.stackedPrsEnabled) {
+        if (isCompleteOpenList) {
+          scheduleGuideWarming({
+            dispatcher: deps.dispatcher,
+            ctx,
+            repoRoot,
+            repo,
+            provider,
+            openPullRequests: result.items,
+            graph: emptyStackGraph(),
+            isWorktreeInUse: deps.isWorktreeInUse,
+          })
+        }
+        return
+      }
       scheduleStackDetection({
         repoRoot,
         repo,
@@ -286,7 +301,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prGuideMetadata', async (args) => {
     const [ctx, requests] = args as [IpcContext, PrGuideMetadataRequest[]]
     const repoRoot = await repoRootForContext(ctx)
-    return readPrGuideMetadata(repoRoot, await readStackGraph(repoRoot), requests)
+    const graph = ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null
+    return readPrGuideMetadata(repoRoot, graph, requests)
   })
 
   server.register('prOpenReview', async (args) => {
@@ -486,7 +502,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       repoRoot,
       repo,
       provider,
-      graph: await readStackGraph(repoRoot),
+      graph: ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null,
       isWorktreeInUse: deps.isWorktreeInUse,
       onStatus: (number, status, metadata) => server.broadcast('pr-guide-status', {
         repoRoot,

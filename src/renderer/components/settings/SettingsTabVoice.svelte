@@ -7,10 +7,9 @@
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
 
-  const theme = getSettingsContext();
+  const settings = getSettingsContext();
   const voiceModel = getVoiceModelStore();
 
-  // SegmentedControl keys on strings; the stored setting is milliseconds.
   const silenceOptions = [1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000].map((ms) => ({
     value: String(ms),
     label: `${ms / 1000}s`,
@@ -36,33 +35,13 @@
 
 <SettingsSection label="Dictation">
   <SettingsRow
-    label="Auto voice mode"
-    description="Continuously listen and queue voice messages while you work (⌥⇧V)."
-  >
-    {#snippet labelExtra()}
-      <span
-        class="ml-1.5 inline-flex items-center rounded bg-(--solus-accent)/14 px-1 py-px align-middle text-[0.5313rem] font-semibold uppercase leading-none tracking-[0.02em] text-(--solus-accent)"
-        >Beta</span
-      >
-    {/snippet}
-    {#snippet control()}
-      <Switch
-        checked={theme.voiceModeEnabled}
-        onCheckedChange={(next) => theme.update({ voiceModeEnabled: next })}
-        size="default"
-        aria-label="Toggle auto voice mode"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
     label="Auto-send transcripts"
     description="Send voice messages as soon as they're transcribed, instead of just filling the composer."
   >
     {#snippet control()}
       <Switch
-        checked={theme.autoSendVoiceTranscripts}
-        onCheckedChange={(next) => theme.update({ autoSendVoiceTranscripts: next })}
+        checked={settings.autoSendVoiceTranscripts}
+        onCheckedChange={(enabled) => settings.update({ autoSendVoiceTranscripts: enabled })}
         size="default"
         aria-label="Toggle auto-send for voice transcripts"
       />
@@ -76,8 +55,8 @@
     {#snippet control()}
       <SegmentedControl
         options={silenceOptions}
-        isActive={(value) => theme.vadSilenceMs === Number(value)}
-        onSelect={(value) => theme.update({ vadSilenceMs: Number(value) })}
+        isActive={(value) => settings.vadSilenceMs === Number(value)}
+        onSelect={(value) => settings.update({ vadSilenceMs: Number(value) })}
         ariaLabel="Silence threshold"
       />
     {/snippet}

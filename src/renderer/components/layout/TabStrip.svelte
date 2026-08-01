@@ -25,11 +25,18 @@
     CircleIcon,
   } from "phosphor-svelte";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
-  import { getWorkspaceContext, getPlanStore, type TabGroupMode } from "../../contexts";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    runtime,
+    type TabGroupMode,
+  } from "../../contexts";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { createTabScroll } from "../../lib/tabScroll.svelte";
   import SessionProgressRing from "./SessionProgressRing.svelte";
+  import ContextMeter from "../ContextMeter.svelte";
+  import SettingsPopover from "../SettingsPopover.svelte";
   import { shouldShowSessionProgressRing } from "./lib/session-progress-ring";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import * as Tabs from "../ui/tabs";
@@ -716,6 +723,11 @@
           </TooltipUI.Trigger>
           <TooltipUI.Content value={"Folio — documents (⌥⇧;)"} />
         </TooltipUI.Root>
+
+        <ContextMeter tabId={session.activeTabId} />
+        {#if !runtime.isMobileViewport}
+          <SettingsPopover />
+        {/if}
       {/if}
 
       {#if showPanelToggle}

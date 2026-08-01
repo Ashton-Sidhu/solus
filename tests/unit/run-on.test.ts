@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '../../src/shared/types'
-import { checkoutForRepo, isRunOnHostLocked, repoKeyForPath } from '../../src/renderer/components/servers/run-on'
+import { isRunOnHostLocked, repoKeyForPath } from '../../src/renderer/components/servers/run-on'
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -19,12 +19,10 @@ describe('run-on host selection', () => {
     expect(isRunOnHostLocked(session({ status: 'running' }))).toBe(true)
   })
 
-  test('maps equivalent repositories to the checkout on each host', () => {
+  test('resolves the current path to its repository identity', () => {
     const identities = [{ path: '/work/solus', folderName: 'solus', repoKey: 'github.com/openai/solus' }]
     const repoKey = repoKeyForPath(identities, '/work/solus')
 
     expect(repoKey).toBe('github.com/openai/solus')
-    expect(checkoutForRepo(identities, 'GitHub.com/OpenAI/Solus')?.path).toBe('/work/solus')
-    expect(checkoutForRepo(identities, 'github.com/openai/other')).toBeNull()
   })
 })

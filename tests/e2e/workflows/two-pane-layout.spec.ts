@@ -52,11 +52,11 @@ test.describe('Two-pane layout', () => {
     const secondaryChrome = editorPage.locator(
       `${ACTIVE_SHELL} .secondary-pane-wrap .split-chat-chrome`,
     )
-    const primaryInputDock = editorPage.locator(
-      `${ACTIVE_SHELL} .input-dock:not(.mode-hidden)`,
+    const primaryInputCard = editorPage.locator(
+      `${ACTIVE_SHELL} .input-dock:not(.mode-hidden) > div`,
     )
-    const secondaryInputDock = editorPage.locator(
-      `${ACTIVE_SHELL} .secondary-pane-wrap .split-input-dock`,
+    const secondaryInputCard = editorPage.locator(
+      `${ACTIVE_SHELL} .secondary-pane-wrap .split-input-dock > div`,
     )
     await expect(async () => {
       const [
@@ -67,8 +67,8 @@ test.describe('Two-pane layout', () => {
       ] = await Promise.all([
         primaryChrome.boundingBox(),
         secondaryChrome.boundingBox(),
-        primaryInputDock.boundingBox(),
-        secondaryInputDock.boundingBox(),
+        primaryInputCard.boundingBox(),
+        secondaryInputCard.boundingBox(),
       ])
       expect(primaryChromeBox).not.toBeNull()
       expect(secondaryChromeBox).not.toBeNull()

@@ -29,7 +29,7 @@ export const RPC_INVOKE_METHODS = [
   'resetTabSession',
   'switchSessionAgent',
 
-  // Peer sessions (relay cards drive sessions that have no bound tab)
+  // Agent conversations (cards drive sessions that have no bound tab)
   'createHeadlessSession',
   'promptSession',
   'stopSession',
@@ -147,6 +147,7 @@ export const RPC_INVOKE_METHODS = [
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
+  'setAnalyticsConsent',
   'discoverServers',
   'getServerCapabilities',
   'setServerName',
@@ -157,6 +158,7 @@ export const RPC_INVOKE_METHODS = [
   'setupSubmitAgentSignInCode',
   'setupCancelAgentSignIn',
   'setupListGithubRepos',
+  'setupPrepareProject',
   'setupCloneProject',
   'setupSyncProject',
   'setupAdoptProject',
@@ -231,6 +233,8 @@ export const RPC_INVOKE_METHODS = [
   'writeLedger',
   'getReviewContext',
   'generateGuide',
+  'requestSessionGuide',
+  'sessionGuideStatus',
   'cancelGenerateGuide',
   'readGuide',
   'readReviewState',
@@ -268,6 +272,9 @@ export const RPC_INVOKE_METHODS = [
   // PR checks cache + renderer activity hint
   'prChecks',
   'prChecksActivity',
+
+  // Subscription quota per agent provider
+  'usageLimits',
 ] as const
 
 export type RpcInvokeMethod = (typeof RPC_INVOKE_METHODS)[number]
@@ -302,13 +309,16 @@ export const RPC_TOPICS = [
   'automations-changed',
   'provider-device-code',
   'review-progress',
+  'session-guide-status',
   'tasks-changed',
   'prs-changed',
+  'annotations-changed',
   'attention-changed',
   'session-status-changed',
   'stack-graph-update',
   'pr-checks-update',
   'pr-guide-status',
+  'usage-limits-update',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]

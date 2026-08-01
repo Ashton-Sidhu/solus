@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { listWorks, loadWork, agentSaveWork, createWork } from './works'
 import { searchWorks } from './work-search'
 import { loadWorkAnnotations } from './work-annotations'
+import { formatOpenThreads } from '../annotations/comment-tools'
 import { workPreview } from '../../shared/work-preview'
 import { parseDiagram, serializeDiagram } from '../../shared/diagram-types'
 import { reapplyLayout } from '../../shared/diagram-layout'
@@ -143,29 +144,13 @@ export async function executeWorkTool(
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
       const work = await loadWork(workId, deps.ctx?.cwd)
       if (!work) return { ok: false, text: `No work found with id "${workId}".` }
-      // Surface the user's open threads alongside the content so the agent sees
-      // feedback without the user having to paste it into chat. Diagram
-      // comments carry the anchored node id; use it to target the revision.
-      // Resolved threads are left out — they have already been dealt with, and
-      // re-serving them reads as a fresh request.
+      // Surface the open threads alongside the content so the agent sees
+      // feedback without the user having to paste it into chat. Rendered by the
+      // same formatter as read_plan, so both read identically.
       const annotations = await loadWorkAnnotations(workId)
-      let commentsBlock = ''
-      const openComments = (annotations?.comments ?? []).filter((c) => !c.resolvedAt)
-      if (openComments.length) {
-        const lines = openComments.map((c) => {
-          const head = c.nodeId
-            ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
-            : `- On "${c.selectedText}": ${c.comment}`
-          const replies = (c.replies ?? []).map(
-            (r) => `  - ${r.author === 'solus' ? 'Solus' : 'User'}: ${r.text}`,
-          )
-          return [head, ...replies].join('\n')
-        })
-        commentsBlock = `\n\nOpen user threads on this work (${lines.length}) — address them when revising:\n${lines.join('\n')}`
-      }
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${commentsBlock}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}`,
       }
     }
 

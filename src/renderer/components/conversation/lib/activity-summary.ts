@@ -136,6 +136,20 @@ function describeFilePaths(action: string, paths: string[]): string {
   return `${action} ${paths[0]} and ${paths.length - 1} more file${paths.length > 2 ? 's' : ''}`
 }
 
+function describeSolusTool(
+  name: string,
+  parsed: Record<string, unknown>,
+  truncate: boolean,
+): string {
+  const label = prettyToolName(name)
+  if (Object.keys(parsed).length === 0) return label
+
+  const description = `${label}: ${JSON.stringify(parsed)}`
+  return truncate && description.length > 60
+    ? `${description.substring(0, 57)}...`
+    : description
+}
+
 export function getToolDescriptionFromParsed(
   name: string,
   parsed: Record<string, unknown>,
@@ -143,8 +157,7 @@ export function getToolDescriptionFromParsed(
 ): string {
   const truncate = options.truncate ?? true
   const s = (v: unknown) => (typeof v === 'string' ? v : '')
-  // Solus tools show just their friendly label — no args.
-  if (solusToolKey(name)) return prettyToolName(name)
+  if (solusToolKey(name)) return describeSolusTool(name, parsed, truncate)
   switch (name) {
     case 'Read':
       return `Read ${s(parsed.file_path) || s(parsed.path) || 'file'}`
@@ -180,8 +193,6 @@ export function getToolDescription(
 ): string {
   const pretty = prettyToolName(name)
   const truncate = options.truncate ?? true
-  // Solus tools show just their friendly label — never their args.
-  if (solusToolKey(name)) return pretty
   if (!input) return pretty
   try {
     const parsed = JSON.parse(input)

@@ -102,10 +102,14 @@
   }
 </script>
 
+<!-- `data-selection-bubble` is a behavioural hook, not a test one: a surface
+     with an outside-click dismisser has to count the bubble as inside, because
+     it is where the actions that act on the selection live. -->
 {#if open && rect}
   <div
     use:portal={document.body}
     data-solus-ui
+    data-selection-bubble
     data-testid="selection-bubble"
     class="doc-bubble fixed z-[10001]"
     style="left:{clampedCentre(rect, BUBBLE_WIDTH)}px;top:{rect.top}px"

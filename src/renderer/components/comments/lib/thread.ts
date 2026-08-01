@@ -55,6 +55,14 @@ export function authorName(author: CommentAuthor): string {
   return author === 'solus' ? 'Solus' : 'You'
 }
 
+/** The name on a thread message. An agent-written one names the agent that wrote
+ *  it — "Solus" cannot say WHICH agent, and several can be reviewing at once. */
+export function authorLabel(message: Pick<PlanComment, 'author' | 'authorAgent'>): string {
+  const author = commentAuthor(message)
+  if (author !== 'solus') return authorName(author)
+  return message.authorAgent?.title || 'Solus'
+}
+
 /**
  * A thread in Solus has exactly two possible voices: you, and the agent. You
  * get a terracotta initials circle — the hue that already means "you" on every

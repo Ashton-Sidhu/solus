@@ -83,7 +83,7 @@ describe('server status', () => {
 
     try {
       serversStore.setConnectionStatus('remote', 'connecting')
-      await serversStore.probeRunOnServers()
+      await serversStore.probeHosts()
 
       expect(forced).toBe(true)
       expect(serversStore.statusFor('remote')).toBe('offline')

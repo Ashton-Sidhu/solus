@@ -126,6 +126,7 @@ export const KEYBINDINGS = {
 
   // ── Document modal ─────────────────────────────────────────────────────────
   'document-modal.close':         { combo: { code: 'Escape' },                             scope: 'document-modal',     label: 'Close',                    group: 'Modal' },
+  'document-modal.start-comment': { combo: { mod: true, code: 'KeyM' },                    scope: 'document-modal',     label: 'Comment on selection',     group: 'Modal' },
   'document-modal.save':          { combo: { alt: true, code: 'KeyS' },                    scope: 'document-modal',     label: 'Save',                     group: 'Modal' },
   'document-modal.copy':          { combo: { alt: true, code: 'KeyC' },                    scope: 'document-modal',     label: 'Copy to clipboard',        group: 'Modal' },
   'document-modal.find':          { combo: { mod: true, code: 'KeyF' },                    scope: 'document-modal',     label: 'Find & replace',           group: 'Modal' },

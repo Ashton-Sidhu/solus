@@ -1,5 +1,6 @@
 import type { FilePreviewRequest } from '../../lib/filePreview'
-import type { DiffScope, GitCheckout, PrReviewContext } from '../../../shared/types'
+import type { PrActivityTarget } from '../../components/pr-review/lib/activity-data'
+import type { DiffScope, GitCheckout, IpcContext, PrReviewContext } from '../../../shared/types'
 
 /** Full-page views — the former overlay flags. No payload; at most one is open
  *  across both slots, preserving the flags' mutual exclusion. */
@@ -13,6 +14,7 @@ export type BaseContent =
   | { kind: 'plan'; planId: string | null }
   | { kind: 'work'; workId: string }
   | { kind: 'automation'; automationId: string | null }
+  | { kind: 'goal'; tabId: string }
   // `scope` distinguishes the full-branch walkthrough (default) from the
   // session-scoped one (ActionOrb) so the companion regenerates against the right
   // base; `key` already encodes the scope, but the prop keeps the companion from
@@ -21,10 +23,12 @@ export type BaseContent =
   // PR review (M3): the review surface — Activity · Guide · Diff content tabs —
   // lives MAXIMIZED in the secondary pane. The worktree-rooted chat is created
   // lazily when requested; `chatTabId` identifies it once it exists.
-  | { kind: 'pr-review'; pr: PrReviewContext; chatTabId: string | null; key: string }
-  // The skeleton shown the instant a PR is clicked, while its worktree is being
-  // fetched/checked out. Swapped for `pr-review` once openPrReview resolves.
-  | { kind: 'pr-review-loading'; number: number; title?: string }
+  // `review` is null between the click and the worktree being fetched/checked
+  // out. The surface stays one mounted component across that transition — it
+  // renders Activity from `target` plus the prefetched provider data and
+  // unlocks the worktree-backed tabs when `review` arrives — so opening a PR
+  // shows a single page filling in, not a placeholder that is then replaced.
+  | { kind: 'pr-review'; target: PrActivityTarget; targetCtx: IpcContext; review: PrReviewContext | null; chatTabId: string | null }
   | PagePaneContent
   | { kind: 'empty' }
 
@@ -188,49 +192,50 @@ export class PaneViewStore {
     this.primaryContent = { kind: 'review', key, scope }
   }
 
-  /** Place a prepared PR review in the secondary pane without disturbing the
-   * current primary surface. The same mounted review can then be maximized or
-   * shown beside a chat without being recreated. */
-  dockPrReview(pr: PrReviewContext, chatTabId: string | null = null): void {
-    this.secondaryContent = { kind: 'pr-review', pr, chatTabId, key: pr.branch.replace(/\//g, '__') }
+  /** Place a PR review in the secondary pane without disturbing the current
+   * primary surface. Mounted the instant the PR is clicked — before its
+   * worktree exists — so the click gets a real surface rather than an empty
+   * pane for the whole fetch/checkout round-trip; `resolvePrReview` completes
+   * it in place. The same mounted review can then be maximized or shown beside
+   * a chat without being recreated. */
+  dockPrReview(target: PrActivityTarget, targetCtx: IpcContext, chatTabId: string | null = null): void {
+    this.secondaryContent = { kind: 'pr-review', target, targetCtx, review: null, chatTabId }
     this.secondaryOverlay = null
     this.maximized = false
     this.hasResized = false
     this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO
   }
 
-  /** Cold-entry review (command palette, deep link): reveal the canonical
-   * secondary review at full size after it has been prepared. */
-  enterPrReview(pr: PrReviewContext, chatTabId: string | null = null): void {
+  /** Cold-entry review (command palette, deep link): reveal the secondary
+   * review at full size. */
+  enterPrReview(target: PrActivityTarget, targetCtx: IpcContext, chatTabId: string | null = null): void {
     this.primaryContent = { kind: 'conversation' }
-    this.dockPrReview(pr, chatTabId)
+    this.dockPrReview(target, targetCtx, chatTabId)
     this.maximized = true
   }
 
-  dockPrReviewLoading(number: number, title?: string): void {
-    this.secondaryContent = { kind: 'pr-review-loading', number, title }
-    this.secondaryOverlay = null
-    this.maximized = false
-    this.hasResized = false
-    this.secondaryRatio = PR_REVIEW_SECONDARY_RATIO
+  /** The worktree finished checking out. Filled in on the existing content
+   * rather than replacing it, so the mounted surface keeps its Activity data,
+   * scroll, and composer instead of remounting. False when the pane has since
+   * moved on to another PR — the caller drops the stale result. */
+  resolvePrReview(review: PrReviewContext): boolean {
+    const content = this.secondaryContent
+    if (content.kind !== 'pr-review' || content.target.number !== review.number) return false
+    content.review = review
+    return true
+  }
+
+  /** True while the given PR's review is docked but still waiting on its
+   * worktree — the window in which a failure should tear the pane down. */
+  isPrReviewPending(number: number): boolean {
+    const content = this.secondaryContent
+    return content.kind === 'pr-review' && content.target.number === number && content.review === null
   }
 
   attachPrReviewChat(prNumber: number, chatTabId: string): void {
-    if (this.secondaryContent.kind === 'pr-review' && this.secondaryContent.pr.number === prNumber) {
+    if (this.secondaryContent.kind === 'pr-review' && this.secondaryContent.target.number === prNumber) {
       this.secondaryContent.chatTabId = chatTabId
     }
-  }
-
-  /**
-   * Mount the review surface skeleton immediately on click, before the PR's
-   * worktree has been fetched/checked out — without this the secondary stays
-   * empty for the whole getPullRequest + fetch/checkout round-trip. `enterPrReview`
-   * swaps in the real surface once it resolves; on failure the caller closes the slot.
-   */
-  enterPrReviewLoading(number: number, title?: string): void {
-    this.primaryContent = { kind: 'conversation' }
-    this.dockPrReviewLoading(number, title)
-    this.maximized = true
   }
 
   openWork(workId: string): void {
@@ -240,6 +245,13 @@ export class PaneViewStore {
   /** Open the automation builder as an artifact. `null` = a brand-new automation. */
   openAutomation(automationId: string | null): void {
     this.setArtifact({ kind: 'automation', automationId })
+  }
+
+  /** The pill's goal surface. Editor mode shows the goal as a project-rail
+   * section instead, so only PillLayout — which has no rail — renders this. */
+  openGoal(tabId: string): void {
+    if (this.secondaryContent.kind === 'goal' && this.secondaryContent.tabId === tabId) return
+    this.moveToSecondary({ kind: 'goal', tabId }, { secondaryRatio: 0.34 })
   }
 
   openFiles(sourceTabId: string, cwd: string, checkout: GitCheckout | null): void {

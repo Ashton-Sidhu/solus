@@ -176,9 +176,8 @@
 
 <style>
   .subagent-group {
-    background: var(--card);
-    box-shadow: 0 0 0 0.0625rem
-      color-mix(in srgb, var(--solus-tool-border) 72%, transparent);
+    background: var(--solus-tx-card-bg);
+    box-shadow: var(--solus-tx-card-shadow);
   }
 
   .subagent-group__header {

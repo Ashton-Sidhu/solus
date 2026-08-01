@@ -32,10 +32,8 @@
      *  applies the choice at dispatch. */
     selection?: PickerSelection;
     menuSide?: "top" | "bottom";
-    /** Compact trigger for the embedded composer — smaller glyph, text, height. */
-    dense?: boolean;
   }
-  let { tabId, selection = $bindable(), menuSide = "top", dense = false }: Props = $props();
+  let { tabId, selection = $bindable(), menuSide = "top" }: Props = $props();
 
   const detached = $derived(selection !== undefined);
 
@@ -245,27 +243,35 @@
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps} {...props} type="button" class="flex items-center min-w-0 rounded-full transition-[background-color,scale] font-secondary text-(--solus-text-secondary) hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {dense ? 'h-6 gap-1 pl-0.5 pr-1.5 text-[0.75rem]' : 'h-8 gap-1.5 pl-1 pr-2 text-[0.8125rem]'}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+            <!-- Same shell as the permission picker, never merged with it: mode
+                 and model are two decisions, so they are two hit targets. The
+                 brand mark is the model's category glyph and carries the only
+                 accent on the control. -->
+            <button {...tooltipProps} {...props} type="button" class="flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-[0.78125rem] text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) {open ? 'bg-(--solus-surface-hover)' : ''}" style="cursor:{isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
+        <!-- Codex's mark is solid black, so it keeps a white plate to stay
+             legible in dark mode; the others take the accent directly. -->
         <span
-          class={`flex flex-shrink-0 items-center justify-center rounded-full ${dense ? "h-5 w-5" : "h-6 w-6"} ${isCodex ? "bg-white" : "bg-(--solus-accent-light) text-(--solus-accent)"}`}
+          class="flex flex-shrink-0 items-center justify-center text-(--solus-accent) {isCodex
+            ? 'h-5 w-5 rounded-full bg-white'
+            : ''}"
         >
           {#if isClaude}
-            <ClaudeIcon size={dense ? 12 : 14} />
+            <ClaudeIcon size={13} />
           {:else if isCodex}
-            <OpenAIBlossom size={dense ? 12 : 14} />
+            <OpenAIBlossom size={13} />
           {:else}
-            <CodeIcon size={dense ? 12 : 14} class="flex-shrink-0" />
+            <CodeIcon size={13} class="flex-shrink-0" />
           {/if}
         </span>
         {#if handoffInProgress}
           <span class="flex min-w-0 items-center gap-1 font-medium text-(--solus-text-tertiary)">
-            <SpinnerGapIcon size={dense ? 10 : 11} class="flex-shrink-0 animate-spin motion-reduce:animate-none" />
+            <SpinnerGapIcon size={11} class="flex-shrink-0 animate-spin motion-reduce:animate-none" />
             <span class="truncate">Handing off…</span>
           </span>
         {:else}
           <span class="truncate max-w-28 font-medium text-(--solus-text-primary)">{modelLabel}</span>
           <span class="flex-shrink-0 text-(--solus-text-tertiary)">{reasoningLabel}</span>
-          <CaretDownIcon size={9} class="text-(--solus-text-tertiary)" />
+          <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
         {/if}
       </button>
           {/snippet}

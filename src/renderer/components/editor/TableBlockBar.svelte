@@ -40,8 +40,12 @@
       // bar tracks a horizontally scrolled wide table.
       const cell = ed.view.domAtPos(ed.state.selection.from).node;
       const el = (cell instanceof Element ? cell : cell.parentElement)?.closest("table");
-      anchor = el?.getBoundingClientRect() ?? null;
-      align = anchor ? currentColumnAlign(ed) : null;
+      // Keep the freshly measured rect local. Reading `anchor` after assigning it
+      // would make this effect depend on the state it writes, and every new
+      // DOMRect would schedule the effect again until Svelte aborts the loop.
+      const nextAnchor = el?.getBoundingClientRect() ?? null;
+      anchor = nextAnchor;
+      align = nextAnchor ? currentColumnAlign(ed) : null;
     };
     const schedule = () => {
       if (pending) return;

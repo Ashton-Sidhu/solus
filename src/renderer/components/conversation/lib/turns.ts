@@ -12,19 +12,19 @@ export type GroupedItem =
   | { kind: 'document'; message: Message }
   | { kind: 'automation'; message: Message }
   | { kind: 'task'; message: Message }
-  | { kind: 'relay-group'; messages: Message[] }
+  | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
 
 export function groupMessages(messages: Message[]): GroupedItem[] {
   const result: GroupedItem[] = []
   let toolBuf: Message[] = []
   let subagentBuf: Message[] = []
-  // The turn's relay cards stack at the position of the FIRST dispatch, in
+  // The turn's agent-conversation cards stack at the position of the FIRST dispatch, in
   // dispatch order, even though tool rows interleave between them in the raw
-  // transcript (each prompt_session is a tool call followed by its relay
+  // transcript (each prompt_session is a tool call followed by its agent-conversation
   // message). Tool rows therefore do NOT close the stack — only real prose or
   // a new turn does. The open group's array is grown in place.
-  let relayGroup: Message[] | null = null
+  let agentConversationGroup: Message[] | null = null
   const flushTools = () => {
     if (toolBuf.length > 0) {
       result.push({ kind: 'tool-group', messages: [...toolBuf] })
@@ -46,19 +46,19 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
     } else if (msg.role === 'tool') {
       flushSubagents()
       toolBuf.push(msg)
-    } else if (msg.relayRef) {
+    } else if (msg.agentConversationRef) {
       flushTools()
       flushSubagents()
-      if (relayGroup) {
-        relayGroup.push(msg)
+      if (agentConversationGroup) {
+        agentConversationGroup.push(msg)
       } else {
-        relayGroup = [msg]
-        result.push({ kind: 'relay-group', messages: relayGroup })
+        agentConversationGroup = [msg]
+        result.push({ kind: 'agent-conversation-group', messages: agentConversationGroup })
       }
     } else {
       flushTools()
       flushSubagents()
-      relayGroup = null
+      agentConversationGroup = null
       // The SDK writes its interrupt notice back as a user turn to keep the
       // provider transcript well-formed. Nobody typed it, so it renders as a
       // transient row, not a bubble.
@@ -85,7 +85,7 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
 export function itemKey(item: GroupedItem): string {
   if (item.kind === 'tool-group') return `tg-${item.messages[0].id}`
   if (item.kind === 'subagent-group') return `sg-${item.messages[0].id}`
-  if (item.kind === 'relay-group') return `rg-${item.messages[0].id}`
+  if (item.kind === 'agent-conversation-group') return `ag-${item.messages[0].id}`
   if (item.kind === 'live-assistant') return item.id
   return item.message.id
 }
@@ -193,14 +193,13 @@ function echoesEnd(item: GroupedItem, end: TurnEnd | null): boolean {
   return text !== null && text.trim() === end.detail
 }
 
-/** A fork or a move into a worktree is a statement about the thread, not
- *  something that happened inside a turn — so it opens one rather than sitting
- *  in one, and no fold can ever swallow it. Provider switches are deliberately
- *  absent: they are seamless implementation details. */
+/** A fork, agent/model change, or move into a worktree is a statement about the
+ *  thread, not something that happened inside a turn — so it opens one rather
+ *  than sitting in one, and no fold can ever swallow it. */
 function isDivider(item: GroupedItem): boolean {
   if (item.kind !== 'system') return false
-  const { forkSourceSessionId, worktreeMovedTo } = item.message
-  return !!(forkSourceSessionId || worktreeMovedTo)
+  const { agentChangedTo, forkSourceSessionId, worktreeMovedTo, newSessionForPlanId } = item.message
+  return !!(agentChangedTo || forkSourceSessionId || worktreeMovedTo || newSessionForPlanId)
 }
 
 const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant', 'live-assistant'])
@@ -208,7 +207,10 @@ const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'artifact',
   'automation',
   'document',
-  'relay-group',
+  'agent-conversation-group',
+  // A plan is what the turn produced, not a step it took to get there — and it
+  // is the one card the reader still has to act on after the turn ends.
+  'plan',
 ])
 
 /**
@@ -328,7 +330,7 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
 
 function firstTimestamp(items: GroupedItem[]): number {
   for (const item of items) {
-    if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'relay-group') return item.messages[0].timestamp
+    if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'agent-conversation-group') return item.messages[0].timestamp
     if (item.kind !== 'live-assistant') return item.message.timestamp
   }
   return 0
@@ -344,9 +346,9 @@ function firstTimestamp(items: GroupedItem[]): number {
  */
 export function needsLiveRow(turn: Turn): boolean {
   const last = turn.body[turn.body.length - 1]
-  // A relay stack at the tail carries its own live chrome (pulse dot, "writing
+  // An agent-conversation stack at the tail carries its own live chrome (pulse dot, "writing
   // a reply" shimmer) — a Thinking row under it would report the run twice.
-  return last?.kind !== 'tool-group' && last?.kind !== 'live-assistant' && last?.kind !== 'relay-group'
+  return last?.kind !== 'tool-group' && last?.kind !== 'live-assistant' && last?.kind !== 'agent-conversation-group'
 }
 
 /** Wall time the turn covers — the only figure the collapsed label prints. */
@@ -359,7 +361,7 @@ export function turnDurationMs(turn: Turn): number | null {
   }
   for (const item of [...turn.body, ...turn.tail]) {
     if (item.kind === 'live-assistant') continue
-    if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'relay-group') continue
+    if (item.kind === 'tool-group' || item.kind === 'subagent-group' || item.kind === 'agent-conversation-group') continue
     end = Math.max(end, item.message.timestamp)
   }
   if (!Number.isFinite(end) || end <= turn.startedAt) return null

@@ -26,6 +26,13 @@ import {
   stopSessionAgentTool,
   waitForSessionAgentTool,
 } from '../../sessions/session-tools'
+import { answerSessionAgentTool, reviewPlanAgentTool } from '../../sessions/session-review-tools'
+import {
+  commentDocumentAgentTool,
+  readPlanAgentTool,
+  replyCommentAgentTool,
+  resolveCommentAgentTool,
+} from '../../annotations/comment-tools'
 import {
   commentTaskAgentTool,
   createTaskAgentTool,
@@ -50,6 +57,10 @@ export const solusToolbox = {
     read: readWorkAgentTool,
     create: createWorkAgentTool,
     update: updateWorkAgentTool,
+    readPlan: readPlanAgentTool,
+    comment: commentDocumentAgentTool,
+    replyComment: replyCommentAgentTool,
+    resolveComment: resolveCommentAgentTool,
   },
   artifact: {
     render: renderArtifactAgentTool,
@@ -73,6 +84,8 @@ export const solusToolbox = {
     prompt: promptSessionAgentTool,
     wait: waitForSessionAgentTool,
     stop: stopSessionAgentTool,
+    answer: answerSessionAgentTool,
+    reviewPlan: reviewPlanAgentTool,
   },
   tasks: {
     list: listTasksAgentTool,

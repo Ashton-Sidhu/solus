@@ -11,8 +11,6 @@ mock.module('@client-core/server-connections', () => ({
     ensure: (id: string) => connectionCalls.push(`ensure:${id}`),
   },
 }))
-mock.module('@client-core/run-on-preferences', () => ({ rememberRunOnHost: () => {} }))
-
 const {
   queueSessionHostDispatch,
   retargetSessionHost,
@@ -47,7 +45,6 @@ describe('retargeting a session to another host', () => {
       hostLabel: 'Studio',
       isLocalHost: false,
       repoKey: 'github.com/solus-sh/solus',
-      checkout: null,
     })
 
     expect(session.serverId).toBe('local')

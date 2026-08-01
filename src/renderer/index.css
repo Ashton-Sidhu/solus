@@ -683,18 +683,75 @@
   --sidebar-ring: var(--solus-input-focus-border);
   --radius: 0.5rem;
 
-  /* Transcript chrome (see the "Conversation assets" spec). Cards sit flush
-     with the transcript and use a hairline for separation rather than a drop
-     shadow.
+  /* Transcript chrome (see the "Conversation assets" spec). A card is an object
+     on the transcript, not a run of text: its own surface, a hairline stating
+     the edge, a short shadow holding it a step off the page, and one white
+     inset catching the light. Shallow on purpose — the transcript is a reading
+     surface first, so the card reads as raised without becoming furniture.
      Consume with the type hint — `shadow-[shadow:var(--solus-tx-card-shadow)]` —
      or tailwind-merge files it under shadow-*colour* and `shadow-md` wins. */
   --solus-tx-hairline: 0 0 0 0.03125rem
     color-mix(in oklch, var(--foreground) 11%, transparent);
-  --solus-tx-card-shadow: var(--solus-tx-hairline);
+  /* Paper white against the warm page. In dark mode the fill does most of the
+     lifting, since a shadow has little to darken — see the .dark block below. */
+  --solus-tx-card-bg: #ffffff;
+  /* White in both themes: it stands for a light source, not a colour. */
+  --solus-tx-card-highlight: rgba(255, 255, 255, 0.55);
+  /* The lift on its own, so a card carrying a state ring (open, failed) keeps
+     its own ring and still sits at the same height as every other card. */
+  --solus-tx-card-lift:
+    0 0.0625rem 0.125rem rgba(60, 45, 30, 0.05),
+    0 0.375rem 0.875rem -0.3125rem rgba(60, 45, 30, 0.1);
+  --solus-tx-card-shadow:
+    0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
+    inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+    var(--solus-tx-card-lift);
+  /* Hover, on the cards that open something: the same object, one step out. */
+  --solus-tx-card-lift-hover:
+    0 0.125rem 0.1875rem rgba(60, 45, 30, 0.06),
+    0 0.75rem 1.5rem -0.5rem rgba(60, 45, 30, 0.16);
+  --solus-tx-card-shadow-hover:
+    0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 16%, transparent),
+    inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+    var(--solus-tx-card-lift-hover);
+  /* An interrupt card is a raised object on the canvas, not a flush message —
+     it is the one transcript surface that lifts. Routed through --foreground so
+     the lift reads the same in dark mode. */
+  --solus-tx-raised-shadow:
+    0 0.0625rem 0.125rem color-mix(in oklch, var(--foreground) 6%, transparent),
+    0 0.75rem 2rem -0.75rem color-mix(in oklch, var(--foreground) 20%, transparent);
   --solus-tx-rule: color-mix(in oklch, var(--foreground) 6%, transparent);
   --solus-tx-rule-strong: color-mix(in oklch, var(--foreground) 8%, transparent);
+  /* Agent exchange card (the "Agent exchange" spec, § card shell). Not the
+     transcript card shell above: its edge is an *inset* hairline, so the ring
+     reads at the same weight on all four sides instead of the top edge losing
+     to a lift that only darkens the other three. The lift is one short shadow.
+     Split from the shadow so a state ring — 1px of chart-2 or destructive —
+     swaps the hairline for colour without changing the card's height. */
+  --solus-agent-card-lift: 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05);
+  --solus-agent-card-shadow:
+    inset 0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
+    var(--solus-agent-card-lift);
+  /* Every rule inside an exchange card — header, message block, footer. */
+  --solus-agent-card-rule: color-mix(in oklch, var(--foreground) 9%, transparent);
   /* Arrow-out-of-box, masked so it takes the link's own colour. */
   --solus-external-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.4 2.4h5.2v5.2M9.6 2.4L4 8'/%3E%3Cpath d='M8 9.6H2.4V4'/%3E%3C/svg%3E");
+}
+
+/* Dark mode inverts which half of the card shell does the work: the fill lifts
+   (a dark page can't be out-shadowed the way paper can), the shadow turns to
+   real black for contact, and the light-source inset drops to a whisper. Lives
+   here, not in the .dark block above, so it stays beside the light values it
+   mirrors — same specificity, later in the file, so it wins. */
+.dark {
+  --solus-tx-card-bg: color-mix(in oklch, white 4%, var(--solus-container-bg));
+  --solus-tx-card-highlight: rgba(255, 255, 255, 0.07);
+  --solus-tx-card-lift:
+    0 0.0625rem 0.125rem rgba(0, 0, 0, 0.32),
+    0 0.5rem 1.125rem -0.375rem rgba(0, 0, 0, 0.45);
+  --solus-tx-card-lift-hover:
+    0 0.125rem 0.25rem rgba(0, 0, 0, 0.38),
+    0 0.875rem 1.75rem -0.5rem rgba(0, 0, 0, 0.55);
 }
 
 @theme inline {
@@ -2692,6 +2749,99 @@ button.solus-token {
   line-height: 1.65;
 }
 
+/* ─── Agent exchange card prose (the other agent's reply) ───
+   A reply is rendered by the transcript's own markdown renderer — one dialect,
+   no second implementation — under two constraints: nothing inside a card may
+   be larger than the card's own body type, and a card is already a section, so
+   it cannot contain a heading that reads as one. Every level therefore lands on
+   the body's own size at 600.
+
+   Applied alongside `.prose-transcript`, which is what draws the reference-chip
+   shell on code spans (`.prose-transcript code`); dropping it would silently
+   revert them to the accent-coloured borderless treatment. Must sit after that
+   ruleset — it is unlayered, so a Tailwind class at the call site could never
+   beat its `max-width: 88%`. */
+.prose-agent-card {
+  max-width: none;
+  font-size: calc(0.90625rem * var(--solus-font-scale, 1));
+  line-height: 1.62;
+}
+.prose-agent-card h1,
+.prose-agent-card h2,
+.prose-agent-card h3,
+.prose-agent-card h4,
+.prose-agent-card h5,
+.prose-agent-card h6 {
+  margin: 0.875rem 0 0;
+  font-size: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.prose-agent-card ul,
+.prose-agent-card ol {
+  margin: 0.5625rem 0 0;
+  padding-left: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+/* One nesting level. A card is too narrow for a tree, so a deeper list flattens
+   onto its parent's indent rather than marching off the right edge. */
+.prose-agent-card ul ul,
+.prose-agent-card ol ol,
+.prose-agent-card ul ol,
+.prose-agent-card ol ul {
+  margin-top: 0.375rem;
+  padding-left: 0;
+}
+.prose-agent-card blockquote {
+  border-left: 0.125rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  color: var(--muted-foreground);
+}
+/* A table scrolls rather than reflows, for the same reason a code block does: a
+   shrunk-to-fit table is harder to read than a scrollbar. */
+.prose-agent-card table {
+  display: block;
+  overflow-x: auto;
+  margin: 0.625rem 0 0;
+  font-size: 0.78125rem;
+}
+.prose-agent-card th,
+.prose-agent-card td {
+  padding: 0.375rem 0.625rem;
+  white-space: nowrap;
+}
+.prose-agent-card th {
+  font-weight: 600;
+}
+/* A rule invents a section break the agent didn't write, and an image
+   out-weighs everything else in a 150px card — it arrives as an attachment row
+   instead. */
+.prose-agent-card hr,
+.prose-agent-card img {
+  display: none;
+}
+
+/* Settled body. Once an exchange is over the whole card steps back — accent
+   drops to muted, the clock and footer go — and a full-strength reply was left
+   shouting over its own header. It lands just short of tertiary: quiet enough
+   that nothing in a finished card pops, still ahead of the header chrome so the
+   words stay the one thing with any weight left.
+
+   Lives here rather than as a `text-*` utility because `.prose-transcript` sets
+   `color` unlayered on the root, every heading and `td`, which outranks any
+   layered utility; these tie on specificity and win on source order. */
+.prose-agent-card-rest,
+.prose-agent-card-rest h1,
+.prose-agent-card-rest h2,
+.prose-agent-card-rest h3,
+.prose-agent-card-rest h4,
+.prose-agent-card-rest h5,
+.prose-agent-card-rest h6,
+.prose-agent-card-rest td {
+  color: color-mix(in oklch, var(--solus-text-tertiary) 72%, var(--solus-text-primary));
+}
+
 /* ─── User bubble prose (§14, reduced set) ───
    A bubble renders enough for a pasted sentence, not enough to become a
    document: headings of every level flatten onto one 13.5px/600 line and
@@ -2741,11 +2891,14 @@ button.solus-token {
   margin: 0.35em 0;
 }
 
-/* ─── PR description prose ───
-   Applied alongside `.prose-cloud .github-markdown` on the rendered body of a
-   pull request description. That body is other people's markdown, so the
-   ruleset covers every element an author might reach for, not just the ones
-   our own PRs happen to use. Three rules carry it:
+/* ─── PR prose ───
+   Applied alongside `.prose-cloud .github-markdown` on every body GitHub gives
+   us: the pull request description, review-thread comments, and the timeline's
+   conversation rows. One ruleset for all of them — a reply is the same kind of
+   writing as the description it answers, so it gets the same typography. That
+   body is other people's markdown, so the ruleset covers every element an
+   author might reach for, not just the ones our own PRs happen to use. Three
+   rules carry it:
 
    · Body is muted, structure is solid. Paragraphs sit on the tertiary tone;
      headings, strong, em and code step up to primary. That single contrast
@@ -2758,58 +2911,62 @@ button.solus-token {
    Last in the prose region on purpose: nearly every declaration here ties on
    specificity with a `.prose-cloud` / `.github-markdown` rule above, so source
    order is what decides them. */
-.prose-pr-description {
-  /* The measure the 1.75 leading is tuned for. `ch` is the advance of "0",
-     which is wider than the average proportional glyph, so this lands a little
-     past the nominal 78ch measure in real characters — deliberate, so the
-     column doesn't strand a band of empty canvas on a wide pane. */
-  max-width: 84ch;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+.prose-pr {
+  /* Every size below is a ratio of this one, so a denser surface (the inline
+     diff card) re-scales the whole ruleset by setting it once. */
+  --prose-pr-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   line-height: 1.75;
   font-weight: 400;
   color: var(--solus-text-tertiary);
   text-wrap: pretty;
 }
+/* Only the description runs the full width of the pane, so only it needs a
+   measure — comments are already columned by their card. `ch` is the advance of
+   "0", which is wider than the average proportional glyph, so this lands a
+   little past the nominal 78ch the 1.75 leading is tuned for — deliberate, so
+   the column doesn't strand a band of empty canvas on a wide pane. */
+.prose-pr-description { max-width: 84ch; }
 /* Element margins alone set the rhythm — the generic sibling step would add to
    the asymmetric heading spacing below. */
-.prose-pr-description > * + * { margin-top: 0; }
-.prose-pr-description > :last-child { margin-bottom: 0; }
-.prose-pr-description p { margin: 0 0 0.75rem; }
+.prose-pr > * + * { margin-top: 0; }
+.prose-pr > :last-child { margin-bottom: 0; }
+.prose-pr p { margin: 0 0 0.75rem; }
 
 /* An h1 in the body is demoted to h2 — the PR title is the page's h1. */
-.prose-pr-description h1,
-.prose-pr-description h2 {
+.prose-pr h1,
+.prose-pr h2 {
   margin: 2rem 0 0.625rem;
-  font-size: calc(0.9688rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 1.107);
   font-weight: 600;
   line-height: 1.35;
   letter-spacing: -0.015em;
   color: var(--solus-text-primary);
 }
-.prose-pr-description h3,
-.prose-pr-description h4,
-.prose-pr-description h5,
-.prose-pr-description h6 {
+.prose-pr h3,
+.prose-pr h4,
+.prose-pr h5,
+.prose-pr h6 {
   margin: 1.25rem 0 0.375rem;
-  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.964);
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: -0.01em;
   color: var(--solus-text-primary);
 }
-.prose-pr-description h1:first-child,
-.prose-pr-description h2:first-child,
-.prose-pr-description h3:first-child,
-.prose-pr-description h4:first-child,
-.prose-pr-description h5:first-child,
-.prose-pr-description h6:first-child { margin-top: 0; }
+.prose-pr h1:first-child,
+.prose-pr h2:first-child,
+.prose-pr h3:first-child,
+.prose-pr h4:first-child,
+.prose-pr h5:first-child,
+.prose-pr h6:first-child { margin-top: 0; }
 
-.prose-pr-description strong { font-weight: 600; color: var(--solus-text-primary); }
-.prose-pr-description em { font-style: italic; color: var(--solus-text-primary); }
+.prose-pr strong { font-weight: 600; color: var(--solus-text-primary); }
+.prose-pr em { font-style: italic; color: var(--solus-text-primary); }
 
 /* Mono runs at 0.9× whatever surrounds them — never equal, or the chip reads
    as a size change rather than a change of voice. */
-.prose-pr-description code {
+.prose-pr code {
   padding: 0.0625rem 0.25rem;
   border-radius: 0.25rem;
   background: var(--solus-surface-hover);
@@ -2817,7 +2974,7 @@ button.solus-token {
   font-size: 0.9em;
 }
 /* A commit SHA is an address, not a literal you'd retype: accent, no chip. */
-.prose-pr-description code.markdown-sha {
+.prose-pr code.markdown-sha {
   padding: 0;
   background: none;
   color: var(--solus-accent);
@@ -2826,32 +2983,32 @@ button.solus-token {
 /* Markers live in their own gutter rather than in the text flow, so a list
    stays aligned at any nesting depth and a wrapped line never tucks under its
    own bullet. */
-.prose-pr-description ul {
+.prose-pr ul {
   margin: 0.75rem 0;
   padding-left: 0;
   list-style: none;
 }
-.prose-pr-description ol {
+.prose-pr ol {
   margin: 0.75rem 0;
   padding-left: 1.5rem;
   list-style: decimal;
 }
-.prose-pr-description li {
+.prose-pr li {
   margin: 0;
-  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.964);
   line-height: 1.7;
 }
-.prose-pr-description li + li { margin-top: 0.75rem; }
-.prose-pr-description li > p { margin: 0; }
-.prose-pr-description li > p + p { margin-top: 0.375rem; }
+.prose-pr li + li { margin-top: 0.75rem; }
+.prose-pr li > p { margin: 0; }
+.prose-pr li > p + p { margin-top: 0.375rem; }
 /* A nested list belongs to its parent item, not to the gap between items. */
-.prose-pr-description li > ul,
-.prose-pr-description li > ol { margin: 0.375rem 0 0; }
-.prose-pr-description ul > li {
+.prose-pr li > ul,
+.prose-pr li > ol { margin: 0.375rem 0 0; }
+.prose-pr ul > li {
   position: relative;
   padding-left: 1.25rem;
 }
-.prose-pr-description ul > li::before {
+.prose-pr ul > li::before {
   content: "";
   position: absolute;
   left: 0.25rem;
@@ -2863,7 +3020,7 @@ button.solus-token {
   background: currentColor;
 }
 /* Nested bullets hollow out, so depth reads without a second indent cue. */
-.prose-pr-description li ul > li::before {
+.prose-pr li ul > li::before {
   top: 0.56em;
   width: 0.3125rem;
   height: 0.3125rem;
@@ -2872,20 +3029,20 @@ button.solus-token {
 }
 /* Mono numerals, muted, right-aligned in the gutter (list-style-position:
    outside) so a two-digit item never shifts the text column. */
-.prose-pr-description ol > li::marker {
+.prose-pr ol > li::marker {
   font-family: var(--solus-code-font-family);
   font-size: 0.86em;
   color: var(--solus-text-tertiary);
 }
 
 /* Task rows carry their own marker, so they opt out of the bullet gutter. */
-.prose-pr-description .markdown-task-item {
+.prose-pr .markdown-task-item {
   margin-left: 0;
   padding-left: 0;
   gap: 0.625rem;
 }
-.prose-pr-description .markdown-task-item::before { content: none; }
-.prose-pr-description .markdown-task-checkbox {
+.prose-pr .markdown-task-item::before { content: none; }
+.prose-pr .markdown-task-checkbox {
   width: 0.8125rem;
   height: 0.8125rem;
   margin-top: 0.25rem;
@@ -2893,68 +3050,68 @@ button.solus-token {
 }
 /* Sage tick; the label stays muted rather than struck — a done item is still
    part of the description. */
-.prose-pr-description .markdown-task-checked .markdown-task-checkbox {
+.prose-pr .markdown-task-checked .markdown-task-checkbox {
   border-color: var(--solus-art-3);
   background: var(--solus-art-3);
 }
 
 /* Quiet, not decorative: a wash and a leading hairline, same muted text. */
-.prose-pr-description blockquote {
+.prose-pr blockquote {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
   border-left: 0.125rem solid var(--solus-container-border);
   border-radius: 0.5rem;
   background: var(--solus-surface-hover);
   color: var(--solus-text-tertiary);
-  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.964);
   line-height: 1.7;
 }
-.prose-pr-description blockquote > :first-child { margin-top: 0; }
-.prose-pr-description blockquote > :last-child { margin-bottom: 0; }
+.prose-pr blockquote > :first-child { margin-top: 0; }
+.prose-pr blockquote > :last-child { margin-bottom: 0; }
 
 /* Callouts earn a tinted card instead of a bare left rule — they're for the
    one caveat that changes what the reviewer should do. */
-.prose-pr-description .markdown-alert {
+.prose-pr .markdown-alert {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
   border: 0.0625rem solid color-mix(in srgb, var(--markdown-alert-color) 28%, transparent);
   border-radius: 0.5rem;
   background: color-mix(in srgb, var(--markdown-alert-color) 10%, transparent);
   color: var(--solus-text-tertiary);
-  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.964);
   line-height: 1.7;
 }
-.prose-pr-description .markdown-alert-title { margin-bottom: 0.25rem; }
-.prose-pr-description .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
+.prose-pr .markdown-alert-title { margin-bottom: 0.25rem; }
+.prose-pr .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
 
 /* No chrome and no language label — a fenced block is a quotation of a
    terminal, and it scrolls rather than wrapping. */
-.prose-pr-description pre {
+.prose-pr pre {
   margin: 1rem 0;
   padding: 0.75rem 0.875rem;
   border: none;
   border-radius: 0.5rem;
   background: var(--solus-code-tint);
   color: var(--solus-text-primary);
-  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.857);
   line-height: 1.65;
   white-space: pre;
   word-break: normal;
   overflow-wrap: normal;
 }
 
-.prose-pr-description hr {
+.prose-pr hr {
   margin: 1.5rem 0 1rem;
   border-top: 0.0625rem solid var(--solus-container-border);
   opacity: 1;
 }
 /* The "Generated with …" line under a closing rule sits below the document. */
-.prose-pr-description hr + p:last-child {
+.prose-pr hr + p:last-child {
   margin-bottom: 0;
-  font-size: calc(0.7813rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.893);
 }
 
-.prose-pr-description img {
+.prose-pr img {
   display: block;
   max-width: 100%;
   height: auto;
@@ -2963,43 +3120,59 @@ button.solus-token {
   border-radius: 0.5rem;
 }
 
-.prose-pr-description table {
+.prose-pr table {
   margin: 1rem 0;
-  font-size: calc(0.7813rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.893);
 }
-.prose-pr-description th {
+.prose-pr th {
   padding: 0 0.7em 0.5em 0;
   border-bottom: 0.0625rem solid var(--solus-container-border);
   background: none;
-  font-size: calc(0.5938rem * var(--solus-font-scale, 1));
+  font-size: calc(var(--prose-pr-size) * 0.679);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--solus-text-tertiary);
 }
-.prose-pr-description td {
+.prose-pr td {
   padding: 0.55em 0.7em 0.55em 0;
   border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
   color: var(--solus-text-tertiary);
 }
-.prose-pr-description td:first-child {
+.prose-pr td:first-child {
   font-weight: 500;
   color: var(--solus-text-primary);
 }
-.prose-pr-description tr:last-child td { border-bottom: none; }
+.prose-pr tr:last-child td { border-bottom: none; }
 /* Two columns is a label→value pair, not a grid: drop the rules and give the
    label a fixed gutter so every value starts on the same edge. */
-.prose-pr-description table:not(:has(td:nth-child(3))) {
-  font-size: calc(0.8438rem * var(--solus-font-scale, 1));
+.prose-pr table:not(:has(td:nth-child(3))) {
+  font-size: calc(var(--prose-pr-size) * 0.964);
 }
-.prose-pr-description table:not(:has(td:nth-child(3))) :is(th, td) {
+.prose-pr table:not(:has(td:nth-child(3))) :is(th, td) {
   padding: 0.3em 0.75em 0.3em 0;
   border-bottom: none;
   line-height: 1.7;
 }
-.prose-pr-description table:not(:has(td:nth-child(3))) td:first-child {
+.prose-pr table:not(:has(td:nth-child(3))) td:first-child {
   width: 8.75rem;
 }
+
+/* The inline diff card runs 11px chrome in a column the width of a hunk, so it
+   takes the same ruleset a step down: type via the ratio variable, block
+   rhythm halved by hand — description spacing is tuned for a full pane, and
+   32px above a heading would be most of the card. */
+.prose-pr-compact {
+  --prose-pr-size: calc(0.75rem * var(--solus-font-scale, 1));
+  line-height: 1.65;
+}
+.prose-pr-compact p { margin-bottom: 0.5rem; }
+.prose-pr-compact :is(h1, h2) { margin: 1rem 0 0.375rem; }
+.prose-pr-compact :is(h3, h4, h5, h6) { margin: 0.625rem 0 0.25rem; }
+.prose-pr-compact :is(ul, ol) { margin: 0.5rem 0; }
+.prose-pr-compact li + li { margin-top: 0.375rem; }
+.prose-pr-compact :is(pre, blockquote, .markdown-alert) { margin: 0.625rem 0; }
+.prose-pr-compact hr { margin: 0.875rem 0 0.625rem; }
 
 /* ─── Pulsing dot animation ─── */
 @keyframes pulse-dot {
@@ -3008,6 +3181,82 @@ button.solus-token {
 }
 .animate-pulse-dot {
   animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* ─── Agent exchange: the other agent is writing ───
+   Three dots in the agent's colour, in the position its reply will occupy —
+   the same signal a messaging app uses, and the reason the card carries no
+   spinner, no status sentence and no elapsed clock beside it. */
+@keyframes tdot {
+  0%, 62%, 100% { transform: translateY(0); opacity: 0.42; }
+  31% { transform: translateY(-0.21875rem); opacity: 1; }
+}
+.agent-typing-dot {
+  animation: tdot 1.25s ease-in-out infinite;
+}
+.agent-typing-dot:nth-child(2) { animation-delay: 0.16s; }
+.agent-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+
+/* The header's direction dot travels toward whoever the in-flight message is
+   going to: leftward while the agent is replying to you, rightward while your
+   prompt is on its way out. */
+@keyframes flowL {
+  0% { transform: translateX(2.0625rem); opacity: 0; }
+  18%, 82% { opacity: 1; }
+  100% { transform: translateX(0); opacity: 0; }
+}
+@keyframes flowR {
+  0% { transform: translateX(0); opacity: 0; }
+  18%, 82% { opacity: 1; }
+  100% { transform: translateX(2.0625rem); opacity: 0; }
+}
+.agent-flow-dot--to-you {
+  animation: flowL 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+.agent-flow-dot--to-agent {
+  animation: flowR 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+/* Folding the body away. A grid track rather than max-height: the body's real
+   height is whatever the reply is, and a max-height guess either clips a long
+   one or spends the first half of the animation travelling through empty space.
+   0fr → 1fr measures it, so every card folds at the same speed regardless of
+   how much it holds.
+
+   The body stays mounted while folded — it is the transcript this card exists
+   to keep, and unmounting it would re-run the markdown parse on every open. */
+.agent-card-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  /* Decelerating: the fold leaves quickly and arrives gently, which is what
+     makes it read as the card settling rather than as a panel being driven. */
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 140ms ease-out;
+}
+.agent-card-fold--closed {
+  grid-template-rows: 0fr;
+  /* Faster out than in, so the words are gone before the height finishes
+     closing and nothing is caught mid-crush. */
+  opacity: 0;
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 90ms ease-in;
+}
+
+/* Dots, the direction dot and the fold are the only motion this component has,
+   so this is the whole of its reduced-motion contract. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-typing-dot,
+  .agent-flow-dot--to-you,
+  .agent-flow-dot--to-agent {
+    animation: none;
+    opacity: 0.7;
+  }
+  .agent-card-fold,
+  .agent-card-fold--closed {
+    transition: none;
+  }
 }
 
 /* ─── Bouncing dots for thinking ─── */
@@ -3231,10 +3480,6 @@ html.is-mac-editor {
   0%, 100% { opacity: 0.4; transform: scale(0.92); }
   50%      { opacity: 1;   transform: scale(1); }
 }
-@keyframes plan-comment-form-in {
-  from { opacity: 0; transform: translateY(-0.1875rem) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0)    scale(1); }
-}
 .doc-shell-root--floating {
   animation: plan-modal-enter var(--duration-modal) var(--ease-modal) both;
   transform-origin: center top;
@@ -3244,9 +3489,6 @@ html.is-mac-editor {
 }
 .doc-shell-save-dot {
   animation: plan-save-pulse 1.4s ease-in-out infinite;
-}
-.plan-comment-form-in {
-  animation: plan-comment-form-in 140ms var(--ease-premium) both;
 }
 
 /* ─── Pairing motion (consumed via [animation:…] utilities in HostPairingPanel.svelte) ─── */
@@ -3259,7 +3501,6 @@ html.is-mac-editor {
 @media (prefers-reduced-motion: reduce) {
   .doc-shell-root--floating,
   .doc-shell-backdrop,
-  .plan-comment-form-in,
   .plan-comment-flash,
   .doc-shell-save-dot {
     animation: none !important;

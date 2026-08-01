@@ -33,7 +33,6 @@
     onDelete: (commentId: string) => void
     onResolve?: (commentId: string, resolved: boolean) => void
     onReply?: (commentId: string, text: string) => void
-    onClose: () => void
     /** Optional action bar pinned below the thread list. */
     footer?: Snippet
   }
@@ -54,7 +53,6 @@
     onDelete,
     onResolve,
     onReply,
-    onClose,
     footer,
   }: Props = $props()
 
@@ -176,10 +174,7 @@
     class="plan-comments-rail__header no-drag"
     class:plan-comments-rail__header--anchored={placement === 'anchored'}
   >
-    <span>{open.length} open{resolved.length > 0 ? ` · ${resolved.length} resolved` : ''}</span>
-    <button type="button" class="plan-comments-rail__hide" onclick={onClose} title="Hide comments">
-      Hide
-    </button>
+    {open.length} open{resolved.length > 0 ? ` · ${resolved.length} resolved` : ''}
   </div>
 
   {#if comments.length === 0}
@@ -293,13 +288,14 @@
     overflow: visible;
   }
   /* Micro label, the same mono voice as the section numerals and the code
-     captions — the one piece of chrome the margin is allowed. */
+     captions — the one piece of chrome the margin is allowed, and the count is
+     the whole of it. Hiding the threads is the toolbar's job, where the same
+     count already lives; a second control here would be the margin growing a
+     second surface. */
   .plan-comments-rail__header {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
     padding: 0 0.125rem 0.625rem;
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: 0.65625rem;
@@ -313,23 +309,6 @@
      them — the count belongs to the column of threads it counts. */
   .plan-comments-rail__header--anchored {
     padding-left: var(--rail-gutter);
-  }
-  .plan-comments-rail__hide {
-    padding: 0;
-    border: none;
-    background: transparent;
-    font: inherit;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition: color var(--duration-quick) var(--ease-premium);
-  }
-  .plan-comments-rail__hide:hover {
-    color: var(--solus-text-primary);
-  }
-  .plan-comments-rail__hide:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.125rem;
-    border-radius: 0.25rem;
   }
   .plan-comments-rail__body {
     flex: 1;
@@ -450,8 +429,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .plan-comments-rail__canvas--settled .plan-comments-rail__slot,
-    .plan-comments-rail__edge,
-    .plan-comments-rail__hide {
+    .plan-comments-rail__edge {
       transition: none !important;
     }
   }

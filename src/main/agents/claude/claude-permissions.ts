@@ -154,9 +154,20 @@ export class PermissionManager {
   /** Build a canUseTool callback bound to a specific run.
    * `sessionRef` is a mutable holder so the closure always reads the
    * up-to-date sessionId (updated by the backend after session_init). */
-  createCanUseTool(sessionRef: { current: string | null }, mode: 'ask' | 'auto' | 'plan' = 'ask'): (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any> {
+  createCanUseTool(
+    sessionRef: { current: string | null },
+    mode: 'ask' | 'auto' | 'plan' = 'ask',
+    unattended = false,
+  ): (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any> {
     return async (toolName: string, input: any, options?: { toolUseID?: string }) => {
       const sessionId = sessionRef.current
+      if (unattended && (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode')) {
+        return {
+          behavior: 'deny',
+          message: 'This background run is unattended. Continue with the supplied scope and your best judgment.',
+        }
+      }
+
       // ExitPlanMode always requires user review — the plan is in input.plan/planFilePath.
       if (toolName === 'ExitPlanMode') {
         const questionId = `perm-${crypto.randomUUID()}`
@@ -196,7 +207,8 @@ export class PermissionManager {
         })
       }
 
-      // AskUserQuestion has no valid auto-answer; always route to the renderer.
+      // AskUserQuestion has no valid auto-answer. Interactive runs route it to
+      // the renderer; unattended utilities must continue without parking.
       if (toolName === 'AskUserQuestion') {
         const questionId = `question-${crypto.randomUUID()}`
         const questionEvent: NormalizedEvent = {

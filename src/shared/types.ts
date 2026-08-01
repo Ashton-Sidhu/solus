@@ -98,6 +98,17 @@ export interface SetupCloneProjectResult {
   auth: CloneAuth
 }
 
+/** Asks a host to materialize a repository using its own projects and credentials. */
+export interface SetupPrepareProjectRequest {
+  cloneUrl: string
+}
+
+export interface SetupPrepareProjectResult {
+  path: string
+  projectKey: string
+  action: 'updated' | 'cloned'
+}
+
 /** Fast-forwards a checkout that already exists on the selected host. */
 export interface SetupSyncProjectRequest {
   path: string
@@ -230,6 +241,27 @@ export interface UsageData {
   contextWindowTokens?: number
 }
 
+/**
+ * What occupies the model's context window right now — the provider's latest
+ * context snapshot, not a running total. Providers report cumulative spend for
+ * a whole thread too (Claude's result usage, Codex's `tokenUsage.total`); that
+ * belongs in `UsageData`, and mixing the two overstates the window by an order
+ * of magnitude once a turn makes several tool calls.
+ */
+export interface ContextUsage {
+  /** Tokens currently retained in the model context. */
+  usedTokens: number
+  /** The window the run is actually using. Absent until a provider reports it. */
+  windowTokens?: number
+  /** Where the provider auto-compacts. Absent when it doesn't (Codex). */
+  compactAtTokens?: number
+  /** Composition of `usedTokens`, for the meter's breakdown rows. */
+  inputTokens?: number
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
+  outputTokens?: number
+}
+
 /** A selectable response for a permission or plan prompt (main→renderer form). */
 export interface PermissionOption {
   id: string
@@ -239,7 +271,7 @@ export interface PermissionOption {
 
 // ─── Model Configuration ───
 
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode'
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'ultracode'
 
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   none: 'None',
@@ -248,6 +280,7 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   high: 'High',
   xhigh: 'Extra High',
   max: 'Max',
+  ultra: 'Ultra',
   ultracode: 'Ultra Code'
 }
 
@@ -281,6 +314,20 @@ export interface ModelProfile {
 }
 
 export const MODEL_PROFILES = rawModelProfiles as Partial<Record<AgentId, Record<string, ModelProfile>>>
+
+/**
+ * The window a model runs with unless the user picks another. Every site that
+ * builds a run must resolve it the same way: a session that starts on 1M and is
+ * later resumed with `null` silently drops to the provider's default and loses
+ * the tail of its own history.
+ */
+export function defaultContextWindowFor(
+  provider: AgentId | null | undefined,
+  modelId: string | null | undefined,
+): number | null {
+  if (!provider || !modelId) return null
+  return MODEL_PROFILES[provider]?.[modelId]?.defaultContextWindow ?? null
+}
 
 // ─── Session Status ───
 
@@ -453,7 +500,6 @@ export interface PendingHostDispatch {
   hostLabel: string
   isLocalHost: boolean
   repoKey: string
-  checkout: ProjectIdentity | null
 }
 
 /** Backend-driven session state. Shared across tabs watching the same session. */
@@ -481,8 +527,11 @@ export interface Session {
   rateLimitInfo: RateLimitInfo | null
   rateLimitStrategy: 'queue' | 'ask' | 'stop' | 'continue'
   lastResult: RunResult | null
-  /** Cumulative token usage for the completed run (from task_complete). Drives the breakdown rows in the context meter. */
-  sessionUsage: UsageData | null
+  /** What currently occupies the context window. Drives the context meter. */
+  contextUsage: ContextUsage | null
+  /** Cumulative token spend for the completed run (from task_complete). Not in
+   *  the window — reported separately so neither number reads as the other. */
+  runUsage: UsageData | null
   latestCheckpointId: string | null
   /** Attempts at the current turn — 1 until a retry re-runs the last prompt.
    *  Printed on the turn's activity rail so a re-run never reads as a first try. */
@@ -495,6 +544,12 @@ export interface Session {
   sessionSkills: string[]
   pluginCommands: PluginCommandsResult
   progress: SessionProgress | null
+  /** Persisted goal for this thread. Codex owns its native record; Solus owns
+   *  Claude's create-once record. Both refresh when an existing thread rebinds. */
+  goal?: ThreadGoal | null
+  /** A fresh tab has no provider thread id yet. `/goal <objective>` stores the
+   *  objective here until the first prompt initializes the thread. */
+  pendingGoalObjective?: string | null
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
@@ -575,9 +630,21 @@ export interface SessionProgress {
  *  authors, which is why every read goes through `commentAuthor()`. */
 export type CommentAuthor = 'you' | 'solus'
 
+/** Which agent wrote a 'solus' thread message. `CommentAuthor` alone cannot say
+ *  which one, and several agents can be reviewing the same document. Absent on
+ *  everything written before agents could comment. */
+export interface CommentAgentAuthor {
+  sessionId: string
+  /** The session's name, when it has one — absent until it is slugged, and the
+   *  thread signs as plain "Solus" until then. */
+  title?: string
+  provider: AgentId
+}
+
 export interface PlanCommentReply {
   id: string
   author: CommentAuthor
+  authorAgent?: CommentAgentAuthor
   text: string
   /** Epoch ms. */
   createdAt: number
@@ -595,6 +662,7 @@ export interface PlanComment {
   edgeId?: string
   /** Absent = 'you' — every comment written before threads had authors. */
   author?: CommentAuthor
+  authorAgent?: CommentAgentAuthor
   /** Epoch ms. Absent on pre-existing comments, which render without a time. */
   createdAt?: number
   /** Epoch ms the thread was resolved. Absent = open. */
@@ -726,11 +794,12 @@ export interface Message {
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
   taskRef?: { taskId: string; title: string; url: string | null }
-  /** Relay block for a peer session this thread is driving (create_session /
-   *  prompt_session / wait_for_session). One message per peer per turn, mutated
-   *  in place as `session_relay` events land; reconstructed from the transcript
+  /** Agent-conversation card for another agent this thread is driving
+   *  (create_session / prompt_session / wait_for_session). One message per
+   *  agent per turn, mutated in place as `agent_conversation_update` events land;
+   *  reconstructed from the transcript
    *  on history reload. */
-  relayRef?: RelayRef
+  agentConversationRef?: AgentConversationRef
   /** Attachments submitted with this user message (name + preview dataUrl) */
   attachments?: Array<{ name: string; dataUrl?: string; mimeType?: string; type?: 'image' | 'file' | 'design-selection' }>
   /** Plan references attached via # autocomplete */
@@ -746,6 +815,13 @@ export interface Message {
   /** Set on the divider system message when a session is moved into a worktree;
    *  holds the new worktree branch name. */
   worktreeMovedTo?: string
+  /** Set on the divider system message inserted after a successful agent
+   *  handoff. Holds the destination agent's display label. */
+  agentChangedTo?: string
+  /** Set on the divider system message inserted when accepting a plan starts a
+   *  fresh agent session to implement it. Holds the accepted plan's id, so the
+   *  divider can name the plan the new session carries over. */
+  newSessionForPlanId?: string
   /** Set on a user message that an automation injected into this thread, so the
    *  bubble can render a "Sent via automation" badge. Live-only (not persisted to
    *  the transcript), so it's lost on a history reload. */
@@ -874,6 +950,14 @@ export interface PlanAnnotations {
   updatedAt: number
 }
 
+/** An agent wrote to a plan's or a work's comment threads. Broadcast so the open
+ *  document's rail refreshes without being reopened. */
+export interface AnnotationsChanged {
+  kind: 'plan' | 'work'
+  /** `sessionId__planToolUseId` for a plan, the work id for a work. */
+  targetId: string
+}
+
 /** Selection comments on a work (document), stored in a per-work sidecar. */
 export interface WorkAnnotations {
   version: 1
@@ -958,55 +1042,74 @@ export interface StatusCardState {
   steps: StatusCardStep[]
 }
 
-// ─── Session relay (one caller session driving a peer session) ───
+// ─── Agent conversations (one agent talking to another agent) ───
 
-/** How a peer session entered the caller's thread. */
-export type RelayOrigin = 'created' | 'prompted' | 'watched'
+/** How the other agent entered the caller's thread. */
+export type AgentConversationOrigin = 'created' | 'prompted' | 'watched'
 
-export type RelayExchangeStatus = 'dispatched' | 'awaiting_input' | 'done' | 'failed' | 'interrupted'
+export type AgentExchangeStatus = 'dispatched' | 'awaiting_input' | 'answered' | 'done' | 'failed' | 'interrupted'
 
-/** One prompt→reply round-trip with a peer session. `index` is dispatch order
- *  within the relay and never renumbers. */
-export interface RelayExchange {
+/** One prompt→reply round-trip with another agent. `index` is dispatch order
+ *  within the agent-conversation card and never renumbers. */
+export interface AgentExchange {
   exchangeId: string
   index: number
   prompt: string
   delivery?: PromptDelivery
   dispatchedAt: number
-  status: RelayExchangeStatus
-  /** Set while the peer is waiting on human input mid-exchange. */
+  status: AgentExchangeStatus
+  /** Rebuilt from persisted tool history rather than observed live. A restored
+   *  dispatch may have lost its in-memory completion watcher across an app
+   *  restart, so the card may eventually stop presenting it as active. */
+  restored?: boolean
+  /** Set while the other agent is waiting on human input mid-exchange. Kept
+   *  after status 'answered' so the card still shows what was asked. */
   question?: { kind: 'question' | 'permission' | 'plan'; questionId?: string; text: string }
+  /** What this side answered that question with. Only set with status 'answered'. */
+  answer?: string
   reply?: string
   durationMs?: number
   toolCallCount?: number
   settledAt?: number
 }
 
-/** The relay block's message payload: one card per peer session per turn.
- *  Live-updated in place by `session_relay` events; reconstructed from the
+/** An agent-conversation card's message payload: one card per agent per turn.
+ *  Live-updated in place by `agent_conversation_update` events; reconstructed from the
  *  transcript (tool rows + [session report] user turns) on history reload. */
-export interface RelayRef {
-  peerSessionId: string
+export interface AgentConversationRef {
+  /** `pending:<exchangeId>` until a created session reports its real id. */
+  agentSessionId: string
   provider: AgentId
   /** Prompt-derived at dispatch; upgraded to the CLI slug once it lands. */
   title: string
-  /** Working directory; already the worktree path for worktree-backed peers. */
+  /** Working directory; already the worktree path for worktree-backed agents. */
   cwd: string
   model?: string
   reasoningEffort?: string
-  origin: RelayOrigin
-  /** The peer was stopped, or its side ended the conversation. */
-  closedByPeer?: boolean
-  exchanges: RelayExchange[]
+  origin: AgentConversationOrigin
+  /** Launched with create_session's 'fire_and_forget' mode: no reply is owed to
+   *  this conversation, so the card rests collapsed to its header. Cleared the
+   *  moment this side prompts or watches the session — that is a conversation. */
+  fireAndForget?: boolean
+  /** The other agent was stopped, or its side ended the conversation. */
+  closedByAgent?: boolean
+  exchanges: AgentExchange[]
 }
 
-/** Structured relay lifecycle updates, broadcast to the caller session's tabs.
+/** Structured agent-conversation lifecycle updates, broadcast to the caller's tabs.
  *  The model-facing [session report] prose is separate and never rendered. */
-export type SessionRelayUpdate =
-  | { phase: 'dispatched'; peerSessionId: string; exchangeId: string; origin: RelayOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; dispatchedAt: number }
-  | { phase: 'awaiting_input'; peerSessionId: string; exchangeId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; questionText: string }
-  | { phase: 'settled'; peerSessionId: string; exchangeId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
-  | { phase: 'stopped'; peerSessionId: string }
+export type AgentConversationUpdate =
+  | { phase: 'dispatched'; agentSessionId: string; exchangeId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  /** A card dispatched against a not-yet-existing session (create_session) binds
+   *  to its real agent session id once startup resolves. Keyed by exchangeId. */
+  | { phase: 'attached'; exchangeId: string; agentSessionId: string; cwd?: string }
+  | { phase: 'awaiting_input'; agentSessionId: string; exchangeId: string; kind: 'question' | 'permission' | 'plan'; questionId?: string; questionText: string }
+  /** This side answered the peer's question or ruled on its plan. No exchangeId
+   *  — the answering tool never learns one; the tracker patches the agent's last
+   *  awaiting exchange in place. */
+  | { phase: 'answered'; agentSessionId: string; answerText: string }
+  | { phase: 'settled'; agentSessionId: string; exchangeId: string; status: 'completed' | 'interrupted' | 'failed'; replyText: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'stopped'; agentSessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
 
@@ -1028,18 +1131,21 @@ export type NormalizedEvent =
   | { type: 'error'; message: string; isError: boolean; sessionId?: string }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
-  | { type: 'usage'; usage: UsageData; sessionUsage?: UsageData }
+  | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolDescription?: string; toolInput?: Record<string, unknown>; options: PermissionOption[] }
   | { type: 'permission_resolved'; questionId: string }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[] }
+  /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
+   *  form is answered with an extra `__action` entry, so anything answering this
+   *  request has to be able to tell the two apart. */
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; kind?: 'standard' | 'mcp_form' | 'mcp_url' }
   | { type: 'pending_input_sync'; pendingInputEvents: NormalizedEvent[] }
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'checkpoint'; checkpointId: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: PromptVia; automationId?: string; automationName?: string; relayPeerSessionId?: string; relayExchangeId?: string }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; via?: PromptVia }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
@@ -1054,14 +1160,14 @@ export type NormalizedEvent =
   | { type: 'artifact_created'; kind: 'html' | 'image'; html?: string; path?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
-  | { type: 'session_relay'; update: SessionRelayUpdate }
+  | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
   | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
 
 export type PromptDelivery = 'steer' | 'queue'
 
-/** Non-human origin of an injected prompt. 'session-report' marks a peer
+/** Non-human origin of an injected prompt. 'session-report' marks another agent's
  *  session's report — turn input for the model, never rendered as a bubble. */
 export type PromptVia = 'automation' | 'session-report'
 
@@ -1086,18 +1192,21 @@ export interface PromptOptions {
    *  process hydrates the ticket and prepends its context to `prompt`, so the
    *  agent starts already knowing it. Only meaningful on session start. */
   taskId?: string
+  /** Goal objective attached to a fresh session dispatch. Main persists it as
+   *  soon as the provider issues the session id, before a fast turn can finish. */
+  goalObjective?: string
   systemPrompt?: string
   maxTurns?: number
   maxBudgetUsd?: number
   /** Path to SOLUS-scoped settings file with hook config (passed via --settings) */
   hookSettingsPath?: string
   /** Marks the prompt as injected by an automation firing in-thread (badged on
-   *  the bubble) or as a peer session report (suppressed from rendering). */
+   *  the bubble) or as an agent conversation report (suppressed from rendering). */
   via?: PromptVia
-  /** Present when `via === 'session-report'`: the peer session and exchange the
+  /** Present when `via === 'session-report'`: the agent session and exchange the
    *  report settles, so the renderer can correlate without parsing prose. */
-  relayPeerSessionId?: string
-  relayExchangeId?: string
+  agentSessionId?: string
+  agentExchangeId?: string
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
@@ -1150,6 +1259,8 @@ export interface SettingsCtx {
   reviewAgent: AgentId | null
   reviewModel: string | null
   reviewReasoning: ReasoningEffort | null
+  /** Experimental: infer pull request lineage and present stacked PRs. */
+  stackedPrsEnabled: boolean
   /** Per-project opt-in resolved by the renderer before crossing IPC. */
   reviewWarmingEnabled: boolean
   worktreeEnabled: boolean
@@ -1337,9 +1448,31 @@ export interface RateLimitInfo {
   queuedPrompt: string
 }
 
+/** One subscription quota window (rolling 5h or weekly). */
+export interface UsageWindow {
+  usedPercent: number
+  /** Epoch ms. Null when the provider only gives a localized label. */
+  resetsAt: number | null
+  /** Provider's own reset wording, when that's all we get (Claude). */
+  resetsLabel: string | null
+}
+
+/** Normalized quota snapshot for one provider. Both windows are nullable:
+ *  Codex accounts may not report a 5h window, and a Claude parse miss must
+ *  degrade to null rather than invent a number. */
+export interface AgentUsageLimits {
+  provider: AgentId
+  fiveHour: UsageWindow | null
+  weekly: UsageWindow | null
+  planType: string | null
+  fetchedAt: number
+  /** Last refresh failed — these numbers are old, not live. */
+  stale: boolean
+}
+
 export type RateLimitDecisionAction = 'send_now' | 'stop' | 'wait'
 
-export type ThreadGoalStatus = 'active' | 'complete' | 'blocked' | 'budgetLimited' | 'usageLimited'
+export type ThreadGoalStatus = 'active' | 'paused' | 'complete' | 'blocked' | 'budgetLimited' | 'usageLimited'
 
 export interface ThreadGoal {
   threadId: string

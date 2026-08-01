@@ -5,6 +5,7 @@
   import CommentBody from './CommentBody.svelte'
   import {
     authorInitials,
+    authorLabel,
     authorName,
     commentAuthor,
     isResolved,
@@ -144,7 +145,7 @@
       {:else}
         <span class="ctc__avatar" aria-hidden="true">{authorInitials(author)}</span>
       {/if}
-      <span class="ctc__author">{authorName(author)}</span>
+      <span class="ctc__author">{authorLabel(comment)}</span>
       {#if comment.createdAt}
         <span class="ctc__time">{threadTime(comment.createdAt, now)}</span>
       {/if}
@@ -212,7 +213,7 @@
           {/if}
           <div class="ctc__reply-text">
             {#if showsAuthor(shownReplies, i)}
-              <span class="ctc__reply-author">{authorName(reply.author)}</span>
+              <span class="ctc__reply-author">{authorLabel(reply)}</span>
               <span class="ctc__time">{threadTime(reply.createdAt, now)}</span>
             {/if}
             <CommentBody text={reply.text} />

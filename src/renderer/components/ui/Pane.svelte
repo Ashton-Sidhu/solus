@@ -10,6 +10,11 @@
   import { getWorkspaceContext, getPlanStore } from '../../contexts'
   import { requestInputFocus } from '../../lib/inputFocus'
   import PaneChrome from './PaneChrome.svelte'
+  // Eager, unlike every other surface here: these are what cover an async
+  // boundary, so they cannot sit behind one themselves.
+  import PlanModalSkeleton from '../plan/PlanModalSkeleton.svelte'
+  import DocumentModalSkeleton from '../document-modal/DocumentModalSkeleton.svelte'
+  import DiagramShellSkeleton from '../diagram/DiagramShellSkeleton.svelte'
 
   // Keep every non-conversation surface behind an actual async boundary. Pane
   // itself is part of the editor's common module graph, but these views are not
@@ -264,7 +269,7 @@
   </div>
 {/snippet}
 
-{#if content.kind === 'plan' && activePlan}
+{#if content.kind === 'plan'}
   <PaneChrome
     onClose={closePlan}
     onOpenInSplit={handleOpenInSplit}
@@ -272,17 +277,24 @@
     closeLabel="Close plan"
     closeTestId="plan-modal-close"
   />
-  {#await import('../plan/PlanModal.svelte')}
-    {@render loadingSurface('Loading plan…')}
-  {:then planModule}
-    {@const PlanModal = planModule.default}
-    <PlanModal
-      plan={activePlan}
-      inline
-      minimizeOutline={slot === 'secondary'}
-      onClose={closePlan}
-    />
-  {/await}
+  <!-- The pane opens on the plan id before its body is off disk, so "no plan
+       yet" is the loading state, not an empty pane. The open path retracts the
+       pane if the read comes back with nothing. -->
+  {#if activePlan}
+    {#await import('../plan/PlanModal.svelte')}
+      <PlanModalSkeleton inline />
+    {:then planModule}
+      {@const PlanModal = planModule.default}
+      <PlanModal
+        plan={activePlan}
+        inline
+        minimizeOutline={slot === 'secondary'}
+        onClose={closePlan}
+      />
+    {/await}
+  {:else}
+    <PlanModalSkeleton inline />
+  {/if}
 {:else if content.kind === 'work' && activeWork && activeWork.type === 'diagram'}
   <div class="flex h-full flex-col min-h-0 work-live-host" class:work-live-pulse={justUpdated}>
     <PaneChrome
@@ -300,7 +312,7 @@
     {#key `${activeWork.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
         {#await import('../diagram/DiagramShell.svelte')}
-          {@render loadingSurface('Loading diagram…')}
+          <DiagramShellSkeleton />
         {:then diagramModule}
           {@const DiagramShell = diagramModule.default}
           <!-- See the note on the document branch below: workId is read from
@@ -344,7 +356,11 @@
     {#key `${activeWork.id}-${renderKey}`}
       <div class="flex-1 min-h-0">
         {#await import('../document-modal/DocumentModal.svelte')}
-          {@render loadingSurface('Loading document…')}
+          <DocumentModalSkeleton
+            inline
+            title={activeWork.title}
+            workStorage={activeWork.storage}
+          />
         {:then documentModule}
           {@const DocumentModal = documentModule.default}
           <!-- workId is optional-chained on purpose: props compile to lazy
@@ -411,18 +427,12 @@
   {:then prReviewModule}
     {@const PrReviewPane = prReviewModule.default}
     <PrReviewPane
-      pr={content.pr}
+      pr={content.review}
+      target={content.target}
+      targetCtx={content.targetCtx}
       chatTabId={content.chatTabId}
-      guideKey={content.key}
       {onToggleSecondaryMaximize}
     />
-  {/await}
-{:else if content.kind === 'pr-review-loading'}
-  {#await import('../pr-review/PrReviewSkeleton.svelte')}
-    {@render loadingSurface('Preparing pull request review…')}
-  {:then prReviewSkeletonModule}
-    {@const PrReviewSkeleton = prReviewSkeletonModule.default}
-    <PrReviewSkeleton number={content.number} title={content.title} />
   {/await}
 {:else if content.kind === 'diff' && (overlayTab || content.cwd)}
   <PaneChrome

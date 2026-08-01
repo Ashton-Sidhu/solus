@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import { WarningCircleIcon } from "phosphor-svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ActivityRow from "./ActivityRow.svelte";
-  import ToolTraceItem from "./ToolTraceItem.svelte";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
     activityDurationMs,
@@ -17,6 +15,7 @@
     liveActivityLabel,
     participleFor,
   } from "./lib/activity-summary";
+  import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
   import type { Message, TurnStartKind } from "../../../shared/types";
 
   interface Props {
@@ -28,10 +27,10 @@
     /** Session lifecycle label shown between tool calls while this row owns the spinner. */
     activityLabel?: string;
     turnStart?: TurnStartKind | null;
-    /** Transcript mode keeps every observable call available after the run
-     * settles, including its exact input and returned output. */
-    traceDetails?: boolean;
-    initiallyExpanded?: boolean;
+    /** Agents this turn has asked and not yet heard back from. A parent that is
+     *  blocked on another agent is not planning anything — it is waiting, and
+     *  the row should say whose reply it is waiting for. */
+    waitingOn?: string[];
   }
   let {
     tools,
@@ -39,11 +38,11 @@
     working = false,
     activityLabel,
     turnStart = null,
-    traceDetails = false,
-    initiallyExpanded = false,
+    waitingOn = [],
   }: Props = $props();
 
-  let expanded = $state(untrack(() => initiallyExpanded));
+  let expanded = $state(false);
+  let expandedToolId = $state<string | null>(null);
 
   const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
   const failedTool = $derived(
@@ -108,6 +107,10 @@
     expanded = !expanded;
     requestInputFocus();
   }
+
+  function toggleToolExpanded(toolId: string): void {
+    expandedToolId = expandedToolId === toolId ? null : toolId;
+  }
 </script>
 
 {#snippet targetText()}{namedTarget}{/snippet}
@@ -120,7 +123,9 @@
      and the failure glyph all take the same 22px slot and the chevron holds its
      position, so the row rewrites itself in place instead of jumping when the
      group lands. -->
-<div class={skipMotion ? "" : "animate-msg-in-side"}>
+<!-- `activity-host` opts this row out of the transcript's paint containment,
+     which would otherwise clip the row's rounded chassis flat. -->
+<div class="activity-host {skipMotion ? '' : 'animate-msg-in-side'}">
   <ActivityRow
     {expanded}
     onToggle={toggleExpanded}
@@ -150,7 +155,7 @@
         <span class="activity-shimmer">{runningLabel}</span>
       {:else if working && !failedTool}
         <span class="activity-shimmer">
-          {liveActivityLabel(activityLabel, 0, true, turnStart)}
+          {waitingOnLabel(waitingOn) ?? liveActivityLabel(activityLabel, 0, true, turnStart)}
         </span>
       {:else if failedTool}
         <span class="tool-named">{prettyToolName(failedTool.toolName || "Tool")} failed</span>
@@ -173,33 +178,38 @@
          error is diagnostic detail, not transcript content, and a failure is not
          more important than the answer above it. -->
     {#snippet detail()}
-      {#if failureLine && !traceDetails}
+      {#if failureLine}
         <div class="tool-stderr font-mono">{failureLine}</div>
       {/if}
-      {#if traceDetails}
-        <div class="tool-trace-list">
-          {#each tools as tool (tool.id)}
-            <ToolTraceItem {tool} />
-          {/each}
-        </div>
-      {:else}
-        {#each tools as tool, i (tool.id)}
-          {@const parsed = parsedInputs[i]}
-          {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
-          <div class="tool-step">
-            <span class="tool-step-glyph">
+      {#each tools as tool, i (tool.id)}
+        {@const parsed = parsedInputs[i]}
+        {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
+        {@const failed = tool.toolStatus === "error" || tool.toolResultIsError}
+        <div class:tool-step--expanded={expandedToolId === tool.id} class="tool-step">
+          <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
+            {#if failed}
+              <WarningCircleIcon size={13} />
+            {:else}
               <Glyph size={11} />
-            </span>
-            <span class="tool-step-text font-mono truncate">{describe(tool, parsed)}</span>
-            <span class="flex-1"></span>
-            {#if tool.toolCompletedAt}
-              <span class="tool-step-duration font-mono shrink-0">
-                {formatActivityDuration(tool.toolCompletedAt - tool.timestamp)}
-              </span>
             {/if}
-          </div>
-        {/each}
-      {/if}
+          </span>
+          <button
+            type="button"
+            class:is-expanded={expandedToolId === tool.id}
+            class="tool-step-text font-mono"
+            aria-expanded={expandedToolId === tool.id}
+            onclick={() => toggleToolExpanded(tool.id)}
+          >
+            {describe(tool, parsed)}
+          </button>
+          <span class="flex-1"></span>
+          {#if tool.toolCompletedAt}
+            <span class="tool-step-duration font-mono shrink-0">
+              {formatActivityDuration(tool.toolCompletedAt - tool.timestamp)}
+            </span>
+          {/if}
+        </div>
+      {/each}
     {/snippet}
   </ActivityRow>
 </div>
@@ -226,11 +236,8 @@
     padding: 0.25rem 0;
   }
 
-  .tool-trace-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    margin-left: -0.75rem;
+  .tool-step--expanded {
+    align-items: flex-start;
   }
 
   .tool-step-glyph {
@@ -244,10 +251,35 @@
     opacity: 0.5;
   }
 
+  .tool-step-glyph--failed {
+    color: var(--destructive);
+    opacity: 1;
+  }
+
   .tool-step-text {
     min-width: 0;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    white-space: nowrap;
+    text-align: left;
+    text-overflow: ellipsis;
     font-size: 0.71875rem;
     opacity: 0.8;
+    cursor: pointer;
+  }
+
+  .tool-step-text.is-expanded {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .tool-step-text:focus-visible {
+    border-radius: 0.25rem;
+    outline: 0.125rem solid var(--solus-accent-border-medium);
+    outline-offset: 0.125rem;
   }
 
   .tool-step-duration {

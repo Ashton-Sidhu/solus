@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, ModelConfig, SessionHandoffLineage, StartInfo } from '../../../shared/types'
+import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, StartInfo } from '../../../shared/types'
 
 // Tab state is scoped first by server installation, then by Electron window
 // mode. The web client has one window, so it only gets the server scope.
@@ -87,6 +87,10 @@ export interface PersistedTab {
   hasUnread: boolean
   /** Provider history may omit the synthetic terminal error emitted live. */
   terminalFailure?: { content: string; timestamp: number } | null
+  /** Neither provider's transcript carries token counts, so a resumed session
+   *  would report an empty window until its next turn. Kept here and refreshed
+   *  by the first usage report after resume. */
+  contextUsage?: ContextUsage | null
 }
 
 export interface PersistedTabs {

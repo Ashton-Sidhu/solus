@@ -152,6 +152,7 @@
   });
   const decoratedSlashCommands = $derived([
     ...ac.commands.solus,
+    ...ac.commands.codex,
     ...ac.commands.claudeCode,
     ...ac.commands.global,
     ...ac.commands.project,

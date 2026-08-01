@@ -73,7 +73,7 @@
     "gpt-5.6-sol": {
       "label": "Gpt 5.6 Sol",
       "isDefault": true,
-      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
       "contextWindows": [258000],
@@ -82,7 +82,7 @@
     "gpt-5.6-terra": {
       "label": "Gpt 5.6 Terra",
       "isDefault": true,
-      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
       "contextWindows": [258000],
@@ -91,7 +91,7 @@
     "gpt-5.6-luna": {
       "label": "Gpt 5.6 Luna",
       "isDefault": true,
-      "reasoningLevels": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
       "contextWindows": [258000],
@@ -100,8 +100,8 @@
     "gpt-5.5": {
       "label": "Gpt 5.5",
       "isDefault": true,
-      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
-      "defaultReasoningEffort": "low",
+      "reasoningLevels": ["low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
       "contextWindows": [258000],
       "defaultContextWindow": 258000
@@ -116,7 +116,7 @@
     },
     "gpt-5.4": {
       "label": "Gpt 5.4",
-      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
       "contextWindows": [258000],
@@ -124,7 +124,7 @@
     },
     "gpt-5.4-mini": {
       "label": "Gpt 5.4 Mini",
-      "reasoningLevels": ["none", "low", "medium", "high", "xhigh"],
+      "reasoningLevels": ["low", "medium", "high", "xhigh"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,
       "contextWindows": [258000],

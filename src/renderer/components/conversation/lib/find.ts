@@ -17,7 +17,7 @@ export function isSearchableConversationMessage(message: Message): boolean {
     message.artifact ||
     message.automationRef ||
     message.taskRef ||
-    message.relayRef
+    message.agentConversationRef
   );
 }
 

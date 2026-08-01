@@ -74,6 +74,12 @@ let buffer: string[] = []
 let timer: ReturnType<typeof setInterval> | null = null
 const inFlight = new Map<number, string>()
 let nextChunkId = 1
+let logEventSink: ((msg: string) => void) | null = null
+
+/** Registers the optional analytics bridge for info-level log event names. */
+export function setLogEventSink(sink: ((msg: string) => void) | null): void {
+  logEventSink = sink
+}
 
 function getLogPath(): string {
   if (!logPath) {
@@ -147,6 +153,11 @@ function emit(level: LogLevel, tag: string, file: string, bound: Record<string, 
   const entry: Record<string, unknown> = { ts: new Date().toISOString(), level, tag, file, msg }
   if (merged) Object.assign(entry, merged)
   pushEntry(entry)
+  if (level === 'info' && logEventSink) {
+    try {
+      logEventSink(msg)
+    } catch {}
+  }
 }
 
 // ─── Public API ───

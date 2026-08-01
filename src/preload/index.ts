@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest } from '../shared/types'
+import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
 import type { AttentionEntry } from '../shared/attention-types'
-import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
+import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewProgressEvent, SessionGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusEvent } from '../shared/review'
 import type { StackGraph } from '../shared/stack-types'
 import type { PrChecksSnapshot } from '../shared/checks-rpc-types'
 import type { SearchSessionsRequest } from '../shared/rpc'
@@ -97,6 +97,7 @@ export interface SolusAPI {
   connectionsBootstrapDiscoveredServer(args: { server: DiscoveredServer; sshTarget?: string; authSecret?: string; attempt?: number; deviceLabel?: string }): Promise<SshBootstrapResult>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  setAnalyticsConsent(enabled: boolean): Promise<void>
   discoverServers(): Promise<DiscoveredServer[]>
   getServerCapabilities(): Promise<ServerCapabilities>
   setServerName(name: string): Promise<{ name?: string }>
@@ -110,6 +111,7 @@ export interface SolusAPI {
   /** Stops the host's active agent browser-auth flow, if one is waiting. */
   setupCancelAgentSignIn(): Promise<{ cancelled: boolean }>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
+  setupPrepareProject(args: SetupPrepareProjectRequest): Promise<SetupPrepareProjectResult>
   setupCloneProject(args: SetupCloneProjectRequest): Promise<SetupCloneProjectResult>
   setupSyncProject(args: SetupSyncProjectRequest): Promise<SetupAdoptProjectResult>
   /** Registers a checkout the host already has, instead of cloning a new one. */
@@ -138,12 +140,12 @@ export interface SolusAPI {
 
   /** Create a durable provider session without tab ownership or routing state. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
-  /** Prompt a session that has no bound tab (relay card composer/broadcast). */
+  /** Prompt another agent whose session has no bound tab (card composer/broadcast). */
   promptSession(sessionId: string, prompt: string, delivery?: PromptDelivery): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
-  /** Stop a session that has no bound tab (relay card interrupt). */
+  /** Stop another agent whose session has no bound tab (card interrupt). */
   stopSession(sessionId: string): Promise<boolean>
   /** Global session-status feed — fires on every session's status transition,
-   *  bound tab or not, so relay cards can live-track peers. */
+   *  bound tab or not, so agent-conversation cards can live-track them. */
   onSessionStatusChanged(callback: (event: { sessionId: string; status: SessionStatus; at: number }) => void): () => void
 
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
@@ -190,10 +192,17 @@ export interface SolusAPI {
   prChecksActivity(ctx: IpcContext, reviewSurfaceOpen: boolean, active: boolean): Promise<void>
   onPrChecksUpdate(callback: (snapshot: PrChecksSnapshot) => void): () => void
 
+  /** Cached subscription quota per provider. Asking also keeps the backend's
+   *  poll alive — it suspends itself once nobody is watching. */
+  usageLimits(): Promise<AgentUsageLimits[]>
+  onUsageLimits(callback: (snapshots: AgentUsageLimits[]) => void): () => void
+
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
   generateGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null; scope?: 'branch' | 'session'; ownDeltaBase?: { parent: number; headSha: string } }): Promise<{ key: string; guide: ReviewGuide; persisted: boolean } | null>
+  requestSessionGuide(ctx: IpcContext, opts?: { agent?: AgentId; model?: string | null; reasoningEffort?: ReasoningEffort | null }): Promise<SessionGuideStatusEvent | null>
+  sessionGuideStatus(ctx: IpcContext): Promise<SessionGuideStatusEvent | null>
   cancelGenerateGuide(ctx: IpcContext, opts?: { scope?: 'branch' | 'session'; ownDeltaBase?: { parent: number; headSha: string } }): Promise<boolean>
   readGuide(ctx: IpcContext, key: string): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
@@ -229,6 +238,9 @@ export interface SolusAPI {
   onTasksChanged(callback: (cwd: string) => void): () => void
   /** Fires with the project cwd whenever an agent mutates PR review state. */
   onPrsChanged(callback: (cwd: string) => void): () => void
+  /** Fires whenever an agent writes comment threads onto a plan or a work, so
+   *  the open document's rail refreshes without being reopened. */
+  onAnnotationsChanged(callback: (change: AnnotationsChanged) => void): () => void
 
   automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>
@@ -307,6 +319,7 @@ export interface SolusAPI {
   onSessionScan(callback: (event: SessionScanEvent) => void): () => void
   onSessionIndexUpdated(callback: (event: SessionIndexUpdatedEvent) => void): () => void
   onReviewProgress(callback: (event: ReviewProgressEvent) => void): () => void
+  onSessionGuideStatus(callback: (event: SessionGuideStatusEvent) => void): () => void
   onResetRuntime(callback: () => void): () => void
   onRunStatus(callback: (status: RunStatus) => void): () => void
   onRunLog(callback: (batch: RunLogBatch) => void): () => void

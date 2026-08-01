@@ -46,11 +46,16 @@ interface ReferenceDecorationState {
 const revealFileEffect = StateEffect.define<number | null>();
 const refreshReferencesEffect = StateEffect.define<null>();
 
-function appendSvgSpec(parent: Element, spec: unknown[]): void {
+function appendSvgSpec(
+  parent: Element,
+  spec: unknown[],
+  inheritedNamespace: string | null = null,
+): void {
   const [rawTag, maybeAttrs, ...children] = spec;
   if (typeof rawTag !== "string") return;
   const separator = rawTag.indexOf(" ");
-  const namespace = separator === -1 ? null : rawTag.slice(0, separator);
+  const namespace =
+    separator === -1 ? inheritedNamespace : rawTag.slice(0, separator);
   const tag = separator === -1 ? rawTag : rawTag.slice(separator + 1);
   const element = namespace
     ? document.createElementNS(namespace, tag)
@@ -71,7 +76,7 @@ function appendSvgSpec(parent: Element, spec: unknown[]): void {
   }
   const allChildren = childStart === -1 ? [maybeAttrs, ...children] : children;
   for (const child of allChildren) {
-    if (Array.isArray(child)) appendSvgSpec(element, child);
+    if (Array.isArray(child)) appendSvgSpec(element, child, namespace);
     else if (typeof child === "string")
       element.appendChild(document.createTextNode(child));
   }

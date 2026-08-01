@@ -5,10 +5,12 @@
     PlusIcon,
     CaretDownIcon,
     GitBranchIcon,
+    XIcon,
   } from "phosphor-svelte";
   import InputBar from "@renderer/components/input/InputBar.svelte";
   import InputBarHeader from "@renderer/components/input/InputBarHeader.svelte";
   import GitDropdown from "@renderer/components/GitDropdown.svelte";
+  import GoalSection from "@renderer/components/project-panel/GoalSection.svelte";
   import {
     getWorkspaceContext,
     getPlanStore,
@@ -56,6 +58,11 @@
 
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
+  const mobileGoalTabId = $derived(
+    session.panes.secondaryContent.kind === "goal"
+      ? session.panes.secondaryContent.tabId
+      : null,
+  );
 
   const title = $derived((tab && sess) ? sessionTitle(sess, tab) : "New session");
   const statusIcon = $derived(
@@ -73,6 +80,7 @@
     return host && !host.local ? host.label : null;
   });
 
+  let goalCollapsed = $state(false);
   let plusMenuOpen = $state(false);
   let sidebarDrawerOpen = $state(false);
   let serverSheetOpen = $state(false);
@@ -86,6 +94,7 @@
   registerBackOverlay("mobile-drawer", () => sidebarDrawerOpen, () => (sidebarDrawerOpen = false));
   registerBackOverlay("mobile-plus-menu", () => plusMenuOpen, () => (plusMenuOpen = false));
   registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));
+  registerBackOverlay("mobile-goal", () => !!mobileGoalTabId, () => session.panes.closeSecondary());
 
   const kbHeight = $derived(virtualKeyboard.keyboardHeight);
 
@@ -213,7 +222,28 @@
   </header>
 
   <div class="mobile-content">
-    {#if !(diffPanelOpen && canShowDiffPanel)}
+    {#if mobileGoalTabId}
+      <!-- Mobile has no project rail, so the goal card the rail hosts on
+           desktop takes over the content area here. -->
+      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+        <div class="flex justify-end">
+          <button
+            type="button"
+            class="grid size-8 place-items-center rounded-lg text-(--solus-text-tertiary)"
+            aria-label="Close goal"
+            onclick={() => session.panes.closeSecondary()}
+          >
+            <XIcon size={16} />
+          </button>
+        </div>
+        <GoalSection
+          tabId={mobileGoalTabId}
+          collapsed={goalCollapsed}
+          onToggle={() => (goalCollapsed = !goalCollapsed)}
+          onCleared={() => session.panes.closeSecondary()}
+        />
+      </div>
+    {:else if !(diffPanelOpen && canShowDiffPanel)}
       <div class="mobile-chat">
         {@render chatContent()}
       </div>
@@ -228,6 +258,7 @@
   <div
     class="mobile-input-dock"
     class:mode-hidden={overlayOpen ||
+      !!mobileGoalTabId ||
       session.settingsOpen ||
       session.plansGalleryOpen ||
       session.folioGalleryOpen ||

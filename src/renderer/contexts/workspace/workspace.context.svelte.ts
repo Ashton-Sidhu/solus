@@ -1,6 +1,7 @@
 import { createContext } from 'svelte'
-import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery } from '../../../shared/types'
+import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
 import type { PullRequestSummary } from '../../../shared/providers'
+import type { Via } from '../../../shared/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession } from '../../lib/sessionUtils'
 import { uuid } from '../../../shared/uuid'
@@ -38,7 +39,7 @@ import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteer
 import { syncPendingInputFromEvent, loadSessionTranscript } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
 import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, type ApprovePlanOptions } from './session-plan-operations'
-import { analytics } from '../../lib/analytics'
+import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
@@ -54,6 +55,7 @@ import {
 import { prepareHostCheckout, retargetSessionHost } from '../../components/servers/run-on'
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
+import { GoalSync } from './goal-sync'
 
 const devSessionLogging = Boolean((import.meta as any).env?.DEV)
 
@@ -82,6 +84,7 @@ interface CreateTabOptions {
   gitContext?: GitCheckout | null
   gitInitialization?: 'blocking' | 'background'
   worktreeRequested?: boolean
+  via?: Via
 }
 
 interface ForkTabOptions {
@@ -116,6 +119,7 @@ export class WorkspaceContext {
   private workStreamTracker: WorkStreamTracker
   private ipcContextBuilder: IpcContextBuilder
   private promptComposer: PromptComposer
+  private goalSync: GoalSync
   private hostDispatchAttempts = new Map<string, number>()
   environment: SessionEnvironmentStore
 
@@ -128,6 +132,11 @@ export class WorkspaceContext {
     this.environment = environment
     this.environment.bindWorkspace(this)
     this.worksStore = new WorksStore()
+    this.goalSync = new GoalSync({
+      sessionFor: (tabId) => this.sessionFor(tabId),
+      apiFor: (tabId) => this.apiFor(tabId),
+      ctxFor: (tabId) => this.ctxFor(tabId),
+    })
     this.config = new SessionConfigController({
       settings: this.settings,
       registry: this.registry,
@@ -169,6 +178,10 @@ export class WorkspaceContext {
       playNotificationIfHidden: () => { void this.playNotificationIfHidden() },
       closePlanModal: () => this.closePlanModal(),
       onTurnSettled: (tabId, cwd) => this.onTurnSettled?.(tabId, cwd),
+      onGoalDefined: (tabId) => this.revealGoal(tabId),
+      applyGoalUpdated: (tabId, goal) => this.goalSync.applyUpdated(tabId, goal),
+      applyGoalCleared: (tabId, threadId) => this.goalSync.applyCleared(tabId, threadId),
+      onSessionInitialized: (tabId) => { void this.definePendingGoal(tabId) },
       handlePendingInputSync: (session, events) => syncPendingInputFromEvent(this, session, events),
       log: (tab, eventType, session) => logDevSessionState(tab, eventType, session),
     })
@@ -279,7 +292,8 @@ export class WorkspaceContext {
     return this.config.defaultReasoningEffortFor(agentId, modelId)
   }
 
-  toggleTabGroupMode(): void {
+  toggleTabGroupMode(via: Via = 'click'): void {
+    void via
     this.config.toggleTabGroupMode()
   }
 
@@ -463,8 +477,10 @@ export class WorkspaceContext {
     return this.lifecycle.refreshPluginCommands(workingDirectory, tabId)
   }
 
-  async switchToBranch(branch: string, tabId?: string): Promise<boolean> {
-    return this.config.switchToBranch(branch, tabId)
+  async switchToBranch(branch: string, tabId?: string, via: Via = 'click'): Promise<boolean> {
+    const switched = await this.config.switchToBranch(branch, tabId)
+    if (switched) track('branch_switched', { via })
+    return switched
   }
 
   recomputeChangedFiles(tabId: string): void {
@@ -505,6 +521,62 @@ export class WorkspaceContext {
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       this.reconcileQueuedPrompts(tabId, info.queuedPrompts)
+    }
+    void this.refreshThreadGoal(tabId)
+  }
+
+  async refreshThreadGoal(tabId: string): Promise<void> {
+    await this.goalSync.refresh(tabId)
+  }
+
+  setThreadGoal(tabId: string, update: Omit<ThreadGoalSetRequest, 'threadId'>): Promise<ThreadGoal> {
+    return this.goalSync.set(tabId, update)
+  }
+
+  createThreadGoal(tabId: string, objective: string): Promise<ThreadGoal> {
+    return this.goalSync.create(tabId, objective)
+  }
+
+  clearThreadGoal(tabId: string): Promise<void> {
+    return this.goalSync.clear(tabId)
+  }
+
+  /** Show the goal wherever this shell keeps it. Editor mode has a project-rail
+   *  section, so it opens that rail and expands the section; the pill and the
+   *  mobile web shell have no rail, so the goal takes the secondary pane. */
+  revealGoal(tabId: string): void {
+    if (this.window.viewMode !== 'editor') {
+      this.panes.openGoal(tabId)
+      return
+    }
+    const isSplit = tabId === this.panes.chatTabIn('secondary', this.activeTabId)
+    const collapsed = isSplit ? this.settings.splitProjectPanelCollapsed : this.settings.projectPanelCollapsed
+    collapsed.goal = false
+    this.settings.update(isSplit
+      ? { splitProjectPanelOpen: true, splitProjectPanelCollapsed: collapsed }
+      : { projectPanelOpen: true, projectPanelCollapsed: collapsed })
+  }
+
+  private async definePendingGoal(tabId: string): Promise<void> {
+    const session = this.sessionFor(tabId)
+    const objective = session?.pendingGoalObjective?.trim()
+    if (!session?.agentSessionId || !session.provider || !objective) return
+    try {
+      await this.refreshThreadGoal(tabId)
+      if (session.goal) {
+        session.pendingGoalObjective = null
+        this.revealGoal(tabId)
+        return
+      }
+      session.pendingGoalObjective = null
+      await this.createThreadGoal(tabId, objective)
+      this.revealGoal(tabId)
+    } catch (error) {
+      session.pendingGoalObjective = objective
+      this.addSystemMessage(
+        `Couldn't create goal: ${error instanceof Error ? error.message : String(error)}`,
+        tabId,
+      )
     }
   }
 
@@ -548,6 +620,7 @@ export class WorkspaceContext {
     this.sessions[session.id] = session
     this.tabs[tab.id] = tab
     this.addTabToOrder(tab.id)
+    track('tab_created', { via: options.via, worktree: worktreeRequested })
     if (options.activate !== false) {
       this.setActiveTab(tab.id)
       this.resetOverlays({ closeArtifact: true })
@@ -565,9 +638,8 @@ export class WorkspaceContext {
 
   /** Author an automation in a low-reasoning session with no tab routing state. */
   async createAutomationDraftSession(prompt: string, cwd: string): Promise<string> {
-    const activeSession = this.activeSession
-    const provider = (activeSession?.provider ?? this.settings.activeAgent) as AgentId
-    const modelConfig = activeSession?.modelConfig ?? this.globalDefaults.modelConfig
+    const provider = this.settings.activeAgent as AgentId
+    const modelConfig = this.defaultModelConfigFor(provider)
     const api = this.activeTabId ? this.apiFor(this.activeTabId) : window.solus
     const request = automationDraftSessionRequest(prompt, cwd, provider, modelConfig)
     const { agentSessionId } = await api.createHeadlessSession(request)
@@ -583,7 +655,7 @@ export class WorkspaceContext {
     const src = this.activeSession
     const projectRoot = src?.gitContext?.repoRoot
       ?? (src?.workingDirectory && src.workingDirectory !== '~' ? worktreeProjectRoot(src.workingDirectory) : undefined)
-    const tabId = await this.createTab(projectRoot)
+    const tabId = await this.createTab(projectRoot, { worktreeRequested: true })
     const session = this.sessionFor(tabId)
     if (!session) return
     // Always branch off the project root, even when the source tab was itself
@@ -670,7 +742,8 @@ export class WorkspaceContext {
    *  the branch name and git panel update immediately), then flags the session to
    *  fork on its next prompt — that fork re-homes the conversation's transcript
    *  under the worktree, so the session truly lives there. Same tab, same history. */
-  async continueInWorktree(tabId: string): Promise<void> {
+  async continueInWorktree(tabId: string, via: Via = 'click'): Promise<void> {
+    void via
     const session = this.sessionFor(tabId)
     if (!session?.agentSessionId || session.gitContext?.worktreePath || this.ui.isContinuingInWorktree(tabId)) return
 
@@ -727,12 +800,13 @@ export class WorkspaceContext {
     return this.ui.isContinuingInWorktree(tabId)
   }
 
-  selectTab(tabId: string): void {
+  selectTab(tabId: string, via: Via = 'click'): void {
     if (tabId === this.panes.chatTabIn('secondary', this.activeTabId)) {
       this.panes.focusPane('secondary')
       const secondarySession = this.sessionFor(tabId)
       if (secondarySession) void this.refreshPluginCommands(secondarySession.workingDirectory, tabId)
       requestInputFocus({ tabId })
+      track('tab_selected', { via })
       return
     }
     const tab = this.tabs[tabId]
@@ -759,6 +833,7 @@ export class WorkspaceContext {
       this.settings.update({ activeAgent: session.provider })
     }
     if (session) void this.refreshPluginCommands(session.workingDirectory, tabId)
+    track('tab_selected', { via })
   }
 
   toggleExpanded(): void {
@@ -794,6 +869,7 @@ export class WorkspaceContext {
     }
     tab.hasUnread = false
     this.panes.openSplitChat(tabId)
+    track('tab_split_opened', {})
     requestInputFocus({ tabId })
   }
 
@@ -849,7 +925,7 @@ export class WorkspaceContext {
         target,
       })
     }
-    analytics.modeToggled({ mode: target })
+    track('mode_toggled', { mode: target })
     await this.window.setViewMode(target)
   }
 
@@ -892,7 +968,7 @@ export class WorkspaceContext {
     return tabId
   }
 
-  closeTab(tabId: string): void {
+  closeTab(tabId: string, via: Via = 'click'): void {
     const serverId = this.sessionFor(tabId)?.serverId
     this.apiFor(tabId).closeTab(this.ctxFor(tabId))
     const splitContent = this.panes.secondaryContent
@@ -943,6 +1019,7 @@ export class WorkspaceContext {
       }
     }
     this.tabOrder = newOrder
+    track('tab_closed', { via })
   }
 
   clearTab(tabId?: string): void {
@@ -956,7 +1033,8 @@ export class WorkspaceContext {
     session.messages = []
     session.sessionChangedFiles = []
     session.lastResult = null
-    session.sessionUsage = null
+    session.contextUsage = null
+    session.runUsage = null
     session.isStreamingText = false
     session.isReconnecting = false
     session.permissionQueue = []
@@ -1151,21 +1229,27 @@ export class WorkspaceContext {
 
     requestConversationScrollToBottom(tabId)
     if (intoTabId) requestInputFocus({ tabId })
+    track('session_resumed', {})
     return tabId
   }
 
   // ─── Tab configuration ───
 
-  updateModelConfig(patch: Partial<import('../../../shared/types').ModelConfig>, tabId?: string): void {
+  updateModelConfig(patch: Partial<import('../../../shared/types').ModelConfig>, tabId?: string, via: Via = 'click'): void {
+    const session = tabId ? this.sessionFor(tabId) : this.activeSession
+    const modelConfig = session?.modelConfig ?? this.globalDefaults.modelConfig
+    const modelChanged = 'modelId' in patch && patch.modelId !== modelConfig.modelId
     this.config.updateModelConfig(patch, tabId)
+    if (modelChanged) track('model_changed', { via })
   }
 
-  switchActiveAgent(agentId: AgentId, tabId?: string): Promise<void> {
-    return this.config.switchActiveAgent(agentId, tabId)
+  switchActiveAgent(agentId: AgentId, tabId?: string, via: Via = 'click'): Promise<void> {
+    return this.config.switchActiveAgent(agentId, tabId, via)
   }
 
-  setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string): void {
+  setPermissionMode(mode: 'ask' | 'auto' | 'plan', tabId?: string, via: Via = 'click'): void {
     this.config.setPermissionMode(mode, tabId)
+    track('permission_mode_set', { mode, via })
   }
 
   setWorktreeBaseBranch(branch: string | null): void {
@@ -1176,12 +1260,18 @@ export class WorkspaceContext {
     this.config.syncWorktreeDefault(enabled)
   }
 
-  toggleWorktreeMode(tabId?: string): void {
+  toggleWorktreeMode(tabId?: string, via: Via = 'click'): void {
+    const previousSession = tabId ? this.sessionFor(tabId) : this.activeSession
+    const wasEnabled = previousSession ? !!previousSession.worktreeBaseBranch : this.settings.worktreeEnabled
     this.config.toggleWorktreeMode(tabId)
+    const session = tabId ? this.sessionFor(tabId) : this.activeSession
+    const enabled = session ? !!session.worktreeBaseBranch : this.settings.worktreeEnabled
+    if (enabled !== wasEnabled) track('worktree_mode_toggled', { enabled, via })
   }
 
-  async switchToWorktree(worktreePath: string, tabId?: string): Promise<void> {
-    return this.config.switchToWorktree(worktreePath, tabId)
+  async switchToWorktree(worktreePath: string, tabId?: string, via: Via = 'click'): Promise<void> {
+    await this.config.switchToWorktree(worktreePath, tabId)
+    track('worktree_switched', { via })
   }
 
   async setBaseDirectory(dir: string, tabId?: string): Promise<void> {
@@ -1221,7 +1311,7 @@ export class WorkspaceContext {
     session.messages.push({ id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() })
   }
 
-  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string }): void {
+  private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; taskId?: string; goalObjective?: string }): void {
     const api = this.apiFor(tabId)
     api.createTab(tabId)
       .then(() => this.config.pendingSessionStartTarget(tabId))
@@ -1316,8 +1406,8 @@ export class WorkspaceContext {
 
     const isFirstMessage = session.messages.length === 0
     const agent = session.provider ?? this.settings.activeAgent
-    if (isFirstMessage) analytics.conversationStarted({ agent })
-    analytics.messageSent({ agent, isFirstMessage })
+    if (isFirstMessage) track('conversation_started', { agent })
+    track('message_sent', { agent, is_first_message: isFirstMessage, permission_mode: session.permissionMode, attachment_count: input.attachments.length, image_count: imageAttachments.length, plan_ref_count: planRefs?.length ?? 0, work_ref_count: workRefs?.length ?? 0, session_ref_count: sessionRefs?.length ?? 0, has_slash_command: prompt.startsWith('/'), delivery: isBusy ? (isSteerableStatus(session.status) && delivery === 'steer' ? 'steer' : 'queue') : 'immediate', is_remote_host: session.serverId !== LOCAL_SERVER_ID })
 
     if (isBusy) {
       tab.title = title
@@ -1363,9 +1453,20 @@ export class WorkspaceContext {
       session.retryAttempt = 1
       session.terminalFailure = null
       session.messages.push(userMsg)
+      // Main excludes this tab from the user_message broadcast (the bubble is
+      // already here), so the agent-conversation turn boundary must be cut locally too.
+      this.eventReducer.closeAgentConversationTurn(session)
     }
 
-    this.promptTab(targetTabId, { prompt: fullPrompt, displayPrompt: prompt, clientPromptId, delivery, imageAttachments, taskId: session.boundTaskId ?? undefined })
+    this.promptTab(targetTabId, {
+      prompt: fullPrompt,
+      displayPrompt: prompt,
+      clientPromptId,
+      delivery,
+      imageAttachments,
+      taskId: session.boundTaskId ?? undefined,
+      goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
+    })
     requestConversationScrollToBottom(targetTabId)
   }
 
@@ -1392,12 +1493,10 @@ export class WorkspaceContext {
       if (!tab.input.text) tab.input.text = prompt
       return true
     }
-    const repositoryAction = pending.checkout ? 'pull' : 'clone'
     let activeStep: 'connection' | 'repository' = 'connection'
     session.statusCard = buildRemoteDispatchCard({
       tabId,
       hostLabel: pending.hostLabel,
-      repositoryAction,
       phase: 'connecting',
     })
     requestConversationScrollToBottom(tabId)
@@ -1410,19 +1509,16 @@ export class WorkspaceContext {
       session.statusCard = buildRemoteDispatchCard({
         tabId,
         hostLabel: pending.hostLabel,
-        repositoryAction,
         phase: 'repository',
       })
       const prepared = await prepareHostCheckout(
         connection.api,
         pending.repoKey,
-        pending.checkout,
       )
       if (bailIfStale()) return
       session.statusCard = buildRemoteDispatchCard({
         tabId,
         hostLabel: pending.hostLabel,
-        repositoryAction,
         phase: 'ready',
       })
       const result = retargetSessionHost({
@@ -1453,7 +1549,6 @@ export class WorkspaceContext {
       session.statusCard = buildRemoteDispatchCard({
         tabId,
         hostLabel: pending.hostLabel,
-        repositoryAction,
         phase: activeStep === 'connection' ? 'connecting' : 'repository',
         error: { step: activeStep, message },
       })
@@ -1509,6 +1604,7 @@ export class WorkspaceContext {
 
   respondPermission(tabId: string, questionId: string, optionId: string): void {
     this.apiFor(tabId).respondPermission(this.ctxFor(tabId), questionId, optionId)
+    track('permission_responded', { decision: optionId })
     const session = this.sessionFor(tabId)
     if (!session) return
     const idx = session.permissionQueue.findIndex((p) => p.questionId === questionId)
@@ -1529,8 +1625,9 @@ export class WorkspaceContext {
     this.eventReducer.apply(tabId, event)
   }
 
-  interruptTab(tabId: string): void {
-    this.eventReducer.interruptTab(tabId)
+  interruptTab(tabId: string, opts: { notice?: boolean } = {}): void {
+    this.eventReducer.interruptTab(tabId, opts)
+    track('session_interrupted', {})
   }
 
   handleError(tabId: string, error: EnrichedError): void {
@@ -1552,7 +1649,8 @@ export class WorkspaceContext {
 
   clearPlanWaiting(sessionId: string): void { clearPlanWaiting(this, sessionId) }
   async openPlanModal(planId: string, ref?: { sessionId?: string; planToolUseId?: string; status?: 'pending' | 'accepted' | 'rejected' }, opts: { secondary?: boolean } = {}): Promise<void> {
-    return openPlanModal(this, planId, ref, opts)
+    await openPlanModal(this, planId, ref, opts)
+    track('surface_viewed', { surface: 'plan_modal' })
   }
   closePlanModal(): void { closePlanModal(this) }
 
@@ -1564,14 +1662,17 @@ export class WorkspaceContext {
     return rejectPlan(this, planId, comment)
   }
 
-  async openPlanFromDescriptor(d: PlanDescriptor): Promise<void> { return openPlanFromDescriptor(this, d) }
+  async openPlanFromDescriptor(d: PlanDescriptor, via: Via = 'click'): Promise<void> {
+    void via
+    return openPlanFromDescriptor(this, d)
+  }
   closePlanPreview(): void { closePlanPreview(this) }
   async resumeSessionFromDescriptor(d: PlanDescriptor): Promise<void> { return resumeSessionFromDescriptor(this, d) }
 
   /** Open a work as an artifact. By default it takes the Focus pane (or the
    *  secondary slot if one is already open); `secondary: true` forces it beside
    *  the conversation in the secondary pane (used by the project panel). */
-  async openWorkModal(workId: string, title?: string, opts: { secondary?: boolean } = {}): Promise<void> {
+  async openWorkModal(workId: string, title?: string, opts: { secondary?: boolean; via?: Via } = {}): Promise<void> {
     const cwd = this.sessionFor(this.activeTabId)?.workingDirectory
     let resolvedId = workId
     if (workId) {
@@ -1588,6 +1689,7 @@ export class WorkspaceContext {
     this.folioGalleryOpen = false
     if (opts.secondary) this.panes.moveToSecondary({ kind: 'work', workId: resolvedId })
     else this.panes.openWork(resolvedId)
+    track('surface_viewed', { surface: 'work_modal', via: opts.via })
   }
 
   closeWorkModal(): void {
@@ -1687,14 +1789,14 @@ export class WorkspaceContext {
 
   // ─── Folio gallery ───
 
-  toggleFolioGallery(): void {
-    this.ui.toggleFolioGallery()
+  toggleFolioGallery(via: Via = 'click'): void {
+    if (this.ui.toggleFolioGallery()) track('surface_viewed', { surface: 'folio', via })
   }
 
   // ─── Tasks page ───
 
-  toggleTasks(): void {
-    this.ui.toggleTasks()
+  toggleTasks(via: Via = 'click'): void {
+    if (this.ui.toggleTasks()) track('surface_viewed', { surface: 'tasks', via })
     // The page's own $effect loads on open (it needs the active project's cwd),
     // so there's nothing to kick off here — toggling just flips the overlay.
   }
@@ -1757,13 +1859,17 @@ export class WorkspaceContext {
   // Opening the page is enough; PrsPage's open-effect resets filters and loads
   // once. Loading here too would double every `pulls.list` on open (and race the
   // filter reset), so leave the fetch to the page.
-  togglePrs(): void {
-    if (this.ui.togglePrs()) this.prsStore.needsReviewOnly = false
+  togglePrs(via: Via = 'click'): void {
+    if (this.ui.togglePrs()) {
+      this.prsStore.needsReviewOnly = false
+      track('surface_viewed', { surface: 'prs', via })
+    }
   }
 
-  openPrs(projectPath: string | null = null): void {
+  openPrs(projectPath: string | null = null, via: Via = 'click'): void {
     this.prsStore.needsReviewOnly = false
     this.ui.openPrs(projectPath)
+    track('surface_viewed', { surface: 'prs', via })
   }
 
   async openReviewMode(
@@ -1774,6 +1880,7 @@ export class WorkspaceContext {
     this.prsStore.beginReviewMode(items.map((item) => item.number), ctx)
     this.panes.openPage('review-mode')
     this.isExpanded = true
+    track('surface_viewed', { surface: 'review' })
   }
 
   /** Single destination seam for review-attention entry points. */
@@ -1787,8 +1894,9 @@ export class WorkspaceContext {
 
   // ─── Automations page ───
 
-  toggleAutomations(): void {
+  toggleAutomations(via: Via = 'click'): void {
     if (this.ui.toggleAutomations()) {
+      track('surface_viewed', { surface: 'automations', via })
       void this.automationsStore.loadAll()
     }
   }
@@ -1796,13 +1904,14 @@ export class WorkspaceContext {
   /** Open the automations page, optionally focused on one automation. In editor
    *  mode a focused automation opens in the side-panel builder; otherwise (and
    *  for the bare list) the full-page overlay is shown. */
-  openAutomations(focusId?: string | null): void {
+  openAutomations(focusId?: string | null, via: Via = 'click'): void {
     if (focusId && this.window.viewMode === 'editor') {
       this.ui.openAutomationBuilder(focusId)
     } else {
       this.ui.openAutomations(focusId)
     }
     void this.automationsStore.loadAll()
+    track('surface_viewed', { surface: 'automations', via })
   }
 
   /** Open one automation directly in the side-panel builder (editor mode). */
@@ -1828,9 +1937,9 @@ export class WorkspaceContext {
   setDiffCommentDraft(draft: DiffCommentDraft | null, tabId?: string): void { setDiffCommentDraft(this, draft, tabId) }
   updateDiffCommentDraftValue(value: string, tabId?: string): void { updateDiffCommentDraftValue(this, value, tabId) }
   setDiffGeneralComment(value: string, tabId?: string): void { setDiffGeneralComment(this, value, tabId) }
-  submitDiffFeedback(generalComment: string, tabId?: string): boolean { return submitDiffFeedback(this, generalComment, tabId) }
+  submitDiffFeedback(generalComment: string, tabId?: string): boolean { const submitted = submitDiffFeedback(this, generalComment, tabId); if (submitted) track('diff_feedback_submitted', {}); return submitted }
   async submitDiffFeedbackToNewSession(opts: Parameters<typeof submitDiffFeedbackToNewSession>[1]): Promise<boolean> {
-    return submitDiffFeedbackToNewSession(this, opts)
+    const submitted = await submitDiffFeedbackToNewSession(this, opts); if (submitted) track('diff_feedback_submitted', {}); return submitted
   }
 
   async startNewSessionWithPrompt(
@@ -1948,25 +2057,29 @@ export class WorkspaceContext {
   async enterPrReview(
     number: number,
     title?: string,
-    opts: { openChat?: boolean; ctx?: IpcContext } = {},
+    opts: { openChat?: boolean; ctx?: IpcContext; via?: Via } = {},
   ): Promise<void> {
     beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately,
-    // then mount the review surface skeleton BEFORE the (slow) PR fetch/checkout
-    // so the click gets instant feedback instead of a blank pane. The real
-    // surface swaps in below once the worktree is ready.
+    // then mount the review surface BEFORE the (slow) PR fetch/checkout so the
+    // click gets a real page instead of a blank pane. `resolvePrReview` unlocks
+    // the worktree-backed tabs on that same surface once it is ready.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
     this.prsStore.prReviewTab = 'activity'
-    this.panes.enterPrReviewLoading(number, title)
+    const ctx = opts.ctx ?? this.ctx
+    this.panes.enterPrReview({ number, title: title ?? '' }, ctx)
+    track('surface_viewed', { surface: 'pr_review', via: opts.via })
+    this.prsStore.prefetchReview(ctx, number)
     try {
-      const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
+      const pr = await window.solus.prOpenReview(ctx, number)
       markPrReviewProfile('review-worktree-ready')
-      this.panes.enterPrReview(pr)
+      if (!this.panes.resolvePrReview(pr)) return
       if (opts.openChat) {
         await this.openPrReviewChat(pr)
       }
     } catch (err) {
-      // Tear down the skeleton so a failed open doesn't strand the user on it.
+      // Tear down the pending surface so a failed open doesn't strand the user.
+      if (!this.panes.isPrReviewPending(number)) return
       this.panes.closeSlot('secondary')
       toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -1983,24 +2096,21 @@ export class WorkspaceContext {
    * replaces the primary page; stale results are ignored when selection moves. */
   async dockPrReview(number: number, title?: string, opts: { ctx?: IpcContext } = {}): Promise<void> {
     const current = this.panes.secondaryContent
-    if (current.kind === 'pr-review' && current.pr.number === number) return
-    if (current.kind === 'pr-review-loading' && current.number === number) return
+    if (current.kind === 'pr-review' && current.target.number === number) return
 
     this.prsStore.prReviewTab = 'activity'
     beginPrReviewProfile(number)
-    this.panes.dockPrReviewLoading(number, title)
+    const ctx = opts.ctx ?? this.ctx
+    this.panes.dockPrReview({ number, title: title ?? '' }, ctx)
+    this.prsStore.prefetchReview(ctx, number)
     try {
-      const pr = await window.solus.prOpenReview(opts.ctx ?? this.ctx, number)
+      const pr = await window.solus.prOpenReview(ctx, number)
       markPrReviewProfile('review-worktree-ready')
-      const pending = this.panes.secondaryContent
-      if (pending.kind !== 'pr-review-loading' || pending.number !== number) return
-      this.panes.dockPrReview(pr)
+      this.panes.resolvePrReview(pr)
     } catch (err) {
-      const pending = this.panes.secondaryContent
-      if (pending.kind === 'pr-review-loading' && pending.number === number) {
-        this.panes.closeSlot('secondary')
-        toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
-      }
+      if (!this.panes.isPrReviewPending(number)) return
+      this.panes.closeSlot('secondary')
+      toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -2060,15 +2170,17 @@ export class WorkspaceContext {
 
   // ─── Settings page ───
 
-  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' = 'general') {
+  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' = 'general', via: Via = 'click') {
     this.ui.showSettings(tab)
-    analytics.settingsOpened()
+    track('settings_opened', { tab, via })
+    track('surface_viewed', { surface: 'settings', via })
   }
 
   /** Open the settings Projects tab with the given project preselected (from the project panel gear). */
   showProjectSettings(cwd: string) {
     this.ui.showProjectSettings(cwd)
-    analytics.settingsOpened()
+    track('settings_opened', { tab: 'projects' })
+    track('surface_viewed', { surface: 'settings' })
   }
 
   closeSettings() {
@@ -2077,9 +2189,9 @@ export class WorkspaceContext {
 
   // ─── Plans gallery ───
 
-  togglePlansGallery(): void {
+  togglePlansGallery(via: Via = 'click'): void {
     if (this.ui.togglePlansGallery()) {
-      analytics.planGalleryOpened()
+      track('surface_viewed', { surface: 'plans', via })
     }
   }
 

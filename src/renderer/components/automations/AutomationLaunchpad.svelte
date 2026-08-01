@@ -51,7 +51,8 @@
     draftPrompt === null
       ? null
       : (store.items.find(
-          (a) => !automationIdsBeforeDraft.has(a.id) && a.createdBy.kind === "agent",
+          (a) =>
+            !automationIdsBeforeDraft.has(a.id) && a.createdBy.kind === "agent",
         ) ?? null),
   );
 
@@ -59,11 +60,11 @@
    *  starting, the agent working, and the automation landing in the store. */
   const draftSteps = $derived([
     {
-      label: `Session started in ${folderLabel(draftingCwd ?? "")}`,
+      label: `Creating automation in ${folderLabel(draftingCwd ?? "")}`,
       state: draftingSessionId ? "done" : "active",
     },
     {
-      label: "Reading the repo and writing the automation",
+      label: "Building the automation",
       state: !draftingSessionId ? "pending" : savedDraft ? "done" : "active",
     },
     {
@@ -165,7 +166,10 @@
           {#if savedDraft}
             <CheckIcon size={14} weight="bold" />
           {:else}
-            <CircleNotchIcon size={14} class="animate-spin [animation-duration:0.9s]" />
+            <CircleNotchIcon
+              size={14}
+              class="animate-spin [animation-duration:0.9s]"
+            />
           {/if}
         </span>
         <span class="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5">
@@ -234,7 +238,10 @@
                 class="grid size-3.5 shrink-0 place-items-center text-(--solus-accent)"
                 aria-hidden="true"
               >
-                <CircleNotchIcon size={11} class="animate-spin [animation-duration:0.9s]" />
+                <CircleNotchIcon
+                  size={11}
+                  class="animate-spin [animation-duration:0.9s]"
+                />
               </span>
               {step.label}
             </span>
@@ -242,7 +249,10 @@
             <span
               class="flex items-center gap-2.5 text-[0.78125rem] text-[color-mix(in_srgb,var(--solus-text-tertiary)_62%,transparent)]"
             >
-              <span class="grid size-3.5 shrink-0 place-items-center" aria-hidden="true">
+              <span
+                class="grid size-3.5 shrink-0 place-items-center"
+                aria-hidden="true"
+              >
                 <span class="size-1.5 rounded-full bg-current"></span>
               </span>
               {step.label}
@@ -256,8 +266,8 @@
             Saved as <span class="font-semibold text-(--solus-text-primary)"
               >{savedDraft.name}</span
             >
-            · {triggerSummary(savedDraft.trigger)}. Open the session to review the
-            instructions before it runs.
+            · {triggerSummary(savedDraft.trigger)}. Open the session to review
+            the instructions before it runs.
           </span>
         {/if}
       </div>

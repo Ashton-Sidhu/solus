@@ -110,12 +110,7 @@
           {/if}
         </div>
       {:else if entry.kind === "tools"}
-        <ToolGroupItem
-          tools={entry.tools}
-          skipMotion
-          traceDetails
-          initiallyExpanded
-        />
+        <ToolGroupItem tools={entry.tools} skipMotion />
       {:else if entry.isReport}
         <!-- The last block is the Report view. Printing its markdown here would
              make the tabs two copies of one thing, so the stream states its shape

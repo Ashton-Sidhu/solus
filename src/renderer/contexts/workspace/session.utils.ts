@@ -24,8 +24,52 @@ export function isAgentNotice(content: string): boolean {
   return AGENT_NOTICE_RE.test(content) || NO_REPLY_RE.test(content)
 }
 
-// Friendly labels for the in-app Solus MCP tools. Keyed by the bare tool name,
-// which matches Codex directly and Claude after stripping the `mcp__solus__` prefix.
+// In-app tools available to Solus agents. Keys use the bare Codex name; Claude
+// prefixes the same tools with `mcp__solus__`.
+const SOLUS_TOOL_KEYS = new Set([
+  'list_works',
+  'search_works',
+  'read_work',
+  'create_work',
+  'update_work',
+  'render_artifact',
+  'create_automation',
+  'list_automations',
+  'read_automation',
+  'update_automation',
+  'delete_automation',
+  'set_automation_enabled',
+  'run_automation',
+  'list_automation_runs',
+  'read_automation_run',
+  'list_sessions',
+  'read_session',
+  'search_sessions',
+  'create_session',
+  'prompt_session',
+  'wait_for_session',
+  'stop_session',
+  'list_tasks',
+  'read_task',
+  'update_task_status',
+  'create_task',
+  'comment_task',
+  'link_task_session',
+  'list_prs',
+  'read_pr',
+  'list_pr_threads',
+  'reply_pr_thread',
+  'resolve_pr_thread',
+  'submit_pr_review',
+  'submit_review_guide',
+  'get_goal',
+  'create_goal',
+  'update_goal',
+  'claude_subagent',
+  'codex_subagent',
+])
+
+// Friendly labels where the product has intentionally named the action.
 const SOLUS_TOOL_LABELS: Record<string, string> = {
   list_works: 'List works',
   search_works: 'Search works',
@@ -40,13 +84,13 @@ const SOLUS_TOOL_LABELS: Record<string, string> = {
 /** Returns the bare Solus tool key (e.g. "create_work") if `name` is a Solus tool, else null. */
 export function solusToolKey(name: string): string | null {
   const key = name.startsWith('mcp__solus__') ? name.slice('mcp__solus__'.length) : name
-  return key in SOLUS_TOOL_LABELS ? key : null
+  return SOLUS_TOOL_KEYS.has(key) ? key : null
 }
 
 /** Display name for a tool: friendly Solus label when applicable, otherwise the raw name. */
 export function prettyToolName(name: string): string {
   const key = solusToolKey(name)
-  return key ? SOLUS_TOOL_LABELS[key] : name
+  return key ? (SOLUS_TOOL_LABELS[key] ?? key) : name
 }
 
 export function findLastUserIndex(messages: Message[]): number {

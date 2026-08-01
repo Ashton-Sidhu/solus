@@ -176,6 +176,7 @@ export class WsTransport {
     api.onSessionScan = (cb: Listener) => this.subscribe('session-scan', cb)
     api.onSessionIndexUpdated = (cb: Listener) => this.subscribe('session-index-updated', cb)
     api.onReviewProgress = (cb: Listener) => this.subscribe('review-progress', cb)
+    api.onSessionGuideStatus = (cb: Listener) => this.subscribe('session-guide-status', cb)
     api.onRunStatus = (cb: Listener) => this.subscribe('run-status', cb)
     api.onRunLog = (cb: Listener) => this.subscribe('run-log', cb)
     api.onVoiceModelStatus = (cb: Listener) => this.subscribe('voice-model-status', cb)
@@ -185,11 +186,13 @@ export class WsTransport {
     api.onProviderDeviceCode = (cb: Listener) => this.subscribe('provider-device-code', cb)
     api.onTasksChanged = (cb: Listener) => this.subscribe('tasks-changed', cb)
     api.onPrsChanged = (cb: Listener) => this.subscribe('prs-changed', cb)
+    api.onAnnotationsChanged = (cb: Listener) => this.subscribe('annotations-changed', cb)
     api.onAttentionChanged = (cb: Listener) => this.subscribe('attention-changed', cb)
     api.onSessionStatusChanged = (cb: Listener) => this.subscribe('session-status-changed', cb)
     api.onStackGraphUpdate = (cb: Listener) => this.subscribe('stack-graph-update', cb)
     api.onPrChecksUpdate = (cb: Listener) => this.subscribe('pr-checks-update', cb)
     api.onPrGuideStatus = (cb: Listener) => this.subscribe('pr-guide-status', cb)
+    api.onUsageLimits = (cb: Listener) => this.subscribe('usage-limits-update', cb)
     api.onResetRuntime = (cb: () => void) => {
       this.onResetCallback = cb
       return () => { if (this.onResetCallback === cb) this.onResetCallback = null }

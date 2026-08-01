@@ -49,7 +49,7 @@ afterEach(() => {
 })
 
 describe('ControlPlane.runAgent', () => {
-  test('registers ephemeral work only for the lifetime of the run', async () => {
+  test('keeps unattended work active only for the lifetime of the run', async () => {
     const fake = backend()
     const plane = new ControlPlane(new Map([['codex', fake.value as never]]))
     planes.push(plane)
@@ -60,6 +60,7 @@ describe('ControlPlane.runAgent', () => {
       tools: [],
       permissionMode: 'plan',
       persistence: 'ephemeral',
+      unattended: true,
     }
 
     const run = plane.runAgent(request)
@@ -71,6 +72,7 @@ describe('ControlPlane.runAgent', () => {
     }
 
     expect(internals.activeAgentRuns.size).toBe(1)
+    expect(plane.hasActiveWork()).toBe(true)
     expect(internals.activeSessions.size).toBe(0)
     expect(internals.tabs.size).toBe(0)
     expect(internals.requestQueue.size).toBe(0)
@@ -79,6 +81,28 @@ describe('ControlPlane.runAgent', () => {
     await run.done
     await Promise.resolve()
     expect(internals.activeAgentRuns.size).toBe(0)
+    expect(plane.hasActiveWork()).toBe(false)
+  })
+
+  test('does not hold active work for an interactive run parked outside a running session', async () => {
+    // WHY: interactive sessions use their normalized status to release the
+    // macOS power blocker while waiting for permission or user input.
+    const fake = backend()
+    const plane = new ControlPlane(new Map([['codex', fake.value as never]]))
+    planes.push(plane)
+
+    const run = plane.runAgent({
+      provider: 'codex',
+      prompt: 'interactive work',
+      cwd: '/tmp/project',
+      tools: [],
+      permissionMode: 'ask',
+      persistence: 'session',
+    })
+
+    expect(plane.hasActiveWork()).toBe(false)
+    fake.complete()
+    await run.done
   })
 })
 

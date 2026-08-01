@@ -311,8 +311,18 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       return
     }
 
-    // Report token usage for the context meter.
+    // Report token usage for the context meter. Real providers report window
+    // occupancy and run spend as separate figures; so does this.
     if (prompt.includes('__MOCK_USAGE__')) {
+      this.emit('normalized', MOCK_SESSION_ID, {
+        type: 'usage',
+        context: {
+          usedTokens: 60_000,
+          windowTokens: 200_000,
+          inputTokens: 50_000,
+          cacheReadTokens: 10_000,
+        },
+      } satisfies NormalizedEvent)
       this._completeRun(handle, responseText, [], {
         inputTokens: 50_000,
         outputTokens: 1_200,

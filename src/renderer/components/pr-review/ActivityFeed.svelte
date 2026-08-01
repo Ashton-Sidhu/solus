@@ -144,6 +144,10 @@
   const openedTime = $derived(
     openedAt ? formatTimeAgoFromTimestamp(openedAt) : null,
   );
+  // A PR opened by number alone (deep link, `#123` in a message) carries no
+  // title until detail lands — hold the masthead's space instead of letting the
+  // heading collapse and shove everything below it up a line.
+  const prTitle = $derived(pr.title || detail?.title || "");
   const authorName = $derived(detail?.author ?? pr.owner ?? "");
   const authorAvatarUrl = $derived(
     detail?.authorAvatarUrl ?? pr.authorAvatarUrl ?? "",
@@ -194,23 +198,26 @@
   // Fire each request independently and let its section fill in on resolve — no
   // shared gate, so a slow call (threads, the change set) never holds back the
   // fast ones. `n` guards against a PR switch mid-flight clobbering newer data.
+  // Anything the review surface already prefetched is seeded synchronously, so
+  // a warm open paints the finished page on its first frame rather than showing
+  // a skeleton for the microtask it takes the cached promises to resolve.
   function load(force = false) {
     const n = pr.number;
     markPrReviewProfile("activity-load-start", { force });
-    detail = null;
-    commits = [];
-    comments = [];
-    reviewers = [];
-    changedFiles = [];
+    const cached = force ? {} : session.prsStore.cachedActivity(feedCtx(), n);
+    detail = cached.detail ?? null;
+    commits = cached.commits ?? [];
+    comments = cached.comments ?? [];
+    reviewers = cached.reviewers ?? [];
+    changedFiles = cached.changedFiles ?? [];
     loadFailed = false;
     filter = "all";
     unresolvedOnly = false;
-    detailLoading =
-      commitsLoading =
-      commentsLoading =
-      reviewersLoading =
-      filesLoading =
-        true;
+    detailLoading = !cached.detail;
+    commitsLoading = !cached.commits;
+    commentsLoading = !cached.comments;
+    reviewersLoading = !cached.reviewers;
+    filesLoading = !cached.changedFiles;
 
     // Not PR-scoped (and cached per project) — best-effort, never an error.
     session.prsStore
@@ -462,11 +469,15 @@
             >
           </p>
 
-          <h1
-            class="mt-3 text-[27px] leading-[1.25] font-semibold tracking-[-0.02em] text-pretty"
-          >
-            {pr.title}
-          </h1>
+          {#if prTitle}
+            <h1
+              class="mt-3 text-[27px] leading-[1.25] font-semibold tracking-[-0.02em] text-pretty"
+            >
+              {prTitle}
+            </h1>
+          {:else}
+            <Skeleton class="mt-3 h-[34px] w-2/3 max-w-[560px] rounded-lg bg-muted" />
+          {/if}
 
           <div
             class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[12.5px] text-muted-foreground"
@@ -529,12 +540,13 @@
           <!-- No rule under the masthead: the spacing steps (4 → 8) already
                close the title block, and a hairline here would be the only one
                above the timeline's spine. -->
-          <!-- Typography lives in `.prose-pr-description` (index.css), not in
-               utilities here: the `.prose-cloud` rules are unlayered, so a
-               utility override of any property they set — size, leading,
-               colour, heading margins — loses the cascade regardless of order. -->
+          <!-- Typography lives in `.prose-pr` (index.css), not in utilities
+               here: the `.prose-cloud` rules are unlayered, so a utility
+               override of any property they set — size, leading, colour,
+               heading margins — loses the cascade regardless of order.
+               `.prose-pr-description` adds only the measure. -->
           <section
-            class="github-markdown prose-cloud prose-pr-description mt-8"
+            class="github-markdown prose-cloud prose-pr prose-pr-description mt-8"
             aria-label="Pull request description"
           >
             <SvelteMarkdown
@@ -671,7 +683,7 @@
 
 {#snippet prActions()}
   <PrActions
-    pr={{ number: pr.number, title: pr.title, host: pr.host }}
+    pr={{ number: pr.number, title: prTitle, host: pr.host }}
     {detail}
     {showRemoteLink}
     {prUrl}

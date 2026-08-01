@@ -1,18 +1,15 @@
 <script lang="ts">
   import {
     ArrowLeftIcon,
-    CaretDownIcon,
     CheckIcon,
     CircleNotchIcon,
     DesktopTowerIcon,
-    DownloadSimpleIcon,
     FolderOpenIcon,
     GitForkIcon,
     PlusIcon,
   } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
-  import { preferredRunOnHost } from "@client-core/run-on-preferences";
   import type { RecentProject } from "../../../shared/types";
   import {
     getWindowContext,
@@ -31,7 +28,6 @@
     type UnknownRemoteHost,
   } from "../../contexts";
   import {
-    checkoutForRepo,
     isRunOnHostLocked,
     repoKeyForPath,
     queueSessionHostDispatch,
@@ -39,7 +35,6 @@
     worktreeBlockedReason,
   } from "./run-on";
   import { dispatchAvailability } from "./lib/dispatch-availability";
-  import { resolvePreferredHost } from "./lib/preferred-host";
   import { openProjectStore } from "./open-project.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
 
@@ -139,7 +134,6 @@
   let recentProjects = $state<RecentProject[]>([]);
   let loadingProjects = $state(false);
   let projectLoadError = $state(false);
-  let resolvedDefaultKey = $state<string | null>(null);
   let sourceRepoKey = $state<string | null>(null);
 
   // Same footer contract as the model picker: teach the key, then say what the
@@ -160,32 +154,7 @@
   $effect(() => {
     const path = session?.gitContext?.repoRoot ?? session?.workingDirectory;
     if (locked || !path || path === "~") return;
-    void serversStore.probeRunOnServers();
-  });
-
-  $effect(() => {
-    const repoKey = sourceRepoKey;
-    const preferredId = preferredRunOnHost(repoKey);
-    const resolutionKey = repoKey ? `${tabId}:${repoKey}` : null;
-    const preferred = preferredId
-      ? serversStore.servers.find((server) => server.id === preferredId)
-      : undefined;
-    const resolution = resolvePreferredHost({
-      repoKey,
-      hasResolved: resolvedDefaultKey === resolutionKey,
-      isLocked: locked,
-      currentServerId: session?.serverId,
-      pendingServerId: session?.pendingHostDispatch?.serverId,
-      preferredServerId: preferredId,
-      preferredServer: preferred,
-      preferredStatus: preferredId ? serversStore.statusFor(preferredId) : null,
-      preferredIdentities: preferredId
-        ? serversStore.projectIdentitiesFor(preferredId)
-        : [],
-    });
-    if (!resolution.done || !resolutionKey) return;
-    resolvedDefaultKey = resolutionKey;
-    if (resolution.target) selectTarget(resolution.target);
+    void serversStore.loadProjectIdentities(currentHostId);
   });
 
   $effect(() => {
@@ -204,13 +173,6 @@
    */
   function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
     return !server || server.local ? stayLabel : server.label;
-  }
-
-  function checkoutFor(serverId: string) {
-    return checkoutForRepo(
-      serversStore.projectIdentitiesFor(serverId),
-      sourceRepoKey,
-    );
   }
 
   function setTarget(server: ServerItem, path?: string) {
@@ -241,7 +203,6 @@
       hostLabel: server.label,
       isLocalHost: server.local,
       repoKey: sourceRepoKey,
-      checkout: checkoutFor(server.id),
     });
     choosingProjectFor = null;
     open = false;
@@ -261,23 +222,13 @@
     }
   }
 
-  /** The repo this tab sits in, offered as the omnibox seed on a host that lacks it. */
-  function cloneSeedFor(server: ServerItem): string | undefined {
-    if (server.local || !sourceRepoKey || checkoutFor(server.id))
-      return undefined;
-    const [, owner, repo] = sourceRepoKey.split("/");
-    return owner && repo ? `${owner}/${repo}` : undefined;
-  }
-
   /** The host is already chosen here, so the flow opens with that step settled. */
-  function startNewProject(server: ServerItem, seed?: string) {
+  function startNewProject(server: ServerItem) {
     open = false;
     choosingProjectFor = null;
     openProjectStore.open(serversStore.servers, {
       tabId,
       host: server,
-      seed,
-      source: seed ? "clone" : undefined,
     });
   }
 
@@ -314,8 +265,16 @@
   function chooseLocalStart(worktree: boolean) {
     const local = serversStore.servers.find((server) => server.local);
     if (session && local && session.serverId !== local.id) {
-      // Coming back from a host the session already moved to needs a directory
-      // on this machine, exactly as any other move between hosts does.
+      if (sourceRepoKey) {
+        queueSessionHostDispatch(session, {
+          serverId: local.id,
+          hostLabel: stayLabel,
+          isLocalHost: true,
+          repoKey: sourceRepoKey,
+        });
+        open = false;
+        return;
+      }
       void chooseProjectOn(local);
       return;
     }
@@ -326,7 +285,6 @@
           hostLabel: stayLabel,
           isLocalHost: true,
           repoKey: sourceRepoKey,
-          checkout: checkoutFor(session.serverId),
         });
       } else {
         session.pendingHostDispatch = null;
@@ -342,7 +300,7 @@
     if (next) {
       triggerTooltipOpen = false;
       choosingProjectFor = null;
-      void serversStore.probeRunOnServers();
+      void serversStore.probeHosts();
       return;
     }
     requestInputFocus();
@@ -419,22 +377,18 @@
         {#snippet child({ props: tooltipProps })}
           <span
             {...tooltipProps}
-            class="inline-flex h-7 max-w-40 shrink-0 items-center gap-1.5 rounded-full px-2 text-[0.6875rem] text-(--solus-text-tertiary)"
+            aria-label={`Runs on ${selectedServer ? hostLabel(selectedServer) : "an unknown host"}`}
+            class="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary)"
           >
             {#if selectedAffinity}
               {@const HostIcon = selectedAffinity.icon}
               <HostIcon
-                size={11}
+                size={14}
                 class="shrink-0 {selectedAffinity.className}"
               />
             {:else}
-              <DesktopTowerIcon size={11} class="shrink-0 opacity-60" />
+              <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
             {/if}
-            <span class="truncate"
-              >{selectedServer
-                ? hostLabel(selectedServer)
-                : "Unknown host"}</span
-            >
           </span>
         {/snippet}
       </TooltipUI.Trigger>
@@ -494,19 +448,18 @@
                   <Button
                     {...mergeProps(tooltipProps, props)}
                     variant="ghost"
-                    class="relative h-7 max-w-44 gap-1.5 rounded-full px-2 text-[0.6875rem] font-normal text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:ring-0 after:absolute after:left-1/2 after:top-1/2 after:h-10 after:w-full after:min-w-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
+                    aria-label={`Run new session on ${hostLabel(selectedServer)}`}
+                    class="relative size-7 rounded-full p-0 text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-[color-mix(in_srgb,var(--solus-accent)_7%,transparent)] hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:ring-0 after:absolute after:left-1/2 after:top-1/2 after:size-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']"
                   >
                     {#if selectedAffinity}
                       {@const HostIcon = selectedAffinity.icon}
                       <HostIcon
-                        size={11}
+                        size={14}
                         class="shrink-0 {selectedAffinity.className}"
                       />
+                    {:else}
+                      <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
                     {/if}
-                    <span class="truncate"
-                      >Run on: {hostLabel(selectedServer)}</span
-                    >
-                    <CaretDownIcon size={9} class="shrink-0 opacity-60" />
                   </Button>
                 {/snippet}
               </TooltipUI.Trigger>
@@ -583,22 +536,6 @@
             <!-- A host with no checkout used to dead-end here; these two are the
                way forward, and the primary CTA when there are no recents. -->
             <DropdownMenu.Separator />
-            {#if cloneSeedFor(choosingProjectFor)}
-              {@const seed = cloneSeedFor(choosingProjectFor)!}
-              <DropdownMenu.Item
-                onSelect={() => startNewProject(choosingProjectFor!, seed)}
-              >
-                <DownloadSimpleIcon
-                  size={13}
-                  class="shrink-0 text-(--solus-accent)"
-                />
-                <span
-                  class="min-w-0 flex-1 truncate font-medium text-(--solus-accent)"
-                >
-                  Clone {seed.split("/")[1]} here
-                </span>
-              </DropdownMenu.Item>
-            {/if}
             <DropdownMenu.Item
               onSelect={() => startNewProject(choosingProjectFor!)}
             >

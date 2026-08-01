@@ -20,6 +20,7 @@ import type {
 import type { PullRequestSummary } from "../../../shared/providers";
 import {
   SLASH_COMMANDS,
+  codexSlashCommands,
   getFilteredFromCategorized,
   type SlashCommand,
   type CategorizedSlashCommands,
@@ -173,6 +174,10 @@ export class AutocompleteController {
   commands = $derived.by(
     (): CategorizedSlashCommands => ({
       solus: this.deps.includeSolusCommands() ? SLASH_COMMANDS : [],
+      codex: codexSlashCommands(
+        this.deps.provider(),
+        this.deps.includeSolusCommands(),
+      ),
       claudeCode: this.#claudeCodeCommands,
       global: this.deps.pluginCommands().global.map((p) => ({
         command: `/${p.name}`,

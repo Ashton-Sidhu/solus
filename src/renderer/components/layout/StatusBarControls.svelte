@@ -10,13 +10,11 @@
     getWindowContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
-    runtime,
   } from "../../contexts";
   import { displayDirName } from "../../lib/paths";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { WorktreeEntry } from "../../../shared/types";
   import ContextMeter from "../ContextMeter.svelte";
-  import SettingsPopover from "../SettingsPopover.svelte";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
@@ -89,7 +87,7 @@
   // shows in pill mode as before. Text truncates to degrade gracefully.
   const showBranch = $derived(mode === "pill");
   const showDirLabel = true;
-  const showUsage = true;
+  const showUsage = $derived(mode !== "pill");
 
   $effect(() => {
     if (isPinned) return;
@@ -136,9 +134,10 @@
 </script>
 
 <!--
-  The dir/branch + usage + destination/settings cluster. Rendered inline on the
-  input toolbar row (right of the mode/model pills), so it stays compact rather
-  than spanning a full-width status bar.
+  The dir/branch + destination cluster. Rendered inline on the input toolbar
+  row (right of the mode/model pills), so it stays compact rather than spanning
+  a full-width status bar. Editor mode keeps context usage here; Pill mode puts
+  it in the tab-strip action cluster.
 -->
 <div class="relative flex min-w-0 items-center gap-2 text-[0.8125rem]">
   <!-- Project info (dir + branch). Editor mode says this in the input bar's
@@ -168,9 +167,6 @@
   {/if}
   {#if mode === "pill" && !isPinned}
     <RunOnPicker tabId={targetTabId} />
-  {/if}
-  {#if !runtime.isMobileViewport && mode !== "editor"}
-    <SettingsPopover />
   {/if}
   {@render trailingActions?.()}
 </div>

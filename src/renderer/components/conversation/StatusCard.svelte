@@ -149,13 +149,15 @@
 
 <style>
   .setup-card {
-    background: var(--card);
+    background: var(--solus-tx-card-bg);
     box-shadow: var(--solus-tx-card-shadow);
   }
 
   .setup-card.is-error {
-    box-shadow: 0 0 0 0.03125rem
-      color-mix(in oklch, var(--destructive) 26%, transparent);
+    box-shadow:
+      0 0 0 0.03125rem color-mix(in oklch, var(--destructive) 26%, transparent),
+      inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+      var(--solus-tx-card-lift);
   }
 
   .setup-kicker {

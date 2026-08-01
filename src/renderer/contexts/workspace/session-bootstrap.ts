@@ -1,4 +1,4 @@
-import { isSessionBusyStatus, type AgentId } from '../../../shared/types'
+import { defaultContextWindowFor, isSessionBusyStatus, type AgentId, type Message, type ModelConfig, type Session } from '../../../shared/types'
 import { loadServers, LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 import { makeInputState, makeSession, makeTab } from './session.factories'
 import { loadSessionTranscript } from './session-transcript'
@@ -19,6 +19,19 @@ const deferredHydrations = new WeakMap<WorkspaceContext, DeferredHydrationState>
 const materializations = new WeakMap<WorkspaceContext, { snapshot: PersistedTabs | null }>()
 /** Guards the async attach step against a re-running boot effect. */
 const attached = new WeakSet<WorkspaceContext>()
+
+/** History hydration replaces the provider transcript wholesale. Preserve a
+ * configuration divider added while a restored tab was still loading: it is
+ * renderer state newer than the transcript request and would otherwise disappear. */
+export function replaceHydratedMessages(session: Pick<Session, 'messages'>, hydrated: Message[]): void {
+  const hydratedIds = new Set(hydrated.map((message) => message.id))
+  const pendingConfigurationChanges = session.messages.filter(
+    (message) =>
+      message.agentChangedTo &&
+      !hydratedIds.has(message.id),
+  )
+  session.messages.splice(0, session.messages.length, ...hydrated, ...pendingConfigurationChanges)
+}
 
 function scheduleIdle(callback: () => void): void {
   if ('requestIdleCallback' in window) {
@@ -154,12 +167,22 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
           session.status = 'idle'
           session.rateLimitInfo = null
         }
+        void ctx.refreshThreadGoal(tabId)
       }
       await environmentRefresh
     }))
   } finally {
     ctx.runtimeSyncing = false
   }
+}
+
+/** Snapshots written before tabs carried a window have `contextWindow: null`,
+ *  which would keep those tabs on the provider default forever. Backfill from
+ *  the model's profile; an explicit choice already in the snapshot wins. */
+function restoredModelConfig(snapTab: PersistedTab): ModelConfig {
+  const modelConfig = { ...snapTab.modelConfig }
+  modelConfig.contextWindow ??= defaultContextWindowFor(snapTab.provider, modelConfig.modelId)
+  return modelConfig
 }
 
 /** Synchronous builder: create tabs/sessions from the snapshot and restore order +
@@ -195,11 +218,12 @@ function _materializeTabs(
         gitContext: snapTab.gitContext,
         worktreeBaseBranch: snapTab.worktreeBaseBranch,
         worktreeRequired: snapTab.worktreeRequired ?? false,
-        modelConfig: snapTab.modelConfig ? { ...snapTab.modelConfig } : undefined,
+        modelConfig: snapTab.modelConfig ? restoredModelConfig(snapTab) : undefined,
         permissionMode: snapTab.permissionMode as any,
         terminalFailure: snapTab.terminalFailure
           ? { ...snapTab.terminalFailure }
           : null,
+        contextUsage: snapTab.contextUsage ? { ...snapTab.contextUsage } : null,
       })
       tab = makeTab(session.id, {
         id: snapTab.tabId,
@@ -348,14 +372,14 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
           // Provider boundaries are an implementation detail. Rehydrate one
           // continuous transcript so switching agents never interrupts the thread.
           const stitchedMessages = [...predecessorMessages, ...currentMessages]
-          s.messages.splice(0, s.messages.length, ...stitchedMessages)
+          replaceHydratedMessages(s, stitchedMessages)
           s.progress = progressFromMessages(stitchedMessages)
           s.historyTruncated = (predecessorTranscript?.truncated ?? false) || transcript.truncated
           ctx.recomputeChangedFiles(tabId)
           const planIds = [...(predecessorTranscript?.planIds ?? []), ...transcript.planIds]
           for (const planId of planIds) void ctx.planStore.hydrateAnnotations(planId)
         } else if (s && transcript.messages.length > 0) {
-          s.messages.splice(0, s.messages.length, ...transcript.messages)
+          replaceHydratedMessages(s, transcript.messages)
           s.progress = transcript.progress
           s.historyTruncated = transcript.truncated
           ctx.recomputeChangedFiles(tabId)
@@ -401,6 +425,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.status = 'idle'
       session.rateLimitInfo = null
     }
+    void ctx.refreshThreadGoal(snapTab.tabId)
   }
 
   await environmentRefresh

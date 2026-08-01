@@ -26,7 +26,7 @@ const log = createLogger('automations', 'automation-tools.ts')
  * automation tools (fork-bomb guard, see runner).
  */
 
-const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'] as const
+const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const
 // Providers that can execute a headless run (Phase 1). 'opencode' is excluded —
 // it has no one-shot runner yet.
 const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const

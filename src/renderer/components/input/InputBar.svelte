@@ -46,7 +46,11 @@
   interface Props {
     mode?: "pill" | "editor";
     tabId?: string;
-    leadingActions?: Snippet;
+    /** Receives the saved-prompts control, which the toolbar seats in the left
+     *  cluster beside the pickers rather than out with the mic and send: saving
+     *  a prompt is a composer decision, not a send action. It is handed over as
+     *  a snippet because every prop it needs is private to this bar. */
+    leadingActions?: Snippet<[Snippet]>;
   }
   let { mode = "pill", tabId, leadingActions }: Props = $props();
 
@@ -344,7 +348,7 @@
                       ? "Send to steer this response..."
                       : "Enter to steer now · ⌥Enter to queue next"
                     : "Type to queue a message..."
-                : "Plan, Build, Automate / @ for context",
+                : "Plan, Build, Automate · @ for context",
   );
 
   // ─── Focus management ───
@@ -664,6 +668,132 @@
     });
   }
 
+  function clearComposer() {
+    input.text = "";
+    composerEl?.clearEditor();
+  }
+
+  async function handleGoalCommand(argument: string) {
+    if (isReadOnly) return;
+    const goalSession = session.sessionFor(targetTabId);
+    const normalized = argument.trim();
+    const isCodexGoal = goalSession?.provider === "codex";
+
+    if (!normalized) {
+      clearComposer();
+      await session.refreshThreadGoal(targetTabId);
+      if (session.sessionFor(targetTabId)?.goal) {
+        session.revealGoal(targetTabId);
+      } else {
+        session.addSystemMessage("No goal is defined for this session yet.", targetTabId);
+      }
+      refocusComposer();
+      return;
+    }
+
+    if (!goalSession?.agentSessionId) {
+      if (
+        normalized === "clear" ||
+        normalized === "pause" ||
+        normalized === "resume" ||
+        normalized === "edit" ||
+        normalized.startsWith("edit ")
+      ) {
+        clearComposer();
+        session.addSystemMessage(
+          isCodexGoal ? "Define a goal before changing it." : "Goal changes are only supported for Codex sessions.",
+          targetTabId,
+        );
+        refocusComposer();
+        return;
+      }
+      if (normalized.length > 4000) {
+        session.addSystemMessage("Goal objectives must be 4,000 characters or fewer.", targetTabId);
+        refocusComposer();
+        return;
+      }
+      if (goalSession) {
+        goalSession.pendingGoalObjective = normalized;
+        sendPrompt(normalized);
+      } else {
+        sendPrompt(normalized);
+        const createdSession = session.sessionFor(session.activeTabId);
+        if (createdSession) createdSession.pendingGoalObjective = normalized;
+      }
+      return;
+    }
+
+    try {
+      if (!isCodexGoal) await session.refreshThreadGoal(targetTabId);
+      if (normalized === "clear") {
+        if (!isCodexGoal) {
+          clearComposer();
+          session.addSystemMessage("Clearing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        clearComposer();
+        await session.clearThreadGoal(targetTabId);
+        if (panes.secondaryContent.kind === "goal" && panes.secondaryContent.tabId === targetTabId) {
+          panes.closeSecondary();
+        }
+      } else if (normalized === "pause" || normalized === "resume") {
+        if (!isCodexGoal) {
+          clearComposer();
+          session.addSystemMessage("Pausing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        clearComposer();
+        await session.setThreadGoal(targetTabId, {
+          status: normalized === "pause" ? "paused" : "active",
+        });
+        session.revealGoal(targetTabId);
+      } else if (normalized === "edit") {
+        if (!isCodexGoal) {
+          clearComposer();
+          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        clearComposer();
+        await session.refreshThreadGoal(targetTabId);
+        if (goalSession.goal) session.revealGoal(targetTabId);
+      } else {
+        if (!isCodexGoal && normalized.startsWith("edit ")) {
+          clearComposer();
+          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        const objective = normalized.startsWith("edit ") ? normalized.slice(5).trim() : normalized;
+        if (!objective || objective.length > 4000) {
+          session.addSystemMessage("Goal objectives must be between 1 and 4,000 characters.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        const currentGoal = session.sessionFor(targetTabId)?.goal;
+        if (!isCodexGoal && currentGoal) {
+          clearComposer();
+          session.addSystemMessage("Editing goals is only supported for Codex sessions.", targetTabId);
+          refocusComposer();
+          return;
+        }
+        if (currentGoal) await session.setThreadGoal(targetTabId, { objective, status: "active" });
+        else await session.createThreadGoal(targetTabId, objective);
+        session.revealGoal(targetTabId);
+        if (!normalized.startsWith("edit ")) sendPrompt(objective);
+        else clearComposer();
+      }
+    } catch (error) {
+      session.addSystemMessage(
+        `Couldn't update goal: ${error instanceof Error ? error.message : String(error)}`,
+        targetTabId,
+      );
+    }
+    refocusComposer();
+  }
+
   // A Solus built-in command was picked from the menu. The composer has already
   // cleared its completion state; here we either insert its template text or run
   // it outright.
@@ -726,6 +856,11 @@
     )
       return;
     if (isConnecting) return;
+
+    if (/^\/goal(?:\s|$)/.test(prompt)) {
+      void handleGoalCommand(prompt.slice("/goal".length));
+      return;
+    }
 
     // Mobile keyboards sometimes autocorrect the skill name and insert it as
     // plain text before the slash command (e.g. "ui /ui rest"). Strip it.
@@ -883,7 +1018,7 @@
   {/if}
 
   {#if attachments.length > 0}
-    <div style="padding-top:0.375rem;margin-left:-0.25rem">
+    <div class="-ml-1 pt-1.5">
       <AttachmentChips
         {attachments}
         onRemove={(id) => session.removeAttachment(id, tabId)}
@@ -892,20 +1027,22 @@
   {/if}
 
   {#if leadingActions}
+    <!-- Two stacked zones in one card: a text well (its own vertical padding
+         comes from the editor, symmetric so the first line sits centred in the
+         well) and a toolbar row that never moves relative to the card's bottom
+         edge. The well is inset a further 6px so prose clears the controls'
+         optical left edge. -->
     <div class="flex flex-col w-full">
-      <div class="min-w-0">
+      <div class="min-w-0 px-1.5">
         {@render editorOrWaveform()}
       </div>
       <!-- Keep the controls proportional to the composer text preference. -->
       <div
-        class="flex items-center w-full"
-        style="padding-top:0.125rem;zoom:var(--solus-font-scale,1)"
+        class="flex w-full items-center gap-2"
+        style="zoom:var(--solus-font-scale,1)"
       >
-        {@render leadingActions()}
-        <div
-          class="flex items-center gap-1 shrink-0 ml-auto"
-          style="padding-bottom:0.125rem"
-        >
+        {@render leadingActions(savedPromptsControl)}
+        <div class="ml-auto flex shrink-0 items-center gap-2">
           {@render actionButtons()}
         </div>
       </div>
@@ -916,9 +1053,7 @@
         {@render editorOrWaveform()}
       </div>
       <div
-        class="flex items-center gap-1 shrink-0 {isMobile
-          ? 'pb-[0.125rem]'
-          : 'pb-[0.375rem]'}"
+        class="flex shrink-0 items-center gap-1 {isMobile ? 'pb-0.5' : 'pb-1.5'}"
         style="zoom:var(--solus-font-scale,1)"
       >
         {@render actionButtons()}
@@ -933,7 +1068,7 @@
   {/if}
 </div>
 
-{#snippet actionButtons()}
+{#snippet savedPromptsControl()}
   {#if !isMobile}
     <SavedPromptsControl
       tabId={targetTabId}
@@ -944,6 +1079,14 @@
       onClearEditor={() => composerEl?.clearEditor()}
       onRefocus={refocusComposer}
     />
+  {/if}
+{/snippet}
+
+{#snippet actionButtons()}
+  <!-- The pill-mode bar has no toolbar row to seat it in, so it keeps the saved
+       control out here with the mic and send. -->
+  {#if !leadingActions}
+    {@render savedPromptsControl()}
   {/if}
   {#if isBusy && (isMobile || !isPrimary)}
     {@render stopButton()}
@@ -957,8 +1100,7 @@
 {#snippet editorOrWaveform()}
   {#if hasMountedWaveform}
     <div
-      class="flex items-center gap-2"
-      style="padding:0.75rem 0"
+      class="flex items-center gap-2 py-3"
       style:display={showWaveform ? null : "none"}
     >
       <div class="min-w-0 flex-1">
@@ -996,36 +1138,49 @@
       readOnly={isReadOnly}
       disabled={isReadOnly || isConnecting || voiceState === "transcribing"}
       maxHeight={INPUT_MAX_HEIGHT}
-      class="[--solus-font-weight-body:var(--solus-font-weight-user-content)]"
+      class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
+      'editor'
+        ? '[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+        : ''}"
     />
   </div>
 {/snippet}
 
 {#snippet sendButton()}
-  {#if canSend && !showWaveform}
+  <!-- The bottom-right corner is always the next thing you can do, so the
+       button stays put and goes neutral rather than disappearing: fill is spent
+       on send, and only once there is something to send. -->
+  {#if !showWaveform}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <button {...tooltipProps}
       onclick={() => handleSend()}
+      disabled={!canSend}
       data-testid="send-button"
       aria-label={canSteer ? "Steer the live turn" : "Send message"}
-      class="flex size-8 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e08868_0%,#d97757_40%,#c96442_100%)] text-(--solus-text-on-accent) shadow-[0_0.125rem_0.5rem_var(--solus-send-glow),0_0.0625rem_0.125rem_rgba(0,0,0,0.2)] transition-[box-shadow,transform] duration-150 hover:shadow-[0_0.1875rem_0.75rem_var(--solus-send-glow),0_0.0625rem_0.1875rem_rgba(0,0,0,0.25)] active:scale-[0.96]"
+      class="flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isMobile
+        ? 'size-8'
+        : 'size-[1.875rem]'} {canSend
+        ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
+        : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
     >
-      {#if canSteer}
-        <ArrowBendDownRightIcon size={16} weight="bold" />
+      {#if canSteer && canSend}
+        <ArrowBendDownRightIcon size={14} weight="bold" />
       {:else}
-        <ArrowUpIcon size={16} weight="bold" />
+        <ArrowUpIcon size={14} weight="bold" />
       {/if}
     </button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content
-        value={canSteer
-          ? { label: "Steer this response · Queue next with ⌥Enter", shortcut: "Enter" }
-          : isBusy
-            ? "Queue message (Enter)"
-            : "Send (Enter)"}
+        value={!canSend
+          ? null
+          : canSteer
+            ? { label: "Steer this response · Queue next with ⌥Enter", shortcut: "Enter" }
+            : isBusy
+              ? "Queue message (Enter)"
+              : "Send (Enter)"}
       />
     </TooltipUI.Root>
   {/if}

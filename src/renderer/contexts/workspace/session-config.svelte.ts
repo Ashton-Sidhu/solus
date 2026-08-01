@@ -1,12 +1,20 @@
 import type { AgentId, GitCheckout, IpcContext, ModelConfig, ModelProfile, ReasoningEffort, Session } from '../../../shared/types'
+import type { Via } from '../../../shared/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '../../../shared/types'
-import { analytics } from '../../lib/analytics'
+import { track } from '../../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import { toasts } from '../app/toast.store.svelte'
 import { isDispatchedSession } from '../../components/servers/run-on'
+import { nextMsgId } from './session.utils'
+
+const AGENT_LABELS: Record<AgentId, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+}
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
@@ -76,7 +84,9 @@ export class SessionConfigController {
       const profile = MODEL_PROFILES[provider as keyof typeof MODEL_PROFILES]?.[patch.modelId ?? '']
       mc.modelId = patch.modelId!
       mc.reasoningEffort = patch.reasoningEffort ?? profile?.defaultReasoningEffort ?? 'high'
-      mc.contextWindow = patch.contextWindow ?? null
+      // Each model carries its own window; keeping the outgoing model's value
+      // would run the new one against a limit it never agreed to.
+      mc.contextWindow = patch.contextWindow ?? profile?.defaultContextWindow ?? null
       mc.fastMode = patch.fastMode ?? (profile?.supportsFastMode ? mc.fastMode : false)
       return
     }
@@ -86,7 +96,7 @@ export class SessionConfigController {
     if ('fastMode' in patch) mc.fastMode = patch.fastMode!
   }
 
-  async switchActiveAgent(agentId: AgentId, tabId?: string): Promise<void> {
+  async switchActiveAgent(agentId: AgentId, tabId?: string, via: Via = 'click'): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
     if (this.handoffInProgress) return
@@ -97,7 +107,7 @@ export class SessionConfigController {
 
     const newModelConfig = this.defaultModelConfigFor(agentId)
     if (!session?.agentSessionId && !session?.handoffFrom) {
-      analytics.agentSwitched({ from: this.deps.settings.activeAgent, to: agentId })
+      track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
@@ -118,7 +128,7 @@ export class SessionConfigController {
     this.handoffInProgress = true
     try {
       const result = await this.apiFor(targetTabId).switchSessionAgent(targetTabId, agentId)
-      analytics.agentSwitched({ from: result.fromProvider, to: agentId })
+      track('agent_switched', { from: result.fromProvider, to: agentId, via })
       this.deps.settings.update({ activeAgent: agentId })
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
@@ -134,6 +144,14 @@ export class SessionConfigController {
             provider: result.fromProvider,
             sessionId: result.fromSessionId,
           }
+      const agentChangedTo = AGENT_LABELS[agentId]
+      session.messages.push({
+        id: nextMsgId(),
+        role: 'system',
+        content: `Switched to ${agentChangedTo}`,
+        timestamp: Date.now(),
+        agentChangedTo,
+      })
       this.deps.refreshPluginCommands(session.workingDirectory, targetTabId)
     } catch (error) {
       toasts.error(`Couldn't hand off session: ${error instanceof Error ? error.message : String(error)}`)
@@ -197,22 +215,18 @@ export class SessionConfigController {
   }
 
   async switchToWorktree(worktreePath: string, tabId?: string): Promise<void> {
-    const targetSession = tabId
-      ? this.deps.registry.sessionFor(tabId)
-      : this.deps.registry.activeSession
-    const workingDirectory = targetSession?.workingDirectory
-      ?? this.globalDefaults.workingDirectory
-      ?? this.deps.statusBar.ctx.workingDirectory
-    if (!workingDirectory || workingDirectory === '~') return
     if (!tabId && this.deps.registry.activeSession?.agentSessionId) {
       await this.deps.createTab()
+    }
+    const isSolusWorktree = isSolusWorktreePath(worktreePath)
+    const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
+    if (!tabId && !this.deps.registry.activeSession) {
+      await this.deps.createTab(projectRoot)
     }
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const session = tabId
       ? this.deps.registry.sessionFor(tabId)
       : this.deps.registry.activeSession
-    const isSolusWorktree = isSolusWorktreePath(worktreePath)
-    const projectRoot = isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath
     const repoCtx = this.deps.ctxForDirectory(projectRoot)
     const api = this.apiFor(targetTabId)
     if (session) api.resetTabSession(this.deps.ctx(targetTabId))
@@ -383,7 +397,7 @@ export class SessionConfigController {
     return {
       modelId,
       reasoningEffort: (profile as ModelProfile).defaultReasoningEffort,
-      contextWindow: null,
+      contextWindow: (profile as ModelProfile).defaultContextWindow ?? null,
       fastMode: false,
     }
   }

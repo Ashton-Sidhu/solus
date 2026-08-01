@@ -72,8 +72,6 @@ describe('provider-neutral agent tool adapters', () => {
     expect(ask.allowedTools).toEqual(['mcp__solus__read'])
     expect(auto.allowedTools).toEqual(['mcp__solus__read', 'mcp__solus__write'])
 
-    ask.observe({ type: 'tool_call', toolName: 'mcp__solus__read', toolId: 'tool-1', index: 0 })
-    ask.observe({ type: 'tool_call_complete', index: 0, toolInput: JSON.stringify({ value: 42 }) })
     await expect(registrations.read.handler({ value: 42 })).resolves.toMatchObject({ isError: true })
 
     const planTools = (
@@ -81,8 +79,6 @@ describe('provider-neutral agent tool adapters', () => {
         _registeredTools: Record<string, { handler: (input: unknown) => Promise<{ isError?: boolean; content: Array<{ text: string }> }> }>
       }
     )._registeredTools
-    plan.observe({ type: 'tool_call', toolName: 'mcp__solus__write', toolId: 'tool-2', index: 0 })
-    plan.observe({ type: 'tool_call_complete', index: 0, toolInput: JSON.stringify({ value: 'write' }) })
     await expect(planTools.write.handler({ value: 'write' })).resolves.toMatchObject({
       isError: true,
       content: [{ text: expect.stringContaining('Cannot run write in plan mode') }],

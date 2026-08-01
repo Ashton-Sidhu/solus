@@ -1,19 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { createLogger } from '../logger'
 import { getDb, withTx } from '../db'
 import { workPreview } from '../../shared/work-preview'
 import { git } from '../git/exec'
+import { solusDir } from '../platform/paths'
 import type { AgentId, Work, WorkMeta, WorksManifest, WorkPrevious, WorkStorage } from '../../shared/types'
 
 export type { Work, WorkMeta, WorksManifest, WorkPrevious }
 
 const log = createLogger('folio', 'works.ts')
-const LOCAL_ROOT = join(homedir(), '.solus', 'works')
+const LOCAL_ROOT = join(solusDir(), 'works')
 const MANIFEST_FILE = 'works-manifest.json'
 const PROJECT_WORKS_DIR = join('.solus', 'works')
 

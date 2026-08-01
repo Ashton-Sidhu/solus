@@ -1,4 +1,4 @@
-import type { AgentId, EnrichedError, GitState, Message, NormalizedEvent, Session, Tab } from '../../../shared/types'
+import type { AgentId, EnrichedError, GitState, Message, NormalizedEvent, Session, Tab, ThreadGoal } from '../../../shared/types'
 import { encodePathAsFolder } from '../../../shared/types'
 import { uuid } from '../../../shared/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
@@ -8,7 +8,7 @@ import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { RelayTracker } from './relay-tracker.svelte'
+import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
 import { AGENT_INTERRUPT_NOTICE, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 
@@ -29,6 +29,10 @@ export interface SessionEventReducerDeps {
   playNotificationIfHidden(): void
   closePlanModal(): void
   onTurnSettled(tabId: string, cwd: string | null): void
+  onGoalDefined?(tabId: string): void
+  applyGoalUpdated?(tabId: string, goal: ThreadGoal): boolean
+  applyGoalCleared?(tabId: string, threadId: string): void
+  onSessionInitialized?(tabId: string): void
   handlePendingInputSync(session: Session, events: Extract<NormalizedEvent, { type: 'pending_input_sync' }>['pendingInputEvents']): void
   log(tab: Tab, eventType: string, session: Session): void
 }
@@ -40,12 +44,16 @@ export class SessionEventReducer {
   // concurrent background sessions avoid copying an ever-growing string on every
   // transport flush; materialize once when the tab becomes visible or commits.
   private hiddenTextChunks = new Map<string, string[]>()
+  // An assembled assistant_message closes one logical prose block. Providers may
+  // immediately stream another block without a tool call between them, so keep
+  // that boundary until the next chunk and render it as a Markdown paragraph.
+  private assistantMessageBoundaries = new Set<string>()
   // Extended thinking is never a message: only its duration survives, carried
   // onto the next tool call so the activity block can say "Thought for 6s".
   // Transport state, not domain state, so it lives here rather than on Session.
   private thinkingSpans = new WeakMap<Session, { startedAt?: number; pendingMs: number }>()
-  /** One relay card per peer session per turn; exchanges keyed for late settles. */
-  private relays = new RelayTracker()
+  /** One card per agent conversation per turn; exchanges keyed for late settles. */
+  private agentConversations = new AgentConversationTracker()
 
   constructor(private deps: SessionEventReducerDeps) {}
 
@@ -56,6 +64,13 @@ export class SessionEventReducer {
       this.thinkingSpans.set(session, span)
     }
     return span
+  }
+
+  /** A user turn opened outside the event stream (the sender's own optimistic
+   *  bubble — main excludes the sender from the user_message broadcast) must
+   *  still cut the one-card-per-agent-per-turn boundary. */
+  closeAgentConversationTurn(session: Session): void {
+    this.agentConversations.closeTurn(session)
   }
 
   /** Hand the accumulated thinking time to the tool call it preceded. */
@@ -72,7 +87,7 @@ export class SessionEventReducer {
     const session = this.deps.registry.sessions[tab.sessionId]
     if (!session) return
 
-    if (session.status === 'interrupted' && !['task_complete', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status'].includes(event.type)) {
+    if (session.status === 'interrupted' && !['task_complete', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared'].includes(event.type)) {
       return
     }
 
@@ -140,6 +155,7 @@ export class SessionEventReducer {
           // jump-back even after the session's renderer-only boundTaskId resets.
           this.deps.tasksStore.linkSession(session.workingDirectory, session.boundTaskId, event.sessionId)
         }
+        this.deps.onSessionInitialized?.(tabId)
         break
 
       case 'tool_call': {
@@ -241,11 +257,15 @@ export class SessionEventReducer {
             timestamp: Date.now(),
           })
         }
+        this.assistantMessageBoundaries.add(tabId)
         break
       }
 
+      // Window occupancy and cumulative spend arrive together or apart
+      // depending on provider, so neither assignment may clobber the other.
       case 'usage':
-        if (event.sessionUsage) session.sessionUsage = event.sessionUsage
+        if (event.context) session.contextUsage = event.context
+        if (event.run) session.runUsage = event.run
         break
 
       case 'session_changed_files_updated': {
@@ -312,7 +332,7 @@ export class SessionEventReducer {
           numTurns: event.numTurns,
           sessionId: event.sessionId,
         }
-        if (Object.keys(event.usage).length > 0) session.sessionUsage = event.usage
+        if (Object.keys(event.usage).length > 0) session.runUsage = event.usage
         if (event.result) {
           const lastUserIdx2 = findLastUserIndex(session.messages)
           let hasAnyText = false
@@ -485,8 +505,8 @@ export class SessionEventReducer {
         break
 
       case 'user_message': {
-        // A peer session's report is turn input for the model, never a bubble —
-        // the relay card already carries the reply via its `settled` update.
+        // An agent's report is turn input for the model, never a bubble —
+        // the agent-conversation card already carries the reply via its `settled` update.
         if (event.via === 'session-report') break
         // The provider persists an interrupt as a user turn so its transcript
         // remains well-formed. The renderer has already inserted the divider
@@ -512,7 +532,7 @@ export class SessionEventReducer {
         // A real user turn starts a new attempt, including provider-originated
         // prompts such as in-thread automations that have no optimistic bubble.
         session.terminalFailure = null
-        this.relays.closeTurn(session)
+        this.agentConversations.closeTurn(session)
         session.messages.push({
           id: event.clientPromptId ?? nextMsgId(),
           role: 'user' as const,
@@ -584,8 +604,21 @@ export class SessionEventReducer {
         session.rateLimitInfo = null
         break
 
-      case 'goal_updated':
+      case 'goal_updated': {
+        const isNewGoal = this.deps.applyGoalUpdated
+          ? this.deps.applyGoalUpdated(tabId, event.goal)
+          : !session.goal
+        if (!this.deps.applyGoalUpdated) session.goal = event.goal
+        if (isNewGoal) this.deps.onGoalDefined?.(tabId)
+        break
+      }
+
       case 'goal_cleared':
+        if (this.deps.applyGoalCleared) {
+          this.deps.applyGoalCleared(tabId, event.threadId)
+        } else if (!session.agentSessionId || event.threadId === session.agentSessionId) {
+          session.goal = null
+        }
         break
 
       case 'plan_rejected': {
@@ -680,8 +713,8 @@ export class SessionEventReducer {
         break
       }
 
-      case 'session_relay': {
-        const { newCard, needsAttention } = this.relays.apply(session, event.update)
+      case 'agent_conversation_update': {
+        const { newCard, needsAttention } = this.agentConversations.apply(session, event.update)
         if (newCard || needsAttention) this.deps.playNotificationIfHidden()
         break
       }
@@ -690,7 +723,17 @@ export class SessionEventReducer {
     this.deps.log(tab, event.type, session)
   }
 
-  interruptTab(tabId: string): void {
+  /**
+   * End the tab's run and clear the live state that belongs to it.
+   *
+   * `notice` writes the stop into the transcript, which is what makes the turn
+   * read as "you cut this short". Pass false when the run ended because the
+   * thread moved on rather than because the reader stopped it — accepting a plan
+   * hands the work to the implementation session and says so with its own
+   * divider, so a stop notice there would report an event that never happened.
+   */
+  interruptTab(tabId: string, opts: { notice?: boolean } = {}): void {
+    const { notice = true } = opts
     const session = this.deps.registry.sessionFor(tabId)
     const tab = this.deps.registry.tabs[tabId]
     if (!session || !tab) return
@@ -703,7 +746,7 @@ export class SessionEventReducer {
     session.statusCard = null
     this.resetSessionRunState(session)
     const lastMessage = session.messages[session.messages.length - 1]
-    if (!lastMessage || !isAgentNotice(lastMessage.content)) {
+    if (notice && (!lastMessage || !isAgentNotice(lastMessage.content))) {
       session.messages.push({
         id: nextMsgId(),
         role: 'system',
@@ -924,13 +967,25 @@ export class SessionEventReducer {
   }
 
   appendTextChunk(tabId: string, session: Session, text: string): void {
+    const startsNewAssistantMessage = this.assistantMessageBoundaries.delete(tabId)
+    const lastMessage = session.messages[session.messages.length - 1]
+    const separator = startsNewAssistantMessage &&
+      lastMessage?.role === 'assistant' &&
+      !lastMessage.toolName &&
+      !lastMessage.artifact &&
+      !lastMessage.workRef &&
+      !lastMessage.automationRef &&
+      !lastMessage.agentConversationRef
+      ? '\n\n'
+      : ''
+    const nextText = separator + text
     if (this.deps.isTabVisible(tabId)) {
-      this.streaming.text[tabId] = this.pendingText(tabId) + text
+      this.streaming.text[tabId] = this.pendingText(tabId) + nextText
       this.hiddenTextChunks.delete(tabId)
     } else {
       const chunks = this.hiddenTextChunks.get(tabId)
-      if (chunks) chunks.push(text)
-      else this.hiddenTextChunks.set(tabId, [text])
+      if (chunks) chunks.push(nextText)
+      else this.hiddenTextChunks.set(tabId, [nextText])
     }
     if (!session.isStreamingText) session.isStreamingText = true
   }
@@ -967,7 +1022,7 @@ export class SessionEventReducer {
       !lastMsg.artifact &&
       !lastMsg.workRef &&
       !lastMsg.automationRef &&
-      !lastMsg.relayRef
+      !lastMsg.agentConversationRef
     ) {
       lastMsg.content += pendingText
     } else {

@@ -22,11 +22,12 @@ import type { WindowDeps } from './server/handlers/window-handlers'
 import type { FileDeps } from './server/handlers/file-handlers'
 import { mintPairUrl } from './pair-url'
 import { destroyAllFinders } from './server/file-finder'
-import { warmupTranscription } from './transcription'
+import { transcribeAudio, warmupTranscription } from './transcription'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from './server/auth'
 import { closeDb } from './db'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { createShutdownCoordinator } from './shutdown-coordinator'
+import { captureServerEvent, shutdownAnalytics } from './analytics'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -34,6 +35,7 @@ const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
 
 const log = createLogger('main', 'index.ts')
+const bootStartedAt = Date.now()
 
 // Privileged custom scheme for rendering local image artifacts (from Codex's
 // ImageGeneration tool) inside sandboxed iframes / <img>. Must be registered
@@ -144,7 +146,7 @@ let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 const shutdownCoordinator = createShutdownCoordinator({
   shutdown: async () => {
     forceQuit = true
-    await core?.shutdown()
+    await Promise.all([core?.shutdown(), shutdownAnalytics()])
   },
   quit: () => app.quit(),
   forceQuit: () => app.exit(0),
@@ -1075,6 +1077,7 @@ if (isPairUrl) {
         fileDeps,
         requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
         staticDir: join(__dirname, '../client'),
+        transcribeAudio,
       })
     } catch (err) {
       // Unblock the renderer's getLocalConnection with the failure so it can show
@@ -1180,6 +1183,7 @@ app.on('before-quit', (event) => {
   // intercepted. All ordinary quit paths get one bounded cleanup attempt.
   if (forceQuit || shutdownCoordinator.isQuitting) return
   event.preventDefault()
+  captureServerEvent('app_quit', { uptime_ms: Math.max(0, Date.now() - bootStartedAt) })
   shutdownCoordinator.requestQuit()
 })
 
