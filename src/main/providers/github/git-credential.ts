@@ -1,4 +1,5 @@
 import { loadToken } from './token-store'
+import { loadDelegation } from './delegation-store'
 import { text } from 'node:stream/consumers'
 
 /**
@@ -36,7 +37,7 @@ function parseCredentialRequest(input: string): Record<string, string> {
  * The credential git should use, or null when this host has nothing to offer for
  * the request — an unknown host, a non-HTTPS protocol, or no stored token.
  */
-function credentialFor(
+export function credentialFor(
   fields: Record<string, string>,
   token: string | null,
 ): { username: string; password: string } | null {
@@ -50,19 +51,21 @@ export async function runGitCredentialHelper(
   action: GitCredentialAction,
   stdin: NodeJS.ReadableStream,
   stdout: NodeJS.WritableStream,
+  deviceId?: string,
 ): Promise<void> {
   // `store` and `erase` are no-ops: the token's lifecycle belongs to Solus's
   // keyring, and git must not be able to delete it.
   if (action !== 'get') return
 
   const fields = parseCredentialRequest(await text(stdin))
-  const token = loadTokenSafely()
+  const token = loadTokenSafely(deviceId)
   const credential = credentialFor(fields, token)
   if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
 }
 
-function loadTokenSafely(): string | null {
+function loadTokenSafely(deviceId?: string): string | null {
   try {
+    if (deviceId) return loadDelegation(deviceId)?.accessToken ?? null
     return loadToken()?.accessToken ?? null
   } catch {
     return null

@@ -1,6 +1,6 @@
 import { serverConnections } from '@client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@client-core/server-registry'
-import type { IpcContext, PendingHostDispatch, ProjectIdentity, Session } from '../../../shared/types'
+import type { GithubDelegatedCredential, IpcContext, PendingHostDispatch, ProjectIdentity, Session } from '../../../shared/types'
 import type { SolusAPI } from '../../../preload'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 
@@ -138,11 +138,28 @@ export function cloneUrlForRepoKey(repoKey: string): string | null {
  * can never send the prompt to a stale or half-created directory.
  */
 export async function prepareHostCheckout(
-  api: Pick<SolusAPI, 'setupPrepareProject'>,
+  apis: {
+    target: Pick<SolusAPI, 'setupPrepareProject'>
+    local: Pick<SolusAPI, 'githubExportCredential'>
+  },
+  serverId: string,
   repoKey: string,
 ): Promise<PreparedHostCheckout> {
   const cloneUrl = cloneUrlForRepoKey(repoKey)
   if (!cloneUrl) throw new Error('This repository does not have a cloneable remote.')
-  const result = await api.setupPrepareProject({ cloneUrl })
+  // A web client has no local credential store of its own: there, LOCAL_SERVER_ID
+  // resolves onto the target itself, and the host uses its own token as before.
+  let credential: GithubDelegatedCredential | undefined
+  if (serverConnections.resolveId(LOCAL_SERVER_ID) !== serverId) {
+    try {
+      credential = await apis.local.githubExportCredential()
+    } catch (error) {
+      console.warn('[Solus] GitHub credential delegation failed; using the target host credential.', error)
+    }
+  }
+  const result = await apis.target.setupPrepareProject({
+    cloneUrl,
+    ...(credential ? { credential } : {}),
+  })
   return { path: result.path, action: result.action }
 }

@@ -4,6 +4,8 @@ import { createLogger, isDebugEnabled } from '../logger'
 
 const log = createLogger('server', 'server.ts')
 
+export const LOCAL_DEVICE_LABEL = 'This Mac'
+
 /**
  * The single dispatch core. The WebSocket transport forwards requests through
  * `handle()`. Global events flow through `broadcast()`. Tab-scoped events use
