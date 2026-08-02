@@ -327,6 +327,8 @@
 						['Fork a session', `Press ${kbdHtml('⌥F')} to branch the current conversation into a new tab. The fork keeps all context up to that point — useful when you want to explore two approaches from the same starting state.`],
 						['Resume past work', `Press ${kbdHtml('⌥⇧R')} to open the session history picker and jump back into any previous session with its full conversation intact.`],
 						['Queue while busy', 'Sending a message while the agent is working queues it for the next turn — you never have to wait for a stopping point to say the next thing.'],
+						['Long conversations reopen fast', 'Reopening a long session restores its most recent stretch of messages first. Scroll toward the top — or open in-conversation search — and the rest of the transcript is pulled from disk and stitched in, with your scroll position anchored so nothing jumps.'],
+						['Tabs load when you need them', 'On startup Solus hydrates the tab you land on; other tabs stay as lightweight metadata until you select them. Tabs whose agent is still working are restored immediately so you never miss live output.'],
 						['Isolate risky work', `Toggle worktree mode with ${kbdHtml('⌥⇧B')} to run the session on an isolated git worktree, keeping your working branch clean while the agent experiments. Switch between worktrees with ${kbdHtml('⌥⇧H')}.`],
 						['Ship from the keyboard', `${kbdHtml('⌥⇧C')} commits and pushes the session's changes; ${kbdHtml('⌥⇧.')} pulls to sync.`],
 					] as [title, desc]}
@@ -656,6 +658,11 @@
 						<p class="text-base/7 sm:text-[14px]">Enable in Settings → Input. Window open → record → silence → send → agent replies → record again. Hands-free loop. Hidden window cancels recording.</p>
 					</div>
 				</div>
+				<p class="mt-5 text-[14px] text-[#A09488]">
+					The transcription engine loads on your first recording rather than at launch, so that
+					first transcript takes a moment longer while the model spins up. It shuts itself down
+					again after a couple of idle minutes and reloads the next time you speak.
+				</p>
 			</section>
 
 			<section id="automations" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
