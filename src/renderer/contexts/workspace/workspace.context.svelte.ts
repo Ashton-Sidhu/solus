@@ -1517,7 +1517,11 @@ export class WorkspaceContext {
         phase: 'repository',
       })
       const prepared = await prepareHostCheckout(
-        connection.api,
+        {
+          target: connection.api,
+          local: serverConnections.apiFor(LOCAL_SERVER_ID),
+        },
+        pending.serverId,
         pending.repoKey,
       )
       if (bailIfStale()) return

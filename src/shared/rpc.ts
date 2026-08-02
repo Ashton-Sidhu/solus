@@ -203,6 +203,7 @@ export const RPC_INVOKE_METHODS = [
   'providerConnect',
   'providerCancelConnect',
   'providerDisconnect',
+  'githubExportCredential',
   'providerViewer',
 
   // PR review mode (read PRs, enter review, comment, threads)

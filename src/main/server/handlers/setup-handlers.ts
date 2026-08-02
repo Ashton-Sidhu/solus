@@ -3,11 +3,12 @@ import { existsSync, readdirSync } from 'fs'
 import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
-import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
 import type { SolusServer, HandlerCtx } from '../server'
 import { getCliEnv } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { loadToken as loadGithubToken } from '../../providers/github/token-store'
+import { saveDelegation } from '../../providers/github/delegation-store'
 import { GitHubAuth } from '../../providers/github/auth'
 import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '../../../shared/github-auth'
@@ -210,6 +211,22 @@ export function setupProjectsRoot(
   const configured = settings.projectsBaseDirectory?.trim()
   if (configured) return expandHome(configured, homeDirectory)
   return homeDirectory
+}
+
+export function delegatedCheckoutPath(root: string, login: string, cloneUrl: string): string {
+  const parsed = validateCloneUrl(cloneUrl)
+  const parts = parseCloneUrlParts(parsed.cloneUrl)
+  const repositoryParts = parts?.repoPath.replace(/\.git$/i, '').split('/').filter(Boolean) ?? []
+  if (repositoryParts.length < 2) throw new Error('The clone URL must name both an owner and repository.')
+  const owner = repositoryParts.at(-2)!
+  const repo = repositoryParts.at(-1)!
+  // Reject traversal-shaped names so delegated identities can never choose a path outside the host's projects root.
+  for (const [label, value] of [['login', login], ['owner', owner], ['repository', repo]] as const) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) || value.includes('..')) {
+      throw new Error(`The delegated ${label} cannot be used as a checkout path.`)
+    }
+  }
+  return join(root, 'solus-remote', login, owner, repo)
 }
 
 export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps = {}): void {
@@ -497,10 +514,26 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupPrepareProject', async (args, ctx): Promise<SetupPrepareProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ cloneUrl }] = args as [{ cloneUrl: unknown }]
+    const [{ cloneUrl, credential: rawCredential }] = args as [{ cloneUrl: unknown; credential?: unknown }]
+    // `requireAuthenticatedSetupContext` already guarantees `ctx.deviceId`, which
+    // is the key the delegated token is stored and read back under.
+    const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(String(cloneUrl ?? ''))
     const repoKey = cloneRepoKey(parsed.cloneUrl)
     if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
+
+    if (credential) {
+      const checkoutPath = delegatedCheckoutPath(projectsRoot(), credential.login, parsed.cloneUrl)
+      if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
+        const result = await server.handle('setupSyncProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx) as SetupAdoptProjectResult
+        configureDelegatedCheckout(checkoutPath, ctx.deviceId!, credential)
+        return { ...result, action: 'updated' }
+      }
+
+      const result = await server.handle('setupCloneProject', [{ cloneUrl: parsed.cloneUrl, destination: checkoutPath, credential }], ctx) as SetupCloneProjectResult
+      configureDelegatedCheckout(result.path, ctx.deviceId!, credential)
+      return { path: result.path, projectKey: result.projectKey, action: 'cloned' }
+    }
 
     const checkoutPath = await findProjectCheckout(repoKey)
     if (checkoutPath) {
@@ -514,16 +547,20 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
-    const [{ cloneUrl, name, destination, protocol, clean }] = args as [{
+    const [{ cloneUrl, name, destination, protocol, clean, credential: rawCredential }] = args as [{
       cloneUrl: unknown
       name?: unknown
       destination?: unknown
       protocol?: unknown
       clean?: unknown
+      credential?: unknown
     }]
+    const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(String(cloneUrl ?? ''))
     const selectedProtocol = coerceCloneProtocol(protocol)
-    const cloneUrls = selectedProtocol
+    const cloneUrls = credential
+      ? [applyCloneProtocol(parsed.cloneUrl, 'https')]
+      : selectedProtocol
       ? [applyCloneProtocol(parsed.cloneUrl, selectedProtocol)]
       : [
           applyCloneProtocol(parsed.cloneUrl, 'ssh'),
@@ -557,9 +594,11 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       for (const [index, attemptUrl] of cloneUrls.entries()) {
         const isHttps = attemptUrl.startsWith('https://')
         const attemptParts = parseCloneUrlParts(attemptUrl)
-        const token = isHttps && attemptParts?.host.toLowerCase() === 'github.com'
-          ? safeLoadGithubToken(loadStoredGithubToken)
-          : null
+        const token = credential ?? (
+          isHttps && attemptParts?.host.toLowerCase() === 'github.com'
+            ? safeLoadGithubToken(loadStoredGithubToken)
+            : null
+        )
         const askpass = token ? await createGitAskpassHelper() : null
         try {
           auth = await attemptClone({
@@ -605,6 +644,25 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       return { path: targetPath, projectKey: await registerProject(targetPath), auth }
     })
   })
+
+  function configureDelegatedCheckout(
+    checkoutPath: string,
+    deviceId: string,
+    credential: GithubDelegatedCredential,
+  ): void {
+    saveDelegation(deviceId, credential)
+    const solusPath = resolveSolusCli()
+    if (!solusPath) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
+    const config = (key: string, value: string) => execFileSync(
+      'git',
+      ['-C', checkoutPath, 'config', '--local', key, value],
+      { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS },
+    )
+    // Local config is shared by linked worktrees, so every dispatched worktree inherits the caller's identity and helper.
+    config(GITHUB_CREDENTIAL_KEY, `!'${solusPath}' git-credential --delegation ${deviceId}`)
+    config('user.name', credential.login)
+    config('user.email', `${credential.login}@users.noreply.github.com`)
+  }
 
   server.register('setupSyncProject', async (args, ctx): Promise<SetupAdoptProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
@@ -753,6 +811,14 @@ function coerceCloneProtocol(value: unknown): CloneProtocol | undefined {
   return undefined
 }
 
+function coerceDelegatedCredential(value: unknown): GithubDelegatedCredential | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const { accessToken, login } = value as { accessToken?: unknown; login?: unknown }
+  if (typeof accessToken !== 'string' || typeof login !== 'string') return undefined
+  const normalized = { accessToken: accessToken.trim(), login: login.trim() }
+  return normalized.accessToken && normalized.login ? normalized : undefined
+}
+
 /** Git config values reach a shell-free execFile, but newlines would still corrupt the config file. */
 function coerceConfigValue(value: unknown, label: string): string {
   const trimmed = typeof value === 'string' ? value.trim() : ''
@@ -890,7 +956,7 @@ async function attemptClone(opts: {
 }
 
 /**
- * A 0700 temp helper that feeds git the host's own token. It is written per
+ * A 0700 temp helper that feeds git the selected HTTPS token. It is written per
  * clone and removed in a `finally`, so no credential outlives the process.
  */
 async function createGitAskpassHelper(): Promise<{ directory: string; path: string }> {

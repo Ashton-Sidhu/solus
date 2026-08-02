@@ -7,6 +7,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { PassThrough } from 'stream'
 import {
+  delegatedCheckoutPath,
   hasClaudeAuth,
   parseAgentSignInVerification,
   probeHostReadiness,
@@ -39,6 +40,39 @@ describe('projects root', () => {
 
   test('falls back to the host home when the setting is unset', () => {
     expect(setupProjectsRoot({}, '/home/dev')).toBe('/home/dev')
+  })
+})
+
+describe('delegated checkout path', () => {
+  test('isolates the same repository by delegated GitHub login', () => {
+    // WHY: people sharing a remote host must never share a working tree or see
+    // one another's uncommitted work when they dispatch the same repository.
+    const octocatPath = delegatedCheckoutPath(
+      '/srv/projects',
+      'octocat',
+      'git@github.com:solus-sh/solus.git',
+    )
+    const monalisaPath = delegatedCheckoutPath(
+      '/srv/projects',
+      'monalisa',
+      'git@github.com:solus-sh/solus.git',
+    )
+
+    expect(octocatPath).toBe('/srv/projects/solus-remote/octocat/solus-sh/solus')
+    expect(monalisaPath).not.toBe(octocatPath)
+  })
+
+  test('rejects traversal-shaped identity and repository segments', () => {
+    expect(() => delegatedCheckoutPath(
+      '/srv/projects',
+      '../octocat',
+      'https://github.com/solus-sh/solus.git',
+    )).toThrow('delegated login')
+    expect(() => delegatedCheckoutPath(
+      '/srv/projects',
+      'octocat',
+      'https://github.com/.hidden/solus.git',
+    )).toThrow('delegated owner')
   })
 })
 
@@ -284,6 +318,19 @@ describe('clone destination resolution', () => {
 })
 
 describe('server setup clone dispatch', () => {
+  test('refuses delegated preparation without a stable device identity', async () => {
+    // WHY: the device id is the key the delegated token is stored under, so an
+    // anonymous caller has nowhere to put it — and must not silently fall back
+    // to the host's own token, which would push as the wrong identity.
+    const server = new SolusServer()
+    registerSetupHandlers(server)
+
+    await expect(server.handle('setupPrepareProject', [{
+      cloneUrl: 'https://github.com/solus-sh/solus.git',
+      credential: { accessToken: 'caller-token', login: 'octocat' },
+    }])).rejects.toThrow('Setup actions require an authenticated device.')
+  })
+
   test('the destination host clones when its own project registry has no checkout', async () => {
     // WHY: the client sends only repository intent; checkout discovery and the
     // resulting filesystem action must happen on the destination host.
@@ -382,6 +429,28 @@ describe('server setup clone dispatch', () => {
     expect(calls[1].options.env?.GIT_ASKPASS).toContain('git-askpass.sh')
     expect(calls[1].options.env?.SOLUS_GIT_PASSWORD).toBe('secret-token')
     expect(calls.flatMap((call) => call.args)).not.toContain('secret-token')
+  })
+
+  test('delegated clone uses only HTTPS and feeds the caller token through askpass', async () => {
+    const root = await temporaryDirectory()
+    const calls: SpawnCall[] = []
+    const server = new SolusServer()
+    registerSetupHandlers(server, {
+      loadGithubToken: () => ({ accessToken: 'host-token', scope: 'repo', login: 'host' }),
+      registerProject: async (path) => resolveTestProjectKey(path),
+      spawnProcess: processSequence(calls, [{ code: 0 }]),
+    })
+
+    const result = await server.handle('setupCloneProject', [{
+      cloneUrl: 'git@github.com:solus-sh/solus.git',
+      destination: join(root, 'solus'),
+      credential: { accessToken: 'caller-token', login: 'octocat' },
+    }], { deviceId: 'test-device' }) as SetupCloneProjectResult
+
+    expect(result.auth).toBe('token')
+    expect(calls.map((call) => call.args[2])).toEqual(['https://github.com/solus-sh/solus.git'])
+    expect(calls[0].options.env?.SOLUS_GIT_PASSWORD).toBe('caller-token')
+    expect(calls.flatMap((call) => call.args)).not.toContain('caller-token')
   })
 
   test('stops after SSH succeeds and honours an explicit HTTPS choice', async () => {

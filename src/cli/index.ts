@@ -7,7 +7,7 @@ import { basename, dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { renderQrAscii } from './lib/qr'
 import { defaultDataDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
-import { bestEndpoint, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
+import { bestEndpoint, extractGitCredentialAction, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
 import packageJson from '../../package.json'
 
 const DEFAULT_RELEASE_REPO = process.env.SOLUS_RELEASE_REPO || 'Ashton-Sidhu/solus'
@@ -32,6 +32,10 @@ interface UpdateOptions {
 interface AuthSessionCreateOptions extends CommonOptions {
   json: boolean
   deviceLabel?: string
+}
+
+interface GitCredentialOptions extends CommonOptions {
+  delegationDeviceId?: string
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -77,7 +81,7 @@ Usage:
   solus logs [--data-dir PATH] [--lines N]
   solus claim [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
-  solus git-credential <get|store|erase> [--data-dir PATH]
+  solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID]
   solus update [--repo OWNER/REPO]
   solus --version
   solus --help`)
@@ -159,21 +163,22 @@ async function auth(args: string[]): Promise<void> {
   else process.exitCode = code ?? 1
 }
 
-/**
- * Git's credential helper contract: the action is argv[1], the request arrives
- * on stdin and the answer goes to stdout. Both are inherited straight through to
- * the server entry, which is where the keyring lives.
- */
 async function gitCredential(args: string[]): Promise<void> {
-  const [action, ...rest] = args
-  if (action !== 'get' && action !== 'store' && action !== 'erase') {
+  // Git appends the operation to the configured helper command, so it can trail flags.
+  const { action, args: optionArgs } = extractGitCredentialAction(args, (value) => {
+    if (value === 'get' || value === 'store' || value === 'erase') return value
     throw new Error('Unknown git-credential action. Expected: solus git-credential <get|store|erase>')
-  }
-  const opts = parseCommonOptions(rest)
+  })
+  const opts = parseGitCredentialOptions(optionArgs)
   const paths = runtimePaths(opts.dataDir)
   const child = spawn(
     paths.nodePath,
-    [paths.serverEntry, 'git-credential', action, '--data-dir', opts.dataDir],
+    [
+      paths.serverEntry,
+      'git-credential', action,
+      '--data-dir', opts.dataDir,
+      ...(opts.delegationDeviceId ? ['--delegation', opts.delegationDeviceId] : []),
+    ],
     { stdio: 'inherit' },
   )
   const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null]
@@ -241,6 +246,21 @@ function parseCommonOptions(args: string[]): CommonOptions {
   parseFlags(args, {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
   }, (arg) => new Error(`Unknown option: ${arg}`))
+  return opts
+}
+
+function parseGitCredentialOptions(args: string[]): GitCredentialOptions {
+  const opts: GitCredentialOptions = { dataDir: defaultDataDir() }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--delegation': {
+      value: (value) => {
+        if (!value) throw new Error('--delegation requires a device ID')
+        opts.delegationDeviceId = value
+      },
+      missingValueMessage: '--delegation requires a device ID',
+    },
+  }, (arg) => new Error(`Unknown git-credential option: ${arg}`))
   return opts
 }
 

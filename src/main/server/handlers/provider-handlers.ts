@@ -1,6 +1,7 @@
 import { createLogger } from '../../logger'
 import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
+import { loadToken } from '../../providers/github/token-store'
 import { computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
 import { fetchAndCheckoutPr } from '../../git/worktree-manager'
 import { emptyStackGraph, readStackGraph, scheduleStackDetection } from '../../git/stack-detect'
@@ -13,8 +14,8 @@ import type { Provider, RepoRef } from '../../providers/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, DraftReview } from '../../../shared/providers'
 import type { ReviewEffort } from '../../../shared/effort-types'
 import type { PrGuideMetadataRequest } from '../../../shared/review'
-import type { IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
-import type { SolusServer } from '../server'
+import type { GithubDelegatedCredential, IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult, PrReviewContext } from '../../../shared/types'
+import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
 
@@ -214,6 +215,23 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const [ctx] = args as [IpcContext]
     const provider = await providerForContext(ctx)
     provider?.auth.disconnect()
+  })
+
+  // The desktop renderer is itself a WS-paired device, so without this gate any
+  // paired phone or laptop could pull the user's GitHub token off their machine.
+  server.register('githubExportCredential', async (_args, ctx): Promise<GithubDelegatedCredential> => {
+    if (ctx.deviceLabel !== LOCAL_DEVICE_LABEL) {
+      throw new Error('Only this device can export its GitHub credential.')
+    }
+
+    const token = loadToken()
+    if (!token) throw new Error('Connect GitHub on this device first.')
+
+    const login = token.login ?? await getProvider('github')?.review.getViewer()
+    if (!login) throw new Error('Connect GitHub on this device first.')
+
+    log.info('github_credential_exported')
+    return { accessToken: token.accessToken, login }
   })
 
   server.register('providerViewer', async (args) => {

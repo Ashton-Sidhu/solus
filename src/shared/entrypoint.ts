@@ -10,6 +10,34 @@ export interface FlagSpec {
   missingValueMessage?: string
 }
 
+const GIT_CREDENTIAL_VALUE_FLAGS = new Set(['--data-dir', '--delegation'])
+
+/**
+ * Git appends the operation to whatever it finds in `credential.*.helper`, so a
+ * helper configured with flags is invoked as `… --delegation <id> get`. The
+ * action can therefore sit anywhere that is not already a flag's value.
+ */
+export function extractGitCredentialAction<T>(
+  args: string[],
+  coerceAction: (value: string | undefined) => T,
+): { action: T; args: string[] } {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    const equalsAt = arg.indexOf('=')
+    const flag = equalsAt === -1 ? arg : arg.slice(0, equalsAt)
+    if (equalsAt === -1 && GIT_CREDENTIAL_VALUE_FLAGS.has(flag)) {
+      i++
+      continue
+    }
+    if (arg === 'get' || arg === 'store' || arg === 'erase') {
+      const remainingArgs = args.slice()
+      remainingArgs.splice(i, 1)
+      return { action: coerceAction(arg), args: remainingArgs }
+    }
+  }
+  return { action: coerceAction(undefined), args }
+}
+
 export function parseFlags(args: string[], spec: Record<string, FlagSpec>, unknownOption: (arg: string) => Error): void {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]

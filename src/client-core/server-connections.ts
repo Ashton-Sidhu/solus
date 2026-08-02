@@ -84,7 +84,7 @@ export class ServerConnections {
    * ever registered. On desktop the local target is registered at boot, so
    * this is the identity function there.
    */
-  private resolveId(serverId: string): string {
+  resolveId(serverId: string): string {
     if (
       serverId === LOCAL_SERVER_ID
       && this.primaryServerId

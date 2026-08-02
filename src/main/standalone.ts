@@ -2,7 +2,7 @@ import { join } from 'path'
 import { createLogger, flushLogs } from './logger'
 import { shutdownAnalytics } from './analytics'
 import { coerceGitCredentialAction, runGitCredentialHelper, type GitCredentialAction } from './providers/github/git-credential'
-import { bestEndpoint, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
+import { bestEndpoint, extractGitCredentialAction, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '../shared/entrypoint'
 import type { BootCore } from './boot-core'
 
 const log = createLogger('main', 'standalone')
@@ -15,6 +15,7 @@ interface StandaloneArgs {
   json?: boolean
   deviceLabel?: string
   credentialAction?: GitCredentialAction
+  delegationDeviceId?: string
 }
 
 function parseArgs(argv: string[]): StandaloneArgs {
@@ -30,8 +31,10 @@ function parseArgs(argv: string[]): StandaloneArgs {
     argv = argv.slice(3)
   } else if (argv[0] === 'git-credential') {
     out.command = 'git-credential'
-    out.credentialAction = coerceGitCredentialAction(argv[1])
-    argv = argv.slice(2)
+    // Git appends the operation to the configured helper command, so it can trail flags.
+    const extracted = extractGitCredentialAction(argv.slice(1), coerceGitCredentialAction)
+    out.credentialAction = extracted.action
+    argv = extracted.args
   }
 
   parseFlags(argv, {
@@ -49,6 +52,13 @@ function parseArgs(argv: string[]): StandaloneArgs {
       },
       missingValueMessage: '--data-dir requires a path',
     },
+    '--delegation': {
+      value: (value) => {
+        if (!value) throw new Error('--delegation requires a device ID')
+        out.delegationDeviceId = value
+      },
+      missingValueMessage: '--delegation requires a device ID',
+    },
   }, (arg) => new Error(`Unknown argument: ${arg}`))
 
   return out
@@ -59,7 +69,7 @@ async function main(): Promise<void> {
   if (args.dataDir) process.env.SOLUS_DATA_DIR = args.dataDir
 
   if (args.command === 'git-credential') {
-    await runGitCredentialHelper(args.credentialAction ?? 'get', process.stdin, process.stdout)
+    await runGitCredentialHelper(args.credentialAction ?? 'get', process.stdin, process.stdout, args.delegationDeviceId)
     return
   }
 
