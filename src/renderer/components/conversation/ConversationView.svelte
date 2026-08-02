@@ -16,12 +16,14 @@
     createSessionHistoryStore,
     getWindowContext,
     runtime,
+    cloudflareStore,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
+  import CloudflareConnectCard from "../cloudflare/ConnectCard.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
@@ -1301,6 +1303,12 @@
                rides on the bubble instead. -->
           {#if sess.status === "rate_limited" && sess.rateLimitStrategy === "ask"}
             <RateLimitCard tabId={tab.id} />
+          {/if}
+
+          <!-- The request is app-wide, not per-session, so it stands in the one
+               conversation the user is looking at rather than in all of them. -->
+          {#if cloudflareStore.connectCardVisible && tab.id === session.activeTabId}
+            <CloudflareConnectCard tabId={tab.id} />
           {/if}
           <QueuedPromptGroup tabId={tab.id} />
 

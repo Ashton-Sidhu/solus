@@ -49,6 +49,7 @@ import {
   resolvePrThreadAgentTool,
   submitPrReviewAgentTool,
 } from '../../providers/pr-tools'
+import { cloudflareStatusAgentTool } from '../../cloudflare/cloudflare-tools'
 
 export const solusToolbox = {
   works: {
@@ -75,6 +76,9 @@ export const solusToolbox = {
     run: runAutomationAgentTool,
     listRuns: listAutomationRunsAgentTool,
     readRun: readAutomationRunAgentTool,
+  },
+  cloudflare: {
+    status: cloudflareStatusAgentTool,
   },
   sessions: {
     list: listSessionsAgentTool,

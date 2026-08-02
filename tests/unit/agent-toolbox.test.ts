@@ -34,6 +34,7 @@ describe('Solus toolbox', () => {
       'run_automation',
       'list_automation_runs',
       'read_automation_run',
+      'cloudflare_status',
       'list_sessions',
       'read_session',
       'search_sessions',
