@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
-import { FolioGalleryPage } from '../helpers/folio-gallery.page'
+import { WorkspacePage } from '../helpers/workspace.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
@@ -35,10 +35,10 @@ test.describe('Work chat workflow', () => {
     await expect(inputBar).toBeVisible()
   })
 
-  test('open chat from FolioGallery with new chat option', async ({ page }) => {
+  test('open chat from the Workspace ledger with new chat option', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const workspace = new WorkspacePage(page)
     await app.waitForAppReady()
 
     // Create a document
@@ -46,24 +46,18 @@ test.describe('Work chat workflow', () => {
     const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
     await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
 
-    // Open Folio gallery
-    await gallery.open()
-    await gallery.waitForOpen()
+    // Open the Workspace page and open the document from its ledger row
+    await workspace.open()
+    await workspace.waitForOpen()
+    const firstItem = workspace.items().first()
+    await expect(firstItem).toBeVisible()
+    await firstItem.click()
 
-    // Find the chat button in the work card
-    const workItems = gallery.workItems()
-    const firstWorkItem = workItems.first()
-    await expect(firstWorkItem).toBeVisible()
+    const modal = page.getByTestId('document-modal')
+    await expect(modal).toBeVisible({ timeout: 5_000 })
 
-    // Hover to reveal the chat button
-    await firstWorkItem.hover()
-    const chatBtn = firstWorkItem.locator('button[aria-label="Open chat"]')
-    await expect(chatBtn).toBeVisible()
-
-    // Click the chat button
-    await chatBtn.click()
-
-    // The WorkChatMenu should appear
+    // Open the chat menu from the document shell
+    await modal.locator('button[data-testid="open-chat"]').click()
     const chatMenu = page.locator('.work-chat-menu')
     await expect(chatMenu).toBeVisible()
 

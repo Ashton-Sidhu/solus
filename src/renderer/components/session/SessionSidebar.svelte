@@ -9,8 +9,7 @@
     GitCommitIcon,
     GitForkIcon,
     FolderIcon,
-    ArticleIcon,
-    FileTextIcon,
+    BooksIcon,
     ClockIcon,
     CaretRightIcon,
     PushPinIcon,
@@ -312,22 +311,13 @@
       <Sidebar.Menu class="gap-0">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class={navCardBase}
-            onclick={() => session.togglePlansGallery()}
+            class="{navCardBase} {session.workspacePageOpen ? navCardActive : ''}"
+            isActive={session.workspacePageOpen}
+            onclick={() => session.toggleWorkspacePage()}
           >
-            <span class={navCardIcon}><ArticleIcon size={13} /></span>
-            <span class={navLabel}>Plans</span>
-            <span class={navHint}>⌥⇧L</span>
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            class={navCardBase}
-            onclick={() => session.toggleFolioGallery()}
-          >
-            <span class={navCardIcon}><FileTextIcon size={13} /></span>
-            <span class={navLabel}>Folio</span>
-            <span class={navHint}>⌥⇧;</span>
+            <span class={navCardIcon}><BooksIcon size={13} /></span>
+            <span class={navLabel}>Workspace</span>
+            <span class={navHint}>{comboHint("global.toggle-workspace")}</span>
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>

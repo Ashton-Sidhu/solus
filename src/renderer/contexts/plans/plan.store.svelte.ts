@@ -309,7 +309,7 @@ export class PlanStore {
     this.previewPlanId = null
   }
 
-  // ─── Descriptor cache (shared by PlanGallery + # autocomplete) ───
+  // ─── Descriptor cache (shared by the Workspace page + # autocomplete) ───
 
   cachedDescriptors = $state<PlanDescriptor[]>([])
   cachedDescriptorKey = $state<string | null>(null)

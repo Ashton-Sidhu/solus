@@ -9,8 +9,7 @@
   import {
     PlusIcon,
     XIcon,
-    ArticleIcon,
-    FileTextIcon,
+    BooksIcon,
     ClockIcon,
     CaretLeftIcon,
     CaretRightIcon,
@@ -701,27 +700,14 @@
           <TooltipUI.Trigger>
             {#snippet child({ props: tooltipProps })}
               <button {...tooltipProps}
-          onclick={() => session.togglePlansGallery()}
+          onclick={() => session.toggleWorkspacePage()}
           class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
         >
-          <ArticleIcon size={14} />
+          <BooksIcon size={14} />
         </button>
             {/snippet}
           </TooltipUI.Trigger>
-          <TooltipUI.Content value={"Plans (⌥⇧L)"} />
-        </TooltipUI.Root>
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          onclick={() => session.toggleFolioGallery()}
-          class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-        >
-          <FileTextIcon size={14} />
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={"Folio — documents (⌥⇧;)"} />
+          <TooltipUI.Content value={`Workspace — plans, docs and diagrams (${comboHint("global.toggle-workspace")})`} />
         </TooltipUI.Root>
 
         <ContextMeter tabId={session.activeTabId} />

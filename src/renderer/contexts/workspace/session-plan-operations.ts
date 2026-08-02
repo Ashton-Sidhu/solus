@@ -278,8 +278,11 @@ async function loadOrFindTab(ctx: WorkspaceContext, sessionId: string, cwd: stri
   return await ctx.resumeSession(meta)
 }
 
-async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Promise<string> {
-  const id = await ctx.planStore.loadFromDisk({
+/** Pull one descriptor's plan into the store. Readers that only need the plan
+ *  itself — the Workspace peek — call this; opening a plan goes through
+ *  `loadDescriptorPlan`, which also warms the sibling revisions. */
+export async function loadPlanContent(ctx: WorkspaceContext, d: PlanDescriptor): Promise<string> {
+  return await ctx.planStore.loadFromDisk({
     sessionId: d.sessionId,
     planToolUseId: d.planToolUseId,
     projectPath: d.projectPath,
@@ -293,6 +296,10 @@ async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Pro
     ctx: ctx.ctx,
     provider: d.provider,
   })
+}
+
+async function loadDescriptorPlan(ctx: WorkspaceContext, d: PlanDescriptor): Promise<string> {
+  const id = await loadPlanContent(ctx, d)
 
   // Load sibling revisions in the background so the revision dropdown works.
   for (const rev of d.revisions) {
@@ -319,7 +326,7 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
   const planId = planKey(d.sessionId, d.planToolUseId)
   const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, d.provider)
   if (existing) {
-    ctx.plansGalleryOpen = false
+    ctx.workspacePageOpen = false
     ctx.selectTab(existing)
     ctx.panes.openPlan(planId)
     ctx.isExpanded = true
@@ -332,7 +339,7 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
 
   // The gallery card gives way to the plan surface's skeleton straight away —
   // the descriptor already names the plan, only its body has to come off disk.
-  ctx.plansGalleryOpen = false
+  ctx.workspacePageOpen = false
   ctx.planStore.previewDescriptor = d
   ctx.panes.openPlan(planId)
 
@@ -353,14 +360,14 @@ export async function resumeFromPreview(ctx: WorkspaceContext): Promise<void> {
 
 export function closePlanPreview(ctx: WorkspaceContext): void {
   ctx.planStore.dismissPreview()
-  ctx.plansGalleryOpen = true
+  ctx.workspacePageOpen = true
 }
 
 export async function resumeSessionFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
   ctx.planStore.dismissPreview()
   await loadDescriptorPlan(ctx, d)
   const tabId = await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title)
-  ctx.plansGalleryOpen = false
+  ctx.workspacePageOpen = false
   closePlanModal(ctx)
   setTimeout(() => requestConversationScrollToBottom(tabId), 50)
 }

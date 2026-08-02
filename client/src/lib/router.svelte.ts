@@ -1,7 +1,6 @@
 type Route =
   | { name: 'connect' }
   | { name: 'chat'; tabId?: string }
-  | { name: 'plans' }
   | { name: 'settings'; tab?: string }
 
 import { track } from '@renderer/lib/analytics'
@@ -40,10 +39,6 @@ class Router {
     this.navigate(tabId ? `#/chat/${tabId}` : '#/chat')
   }
 
-  navigateToPlans() {
-    this.navigate('#/plans')
-  }
-
   navigateToSettings(tab?: string) {
     this.navigate(tab ? `#/settings/${tab}` : '#/settings')
   }
@@ -60,7 +55,6 @@ function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, '')
 
   if (path === 'connect') return { name: 'connect' }
-  if (path === 'plans') return { name: 'plans' }
   if (path === 'settings') return { name: 'settings' }
   if (path.startsWith('settings/')) {
     const tab = path.slice(9)

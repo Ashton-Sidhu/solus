@@ -1,17 +1,17 @@
 import type { Page, Locator } from '@playwright/test'
 
-const GALLERY = '[role="dialog"][aria-label="Folio gallery"]'
+const WORKSPACE = '[role="dialog"][aria-label="Workspace"]'
 
-/** Interactions with the folio gallery overlay. */
-export class FolioGalleryPage {
+/** Interactions with the Workspace page (the unified plans + docs + diagrams ledger). */
+export class WorkspacePage {
   constructor(readonly page: Page) {}
 
   get dialog(): Locator {
-    return this.page.locator(GALLERY)
+    return this.page.locator(WORKSPACE)
   }
 
   async open() {
-    await this.page.keyboard.press('Alt+Shift+f')
+    await this.page.keyboard.press('Alt+Shift+l')
   }
 
   async close() {
@@ -31,14 +31,15 @@ export class FolioGalleryPage {
   }
 
   searchInput(): Locator {
-    return this.dialog.locator('input[placeholder="Search documents…"]')
+    return this.dialog.locator('input[placeholder^="Search"]')
   }
 
   emptyTitle(): Locator {
-    return this.dialog.locator('.empty-title')
+    return this.dialog.locator('[data-slot="empty-title"]')
   }
 
-  workItems(): Locator {
+  /** Every ledger row — plans, docs and diagrams share the same row shape. */
+  items(): Locator {
     return this.dialog.locator('[role="option"]')
   }
 
@@ -56,6 +57,15 @@ export class FolioGalleryPage {
   }
 
   newButton(): Locator {
-    return this.dialog.getByTestId('folio-new')
+    return this.dialog.getByTestId('workspace-new')
+  }
+
+  /** The rail's project scope control — every ledger count is relative to it. */
+  projectSwitcher(): Locator {
+    return this.dialog.getByTestId('workspace-project-switcher')
+  }
+
+  statusMenu(): Locator {
+    return this.dialog.getByRole('button', { name: 'Filter by status' })
   }
 }

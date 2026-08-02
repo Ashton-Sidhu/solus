@@ -48,12 +48,10 @@ export class WorkspaceUiStore {
   // pane content. These boolean accessors keep the pre-pane flag API working
   // for pill mode's overlays and the nav/close call sites.
 
-  get plansGalleryOpen(): boolean { return this.panes.isPageOpen('plans-gallery') }
-  set plansGalleryOpen(value: boolean) { this.setPage('plans-gallery', value) }
+  get workspacePageOpen(): boolean { return this.panes.isPageOpen('workspace') }
+  set workspacePageOpen(value: boolean) { this.setPage('workspace', value) }
   get settingsOpen(): boolean { return this.panes.isPageOpen('settings') }
   set settingsOpen(value: boolean) { this.setPage('settings', value) }
-  get folioGalleryOpen(): boolean { return this.panes.isPageOpen('folio-gallery') }
-  set folioGalleryOpen(value: boolean) { this.setPage('folio-gallery', value) }
   get automationsOpen(): boolean { return this.panes.isPageOpen('automations-list') }
   set automationsOpen(value: boolean) { this.setPage('automations-list', value) }
   get tasksOpen(): boolean { return this.panes.isPageOpen('tasks') }
@@ -109,12 +107,8 @@ export class WorkspaceUiStore {
     this.settingsProjectCwd = null
   }
 
-  togglePlansGallery(): boolean {
-    return this.togglePage('plans-gallery')
-  }
-
-  toggleFolioGallery(): boolean {
-    return this.togglePage('folio-gallery')
+  toggleWorkspacePage(): boolean {
+    return this.togglePage('workspace')
   }
 
   toggleAutomations(): boolean {

@@ -25,8 +25,7 @@
     'files-pane':        { label: 'Files Pane',         order: 27 },
     'plan-modal':        { label: 'Plan Modal',         order: 30 },
     'document-modal':    { label: 'Document Modal',     order: 40 },
-    'plan-gallery':      { label: 'Plan Gallery',       order: 50 },
-    'folio-gallery':     { label: 'Folio Gallery',      order: 60 },
+    'workspace':         { label: 'Workspace',          order: 50 },
     'automations':       { label: 'Automations',        order: 65 },
     'tasks':             { label: 'Tasks',              order: 66 },
     'prs':               { label: 'Pull Requests',     order: 67 },
@@ -40,7 +39,7 @@
 
   const ALL_SCOPES: Scope[] = [
     'global', 'diff-panel', 'file-editor', 'files-pane',
-    'plan-modal', 'document-modal', 'plan-gallery', 'folio-gallery',
+    'plan-modal', 'document-modal', 'workspace',
     'design-annotation', 'plan-action-bar', 'attachment-preview', 'diagram',
   ]
 
