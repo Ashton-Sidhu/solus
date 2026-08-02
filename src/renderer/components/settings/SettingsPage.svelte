@@ -9,7 +9,7 @@
     KeyboardIcon,
     MicrophoneIcon,
     BinocularsIcon,
-    GithubLogoIcon,
+    CloudIcon,
     NotePencilIcon,
     FolderIcon,
     FlaskIcon,
@@ -27,8 +27,8 @@
   import SettingsTabInstructions from "./SettingsTabInstructions.svelte";
   import SettingsTabReview from "./SettingsTabReview.svelte";
   import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
-  import GitHubConnect from "../connections/GitHubConnect.svelte";
   import SettingsTabTools from "./SettingsTabTools.svelte";
+  import SettingsTabProviders from "./SettingsTabProviders.svelte";
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
   import SettingsTabExperimental from "./SettingsTabExperimental.svelte";
@@ -44,7 +44,7 @@
     | "general"
     | "instructions"
     | "review"
-    | "github"
+    | "providers"
     | "api-access"
     | "tools"
     | "skills"
@@ -112,10 +112,10 @@
       desktopOnly: true,
     },
     {
-      id: "github",
+      id: "providers",
       label: "Providers",
       description: "Accounts Solus acts on your behalf with.",
-      icon: GithubLogoIcon,
+      icon: CloudIcon,
       group: "Capabilities",
     },
     // Web-visible: a phone or browser manages its hosts through the same
@@ -231,8 +231,8 @@
     <SettingsTabVoice />
   {:else if session.settingsTab === "experimental"}
     <SettingsTabExperimental {searchQuery} />
-  {:else if session.settingsTab === "github"}
-    <GitHubConnect />
+  {:else if session.settingsTab === "providers"}
+    <SettingsTabProviders />
   {:else if session.settingsTab === "api-access"}
     <ConnectionsPanel />
   {:else if session.settingsTab === "tools"}

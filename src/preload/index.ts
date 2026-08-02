@@ -90,6 +90,16 @@ export interface SolusAPI {
   googleUploadDoc(args: { title: string; markdown: string }): Promise<{ docUrl: string } | { error: string }>
   googleDisconnect(): Promise<void>
 
+  cloudflareStatus(): Promise<{ connected: boolean; accountName?: string; accountId?: string; source?: 'env' | 'stored'; expiresOn?: number }>
+  cloudflareConnect(args: { apiToken: string; accountId?: string }): Promise<
+    | { ok: true; accountName?: string }
+    | { ok: false; kind: 'invalid' | 'network' | 'accounts-forbidden' | 'encryption-unavailable'; error: string }
+    | { ok: false; kind: 'choose-account'; accounts: Array<{ id: string; name: string }> }
+  >
+  cloudflareDisconnect(): Promise<void>
+  /** An agent hit a Cloudflare-backed tool while the profile was disconnected. */
+  onCloudflareConnectNeeded(callback: (event: { reason: 'deploy' }) => void): () => void
+
   connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean }>
   connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
   connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>

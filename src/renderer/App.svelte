@@ -39,6 +39,7 @@
     toasts,
     connectionsStore,
     serversStore,
+    cloudflareStore,
   } from "./contexts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
@@ -709,6 +710,9 @@
     const unsubNeedsReview = session.prsStore.subscribeNeedsReview(
       () => session.ctx,
     );
+    // An agent can need the Cloudflare profile before any Cloudflare surface has
+    // been opened, so the request has to be heard app-wide, not by the card.
+    const unsubCloudflare = cloudflareStore.listenForConnectRequests();
     const unsubShown = window.solus.onWindowShown(() => {
       const active = session.sessionFor(session.activeTabId);
       const cwd =
@@ -732,6 +736,7 @@
       unsubChecks();
       unsubGuideStatus();
       unsubNeedsReview();
+      unsubCloudflare();
       unsubShown();
     };
   });

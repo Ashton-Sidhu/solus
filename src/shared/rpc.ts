@@ -198,6 +198,11 @@ export const RPC_INVOKE_METHODS = [
   'googleUploadDoc',
   'googleDisconnect',
 
+  // Cloudflare deployment credentials
+  'cloudflareStatus',
+  'cloudflareConnect',
+  'cloudflareDisconnect',
+
   // Git provider (code-host) auth
   'providerStatus',
   'providerConnect',
@@ -319,6 +324,7 @@ export const RPC_TOPICS = [
   'pr-checks-update',
   'pr-guide-status',
   'usage-limits-update',
+  'cloudflare-connect-needed',
 ] as const
 
 export type RpcTopic = (typeof RPC_TOPICS)[number]

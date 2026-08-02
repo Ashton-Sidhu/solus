@@ -193,6 +193,7 @@ export class WsTransport {
     api.onPrChecksUpdate = (cb: Listener) => this.subscribe('pr-checks-update', cb)
     api.onPrGuideStatus = (cb: Listener) => this.subscribe('pr-guide-status', cb)
     api.onUsageLimits = (cb: Listener) => this.subscribe('usage-limits-update', cb)
+    api.onCloudflareConnectNeeded = (cb: Listener) => this.subscribe('cloudflare-connect-needed', cb)
     api.onResetRuntime = (cb: () => void) => {
       this.onResetCallback = cb
       return () => { if (this.onResetCallback === cb) this.onResetCallback = null }

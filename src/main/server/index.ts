@@ -29,6 +29,8 @@ import { registerSettingsHandlers } from './handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
+import { registerCloudflareHandlers } from './handlers/cloudflare-handlers'
+import { setCloudflareConnectNeededListener } from '../cloudflare/cloudflare-tools'
 import { setPrsChangedNotifier } from '../providers/pr-tools'
 import { registerStackHandlers } from './handlers/stack-handlers'
 import { registerChecksHandlers } from './handlers/checks-handlers'
@@ -230,6 +232,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
+  registerCloudflareHandlers(server)
+  setCloudflareConnectNeededListener((reason) => server.broadcast('cloudflare-connect-needed', { reason }))
   registerProviderHandlers(server, {
     dispatcher: opts.controlPlane,
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
