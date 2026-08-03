@@ -3,6 +3,7 @@ import type { Via } from '../../../../shared/analytics-events'
 import type { IpcContext } from '../../../../shared/types'
 import { track } from '../../../lib/analytics'
 import { parseLocation, serializeLocation } from './codec'
+import { BrowserRouteHistory, MemoryRouteHistory, type RouteHistory } from './route-history'
 import {
   applyLocation,
   closeOverlay as closePaneOverlay,
@@ -63,13 +64,16 @@ export class RouterStore {
    *  request-id counter. */
   navigationEpoch = $state(0)
 
-  private history: string[] = [serializeLocation(this.location)]
-  private historyIndex = 0
+  private history: RouteHistory
+  private detachHistory: (() => void) | null = null
   private resolved = new SvelteMap<string, unknown>()
   private resolving = new Map<string, Promise<unknown>>()
-  private addressBar: { read(): string; write(value: string, replace: boolean): void } | null = null
-  private detachAddressBar: (() => void) | null = null
-  private applyingHistory = false
+
+  constructor(history: RouteHistory = new MemoryRouteHistory('/chat', MAX_HISTORY_ENTRIES)) {
+    this.history = history
+    applyLocation(this.location, parseLocation(history.current()))
+    this.attachHistory(history)
+  }
 
   // ─── Reading the location ───
 
@@ -191,25 +195,19 @@ export class RouterStore {
   // ─── History ───
 
   get canGoBack(): boolean {
-    return this.historyIndex > 0
+    return this.history.canGoBack
   }
 
   get canGoForward(): boolean {
-    return this.historyIndex < this.history.length - 1
+    return this.history.canGoForward
   }
 
   back(): boolean {
-    if (!this.canGoBack) return false
-    this.historyIndex -= 1
-    this.applyHistoryEntry()
-    return true
+    return this.history.back()
   }
 
   forward(): boolean {
-    if (!this.canGoForward) return false
-    this.historyIndex += 1
-    this.applyHistoryEntry()
-    return true
+    return this.history.forward()
   }
 
   /** Enter a serialized location wholesale — reload restore, a deep link, a
@@ -286,72 +284,43 @@ export class RouterStore {
    * no URL, so it runs on the in-memory history above and nothing else changes.
    */
   bindAddressBar(): void {
-    if (typeof window === 'undefined' || this.addressBar) return
-    this.addressBar = {
-      read: () => window.location.hash.replace(/^#/, ''),
-      write: (value, replace) => {
-        const next = `#${value}`
-        if (window.location.hash === next) return
-        if (replace) window.history.replaceState(null, '', next)
-        else window.history.pushState(null, '', next)
-      },
-    }
-    const onPopState = () => {
-      const text = this.addressBar?.read()
-      if (!text || text === serializeLocation(this.location)) return
-      this.applyingHistory = true
-      applyLocation(this.location, parseLocation(text))
-      this.applyingHistory = false
-      this.recordHistory(false)
-    }
-    window.addEventListener('popstate', onPopState)
-    window.addEventListener('hashchange', onPopState)
-    this.detachAddressBar = () => {
-      window.removeEventListener('popstate', onPopState)
-      window.removeEventListener('hashchange', onPopState)
-      this.addressBar = null
-    }
+    if (typeof window === 'undefined' || this.history instanceof BrowserRouteHistory) return
+    const browserHistory = new BrowserRouteHistory(window)
+    this.attachHistory(browserHistory)
 
-    const initial = this.addressBar.read()
-    if (initial && initial !== '/') this.enter(initial, { replace: true })
-    else this.addressBar.write(serializeLocation(this.location), true)
+    if (window.location.hash && browserHistory.current() !== '/') {
+      this.applyHistoryLocation(browserHistory.current())
+      const canonical = serializeLocation(this.location)
+      if (canonical !== browserHistory.current()) browserHistory.replace(canonical)
+    } else {
+      browserHistory.replace(serializeLocation(this.location))
+    }
   }
 
   destroy(): void {
-    this.detachAddressBar?.()
-    this.detachAddressBar = null
+    this.detachHistory?.()
+    this.detachHistory = null
   }
 
   // ─── Internals ───
 
   private commit(ref: RouteRef | null, opts: NavigateOptions): void {
-    if (this.applyingHistory) return
-    this.recordHistory(opts.replace ?? false)
+    const serialized = serializeLocation(this.location)
+    if (opts.replace) this.history.replace(serialized)
+    else this.history.push(serialized)
     if (ref) track('route_viewed', { route: ref.name, via: opts.via })
   }
 
-  private recordHistory(replace: boolean): void {
-    const serialized = serializeLocation(this.location)
-    if (this.history[this.historyIndex] === serialized) {
-      this.addressBar?.write(serialized, true)
-      return
-    }
-    if (replace) {
-      this.history[this.historyIndex] = serialized
-    } else {
-      this.history.splice(this.historyIndex + 1)
-      this.history.push(serialized)
-      if (this.history.length > MAX_HISTORY_ENTRIES) this.history.shift()
-      this.historyIndex = this.history.length - 1
-    }
-    this.addressBar?.write(serialized, replace)
+  private attachHistory(history: RouteHistory): void {
+    this.detachHistory?.()
+    this.history = history
+    this.detachHistory = history.subscribe((location) => this.applyHistoryLocation(location))
   }
 
-  private applyHistoryEntry(): void {
-    this.applyingHistory = true
-    applyLocation(this.location, parseLocation(this.history[this.historyIndex]))
-    this.applyingHistory = false
-    this.addressBar?.write(this.history[this.historyIndex], false)
+  private applyHistoryLocation(serialized: string): void {
+    const next = parseLocation(serialized)
+    if (serializeLocation(this.location) === serializeLocation(next)) return
+    applyLocation(this.location, next)
     const ref = visibleRef(this.focused) ?? CHAT_ROUTE
     track('route_viewed', { route: ref.name })
   }

@@ -21,6 +21,18 @@ import { CHAT_ROUTE, parseRef, serializeRef, type RouteRef } from './route-regis
 
 const OVERLAY_SEPARATOR = '!'
 
+function decode(text: string): string | null {
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    return null
+  }
+}
+
+function encodePath(text: string): string {
+  return text.split('/').map((segment) => encodeURIComponent(segment).replaceAll('%40', '@')).join('/')
+}
+
 function serializePane(pane: PaneEntry): string {
   const base = pane.base ? serializeRef(pane.base) : ''
   const overlay = pane.overlay ? `${OVERLAY_SEPARATOR}${serializeRef(pane.overlay)}` : ''
@@ -44,21 +56,23 @@ export function serializeLocation(location: Location): string {
   const focusIndex = location.panes.findIndex((pane) => pane.id === location.focusedPaneId)
   if (focusIndex > 0) params.set('f', String(focusIndex))
   const query = params.toString()
-  return `/${serializePane(leading)}${query ? `?${query}` : ''}`
+  return `/${encodePath(serializePane(leading))}${query ? `?${query}` : ''}`
 }
 
 export function parseLocation(text: string): Location {
   const [path, query] = text.replace(/^#/, '').split('?')
   const params = new URLSearchParams(query ?? '')
 
-  const leading = parsePane(decodeURIComponent(path.replace(/^\//, ''))) ?? makePane(CHAT_ROUTE)
+  const decodedPath = decode(path.replace(/^\//, ''))
+  const leading = (decodedPath === null ? null : parsePane(decodedPath)) ?? makePane(CHAT_ROUTE)
   // The leading pane always holds a base: it is the pane the conversation
   // chrome belongs to, so it cannot be overlay-only.
   if (!leading.base) leading.base = CHAT_ROUTE
 
   const panes: PaneEntry[] = [leading]
   for (const raw of params.getAll('p')) {
-    const pane = parsePane(decodeURIComponent(raw))
+    // URLSearchParams has already decoded each query value exactly once.
+    const pane = parsePane(raw)
     if (pane) panes.push(pane)
   }
 
@@ -69,9 +83,10 @@ export function parseLocation(text: string): Location {
 
 /** A single route as a link — what `plan://`, `pr://`, and notifications carry. */
 export function serializeRoute(ref: RouteRef): string {
-  return `/${serializeRef(ref)}`
+  return `/${encodePath(serializeRef(ref))}`
 }
 
 export function parseRoute(text: string): RouteRef | null {
-  return parseRef(decodeURIComponent(text.replace(/^#/, '').replace(/^\//, '').split('?')[0]))
+  const decoded = decode(text.replace(/^#/, '').replace(/^\//, '').split('?')[0])
+  return decoded === null ? null : parseRef(decoded)
 }

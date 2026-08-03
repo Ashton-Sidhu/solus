@@ -30,6 +30,24 @@ export type SettingsTab =
   | 'projects'
   | 'keybindings'
 
+const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
+  'general',
+  'instructions',
+  'review',
+  'providers',
+  'api-access',
+  'tools',
+  'skills',
+  'voice',
+  'experimental',
+  'projects',
+  'keybindings',
+])
+
+function isSettingsTab(value: string): value is SettingsTab {
+  return SETTINGS_TABS.has(value)
+}
+
 /** The params each destination carries. Serializable by construction. */
 export interface RouteParams {
   /** The conversation. No `tabId` means the active-tab pool; a `tabId` pins one
@@ -173,8 +191,9 @@ export const ROUTES = defineRoutes({
   settings: {
     parse: (s) => {
       const [tab, ...cwd] = s.split('/')
+      if (tab && !isSettingsTab(tab)) return null
       return {
-        tab: optional(tab) as SettingsTab | undefined,
+        tab: optional(tab),
         projectCwd: optional(cwd.join('/')),
       }
     },

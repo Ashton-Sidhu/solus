@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import type { RouteRef } from '../../src/renderer/contexts/workspace/routing/route-registry'
+import { MemoryRouteHistory } from '../../src/renderer/contexts/workspace/routing/route-history'
 
 let RouterStore: typeof import('../../src/renderer/contexts/workspace/routing/router.store.svelte').RouterStore
 
@@ -156,5 +157,25 @@ describe('resolved payloads', () => {
 
     expect(router.resolvedFor<{ number: number }>({ name: 'prReview', params: { number: 0 } })).toEqual({ number: 0 })
     expect(router.resolvedFor<{ number: number }>({ name: 'prReview', params: { number: 1 } })).toBeNull()
+  })
+})
+
+describe('injected route history', () => {
+  test('back and forward use the injected history adapter', () => {
+    const history = new MemoryRouteHistory('/chat/a')
+    const router = new RouterStore(history)
+
+    router.navigate({ name: 'chat', params: { tabId: 'b' } })
+    router.navigate({ name: 'settings', params: { tab: 'tools' } })
+    expect(router.params('settings')).toEqual({ tab: 'tools' })
+
+    router.back()
+    expect(router.params('chat')).toEqual({ tabId: 'b' })
+
+    router.back()
+    expect(router.params('chat')).toEqual({ tabId: 'a' })
+
+    router.forward()
+    expect(router.params('chat')).toEqual({ tabId: 'b' })
   })
 })
