@@ -5,8 +5,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
-    ArticleIcon,
-    FileTextIcon,
+    BooksIcon,
     ClockIcon,
     CaretRightIcon,
     PushPinIcon,
@@ -72,7 +71,7 @@
     "(prefers-reduced-motion: reduce)",
   ).matches;
 
-  // Top-nav cluster (Plans / Folio / Automations / …). These are static places,
+  // Top-nav cluster (Workspace / Automations / …). These are static places,
   // not tasks — but they sit on the same spine: their icons occupy the 16px
   // column a task's disclosure lives in, and their labels start exactly where a
   // task title does, so the whole column reads as one list of one shape.
@@ -393,22 +392,13 @@
       <Sidebar.Menu class="gap-px">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class={navRow}
-            onclick={() => session.togglePlansGallery()}
+            class="{navRow} {session.workspacePageOpen ? navRowActive : ''}"
+            isActive={session.workspacePageOpen}
+            onclick={() => session.toggleWorkspacePage()}
           >
-            <span class={navIcon}><ArticleIcon size={16} /></span>
-            <span class={navLabel}>Plans</span>
-            <span class={navHint}>{comboHint("global.toggle-plans")}</span>
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            class={navRow}
-            onclick={() => session.toggleFolioGallery()}
-          >
-            <span class={navIcon}><FileTextIcon size={16} /></span>
-            <span class={navLabel}>Folio</span>
-            <span class={navHint}>{comboHint("global.toggle-folio")}</span>
+            <span class={navIcon}><BooksIcon size={16} /></span>
+            <span class={navLabel}>Workspace</span>
+            <span class={navHint}>{comboHint("global.toggle-workspace")}</span>
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>

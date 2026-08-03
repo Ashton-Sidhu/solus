@@ -50,6 +50,14 @@ export {
   hostStatusLabel,
 } from './connections/host-affinity'
 
+/** Cloudflare deployment profile: status, connect/disconnect, connect requests. */
+export {
+  cloudflareStore,
+  CLOUDFLARE_SIGNUP_URL,
+  CLOUDFLARE_TOKEN_PERMISSIONS,
+  CLOUDFLARE_TOKEN_URL,
+} from './cloudflare/cloudflare.store.svelte'
+
 /** Session sidebar navigation and historical-session loading. */
 export { getSessionSidebarStore } from './workspace/session-sidebar.store.svelte'
 export { createSessionHistoryStore } from './workspace/session-history.store.svelte'
@@ -66,6 +74,11 @@ export type { AgentContext } from './app/agent.context.svelte'
 export type { SessionEnvironmentStore } from './git/session-environment.store.svelte'
 export type { PlanStore } from './plans/plan.store.svelte'
 export type { ConnectionEndpoint } from './connections/connections.store.svelte'
+export type {
+  CloudflareAccountOption,
+  CloudflareConnectFailure,
+  CloudflareStatus,
+} from './cloudflare/cloudflare.store.svelte'
 export type { DiscoveryFilterInput, NearbyHost } from './connections/discovery'
 export type { HostAffinityGlyph, HostAffinityTarget } from './connections/host-affinity'
 export type { ServerItem, ServerItemStatus, UnknownRemoteHost } from './connections/servers.store.svelte'

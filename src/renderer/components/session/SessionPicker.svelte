@@ -289,7 +289,7 @@
 
   function handleSelect(entry: PickerEntry, opts?: { keepOpen?: boolean }) {
     const keepOpen = opts?.keepOpen ?? false;
-    if (!keepOpen) session.plansGalleryOpen = false;
+    if (!keepOpen) session.workspacePageOpen = false;
     if (entry.kind === "open") {
       if (!keepOpen) session.selectTab(entry.tabId);
     } else {

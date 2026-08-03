@@ -631,12 +631,13 @@
   }
 
   // Collapse the session sidebar while a full-width overlay is up — a secondary
-  // pane, review guide, or the settings page — and restore it on close, the same
-  // way the diff panel reclaims the width.
+  // pane, review guide, Workspace, or Settings — and restore it on close, the
+  // same way the diff panel reclaims the width.
   $effect(() => {
     if (
       secondaryCollapsesSidebar ||
       primaryReviewOpen ||
+      session.workspacePageOpen ||
       session.settingsOpen
     ) {
       if (sidebarOpen) {

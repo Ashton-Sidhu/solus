@@ -41,7 +41,7 @@
     diffPanelOpen: boolean;
     canShowDiffPanel: boolean;
     changedFilesCount: number;
-    onTogglePlans: () => void;
+    onToggleWorkspace: () => void;
     onToggleDiff: () => void;
   }
   let {
@@ -52,7 +52,7 @@
     diffPanelOpen,
     canShowDiffPanel,
     changedFilesCount,
-    onTogglePlans,
+    onToggleWorkspace,
     onToggleDiff,
   }: Props = $props();
 
@@ -165,8 +165,7 @@
     class="mh-navbar"
     class:mode-hidden={(diffPanelOpen && canShowDiffPanel) ||
       overlayOpen ||
-      session.plansGalleryOpen ||
-      session.folioGalleryOpen}
+      session.workspacePageOpen}
   >
     <div class="mh-navbar-top">
       <button
@@ -275,8 +274,7 @@
     class:mode-hidden={overlayOpen ||
       !!mobileGoalTabId ||
       session.settingsOpen ||
-      session.plansGalleryOpen ||
-      session.folioGalleryOpen ||
+      session.workspacePageOpen ||
       (diffPanelOpen && canShowDiffPanel)}
     style={kbHeight > 0 ? `padding-bottom:${Math.max(10, kbHeight)}px` : ""}
   >
@@ -315,7 +313,7 @@
   open={plusMenuOpen}
   onClose={() => (plusMenuOpen = false)}
   {onAttachFile}
-  {onTogglePlans}
+  {onToggleWorkspace}
   {onToggleDiff}
   {canShowDiffPanel}
   {diffPanelOpen}

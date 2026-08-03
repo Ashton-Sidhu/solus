@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
-import { FolioGalleryPage } from '../helpers/folio-gallery.page'
+import { WorkspacePage } from '../helpers/workspace.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
@@ -51,7 +51,7 @@ test.describe('Agent work tools — live update round-trip', () => {
   test('agent update refreshes the gallery preview in place', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
@@ -63,7 +63,7 @@ test.describe('Agent work tools — live update round-trip', () => {
 
     await gallery.open()
     await gallery.waitForOpen()
-    const item = gallery.workItems().first()
+    const item = gallery.items().first()
     await expect(item).toBeVisible({ timeout: 5_000 })
     // The preview reflects the agent's new content, not the original.
     await expect(item).toContainText('revised this document', { timeout: 5_000 })
@@ -72,7 +72,7 @@ test.describe('Agent work tools — live update round-trip', () => {
   test('delete removes the work and offers undo', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
@@ -80,23 +80,23 @@ test.describe('Agent work tools — live update round-trip', () => {
 
     await gallery.open()
     await gallery.waitForOpen()
-    await gallery.workItems().first().hover()
+    await gallery.items().first().hover()
 
     // Deleting hides the work and surfaces an undo toast — no second confirm gate.
     // The on-disk delete is deferred until the toast dismisses, so undo can bring
     // it straight back. The work leaves the live list immediately.
     await gallery.deleteButtons().first().click()
     await expect(gallery.undoToast()).toBeVisible({ timeout: 3_000 })
-    await expect(gallery.workItems()).toHaveCount(0)
+    await expect(gallery.items()).toHaveCount(0)
 
     // Undo restores it to the live list.
     await gallery.undoToastAction().click()
-    await expect(gallery.workItems().first()).toContainText('Mock Test Document')
+    await expect(gallery.items().first()).toContainText('Mock Test Document')
   })
 
   test('update_work permission: approve applies the change', async ({ page }) => {
     const conversation = new ConversationPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await new AppPage(page).waitForAppReady()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
@@ -111,12 +111,12 @@ test.describe('Agent work tools — live update round-trip', () => {
 
     await gallery.open()
     await gallery.waitForOpen()
-    await expect(gallery.workItems().first()).toContainText('Approved via permission', { timeout: 5_000 })
+    await expect(gallery.items().first()).toContainText('Approved via permission', { timeout: 5_000 })
   })
 
   test('update_work permission: deny leaves the work unchanged', async ({ page }) => {
     const conversation = new ConversationPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await new AppPage(page).waitForAppReady()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
@@ -131,7 +131,7 @@ test.describe('Agent work tools — live update round-trip', () => {
 
     await gallery.open()
     await gallery.waitForOpen()
-    const item = gallery.workItems().first()
+    const item = gallery.items().first()
     await expect(item).toBeVisible({ timeout: 5_000 })
     await expect(item).not.toContainText('Approved via permission')
   })

@@ -4,7 +4,7 @@ import type { DiffScope, GitCheckout, IpcContext, PrReviewContext } from '../../
 
 /** Full-page views — the former overlay flags. No payload; at most one is open
  *  across both slots, preserving the flags' mutual exclusion. */
-export const PAGE_KINDS = ['tasks', 'prs', 'review-mode', 'settings', 'plans-gallery', 'folio-gallery', 'automations-list'] as const
+export const PAGE_KINDS = ['tasks', 'prs', 'review-mode', 'settings', 'workspace', 'automations-list'] as const
 export type PageKind = (typeof PAGE_KINDS)[number]
 export type PagePaneContent = { kind: PageKind }
 

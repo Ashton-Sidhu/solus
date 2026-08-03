@@ -48,6 +48,7 @@ export interface HostEventMap {
   'pr.checksChanged': PrChecksSnapshot
   'pr.guideStatusChanged': PrGuideStatusEvent
   'usage.limitsChanged': { snapshots: AgentUsageLimits[] }
+  'cloudflare.connectNeeded': { reason: 'deploy' }
 }
 
 export type HostEventName = keyof HostEventMap
@@ -90,6 +91,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'pr.checksChanged': { owner: 'prs', category: 'snapshot', recovery: 'reload', description: 'Cached pull-request checks changed.' },
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
+  'cloudflare.connectNeeded': { owner: 'cloudflare', category: 'delta', recovery: 'reset', description: 'A Cloudflare-backed agent tool needs the user to connect a profile.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 export function isHostEvent(value: unknown): value is HostEvent {

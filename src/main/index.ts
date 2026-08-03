@@ -27,6 +27,7 @@ import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { createShutdownCoordinator } from './shutdown-coordinator'
 import { captureServerEvent, shutdownAnalytics } from './analytics'
 import { handleArtifactRequest } from './artifact-protocol'
+import { LOCAL_DEVICE_LABEL } from './server/server'
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -120,7 +121,6 @@ process.on('SIGINT', shutdownCoordinator.requestQuit)
 process.on('SIGTERM', shutdownCoordinator.requestQuit)
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
-const LOCAL_DEVICE_LABEL = 'This Mac'
 const LOCAL_TOKEN_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000
 let localSessionToken: string | null = null
 

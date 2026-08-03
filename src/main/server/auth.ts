@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
+import { clearDelegation } from '../providers/github/delegation-store'
 
 const log = createLogger('main', 'auth')
 
@@ -299,6 +300,12 @@ export function revokeDevice(deviceId: string): void {
   loadRevokedDevices()
   _revokedDevices.add(deviceId)
   persistRevokedDevices()
+  try {
+    // Revocation must remain recorded even when secure credential cleanup fails.
+    clearDelegation(deviceId)
+  } catch (err) {
+    log.warn('delegated_credential_clear_failed', { error: err instanceof Error ? err.message : String(err) })
+  }
 }
 
 export function listRevokedDevices(): string[] {

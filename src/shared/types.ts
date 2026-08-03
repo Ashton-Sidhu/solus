@@ -100,9 +100,20 @@ export interface SetupCloneProjectResult {
   auth: CloneAuth
 }
 
+/**
+ * A GitHub credential lent to another host so a dispatched session clones,
+ * fetches and pushes as the person who dispatched it rather than as the host.
+ */
+export interface GithubDelegatedCredential {
+  accessToken: string
+  login: string
+}
+
 /** Asks a host to materialize a repository using its own projects and credentials. */
 export interface SetupPrepareProjectRequest {
   cloneUrl: string
+  /** Present only for a Run-on dispatch: clone as the caller, not as the host. */
+  credential?: GithubDelegatedCredential
 }
 
 export interface SetupPrepareProjectResult {

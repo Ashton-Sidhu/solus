@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
-import { FolioGalleryPage } from '../helpers/folio-gallery.page'
+import { WorkspacePage } from '../helpers/workspace.page'
 
 const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
@@ -65,10 +65,10 @@ test.describe('Document creation workflow', () => {
   })
 })
 
-test.describe('Folio gallery', () => {
-  test('opens via Alt+Shift+F keyboard shortcut', async ({ page }) => {
+test.describe('Workspace page', () => {
+  test('opens via Alt+Shift+L keyboard shortcut', async ({ page }) => {
     const app = new AppPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     await gallery.open()
@@ -79,19 +79,19 @@ test.describe('Folio gallery', () => {
 
   test('shows empty state when no documents exist', async ({ page }) => {
     const app = new AppPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     await gallery.open()
     await gallery.waitForOpen()
 
     await expect(gallery.emptyTitle()).toBeVisible()
-    await expect(gallery.emptyTitle()).toHaveText('No documents yet.')
+    await expect(gallery.emptyTitle()).toHaveText('Nothing here yet.')
   })
 
   test('closes via Escape key', async ({ page }) => {
     const app = new AppPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     await gallery.open()
@@ -104,7 +104,7 @@ test.describe('Folio gallery', () => {
 
   test('renders search input', async ({ page }) => {
     const app = new AppPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     await gallery.open()
@@ -115,7 +115,7 @@ test.describe('Folio gallery', () => {
 
   test('can be toggled closed and reopened via the keyboard shortcut', async ({ page }) => {
     const app = new AppPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     // Open
@@ -137,7 +137,7 @@ test.describe('Folio gallery', () => {
   test('shows saved document after document creation', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
-    const gallery = new FolioGalleryPage(page)
+    const gallery = new WorkspacePage(page)
     await app.waitForAppReady()
 
     // Create a document via the mock prompt
@@ -145,12 +145,12 @@ test.describe('Folio gallery', () => {
     const documentCard = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
     await documentCard.waitFor({ state: 'visible', timeout: 10_000 })
 
-    // Open folio gallery
+    // Open the workspace page
     await gallery.open()
     await gallery.waitForOpen()
 
-    // Document should appear in the gallery
-    const items = gallery.workItems()
+    // Document should appear in the ledger
+    const items = gallery.items()
     await expect(items.first()).toBeVisible({ timeout: 5_000 })
     await expect(items.first()).toContainText('Mock Test Document')
   })

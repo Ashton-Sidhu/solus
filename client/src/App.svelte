@@ -416,8 +416,7 @@
   useKeybinding("global.toggle-diff-panel", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-diff-panel")),
   );
-  useKeybinding("global.toggle-plans", () => session.togglePlansGallery("keybinding"));
-  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery("keybinding"));
+  useKeybinding("global.toggle-workspace", () => session.toggleWorkspacePage("keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
   useKeybinding("global.toggle-worktree", () => session.toggleWorktreeMode(undefined, "keybinding"));
   useKeybinding("global.switch-worktree", () => {

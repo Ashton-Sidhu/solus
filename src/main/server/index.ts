@@ -32,6 +32,8 @@ import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryServ
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
 import { onPrsChanged } from '../providers/pr-tools'
+import { registerCloudflareHandlers } from './handlers/cloudflare-handlers'
+import { setCloudflareConnectNeededListener } from '../cloudflare/cloudflare-tools'
 import { registerStackHandlers } from './handlers/stack-handlers'
 import { registerChecksHandlers } from './handlers/checks-handlers'
 import { registerUsageHandlers } from './handlers/usage-handlers'
@@ -244,6 +246,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
+  registerCloudflareHandlers(server)
+  setCloudflareConnectNeededListener((reason) => events.broadcast('cloudflare.connectNeeded', { reason }))
   registerProviderHandlers(server, {
     dispatcher: opts.controlPlane,
     events,

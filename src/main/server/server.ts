@@ -3,6 +3,8 @@ import { createLogger, isDebugEnabled } from '../logger'
 
 const log = createLogger('server', 'server.ts')
 
+export const LOCAL_DEVICE_LABEL = 'This Mac'
+
 /**
  * The single dispatch core. The WebSocket transport forwards requests through
  * The server is transport-agnostic: it doesn't know about IPC channels,

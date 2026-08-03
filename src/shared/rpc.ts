@@ -201,11 +201,17 @@ export const RPC_INVOKE_METHODS = [
   'googleUploadDoc',
   'googleDisconnect',
 
+  // Cloudflare deployment credentials
+  'cloudflareStatus',
+  'cloudflareConnect',
+  'cloudflareDisconnect',
+
   // Git provider (code-host) auth
   'providerStatus',
   'providerConnect',
   'providerCancelConnect',
   'providerDisconnect',
+  'githubExportCredential',
   'providerViewer',
 
   // PR review mode (read PRs, enter review, comment, threads)
