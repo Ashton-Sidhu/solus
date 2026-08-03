@@ -241,8 +241,9 @@
   // the call so this effect only reacts to the route.
   $effect(() => {
     if (router.current.name === "settings") {
-      const tab = router.current.tab as "general" | "connections" | "tools" | undefined;
-      untrack(() => session.showSettings(tab ?? "general"));
+      untrack(() => session.showSettings(router.current.tab ?? "general"));
+    } else if (untrack(() => session.settingsOpen)) {
+      untrack(() => session.closeSettings());
     }
   });
 

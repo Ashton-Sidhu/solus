@@ -2198,7 +2198,7 @@ export class WorkspaceContext {
 
   // ─── Settings page ───
 
-  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' = 'general', via: Via = 'click') {
+  showSettings(tab: SettingsTab = 'general', via: Via = 'click') {
     this.ui.showSettings(tab)
     track('settings_opened', { tab, via })
     track('surface_viewed', { surface: 'settings', via })
