@@ -68,4 +68,10 @@ export class WorkspacePage {
   statusMenu(): Locator {
     return this.dialog.getByRole('button', { name: 'Filter by status' })
   }
+
+  /** The preview pane beside the ledger. Only rendered on a wide workspace —
+   *  the container query folds it away below ~71rem. */
+  peek(): Locator {
+    return this.dialog.getByTestId('workspace-peek')
+  }
 }

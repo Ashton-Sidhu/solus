@@ -95,7 +95,7 @@
   });
 </script>
 
-<div class="peek">
+<div class="peek" data-testid="workspace-peek">
   {#if item}
     <div class="peek-header">
       <span class="peek-kind">{KIND_LABELS[item.type]}</span>
@@ -137,26 +137,41 @@
 
     <!-- The artifact itself, clipped at the pane and faded out: a peek is a
          reference to a page, not the page. -->
-    <div class="peek-body">
+    <div class="peek-body" class:peek-body--canvas={item.type === "diagram"}>
       {#if item.type === "diagram"}
-        {#if content}
-          <div class="peek-thumb">
-            {#await import("../diagram/DiagramThumbnail.svelte") then thumbModule}
+        <!-- A framed window onto the canvas: the thumbnail draws its own
+             backdrop and centres the map, so it wants a box to fill, not a
+             strip to be cropped by. -->
+        <div class="peek-canvas">
+          {#if content}
+            {#await import("../diagram/DiagramThumbnail.svelte")}
+              <div class="peek-canvas-pending" role="status" aria-label="Loading diagram preview"></div>
+            {:then thumbModule}
               {@const DiagramThumbnail = thumbModule.default}
               <DiagramThumbnail {content} />
             {/await}
-          </div>
-        {/if}
+          {:else}
+            <div class="peek-canvas-pending" role="status" aria-label="Loading diagram preview"></div>
+          {/if}
+        </div>
         {#if diagramSummary}
-          <div class="peek-diagram-meta">{diagramSummary}</div>
+          <div class="peek-caption">{diagramSummary}</div>
         {/if}
       {:else if content}
-        <div class="peek-prose prose-cloud">
-          <SvelteMarkdown
-            source={content}
-            renderers={{ ...githubMarkdownRenderers, link: MarkdownLink }}
-            sanitizeUrl={markdownSanitizeUrl}
-          />
+        <!-- The doc shell's own DOM, so the preview inherits the document
+             face rather than a second prose style: root › column › editor ›
+             ProseMirror is exactly what every rule in index.css is written
+             against. `doc-peek` rescales it for the column. -->
+        <div class="doc-shell-root doc-peek">
+          <div class="doc-shell-column solus-doc-editor">
+            <div class="ProseMirror">
+              <SvelteMarkdown
+                source={content}
+                renderers={{ ...githubMarkdownRenderers, link: MarkdownLink }}
+                sanitizeUrl={markdownSanitizeUrl}
+              />
+            </div>
+          </div>
         </div>
         <div class="peek-body-fade" aria-hidden="true"></div>
       {:else if item.snippet}
@@ -230,20 +245,6 @@
     min-height: 0;
     overflow: hidden;
   }
-  .peek-prose {
-    font-size: 0.7813rem;
-    line-height: 1.6;
-    color: color-mix(in srgb, var(--solus-text-primary) 88%, var(--solus-text-tertiary));
-  }
-  /* Same flattening the transcript preview uses: at preview scale a heading is
-     a line of text, not a heading. */
-  .peek-prose :global(h1),
-  .peek-prose :global(h2),
-  .peek-prose :global(h3),
-  .peek-prose :global(h4),
-  .peek-prose :global(strong) {
-    font-weight: 500;
-  }
   /* The pane's own background, not the transcript card's — the gradient has to
      land on what is actually behind it or it reads as a grey band. */
   .peek-body-fade {
@@ -265,18 +266,50 @@
     text-wrap: pretty;
   }
 
-  .peek-thumb {
-    border-radius: 0.5rem;
+  .peek-body--canvas {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  /* The frame is what makes it read as a rendered canvas rather than loose
+     artwork on the pane wash. The thumbnail sizes itself to this box and
+     centres the map inside it, so no svg overrides here.
+
+     Landscape, and explicitly not `flex: 1`: an architecture diagram is wide,
+     and letting the frame stretch down the column fits that wide drawing into
+     a tall box — which shrinks it to a sliver with dead canvas above and
+     below. The frame takes the diagram's shape and gives the rest of the
+     column back. */
+  .peek-canvas {
+    flex: 0 0 auto;
+    aspect-ratio: 3 / 2;
+    border-radius: 0.625rem;
+    border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 70%, transparent);
     overflow: hidden;
-    max-height: 10rem;
   }
-  .peek-thumb :global(svg) {
+  .peek-canvas-pending {
     width: 100%;
-    height: auto;
-    display: block;
+    height: 100%;
+    background: color-mix(in srgb, var(--solus-surface-primary) 28%, var(--solus-container-bg));
+    animation: peek-canvas-breathe 1.6s ease-in-out infinite;
   }
-  .peek-diagram-meta {
-    margin-top: 0.4375rem;
+  @keyframes peek-canvas-breathe {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .peek-canvas-pending {
+      animation: none;
+      opacity: 0.7;
+    }
+  }
+  .peek-caption {
+    flex-shrink: 0;
     font-size: 0.75rem;
     color: var(--solus-text-tertiary);
   }

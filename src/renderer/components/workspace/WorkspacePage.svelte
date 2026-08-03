@@ -75,6 +75,7 @@
     openProjects.find((project) => project.key === projectScope) ??
       (openProjects.length === 1 ? openProjects[0] : null),
   );
+  const scopedProjectKey = $derived(scopedProject?.key ?? null);
   const items: WorkspaceItem[] = $derived(
     scopedProject ? allItems.filter((item) => item.projectKey === scopedProject.key) : allItems,
   );
@@ -230,7 +231,10 @@
     filter.pinnedOnly;
     filter.time;
     filter.text;
-    scopedProject;
+    // `openProjects` is rebuilt from the mounted tabs. Track the effective key,
+    // not the reconstructed project object, or a background data refresh can
+    // reset a hovered row to the first item even though the scope did not move.
+    scopedProjectKey;
     selectedIndex = 0;
     renderLimit = RENDER_PAGE;
     pinnedExpanded = false;

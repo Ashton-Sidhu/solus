@@ -134,6 +134,18 @@
     overflow: hidden;
   }
 
+  /* Once the session sidebar steps away, this rail becomes the window's
+     leading surface. Keep its title below the macOS traffic-light row instead
+     of letting the two pieces of chrome compete for the same band. The
+     titlebar variable is zero on web and non-mac surfaces, so their existing
+     spacing is unchanged. */
+  :global(.workspace-body.sidebar-collapsed) .rail {
+    padding-top: max(
+      1.5rem,
+      calc(var(--solus-titlebar-height, 0px) + 1rem)
+    );
+  }
+
   /* The project scope and the footer tally stay put; only the facets scroll, so
      the scope the counts belong to is never scrolled off. */
   .rail-header {
