@@ -12,7 +12,9 @@
 		{ id: 'files',           label: 'Opening Changed Files' },
 		{ id: 'review',          label: 'Review Companion' },
 		{ id: 'pull-request-merge', label: 'Merging Pull Requests' },
+		{ id: 'deploy',          label: 'Deploy to Cloudflare' },
 		{ id: 'works',           label: 'Works' },
+		{ id: 'workspace',       label: 'Workspace' },
 		{ id: 'document-editor', label: 'Document Editor' },
 		{ id: 'design-mode',     label: 'Design Mode' },
 		{ id: 'voice',           label: 'Voice Input' },
@@ -251,7 +253,9 @@
 						['Diff panel', 'Review every file your agent touched in a side panel. Navigate between files, leave line-level comments, and send annotated feedback back in one click.'],
 						['Review companion', "A second agent reviews your branch's changes and writes an inline report — grouped findings you can click to jump straight to the relevant hunk in the diff."],
 						['Pull request merging', 'Merge an individual pull request with a merge commit, squash, or rebase. Conflicted PRs can be handed to an agent in an isolated worktree.'],
-						['Works', 'Generated documents and slides are saved as Works. Open the gallery to search, edit, copy, or delete them later.'],
+						['Works', 'Generated documents, slides, and diagrams are saved as Works you can reopen, edit, copy, or delete later.'],
+						['Workspace', 'One page for everything your sessions produced — plans, documents, and diagrams across every open project, filterable by type, time, or pin, with a preview beside the list.'],
+						['Deploy to Cloudflare', "Connect a Cloudflare account and your agent can take a project to a verified deploy-ready state on Cloudflare's free tier — Workers, D1, KV, R2 — without a token ever passing through the chat."],
 						['Design Mode', 'Take a screenshot, draw rectangles, arrows, pins, and text annotations on it, then send the annotated image directly to your agent — no screenshots app needed.'],
 						['Voice input', 'Dictate prompts hands-free with local Whisper transcription — audio never leaves your machine.'],
 						['Automations', 'Save a prompt and run it on a schedule — daily, weekly, on an interval, or a raw cron expression — or trigger it on demand. Agents can create automations for you too.'],
@@ -403,7 +407,7 @@
 						['General feedback', 'Add a top-level comment that applies to the whole plan.'],
 						['Approve', 'Choose whether your agent should continue in Ask or Auto mode, then confirm. It proceeds with your feedback incorporated.'],
 						['Reject', 'The agent stops — redirect it with a new prompt.'],
-						['Pin', 'Pin a plan to keep it at the top of the plans gallery for quick reference.'],
+						['Pin', 'Pin a plan to keep it at the top of the Workspace for quick reference.'],
 						['Save for later', 'Bookmark a plan without pinning it — useful for plans you want to revisit.'],
 						['Revisions', 'When your agent updates a plan, previous versions are preserved. Use the revision dropdown in the plan view to compare or revert.'],
 						['Any model', 'Plans work with every model, not just those that natively support plan mode. Solus handles the orchestration so you can review and approve plans regardless of which AI model powers the session.'],
@@ -414,7 +418,7 @@
 						</li>
 					{/each}
 				</ul>
-				<p class="mt-5 text-[14px] text-[#A09488]">Plans are written to disk as Markdown files so you can reference them later. Open the plans gallery with {@render kbd('⌥⇧L')} to search and browse all plans across sessions.</p>
+				<p class="mt-5 text-[14px] text-[#A09488]">Plans are written to disk as Markdown files so you can reference them later. Open the <a href="#workspace" class="text-[#C4973A] no-underline hover:underline">Workspace</a> with {@render kbd('⌥⇧L')} to search and browse every plan across sessions.</p>
 			</section>
 
 			<section id="panes" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
@@ -555,6 +559,45 @@
 				</p>
 			</section>
 
+			<section id="deploy" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Deploy to Cloudflare</h2>
+				<p>
+					Merged work still has to go somewhere. Connect a Cloudflare account and your agent can take
+					a project all the way to <strong class="text-[#1A1714] font-medium">deploy-ready</strong> on
+					Cloudflare's free tier: it audits whether the runtime fits, maps what the project needs onto
+					Workers, D1, KV, R2, Durable Objects, and Cron Triggers, ports the code, and writes the
+					Wrangler config — proving it runs locally under <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">wrangler dev</code> before it stops.
+				</p>
+				<p class="mt-3">
+					Ask for it in the words you'd use anyway — "deploy this", "put it online", "make this public" —
+					and the pipeline runs. New web projects get the same shape by default: when your agent
+					scaffolds one, it reaches for deployable primitives from the start instead of a local
+					database file and a filesystem upload directory.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Connecting your account</h3>
+				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Connect from Settings', 'Open <strong class="text-[#1A1714] font-medium">Settings → Providers → Cloudflare</strong>, create an API token in the Cloudflare dashboard, and paste it into the card. Solus verifies the token, resolves your account, and shows which one it connected as.'],
+						['Or connect in the conversation', 'If the agent needs Cloudflare mid-turn, a <strong class="text-[#1A1714] font-medium">Connect Cloudflare</strong> card appears at the end of the transcript like any other interrupt. Connect there and tell it to continue — or dismiss the card and carry on.'],
+						['Token permissions', 'The card lists the exact permissions the token needs — Workers Scripts, D1, Workers KV Storage, and Workers R2 Storage at <em>Edit</em>, Account Settings at <em>Read</em> — so you can mirror them in Cloudflare\'s custom-token editor.'],
+						['Never in the chat', 'The token goes into the field and nowhere else: it is stored encrypted on your machine, never written to the transcript, and never handed to the agent. The agent can only ask whether a connection exists.'],
+						['Environment tokens count', 'A <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">CLOUDFLARE_API_TOKEN</code> in the environment is treated as connected; Solus shows that row read-only because the environment owns the credential. Otherwise, <strong class="text-[#1A1714] font-medium">Disconnect</strong> removes it.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+				<p class="mt-5 text-[14px] text-[#A09488]">
+					The pipeline stops at deploy-ready: it writes infrastructure config and local migrations, but
+					creates no cloud resources and publishes nothing. Local development through
+					<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">wrangler dev</code>
+					needs no Cloudflare account at all.
+				</p>
+			</section>
+
 			<section id="works" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Works</h2>
 				<p>
@@ -565,11 +608,11 @@
 				</p>
 				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Open the gallery', `Press ${kbdHtml('⌥⇧;')} or click <strong class="text-[#1A1714] font-medium">Folio</strong> in the sidebar to search every saved Work.`],
+						['Find them again', `Press ${kbdHtml('⌥⇧L')} or click <strong class="text-[#1A1714] font-medium">Workspace</strong> in the sidebar to search every saved Work alongside your plans.`],
 						['Edit in place', 'Open a Work to make changes in the Document Editor. Saving updates the stored Work and preserves the conversation reference.'],
 						['Copy or reuse', `Use ${kbdHtml('⌥C')} while a Work is open to copy its Markdown content back to the clipboard.`],
 						['Storage', 'Works are stored locally under your Solus data directory, with a manifest plus one content file per Work.'],
-						['Supported types', 'Documents are fully editable today. Slide artifacts are tracked as Works so they can be surfaced and expanded by the app.'],
+						['Supported types', 'Documents are fully editable today. Slides and diagrams are tracked as Works too, so they can be surfaced and expanded by the app.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -578,22 +621,58 @@
 					{/each}
 				</ul>
 
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Works gallery</h3>
-				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the Works gallery is open ({@render kbd('⌥⇧;')}).</p>
-				{@render kbTable([
-					['⌥⇧;', 'Open / close gallery'],
-					['/ (slash)', 'Focus search'],
-					['↑ / ↓', 'Navigate Works'],
-					['Enter', 'Open selected Work'],
-					['⌥Backspace', 'Delete selected Work'],
-					['Esc', 'Close'],
-				])}
-
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Work modal</h3>
 				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while a Work is open.</p>
 				{@render kbTable([
 					['⌥S', 'Save'],
 					['⌥C', 'Copy to clipboard'],
+					['Esc', 'Close'],
+				])}
+			</section>
+
+			<section id="workspace" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
+				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Workspace</h2>
+				<p>
+					Plans and Works used to live in two separate galleries. They now share one page: the
+					<strong class="text-[#1A1714] font-medium">Workspace</strong> — a single ledger of everything
+					your sessions produced, newest first. Open it with {@render kbd('⌥⇧L')} or from the sidebar.
+				</p>
+				<p class="mt-3">
+					Rows are grouped by recency — Today, Yesterday, This week, then one group per month — with
+					pinned items held at the top. Select a row and the panel beside it previews the item:
+					a plan's excerpt and status, a document's opening text, a diagram's rendered canvas.
+				</p>
+				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
+					{#each [
+						['Scope to a project', 'The rail scopes the ledger to one open project or spans all of them, with a live count on each. Worktrees and subfolders count as their project.'],
+						['Filter by type', 'Everything, Plans, Docs, or Diagrams — each with the number of items behind it.'],
+						['Filter by time or status', 'Narrow to Today, Yesterday, This week, or Older; the status filter isolates plans that are still pending, accepted, or rejected. <strong class="text-[#1A1714] font-medium">Needs review</strong> is the one-click version of "plans still waiting on me".'],
+						['Pinned view', `Pin anything — a plan or a Work — with ${kbdHtml('⌥P')} or the pin button in the preview, then use the <strong class="text-[#1A1714] font-medium">Pinned</strong> view to see only those.`],
+						['Search', 'The search field filters titles and excerpts across whatever the current scope and filters allow.'],
+						['Open or resume', `${kbdHtml('⏎')} opens the selected item; ${kbdHtml('⇧⏎')} resumes the session behind it — the session that drafted the plan, or the chat a Work came out of.`],
+						['Create from here', 'The <strong class="text-[#1A1714] font-medium">New</strong> button starts a blank document or diagram, or imports an existing Markdown file as a Work.'],
+						['Density', 'Switch between comfortable and compact rows; the choice sticks.'],
+					] as [title, desc]}
+						<li class="flex gap-3">
+							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
+							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
+						</li>
+					{/each}
+				</ul>
+				<p class="mt-5 text-[14px] text-[#A09488]">
+					Deleting is for Works only — a plan belongs to the session that wrote it, so the preview
+					offers no delete for one.
+				</p>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Workspace shortcuts</h3>
+				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the Workspace is open ({@render kbd('⌥⇧L')}).</p>
+				{@render kbTable([
+					['⌥⇧L', 'Open / close Workspace'],
+					['/ (slash)', 'Focus search'],
+					['↑ / ↓', 'Navigate items'],
+					['Enter', 'Open selected item'],
+					['⇧Enter', 'Resume its session'],
+					['⌥P', 'Pin / unpin'],
 					['Esc', 'Close'],
 				])}
 			</section>
@@ -891,6 +970,7 @@
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['A fresh checkout, every time', `The target host syncs its existing checkout or clones the repo from its git remote, then cuts a fresh worktree from the origin default branch. The code comes from the code host — not from your laptop.`],
+						['Your GitHub access travels', `The clone runs under <em>your</em> GitHub connection, lent to the host for that checkout — so a host that has never signed into GitHub itself can still clone your private repos, and commits it makes carry your identity. The checkout lands in a folder scoped to your login, and the credential stays on the host encrypted, reachable only by the device you dispatched from.`],
 						['Uncommitted changes stay put', `Local edits you haven't pushed don't travel. Dispatch is a fresh start on another machine, not a continuation of this one — if you want the work over there, commit and push first.`],
 						['Always isolated', `A dispatched session always runs in its own worktree, because a shared checkout on a machine you aren't watching is a collision waiting to happen. Staying on your current host keeps the worktree toggle in your hands.`],
 						['Work comes back as a PR', `Dispatched work returns the same way local work does: commit → push → pull request. There's no separate sync path to reason about.`],
@@ -1008,6 +1088,18 @@ solus claim                           # claim the server from this machine</div>
 					{/each}
 				</div>
 
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Providers</h3>
+				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
+					{#each [
+						['Cloudflare account', 'Connect the account your agent deploys to. Paste an API token to connect, or disconnect to remove it. See <a href="#deploy" class="text-[#C4973A] no-underline hover:underline">Deploy to Cloudflare</a>.'],
+					] as [key, val], i}
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''}">
+							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
+							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
+						</div>
+					{/each}
+				</div>
+
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Input</h3>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
@@ -1076,8 +1168,7 @@ solus claim                           # claim the server from this machine</div>
 					['⌥⇧E', 'Toggle editor / pill mode'],
 					['⌥⇧D', 'Toggle diff panel (editor mode)'],
 					['⌥M', 'Toggle project panel (editor mode)'],
-					['⌥⇧L', 'Open plans gallery'],
-					['⌥⇧;', 'Open Works gallery'],
+					['⌥⇧L', 'Open Workspace (plans, docs, diagrams)'],
 					['⌥B', 'Toggle sidebar'],
 					['⌥⇧U', 'Cycle sidebar view'],
 					['⌥⇧=', 'Expand / collapse input'],
@@ -1168,15 +1259,15 @@ solus claim                           # claim the server from this machine</div>
 					['Esc', 'Close'],
 				])}
 
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Plans gallery</h3>
-				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the plans gallery is open ({@render kbd('⌥⇧L')}).</p>
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Workspace</h3>
+				<p class="text-base/7 sm:text-[14px]">These shortcuts are active while the <a href="#workspace" class="text-[#C4973A] no-underline hover:underline">Workspace</a> is open ({@render kbd('⌥⇧L')}).</p>
 				{@render kbTable([
-					['⌥⇧L', 'Open / close gallery'],
+					['⌥⇧L', 'Open / close Workspace'],
 					['/ (slash)', 'Focus search'],
-					['↑ / ↓ / ← / →', 'Navigate plans'],
-					['Enter', 'Open plan'],
-					['⇧Enter', 'Resume session from plan'],
-					['⌥B', 'Toggle bookmark'],
+					['↑ / ↓', 'Navigate items'],
+					['Enter', 'Open selected item'],
+					['⇧Enter', 'Resume its session'],
+					['⌥P', 'Pin / unpin'],
 					['Esc', 'Close'],
 				])}
 
