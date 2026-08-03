@@ -66,7 +66,8 @@
     target,
     targetCtx = null,
     chatTabId = null,
-    onToggleSecondaryMaximize,
+    onToggleMaximize,
+    maximized = false,
     activeTab,
     onActiveTabChange,
     headless = false,
@@ -79,7 +80,8 @@
     /** Project context for the provider reads made before the worktree exists. */
     targetCtx?: IpcContext | null;
     chatTabId?: string | null;
-    onToggleSecondaryMaximize?: () => void;
+    onToggleMaximize?: () => void;
+    maximized?: boolean;
     activeTab?: ContentTab;
     onActiveTabChange?: (tab: ContentTab) => void;
     headless?: boolean;
@@ -90,7 +92,6 @@
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
-  const panes = session.panes;
   const stacks = session.stacksStore;
 
   onMount(() => {
@@ -661,7 +662,7 @@
 
           <FrameExpandButton variant="projectPanel" size="header" />
 
-          {#if onToggleSecondaryMaximize}
+          {#if onToggleMaximize}
             <TooltipUI.Root>
               <TooltipUI.Trigger>
                 {#snippet child({ props })}
@@ -669,10 +670,10 @@
                     {...props}
                     type="button"
                     class="flex size-[28px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    onclick={onToggleSecondaryMaximize}
-                    aria-label={panes.maximized ? "Restore panel size" : "Maximize panel"}
+                    onclick={onToggleMaximize}
+                    aria-label={maximized ? "Restore panel size" : "Maximize panel"}
                   >
-                    {#if panes.maximized}
+                    {#if maximized}
                       <ArrowsInIcon size={13} />
                     {:else}
                       <ArrowsOutIcon size={13} />
@@ -681,7 +682,7 @@
                 {/snippet}
               </TooltipUI.Trigger>
               <TooltipUI.Content
-                value={panes.maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
+                value={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
               />
             </TooltipUI.Root>
           {/if}
@@ -777,7 +778,7 @@
             isWorktree
             onClose={() => select(showingFullDiff ? "activity" : "guide")}
             embedded
-            onToggleMaximize={onToggleSecondaryMaximize}
+            onToggleMaximize={onToggleMaximize}
             initialScope={diffScope}
             patchOverride={isSinceReviewMode ? (interdiff?.patch ?? "") : null}
             emptyState={isSinceReviewMode

@@ -15,7 +15,7 @@
   const session = getWorkspaceContext();
 
   function open() {
-    session.ui.openTasksToTask(ref.taskId);
+    session.goToTask(ref.taskId);
   }
 </script>
 

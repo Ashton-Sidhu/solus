@@ -29,7 +29,7 @@
   let { message, row, tabId, worktree }: Props = $props();
 
   const session = getWorkspaceContext();
-  const panes = session.panes;
+  const router = session.router;
 
   const verdict = $derived(subagentVerdict(message));
   const reportPreview = $derived(subagentReportPreview(message));
@@ -38,8 +38,7 @@
   const elapsed = $derived(formatActivityDuration(row.elapsedMs));
   const transcript = $derived(message.subMessages?.length ?? 0);
   const isOpen = $derived(
-    panes.secondaryOverlay?.kind === "subagent" &&
-      panes.secondaryOverlay.messageId === row.id,
+    router.overlay?.name === "subagent" && router.overlay.params.messageId === row.id,
   );
 </script>
 
@@ -84,7 +83,7 @@
     <button
       type="button"
       class="-mt-0.5 shrink-0 cursor-pointer rounded-md border-none bg-transparent px-[0.6875rem] py-[0.3125rem] text-[0.71875rem] font-medium shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_15%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)]"
-      onclick={() => panes.openSubagent(tabId, row.id)}>Open report</button
+      onclick={() => session.openSubagent(tabId, row.id)}>Open report</button
     >
   </div>
 

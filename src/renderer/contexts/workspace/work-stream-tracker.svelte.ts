@@ -1,6 +1,6 @@
 import type { AgentId, NormalizedEvent, Session } from '../../../shared/types'
 import { nextMsgId } from './session.utils'
-import type { PaneViewStore } from './pane-view.store.svelte'
+import type { RouterStore } from './routing/router.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 
 /** An in-flight create_work tool call backing a provisional skeleton card. */
@@ -32,7 +32,7 @@ export class WorkStreamTracker {
 
   constructor(
     private worksStore: WorksStore,
-    private panes: PaneViewStore,
+    private router: RouterStore,
   ) {}
 
   beginToolArtifacts(tabId: string, session: Session, toolName: string | undefined, agentProvider: AgentId): void {
@@ -69,9 +69,11 @@ export class WorkStreamTracker {
     if (stream) {
       stream.finalized = true
       this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content)
-      // If the user opened the provisional card mid-stream, follow the rekey
-      // so the open pane points at the persisted id, not the deleted temp one.
-      this.panes.rekeyWork(stream.tempId, event.workId)
+      // If the user opened the provisional card mid-stream, follow the rekey so
+      // the open pane points at the persisted id, not the deleted temp one.
+      if (this.router.params('work')?.workId === stream.tempId) {
+        this.router.navigate({ name: 'work', params: { workId: event.workId } }, { replace: true })
+      }
       const msg = session.messages.find((m) => m.id === stream.msgId)
       if (msg?.workRef) {
         msg.workRef.workId = event.workId

@@ -41,6 +41,7 @@
     connectionsStore,
     serversStore,
     cloudflareStore,
+    parseRoute,
   } from "./contexts";
   import { invalidateHomeCache } from "./components/layout/NewTabHome.svelte";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
@@ -90,7 +91,6 @@
     registerSuperProps,
     track,
   } from "./lib/analytics";
-  import { setupSplitLayoutPersistence } from "./lib/splitLayoutPersistence.svelte";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
@@ -127,8 +127,6 @@
   // and fresh start() reconciliation run later from the effect below.
   session.hydrateStaticInfoFromCache();
   materializeTabs(session);
-
-  setupSplitLayoutPersistence(settings, session, windowCtx);
 
   // Electron-only: analytics is desktop-side. The editor is the sole boot
   // window; the pill is created lazily, so count the open from the editor only.
@@ -193,6 +191,7 @@
       activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
+      location: session.router.serialized,
     };
     savePersistedTabsDebounced(snapshot);
   });
@@ -239,12 +238,12 @@
     cwd: string;
     title: string | null;
   }) {
-    const existingTab = session.tabOrder.find(
-      (id) => session.sessionFor(id)?.agentSessionId === ptr.sessionId,
-    );
-    if (existingTab) {
-      if (existingTab !== session.activeTabId) session.selectTab(existingTab);
-      else session.isExpanded = true;
+    // A session already open in this window is just a location — the same
+    // `chat/@<sessionId>` route a notification click carries. Only a session
+    // this window has never seen needs the handoff's resume metadata, which is
+    // why the handoff still carries more than a route.
+    if (session.tabOrder.some((id) => session.sessionFor(id)?.agentSessionId === ptr.sessionId)) {
+      session.openRoute({ name: "chat", params: { sessionId: ptr.sessionId } });
       return;
     }
     void session.resumeSession({
@@ -674,6 +673,17 @@
     };
   });
 
+  // A notification click (or any other outside-the-renderer request) arrives as
+  // a serialized route, which is the same vocabulary the address bar, the
+  // persisted snapshot, and agent links use.
+  $effect(() => {
+    const unsubscribe = window.solusNative?.onOpenRoute?.((serialized) => {
+      const route = parseRoute(serialized);
+      if (route) session.openRoute(route);
+    });
+    return () => unsubscribe?.();
+  });
+
   $effect(() => {
     const events = serverConnections.eventsFor();
     const unsubRun = events.subscribe('run.statusChanged', (status) =>
@@ -748,8 +758,8 @@
   $effect(() => {
     void session.activeTabId;
     const reviewSurfaceOpen =
-      session.prsOpen ||
-      session.reviewModeOpen ||
+      session.router.at("prs") ||
+      session.router.at("reviewMode") ||
       !!session.activeSession?.prReview;
     untrack(() =>
       session.prsStore.setChecksReviewSurface(reviewSurfaceOpen, session.ctx),
@@ -1038,11 +1048,13 @@
       enabled: () => viewMode === "editor",
     },
   );
-  useKeybinding("global.toggle-workspace", () => session.toggleWorkspacePage("keybinding"));
+  useKeybinding("global.toggle-workspace", () => session.toggleFolio("keybinding"));
   useKeybinding("global.toggle-automations", () => session.toggleAutomations("keybinding"));
   useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
   useKeybinding("global.settings", () => session.showSettings("general", "keybinding"));
   useKeybinding("global.focus-input", () => requestInputFocus());
+  useKeybinding("global.history-back", () => session.router.back());
+  useKeybinding("global.history-forward", () => session.router.forward());
   useKeybinding("global.toggle-worktree", () =>
     session.toggleWorktreeMode(session.focusedChatTabId ?? undefined, "keybinding"),
   );
@@ -1413,7 +1425,7 @@
         group: "Tasks",
         icon: CheckSquareIcon,
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
-        run: () => session.ui.openTaskComposer(taskCwd),
+        run: () => session.openTaskComposer(taskCwd),
       });
     }
     const createTaskInChildren: Command[] = paletteProjects.map((p) => ({
@@ -1423,7 +1435,7 @@
       group: "Projects",
       icon: FolderIcon,
       keywords: [p.folderName, p.path],
-      run: () => session.ui.openTaskComposer(p.path),
+      run: () => session.openTaskComposer(p.path),
     }));
     commands.push({
       id: "create-task-in",
@@ -1451,7 +1463,7 @@
           icon: ListChecksIcon,
           hint: t.kind === "epic" ? "Epic" : undefined,
           keywords: ["task", t.id, t.assignee ?? "", ...t.labels],
-          run: () => session.goToTask(t),
+          run: () => session.goToTask(t.id),
         }))
       : [];
     if (taskCwd) {
@@ -1637,7 +1649,7 @@
   );
 
   $effect(() => {
-    if (!isEditorMode && !isExpanded && session.panes.activePlanId) {
+    if (!isEditorMode && !isExpanded && session.router.at("plan")) {
       session.closePlanModal();
     }
   });
@@ -2004,7 +2016,16 @@
   });
 </script>
 
-<svelte:window onkeydowncapture={toasts.handleKeydown} />
+<!-- Mouse back/forward drive the same history the keybindings do. The
+     pointer's 3rd/4th buttons have no default action here, so nothing is lost
+     by claiming them. -->
+<svelte:window
+  onmouseup={(e) => {
+    if (e.button === 3) session.router.back();
+    else if (e.button === 4) session.router.forward();
+  }}
+  onkeydowncapture={toasts.handleKeydown}
+/>
 
 <!--
   Without this, a thrown render leaves an empty window with nothing to act on.

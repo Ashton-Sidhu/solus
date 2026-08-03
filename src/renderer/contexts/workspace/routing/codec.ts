@@ -1,0 +1,77 @@
+import { makePane, type Location, type PaneEntry } from './location'
+import { CHAT_ROUTE, parseRef, serializeRef, type RouteRef } from './route-registry'
+
+/**
+ * One string form of a location, shared by the web address bar, Electron's
+ * in-memory history, the persisted snapshot, agent-emitted links, and
+ * notification payloads.
+ *
+ *   /chat/tab_abc                                    one pane
+ *   /chat/tab_abc?p=prReview/4821&f=1                two panes, focus right
+ *   /chat/tab_abc?p=prReview/4821!diff/tab_abc/session&f=1
+ *   /chat/tab_abc?p=plan/p_88&p=work/w_12&f=2        three panes — same grammar
+ *
+ * The leading pane is the path; every other pane is an ordered `p`; `!`
+ * attaches an overlay; `f` is the focused pane's index. Adding a pane adds a
+ * `p`, which is the whole point.
+ *
+ * Parsing is total. A pane whose route no longer exists, or whose params are
+ * garbage, is dropped — the rest of the location still opens.
+ */
+
+const OVERLAY_SEPARATOR = '!'
+
+function serializePane(pane: PaneEntry): string {
+  const base = pane.base ? serializeRef(pane.base) : ''
+  const overlay = pane.overlay ? `${OVERLAY_SEPARATOR}${serializeRef(pane.overlay)}` : ''
+  return `${base}${overlay}`
+}
+
+function parsePane(text: string): PaneEntry | null {
+  const cut = text.indexOf(OVERLAY_SEPARATOR)
+  const baseText = cut === -1 ? text : text.slice(0, cut)
+  const overlayText = cut === -1 ? '' : text.slice(cut + 1)
+  const base = baseText ? parseRef(baseText) : null
+  const overlay = overlayText ? parseRef(overlayText) : null
+  if (!base && !overlay) return null
+  return makePane(base, overlay)
+}
+
+export function serializeLocation(location: Location): string {
+  const [leading, ...rest] = location.panes
+  const params = new URLSearchParams()
+  for (const pane of rest) params.append('p', serializePane(pane))
+  const focusIndex = location.panes.findIndex((pane) => pane.id === location.focusedPaneId)
+  if (focusIndex > 0) params.set('f', String(focusIndex))
+  const query = params.toString()
+  return `/${serializePane(leading)}${query ? `?${query}` : ''}`
+}
+
+export function parseLocation(text: string): Location {
+  const [path, query] = text.replace(/^#/, '').split('?')
+  const params = new URLSearchParams(query ?? '')
+
+  const leading = parsePane(decodeURIComponent(path.replace(/^\//, ''))) ?? makePane(CHAT_ROUTE)
+  // The leading pane always holds a base: it is the pane the conversation
+  // chrome belongs to, so it cannot be overlay-only.
+  if (!leading.base) leading.base = CHAT_ROUTE
+
+  const panes: PaneEntry[] = [leading]
+  for (const raw of params.getAll('p')) {
+    const pane = parsePane(decodeURIComponent(raw))
+    if (pane) panes.push(pane)
+  }
+
+  const focusIndex = Number(params.get('f') ?? 0)
+  const focused = panes[Number.isInteger(focusIndex) ? focusIndex : 0] ?? panes[0]
+  return { panes, focusedPaneId: focused.id }
+}
+
+/** A single route as a link — what `plan://`, `pr://`, and notifications carry. */
+export function serializeRoute(ref: RouteRef): string {
+  return `/${serializeRef(ref)}`
+}
+
+export function parseRoute(text: string): RouteRef | null {
+  return parseRef(decodeURIComponent(text.replace(/^#/, '').replace(/^\//, '').split('?')[0]))
+}

@@ -56,9 +56,7 @@
 
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   const copyableSessionId = $derived(sess?.agentSessionId ?? sessionId ?? null);
-  const splitTabId = $derived(
-    session.panes.chatTabIn("secondary", session.activeTabId),
-  );
+  const splitTabId = $derived(session.splitChatTabId);
   const isSplit = $derived(!!tabId && tabId === splitTabId);
   const canSplit = $derived(showSplit && (!!tabId || !!onOpenInSplit));
   const isContinuingWorktree = $derived(

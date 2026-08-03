@@ -6,6 +6,7 @@
   } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
+  import { routeForHref } from "../../lib/agent-links";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
   import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
@@ -33,50 +34,16 @@
   const isPrRef = $derived(href.startsWith("pr://"));
   const sessionParams = $derived(parseSessionHref(href));
   const fileRef = $derived(parseFileHref(href));
-  const planParams = $derived(
-    isPlanRef
-    ? (() => {
-        try {
-          const url = new URL(href);
-          return {
-            planId: url.searchParams.get("planId") || "",
-            sessionId: url.searchParams.get("sessionId") || "",
-            planToolUseId: url.searchParams.get("planToolUseId") || "",
-            status: ((url.searchParams.get("status") || "pending") as Status),
-          };
-        } catch {
-          return null;
-        }
-      })()
-    : null,
-  );
-  const workParams = $derived(
-    isWorkRef
-    ? (() => {
-        try {
-          const url = new URL(href);
-          return {
-            workId: url.searchParams.get("workId") || "",
-            title: title || "",
-          };
-        } catch {
-          return null;
-        }
-      })()
-    : null,
-  );
-  const prNumber = $derived(
-    isPrRef
-      ? (() => {
-          try {
-            const number = Number(new URL(href).searchParams.get("number"));
-            return Number.isInteger(number) && number > 0 ? number : null;
-          } catch {
-            return null;
-          }
-        })()
-      : null,
-  );
+  // The destination comes from the codec; only the chip's own decoration is
+  // read off the href here, and a plan's approval status is the whole of it.
+  const linkRoute = $derived(routeForHref(href, { title }));
+  const planStatus = $derived.by<Status>(() => {
+    try {
+      return (new URL(href).searchParams.get("status") || "pending") as Status;
+    } catch {
+      return "pending";
+    }
+  });
 
   // Anything leaving the app carries the arrow glyph; an in-app destination that
   // has a chip type took one of the branches above instead.
@@ -93,19 +60,9 @@
   }
 
   function handleClick(e: MouseEvent) {
-    if (isPlanRef && planParams) {
+    if (linkRoute) {
       e.preventDefault();
-      void session.openPlanModal(planParams.planId, {
-        sessionId: planParams.sessionId,
-        planToolUseId: planParams.planToolUseId,
-        status: planParams.status,
-      });
-    } else if (isWorkRef && workParams) {
-      e.preventDefault();
-      session.openWorkModal(workParams.workId, workParams.title);
-    } else if (isPrRef && prNumber) {
-      e.preventDefault();
-      void session.enterPrReview(prNumber);
+      session.openRoute(linkRoute);
     } else if (sessionParams) {
       e.preventDefault();
       void resolveSessionLinkMeta(sessionParams).then((meta) =>
@@ -124,17 +81,17 @@
   }
 </script>
 
-{#if isPlanRef && planParams}
+{#if isPlanRef && linkRoute}
   <button
     type="button"
     onclick={handleClick}
-    class="{tokenClassName(VARIANT_FOR[planParams.status])} solus-token--output-link cursor-pointer"
+    class="{tokenClassName(VARIANT_FOR[planStatus])} solus-token--output-link cursor-pointer"
     style="border:none"
   >
     <span class="solus-token__icon">
-      {#if planParams.status === "accepted"}
+      {#if planStatus === "accepted"}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-      {:else if planParams.status === "rejected"}
+      {:else if planStatus === "rejected"}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       {:else}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
@@ -142,7 +99,7 @@
     </span>
     <span>{@render children?.()}</span>
   </button>
-{:else if isWorkRef && workParams}
+{:else if isWorkRef && linkRoute}
   <button
     type="button"
     onclick={handleClick}
@@ -154,7 +111,7 @@
     </span>
     <span>{@render children?.()}</span>
   </button>
-{:else if isPrRef && prNumber}
+{:else if isPrRef && linkRoute}
   <button
     type="button"
     onclick={handleClick}

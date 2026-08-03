@@ -289,7 +289,7 @@
 
   function handleSelect(entry: PickerEntry, opts?: { keepOpen?: boolean }) {
     const keepOpen = opts?.keepOpen ?? false;
-    if (!keepOpen) session.workspacePageOpen = false;
+    if (!keepOpen) session.router.close('folio');
     if (entry.kind === "open") {
       if (!keepOpen) session.selectTab(entry.tabId);
     } else {

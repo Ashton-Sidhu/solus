@@ -148,6 +148,7 @@ export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'quest
   return {
     questionId: event.questionId,
     questions: event.questions,
+    ...(event.kind ? { kind: event.kind } : {}),
   }
 }
 

@@ -1,4 +1,9 @@
-// Browser/OS "back" closes the topmost open overlay instead of leaving the app.
+// Browser/OS "back" closes the topmost open sheet instead of leaving the app.
+//
+// Only for surfaces that are NOT locations: drawers, bottom sheets, and menus,
+// which have no route and therefore no history entry of their own. Anything the
+// router owns (settings, folio, a work, the goal) already pushes a real entry,
+// and back walks those without help.
 //
 // While any overlay is open we keep exactly one sentinel history entry. Pressing
 // back (Android button, iOS back-swipe, desktop back) pops the sentinel; we

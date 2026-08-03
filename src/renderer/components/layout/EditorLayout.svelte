@@ -6,7 +6,7 @@
     FILE_PREVIEW_EVENT,
     type FilePreviewRequest,
   } from "../../lib/filePreview";
-  import type { DiffScope, GitCheckout } from "../../../shared/types";
+  import type { DiffScope } from "../../../shared/types";
   interface Props {
     active?: boolean;
     onAttachFile: (tabId?: string) => void | Promise<void>;
@@ -17,13 +17,13 @@
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
-  const panes = session.panes;
+  const router = session.router;
 
   let prevActiveTabId: string | undefined;
   $effect(() => {
     const current = session.activeTabId;
     if (prevActiveTabId !== undefined && prevActiveTabId !== current) {
-      if (panes.secondaryOverlay?.kind === "diff") panes.closeOverlay();
+      if (router.overlay?.name === "diff") router.closeOverlay();
     }
     prevActiveTabId = current;
   });
@@ -42,22 +42,16 @@
       const detail = (
         e as CustomEvent<{
           tabId?: string;
-          cwd?: string;
-          checkout?: GitCheckout | null;
           scope?: DiffScope;
           switchScope?: boolean;
         }>
       ).detail;
       const targetTabId =
         detail?.tabId ?? session.focusedChatTabId ?? session.activeTabId;
-      const scope = detail?.scope ?? { kind: "session" };
-      panes.toggleDiff(
-        !!(detail?.cwd ?? session.sessionFor(targetTabId)?.workingDirectory),
+      session.toggleDiff(
         targetTabId,
-        scope,
+        detail?.scope ?? { kind: "session" },
         detail?.switchScope ?? false,
-        detail?.cwd,
-        detail?.checkout,
       );
     };
     window.addEventListener("solus:toggle-diff-panel", handler);
@@ -70,9 +64,7 @@
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
-      panes.openFilePreview(detail, sourceTabId);
-      session.settingsOpen = false;
-      session.workspacePageOpen = false;
+      session.openFilePreview(detail, sourceTabId);
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);

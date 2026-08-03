@@ -6,7 +6,6 @@
     getSessionEnvironmentStore,
     toasts,
   } from "../../contexts";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import {
     isProjectRailOpen,
     PROJECT_RAIL_MAX_WIDTH,
@@ -39,20 +38,21 @@
   interface Props {
     /** The conversation this rail describes — it lives inside that view. */
     tabId: string;
-    /** Which pane hosts this rail. Every piece of the rail's view state — open,
-     *  and which sections are collapsed — is stored per slot, so adjusting the
-     *  split chat's rail never moves the primary's. */
-    slot: PaneSlot;
+    /** Whether this rail belongs to a pinned split chat rather than the leading
+     *  conversation. Every piece of the rail's view state — open, and which
+     *  sections are collapsed — is stored per role, so adjusting the split
+     *  chat's rail never moves the leading one's. */
+    isSplit?: boolean;
     /** Width of the hosting conversation view; the rail scales against it. */
     containerWidth: number;
-    /** Temporarily minimize without changing the slot's persisted preference. */
+    /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
     /** False while the owning Editor/web surface is mounted but hidden. */
     active?: boolean;
   }
   let {
     tabId: panelTabId,
-    slot,
+    isSplit = false,
     containerWidth,
     minimized = false,
     active = true,
@@ -70,9 +70,8 @@
   });
 
   // Both rails render the same component, so every piece of their view state is
-  // stored per slot. Reading it through one pair of deriveds is what keeps a
-  // split chat's rail from moving the primary's when either is adjusted.
-  const isSplit = $derived(slot === "secondary");
+  // stored per role. Reading it through one pair of deriveds is what keeps a
+  // split chat's rail from moving the leading one's when either is adjusted.
   const preferOpen = $derived(
     isSplit ? settings.splitProjectPanelOpen : settings.projectPanelOpen,
   );
@@ -82,7 +81,7 @@
       : settings.projectPanelCollapsed,
   );
 
-  // The slot owns the preference; this owns whether the current layout can
+  // The role owns the preference; this owns whether the current layout can
   // honour it. Temporary minimization leaves that preference intact, so the
   // rail returns when the secondary panel closes.
   const open = $derived(
@@ -213,11 +212,7 @@
 
   function openFiles() {
     if (!gitCwd) return;
-    session.panes.openFiles(
-      panelTabId,
-      panelEnvironment.cwd,
-      panelEnvironment.checkout,
-    );
+    session.openFiles(panelTabId);
     requestInputFocus();
   }
 

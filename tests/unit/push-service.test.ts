@@ -123,6 +123,9 @@ describe('PushNotificationService', () => {
       body: 'Approve Bash',
       sessionId: 'session-1',
       kind: 'needs_approval',
+      // The click destination travels with the notification, so tapping it
+      // lands on the session that raised it rather than on the last one.
+      route: '/chat/@session-1',
     })
     expect(svc.listSubscriptions().map((s) => s.deviceId).sort()).toEqual(['offline', 'online'])
 

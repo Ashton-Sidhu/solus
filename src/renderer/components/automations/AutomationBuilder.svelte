@@ -490,7 +490,7 @@
     });
     // Leave the detail: close the pane (editor) or the full-page list (pill).
     if (inline) onClose?.();
-    else session.automationsOpen = false;
+    else session.router.close("automations");
   }
 </script>
 

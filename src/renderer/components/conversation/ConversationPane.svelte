@@ -8,26 +8,22 @@
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import ConversationView from "./ConversationView.svelte";
+  import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
 
-  interface Props {
-    tabId: string;
-    surfaceVisible?: boolean;
-    onAttachFile?: (tabId?: string) => void | Promise<void>;
-    onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
-    onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
-  }
   let {
-    tabId,
+    params,
+    paneId,
     surfaceVisible = true,
     onAttachFile,
     onScreenshot,
     onDesignMode,
-  }: Props = $props();
+  }: RouteSurfaceProps<"chat"> = $props();
 
   const session = getWorkspaceContext();
-  const panes = session.panes;
 
-  const splitSession = $derived(session.sessionFor(tabId));
+  // A pinned chat always names its tab; the leading pane's chat renders through
+  // the pool instead, so this component never sees the bare active-tab case.
+  const tabId = $derived(params.tabId ?? session.activeTabId);
 
   async function attachFile() {
     if (onAttachFile) {
@@ -40,7 +36,7 @@
   }
 
   function toggleDiff() {
-    panes.toggleDiff(!!splitSession?.workingDirectory, tabId);
+    session.toggleDiff(tabId);
   }
 
   // The rail is chrome of the conversation it describes, so a split chat carries
@@ -62,7 +58,7 @@
 
 <div
   class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
-  onfocusin={() => panes.focusPane("secondary")}
+  onfocusin={() => session.router.focusPane(paneId)}
   bind:clientWidth={paneWidth}
 >
   <!-- The split tab already lives in the primary tab strip, but this pane still
@@ -120,6 +116,6 @@
       </div>
     </div>
 
-    <ProjectPanel {tabId} slot="secondary" containerWidth={paneWidth} active={surfaceVisible} />
+    <ProjectPanel {tabId} isSplit containerWidth={paneWidth} active={surfaceVisible} />
   </div>
 </div>

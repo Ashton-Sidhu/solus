@@ -61,7 +61,7 @@
     | { kind: "pinned"; pin: PinnedSession; x: number; y: number }
     | null
   >(null);
-  const expandedTasks = new SvelteSet<string>();
+  const expandedTaskIds = new SvelteSet<string>();
   /** The row being renamed in place. One at a time: the edit replaces the label
    *  where it sits, so two open editors would be two claims on the same name. */
   let renamingTabId = $state<string | null>(null);
@@ -90,9 +90,9 @@
   const navCount =
     "shrink-0 font-mono text-[0.65625rem] opacity-55 tabular-nums";
 
-  function toggleExpand(taskKey: string) {
-    if (expandedTasks.has(taskKey)) expandedTasks.delete(taskKey);
-    else expandedTasks.add(taskKey);
+  function toggleExpand(taskId: string) {
+    if (expandedTaskIds.has(taskId)) expandedTaskIds.delete(taskId);
+    else expandedTaskIds.add(taskId);
   }
 
   function togglePrs() {
@@ -138,12 +138,12 @@
     target?.focus();
   }
 
-  /** Selection is navigation: one click shows the task in the pane, and opens
-   *  its sessions with it — you asked for the task, so you get everything under
-   *  it. Keyboard tree navigation can collapse the sessions again. */
-  function selectTask(task: SidebarTask) {
+  /** A task-row activation has two explicit effects: toggle its disclosure,
+   *  then navigate to its best session. The stable task id keeps the first
+   *  effect independent from any branch/session changes caused by the second. */
+  function activateTask(task: SidebarTask) {
+    if (task.tabIds.length > 1) toggleExpand(task.id);
     sidebarStore.selectBranch(task.key, task.tabIds);
-    if (task.tabIds.length > 1) expandedTasks.add(task.key);
     requestInputFocus();
     onSessionSelect?.();
   }
@@ -166,6 +166,12 @@
   }
 
   function closeTabs(tabIds: string[]) {
+    const closingTabIds = new Set(tabIds);
+    for (const task of sidebarStore.allTasks) {
+      if (task.tabIds.every((tabId) => closingTabIds.has(tabId))) {
+        expandedTaskIds.delete(task.id);
+      }
+    }
     sidebarStore.closeTabs(tabIds);
     requestInputFocus();
   }
@@ -189,7 +195,13 @@
   /** The check is the only state the user sets themselves — it says "I am
    *  finished with this", which nothing the agent reports can stand in for. */
   function markTaskDone(task: SidebarTask) {
-    sidebarStore.toggleTaskDone(task.key);
+    sidebarStore.toggleTaskDone(task.id);
+    requestInputFocus();
+  }
+
+  function removeTask(task: SidebarTask) {
+    expandedTaskIds.delete(task.id);
+    sidebarStore.closeTask(task);
     requestInputFocus();
   }
 
@@ -198,8 +210,7 @@
    *  back once the tab is gone. */
   function closeTask(task: SidebarTask) {
     if (task.status !== "running") {
-      sidebarStore.closeTask(task);
-      requestInputFocus();
+      removeTask(task);
       return;
     }
 
@@ -211,10 +222,7 @@
       actions: [
         {
           label: "Stop and close",
-          onAction: () => {
-            sidebarStore.closeTask(task);
-            requestInputFocus();
-          },
+          onAction: () => removeTask(task),
         },
         { label: "Keep open", onAction: () => requestInputFocus() },
       ],
@@ -267,7 +275,7 @@
         break;
       case "expand":
       case "collapse":
-        if (taskKey) toggleExpand(taskKey);
+        if (task) toggleExpand(task.id);
         break;
       case "enterPane":
         requestInputFocus();
@@ -327,14 +335,14 @@
     {grouped}
     prChip={sidebarStore.prChipFor(task)}
     onPath={task.tabIds.includes(session.activeTabId)}
-    expanded={expandedTasks.has(task.key)}
+    expanded={expandedTaskIds.has(task.id)}
     showProjectLine={sidebarStore.showsProjectLine}
     subtasks={task.tabIds.map((tabId) => sidebarStore.childForTab(tabId))}
     selectedTabId={task.tabIds.includes(session.activeTabId)
       ? session.activeTabId
       : null}
     {renamingTabId}
-    onSelect={() => selectTask(task)}
+    onSelect={() => activateTask(task)}
     onRename={renameSession}
     onRenameCancel={() => (renamingTabId = null)}
     onPickProject={() => sidebarStore.setProjectFilter(task.projectKey)}
@@ -392,9 +400,9 @@
       <Sidebar.Menu class="gap-px">
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.workspacePageOpen ? navRowActive : ''}"
-            isActive={session.workspacePageOpen}
-            onclick={() => session.toggleWorkspacePage()}
+            class="{navRow} {session.router.at('folio') ? navRowActive : ''}"
+            isActive={session.router.at('folio')}
+            onclick={() => session.toggleFolio()}
           >
             <span class={navIcon}><BooksIcon size={16} /></span>
             <span class={navLabel}>Workspace</span>
@@ -403,8 +411,8 @@
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.automationsOpen ? navRowActive : ''}"
-            isActive={session.automationsOpen}
+            class="{navRow} {session.router.at('automations') ? navRowActive : ''}"
+            isActive={session.router.at('automations')}
             onclick={() => session.toggleAutomations()}
           >
             <span class={navIcon}><ArrowsClockwiseIcon size={16} /></span>
@@ -415,8 +423,8 @@
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.prsOpen ? navRowActive : ''}"
-            isActive={session.prsOpen}
+            class="{navRow} {session.router.at('prs') ? navRowActive : ''}"
+            isActive={session.router.at('prs')}
             onclick={togglePrs}
           >
             <span class={navIcon}><GitPullRequestIcon size={16} /></span>
@@ -435,8 +443,8 @@
         </Sidebar.MenuItem>
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
-            class="{navRow} {session.tasksOpen ? navRowActive : ''}"
-            isActive={session.tasksOpen}
+            class="{navRow} {session.router.at('tasks') ? navRowActive : ''}"
+            isActive={session.router.at('tasks')}
             onclick={() => session.toggleTasks()}
           >
             <span class={navIcon}><ListChecksIcon size={16} /></span>
@@ -498,7 +506,7 @@
       </p>
     {:else if sidebarStore.viewMode === "flat"}
       <div class="flex flex-col gap-0.5">
-        {#each sidebarStore.visibleTasks as task (task.key)}
+        {#each sidebarStore.visibleTasks as task (task.id)}
           {@render taskRow(task, false)}
         {/each}
       </div>
@@ -531,7 +539,7 @@
             >
           </div>
           <div class="flex flex-col gap-0.5">
-            {#each group.tasks as task (task.key)}
+            {#each group.tasks as task (task.id)}
               {@render taskRow(task, true)}
             {/each}
           </div>
@@ -617,8 +625,8 @@
       {/if}
       <Sidebar.MenuItem>
         <Sidebar.MenuButton
-          class="{navRow} {session.settingsOpen ? navRowActive : ''}"
-          isActive={session.settingsOpen}
+          class="{navRow} {session.router.at('settings') ? navRowActive : ''}"
+          isActive={session.router.at('settings')}
           onclick={() => session.showSettings()}
         >
           <span

@@ -71,10 +71,8 @@ describe('Ask in New Session', () => {
     let openedSplitTabId: string | null = null
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.registry = registry
-    workspace.panes = {
-      chatTabIn: () => null,
-      openSplitChat: (tabId: string) => { openedSplitTabId = tabId },
-    }
+    workspace.router = { asidePanes: [], chatTabIn: () => null }
+    workspace.openSplitChat = (tabId: string) => { openedSplitTabId = tabId }
     workspace.forkTab = async (sourceTabId: string, options: { activate?: boolean }) => {
       expect(sourceTabId).toBe('source-tab')
       expect(options).toEqual({ activate: false })

@@ -50,7 +50,7 @@ function approvalContext() {
       plans: { 'plan-1': plan },
       setStatus: (_planId: string, status: Plan['status']) => { plan.status = status },
     },
-    panes: { activePlanId: null, close: () => {} },
+    router: { params: () => null, close: () => {} },
     sessionFor: () => session,
     apiFor: () => ({
       resetTabSession: () => { resetCount++ },
@@ -123,7 +123,7 @@ function revisionContext(status: Session['status']) {
       plans: { 'plan-1': plan },
       setStatus: (_planId: string, next: Plan['status']) => { plan.status = next },
     },
-    panes: { activePlanId: null, close: () => {} },
+    router: { params: () => null, close: () => {} },
     sessionFor: () => session,
     apiFor: () => ({
       respondPermission: async (_c: unknown, _q: string, optionId: string) => { calls.denied.push(optionId) },

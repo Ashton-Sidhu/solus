@@ -39,6 +39,10 @@
   import { formatReleaseTime } from "../conversation/lib/queued-prompts";
   import { quotedReplyDraft } from "../../lib/quoted-reply";
   import { pendingPlanForPrompt } from "./lib/pending-plan";
+  import {
+    answersForQuestionNote,
+    pendingQuestionForPrompt,
+  } from "./lib/pending-question";
 
   const HISTORY_KEY = "solus-prompt-history";
   const MAX_HISTORY = 100;
@@ -65,14 +69,13 @@
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const windowCtx = getWindowContext();
-  const panes = session.panes;
+  const router = session.router;
 
   const targetTabId = $derived(tabId ?? session.activeTabId);
   const isFocusedPaneComposer = $derived(
-    (isPrimary && panes.focusedPane === "primary") ||
-      (!isPrimary &&
-        panes.focusedPane === "secondary" &&
-        tabId === panes.chatTabIn("secondary", session.activeTabId)),
+    isPrimary
+      ? router.focusedPaneId === router.leadingPane.id
+      : tabId === router.chatTabIn(router.focusedPaneId, session.activeTabId),
   );
   const receivesFocusedInput = $derived(
     isFocusedPaneComposer ||
@@ -83,6 +86,7 @@
   const pendingPlan = $derived(
     pendingPlanForPrompt(sess, session.planStore.plans),
   );
+  const pendingQuestion = $derived(pendingQuestionForPrompt(sess));
   const isActiveMode = $derived(mode === windowCtx.viewMode);
   const isMobile = $derived(runtime.isMobileViewport);
   const isBusy = $derived(
@@ -341,6 +345,8 @@
           ? "Transcribing..."
           : pendingPlan
             ? "Send feedback to revise the pending plan..."
+          : pendingQuestion
+            ? "Send a note to answer the pending question..."
           : isRateLimited
             ? resetsAt
               ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
@@ -749,8 +755,8 @@
         }
         clearComposer();
         await session.clearThreadGoal(targetTabId);
-        if (panes.secondaryContent.kind === "goal" && panes.secondaryContent.tabId === targetTabId) {
-          panes.closeSecondary();
+        if (router.params("goal")?.tabId === targetTabId) {
+          router.close("goal");
         }
       } else if (normalized === "pause" || normalized === "resume") {
         if (!isCodexGoal) {
@@ -852,6 +858,14 @@
       // request, keep the provider in plan mode, and send this text as feedback
       // instead of letting it become an ordinary queued prompt.
       void session.rejectPlan(pendingPlan.id, prompt || "See attached files");
+    } else if (pendingQuestion && prompt) {
+      // Match the question card's free-text answer. Responding releases the held
+      // provider turn; queuing this as a normal prompt would leave it blocked.
+      session.respondQuestion(
+        targetTabId,
+        pendingQuestion.questionId,
+        answersForQuestionNote(pendingQuestion, prompt),
+      );
     } else {
       session.sendMessage(
         prompt || "See attached files",

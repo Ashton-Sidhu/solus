@@ -42,6 +42,9 @@ export interface PushNotificationPayload {
   body: string
   sessionId: string
   kind: AttentionKind
+  /** Where clicking lands, as a serialized route. The client hands it straight
+   *  to the router, so a notification opens the session that raised it. */
+  route: string
 }
 
 export interface PushSendStats {
@@ -233,6 +236,7 @@ export function payloadForAttentionEntry(entry: AttentionEntry): PushNotificatio
     body: entry.summary || 'A Solus session needs attention.',
     sessionId: entry.sessionId,
     kind: entry.kind,
+    route: `/chat/@${encodeURIComponent(entry.sessionId)}`,
   }
 }
 

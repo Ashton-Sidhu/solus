@@ -83,7 +83,23 @@ export function materializeTabs(ctx: WorkspaceContext): void {
     return
   }
   _materializeTabs(ctx, snapshot.tabs, snapshot.tabOrder, snapshot.activeTabId, drafts)
+  restoreLocation(ctx, snapshot.location)
   ctx.hydrating = false
+}
+
+/**
+ * Re-enter the saved location, then drop any pane that points at a tab this boot
+ * did not restore. The codec is already total, so a route that no longer parses
+ * is gone by this point; this covers the one thing it cannot know — whether the
+ * chat a pane names still exists.
+ */
+function restoreLocation(ctx: WorkspaceContext, serialized: string | undefined): void {
+  if (!serialized) return
+  ctx.router.enter(serialized, { replace: true })
+  for (const pane of [...ctx.router.panes]) {
+    const tabId = pane.base?.name === 'chat' ? pane.base.params.tabId : undefined
+    if (tabId && !ctx.tabs[tabId]) ctx.router.closePane(pane.id)
+  }
 }
 
 /**

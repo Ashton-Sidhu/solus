@@ -17,7 +17,7 @@
   } from "@renderer/contexts/app/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app/app-core";
   import { subscribe } from "@client-core/connection-state";
-  import { connectionsStore, serversStore, toasts as rendererToasts, runtime } from "@renderer/contexts";
+  import { connectionsStore, parseRoute, serversStore, toasts as rendererToasts, runtime } from "@renderer/contexts";
   import { serverConnections } from "@client-core/server-connections";
   import { openProjectStore } from "@renderer/components/servers/open-project.store.svelte";
   import { hostOnboardingStore } from "@renderer/components/servers/host-onboarding.store.svelte";
@@ -86,6 +86,10 @@
   // fresh start() reconciliation run later from the effect below.
   session.hydrateStaticInfoFromCache();
   materializeTabs(session);
+  // The web shell has an address bar, so the location is mirrored into it: every
+  // pane, its overlay, and the focused index are in the URL, which is what makes
+  // a workspace shareable and browser-back meaningful here.
+  session.router.bindAddressBar();
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
   // Reads only the persisted fields, so it won't re-run on message streaming.
@@ -294,20 +298,17 @@
     };
   });
 
+  // A notification click arrives as a serialized route — the same vocabulary the
+  // address bar, the persisted snapshot, and agent links use.
   $effect(() => {
     const handler = (event: Event) => {
-      const sessionId = (event as CustomEvent<{ sessionId?: string | null }>).detail?.sessionId;
-      if (!sessionId) return;
-      const tabId = session.tabOrder.find((candidate) => {
-        const candidateSession = session.sessionFor(candidate);
-        return candidateSession?.agentSessionId === sessionId ||
-          candidateSession?.forkedFromSessionId === sessionId;
-      });
-      if (tabId) session.selectTab(tabId);
+      const route = parseRoute((event as CustomEvent<string>).detail ?? "");
+      if (!route) return;
+      session.openRoute(route);
       requestInputFocus();
     };
-    window.addEventListener("solus:focus-session", handler);
-    return () => window.removeEventListener("solus:focus-session", handler);
+    window.addEventListener("solus:open-route", handler);
+    return () => window.removeEventListener("solus:open-route", handler);
   });
 
   $effect(() => {

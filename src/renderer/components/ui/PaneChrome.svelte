@@ -10,7 +10,6 @@
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
 
   /** The pane's only chrome: a floating icon cluster over the top-right of the
    *  content. Every surface below the top rail is content now, so pane-level
@@ -20,9 +19,11 @@
    *  an in-content top strip can reserve space for it. */
   interface Props {
     onClose: () => void;
-    /** Present when the content can move between the two slots. */
+    /** Present when the content can move between panes. */
     onOpenInSplit?: () => void;
-    slot?: PaneSlot;
+    /** Whether this pane leads the row — the only positional fact the chrome
+     *  needs, so the move action can name its direction. */
+    isLeading?: boolean;
     /** Present when the pane can be maximized over the window. */
     onToggleMaximize?: (() => void) | null;
     maximized?: boolean;
@@ -35,7 +36,7 @@
   let {
     onClose,
     onOpenInSplit,
-    slot = "primary",
+    isLeading = true,
     onToggleMaximize,
     maximized = false,
     trailing,
@@ -64,19 +65,17 @@
             class={PAGE_ICON_BTN}
             onclick={onOpenInSplit}
             data-testid="open-in-split"
-            aria-label={slot === "secondary" ? "Move to main pane" : "Open in split"}
+            aria-label={isLeading ? "Open in split" : "Move to main pane"}
           >
-            {#if slot === "secondary"}
-              <ArrowsOutSimpleIcon size={15} />
-            {:else}
+            {#if isLeading}
               <ArrowSquareOutIcon size={15} />
+            {:else}
+              <ArrowsOutSimpleIcon size={15} />
             {/if}
           </button>
         {/snippet}
       </TooltipUI.Trigger>
-      <TooltipUI.Content
-        value={slot === "secondary" ? "Move to main pane" : "Open in split"}
-      />
+      <TooltipUI.Content value={isLeading ? "Open in split" : "Move to main pane"} />
     </TooltipUI.Root>
   {/if}
 

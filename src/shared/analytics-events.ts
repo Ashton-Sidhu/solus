@@ -30,7 +30,7 @@ export interface SolusEventMap {
   keybinding_used: { binding_id: string; scope: string; overridden: boolean }
   model_changed: { via?: Via }
   diff_feedback_submitted: {}
-  route_viewed: { route: string }
+  route_viewed: { route: string; via?: Via }
   overlay_opened: { overlay_id: string }
   client_connected: { attempt?: number }
   client_reconnected: { attempt?: number }

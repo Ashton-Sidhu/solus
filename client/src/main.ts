@@ -11,7 +11,6 @@ import { defaultDeviceLabel, pairServer } from '@client-core/pairing'
 import { pairTokenFromLocation } from './lib/connect'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
 import { webState } from './lib/web-state.svelte'
-import { router } from './lib/router.svelte'
 import { webPushState } from './lib/web-push.svelte'
 import { toasts } from './lib/toast.store.svelte'
 import WebToast from './components/WebToast.svelte'
@@ -24,6 +23,20 @@ window.addEventListener('solus:open-server-connect', () => webState.openServerSe
 
 /** One-shot boot flag: land in the host chooser instead of auto-connecting. */
 const CHOOSE_HOST_KEY = 'solus.chooseHostOnBoot'
+
+// The connect screen is app shell, not a workspace location — it exists before
+// the workspace (and its router) does. It marks the address bar so a refresh
+// mid-pairing lands back here; the workspace router takes the hash over from
+// `bindAddressBar` once a host is chosen.
+const CONNECT_HASH = '#/connect'
+
+function markConnectScreen(): void {
+  if (location.hash !== CONNECT_HASH) history.replaceState(null, '', CONNECT_HASH)
+}
+
+function leaveConnectScreen(): void {
+  if (location.hash === CONNECT_HASH) history.replaceState(null, '', location.pathname + location.search)
+}
 
 const root = document.getElementById('root')!
 mount(WebToast, { target: root })
@@ -52,12 +65,10 @@ function installServiceWorkerMessageBridge(): void {
   if (serviceWorkerBridgeInstalled || !('serviceWorker' in navigator)) return
   serviceWorkerBridgeInstalled = true
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const data = event.data as { type?: string; sessionId?: string | null; kind?: string | null } | undefined
-    if (data?.type !== 'solus:notification-click') return
+    const data = event.data as { type?: string; route?: string | null } | undefined
+    if (data?.type !== 'solus:notification-click' || !data.route) return
     window.focus()
-    window.dispatchEvent(new CustomEvent('solus:focus-session', {
-      detail: { sessionId: data.sessionId ?? null, kind: data.kind ?? null },
-    }))
+    window.dispatchEvent(new CustomEvent('solus:open-route', { detail: data.route }))
   })
 }
 
@@ -90,7 +101,7 @@ function showConnectFlow(options: { initialAddress?: string } = {}): void {
 
   webState.setConnectedServer(null)
   setConnectionState({ status: 'disconnected', attempt: 0 })
-  router.navigateToConnect()
+  markConnectScreen()
 
   connectFlowApp = mount(ConnectFlow, {
     target: root,
@@ -133,7 +144,7 @@ async function connectToServer(server: SavedServer): Promise<void> {
   setActiveServerId(server.id)
 
   webState.setConnectedServer(server)
-  router.navigateToChat()
+  leaveConnectScreen()
 
   try {
     // Keep the multi-megabyte workspace graph out of the unpaired connection
@@ -160,7 +171,7 @@ async function bootWithoutServer(): Promise<void> {
   window.solus = createNoHostSolusApi()
   webState.setConnectedServer(null)
   setConnectionState({ status: 'disconnected', attempt: 0 })
-  router.navigateToChat()
+  leaveConnectScreen()
 
   try {
     const { default: App } = await loadWorkspaceApp()
@@ -185,7 +196,6 @@ function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
 }
 
 // Boot
-router.start()
 
 /**
  * Opening a pairing QR / link lands on this SPA at `/pair#token=…` — pair

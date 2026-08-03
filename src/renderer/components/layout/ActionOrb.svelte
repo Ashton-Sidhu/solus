@@ -339,15 +339,13 @@
     return "Quick actions";
   });
 
-  const panes = session.panes;
+  const router = session.router;
 
   let rootEl: HTMLDivElement | null = $state(null);
   let panelEl: HTMLDivElement | null = $state(null);
   let orbScreenScale = $state("1");
   let compactByWidth = $state(false);
-  const compact = $derived(
-    compactByWidth || panes.secondaryVisible.kind !== "empty",
-  );
+  const compact = $derived(compactByWidth || router.panes.length > 1);
   let expandedPanelWidth: number | null = null;
 
   function shortcutLabel(bindingId: BindingId): string {
@@ -470,7 +468,7 @@
   }
 
   function handleOpenFileDiff(path: string) {
-    panes.enterDiff(tabId, { kind: "session" }, displayPath(path));
+    session.showDiff(tabId, { kind: "session" }, displayPath(path));
     closeExpanded();
   }
 
@@ -543,11 +541,7 @@
 
   async function handleReview(regenerate = false) {
     if (!regenerate && reviewStatus === "done" && reviewGuideKey) {
-      panes.enterReview(reviewGuideKey, "session", {
-        sourceTabId: tabId,
-        workingDirectory: gitCwd ?? projectRoot,
-        gitContext: sess?.gitContext ?? null,
-      });
+      session.enterReview(reviewGuideKey, "session", tabId);
       closeExpanded();
       return;
     }

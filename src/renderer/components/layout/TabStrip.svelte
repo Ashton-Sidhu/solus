@@ -57,8 +57,9 @@
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const renderedTabIds = $derived(session.tabOrder);
-  const splitTabId = $derived(
-    session.panes.chatTabIn("secondary", session.activeTabId),
+  const splitTabId = $derived(session.splitChatTabId);
+  const splitFocused = $derived(
+    session.router.focusedPaneId !== session.router.leadingPane.id,
   );
 
   // Per-group binder-divider lead: a representative status icon, accent color,
@@ -475,7 +476,7 @@
                     data-pill-active={isActive}
                     class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
-                      : ''} {isUnread ? 'unread' : ''} {tabId === splitTabId && session.panes.focusedPane === 'secondary'
+                      : ''} {isUnread ? 'unread' : ''} {tabId === splitTabId && splitFocused
                       ? 'split-focused'
                       : ''}"
                     aria-label={tab
@@ -529,7 +530,7 @@
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
                       ? 'dragging'
-                      : ''} {dragOverTabId === tabId ? 'drag-over' : ''} {tabId === splitTabId && session.panes.focusedPane === 'secondary'
+                      : ''} {dragOverTabId === tabId ? 'drag-over' : ''} {tabId === splitTabId && splitFocused
                       ? 'split-focused'
                       : ''}"
                     aria-label={tab
@@ -625,7 +626,7 @@
           <TooltipUI.Trigger>
             {#snippet child({ props: tooltipProps })}
               <button {...tooltipProps}
-          onclick={() => session.toggleWorkspacePage()}
+          onclick={() => session.toggleFolio()}
           class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
         >
           <BooksIcon size={14} />

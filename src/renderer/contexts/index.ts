@@ -3,8 +3,14 @@
  * If it isn't exported here, it's an internal organ — import it only from within its folder.
  */
 
-/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/stacksStore/panes. */
+/** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/stacksStore/router. */
 export { getWorkspaceContext, setWorkspaceContext } from './workspace/workspace.context.svelte'
+
+/** Where the workspace is. `routing/` internals stay private organs — surfaces
+ *  reach the live location through `getWorkspaceContext().router`. */
+export { parseRoute, serializeRoute } from './workspace/routing/codec'
+export type { RouteName, RouteRef, SettingsTab } from './workspace/routing/route-registry'
+export type { Location, PaneEntry, PaneId } from './workspace/routing/location'
 
 /** App-wide settings, window, agent, status, voice, toast, runtime, and tool state. */
 export { getSettingsContext } from './app/settings.context.svelte'

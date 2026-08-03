@@ -38,7 +38,6 @@
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
-  const panes = session.panes;
   const env = $derived(environmentStore.environmentFor(tabId));
   const status = $derived(env.status);
   const conflictedFiles = $derived(
@@ -133,12 +132,7 @@
         run: () => {
           window.dispatchEvent(
             new CustomEvent("solus:toggle-diff-panel", {
-              detail: {
-                scope: { kind: "working-tree" },
-                switchScope: true,
-                cwd: env.cwd,
-                checkout: env.checkout,
-              },
+              detail: { tabId, scope: { kind: "working-tree" }, switchScope: true },
             }),
           );
           requestInputFocus();
@@ -363,11 +357,7 @@
 
   function handleReview() {
     if (reviewKey) {
-      panes.enterReview(reviewKey, "branch", {
-        sourceTabId: tabId,
-        workingDirectory: env.cwd,
-        gitContext: env.checkout,
-      });
+      session.enterReview(reviewKey, "branch", tabId);
       requestInputFocus();
       return;
     }

@@ -48,7 +48,8 @@
   const stacks = session.stacksStore;
   const outerScrollbar = getOuterScrollbarContext();
 
-  const open = $derived(session.prsOpen);
+  const open = $derived(session.router.at("prs"));
+  const dockedPrNumber = $derived(session.router.params("prReview")?.number ?? null);
 
   // ── List state ──
   let query = $state("");
@@ -179,7 +180,7 @@
   // on) and wipe the user's selection. Untrack the body so normal git updates
   // cannot reset the page.
   $effect(() => {
-    const requestedProjectPath = session.prsProjectTarget?.path ?? null;
+    const requestedProjectPath = session.router.params("prs")?.projectPath ?? null;
     if (!open) return;
     untrack(() => {
       query = "";
@@ -231,9 +232,7 @@
   // debounce between arrow-key selection and docking for a dismissal.
   let dockedReviewNumber = $state<number | null>(null);
   $effect(() => {
-    const secondary = session.panes.secondaryContent;
-    const reviewNumber =
-      secondary.kind === "pr-review" ? secondary.target.number : null;
+    const reviewNumber = dockedPrNumber;
 
     if (reviewNumber !== null) {
       dockedReviewNumber = reviewNumber;
@@ -329,10 +328,7 @@
     cancelPendingDetail();
     selectedNumber = null;
     activeNumber = null;
-    const review = session.panes.secondaryContent;
-    if (review.kind === "pr-review" && review.target.number === number) {
-      session.panes.closeSlot("secondary");
-    }
+    if (dockedPrNumber === number) session.exitPrReview();
   }
 
   // Checked PRs in the list order they're shown; stale checks (filtered out or
@@ -431,7 +427,7 @@
   );
   function close() {
     if (selectedNumber) deselectPr();
-    session.prsOpen = false;
+    session.router.close("prs");
     requestInputFocus();
   }
 
@@ -439,9 +435,9 @@
     const pr = selectedPr;
     if (!pr) return;
     await session.dockPrReview(pr.number, pr.title, { ctx: prsCtx() });
-    const review = session.panes.secondaryContent;
-    if (review.kind === "pr-review" && review.target.number === pr.number) {
-      session.panes.maximized = true;
+    const reviewPaneId = session.router.pane(session.router.focusedPaneId);
+    if (dockedPrNumber === pr.number && reviewPaneId) {
+      session.geometry.maximize(reviewPaneId.id);
       requestInputFocus();
     }
   }

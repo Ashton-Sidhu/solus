@@ -48,28 +48,27 @@
   const pillMargin = $derived(clamp(windowCtx.workAreaHeight * 0.025, 16, 48));
   const isExpanded = $derived(session.isExpanded);
   const isEditorMode = $derived(windowCtx.viewMode === "editor");
-  const noTabs = $derived(session.tabOrder.length === 0 && !session.workspacePageOpen && !session.settingsOpen);
+  const router = session.router;
+  const noTabs = $derived(
+    session.tabOrder.length === 0 && !router.at("folio") && !router.at("settings"),
+  );
   const pillPlanModal = $derived.by(() => {
-    const planId = session.panes.activePlanId;
+    const planId = router.params("plan")?.planId ?? null;
     const plan = planId ? planStore.get(planId) : planStore.previewPlan;
     if (!plan?.content.trim()) return null;
     return plan;
   });
   // A plan surface is open on an id whose body has not arrived yet — the pane
   // opens first so the click has somewhere to land.
-  const pillPlanPending = $derived(!!session.panes.activePlanId && !pillPlanModal);
+  const pillPlanPending = $derived(router.at("plan") && !pillPlanModal);
   const pillWorkModal = $derived.by(() => {
-    const workId = session.panes.activeWorkId;
+    const workId = router.params("work")?.workId;
     return workId ? session.worksStore.get(workId) : null;
   });
   const showPillDiagram = $derived(
     !!pillWorkModal && !isEditorMode && pillWorkModal.type === "diagram",
   );
-  const pillGoalTabId = $derived(
-    session.panes.secondaryContent.kind === "goal"
-      ? session.panes.secondaryContent.tabId
-      : null,
-  );
+  const pillGoalTabId = $derived(router.params("goal")?.tabId ?? null);
   let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
   const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
@@ -83,7 +82,7 @@
   // component tree are both absent from a typical conversation-only launch.
   let hasMountedWorkspace = $state(false);
   $effect(() => {
-    if (session.workspacePageOpen) hasMountedWorkspace = true;
+    if (router.at("folio")) hasMountedWorkspace = true;
   });
 
   // Lazy-mount the pill conversation pool. Only create a tab's ConversationView
@@ -122,7 +121,7 @@
       session.sessionPickerOpen = next;
       if (next) {
         session.isExpanded = true;
-        session.workspacePageOpen = false;
+        router.close("folio");
       }
     };
     window.addEventListener("solus:toggle-session-picker", handler);
@@ -132,7 +131,7 @@
 
   async function duplicatePillWork(workId: string) {
     const duplicated = await session.worksStore.duplicate(workId);
-    session.panes.openWork(duplicated.id);
+    session.openWork(duplicated.id);
     requestInputFocus();
   }
 </script>
@@ -177,7 +176,7 @@
         transition:height 0.28s cubic-bezier(0.16,1,0.3,1), opacity 0.28s cubic-bezier(0.16,1,0.3,1);
       "
       >
-        {#if session.settingsOpen}
+        {#if router.at("settings")}
           <div style="height:var(--pill-body-max);overflow:hidden">
             {#await import("../settings/SettingsPage.svelte")}
               <SettingsPageSkeleton />
@@ -195,7 +194,7 @@
               <WorkspacePage />
             {/await}
           {/if}
-          {#if session.automationsOpen}
+          {#if router.at("automations")}
             <div style="height:var(--pill-body-max);overflow:hidden;display:flex;flex-direction:column">
               {#await import("../automations/AutomationsPage.svelte")}
                 {@render loadingSurface("Loading automations…")}
@@ -205,7 +204,7 @@
               {/await}
             </div>
           {/if}
-          {#if session.tasksOpen}
+          {#if router.at("tasks")}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
               {#await import("../tasks/TasksPage.svelte")}
                 {@render loadingSurface("Loading tasks…")}
@@ -215,7 +214,7 @@
               {/await}
             </div>
           {/if}
-          {#if session.prsOpen}
+          {#if router.at("prs")}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
               {#await import("../prs/PrsPage.svelte")}
                 {@render loadingSurface("Loading pull requests…")}
@@ -225,7 +224,7 @@
               {/await}
             </div>
           {/if}
-          {#if !session.workspacePageOpen && !session.automationsOpen && !session.tasksOpen && !session.prsOpen}
+          {#if !router.at("folio") && !router.at("automations") && !router.at("tasks") && !router.at("prs")}
             {#if pickerOpen}
               <div
                 class="flex flex-col"
@@ -243,7 +242,7 @@
               <div class="relative" style="{showPillDiagram || pillGoalTabId ? 'height:var(--pill-body-max)' : 'max-height:var(--pill-body-max)'}">
                 {#if pillGoalTabId}
                   <PaneChrome
-                    onClose={() => { session.panes.closeSecondary(); requestInputFocus() }}
+                    onClose={() => { router.close("goal"); requestInputFocus() }}
                     closeLabel="Close goal"
                   />
                   <!-- The pill has no project rail, so the goal card the rail
@@ -253,7 +252,7 @@
                       tabId={pillGoalTabId}
                       collapsed={pillGoalCollapsed}
                       onToggle={() => (pillGoalCollapsed = !pillGoalCollapsed)}
-                      onCleared={() => { session.panes.closeSecondary(); requestInputFocus() }}
+                      onCleared={() => { router.close("goal"); requestInputFocus() }}
                     />
                   </div>
                 {/if}

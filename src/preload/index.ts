@@ -330,6 +330,9 @@ export interface NativeSolusAPI {
   setQuoteContext(tabId: string | null): void
   onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
   onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
+  /** A location the app was asked to open from outside the renderer — today a
+   *  notification click; the payload is a serialized route. */
+  onOpenRoute(callback: (route: string) => void): () => void
   onThemeChange(callback: (isDark: boolean) => void): () => void
   onWindowShown(callback: (cursorPos: { x: number; y: number } | null) => void): () => void
   onWindowHidden(callback: () => void): () => void
@@ -364,6 +367,13 @@ const nativeApi: NativeSolusAPI = {
     const handler = (_e: unknown, text: string, sourceTabId: string) => cb(text, sourceTabId)
     ipcRenderer.on('solus:ask-selection-in-new-session', handler)
     return () => ipcRenderer.removeListener('solus:ask-selection-in-new-session', handler)
+  },
+  /** A location the app was asked to open from outside the renderer — today a
+   *  notification click; the payload is a serialized route. */
+  onOpenRoute: (cb: (route: string) => void) => {
+    const handler = (_event: unknown, route: string) => cb(route)
+    ipcRenderer.on('solus:open-route', handler)
+    return () => ipcRenderer.removeListener('solus:open-route', handler)
   },
   onThemeChange: (cb: (isDark: boolean) => void) => {
     const handler = (_event: unknown, isDark: boolean) => cb(isDark)

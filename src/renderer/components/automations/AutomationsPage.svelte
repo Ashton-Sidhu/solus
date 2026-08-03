@@ -31,7 +31,7 @@
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
 
-  const open = $derived(session.automationsOpen);
+  const open = $derived(session.router.at("automations"));
   // Editor mode opens the builder in the side panel; pill mode has no pane, so it
   // keeps editing inline within this overlay.
   const isEditorMode = $derived(windowCtx.viewMode === "editor");
@@ -150,12 +150,11 @@
       statusFilter = "all";
       showStarred = false;
       sortMode = "recent";
-      // Deep-link: jump straight into one automation's editor when a focus id was
-      // set (e.g. from the project panel or a "Sent via automation" badge), then
-      // consume it so re-opening the page lands back on the list.
-      const focusId = session.automationsFocusId;
+      // Deep-link: jump straight into one automation's editor when the route
+      // names one (e.g. from the project panel or a "Sent via automation"
+      // badge); the bare route lands on the list.
+      const focusId = session.router.params("automations")?.automationId;
       if (focusId) {
-        session.automationsFocusId = null;
         void store.loadAll().then(() => {
           const target = store.get(focusId);
           view = target
@@ -187,7 +186,7 @@
   });
 
   function close() {
-    session.automationsOpen = false;
+    session.router.close("automations");
     requestInputFocus();
   }
 

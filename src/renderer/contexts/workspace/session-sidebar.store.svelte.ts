@@ -4,6 +4,7 @@ import type { AgentId, PinnedSession, Session } from '../../../shared/types'
 import {
   buildProjectSummaries,
   groupTasks,
+  identifySidebarTasks,
   prChipFor as resolvePrChip,
   reconcileSidebarTasks,
   showsProjectLine as projectLineVisible,
@@ -99,7 +100,8 @@ function maxAttention(current: AttentionState, next: AttentionState): AttentionS
 }
 
 export class SessionSidebarStore {
-  private taskModelsByKey = new Map<string, SidebarTask>()
+  private taskModelsById = new Map<string, SidebarTask>()
+  private taskIdentityByTabId = new Map<string, string>()
 
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
@@ -171,13 +173,13 @@ export class SessionSidebarStore {
   /** The user's own "I am finished with this", which nothing else in the app
    *  knows. Deliberately not persisted: a completed task stays for the session
    *  and drops out when it closes or the app restarts. */
-  private doneTaskKeys = new SvelteSet<string>()
+  private doneTaskIds = new SvelteSet<string>()
 
   /** Every open task, unfiltered and unsorted — the rail's counts and the
    *  one-project checks both have to see the whole column. */
-  allTasks: SidebarTask[] = $derived.by(() =>
-    reconcileSidebarTasks(
-      this.taskModelsByKey,
+  allTasks: SidebarTask[] = $derived.by(() => {
+    const identified = identifySidebarTasks(
+      this.taskIdentityByTabId,
       this.projectBranchGroups.flatMap((project) =>
         project.branches.map((branch) => ({
           key: branch.key,
@@ -185,18 +187,27 @@ export class SessionSidebarStore {
           projectKey: project.projectKey,
           projectLabel: project.projectLabel,
           branchName: branch.branchName,
-          status: taskStatusFor(branch.attention, this.doneTaskKeys.has(branch.key)),
+          status: taskStatusFor(branch.attention),
           attention: branch.attention,
-          // Ticking the check is also "I have seen this", so a done row stops
-          // spending a bolder title on output the user has already dismissed.
-          unread: branch.unread && !this.doneTaskKeys.has(branch.key),
+          unread: branch.unread,
           activityAt: branch.activityAt,
           runStartedAt: branch.runStartedAt,
           tabIds: branch.tabIds,
         })),
       ),
-    ),
-  )
+    )
+    const tasks = identified.map((task) => {
+      const markedDone = this.doneTaskIds.has(task.id)
+      return {
+        ...task,
+        status: taskStatusFor(task.attention, markedDone),
+        // Ticking the check is also "I have seen this", so a done row stops
+        // spending a bolder title on output the user has already dismissed.
+        unread: task.unread && !markedDone,
+      }
+    })
+    return reconcileSidebarTasks(this.taskModelsById, tasks)
+  })
 
   projectCount: number = $derived(new Set(this.allTasks.map((task) => task.projectKey)).size)
 
@@ -222,7 +233,9 @@ export class SessionSidebarStore {
    *  toggle is offering a choice that isn't one. It comes back with the rail
    *  the moment a second project is open. */
   showsModeToggle: boolean = $derived(this.projectCount > 1)
-  showsProjectLine: boolean = $derived(projectLineVisible(this.viewMode))
+  showsProjectLine: boolean = $derived(
+    projectLineVisible(this.viewMode, this.projectFilter, this.projectCount),
+  )
 
   /** The order tasks arrived in, held. The column is a place, not a feed: a row
    *  only moves when you open or close one. */
@@ -370,14 +383,14 @@ export class SessionSidebarStore {
 
   /** The check is a toggle: it is the only affordance that sets the state, so
    *  it has to be the one that takes it back. */
-  toggleTaskDone(taskKey: string): void {
-    if (!this.doneTaskKeys.delete(taskKey)) this.doneTaskKeys.add(taskKey)
+  toggleTaskDone(taskId: string): void {
+    if (!this.doneTaskIds.delete(taskId)) this.doneTaskIds.add(taskId)
   }
 
   /** Forget the verdict along with the task, so reopening the same branch later
    *  does not come back already ticked off. */
   closeTask(task: SidebarTask): void {
-    this.doneTaskKeys.delete(task.key)
+    this.doneTaskIds.delete(task.id)
     this.closeTabs(task.tabIds)
   }
 

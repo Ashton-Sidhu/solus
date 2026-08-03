@@ -62,7 +62,7 @@
   }
 
   function openWorkSecondary() {
-    if (ref.id) session.panes.moveToSecondary({ kind: "work", workId: ref.id });
+    if (ref.id) session.openWork(ref.id, "aside");
   }
 
   function openPlan() {

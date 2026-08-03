@@ -28,6 +28,12 @@ export function hasGlyph(status: TaskStatus): boolean {
   return status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
+/** Unread output and states that need a person use the same title weight as
+ *  selection. The status glyph still carries the specific reason. */
+export function sidebarTitleNeedsEmphasis(status: TaskStatus, unread: boolean): boolean {
+  return unread || hasGlyph(status)
+}
+
 /**
  * `markedDone` is the user's own verdict and only survives while the task is at
  * rest — the moment it wants something or starts working again, the agent's
@@ -67,7 +73,11 @@ export function formatElapsed(ms: number): string {
 }
 
 export interface SidebarTask {
-  /** Branch key — stable identity across re-sorts and mode switches. */
+  /** Stable renderer identity. Unlike the branch key, this survives worktree
+   *  resolution and closing any one session within the task. */
+  id: string
+  /** Current branch key. This is navigation data and may change while a
+   *  pending worktree resolves. */
   key: string
   title: string
   projectKey: string
@@ -88,6 +98,39 @@ export interface SidebarTask {
   tabIds: string[]
 }
 
+export type SidebarTaskData = Omit<SidebarTask, 'id'>
+
+/** Assign one stable renderer identity to each current task. A task keeps its
+ *  identity while any session remains in it, even if its branch key changes or
+ *  its lead session closes. If one task temporarily splits while environments
+ *  resolve, each rendered row still receives a unique identity. */
+export function identifySidebarTasks(
+  identityByTabId: Map<string, string>,
+  tasks: SidebarTaskData[],
+): SidebarTask[] {
+  const claimedIds = new Set<string>()
+  const liveTabIds = new Set<string>()
+
+  const identified = tasks.map((task) => {
+    const previousId = task.tabIds
+      .map((tabId) => identityByTabId.get(tabId))
+      .find((id) => id !== undefined && !claimedIds.has(id))
+    const id = previousId ?? task.tabIds.find((tabId) => !claimedIds.has(tabId)) ?? task.key
+
+    claimedIds.add(id)
+    for (const tabId of task.tabIds) {
+      liveTabIds.add(tabId)
+      identityByTabId.set(tabId, id)
+    }
+    return { ...task, id }
+  })
+
+  for (const tabId of identityByTabId.keys()) {
+    if (!liveTabIds.has(tabId)) identityByTabId.delete(tabId)
+  }
+  return identified
+}
+
 /**
  * Preserve row model identity when a sidebar recomputation produced the same
  * task data. Selection clears one tab's unread flag; without structural
@@ -95,15 +138,16 @@ export interface SidebarTask {
  * whole column update.
  */
 export function reconcileSidebarTasks(
-  previousByKey: Map<string, SidebarTask>,
+  previousById: Map<string, SidebarTask>,
   nextTasks: SidebarTask[],
 ): SidebarTask[] {
-  const liveKeys = new Set<string>()
+  const liveIds = new Set<string>()
   const reconciled = nextTasks.map((next) => {
-    liveKeys.add(next.key)
-    const previous = previousByKey.get(next.key)
+    liveIds.add(next.id)
+    const previous = previousById.get(next.id)
     if (
       previous &&
+      previous.key === next.key &&
       previous.title === next.title &&
       previous.projectKey === next.projectKey &&
       previous.projectLabel === next.projectLabel &&
@@ -118,12 +162,12 @@ export function reconcileSidebarTasks(
     ) {
       return previous
     }
-    previousByKey.set(next.key, next)
+    previousById.set(next.id, next)
     return next
   })
 
-  for (const key of previousByKey.keys()) {
-    if (!liveKeys.has(key)) previousByKey.delete(key)
+  for (const id of previousById.keys()) {
+    if (!liveIds.has(id)) previousById.delete(id)
   }
   return reconciled
 }
@@ -227,30 +271,31 @@ export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[]
 
 export type ViewMode = 'flat' | 'grouped'
 
-/** In flat mode every task carries its project name under the title — the row
- *  is the only place that fact lands when the column mixes projects. Grouped
- *  mode lifts the project up into the section header instead, so the per-row
- *  line is dropped there. A filter names the project in the list header but does
- *  not change the row: each one still states its own project. */
-export function showsProjectLine(mode: ViewMode): boolean {
-  return mode === 'flat'
+/** Show the per-row project only when the flat list actually mixes projects.
+ *  A group heading, project filter, or single-project list already supplies
+ *  that context, so repeating it inside every task is noise. */
+export function showsProjectLine(
+  mode: ViewMode,
+  projectFilter: string | null,
+  projectCount: number,
+): boolean {
+  return mode === 'flat' && projectFilter === null && projectCount > 1
 }
 
 export type TrailingSlot = 'status' | 'elapsed' | 'pr' | 'none'
 
 /**
- * One slot, one occupant. A PR is the loudest fact a task carries — it is where
- * the work is going — so once a task has one, that is all the margin shows: the
- * status glyph and the timer both yield to it. Without a PR the slot falls back
- * to the glyph, then to the elapsed readout.
+ * One slot, one occupant. Live status wins because it says what needs attention
+ * now; running time comes next; a PR is standing context for an otherwise idle
+ * task. The PR chip alone yields to hover actions.
  *
  * The chip still steps aside on hover (that swap is CSS) to make room for the
  * row's actions.
  */
 export function trailingSlot(status: TaskStatus, hasPr: boolean, hovered: boolean): TrailingSlot {
-  if (hasPr && !hovered) return 'pr'
   if (hasGlyph(status)) return 'status'
   if (status === 'running') return 'elapsed'
+  if (hasPr && !hovered) return 'pr'
   return 'none'
 }
 

@@ -194,7 +194,7 @@
 
 <style>
   .peek {
-    flex: 0 0 21.25rem;
+    flex: 0 0 42.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.6875rem;

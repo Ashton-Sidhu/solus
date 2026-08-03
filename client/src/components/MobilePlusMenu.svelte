@@ -285,7 +285,7 @@
         <button
           class={listRow}
           onclick={() => handleAction(() => {
-            if (session.settingsOpen) session.closeSettings();
+            if (session.router.at("settings")) session.closeSettings();
             else session.showSettings();
           })}
         >

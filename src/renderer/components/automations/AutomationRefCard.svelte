@@ -24,7 +24,7 @@
   }
 
   function openSecondary() {
-    session.openAutomationBuilderSecondary(ref.automationId);
+    session.openAutomationBuilder(ref.automationId, "aside");
   }
 </script>
 

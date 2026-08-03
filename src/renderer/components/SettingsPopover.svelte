@@ -93,7 +93,7 @@
       if (!open) updatePos();
       open = !open;
     } else {
-      if (session.settingsOpen) {
+      if (session.router.at('settings')) {
         session.closeSettings();
       } else {
         session.showSettings();
@@ -124,7 +124,7 @@
 
   async function handleToggle() {
     if (!isPillMode) {
-      if (session.settingsOpen) {
+      if (session.router.at('settings')) {
         session.closeSettings();
       } else {
         session.showSettings();

@@ -1,6 +1,12 @@
 <script lang="ts">
-  import { CheckIcon, DotsThreeIcon } from "phosphor-svelte";
+  import {
+    ArrowSquareOutIcon,
+    CheckIcon,
+    DotsThreeIcon,
+  } from "phosphor-svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
+  import ClaudeIcon from "../../ClaudeIcon.svelte";
+  import OpenAIBlossom from "../../pickers/OpenAIBlossom.svelte";
   import type { AgentConversationRef } from "../../../../shared/types";
   import { getWorkspaceContext } from "../../../contexts";
   import { agentLabel } from "../../../lib/agentAvailability";
@@ -10,7 +16,6 @@
     agentConversationElapsedMs,
     agentConversationTitle,
     agentMessages,
-    agentMonogram,
     directionFlow,
     formatAgentConversationDuration,
     hostLabelFor,
@@ -26,8 +31,8 @@
 
   /**
    * This session's conversation with one other agent's session — one card per
-   * exchange per turn, never one per message. The other agent gets colour and a
-   * glyph; you get neither, which is the single rule that answers "which agent
+   * exchange per turn, never one per message. The other agent gets its provider
+   * mark and colour; you get neither, which is the single rule that answers "which agent
    * is which". Host, worktree, model and session id never render here: they live
    * behind Open session and the ⋯ menu.
    */
@@ -190,9 +195,21 @@
       </svg>
     </button>
     <span
-      class="flex items-center justify-center shrink-0 size-6 rounded-[7px] text-[11px] font-semibold bg-[color-mix(in_oklch,var(--agent-accent)_17%,transparent)] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
+      class="flex items-center justify-center shrink-0 size-6 rounded-[7px] {provider ===
+      'codex'
+        ? 'bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]'
+        : provider === 'claude-code'
+          ? 'bg-[color-mix(in_srgb,#c15f2c_12%,transparent)] text-[#c15f2c] shadow-[inset_0_0_0_1px_color-mix(in_srgb,#c15f2c_18%,transparent)]'
+          : 'bg-[color-mix(in_oklch,var(--agent-accent)_17%,transparent)] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
+      aria-label="{agentName} session"
     >
-      {agentMonogram(provider)}
+      {#if provider === "codex"}
+        <OpenAIBlossom size={14} />
+      {:else if provider === "claude-code"}
+        <ClaudeIcon size={14} />
+      {:else}
+        <span class="text-[11px] font-semibold">Oc</span>
+      {/if}
     </span>
     <span
       class="shrink-0 text-[14px] font-semibold tracking-[-0.01em] text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
@@ -274,20 +291,17 @@
         {messageCount}
         {messageCount === 1 ? "message" : "messages"}
       </span>
-      {#if !neverStarted}
-        <!-- The footer is live-only, so at rest Open session lives up here —
-             the transcript outlives the exchange. -->
-        <button
-          class="shrink-0 rounded-[7px] px-2 py-1 text-[12px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
-          onclick={(e) =>
-            open({ split: e.metaKey || e.ctrlKey, background: e.shiftKey })}
-        >
-          Open session
-        </button>
-      {/if}
     {/if}
 
     {#if !neverStarted}
+      <button
+        class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer transition-[background-color,color,scale] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground active:scale-[0.96]"
+        title="Open session in a new tab"
+        aria-label="Open {agentName} session in a new tab"
+        onclick={() => open()}
+      >
+        <ArrowSquareOutIcon size={14} />
+      </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
           class="flex items-center justify-center shrink-0 size-[26px] rounded-[7px] text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"

@@ -18,11 +18,11 @@ function resolvePlanTabId(ctx: WorkspaceContext, plan: Plan): string {
 }
 
 export function clearPlanWaiting(ctx: WorkspaceContext, sessionId: string): void {
-  const planId = ctx.panes.activePlanId
+  const planId = ctx.router.params('plan')?.planId
   if (!planId) return
   const plan = ctx.planStore.plans[planId]
   if (plan?.sessionId === sessionId && plan.status !== 'pending') {
-    ctx.panes.close()
+    ctx.router.close('plan')
   }
 }
 
@@ -34,11 +34,10 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
   let targetPlanId = planId || (ref?.sessionId && ref.planToolUseId ? planKey(ref.sessionId, ref.planToolUseId) : '')
   if (!targetPlanId) return
 
-  // `secondary` forces the plan beside the conversation in the secondary pane
-  // (the conversation-ref "pop out to side" action); otherwise it takes Focus.
+  // `secondary` forces the plan beside the conversation (the conversation-ref
+  // "pop out to side" action); otherwise it takes the focused pane.
   const reveal = (id: string) => {
-    if (opts.secondary) ctx.panes.moveToSecondary({ kind: 'plan', planId: id })
-    else ctx.panes.openPlan(id)
+    ctx.openPlan(id, opts.secondary ? 'aside' : 'focused')
     ctx.isExpanded = true
   }
 
@@ -74,13 +73,13 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
 
   // Nothing on disk: retract the surface rather than leave it loading forever
   // — unless the user has already moved it on to something else.
-  if (!ctx.planStore.plans[targetPlanId]?.content?.trim() && ctx.panes.activePlanId === targetPlanId) {
-    ctx.panes.close()
+  if (!ctx.planStore.plans[targetPlanId]?.content?.trim() && ctx.router.params('plan')?.planId === targetPlanId) {
+    ctx.router.close('plan')
   }
 }
 
 export function closePlanModal(ctx: WorkspaceContext): void {
-  ctx.panes.close()
+  ctx.router.close('plan')
 }
 
 export function requestConversationScrollToBottom(tabId: string): void {
@@ -326,9 +325,9 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
   const planId = planKey(d.sessionId, d.planToolUseId)
   const existing = findOpenTabForSession(d.sessionId, ctx.tabs, ctx.sessions, ctx.tabOrder, d.provider)
   if (existing) {
-    ctx.workspacePageOpen = false
+    ctx.router.close('folio')
     ctx.selectTab(existing)
-    ctx.panes.openPlan(planId)
+    ctx.openPlan(planId)
     ctx.isExpanded = true
     await loadDescriptorPlan(ctx, d)
     // Reveal (already done) plus annotation hydration, and the retract if the
@@ -339,13 +338,13 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
 
   // The gallery card gives way to the plan surface's skeleton straight away —
   // the descriptor already names the plan, only its body has to come off disk.
-  ctx.workspacePageOpen = false
+  ctx.router.close('folio')
   ctx.planStore.previewDescriptor = d
-  ctx.panes.openPlan(planId)
+  ctx.openPlan(planId)
 
   await loadDescriptorPlan(ctx, d)
 
-  if (ctx.panes.activePlanId !== planId) return
+  if (ctx.router.params('plan')?.planId !== planId) return
   if (ctx.planStore.plans[planId]?.content?.trim()) ctx.planStore.openPreview(planId)
   else closePlanPreview(ctx)
 }
@@ -360,14 +359,14 @@ export async function resumeFromPreview(ctx: WorkspaceContext): Promise<void> {
 
 export function closePlanPreview(ctx: WorkspaceContext): void {
   ctx.planStore.dismissPreview()
-  ctx.workspacePageOpen = true
+  ctx.openFolio()
 }
 
 export async function resumeSessionFromDescriptor(ctx: WorkspaceContext, d: PlanDescriptor): Promise<void> {
   ctx.planStore.dismissPreview()
   await loadDescriptorPlan(ctx, d)
   const tabId = await loadOrFindTab(ctx, d.sessionId, d.cwd, d.projectPath, d.provider, d.title)
-  ctx.workspacePageOpen = false
+  ctx.router.close('folio')
   closePlanModal(ctx)
   setTimeout(() => requestConversationScrollToBottom(tabId), 50)
 }

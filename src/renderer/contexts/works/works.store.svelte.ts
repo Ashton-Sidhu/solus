@@ -17,6 +17,9 @@ export class WorksStore {
    *  (provisional, not yet persisted). The card renders a generating skeleton
    *  while this is true; cleared on finalize. */
   streaming = $state<Record<string, boolean>>({})
+  /** True while a listWorks load is in flight, so surfaces that show works
+   *  alongside slower data (the Workspace ledger) can say so. */
+  listLoading = $state(false)
   private annotationLoadTokens = new Map<string, number>()
   private previousLoadTokens = new Map<string, number>()
   private nextLoadToken = 0
@@ -245,9 +248,11 @@ export class WorksStore {
         logWorkLoad('error', 'work list load failed', { cwd: targetCwd, error: formatError(err) })
       } finally {
         this.listLoads.delete(targetCwd)
+        this.listLoading = this.listLoads.size > 0
       }
     })()
     this.listLoads.set(targetCwd, load)
+    this.listLoading = true
     return load
   }
 

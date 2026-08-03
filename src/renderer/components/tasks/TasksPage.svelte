@@ -58,7 +58,7 @@
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
 
-  const open = $derived(session.tasksOpen);
+  const open = $derived(session.router.at("tasks"));
   const cwd = $derived(session.tasksProjectCwd);
 
   // Resolved provider (unset defaults to local). Local + GitHub support create;
@@ -142,7 +142,7 @@
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = serverConnections.eventsFor().subscribe('tasks.invalidated', ({ projectRoot: changedCwd }) => {
-      if (!session.tasksOpen || !session.tasksProjectCwd) return;
+      if (!open || !session.tasksProjectCwd) return;
       if (changedCwd !== session.tasksProjectCwd) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -203,7 +203,7 @@
     void (async () => {
       await projectConfig.load(currentCwd);
       const health = await store.loadProviderStatus(currentCwd);
-      if (epoch !== taskLoadEpoch || !session.tasksOpen || session.tasksProjectCwd !== currentCwd) return;
+      if (epoch !== taskLoadEpoch || !open || session.tasksProjectCwd !== currentCwd) return;
       configReady = true;
       if (!health.ok) return;
       await store.load(currentCwd, { assignedToMe: mine });
@@ -221,14 +221,17 @@
     }
   });
 
-  // "Go to task…" from the palette: once the list is loaded, open the requested
-  // task's detail and clear the focus request (whether or not it was found).
+  // "Go to task…" from the palette: the task id is this page's route param, so
+  // opening its detail is a reaction to the param changing rather than a
+  // one-shot request the page has to drain. Tracked locally so browsing away
+  // from that task inside the page doesn't snap back to it.
+  let openedTaskId: string | null = null;
   $effect(() => {
-    const focusId = session.ui.tasksFocusId;
-    if (!open || !focusId || !store.loaded) return;
-    const task = store.tasks.find((t) => t.id === focusId);
+    const taskId = session.router.params("tasks")?.taskId ?? null;
+    if (!open || !store.loaded || taskId === openedTaskId) return;
+    openedTaskId = taskId;
+    const task = taskId ? store.tasks.find((t) => t.id === taskId) : null;
     if (task) detailTask = task;
-    session.ui.tasksFocusId = null;
   });
 
   useScope("tasks", { active: () => open });
@@ -248,7 +251,7 @@
   );
 
   function close() {
-    session.tasksOpen = false;
+    session.router.close("tasks");
     requestInputFocus();
   }
 
@@ -297,13 +300,11 @@
   function onStart(task: Task) {
     detailTask = null;
     void session.openTaskSession(task);
-    session.tasksOpen = false;
   }
 
   function onResume(task: Task) {
     detailTask = null;
     void session.openTaskLinkedSession(task);
-    session.tasksOpen = false;
   }
 
   function onOpenLink(task: Task) {

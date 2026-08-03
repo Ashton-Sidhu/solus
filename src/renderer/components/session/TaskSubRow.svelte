@@ -5,7 +5,12 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
-  import { formatElapsed, hasGlyph, taskStatusFor } from "./lib/task-list";
+  import {
+    formatElapsed,
+    hasGlyph,
+    sidebarTitleNeedsEmphasis,
+    taskStatusFor,
+  } from "./lib/task-list";
 
   interface Props {
     child: SidebarSessionChild;
@@ -34,6 +39,10 @@
   }: Props = $props();
 
   const status = $derived(taskStatusFor(child.attention));
+  const titleIsEmphasized = $derived(
+    selected ||
+      sidebarTitleNeedsEmphasis(status, child.attention === "unread"),
+  );
   const runStartedAt = $derived(child.runStartedAt);
 
   let now = $state(Date.now());
@@ -79,10 +88,12 @@
     />
   {:else}
     <span
-      class="min-w-0 flex-1 overflow-hidden text-[0.78125rem] text-ellipsis whitespace-nowrap transition-opacity duration-150 {onPath
+      class="min-w-0 flex-1 overflow-hidden text-[0.78125rem] text-ellipsis whitespace-nowrap transition-opacity duration-150 {titleIsEmphasized
+        ? 'font-[560]'
+        : ''} {onPath
         ? 'opacity-100'
         : 'opacity-40 group-hover/task:opacity-100'} {selected
-        ? 'font-[560] text-foreground'
+        ? 'text-foreground'
         : 'text-muted-foreground'}">{child.label}</span
     >
   {/if}

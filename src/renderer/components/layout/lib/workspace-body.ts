@@ -1,9 +1,6 @@
-import type { PaneContent, PaneSlot } from '../../../contexts/workspace/pane-view.store.svelte'
+import { isArtifactRoute, isPageRoute, type RouteRef } from '../../../contexts/workspace/routing/route-registry'
 import type { Session, Tab } from '../../../../shared/types'
 import { paneBoundsPercent, pixelsToPercent } from '../../../lib/resizablePane'
-
-export const SECONDARY_CONTENT_DELAY_MS = 90
-export const SECONDARY_SHELL_EXIT_MS = 140
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
 export const MIN_SECONDARY_PANE_WIDTH = 360
@@ -190,19 +187,24 @@ export function visibleWorkspaceTabIds(
   )
 }
 
-export function isSecondaryContentVisible(
-  content: PaneContent,
-  workspace: Pick<WorkspaceTabs, 'sessionFor'>,
-): boolean {
-  return content.kind !== 'empty' &&
-    (content.kind !== 'diff' || !!content.cwd || !!workspace.sessionFor(content.sourceTabId)?.workingDirectory)
+/**
+ * Surfaces that read as a framed document beside the thread rather than as
+ * another live column — they get the border and the stepped-back background.
+ */
+export function isFramedRoute(ref: RouteRef | null): boolean {
+  return isArtifactRoute(ref) || isPageRoute(ref) || ref?.name === 'review'
 }
 
-export function focusedSplitChatTabId(
-  content: PaneContent,
-  focusedPane: PaneSlot,
-  splitTabId: string | null,
-): string | null {
-  if (content.kind !== 'conversation' || !content.tabId) return null
-  return focusedPane === 'secondary' && content.tabId === splitTabId ? content.tabId : null
+/**
+ * A companion pane earns its width once it has something to show. A diff whose
+ * source session has no working directory has nothing to diff, so the pane stays
+ * closed rather than opening onto an error.
+ */
+export function isCompanionVisible(
+  ref: RouteRef | null,
+  workspace: Pick<WorkspaceTabs, 'sessionFor'>,
+): boolean {
+  if (!ref) return false
+  if (ref.name === 'diff') return !!workspace.sessionFor(ref.params.sourceTabId)?.workingDirectory
+  return true
 }

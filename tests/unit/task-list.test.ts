@@ -4,9 +4,11 @@ import {
   buildProjectSummaries,
   formatElapsed,
   groupTasks,
+  identifySidebarTasks,
   prChipFor,
   projectInitial,
   reconcileSidebarTasks,
+  sidebarTitleNeedsEmphasis,
   showsProjectLine,
   sortTasks,
   taskStatusFor,
@@ -21,6 +23,7 @@ function task(
   overrides: Partial<SidebarTask> = {},
 ): SidebarTask {
   return {
+    id: key,
     key,
     title: key,
     projectKey: '/repos/solus',
@@ -59,12 +62,12 @@ describe('reconcileSidebarTasks', () => {
   it('keeps unrelated row models stable when one task clears its unread state', () => {
     const first = task('first', 'idle', { unread: true })
     const second = task('second', 'running')
-    const previousByKey = new Map([
-      [first.key, first],
-      [second.key, second],
+    const previousById = new Map([
+      [first.id, first],
+      [second.id, second],
     ])
 
-    const reconciled = reconcileSidebarTasks(previousByKey, [
+    const reconciled = reconcileSidebarTasks(previousById, [
       task('first', 'idle', { unread: false }),
       task('second', 'running'),
     ])
@@ -76,14 +79,60 @@ describe('reconcileSidebarTasks', () => {
   it('drops closed task models from the identity cache', () => {
     const first = task('first', 'idle')
     const second = task('second', 'idle')
-    const previousByKey = new Map([
-      [first.key, first],
-      [second.key, second],
+    const previousById = new Map([
+      [first.id, first],
+      [second.id, second],
     ])
 
-    reconcileSidebarTasks(previousByKey, [task('second', 'idle')])
+    reconcileSidebarTasks(previousById, [task('second', 'idle')])
 
-    expect([...previousByKey.keys()]).toEqual(['second'])
+    expect([...previousById.keys()]).toEqual(['second'])
+  })
+})
+
+describe('identifySidebarTasks', () => {
+  it('preserves renderer identity across branch rename and lead-session close', () => {
+    const identityByTabId = new Map<string, string>()
+    const [pending] = identifySidebarTasks(identityByTabId, [
+      task('/repos/solus::main', 'running', { tabIds: ['tab-1', 'tab-2'] }),
+    ])
+    const [resolved] = identifySidebarTasks(identityByTabId, [
+      task('/repos/solus::feature/session-name (worktree)', 'running', {
+        tabIds: ['tab-2'],
+      }),
+    ])
+
+    expect(resolved.id).toBe(pending.id)
+  })
+
+  it('gives temporarily split tasks distinct renderer identities', () => {
+    const identityByTabId = new Map<string, string>()
+    identifySidebarTasks(identityByTabId, [
+      task('pending', 'running', { tabIds: ['tab-1', 'tab-2'] }),
+    ])
+
+    const split = identifySidebarTasks(identityByTabId, [
+      task('resolved', 'running', { tabIds: ['tab-1'] }),
+      task('pending', 'running', { tabIds: ['tab-2'] }),
+    ])
+
+    expect(new Set(split.map((item) => item.id)).size).toBe(2)
+  })
+
+  it('preserves identity when a task gains another session and forgets closed sessions', () => {
+    const identityByTabId = new Map<string, string>()
+    const [initial] = identifySidebarTasks(identityByTabId, [
+      task('main', 'idle', { tabIds: ['tab-1'] }),
+    ])
+    const [expanded] = identifySidebarTasks(identityByTabId, [
+      task('main', 'idle', { tabIds: ['tab-1', 'tab-2'] }),
+    ])
+
+    expect(expanded.id).toBe(initial.id)
+    expect(identityByTabId.get('tab-2')).toBe(initial.id)
+
+    identifySidebarTasks(identityByTabId, [])
+    expect(identityByTabId.size).toBe(0)
   })
 })
 
@@ -270,6 +319,22 @@ describe('taskStatusFor', () => {
     expect(taskStatusFor('unread', true)).toBe('done')
     expect(taskStatusFor('running', true)).toBe('running')
     expect(taskStatusFor('awaiting', true)).toBe('question')
+  })
+})
+
+describe('sidebarTitleNeedsEmphasis', () => {
+  it('matches selected title weight for unread output and user-attention states', () => {
+    expect(sidebarTitleNeedsEmphasis('idle', true)).toBe(true)
+    expect(sidebarTitleNeedsEmphasis('question', false)).toBe(true)
+    expect(sidebarTitleNeedsEmphasis('plan', false)).toBe(true)
+    expect(sidebarTitleNeedsEmphasis('limit', false)).toBe(true)
+    expect(sidebarTitleNeedsEmphasis('error', false)).toBe(true)
+  })
+
+  it('keeps running, idle, and done titles at their normal weight', () => {
+    expect(sidebarTitleNeedsEmphasis('running', false)).toBe(false)
+    expect(sidebarTitleNeedsEmphasis('idle', false)).toBe(false)
+    expect(sidebarTitleNeedsEmphasis('done', false)).toBe(false)
   })
 })
 

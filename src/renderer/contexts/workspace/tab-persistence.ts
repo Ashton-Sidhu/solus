@@ -100,6 +100,10 @@ export interface PersistedTabs {
   activeTabId: string
   tabOrder: string[]
   tabs: PersistedTab[]
+  /** The serialized location — which routes were in which panes. Rides the same
+   *  debounced write as the tabs, so there is one writer, not two. Absent in
+   *  snapshots written before the workspace had a location. */
+  location?: string
 }
 
 export function loadPersistedTabs(): PersistedTabs | null {

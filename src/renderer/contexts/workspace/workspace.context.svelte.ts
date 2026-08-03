@@ -18,9 +18,12 @@ import { StacksStore } from '../prs/stacks.store.svelte'
 import { type Task } from '../../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from '../app/toast.store.svelte'
-import { PaneViewStore, type SplitOpenOptions } from './pane-view.store.svelte'
+import { RouterStore } from './routing/router.store.svelte'
+import { PaneGeometryStore } from './routing/pane-geometry.store.svelte'
+import { visibleRef, type NavTarget, type PaneId } from './routing/location'
+import { CHAT_ROUTE, chatRoute, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
-import { WorkspaceUiStore, type SettingsTab } from './workspace-ui.store.svelte'
+import { WorkspaceUiStore } from './workspace-ui.store.svelte'
 import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
 import { TabRegistry } from './tab-registry.svelte'
@@ -36,6 +39,8 @@ import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
 import { applySessionTitleChange } from './session-title-change'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
+import type { DiffScope } from '../../../shared/git-types'
+import type { FilePreviewRequest } from '../../lib/filePreview'
 import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
@@ -116,8 +121,11 @@ export class WorkspaceContext {
   tasksStore = new TasksStore()
   prsStore = new PrsStore()
   stacksStore = new StacksStore()
-  /** Global two-pane view state — not per-tab. */
-  panes = new PaneViewStore()
+  /** Where the workspace is: which routes are in which panes, plus history.
+   *  Global — not per-tab. */
+  router = new RouterStore()
+  /** How wide those panes are, and whether one is maximized. */
+  geometry = new PaneGeometryStore()
   ui: WorkspaceUiStore
   config: SessionConfigController
   onTurnSettled?: (tabId: string, cwd: string | null) => void
@@ -172,8 +180,8 @@ export class WorkspaceContext {
       loadTranscript: (args) => loadSessionTranscript(this, args),
       rebuildAgentConversations: (session) => this.eventReducer.rebuildAgentConversations(session),
     })
-    this.ui = new WorkspaceUiStore(this.panes, this.planStore)
-    this.workStreamTracker = new WorkStreamTracker(this.worksStore, this.panes)
+    this.ui = new WorkspaceUiStore()
+    this.workStreamTracker = new WorkStreamTracker(this.worksStore, this.router)
     this.eventReducer = new SessionEventReducer({
       registry: this.registry,
       settings: this.settings,
@@ -260,33 +268,29 @@ export class WorkspaceContext {
   get activeTabId(): string { return this.registry.activeTabId }
   set activeTabId(value: string) { this.registry.activeTabId = value }
   get focusedChatTabId(): string | null {
-    return this.panes.chatTabIn(this.panes.focusedPane, this.activeTabId)
+    return this.router.chatTabIn(this.router.focusedPaneId, this.activeTabId)
+  }
+
+  /** The chat pinned into a companion pane, if any — the "split chat". */
+  get splitChatTabId(): string | null {
+    for (const pane of this.router.asidePanes) {
+      const tabId = this.router.chatTabIn(pane.id, this.activeTabId)
+      if (tabId) return tabId
+    }
+    return null
+  }
+
+  /** The pane holding the split chat, for focus and close operations. */
+  private get splitChatPaneId(): PaneId | null {
+    return this.router.asidePanes.find((pane) => pane.base?.name === 'chat')?.id ?? null
   }
   get activeInput(): InputState { return this.registry.activeInput }
   set activeInput(value: InputState) { this.registry.activeInput = value }
   get lastActiveTabByBranch() { return this.registry.lastActiveTabByBranch }
   get isExpanded(): boolean { return this.ui.isExpanded }
   set isExpanded(value: boolean) { this.ui.isExpanded = value }
-  get workspacePageOpen(): boolean { return this.ui.workspacePageOpen }
-  set workspacePageOpen(value: boolean) { this.ui.workspacePageOpen = value }
   get sessionPickerOpen(): boolean { return this.ui.sessionPickerOpen }
   set sessionPickerOpen(value: boolean) { this.ui.sessionPickerOpen = value }
-  get settingsOpen(): boolean { return this.ui.settingsOpen }
-  set settingsOpen(value: boolean) { this.ui.settingsOpen = value }
-  get settingsTab(): SettingsTab { return this.ui.settingsTab }
-  set settingsTab(value: SettingsTab) { this.ui.settingsTab = value }
-  get settingsProjectCwd(): string | null { return this.ui.settingsProjectCwd }
-  set settingsProjectCwd(value: string | null) { this.ui.settingsProjectCwd = value }
-  get automationsOpen(): boolean { return this.ui.automationsOpen }
-  set automationsOpen(value: boolean) { this.ui.automationsOpen = value }
-  get automationsFocusId(): string | null { return this.ui.automationsFocusId }
-  set automationsFocusId(value: string | null) { this.ui.automationsFocusId = value }
-  get tasksOpen(): boolean { return this.ui.tasksOpen }
-  set tasksOpen(value: boolean) { this.ui.tasksOpen = value }
-  get prsOpen(): boolean { return this.ui.prsOpen }
-  set prsOpen(value: boolean) { this.ui.prsOpen = value }
-  get prsProjectTarget(): { path: string; requestId: number } | null { return this.ui.prsProjectTarget }
-  get reviewModeOpen(): boolean { return this.ui.reviewModeOpen }
   /** The project the tasks page lists tickets for — the project shown in the
    *  status bar: the active session's cwd, or the global default when no session
    *  is active (e.g. a new-tab home with a project selected). Only one project's
@@ -318,22 +322,27 @@ export class WorkspaceContext {
   private setActiveTab(tabId: string): void {
     this.registry.setActiveTab(tabId)
     prioritizeTabHydration(this, tabId)
-    if (this.panes.primaryContent.kind === 'review') {
-      this.panes.primaryContent = { kind: 'conversation' }
-    }
+    // A review guide belongs to the session it was generated from, so moving to
+    // another tab leaves it rather than showing a stale walkthrough.
+    this.router.close('review')
   }
 
   private isTabVisible(tabId: string): boolean {
     const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
-    // A chat pinned in the split pane is on screen too — but only in editor/web,
-    // where the secondary pane actually renders.
-    const secondary = this.panes.secondaryContent
-    if (editorLike && secondary.kind === 'conversation' && secondary.tabId === tabId) return true
+    // A chat pinned in a companion pane is on screen too — but only in
+    // editor/web, where companion panes actually render.
+    if (editorLike && this.router.asidePanes.some((pane) => pane.base?.name === 'chat' && pane.base.params.tabId === tabId)) {
+      return true
+    }
     return tabId === this.activeTabId && (editorLike || this.isExpanded)
   }
 
+  /** Leave whatever page (and optionally artifact) is showing — what selecting
+   *  another tab or creating one does, so the new conversation is what you see. */
   private resetOverlays(opts: { closeArtifact?: boolean } = {}): void {
-    this.ui.resetOverlays(opts)
+    this.router.closeGroup('page')
+    if (opts.closeArtifact) this.router.closeGroup('artifact')
+    this.planStore.dismissPreview()
   }
 
   lastActiveTabForBranch(branchKey: string): string | null {
@@ -566,10 +575,11 @@ export class WorkspaceContext {
    *  mobile web shell have no rail, so the goal takes the secondary pane. */
   revealGoal(tabId: string): void {
     if (this.window.viewMode !== 'editor') {
-      this.panes.openGoal(tabId)
+      this.router.navigate({ name: 'goal', params: { tabId } }, { target: 'aside' })
+      this.geometry.open(this.router.focusedPaneId, 0.34)
       return
     }
-    const isSplit = tabId === this.panes.chatTabIn('secondary', this.activeTabId)
+    const isSplit = tabId === this.splitChatTabId
     const collapsed = isSplit ? this.settings.splitProjectPanelCollapsed : this.settings.projectPanelCollapsed
     collapsed.goal = false
     this.settings.update(isSplit
@@ -818,14 +828,14 @@ export class WorkspaceContext {
     const draft = quotedReplyDraft(selectedText)
     if (!draft || !this.sessionFor(sourceTabId)?.agentSessionId) return
 
-    const splitTabId = this.panes.chatTabIn('secondary', this.activeTabId)
+    const splitTabId = this.splitChatTabId
     if (splitTabId === sourceTabId) this.promoteSplitToMainTab()
     else if (sourceTabId !== this.activeTabId) this.selectTab(sourceTabId)
 
     const forkTabId = await this.forkTab(sourceTabId, { activate: false })
     if (!forkTabId) return
     this.tabs[forkTabId].input.text = draft
-    this.panes.openSplitChat(forkTabId)
+    this.openSplitChat(forkTabId)
     requestInputFocus({ tabId: forkTabId })
   }
 
@@ -892,8 +902,9 @@ export class WorkspaceContext {
   }
 
   selectTab(tabId: string, via: Via = 'click'): void {
-    if (tabId === this.panes.chatTabIn('secondary', this.activeTabId)) {
-      this.panes.focusPane('secondary')
+    if (tabId === this.splitChatTabId) {
+      const paneId = this.splitChatPaneId
+      if (paneId) this.router.focusPane(paneId)
       const secondarySession = this.sessionFor(tabId)
       if (secondarySession) void this.refreshPluginCommands(secondarySession.workingDirectory, tabId)
       requestInputFocus({ tabId })
@@ -959,14 +970,20 @@ export class WorkspaceContext {
       }
     }
     tab.hasUnread = false
-    this.panes.openSplitChat(tabId)
+    this.openSplitChat(tabId)
     track('tab_split_opened', {})
     requestInputFocus({ tabId })
   }
 
-  /** Move the split chat back into the primary tab pool. */
+  /** Pin a chat into a companion pane beside the leading conversation. */
+  openSplitChat(tabId: string): void {
+    const pane = this.router.navigate(chatRoute(tabId), { target: 'aside' })
+    this.geometry.open(pane.id)
+  }
+
+  /** Move the split chat back into the leading pane's tab pool. */
   promoteSplitToMainTab(): void {
-    const splitTabId = this.panes.chatTabIn('secondary', this.activeTabId)
+    const splitTabId = this.splitChatTabId
     if (!splitTabId) return
     const splitTab = this.tabs[splitTabId]
     const splitSession = this.sessionFor(splitTabId)
@@ -975,7 +992,7 @@ export class WorkspaceContext {
     this.setActiveTab(splitTabId)
     this.isExpanded = true
     splitTab.hasUnread = false
-    this.panes.closeSecondary()
+    this.closeSplitPane()
     if (splitSession.provider && this.settings.activeAgent !== splitSession.provider) {
       this.settings.update({ activeAgent: splitSession.provider })
     }
@@ -984,9 +1001,9 @@ export class WorkspaceContext {
 
   /** Close the pinned chat, discarding only a never-used split-created tab. */
   closeSplitChat(): void {
-    const splitTabId = this.panes.chatTabIn('secondary', this.activeTabId)
+    const splitTabId = this.splitChatTabId
     if (!splitTabId) {
-      this.panes.closeSecondary()
+      this.closeSplitPane()
       return
     }
     const splitTab = this.tabs[splitTabId]
@@ -996,8 +1013,14 @@ export class WorkspaceContext {
       && !!splitSession
       && isPristineSplitTab(splitTab, splitSession)
 
-    this.panes.closeSecondary()
+    this.closeSplitPane()
     if (shouldCloseTab) this.closeTab(splitTabId)
+  }
+
+  /** Close the companion pane holding the split chat, if there is one. */
+  private closeSplitPane(): void {
+    const paneId = this.splitChatPaneId
+    if (paneId) this.router.closePane(paneId)
   }
 
   /** ⌥⇧E: continue the active session in the other mode's window. Writes a
@@ -1062,10 +1085,7 @@ export class WorkspaceContext {
   closeTab(tabId: string, via: Via = 'click'): void {
     const serverId = this.sessionFor(tabId)?.serverId
     this.apiFor(tabId).closeTab(this.ctxFor(tabId))
-    const splitContent = this.panes.secondaryContent
-    if (splitContent.kind === 'conversation' && splitContent.tabId === tabId) {
-      this.panes.closeSecondary()
-    }
+    if (this.splitChatTabId === tabId) this.closeSplitPane()
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
     const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
@@ -1808,21 +1828,27 @@ export class WorkspaceContext {
       if (!(await this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback', cwd))) return
       resolvedId = entry[0]
     }
-    this.workspacePageOpen = false
-    if (opts.secondary) this.panes.moveToSecondary({ kind: 'work', workId: resolvedId })
-    else this.panes.openWork(resolvedId)
+    this.router.close('folio')
+    this.openWork(resolvedId, opts.secondary ? 'aside' : 'focused')
     track('surface_viewed', { surface: 'work_modal', via: opts.via })
   }
 
+  /** Open a work as the single artifact. `aside` puts it beside the
+   *  conversation; otherwise it takes the focused pane. */
+  openWork(workId: string, target: 'focused' | 'aside' = 'focused'): void {
+    const pane = this.router.navigate({ name: 'work', params: { workId } }, { target: this.artifactTarget(target) })
+    if (target === 'aside') this.geometry.open(pane.id)
+  }
+
   closeWorkModal(): void {
-    this.panes.close()
+    this.router.closeGroup('artifact')
   }
 
   /** Delete a work with a brief undo window: close its pane, offer the undo, and
    *  open the store's undo window. The on-disk delete is deferred until the toast
    *  commits — undo is a no-op restore, commit is permanent. */
   requestWorkDelete(work: Work): void {
-    if (this.panes.activeWorkId === work.id) this.panes.close()
+    if (this.router.params('work')?.workId === work.id) this.router.close('work')
     // Show the toast before recording the pending delete: showing commits any
     // toast it replaces (permanently deleting the *previous* pendingWorkDelete),
     // so record ours afterwards to avoid it being wiped by that commit.
@@ -1848,15 +1874,14 @@ export class WorkspaceContext {
     const provider: AgentId = sess?.provider ?? 'claude-code'
     const work = await window.solus.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
     this.worksStore.works[work.id] = work
-    this.workspacePageOpen = false
-    this.panes.openWork(work.id)
+    this.router.close('folio')
+    this.openWork(work.id)
   }
 
   async openChatForWork(workId: string, mode: 'resume' | 'new'): Promise<void> {
     const work = this.worksStore.get(workId)
     if (!work) return
-    this.workspacePageOpen = false
-    this.settingsOpen = false
+    this.router.closeGroup('page')
 
     // Resume targets the most recently linked session (newest in sessionIds),
     // falling back to the legacy origin session.
@@ -1864,7 +1889,7 @@ export class WorkspaceContext {
 
     let targetTabId: string | null = null
     let resumed = false
-    this.panes.moveToSecondary({ kind: 'work', workId })
+    this.openWork(workId, 'aside')
     void this.worksStore.ensureContent(workId, 'open-chat-for-work', this.sessionFor(this.activeTabId)?.workingDirectory)
     if (mode === 'resume' && resumeSid) {
       // find an open tab with this session, else resume from history
@@ -1909,18 +1934,60 @@ export class WorkspaceContext {
     requestInputFocus()
   }
 
-  // ─── Workspace page (plans + docs + diagrams ledger) ───
+  // ─── Pages ───
+  //
+  // A page is a route with `exclusiveGroup: 'page'`, so opening one replaces
+  // whichever page is showing wherever it lives — no flag to clear, no slot to
+  // pick. `showPage` adds the one thing the router does not own: the pill's
+  // expansion, which is shell state rather than a location.
 
-  toggleWorkspacePage(via: Via = 'click'): void {
-    if (this.ui.toggleWorkspacePage()) track('surface_viewed', { surface: 'workspace', via })
+  private showPage(ref: RouteRef, via: Via, surface: string): void {
+    // A page that is already open is replaced where it lives (exclusivity);
+    // a page opening for the first time covers the conversation rather than
+    // taking over whichever companion pane happens to hold focus.
+    this.router.navigate(ref, { via, target: this.router.leadingPane.id })
+    this.isExpanded = true
+    track('surface_viewed', { surface, via })
+  }
+
+  private togglePage(ref: RouteRef, via: Via, surface: string): boolean {
+    if (this.router.at(ref.name)) {
+      this.router.close(ref.name)
+      return false
+    }
+    this.showPage(ref, via, surface)
+    return true
+  }
+
+  // ─── Folio (plans + docs + diagrams ledger) ───
+
+  toggleFolio(via: Via = 'click'): void {
+    this.togglePage({ name: 'folio', params: {} }, via, 'workspace')
+  }
+
+  openFolio(via: Via = 'click'): void {
+    this.showPage({ name: 'folio', params: {} }, via, 'workspace')
+  }
+
+  /** Open a plan as the single artifact. */
+  openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
+    const pane = this.router.navigate({ name: 'plan', params: { planId } }, { target: this.artifactTarget(target) })
+    if (target === 'aside') this.geometry.open(pane.id)
+  }
+
+  /** An artifact opening fresh covers the conversation; `aside` puts it beside
+   *  one. Where an artifact is already open, exclusivity replaces it in place
+   *  and this target is never consulted. */
+  private artifactTarget(target: 'focused' | 'aside'): NavTarget {
+    return target === 'aside' ? 'aside' : this.router.leadingPane.id
   }
 
   // ─── Tasks page ───
 
   toggleTasks(via: Via = 'click'): void {
-    if (this.ui.toggleTasks()) track('surface_viewed', { surface: 'tasks', via })
     // The page's own $effect loads on open (it needs the active project's cwd),
-    // so there's nothing to kick off here — toggling just flips the overlay.
+    // so there's nothing to kick off here — toggling just flips the route.
+    this.togglePage({ name: 'tasks', params: {} }, via, 'tasks')
   }
 
   /** Start a fresh session bound to a task. Mirrors openWorkAndStartSession: open
@@ -1932,7 +1999,7 @@ export class WorkspaceContext {
     const tabId = await this.createTab(cwd)
     const s = this.sessionFor(tabId)
     if (s) s.boundTaskId = task.id
-    this.ui.tasksOpen = false
+    this.router.close('tasks')
     requestInputFocus()
   }
 
@@ -1966,14 +2033,23 @@ export class WorkspaceContext {
     // even though boundTaskId is renderer-only and resets across reloads.
     const s = this.sessionFor(this.activeTabId)
     if (s) s.boundTaskId = task.id
-    this.ui.tasksOpen = false
+    this.router.close('tasks')
     requestInputFocus()
   }
 
-  /** Jump to a task from the command palette: open the Tasks page and let it
-   *  open the task's detail once its list is loaded. */
-  goToTask(task: Task): void {
-    this.ui.openTasksToTask(task.id)
+  /** Jump to a task from the command palette: the task id is the Tasks route's
+   *  param, so the page opens straight into that detail. */
+  goToTask(taskId: string): void {
+    this.showPage({ name: 'tasks', params: { taskId } }, 'palette', 'tasks')
+  }
+
+  openTasks(via: Via = 'click'): void {
+    this.showPage({ name: 'tasks', params: {} }, via, 'tasks')
+  }
+
+  /** Open the standalone create-task modal for a project. */
+  openTaskComposer(cwd: string): void {
+    this.ui.taskComposer = { cwd }
   }
 
   // ─── Pull Requests page ───
@@ -1982,16 +2058,14 @@ export class WorkspaceContext {
   // once. Loading here too would double every `pulls.list` on open (and race the
   // filter reset), so leave the fetch to the page.
   togglePrs(via: Via = 'click'): void {
-    if (this.ui.togglePrs()) {
+    if (this.togglePage({ name: 'prs', params: {} }, via, 'prs')) {
       this.prsStore.needsReviewOnly = false
-      track('surface_viewed', { surface: 'prs', via })
     }
   }
 
   openPrs(projectPath: string | null = null, via: Via = 'click'): void {
     this.prsStore.needsReviewOnly = false
-    this.ui.openPrs(projectPath)
-    track('surface_viewed', { surface: 'prs', via })
+    this.showPage({ name: 'prs', params: { projectPath: projectPath ?? undefined } }, via, 'prs')
   }
 
   async openReviewMode(
@@ -2000,9 +2074,7 @@ export class WorkspaceContext {
   ): Promise<void> {
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
     this.prsStore.beginReviewMode(items.map((item) => item.number), ctx)
-    this.panes.openPage('review-mode')
-    this.isExpanded = true
-    track('surface_viewed', { surface: 'review' })
+    this.showPage({ name: 'reviewMode', params: {} }, 'click', 'review')
   }
 
   /** Single destination seam for review-attention entry points. */
@@ -2017,36 +2089,31 @@ export class WorkspaceContext {
   // ─── Automations page ───
 
   toggleAutomations(via: Via = 'click'): void {
-    if (this.ui.toggleAutomations()) {
-      track('surface_viewed', { surface: 'automations', via })
+    if (this.togglePage({ name: 'automations', params: {} }, via, 'automations')) {
       void this.automationsStore.loadAll()
     }
   }
 
   /** Open the automations page, optionally focused on one automation. In editor
    *  mode a focused automation opens in the side-panel builder; otherwise (and
-   *  for the bare list) the full-page overlay is shown. */
+   *  for the bare list) the full-page list is shown. */
   openAutomations(focusId?: string | null, via: Via = 'click'): void {
-    if (focusId && this.window.viewMode === 'editor') {
-      this.ui.openAutomationBuilder(focusId)
-    } else {
-      this.ui.openAutomations(focusId)
-    }
-    void this.automationsStore.loadAll()
-    track('surface_viewed', { surface: 'automations', via })
-  }
-
-  /** Open one automation directly in the side-panel builder (editor mode). */
-  openAutomationBuilder(automationId: string | null): void {
-    this.ui.openAutomationBuilder(automationId)
+    if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId)
+    else this.showPage({ name: 'automations', params: { automationId: focusId ?? undefined } }, via, 'automations')
     void this.automationsStore.loadAll()
   }
 
-  /** Open an automation from a chat card in the secondary pane. */
-  openAutomationBuilderSecondary(automationId: string, opts: SplitOpenOptions = {}): void {
-    this.ui.openAutomationBuilderSecondary(automationId, opts)
+  /** Open one automation as the single artifact. `aside` puts it beside the
+   *  conversation, which is what an inline chat card wants. */
+  openAutomationBuilder(automationId: string | null, target: 'focused' | 'aside' = 'focused'): void {
+    this.router.closeGroup('page')
+    const pane = this.router.navigate(
+      { name: 'automation', params: { automationId } },
+      { target: this.artifactTarget(target) },
+    )
+    if (target === 'aside') this.geometry.open(pane.id)
+    this.isExpanded = true
     void this.automationsStore.loadAll()
-    requestInputFocus()
   }
 
   // ─── Diff comments (on Tab — UI-only) ───
@@ -2174,6 +2241,50 @@ export class WorkspaceContext {
     requestInputFocus()
   }
 
+  /** The route for one PR, scoped to the project it was opened from. */
+  private prReviewRef(number: number, title?: string, ctx?: IpcContext): RouteRef<'prReview'> {
+    return {
+      name: 'prReview',
+      params: { number, title, cwd: ctx?.session.projectPath ?? undefined },
+    }
+  }
+
+  /**
+   * Open a PR review in a companion pane. The route is entered before the (slow)
+   * fetch/checkout so the click gets a real surface rather than a blank pane;
+   * the descriptor's `resolve` fills that same mounted surface in place when the
+   * worktree lands. Re-entering a PR already in the router's payload cache skips
+   * the fetch entirely.
+   */
+  private async openPrReviewRoute(
+    number: number,
+    title: string | undefined,
+    ctx: IpcContext,
+    opts: { maximize?: boolean; via?: Via } = {},
+  ): Promise<PrReviewContext | null> {
+    this.prsStore.prReviewTab = 'activity'
+    const ref = this.prReviewRef(number, title, ctx)
+    const pane = this.router.navigate(ref, { target: 'aside', via: opts.via })
+    this.geometry.open(pane.id, 0.7)
+    if (opts.maximize) this.geometry.maximize(pane.id)
+    track('surface_viewed', { surface: 'pr_review', via: opts.via })
+    this.prsStore.prefetchReview(ctx, number)
+    try {
+      const pr = await this.router.resolve<PrReviewContext>(ref, {
+        api: window.solus,
+        ipc: (cwd) => (cwd ? this.ctxForDirectory(cwd) : ctx),
+      })
+      markPrReviewProfile('review-worktree-ready')
+      return pr
+    } catch (err) {
+      // Tear down the pending surface so a failed open doesn't strand the user.
+      this.router.dropResolved(ref)
+      if (this.router.params('prReview')?.number === number) this.exitPrReview()
+      toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  }
+
   /** Enter PR review without creating a chat. The checked-out worktree supplies
    *  the review context; a worktree-rooted chat is created only on demand. */
   async enterPrReview(
@@ -2182,29 +2293,14 @@ export class WorkspaceContext {
     opts: { openChat?: boolean; ctx?: IpcContext; via?: Via } = {},
   ): Promise<void> {
     beginPrReviewProfile(number)
-    // Switch to the editor layout up front so the click registers immediately,
-    // then mount the review surface BEFORE the (slow) PR fetch/checkout so the
-    // click gets a real page instead of a blank pane. `resolvePrReview` unlocks
-    // the worktree-backed tabs on that same surface once it is ready.
+    // Switch to the editor layout up front so the click registers immediately.
     if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
-    this.prsStore.prReviewTab = 'activity'
     const ctx = opts.ctx ?? this.ctx
-    this.panes.enterPrReview({ number, title: title ?? '' }, ctx)
-    track('surface_viewed', { surface: 'pr_review', via: opts.via })
-    this.prsStore.prefetchReview(ctx, number)
-    try {
-      const pr = await window.solus.prOpenReview(ctx, number)
-      markPrReviewProfile('review-worktree-ready')
-      if (!this.panes.resolvePrReview(pr)) return
-      if (opts.openChat) {
-        await this.openPrReviewChat(pr)
-      }
-    } catch (err) {
-      // Tear down the pending surface so a failed open doesn't strand the user.
-      if (!this.panes.isPrReviewPending(number)) return
-      this.panes.closeSlot('secondary')
-      toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    // A cold entry (palette, deep link) reveals the review at full size over a
+    // resting conversation, rather than beside whatever was open.
+    this.router.navigate(CHAT_ROUTE, { target: this.router.leadingPane.id })
+    const pr = await this.openPrReviewRoute(number, title, ctx, { maximize: true, via: opts.via })
+    if (pr && opts.openChat) await this.openPrReviewChat(pr)
   }
 
   /** Prepare one review without changing pane placement. Review Mode uses this
@@ -2215,25 +2311,11 @@ export class WorkspaceContext {
   }
 
   /** Dock a PR selected from the PR inbox. Preparation may be slow, but it never
-   * replaces the primary page; stale results are ignored when selection moves. */
+   * replaces the leading page; stale results are ignored when selection moves. */
   async dockPrReview(number: number, title?: string, opts: { ctx?: IpcContext } = {}): Promise<void> {
-    const current = this.panes.secondaryContent
-    if (current.kind === 'pr-review' && current.target.number === number) return
-
-    this.prsStore.prReviewTab = 'activity'
+    if (this.router.params('prReview')?.number === number) return
     beginPrReviewProfile(number)
-    const ctx = opts.ctx ?? this.ctx
-    this.panes.dockPrReview({ number, title: title ?? '' }, ctx)
-    this.prsStore.prefetchReview(ctx, number)
-    try {
-      const pr = await window.solus.prOpenReview(ctx, number)
-      markPrReviewProfile('review-worktree-ready')
-      this.panes.resolvePrReview(pr)
-    } catch (err) {
-      if (!this.panes.isPrReviewPending(number)) return
-      this.panes.closeSlot('secondary')
-      toasts.error(`Couldn't open PR #${number}: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    await this.openPrReviewRoute(number, title, opts.ctx ?? this.ctx)
   }
 
   /** Create (once), activate, and reveal the chat associated with a PR review. */
@@ -2243,9 +2325,7 @@ export class WorkspaceContext {
     markPrReviewProfile('chat-open-start', { hasExistingChat })
     if (existingTabId && this.tabs[existingTabId]) {
       this.setActiveTab(existingTabId)
-      this.panes.primaryContent = { kind: 'conversation' }
-      this.panes.maximized = false
-      this.isExpanded = true
+      this.revealConversationBesideReview()
       this.tabs[existingTabId].hasUnread = false
       requestInputFocus()
       requestAnimationFrame(() => {
@@ -2270,13 +2350,13 @@ export class WorkspaceContext {
     if (reviewSession) {
       reviewSession.worktreeBaseBranch = null
       reviewSession.permissionMode = 'auto'
+      // Also what identifies this tab as the review's chat — PrReviewPane finds
+      // it by looking for the tab rooted in this PR, so nothing has to be
+      // attached to the route or torn down when it closes.
       reviewSession.prReview = pr
     }
     this.setActiveTab(tabId)
-    this.panes.primaryContent = { kind: 'conversation' }
-    this.panes.maximized = false
-    this.isExpanded = true
-    this.panes.attachPrReviewChat(pr.number, tabId)
+    this.revealConversationBesideReview()
     requestInputFocus()
     requestAnimationFrame(() => {
       markPrReviewProfile('chat-split-first-paint', { hasExistingChat })
@@ -2285,28 +2365,145 @@ export class WorkspaceContext {
     return tabId
   }
 
+  /** Restore the split: the conversation leads, the review stops filling the
+   *  window and sits beside it. */
+  private revealConversationBesideReview(): void {
+    this.router.navigate(CHAT_ROUTE, { target: this.router.leadingPane.id })
+    this.geometry.restore()
+    this.isExpanded = true
+  }
+
   /** Close the review surface. Its agent chat remains an ordinary workspace tab. */
   exitPrReview(): void {
-    this.panes.closeSlot('secondary')
+    this.router.close('prReview')
   }
 
   // ─── Settings page ───
 
-  showSettings(tab: 'general' | 'api-access' | 'tools' | 'skills' | 'voice' = 'general', via: Via = 'click') {
-    this.ui.showSettings(tab)
+  /** Which settings tab is showing — a route param, so a link can name it. */
+  get settingsTab(): SettingsTab {
+    return this.router.params('settings')?.tab ?? 'general'
+  }
+
+  get settingsProjectCwd(): string | null {
+    return this.router.params('settings')?.projectCwd ?? null
+  }
+
+  showSettings(tab: SettingsTab = 'general', via: Via = 'click') {
+    this.sessionPickerOpen = false
+    this.showPage({ name: 'settings', params: { tab } }, via, 'settings')
     track('settings_opened', { tab, via })
-    track('surface_viewed', { surface: 'settings', via })
   }
 
   /** Open the settings Projects tab with the given project preselected (from the project panel gear). */
   showProjectSettings(cwd: string) {
-    this.ui.showProjectSettings(cwd)
+    this.sessionPickerOpen = false
+    this.showPage({ name: 'settings', params: { tab: 'projects', projectCwd: cwd } }, 'click', 'settings')
     track('settings_opened', { tab: 'projects' })
-    track('surface_viewed', { surface: 'settings' })
+  }
+
+  /** Move between settings tabs without stacking a history entry per tab. */
+  selectSettingsTab(tab: SettingsTab) {
+    this.router.navigate({ name: 'settings', params: { tab } }, { replace: true })
   }
 
   closeSettings() {
-    this.ui.closeSettings()
+    this.router.close('settings')
+  }
+
+  // ─── Arriving from outside ───
+
+  /**
+   * Enter a route that came from somewhere other than a click in the UI: an
+   * agent-emitted `plan://` link, a notification payload, a deep link. The
+   * router places it; this adds whatever the destination needs on entry that a
+   * bare navigation cannot know about — a plan's body off disk, a PR's worktree.
+   */
+  openRoute(ref: RouteRef, opts: { via?: Via } = {}): void {
+    switch (ref.name) {
+      case 'plan':
+        if (ref.params.planId) void this.openPlanModal(ref.params.planId)
+        return
+      case 'work':
+        void this.openWorkModal(ref.params.workId, undefined, { via: opts.via })
+        return
+      case 'prReview':
+        void this.enterPrReview(ref.params.number, ref.params.title, { via: opts.via })
+        return
+      case 'chat': {
+        const tabId = ref.params.tabId
+          ?? (ref.params.sessionId
+            ? findOpenTabForSession(ref.params.sessionId, this.tabs, this.sessions, this.tabOrder)
+            : null)
+        if (tabId && this.tabs[tabId]) this.selectTab(tabId)
+        this.isExpanded = true
+        return
+      }
+      default:
+        this.router.navigate(ref, { via: opts.via })
+        this.isExpanded = true
+    }
+  }
+
+  /** Enter a whole serialized location — reload restore and window handoff. */
+  enterLocation(serialized: string, opts: { via?: Via } = {}): void {
+    this.router.enter(serialized, opts)
+    this.isExpanded = true
+  }
+
+  // ─── Viewers ───
+
+  /** Show a session's changes. A generic toggle closes whatever diff is open;
+   *  `switchScope` is the explicit "view working tree diff" action, which
+   *  switches a mismatched-scope diff instead of closing it. */
+  toggleDiff(sourceTabId: string, scope: DiffScope = { kind: 'session' }, switchScope = false): void {
+    const current = this.router.overlay
+    if (current?.name === 'diff' && (!switchScope || current.params.scope?.kind === scope.kind)) {
+      this.router.closeOverlay()
+      return
+    }
+    if (!this.sessionFor(sourceTabId)?.workingDirectory) return
+    this.showDiff(sourceTabId, scope)
+  }
+
+  showDiff(sourceTabId: string, scope: DiffScope = { kind: 'session' }, filePath?: string): void {
+    this.showViewer({ name: 'diff', params: { sourceTabId, scope, filePath } })
+  }
+
+  openFiles(sourceTabId: string): void {
+    this.showViewer({ name: 'files', params: { sourceTabId } })
+  }
+
+  openFilePreview(file: FilePreviewRequest, sourceTabId: string): void {
+    this.showViewer({
+      name: 'fileEditor',
+      params: { sourceTabId, path: file.path, line: file.line },
+    })
+  }
+
+  /** Pop a sub-agent's nested transcript out of its card into a companion pane. */
+  openSubagent(tabId: string, messageId: string): void {
+    this.showViewer({ name: 'subagent', params: { tabId, messageId } })
+  }
+
+  /** Viewers cover a companion pane and size themselves; a diff opened over a
+   *  review guide splits evenly so both halves stay readable. */
+  private showViewer(ref: RouteRef): void {
+    const pane = this.router.navigate(ref, { target: 'aside' })
+    const wideByDefault =
+      ref.name === 'diff' && this.router.leadingPane.base?.name === 'review' ? 0.5 : 0.6
+    this.geometry.open(pane.id, wideByDefault)
+  }
+
+  // ─── Reviews ───
+
+  /** Show a generated review walkthrough. It takes the leading pane so a
+   *  focus-hunk diff can open beside it. */
+  enterReview(key: string, scope: 'branch' | 'session' = 'branch', sourceTabId?: string): void {
+    this.router.navigate(
+      { name: 'review', params: { key, scope, sourceTabId } },
+      { target: this.router.leadingPane.id },
+    )
   }
 
 }

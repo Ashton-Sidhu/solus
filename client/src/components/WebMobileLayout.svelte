@@ -62,9 +62,7 @@
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
   const mobileGoalTabId = $derived(
-    session.panes.secondaryContent.kind === "goal"
-      ? session.panes.secondaryContent.tabId
-      : null,
+    session.router.params("goal")?.tabId ?? null,
   );
 
   const title = $derived((tab && sess) ? sessionTitle(sess, tab) : "New session");
@@ -100,7 +98,6 @@
   registerBackOverlay("mobile-drawer", () => sidebarDrawerOpen, () => (sidebarDrawerOpen = false));
   registerBackOverlay("mobile-plus-menu", () => plusMenuOpen, () => (plusMenuOpen = false));
   registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));
-  registerBackOverlay("mobile-goal", () => !!mobileGoalTabId, () => session.panes.closeSecondary());
 
   const kbHeight = $derived(virtualKeyboard.keyboardHeight);
 
@@ -165,7 +162,7 @@
     class="mh-navbar"
     class:mode-hidden={(diffPanelOpen && canShowDiffPanel) ||
       overlayOpen ||
-      session.workspacePageOpen}
+      session.router.at("folio")}
   >
     <div class="mh-navbar-top">
       <button
@@ -245,7 +242,7 @@
             type="button"
             class="grid size-8 place-items-center rounded-lg text-(--solus-text-tertiary)"
             aria-label="Close goal"
-            onclick={() => session.panes.closeSecondary()}
+            onclick={() => session.router.close("goal")}
           >
             <XIcon size={16} />
           </button>
@@ -254,7 +251,7 @@
           tabId={mobileGoalTabId}
           collapsed={goalCollapsed}
           onToggle={() => (goalCollapsed = !goalCollapsed)}
-          onCleared={() => session.panes.closeSecondary()}
+          onCleared={() => session.router.close("goal")}
         />
       </div>
     {:else if !(diffPanelOpen && canShowDiffPanel)}
@@ -273,8 +270,8 @@
     class="mobile-input-dock"
     class:mode-hidden={overlayOpen ||
       !!mobileGoalTabId ||
-      session.settingsOpen ||
-      session.workspacePageOpen ||
+      session.router.at("settings") ||
+      session.router.at("folio") ||
       (diffPanelOpen && canShowDiffPanel)}
     style={kbHeight > 0 ? `padding-bottom:${Math.max(10, kbHeight)}px` : ""}
   >

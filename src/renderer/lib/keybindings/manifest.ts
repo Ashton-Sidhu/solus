@@ -29,6 +29,8 @@ export const KEYBINDINGS = {
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' },                       scope: 'global',             label: 'Toggle sidebar',           group: 'View' },
   'global.toggle-expanded':   { combo: { alt: true, shift: true, code: 'Equal' },         scope: 'global',             label: 'Expand / collapse input',  group: 'View' },
+  'global.history-back':      { combo: { mod: true, code: 'BracketLeft' },              scope: 'global',             label: 'Back',                     group: 'Navigation' },
+  'global.history-forward':   { combo: { mod: true, code: 'BracketRight' },             scope: 'global',             label: 'Forward',                  group: 'Navigation' },
   'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Session picker',           group: 'Navigation' },
   'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Session picker (alt)',     group: 'Navigation' },
   'global.filter-tasks':      { combo: { mod: true, shift: true, code: 'KeyF' },          scope: 'global',             label: 'Filter tasks by project',  group: 'Navigation' },

@@ -47,7 +47,7 @@
   const PROJECT_SCOPE_KEY = "solus.workspace.project";
 
   const isEditorMode = $derived(windowCtx.viewMode === "editor" || windowCtx.isWeb);
-  const open = $derived(session.workspacePageOpen);
+  const open = $derived(session.router.at("folio"));
 
   // ── Data ──
   const descriptorsKey = planStore.descriptorCacheKey(undefined, true);
@@ -63,7 +63,21 @@
   const allItems: WorkspaceItem[] = $derived(
     buildWorkspaceItems(descriptors, worksList, openProjects),
   );
-  const loading = $derived(allItems.length === 0 && planStore.isDescriptorLoading(descriptorsKey));
+  // Plans are the slow half of the ledger (each split plan is read off disk), so
+  // works can land long before them. Track each source: an empty ledger gets the
+  // skeleton, a populated one still says which half is catching up.
+  const plansLoading = $derived(planStore.isDescriptorLoading(descriptorsKey));
+  const worksLoading = $derived(session.worksStore.listLoading);
+  const anyLoading = $derived(plansLoading || worksLoading);
+  const loading = $derived(allItems.length === 0 && anyLoading);
+  const backgroundLoading = $derived(!loading && anyLoading);
+  const loadingLabel = $derived(
+    plansLoading && worksLoading
+      ? "loading plans and documents"
+      : plansLoading
+        ? "loading plans"
+        : "loading documents",
+  );
 
   // ── Project scope: which open project the ledger is showing (null = all).
   //    It sits above the filters — every facet count is counted inside it — and
@@ -278,7 +292,7 @@
 
   // ── Actions ──
   function close() {
-    session.workspacePageOpen = false;
+    session.router.close("folio");
   }
 
   async function openItem(item: WorkspaceItem) {
@@ -562,12 +576,31 @@
                 {@render ledgerRow(item, groupOffset + j)}
               {/each}
             {/each}
+            <!-- Rows still on their way in: only at the true tail of the ledger,
+                 where more items would actually appear. -->
+            {#if backgroundLoading && !searching && !hasMoreRows}
+              <div class="flex flex-col gap-1 pt-1" aria-hidden="true">
+                {#each Array(2) as _, i (i)}
+                  <div
+                    class="animate-pulse rounded-[0.5625rem] bg-[color-mix(in_srgb,var(--muted)_45%,transparent)]"
+                    style="height:{compact ? '2.125rem' : '2.875rem'};opacity:{0.55 - i * 0.25}"
+                  ></div>
+                {/each}
+              </div>
+            {/if}
           {/if}
         </div>
 
         <!-- ── Footer ── -->
         <div class="workspace-footer">
           <span>Showing {flat.length} of {items.length}</span>
+          {#if anyLoading}
+            <span class="opacity-40">·</span>
+            <span class="workspace-loading" role="status">
+              <span class="workspace-loading-dot"></span>
+              {loadingLabel}<span class="workspace-loading-ellipsis">…</span>
+            </span>
+          {/if}
           {#if hasMoreRows}
             <span class="opacity-40">·</span>
             <span>scroll to load more</span>
@@ -777,6 +810,28 @@
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
+  }
+
+  .workspace-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  .workspace-loading-dot {
+    width: 0.3125rem;
+    height: 0.3125rem;
+    border-radius: 9999px;
+    background: var(--solus-accent);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+  /* Same scanning ellipsis the session picker uses while history streams in. */
+  .workspace-loading-ellipsis {
+    display: inline-block;
+    width: 1em;
+    overflow: hidden;
+    vertical-align: bottom;
+    letter-spacing: 0.05em;
+    animation: scanning-ellipsis 1.4s steps(4, end) infinite;
   }
 
   .sr-only {

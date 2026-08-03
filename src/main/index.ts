@@ -1081,7 +1081,10 @@ if (isPairUrl) {
     if (!isHeadless) {
       desktopAttentionNotifications = attachDesktopAttentionNotifications({
         attention: bootedCore.controlPlane.attention,
-        focusWindow: () => showCurrentModeWindow('notification click', { fromTrayShow: true }),
+        focusWindow: (route?: string) => {
+          showCurrentModeWindow('notification click', { fromTrayShow: true })
+          if (route) broadcastNativeEvent('solus:open-route', route)
+        },
         getTray: () => tray,
         badgeTarget: process.platform === 'darwin' && app.dock ? 'tray' : 'none',
         isActiveAttention: (entry) => bootedCore.controlPlane.isPendingAttentionLive(entry.sessionId),

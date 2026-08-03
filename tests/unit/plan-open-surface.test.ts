@@ -34,11 +34,11 @@ function openContext(diskContent: string | null) {
         return id
       },
     },
-    panes: {
-      get activePlanId() { return opened.at(-1) ?? null },
-      openPlan: (id: string) => { opened.push(id) },
+    router: {
+      params: (name: string) => (name === 'plan' ? { planId: opened.at(-1) ?? null } : null),
       close: () => { closes++; opened.pop() },
     },
+    openPlan: (id: string) => { opened.push(id) },
   }
 
   return {

@@ -34,6 +34,8 @@ garbage collection after an unbounded peak. The governing rules are:
 | PR interdiff payload cache | 8 entries | PR store |
 | Claude session-list cache | 64 entries | Claude history |
 | Plan cache | 32 entries | Plan store |
+| Navigation history stack | 50 entries, params only — never resolved payloads | Router |
+| Resolved route payloads | 16 entries, LRU | Router |
 | Session index read block | 256 KiB | Session indexer |
 | Session index database batch | 300 records | Session indexer |
 | Session index/head record | 4 MiB maximum | Session indexer/history |

@@ -71,7 +71,7 @@ describe('WorkspaceContext tab closing', () => {
     }
     workspace.apiFor = () => ({ closeTab: () => {} })
     workspace.ctxFor = () => ({})
-    workspace.panes = { secondaryContent: { kind: 'empty' } }
+    workspace.router = { asidePanes: [], chatTabIn: () => null }
     workspace.window = { viewMode: 'pill', isWeb: false }
     workspace.config = { tabGroupMode: 'flat' }
     workspace.planStore = { plans: {} }

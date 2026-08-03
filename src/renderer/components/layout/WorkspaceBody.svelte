@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import {
     getWorkspaceContext,
     getWindowContext,
@@ -22,22 +22,19 @@
   import NewTabHome from "./NewTabHome.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { frameChrome } from "./frame-chrome.store.svelte";
-  import {
-    DEFAULT_PANEL_WIDTH,
-    isArtifactContent,
-    isMovableContent,
-    isPageContent,
-    type PaneContent,
-    type PaneSlot,
-  } from "../../contexts/workspace/pane-view.store.svelte";
+  import { DEFAULT_PANEL_WIDTH } from "../../contexts/workspace/routing/pane-geometry.store.svelte";
+  import type { PaneEntry, PaneId } from "../../contexts/workspace/routing/location";
+  import { visibleRef } from "../../contexts/workspace/routing/location";
+  import { isMovableRoute } from "../../contexts/workspace/routing/route-registry";
+  import { CompanionPanes } from "./lib/companion-panes.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     clampSecondaryPaneWidth,
     defaultWorkspaceRailWidth,
-    focusedSplitChatTabId,
     hasStartedConversation,
+    isCompanionVisible,
+    isFramedRoute,
     isHomeVisible,
-    isSecondaryContentVisible,
     listSidebarPrimaryWidth,
     SIDEBAR_MAX_WIDTH,
     SIDEBAR_MIN_WIDTH,
@@ -48,8 +45,6 @@
     retainedConversationTabIds,
     secondaryPaneBounds,
     secondaryPaneDefaultSize,
-    SECONDARY_CONTENT_DELAY_MS,
-    SECONDARY_SHELL_EXIT_MS,
   } from "./lib/workspace-body";
   import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
@@ -90,7 +85,11 @@
   const runStore = getRunStore();
   const runDock = getRunDockStore();
   const environmentStore = getSessionEnvironmentStore();
-  const panes = session.panes;
+  const router = session.router;
+  const geometry = session.geometry;
+  const companions = new CompanionPanes(
+    () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+  );
   let outerScrollTargets = $state<HTMLElement[]>([]);
   let outerScrollTarget = $state<HTMLElement | null>(null);
 
@@ -121,9 +120,13 @@
   const hasStartedSession = $derived(hasStartedConversation(sess));
   // The home reads as a headline sitting on top of the composer, so the column
   // centres the pair as one block rather than pinning the composer to the floor.
+  const leadingPane = $derived(router.leadingPane);
+  const leadingRef = $derived(visibleRef(leadingPane));
+  // The leading pane resting on the conversation pool: no tab id means "whatever
+  // the active tab is", which is exactly what the pool renders.
+  const poolInLead = $derived(leadingRef?.name === "chat" && !leadingRef.params.tabId);
   const centerHome = $derived(
-    isHomeVisible(session.tabOrder.length, sess) &&
-      panes.primaryContent.kind === "conversation",
+    isHomeVisible(session.tabOrder.length, sess) && poolInLead,
   );
   const activeProjectPanelTabKey = $derived(session.activeTabId || "new-tab-home");
   let projectPanelPopoutTabKey = $state<string | null>(null);
@@ -155,13 +158,22 @@
     environmentStore.environmentFor(focusedChatTabId),
   );
   const canShowFocusedDiffPanel = $derived(!!focusedEnvironment.cwd);
-  const secondaryVisible = $derived.by(() =>
-    isSecondaryContentVisible(panes.secondaryVisible, session),
+  // Companions, in render order, including one still animating out. The router
+  // drops a closed pane immediately; CompanionPanes holds its last entry for the
+  // length of the exit so the split collapses instead of snapping.
+  const companionPanes = $derived(
+    companions.ids
+      .map((paneId) => router.pane(paneId) ?? companions.entry(paneId))
+      .filter((pane): pane is PaneEntry => !!pane),
   );
+  const companion = $derived(router.asidePanes[0] ?? null);
+  const companionRef = $derived(companion ? visibleRef(companion) : null);
+  const secondaryVisible = $derived(isCompanionVisible(companionRef, session));
   const secondaryCollapsesSidebar = $derived(
-    secondaryVisible && panes.secondaryVisible.kind !== "automation",
+    secondaryVisible && companionRef?.name !== "automation",
   );
-  const primaryReviewOpen = $derived(panes.primaryContent.kind === "review");
+  const primaryReviewOpen = $derived(leadingRef?.name === "review");
+  const maximizedPaneId = $derived(geometry.maximizedPaneId);
   const sidebarOpenForChrome = $derived(
     sidebarOpen || secondaryCollapsesSidebar,
   );
@@ -172,9 +184,7 @@
   // never unmounted) and its composer, and a maximized secondary (e.g. the
   // full-screen PR-review surface) covers the whole column, so the composer has
   // nothing to dock to. They step aside together rather than each being told to.
-  const conversationChromeVisible = $derived(
-    panes.primaryContent.kind === "conversation" && !panes.maximized,
-  );
+  const conversationChromeVisible = $derived(poolInLead && maximizedPaneId === null);
   const showHomeBreadcrumb = $derived(
     active && centerHome && conversationChromeVisible && !!session.activeTabId,
   );
@@ -235,6 +245,8 @@
     }
   });
 
+  // Geometry is driven for the trailing companion, which at MAX_PANES = 2 is
+  // the only one. Raising the cap turns these into a map keyed by pane id.
   let secondaryPaneEl: HTMLDivElement | null = $state(null);
   let secondaryPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
   let sidebarPane: ReturnType<typeof Resizable.Pane> | undefined = $state();
@@ -305,10 +317,10 @@
   }
 
   // Each conversation view owns its rail, so the shortcut acts on the one the
-  // user is in. The tab strip's button only ever reaches the primary — it lives
-  // in the primary's chrome; the split chat carries its own toggle.
-  function toggleProjectPanel(slot: PaneSlot = "primary") {
-    if (slot === "secondary") {
+  // user is in. The tab strip's button only ever reaches the leading pane — it
+  // lives in that pane's chrome; the split chat carries its own toggle.
+  function toggleProjectPanel(isSplit = false) {
+    if (isSplit) {
       settings.update({
         splitProjectPanelOpen: !settings.splitProjectPanelOpen,
       });
@@ -337,8 +349,8 @@
   // this body is inactive (pill / mobile), report the panels as open so those
   // headers don't offer to expand chrome that isn't on screen.
   frameChrome.expandSidebar = toggleSidebar;
-  // Full-page views never host a split chat, so this only ever means the primary.
-  frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel("primary");
+  // Full-page views never host a split chat, so this only ever means the lead.
+  frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel();
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
     frameChrome.projectPanelOpen = active ? isPrimaryProjectPanelOpen : true;
@@ -349,18 +361,13 @@
   });
   useKeybinding(
     "global.toggle-project-panel",
-    () =>
-      toggleProjectPanel(
-        panes.secondaryContent.kind === "conversation"
-          ? panes.focusedPane
-          : "primary",
-      ),
+    () => toggleProjectPanel(!!session.splitChatTabId && router.focusedPaneId !== leadingPane.id),
     { enabled: () => active && enableProjectPanel },
   );
   useKeybinding(
     "global.new-split-chat",
     async () => {
-      if (panes.secondaryContent.kind === "conversation") {
+      if (session.splitChatTabId) {
         session.closeSplitChat();
         requestInputFocus();
         return;
@@ -374,14 +381,8 @@
   useKeybinding(
     "global.toggle-files",
     () => {
-      if (panes.secondaryOverlay?.kind === "files") panes.closeOverlay();
-      else {
-        panes.openFiles(
-          focusedChatTabId,
-          focusedEnvironment.cwd,
-          focusedEnvironment.checkout,
-        );
-      }
+      if (router.overlay?.name === "files") router.closeOverlay();
+      else session.openFiles(focusedChatTabId);
       requestInputFocus();
     },
     { enabled: () => active && canShowFocusedDiffPanel },
@@ -389,17 +390,14 @@
   useKeybinding(
     "global.open-in-split",
     () => {
-      if (isMovableContent(panes.primaryContent)) {
-        panes.moveToOppositeSlot(panes.primaryContent, "primary");
-      } else if (isMovableContent(panes.secondaryContent)) {
-        panes.moveToOppositeSlot(panes.secondaryContent, "secondary");
-      } else if (
-        panes.secondaryContent.kind === "conversation" &&
-        panes.secondaryContent.tabId
-      ) {
-        // Promote the split chat back into the primary tab pool.
+      if (isMovableRoute(leadingRef)) {
+        router.movePane(leadingPane.id, 1);
+      } else if (companion && isMovableRoute(companionRef)) {
+        router.movePane(companion.id, -1);
+      } else if (session.splitChatTabId) {
+        // Promote the split chat back into the leading pane's tab pool.
         session.promoteSplitToMainTab();
-      } else if (panes.primaryContent.kind === "conversation" && tab) {
+      } else if (poolInLead && tab) {
         // Plain conversation: split the active chat off to the side.
         session.openTabInSplit(tab.id);
       } else {
@@ -439,9 +437,7 @@
   // A PR review docks beside the PR inbox, which is a list sidebar rather than
   // a chat column — it gets the narrower floor so the review keeps the width.
   const primaryIsListSidebar = $derived(
-    isPageContent(panes.primaryContent) &&
-      panes.primaryContent.kind === "prs" &&
-      panes.secondaryContent.kind === "pr-review",
+    leadingRef?.name === "prs" && companionRef?.name === "prReview",
   );
   const minPrimaryWidth = $derived(
     primaryIsListSidebar ? MIN_LIST_PRIMARY_PANE_WIDTH : MIN_PRIMARY_PANE_WIDTH,
@@ -451,7 +447,7 @@
       primaryIsListSidebar
         ? secondaryContainerWidth -
             listSidebarPrimaryWidth(secondaryContainerWidth)
-        : Math.round(secondaryContainerWidth * panes.secondaryRatio),
+        : Math.round(secondaryContainerWidth * geometry.weightFor(companion?.id ?? "")),
       secondaryContainerWidth,
       minPrimaryWidth,
     ),
@@ -463,7 +459,8 @@
     primaryPaneMinSize(secondaryContainerWidth, minPrimaryWidth),
   );
   const secondaryDefaultSize = $derived.by(() => {
-    const width = panes.hasResized ? panes.secondaryWidth : autoSecondaryWidth;
+    const paneId = companion?.id ?? "";
+    const width = geometry.hasResized(paneId) ? geometry.widthFor(paneId) : autoSecondaryWidth;
     return secondaryPaneDefaultSize(
       width,
       secondaryContainerWidth,
@@ -471,20 +468,28 @@
     );
   });
 
-  function handleSecondaryLayout(layout: number[]) {
-    if (layout.length !== 2 || conversationSplitWidth <= 0) return;
-    panes.secondaryWidth = clampSecondaryPaneWidth(
-      percentToPixels(layout[1], conversationSplitWidth),
-      conversationSplitWidth,
-      minPrimaryWidth,
-    );
+  // PaneForge reports every pane's share; the leading column is index 0 and the
+  // companions follow in render order, so each pane records its own width.
+  function handleSplitLayout(layout: number[]) {
+    if (conversationSplitWidth <= 0) return;
+    companionPanes.forEach((pane, index) => {
+      const share = layout[index + 1];
+      if (share === undefined) return;
+      geometry.setWidth(
+        pane.id,
+        clampSecondaryPaneWidth(
+          percentToPixels(share, conversationSplitWidth),
+          conversationSplitWidth,
+          minPrimaryWidth,
+        ),
+      );
+    });
   }
 
-  function handleSecondaryDragging(dragging: boolean) {
+  function handleCompanionDragging(paneId: PaneId, dragging: boolean) {
     isResizingSecondary = dragging;
     if (!dragging) return;
-    panes.hasResized = true;
-    if (panes.maximized) panes.maximized = false;
+    geometry.markResized(paneId);
   }
 
   let panelResizeRaf = 0;
@@ -524,86 +529,40 @@
     isResizingDock = false;
   }
 
-  let renderSecondaryShell = $state(false);
-  let renderSecondaryContent = $state(false);
-  let secondaryPaneClosing = $state(false);
+  // Frozen the moment a companion starts closing: the pane leaves the layout
+  // flow to fade out, so it needs the width it had rather than a share.
   let secondaryClosingWidth = $state(DEFAULT_PANEL_WIDTH);
-  let displayedSecondaryContent = $state<PaneContent>({ kind: "empty" });
-  let secondaryContentTimer: ReturnType<typeof setTimeout> | null = null;
-  let secondaryShellTimer: ReturnType<typeof setTimeout> | null = null;
-  function requestSplitFocusAfterRender(content: PaneContent) {
-    const tabId = focusedSplitChatTabId(
-      content,
-      panes.focusedPane,
-      panes.chatTabIn("secondary", session.activeTabId),
-    );
+
+  // One effect drives every companion's mount/exit timing, keyed by pane id.
+  // The location is the only thing tracked here: `sync` and `prune` both read
+  // and write the state they own, so tracking them would make this effect
+  // retrigger itself — the failure mode the one-directional router exists to
+  // rule out.
+  $effect(() => {
+    const live = router.asidePanes;
+    untrack(() => {
+      if (live.length === 0 && secondaryPaneEl) {
+        secondaryClosingWidth = secondaryPaneEl.clientWidth || secondaryClosingWidth;
+      }
+      companions.sync(live);
+      // Geometry outlives a pane only for the length of its exit animation.
+      geometry.prune([...router.panes.map((pane) => pane.id), ...companions.ids]);
+    });
+  });
+  $effect(() => () => companions.dispose());
+
+  // A pinned chat that takes focus gets the caret, once its surface is on
+  // screen. Re-checked inside the frame so a fast close doesn't steal focus.
+  $effect(() => {
+    const paneId = router.focusedPaneId;
+    if (paneId === leadingPane.id || !companions.settled.has(paneId)) return;
+    const tabId = router.chatTabIn(paneId, session.activeTabId);
     if (!tabId) return;
     requestAnimationFrame(() => {
-      const currentSplitTabId = panes.chatTabIn("secondary", session.activeTabId);
-      if (focusedSplitChatTabId(content, panes.focusedPane, currentSplitTabId)) {
-        requestInputFocus({ tabId });
-      }
+      if (router.focusedPaneId !== paneId) return;
+      if (router.chatTabIn(paneId, session.activeTabId) !== tabId) return;
+      requestInputFocus({ tabId });
     });
-  }
-
-  $effect(() => {
-    if (!secondaryVisible) {
-      if (secondaryContentTimer) {
-        clearTimeout(secondaryContentTimer);
-        secondaryContentTimer = null;
-      }
-      if (!renderSecondaryShell) return;
-      secondaryClosingWidth =
-        secondaryPaneEl?.clientWidth || secondaryClosingWidth;
-      secondaryPaneClosing = true;
-      const reduce = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")
-        .matches;
-      secondaryShellTimer = setTimeout(
-        () => {
-          secondaryShellTimer = null;
-          renderSecondaryShell = false;
-          renderSecondaryContent = false;
-          secondaryPaneClosing = false;
-          displayedSecondaryContent = { kind: "empty" };
-        },
-        reduce ? 0 : SECONDARY_SHELL_EXIT_MS,
-      );
-      return;
-    }
-
-    if (secondaryShellTimer) {
-      clearTimeout(secondaryShellTimer);
-      secondaryShellTimer = null;
-    }
-    displayedSecondaryContent = panes.secondaryVisible;
-    renderSecondaryShell = true;
-    secondaryPaneClosing = false;
-
-    if (renderSecondaryContent) {
-      requestSplitFocusAfterRender(displayedSecondaryContent);
-      return;
-    }
-    const reduce = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")
-      .matches;
-    secondaryContentTimer = setTimeout(
-      () => {
-        secondaryContentTimer = null;
-        renderSecondaryContent = true;
-        requestSplitFocusAfterRender(displayedSecondaryContent);
-      },
-      reduce ? 0 : SECONDARY_CONTENT_DELAY_MS,
-    );
-
-    return () => {
-      if (secondaryContentTimer) {
-        clearTimeout(secondaryContentTimer);
-        secondaryContentTimer = null;
-      }
-      if (secondaryShellTimer) {
-        clearTimeout(secondaryShellTimer);
-        secondaryShellTimer = null;
-      }
-    };
   });
 
   // As soon as the secondary stops owning layout space, reopen the rail in the
@@ -626,10 +585,6 @@
       ),
   );
 
-  function toggleSecondaryMaximize() {
-    panes.maximized = !panes.maximized;
-  }
-
   // Collapse the session sidebar while a full-width overlay is up — a secondary
   // pane, review guide, Workspace, or Settings — and restore it on close, the
   // same way the diff panel reclaims the width.
@@ -637,8 +592,8 @@
     if (
       secondaryCollapsesSidebar ||
       primaryReviewOpen ||
-      session.workspacePageOpen ||
-      session.settingsOpen
+      router.at("folio") ||
+      router.at("settings")
     ) {
       if (sidebarOpen) {
         sidebarClosedForOverlay = true;
@@ -661,13 +616,15 @@
     else if (!sidebarOpen && !pane.isCollapsed()) pane.collapse();
   });
 
-  // Opening a new secondary surface deliberately resets to its content-specific
-  // ratio. Once the user drags, PaneForge keeps that manual layout until the next
-  // surface open resets `hasResized` in PaneViewStore.
+  // A surface entering a pane deliberately resets to its own measure. Once the
+  // user drags, PaneForge keeps that manual layout until the next surface opens
+  // and clears the pane's `resized` flag in PaneGeometryStore.
   $effect(() => {
     const pane = secondaryPane;
     const defaultSize = secondaryDefaultSize;
-    if (!pane || !secondaryVisible || panes.hasResized || panes.maximized) return;
+    const paneId = companion?.id;
+    if (!pane || !paneId || !secondaryVisible) return;
+    if (geometry.hasResized(paneId) || maximizedPaneId !== null) return;
     pane.resize(defaultSize);
   });
 </script>
@@ -689,8 +646,7 @@
   class:is-resizing={isResizingSecondary}
   class:is-resizing-dock={isResizingDock}
   class:sidebar-collapsed={!sidebarOpen}
-  class:page-flush={panes.primaryContent.kind === "settings" ||
-    primaryIsListSidebar}
+  class:page-flush={leadingRef?.name === "settings" || primaryIsListSidebar}
   class:project-panel-open={railOpen}
   class:project-panel-collapsed={enableProjectPanel && !railOpen}
   bind:clientWidth={workspaceBodyWidth}
@@ -742,11 +698,11 @@
           direction="horizontal"
           keyboardResizeBy={2}
           class="flex-1 min-w-0"
-          onLayoutChange={handleSecondaryLayout}
+          onLayoutChange={handleSplitLayout}
         >
           <Resizable.Pane
             order={1}
-            minSize={renderSecondaryShell ? primaryMinSize : 100}
+            minSize={companionPanes.length > 0 ? primaryMinSize : 100}
             class="min-w-0"
           >
             <div
@@ -792,23 +748,24 @@
                  traffic lights. Conversations rely on it too now: the chrome
                  row that used to carry their sidebar toggle is gone, and the
                  capsule is centred, so nothing collides at the left edge. -->
-            {#if panes.primaryContent.kind !== "settings"}
+            {#if leadingRef?.name !== "settings"}
               <div
                 class="no-drag absolute left-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] top-2.5 z-20"
               >
                 <FrameExpandButton variant="sidebar" />
               </div>
             {/if}
-            <!-- Pages, artifacts, and reviews render through the primary Pane
+            <!-- Pages, artifacts, and reviews render through the leading Pane
                  below. The conversation pool stays mounted underneath (hidden
                  via display:none) so closing a pane reveals every tab instantly
                  with derived state, scroll, and editor drafts intact — never
-                 re-mounted. -->
+                 re-mounted. That is what `keepAlive` declares in the registry:
+                 the pool owns a chat's lifecycle, not the route. -->
             <div
               class="conversation-pool flex flex-col min-h-0 no-drag"
               class:flex-1={!centerHome}
-              class:mode-hidden={panes.primaryContent.kind !== "conversation"}
-              onfocusin={() => panes.focusPane("primary")}
+              class:mode-hidden={!poolInLead}
+              onfocusin={() => router.focusPane(leadingPane.id)}
             >
               {#if session.tabOrder.length === 0}
                 <NewTabHome />
@@ -823,20 +780,15 @@
                       tabId={tId}
                       surfaceVisible={active && conversationChromeVisible}
                       retainTranscriptRows={retainedTranscriptTabIds.has(tId)}
-                      onDiffToggle={() =>
-                        panes.toggleDiff(
-                          !!session.sessionFor(tId)?.workingDirectory,
-                          tId,
-                        )}
+                      onDiffToggle={() => session.toggleDiff(tId)}
                     />
                   </div>
                 {/if}
               {/each}
             </div>
-            {#if panes.primaryContent.kind !== "conversation"}
+            {#if !poolInLead}
               <Pane
-                content={panes.primaryContent}
-                slot="primary"
+                pane={leadingPane}
                 surfaceVisible={active}
                 {onAttachFile}
                 {onScreenshot}
@@ -865,7 +817,7 @@
               class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
               class:mode-hidden={!conversationChromeVisible}
               bind:clientHeight={inputDockHeight}
-              onfocusin={() => panes.focusPane("primary")}
+              onfocusin={() => router.focusPane(leadingPane.id)}
             >
               {@render inputRow()}
             </div>
@@ -880,7 +832,6 @@
                 {#if enableProjectPanel && conversationChromeVisible}
                   <ProjectPanel
                     tabId={session.activeTabId}
-                    slot="primary"
                     {active}
                     containerWidth={projectRailContainerWidth}
                     minimized={secondaryVisible ||
@@ -891,50 +842,45 @@
             </div>
           </Resizable.Pane>
 
-          {#if renderSecondaryShell}
-            {#if secondaryVisible}
+          {#each companionPanes as pane, index (pane.id)}
+            {@const closing = companions.isClosing(pane.id)}
+            {@const ref = visibleRef(pane)}
+            {@const maximized = geometry.isMaximized(pane.id)}
+            {#if !closing}
               <Resizable.Handle
                 aria-label="Resize panel"
-                disabled={panes.maximized}
-                class={panes.maximized ? "pointer-events-none opacity-0" : ""}
-                onDraggingChange={handleSecondaryDragging}
+                disabled={maximized}
+                class={maximized ? "pointer-events-none opacity-0" : ""}
+                onDraggingChange={(dragging) => handleCompanionDragging(pane.id, dragging)}
               />
             {/if}
             <Resizable.Pane
               bind:this={secondaryPane}
               bind:ref={secondaryPaneEl}
-              order={2}
+              order={index + 2}
               defaultSize={secondaryDefaultSize}
               minSize={secondaryBounds.min}
               maxSize={secondaryBounds.max}
-              class={`secondary-pane-wrap relative ${panes.maximized
+              class={`secondary-pane-wrap relative ${maximized
                 ? "secondary-pane-wrap--maximized"
-                : ""} ${secondaryPaneClosing
-                ? "secondary-pane-wrap--closing"
-                : ""} ${isArtifactContent(displayedSecondaryContent) ||
-              displayedSecondaryContent.kind === "review" ||
-              isPageContent(displayedSecondaryContent)
+                : ""} ${closing ? "secondary-pane-wrap--closing" : ""} ${isFramedRoute(ref)
                 ? "secondary-pane-wrap--framed"
                 : ""} ${isResizingSecondary ? "is-resizing" : ""}`}
-              style={secondaryPaneClosing
-                ? `width:${secondaryClosingWidth}px`
-                : undefined}
+              style={closing ? `width:${secondaryClosingWidth}px` : undefined}
             >
-              {#if renderSecondaryContent}
+              {#if companions.settled.has(pane.id)}
                 <div class="secondary-pane-content h-full min-h-0">
                   <Pane
-                    content={displayedSecondaryContent}
-                    slot="secondary"
+                    {pane}
                     surfaceVisible={active && secondaryVisible}
                     {onAttachFile}
                     {onScreenshot}
                     {onDesignMode}
-                    onToggleSecondaryMaximize={toggleSecondaryMaximize}
                   />
                 </div>
               {/if}
             </Resizable.Pane>
-          {/if}
+          {/each}
         </Resizable.PaneGroup>
       </div>
     </Resizable.Pane>

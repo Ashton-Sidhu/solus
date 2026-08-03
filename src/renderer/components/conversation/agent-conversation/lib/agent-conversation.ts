@@ -216,12 +216,6 @@ export function agentAccent(index: number): string {
   return AGENT_ACCENTS[((index % AGENT_ACCENTS.length) + AGENT_ACCENTS.length) % AGENT_ACCENTS.length]
 }
 
-export function agentMonogram(provider: AgentId): string {
-  if (provider === 'codex') return 'Cx'
-  if (provider === 'opencode') return 'Oc'
-  return 'Cl'
-}
-
 /** Which way the in-flight message is travelling — the direction dot points at
  *  whoever it is going to. Everything settled hides the dot and keeps the rule. */
 export function directionFlow(state: AgentConversationCardState): 'to-you' | 'to-agent' | null {

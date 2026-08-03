@@ -9,7 +9,6 @@
   import { getPlanStore, getWorkspaceContext, runtime } from "@renderer/contexts";
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
-  import { router } from "../lib/router.svelte";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
   import { toasts } from "../lib/toast.store.svelte";
   import { webState } from "../lib/web-state.svelte";
@@ -26,7 +25,7 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
-  const panes = session.panes;
+  const router = session.router;
 
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
@@ -40,12 +39,12 @@
   const isWorktree = $derived(!!sidePanelSession?.gitContext?.worktreePath);
   const canShowDiffPanel = $derived(!!sidePanelSession?.workingDirectory);
   const activePlan = $derived.by(() => {
-    const planId = session.panes.activePlanId;
+    const planId = router.params("plan")?.planId;
     if (planId) return planStore.get(planId) ?? null;
-    return planStore.previewPlan;
+    return router.at("plan") ? planStore.previewPlan : null;
   });
   const activeWork = $derived.by(() => {
-    const workId = session.panes.activeWorkId;
+    const workId = router.params("work")?.workId;
     return workId ? session.worksStore.get(workId) ?? null : null;
   });
 
@@ -112,9 +111,9 @@
   });
 
   // ── Mobile-only diff state ──
-  // The desktop layout reads the shared `panes` (panes) for its diff /
-  // plan / work panes. Mobile keeps its own lightweight state because it renders
-  // a single full-screen diff via the snippets below, not the split-pane system.
+  // The desktop layout reads the shared location for its diff / plan / work
+  // panes. Mobile keeps its own lightweight state because it renders a single
+  // full-screen diff via the snippets below, not the split-pane system.
   let diffPanelOpen = $state(false);
   let diffPanelMaximized = $state(false);
   let diffScope = $state<DiffScope>({ kind: "session" });
@@ -130,9 +129,10 @@
     diffPanelMaximized = false;
     editorFile = null;
   }
-  registerBackOverlay("settings", () => isMobile && session.settingsOpen, () => session.closeSettings());
-  registerBackOverlay("workspace", () => isMobile && session.workspacePageOpen, () => (session.workspacePageOpen = false));
-  registerBackOverlay("work-modal", () => isMobile && !!activeWork, () => session.closeWorkModal());
+  // Settings, Folio and the work shell are routes now: each navigation pushes a
+  // real history entry, so browser/OS back walks them without a sentinel. Only
+  // the mobile-bespoke diff, which is local state rather than a location, still
+  // needs the back-stack.
   registerBackOverlay("diff-panel", () => isMobile && diffPanelOpen, closeDiffPanel);
 
   let hasMountedMobile = $state(runtime.isMobileViewport);
@@ -146,7 +146,7 @@
   // tree alive after first use without loading the module on a chat-only launch.
   let hasMountedWorkspace = $state(false);
   $effect(() => {
-    if (session.workspacePageOpen) hasMountedWorkspace = true;
+    if (router.at("folio")) hasMountedWorkspace = true;
   });
 
   let prevActiveTabId: string | undefined;
@@ -158,10 +158,9 @@
         diffPanelOpen = false;
         diffPanelMaximized = false;
         editorFile = null;
-      } else if (panes.secondaryOverlay?.kind === "diff") {
-        panes.closeOverlay();
+      } else if (router.overlay?.name === "diff") {
+        router.closeOverlay();
       }
-      router.syncTabId(current);
     }
     prevActiveTabId = current;
   });
@@ -182,7 +181,7 @@
       const canShowSourceDiff = !!session.sessionFor(sourceTabId)?.workingDirectory;
       const scope = detail?.scope ?? { kind: "session" };
       if (!isMobile) {
-        panes.toggleDiff(canShowSourceDiff, sourceTabId, scope);
+        session.toggleDiff(sourceTabId, scope);
         return;
       }
       sidePanelSourceTabId = sourceTabId;
@@ -221,12 +220,11 @@
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
-      session.settingsOpen = false;
-      session.workspacePageOpen = false;
       if (!isMobile) {
-        panes.openFilePreview(detail, sourceTabId);
+        session.openFilePreview(detail, sourceTabId);
         return;
       }
+      router.closeGroup("page");
       sidePanelSourceTabId = sourceTabId;
       editorFile = detail;
       diffScope = { kind: "session" };
@@ -236,29 +234,11 @@
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);
   });
 
-  // `session.showSettings` opens the settings pane, which internally reads
-  // pane state (to decide primary vs. secondary slot) — reading that inside
-  // this effect would make it depend on the pane, not just the route, so
-  // closing settings (which changes the pane) would re-trigger this effect
-  // and immediately reopen it before the effect below navigates away. Untrack
-  // the call so this effect only reacts to the route.
-  $effect(() => {
-    if (router.current.name === "settings") {
-      const tab = router.current.tab as "general" | "connections" | "tools" | undefined;
-      untrack(() => session.showSettings(tab ?? "general"));
-    }
-  });
-
-  $effect(() => {
-    if (session.settingsOpen && router.current.name !== "settings") {
-      router.navigateToSettings(session.settingsTab);
-    } else if (!session.settingsOpen && router.current.name === "settings") {
-      router.navigateToChat();
-    }
-  });
-
+  // The address bar is written inside `navigate`, never derived — which is what
+  // retired the pair of bidirectional sync effects that used to live here (and
+  // the `effect_update_depth_exceeded` they produced).
   function toggleWorkspace() {
-    session.toggleWorkspacePage();
+    session.toggleFolio();
   }
 
   function toggleDiff() {
@@ -289,7 +269,7 @@
 {/snippet}
 
 {#snippet chatContent()}
-  {#if session.settingsOpen}
+  {#if router.at("settings")}
     {#await import("@renderer/components/settings/SettingsPage.svelte")}
       {@render loadingSurface("Loading settings…")}
     {:then settingsModule}
@@ -307,12 +287,12 @@
         <!-- The page stays mounted and gates itself on open; the wrapper
              collapses to display:none so it never splits the flex column, and
              re-adding the class replays the entrance on every open. -->
-        <div class="min-h-0 flex-col {session.workspacePageOpen ? 'mobile-surface flex flex-1' : 'hidden'}">
+        <div class="min-h-0 flex-col {router.at("folio") ? 'mobile-surface flex flex-1' : 'hidden'}">
           <WorkspacePage />
         </div>
       {/await}
     {/if}
-    {#if !session.workspacePageOpen}
+    {#if !router.at("folio")}
       {#if activeWork}
         {#await import("@renderer/components/document-modal/DocumentModal.svelte")}
           <!-- No workId on mobile, so no comment margin to reserve. -->
@@ -343,7 +323,7 @@
         {/await}
       {:else}
         <div class="flex min-h-0 flex-1 flex-col">
-          {#if session.tabOrder.length === 0 && !session.workspacePageOpen}
+          {#if session.tabOrder.length === 0 && !router.at("folio")}
             <NewTabHome />
           {/if}
           {#each session.tabOrder as tId (tId)}
@@ -423,11 +403,11 @@
       canShowDiffPanel={canShowSidePanel}
       changedFilesCount={changedFiles.length}
       onToggleWorkspace={() => {
-        if (session.settingsOpen) session.closeSettings();
+        if (router.at("settings")) session.closeSettings();
         toggleWorkspace();
       }}
       onToggleDiff={() => {
-        if (session.settingsOpen) session.closeSettings();
+        if (router.at("settings")) session.closeSettings();
         toggleDiff();
       }}
     />

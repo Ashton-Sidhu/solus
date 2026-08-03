@@ -18,7 +18,7 @@
   let { row, tabId }: Props = $props();
 
   const session = getWorkspaceContext();
-  const panes = session.panes;
+  const router = session.router;
 
   const elapsed = $derived(
     row.elapsedMs < 60_000
@@ -33,8 +33,7 @@
       : row.steps.done || "",
   );
   const isOpen = $derived(
-    panes.secondaryOverlay?.kind === "subagent" &&
-      panes.secondaryOverlay.messageId === row.id,
+    router.overlay?.name === "subagent" && router.overlay.params.messageId === row.id,
   );
 </script>
 
@@ -46,7 +45,7 @@
   aria-current={isOpen ? "true" : undefined}
   data-testid="subagent-card"
   data-state={row.state}
-  onclick={() => panes.openSubagent(tabId, row.id)}
+  onclick={() => session.openSubagent(tabId, row.id)}
 >
   <span class="subagent-row__glyph" aria-hidden="true">
     {#if row.state === "running"}

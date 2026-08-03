@@ -17,7 +17,10 @@ interface ListenerBackedAttentionSource extends AttentionSource {
 
 export interface DesktopAttentionNotificationsOptions {
   attention: AttentionService
-  focusWindow: () => void
+  /** Surface the window at a location. The route is the notification's whole
+   *  point: clicking one lands on the session that raised it, not just on
+   *  whatever the app happened to be showing. */
+  focusWindow: (route?: string) => void
   getFocusedWindow?: () => BrowserWindow | null
   getTray?: () => Tray | null
   badgeTarget?: BadgeTarget
@@ -63,7 +66,10 @@ export function attachDesktopAttentionNotifications(
   return { syncBadge }
 }
 
-function showAttentionNotification(entry: AttentionEntry, onClick: () => void): void {
+function showAttentionNotification(
+  entry: AttentionEntry,
+  onClick: (route?: string) => void,
+): void {
   if (!Notification.isSupported()) return
 
   const payload = payloadForAttentionEntry(entry)
@@ -71,7 +77,7 @@ function showAttentionNotification(entry: AttentionEntry, onClick: () => void): 
     title: payload.title,
     body: entry.summary || payload.body,
   })
-  notification.on('click', onClick)
+  notification.on('click', () => onClick(payload.route))
   notification.show()
 }
 

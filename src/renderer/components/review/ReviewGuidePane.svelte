@@ -1,7 +1,6 @@
 <script lang="ts">
   import { ArrowsClockwiseIcon } from "phosphor-svelte";
   import type { GitCheckout } from "../../../shared/types";
-  import type { PaneSlot } from "../../contexts/workspace/pane-view.store.svelte";
   import { getWorkspaceContext, getSettingsContext, getAgentContext, toasts } from "../../contexts";
   import { formatDiffInlineComments } from "../../contexts/workspace/session.utils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
@@ -25,7 +24,7 @@
     sourceTabId,
     workingDirectory,
     gitContext,
-    slot = "primary",
+    isLeading = true,
     onOpenInSplit,
     onClose,
   }: {
@@ -34,7 +33,7 @@
     sourceTabId?: string;
     workingDirectory?: string;
     gitContext?: GitCheckout | null;
-    slot?: PaneSlot;
+    isLeading?: boolean;
     onOpenInSplit?: () => void;
     onClose: () => void;
   } = $props();
@@ -141,7 +140,7 @@
   <PaneChrome
     {onClose}
     {onOpenInSplit}
-    {slot}
+    {isLeading}
     closeLabel="Close review guide"
   >
     {#snippet trailing()}

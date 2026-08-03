@@ -12,11 +12,6 @@ export type ThemeMode = 'system' | 'light' | 'dark'
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
 export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'run' | 'works' | 'automations' | 'tasks'
-export type SplitLayoutSettings = {
-  splitTabId: string
-  secondaryRatio: number
-}
-
 const DEFAULT_PROJECT_PANEL_COLLAPSED: Record<ProjectPanelSectionId, boolean> = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
@@ -79,7 +74,6 @@ export type SettingsFields = {
   sidebarViewMode: SidebarViewMode
   /** Project key the sidebar rail is filtered to; null is "All tasks". */
   sidebarProjectFilter: string | null
-  splitLayout: SplitLayoutSettings | null
 }
 
 function applyTheme(isDark: boolean): void {
@@ -228,17 +222,6 @@ function loadProjectPanelCollapsed(value: unknown): Record<ProjectPanelSectionId
   return collapsed
 }
 
-function loadSplitLayout(value: unknown): SplitLayoutSettings | null {
-  if (!value || typeof value !== 'object') return null
-  const saved = value as Record<string, unknown>
-  if (typeof saved.splitTabId !== 'string' || !saved.splitTabId) return null
-  if (typeof saved.secondaryRatio !== 'number' || !Number.isFinite(saved.secondaryRatio)) return null
-  return {
-    splitTabId: saved.splitTabId,
-    secondaryRatio: Math.min(0.75, Math.max(0.25, saved.secondaryRatio)),
-  }
-}
-
 function loadSettings(): SettingsFields {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -280,7 +263,6 @@ function loadSettings(): SettingsFields {
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
         sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
         sidebarProjectFilter: typeof parsed.sidebarProjectFilter === 'string' ? parsed.sidebarProjectFilter : null,
-        splitLayout: loadSplitLayout(parsed.splitLayout),
       }
     }
   } catch {}
@@ -319,7 +301,6 @@ function loadSettings(): SettingsFields {
     tabGroupMode: 'flat',
     sidebarViewMode: 'flat',
     sidebarProjectFilter: null,
-    splitLayout: null,
   }
 }
 
@@ -358,7 +339,6 @@ export class SettingsContext {
   tabGroupMode = $state<TabGroupMode>('flat')
   sidebarViewMode = $state<SidebarViewMode>('flat')
   sidebarProjectFilter = $state<string | null>(null)
-  splitLayout = $state<SplitLayoutSettings | null>(null)
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
   private _systemIsDark = $state(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
@@ -399,7 +379,6 @@ export class SettingsContext {
     this.tabGroupMode = saved.tabGroupMode
     this.sidebarViewMode = saved.sidebarViewMode
     this.sidebarProjectFilter = saved.sidebarProjectFilter
-    this.splitLayout = saved.splitLayout
 
     // Must run before first paint so CSS variables resolve to the saved palette.
     applyTheme(this.isDark)
@@ -515,7 +494,6 @@ export class SettingsContext {
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
     if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
     if (patch.sidebarProjectFilter !== undefined) this.sidebarProjectFilter = patch.sidebarProjectFilter
-    if (patch.splitLayout !== undefined) this.splitLayout = patch.splitLayout
     this.saveSettings()
   }
 
@@ -564,7 +542,6 @@ export class SettingsContext {
         tabGroupMode: this.tabGroupMode,
         sidebarViewMode: this.sidebarViewMode,
         sidebarProjectFilter: this.sidebarProjectFilter,
-        splitLayout: this.splitLayout,
       }))
     } catch {}
   }

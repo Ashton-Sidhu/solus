@@ -12,6 +12,7 @@
   import {
     formatElapsed,
     hasGlyph,
+    sidebarTitleNeedsEmphasis,
     trailingSlot,
     type PrChip as PrChipModel,
     type SidebarTask,
@@ -80,6 +81,9 @@
   // carries the current-session weight itself. Expanded, that weight belongs to
   // the child, and the parent only comes up out of the falloff.
   const isCurrentSession = $derived(onPath && !hasSubs);
+  const titleIsEmphasized = $derived(
+    isCurrentSession || sidebarTitleNeedsEmphasis(task.status, task.unread),
+  );
   // The task title IS the lead session's name, so it takes the edit — unless the
   // children are showing, where that session has a row of its own to edit in.
   const renamingLead = $derived(
@@ -145,13 +149,13 @@
         />
       {:else}
         <span
-          class="overflow-hidden text-[0.8125rem] tracking-[-0.005em] text-ellipsis whitespace-nowrap transition-opacity duration-150 {onPath
+          class="overflow-hidden text-[0.8125rem] tracking-[-0.005em] text-ellipsis whitespace-nowrap transition-opacity duration-150 {titleIsEmphasized
+            ? 'font-[560]'
+            : ''} {onPath
             ? 'opacity-100'
-            : 'opacity-40 group-hover/task:opacity-100'} {isCurrentSession
-            ? 'font-[560] text-foreground'
-            : onPath
-              ? 'text-foreground'
-              : 'text-muted-foreground'}">{task.title}</span
+            : 'opacity-40 group-hover/task:opacity-100'} {onPath
+            ? 'text-foreground'
+            : 'text-muted-foreground'}">{task.title}</span
         >
       {/if}
       {#if showProjectLine}

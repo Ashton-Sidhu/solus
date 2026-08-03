@@ -28,7 +28,6 @@
 
   const session = getWorkspaceContext();
   const store = reviewSessionStore;
-  const panes = session.panes;
 
   interface PreparedReview {
     pr: PrReviewContext;
@@ -201,7 +200,7 @@
     flushing = true;
     try {
       if (started) await store.flushAll();
-      panes.openPage("prs");
+      session.openPrs();
     } finally {
       flushing = false;
     }

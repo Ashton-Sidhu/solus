@@ -24,7 +24,7 @@
   let { row, tabId }: Props = $props();
 
   const session = getWorkspaceContext();
-  const panes = session.panes;
+  const router = session.router;
 
   const seam = $derived(seamSegments(row.steps, row.state));
   const steps = $derived(stepsFigure(row.steps));
@@ -35,8 +35,7 @@
   // agent that hasn't called a tool yet prints nothing rather than a bare zero.
   const hasSteps = $derived(row.steps.total > 0 || row.steps.done > 0);
   const isOpen = $derived(
-    panes.secondaryOverlay?.kind === "subagent" &&
-      panes.secondaryOverlay.messageId === row.id,
+    router.overlay?.name === "subagent" && router.overlay.params.messageId === row.id,
   );
 </script>
 
@@ -54,7 +53,7 @@
     aria-current={isOpen ? "true" : undefined}
     data-testid="subagent-card"
     data-state={row.state}
-    onclick={() => panes.openSubagent(tabId, row.id)}
+    onclick={() => session.openSubagent(tabId, row.id)}
   >
     {#if failed}
       <span

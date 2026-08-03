@@ -3,7 +3,6 @@ import App from '../App.svelte'
 import '../../../src/renderer/index.css'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
-import { router } from '../lib/router.svelte'
 import { webState } from '../lib/web-state.svelte'
 import { createDemoSolusApi } from './api'
 import { demoFixtures } from './fixtures'
@@ -82,9 +81,6 @@ webState.setConnectedServer({
   installationId: DEMO_INSTALLATION_ID,
   lastConnected: Date.now(),
 })
-router.start()
-router.navigateToChat()
-
 mount(App, { target: document.getElementById('root')! })
 
 const overlayEl = document.createElement('div')

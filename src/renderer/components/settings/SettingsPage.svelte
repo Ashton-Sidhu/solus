@@ -20,6 +20,7 @@
     runtime,
     serversStore,
   } from "../../contexts";
+  import type { SettingsTab } from "../../contexts/workspace/routing/route-registry";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
   import { Button } from "../ui/button";
@@ -40,19 +41,6 @@
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
-
-  type SettingsTab =
-    | "general"
-    | "instructions"
-    | "review"
-    | "providers"
-    | "api-access"
-    | "tools"
-    | "skills"
-    | "voice"
-    | "experimental"
-    | "projects"
-    | "keybindings";
 
   interface TabMeta {
     id: SettingsTab;
@@ -179,6 +167,15 @@
   let searchQuery = $state("");
   let searchInputEl = $state<HTMLInputElement | null>(null);
 
+  // The same spine the session sidebar's nav rows sit on — settings is the
+  // leftmost chrome while it is open, so its column reads as that one.
+  const navRow =
+    "group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground";
+  const navRowActive = "text-foreground";
+  const navIcon = "flex shrink-0 items-center";
+  const navLabel =
+    "flex-1 min-w-0 overflow-hidden text-left text-[0.8125rem] tracking-[-0.004em] text-ellipsis whitespace-nowrap";
+
   function close() {
     session.closeSettings();
     requestInputFocus();
@@ -211,7 +208,7 @@
   );
 
   function selectTab(tab: SettingsTab) {
-    session.settingsTab = tab;
+    session.selectSettingsTab(tab);
     searchQuery = "";
     connectionsNav.back();
   }
@@ -295,12 +292,17 @@
   </div>
 {:else}
   <div class="flex h-full overflow-hidden [--settings-header-height:2.875rem]">
-    <Sidebar.Provider open={true} class="w-[clamp(14.75rem,13vw,17rem)] shrink-0">
+    <!-- Width and surface are the session sidebar's, not a second measure: the
+         settings column replaces it in place, so the shell must not shift. -->
+    <Sidebar.Provider
+      open={true}
+      class="w-[clamp(18.75rem,24vw,22.5rem)] shrink-0"
+    >
       <Sidebar.Root
         role="navigation"
         aria-label="Settings"
         collapsible="none"
-        class="bg-sidebar border-r border-r-sidebar-border"
+        class="border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--foreground)_2%,var(--card))]"
       >
         <!-- Settings forces the session sidebar closed, so this nav is the leftmost
            chrome and sits under the macOS traffic lights. The strip clears them and
@@ -311,16 +313,18 @@
             bind:ref={searchInputEl}
             bind:value={searchQuery}
             placeholder="Search settings"
-            class="basis-auto rounded-md border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-[0.75rem]"
+            class="basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-[0.75rem]"
           />
         </Sidebar.Header>
         <Sidebar.Content
           class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-px px-3 pb-4"
         >
           {#each groupedTabs as section (section.group)}
-            <Sidebar.Group class="p-0 first:[&_[data-sidebar=group-label]]:pt-3">
+            <Sidebar.Group class="p-0">
+              <!-- A group name is the level above the rows, so it starts on the
+                   icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-auto text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground px-2 pt-4 pb-1.5"
+                class="h-[2.125rem] pr-2.5 pl-[1.375rem] text-[0.59375rem] font-semibold tracking-[0.1em] uppercase text-muted-foreground"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -332,23 +336,12 @@
                       <Sidebar.MenuButton
                         type="button"
                         isActive={active}
-                        class="relative gap-2 h-8 px-2 rounded-md border cursor-pointer text-left outline-none [transition:color_0.15s_ease,background_0.15s_ease,border-color_0.15s_ease]
-                        {active
-                          ? 'border-border shadow-xs data-[active=true]:bg-card data-[active=true]:font-normal data-[active=true]:text-foreground'
-                          : 'border-transparent bg-transparent text-muted-foreground [@media(hover:hover)]:hover:text-foreground [@media(hover:hover)]:hover:bg-muted'}"
+                        class="{navRow} {active ? navRowActive : ''}"
                         aria-current={active ? "page" : undefined}
                         onclick={() => selectTab(tab.id)}
                       >
-                        <span
-                          class="flex items-center shrink-0 [transition:color_0.15s_ease]
-                        {active ? 'text-foreground' : 'text-muted-foreground'}"
-                          ><Icon size={15} /></span
-                        >
-                        <span
-                          class="text-[0.8125rem] tracking-[-0.01em] flex-1 min-w-0 text-left whitespace-nowrap overflow-hidden text-ellipsis
-                        {active ? 'font-medium' : 'font-normal'}"
-                          >{tab.label}</span
-                        >
+                        <span class={navIcon}><Icon size={16} /></span>
+                        <span class={navLabel}>{tab.label}</span>
                       </Sidebar.MenuButton>
                     </Sidebar.MenuItem>
                   {/each}
@@ -359,7 +352,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 px-4 py-3 border-t border-t-sidebar-border text-[0.625rem] text-muted-foreground"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-3 pt-2 pb-2.5 text-[0.625rem] text-muted-foreground"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
