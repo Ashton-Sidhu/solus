@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client'
-import { RPC_INVOKE_METHODS, RPC_TOPICS } from '../shared/rpc'
-import type { RpcInvokeMethod, RpcTopic } from '../shared/rpc'
+import { RPC_INVOKE_METHODS } from '../shared/rpc'
+import type { RpcInvokeMethod } from '../shared/rpc'
+import { HostEventSubscriber } from './host-event-subscriber'
 import {
   encodePcm16Wav,
   MAX_VOICE_RECORDING_MINUTES,
@@ -35,8 +36,6 @@ export interface WsTransportOptions {
   refreshToken?: () => Promise<{ result: RefreshResult; sessionToken?: string }>
 }
 
-type Listener = (...payload: unknown[]) => void
-
 interface RequestEntry {
   method: RpcInvokeMethod
   args: unknown[]
@@ -66,11 +65,11 @@ export function shouldRejectQueuedRequest(
 }
 
 export class WsTransport {
+  readonly events = new HostEventSubscriber()
   private readonly socket: Socket
   private readonly clientInstanceId = createClientInstanceId()
   private nextId = 1
   private requests = new Map<string, RequestEntry>()
-  private subscribers = new Map<RpcTopic, Set<Listener>>()
   private onResetCallback: (() => void) | null = null
   private status: ConnectionStatus = 'disconnected'
   private lastNotifiedAttempt = 0
@@ -118,6 +117,8 @@ export class WsTransport {
     this.removeLifecycleListeners = null
     this.socket.disconnect()
     this.rejectAllRequests()
+    this.events.clear()
+    this.onResetCallback = null
     this.setStatus('disconnected')
   }
 
@@ -166,39 +167,12 @@ export class WsTransport {
     }
     api['uploadFiles'] = (files: File[]): Promise<unknown> => this.uploadFiles(files)
 
-    api.onEvent = (cb: Listener) => this.subscribe('normalized-event', cb)
-    api.onError = (cb: Listener) => this.subscribe('enriched-error', cb)
-    api.onSkillStatus = (cb: Listener) => this.subscribe('skill-status', cb)
-    api.onThemeChange = (cb: Listener) => this.subscribe('theme-changed', cb)
-    api.onEnterDesignMode = (cb: Listener) => this.subscribe('enter-design-mode', cb)
-    api.onWindowShown = (cb: Listener) => this.subscribe('window-shown', cb)
-    api.onWindowHidden = (cb: Listener) => this.subscribe('window-hidden', cb)
-    api.onSessionScan = (cb: Listener) => this.subscribe('session-scan', cb)
-    api.onSessionIndexUpdated = (cb: Listener) => this.subscribe('session-index-updated', cb)
-    api.onReviewProgress = (cb: Listener) => this.subscribe('review-progress', cb)
-    api.onReviewGuideStatus = (cb: Listener) => this.subscribe('review-guide-status', cb)
-    api.onRunStatus = (cb: Listener) => this.subscribe('run-status', cb)
-    api.onRunLog = (cb: Listener) => this.subscribe('run-log', cb)
-    api.onVoiceModelStatus = (cb: Listener) => this.subscribe('voice-model-status', cb)
-    api.onSetupStatus = (cb: Listener) => this.subscribe('setup-status', cb)
-    api.onSetupLog = (cb: Listener) => this.subscribe('setup-log', cb)
-    api.onAutomationsChanged = (cb: Listener) => this.subscribe('automations-changed', cb)
-    api.onProviderDeviceCode = (cb: Listener) => this.subscribe('provider-device-code', cb)
-    api.onTasksChanged = (cb: Listener) => this.subscribe('tasks-changed', cb)
-    api.onPrsChanged = (cb: Listener) => this.subscribe('prs-changed', cb)
-    api.onAnnotationsChanged = (cb: Listener) => this.subscribe('annotations-changed', cb)
-    api.onAttentionChanged = (cb: Listener) => this.subscribe('attention-changed', cb)
-    api.onSessionStatusChanged = (cb: Listener) => this.subscribe('session-status-changed', cb)
-    api.onStackGraphUpdate = (cb: Listener) => this.subscribe('stack-graph-update', cb)
-    api.onPrChecksUpdate = (cb: Listener) => this.subscribe('pr-checks-update', cb)
-    api.onPrGuideStatus = (cb: Listener) => this.subscribe('pr-guide-status', cb)
-    api.onUsageLimits = (cb: Listener) => this.subscribe('usage-limits-update', cb)
-    api.onResetRuntime = (cb: () => void) => {
-      this.onResetCallback = cb
-      return () => { if (this.onResetCallback === cb) this.onResetCallback = null }
-    }
-
     return api
+  }
+
+  onReset(callback: () => void): () => void {
+    this.onResetCallback = callback
+    return () => { if (this.onResetCallback === callback) this.onResetCallback = null }
   }
 
   private installSocketListeners(): void {
@@ -237,13 +211,7 @@ export class WsTransport {
       this.authRefreshAttempted = true
       void this.recoverAuthentication()
     })
-    this.socket.on('ev', (topic: RpcTopic, payload: unknown[]) => {
-      const listeners = this.subscribers.get(topic)
-      if (!listeners) return
-      for (const listener of listeners) {
-        try { listener(...payload) } catch (err) { console.error('listener threw', err) }
-      }
-    })
+    this.socket.on('host-event', (event: unknown) => this.events.receive(event))
   }
 
   private async recoverAuthentication(): Promise<void> {
@@ -379,13 +347,6 @@ export class WsTransport {
     return 'refreshed'
   }
 
-  private subscribe(topic: RpcTopic, listener: Listener): () => void {
-    let listeners = this.subscribers.get(topic)
-    if (!listeners) { listeners = new Set(); this.subscribers.set(topic, listeners) }
-    listeners.add(listener)
-    return () => { listeners!.delete(listener) }
-  }
-
   private blockAuthFailure(): void {
     if (this.blocked) return
     this.blocked = true
@@ -503,5 +464,3 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
     )
   })
 }
-
-export { RPC_TOPICS }

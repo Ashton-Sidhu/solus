@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 let AgentConversationStatusStore: typeof import('../../src/renderer/components/conversation/agent-conversation/agent-conversation-status.store.svelte')['AgentConversationStatusStore']
@@ -18,11 +19,9 @@ describe('agent conversation status retention', () => {
     let resolveInfo!: (value: unknown) => void
     const info = new Promise((resolve) => { resolveInfo = resolve })
     const api = {
-      onSessionStatusChanged: () => () => {},
-      onSessionIndexUpdated: () => () => {},
       getSessionInfo: async () => info,
     } as never
-    const store = new AgentConversationStatusStore()
+    const store = new AgentConversationStatusStore(() => new HostEventSubscriber())
 
     const release = store.retain('agent-1', api)
     expect(store.trackedCount()).toBe(1)
@@ -38,11 +37,9 @@ describe('agent conversation status retention', () => {
 
   test('keeps shared metadata until the final mounted card releases', async () => {
     const api = {
-      onSessionStatusChanged: () => () => {},
-      onSessionIndexUpdated: () => () => {},
       getSessionInfo: async () => null,
     } as never
-    const store = new AgentConversationStatusStore()
+    const store = new AgentConversationStatusStore(() => new HostEventSubscriber())
     const releaseFirst = store.retain('agent-1', api)
     const releaseSecond = store.retain('agent-1', api)
     releaseFirst()

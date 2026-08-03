@@ -37,6 +37,7 @@
     type TaskLinkedPr,
   } from "./lib/tasks-api";
   import { formatSavedAgo } from "../document-shell/saveStatus";
+  import * as Breadcrumb from "../ui/breadcrumb";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as Select from "../ui/select";
   import { Skeleton } from "../ui/skeleton";
@@ -404,58 +405,68 @@
   >
     <!-- ── Breadcrumb header + actions ── -->
     <header class="flex items-center justify-between gap-4">
-      <nav
-        class="flex min-w-0 items-center gap-1.5 text-[0.8125rem]"
-        aria-label="Breadcrumb"
-      >
-        <button type="button" class={CRUMB_LINK} onclick={onDone}>Tasks</button>
-        <CaretRightIcon
-          size={12}
-          class="text-(--solus-text-tertiary) opacity-60 shrink-0"
-        />
-        {#if display.kind === "epic"}
-          <span
-            class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-(--solus-accent)"
-            title="This is an epic — its tasks are grouped under it in the list"
-          >
-            <StackIcon size={12} weight="fill" />
-            Epic
-          </span>
-        {/if}
-        <span class="text-(--solus-text-tertiary) tabular-nums shrink-0"
-          >{display.id.length > 8
-            ? `#${display.id.slice(0, 6)}`
-            : `#${display.id}`}</span
-        >
-        {#if hydrating}
-          <CircleNotchIcon
-            size={12}
-            class="animate-spin text-(--solus-text-tertiary) [animation-duration:0.9s] shrink-0"
-          />
-        {/if}
-        {#if isSaving || lastSavedAt !== null}
-          <span
-            class="shrink-0 pl-1.5 border-l border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-          >
-            <span
-              class="inline-flex items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) select-none"
-              aria-live="polite"
-              role="status"
+      <Breadcrumb.Root class="min-w-0">
+        <Breadcrumb.List class="min-w-0 flex-nowrap gap-1.5 text-[0.8125rem]">
+          <Breadcrumb.Item>
+            <Breadcrumb.Link class={CRUMB_LINK}>
+              {#snippet child({ props })}
+                <button {...props} type="button" onclick={onDone}>Tasks</button>
+              {/snippet}
+            </Breadcrumb.Link>
+          </Breadcrumb.Item>
+          <Breadcrumb.Separator class="shrink-0">
+            <CaretRightIcon
+              size={12}
+              class="text-(--solus-text-tertiary) opacity-60 shrink-0"
+            />
+          </Breadcrumb.Separator>
+          <Breadcrumb.Item class="gap-1.5">
+            {#if display.kind === "epic"}
+              <span
+                class="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-(--solus-accent)"
+                title="This is an epic — its tasks are grouped under it in the list"
+              >
+                <StackIcon size={12} weight="fill" />
+                Epic
+              </span>
+            {/if}
+            <Breadcrumb.Page
+              class="text-(--solus-text-tertiary) tabular-nums shrink-0"
+              >{display.id.length > 8
+                ? `#${display.id.slice(0, 6)}`
+                : `#${display.id}`}</Breadcrumb.Page
             >
-              {#if isSaving}
-                <span
-                  class="size-1.5 shrink-0 rounded-full bg-(--solus-accent) animate-pulse"
-                  aria-hidden="true"
-                ></span>
-                <span>Saving…</span>
-              {:else if lastSavedAt !== null}
-                <CheckIcon size={11} />
-                <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
-              {/if}
-            </span>
-          </span>
-        {/if}
-      </nav>
+            {#if hydrating}
+              <CircleNotchIcon
+                size={12}
+                class="animate-spin text-(--solus-text-tertiary) [animation-duration:0.9s] shrink-0"
+              />
+            {/if}
+          </Breadcrumb.Item>
+          {#if isSaving || lastSavedAt !== null}
+            <li
+              class="shrink-0 pl-1.5 border-l border-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+            >
+              <span
+                class="inline-flex items-center gap-[0.3125rem] whitespace-nowrap text-[0.6875rem] text-(--solus-text-tertiary) select-none"
+                aria-live="polite"
+                role="status"
+              >
+                {#if isSaving}
+                  <span
+                    class="size-1.5 shrink-0 rounded-full bg-(--solus-accent) animate-pulse"
+                    aria-hidden="true"
+                  ></span>
+                  <span>Saving…</span>
+                {:else if lastSavedAt !== null}
+                  <CheckIcon size={11} />
+                  <span>{formatSavedAgo(lastSavedAt, savedStatusNow)}</span>
+                {/if}
+              </span>
+            </li>
+          {/if}
+        </Breadcrumb.List>
+      </Breadcrumb.Root>
       <div class="flex shrink-0 items-center gap-1">
         <button
           type="button"

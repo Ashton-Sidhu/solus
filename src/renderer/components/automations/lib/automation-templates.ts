@@ -1,4 +1,4 @@
-import type { AutomationTrigger } from '../../../../shared/types'
+import type { AgentId, AutomationTrigger } from '../../../../shared/types'
 
 // The starter automations offered on the landing page's ledger. Each one is a
 // complete, runnable automation — the prompt is what actually goes to the agent,
@@ -12,6 +12,12 @@ export interface AutomationTemplate {
   description: string
   /** Instructions submitted to the agent verbatim on every run. */
   prompt: string
+  /** Agent configuration to use instead of the launchpad defaults. */
+  agentProvider?: AgentId
+  modelId?: string
+  /** Seed this one in My Workspace instead of the current project — its scope is
+   *  the machine, not a repo, so a project cwd would only mislead. */
+  runsInWorkspace?: boolean
   trigger: AutomationTrigger
 }
 
@@ -30,6 +36,27 @@ export function draftAutomationPrompt(description: string, cwd: string): string 
 }
 
 export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
+  {
+    id: 'computer-maintenance',
+    name: 'Computer maintenance',
+    description:
+      'Safely retires stale headless test processes, clears rebuildable caches and reports further cleanup opportunities.',
+    prompt: [
+      'Keep this computer running smoothly with a conservative maintenance pass.',
+      '',
+      'First, find headless processes left behind by completed test runs. Never kill by name or pattern. For every candidate, verify its exact PID, command, parent process, working directory and age; exclude active Solus sessions, agents, development servers and any process whose ownership or purpose is uncertain. Gracefully terminate only verified stale test-owned processes, one exact PID at a time, and use a forced termination only for that same PID if it does not exit after a reasonable wait.',
+      '',
+      'Next, inspect development caches and broader user caches. Remove only data that is clearly regenerable and stale, such as obsolete package-manager downloads, build caches, test artifacts and application caches. Never remove credentials, browser profiles, session state, source files, databases, Solus data, or anything inside an active project that is not a cache. Measure disk usage before and after each cleanup and skip anything ambiguous.',
+      '',
+      'Finally, audit disk pressure, startup items, unusually resource-heavy background processes, oversized logs, abandoned temporary files and other maintenance opportunities. Do not make additional changes during this audit. Report each opportunity with its evidence, likely benefit, risk and a specific recommended next step.',
+      '',
+      'Finish with a concise summary of exact processes stopped, cache locations cleared, space recovered, items skipped for safety and further opportunities. If no safe cleanup is available, make no changes and say so.',
+    ].join('\n'),
+    agentProvider: 'codex',
+    modelId: 'gpt-5.6-luna',
+    runsInWorkspace: true,
+    trigger: { type: 'cron', expr: '0 3 * * 0' },
+  },
   {
     id: 'weekly-work-report',
     name: 'Weekly work report',

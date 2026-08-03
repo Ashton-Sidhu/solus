@@ -23,6 +23,8 @@ import {
   validateCloneUrl,
 } from '../../src/main/server/handlers/setup-commands'
 import { SolusServer } from '../../src/main/server/server'
+import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
+import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
 import type { SetupCloneProjectResult, SetupPrepareProjectResult, SetupStatusEvent, SetupStepResult } from '../../src/shared/types'
 
 const temporaryDirectories: string[] = []
@@ -589,8 +591,12 @@ Paste code here if prompted >
     const statuses: SetupStatusEvent[] = []
     const calls: SpawnCall[] = []
     const server = new SolusServer()
-    server.subscribe('setup-status', ([event]) => statuses.push(event as SetupStatusEvent))
+    const clientEvents = new ClientEventRegistry()
+    clientEvents.register('test-client', (event) => {
+      if (event.type === 'setup.statusChanged') statuses.push(event.payload)
+    })
     registerSetupHandlers(server, {
+      events: new HostEventPublisher(clientEvents),
       resolveAgentBinary: () => '/usr/local/bin/claude',
       hasClaudeAuth: () => hasAuth,
       spawnProcess: processSequence(calls, [{
@@ -605,7 +611,7 @@ Paste code here if prompted >
     const result = await server.handle(
       'setupAgentSignIn',
       [{ agent: 'claude' }],
-      { deviceId: 'test-device' },
+      { clientId: 'test-client', deviceId: 'test-device' },
     ) as SetupStepResult
 
     expect(calls[0].command).toBe('claude')

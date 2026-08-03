@@ -19,6 +19,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { serverConnections } from "@client-core/server-connections";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import PageShell from "../ui/PageShell.svelte";
   import SearchField from "../ui/search-field";
@@ -274,7 +275,7 @@
 
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = window.solus.onPrsChanged((changedCwd) => {
+    const unsub = serverConnections.eventsFor().subscribe('prs.invalidated', ({ projectRoot: changedCwd }) => {
       if (!open) return;
       const scopedCtx = prsCtx().session;
       const ctxCwd = scopedCtx.projectPath || scopedCtx.workingDirectory;

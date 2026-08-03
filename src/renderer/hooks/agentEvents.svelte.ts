@@ -1,6 +1,6 @@
 import { onDestroy } from 'svelte'
 import type { WorkspaceContext } from '../contexts'
-import type { NormalizedEvent, SkillStatus } from '../../shared/types'
+import type { NormalizedEvent, SessionTitleChangedEvent } from '../../shared/types'
 import { resyncRuntime } from '../contexts/workspace/session-bootstrap'
 import { serverConnections, type ManagedConnection } from '@client-core/server-connections'
 
@@ -16,21 +16,25 @@ export function setupAgentEvents(session: WorkspaceContext): void {
 
   const bindConnection = (connection: ManagedConnection) => {
     connectionUnsubscribes.get(connection.serverId)?.()
-    const unsubEvent = connection.api.onEvent((tabId: string, event: NormalizedEvent) => {
+    const unsubEvent = connection.events.subscribe('session.eventReceived', ({ tabId, event }: { tabId: string; event: NormalizedEvent }) => {
       if (session.sessionFor(tabId)?.serverId !== connection.serverId) return
       session.handleNormalizedEvent(tabId, event)
     })
-    const unsubError = connection.api.onError((tabId: string, error: any) => {
+    const unsubError = connection.events.subscribe('session.errorReceived', ({ tabId, error }) => {
       if (session.sessionFor(tabId)?.serverId !== connection.serverId) return
       session.handleError(tabId, error)
     })
-    const unsubReset = connection.api.onResetRuntime?.(() => {
+    const unsubSessionTitle = connection.events.subscribe('session.titleChanged', (event: SessionTitleChangedEvent) => {
+      session.applySessionTitleChanged(connection.serverId, event)
+    })
+    const unsubReset = connection.transport.onReset(() => {
       void resyncRuntime(session, connection.serverId)
     })
     connectionUnsubscribes.set(connection.serverId, () => {
       unsubEvent()
       unsubError()
-      unsubReset?.()
+      unsubSessionTitle()
+      unsubReset()
     })
   }
 
@@ -38,16 +42,9 @@ export function setupAgentEvents(session: WorkspaceContext): void {
   if (primary) bindConnection(primary)
   const unsubConnectionCreated = serverConnections.onConnectionCreated(bindConnection)
 
-  const unsubSkill = window.solus.onSkillStatus((status: SkillStatus) => {
-    if (status.state === 'failed') {
-      console.warn(`[SOLUS] Skill install failed: ${status.name} — ${status.error}`)
-    }
-  })
-
   onDestroy(() => {
     unsubConnectionCreated()
     for (const unsubscribe of connectionUnsubscribes.values()) unsubscribe()
     connectionUnsubscribes.clear()
-    unsubSkill()
   })
 }

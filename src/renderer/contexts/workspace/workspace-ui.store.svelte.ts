@@ -15,6 +15,9 @@ export class WorkspaceUiStore {
   /** The standalone create-task modal: the project it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
   taskComposer = $state<{ cwd: string } | null>(null)
+  /** The rename prompt: the tab whose session is being named. `null` = closed.
+   *  Lives here so every surface's context menu can open the one dialog. */
+  sessionRename = $state<{ tabId: string } | null>(null)
   /** When set, the Tasks page opens this task's detail once its list is loaded
    *  (the "Go to task…" palette jump). The page clears it after consuming. */
   tasksFocusId = $state<string | null>(null)

@@ -42,7 +42,7 @@
   let draftingSessionId = $state<string | null>(null);
   // The automations that already existed when the handoff started, so the one
   // the agent saves can be told apart from them. `automationsStore` learns about
-  // the save over the `automations-changed` topic, with no polling here.
+  // the save through `automation.changed`, with no polling here.
   let automationIdsBeforeDraft = $state(new Set<string>());
 
   // Newest first, and agent-authored — a template seeded from the ledger below
@@ -121,10 +121,13 @@
         template.name,
         {
           prompt: template.prompt,
-          agentProvider: "claude-code",
-          modelId: null,
+          agentProvider: template.agentProvider ?? "claude-code",
+          modelId: template.modelId ?? null,
           reasoningEffort: "medium",
-          cwd: session.galleryProjectPath,
+          cwd:
+            (template.runsInWorkspace
+              ? session.staticInfo?.workspacePath
+              : null) ?? session.galleryProjectPath,
         },
         template.trigger,
         // Seeded paused: a template carries a schedule, and nothing should run

@@ -109,12 +109,43 @@
     tabId={session.activeTabId}
     workingDirectory={sess?.workingDirectory}
     menuPlacement="up"
-    showWorktree={showWorktreeToggle && !compact}
-    bind:useWorktree
     placeholder={isMobile ? "Add a note…" : "Add a note… (⌥L)"}
   >
     {#snippet afterPicker()}
       {#if !compact}
+        <div class="flex items-center gap-3">
+        {#if showWorktreeToggle}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => {
+                    useWorktree = !useWorktree
+                    composerRef?.focus()
+                  }}
+                  class="relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[background-color,color,scale] duration-(--duration-quick) ease-(--ease-premium) after:absolute after:left-1/2 after:top-1/2 after:size-10 after:-translate-x-1/2 after:-translate-y-1/2 after:content-[''] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium) {useWorktree
+                    ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+                    : 'bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
+                  data-testid="plan-action-worktree"
+                  aria-label="Run approved work in an isolated worktree"
+                  aria-pressed={useWorktree}
+                >
+                  <GitForkIcon
+                    size={15}
+                    weight={useWorktree ? "bold" : "regular"}
+                  />
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content
+              value={useWorktree
+                ? "Worktree on — click to run in the current checkout"
+                : "Worktree off — click to run in an isolated worktree"}
+            />
+          </TooltipUI.Root>
+        {/if}
         <TooltipUI.Root>
           <TooltipUI.Trigger>
             {#snippet child({ props })}
@@ -145,6 +176,7 @@
               : "New session off — click to start approved work in a new session"}
           />
         </TooltipUI.Root>
+        </div>
       {/if}
     {/snippet}
 

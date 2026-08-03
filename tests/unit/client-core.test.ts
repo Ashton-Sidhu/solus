@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overlay'
+import { createNoHostSolusApi } from '../../src/client-core/no-host-api'
 import { claimServer, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '../../src/client-core/pairing'
 import { base64UrlToUint8Array } from '../../src/client-core/push'
 import { encodeQrByteMode } from '../../src/client-core/qr'
@@ -10,6 +11,42 @@ import {
 } from '../../src/client-core/ws-transport'
 
 describe('client core transport helpers', () => {
+  test('keeps the no-host boot API inert and referentially stable', async () => {
+    const api = createNoHostSolusApi()
+
+    expect(api.getPlatform()).toBe('web')
+    expect(api.getPathForFile({} as File)).toBe('')
+    expect(api.start).toBe(api.start)
+    expect('onEvent' in api).toBe(false)
+
+    let settled = false
+    void api.start().finally(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+  })
+
+  test('exposes host events separately from the RPC API', () => {
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    const received: unknown[] = []
+    const unsubscribe = transport.events.subscribe('tasks.invalidated', (payload) => received.push(payload))
+
+    transport.events.receive({
+      type: 'tasks.invalidated',
+      payload: { projectRoot: '/project' },
+      occurredAt: 123,
+    })
+    unsubscribe()
+    transport.events.receive({
+      type: 'tasks.invalidated',
+      payload: { projectRoot: '/ignored' },
+      occurredAt: 124,
+    })
+
+    expect(received).toEqual([{ projectRoot: '/project' }])
+    expect('onTasksChanged' in transport.buildSolusApi()).toBe(false)
+    transport.destroy()
+  })
+
   test('uploads voice as compact WAV without enqueueing an RPC', async () => {
     const originalFetch = globalThis.fetch
     const calls: Array<{ url: string; init?: RequestInit }> = []

@@ -16,9 +16,8 @@
     CaretRightIcon,
     ChatsIcon,
     FunnelSimpleIcon,
-    SidebarSimpleIcon,
     HandPalmIcon,
-    ArrowsClockwiseIcon,
+    SpinnerGapIcon,
     CheckCircleIcon,
     XCircleIcon,
     CircleDashedIcon,
@@ -53,39 +52,12 @@
   } from "../../lib/sessionUtils";
   import type { Tab, Session } from "../../../shared/types";
 
-  interface Props {
-    tabIds?: string[];
-    variant?: "pill" | "editor";
-    sidebarOpen?: boolean;
-    onToggleSidebar?: () => void;
-    projectPanelOpen?: boolean;
-    onToggleProjectPanel?: () => void;
-  }
-
-  let {
-    tabIds,
-    variant = "pill",
-    sidebarOpen = true,
-    onToggleSidebar,
-    projectPanelOpen = true,
-    onToggleProjectPanel,
-  }: Props = $props();
-
-  // The bar only hosts a panel toggle while that panel is COLLAPSED — it's the
-  // expand affordance. When the panel is open it owns its own collapse control in
-  // its header, so the bar stays clean.
-  const showSidebarToggle = $derived(
-    variant === "editor" && !sidebarOpen && !!onToggleSidebar,
-  );
-  // The chrome row spans the project rail now, so this is the rail's only
-  // expand/collapse affordance — it stays put whether the rail is open or shut.
-  const showPanelToggle = $derived(
-    variant === "editor" && !!onToggleProjectPanel,
-  );
-
+  // Pill mode's tab bar. The editor conversation has no strip at all — it names
+  // where you are with the SessionBreadcrumb band instead, so this takes no
+  // props at all.
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
-  const renderedTabIds = $derived(tabIds ?? session.tabOrder);
+  const renderedTabIds = $derived(session.tabOrder);
   const splitTabId = $derived(
     session.panes.chatTabIn("secondary", session.activeTabId),
   );
@@ -112,8 +84,8 @@
       spin: false,
     },
     running: {
-      icon: ArrowsClockwiseIcon,
-      color: "var(--solus-status-running)",
+      icon: SpinnerGapIcon,
+      color: "var(--solus-status-running-icon)",
       spin: true,
     },
     completed: {
@@ -211,32 +183,10 @@
     return title;
   }
 
-  let barEl = $state<HTMLElement | null>(null);
-
-  // Position the seam's cut-out under the active tab so the bottom hairline
-  // appears to route up and around it. Bar-level + mask = no overlap, so the
-  // horizontal scroller never clips it.
-  function updateActiveGap() {
-    if (!barEl) return;
-    const activeEl = tabScroll.el?.querySelector(
-      '[aria-selected="true"]',
-    ) as HTMLElement | null;
-    if (!activeEl) {
-      barEl.style.setProperty("--gap-start", "0px");
-      barEl.style.setProperty("--gap-end", "0px");
-      return;
-    }
-    const barRect = barEl.getBoundingClientRect();
-    const r = activeEl.getBoundingClientRect();
-    const start = Math.max(0, r.left - barRect.left);
-    const end = Math.min(barRect.width, r.right - barRect.left);
-    barEl.style.setProperty("--gap-start", `${start}px`);
-    barEl.style.setProperty("--gap-end", `${end}px`);
-  }
-
-  // One controller owns scroll metrics, edge flags, wheel + paging — every
-  // (rAF-throttled) measurement also refreshes the active-tab seam gap.
-  const tabScroll = createTabScroll({ onMeasure: () => updateActiveGap() });
+  // One controller owns scroll metrics, edge flags, wheel + paging. (The
+  // active-tab seam cut-out it used to refresh belonged to the editor bar,
+  // which the conversation capsule replaced.)
+  const tabScroll = createTabScroll();
 
   // Flip duration for tab reorder/close, shared so the post-animation gap
   // refresh can't drift out of sync with the actual animation. Kept tight so the
@@ -456,30 +406,8 @@
   activationMode="manual"
   class="contents"
 >
-  <div class="no-drag flex flex-col" class:editor-variant={variant === "editor"}>
-  <div class="tab-bar-row flex items-center" bind:this={barEl}>
-    <div class="tab-seam" aria-hidden="true"></div>
-    {#if showSidebarToggle}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps}
-        class="tab-chrome-lead tab-chrome-lead--left"
-        onclick={() => {
-          onToggleSidebar?.();
-          requestInputFocus();
-        }}
-        aria-label="Expand sidebar"
-      >
-        <SidebarSimpleIcon size={14} />
-      </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={`Expand sidebar (${comboHint("global.toggle-sidebar")})`} />
-      </TooltipUI.Root>
-      <div class="tab-sep tab-sep-lead flex-shrink-0" aria-hidden="true"></div>
-    {/if}
-
+  <div class="no-drag flex flex-col">
+  <div class="tab-bar-row flex items-center">
     <div class="relative min-w-0 flex-1">
       {#if tabScroll.overflowing}
         <button
@@ -545,7 +473,7 @@
                     oncontextmenu={(e) => openContextMenu(e, tabId)}
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
-                    data-pill-active={variant === "pill" && isActive}
+                    data-pill-active={isActive}
                     class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {tabId === splitTabId && session.panes.focusedPane === 'secondary'
@@ -597,7 +525,7 @@
                     oncontextmenu={(e) => openContextMenu(e, tabId)}
                     data-testid="tab-item"
                     data-status={sess?.status ?? "idle"}
-                    data-pill-active={variant === "pill" && isActive}
+                    data-pill-active={isActive}
                     class="tab-item transition-[background-color,box-shadow,width,max-width] duration-150 data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
                       ? 'needs-attention'
                       : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
@@ -654,9 +582,7 @@
       </button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content value={variant === "editor"
-          ? `New session in branch (${comboHint("global.new-tab")})`
-          : "New tab"} />
+        <TooltipUI.Content value={"New tab"} />
       </TooltipUI.Root>
 
       <TooltipUI.Root>
@@ -679,7 +605,6 @@
         <TooltipUI.Content value={groupToggleTooltip} />
       </TooltipUI.Root>
 
-      {#if variant === "pill"}
         <TooltipUI.Root>
           <TooltipUI.Trigger>
             {#snippet child({ props: tooltipProps })}
@@ -728,34 +653,9 @@
         {#if !runtime.isMobileViewport}
           <SettingsPopover />
         {/if}
-      {/if}
-
-      {#if showPanelToggle}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          onclick={() => {
-            onToggleProjectPanel?.();
-            requestInputFocus();
-          }}
-          class="tab-chrome-lead tab-chrome-lead--right"
-          aria-label={projectPanelOpen
-            ? "Collapse project panel"
-            : "Expand project panel"}
-        >
-          <SidebarSimpleIcon size={13} mirrored />
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={`${projectPanelOpen ? "Collapse" : "Expand"} project panel (${comboHint("global.toggle-project-panel")})`} />
-        </TooltipUI.Root>
-      {/if}
     </div>
   </div>
-  {#if variant === "pill"}
-    <div class="tab-strip-divider"></div>
-  {/if}
+  <div class="tab-strip-divider"></div>
   </div>
 </Tabs.Root>
 
@@ -764,7 +664,7 @@
     x={contextMenu.x}
     y={contextMenu.y}
     tabId={contextMenu.tabId}
-    showSplit={variant === "editor"}
+    showSplit={false}
     onClose={closeContextMenu}
   />
 {/if}

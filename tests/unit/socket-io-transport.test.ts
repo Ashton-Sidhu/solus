@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
 import { issueSessionToken, resetAuthStateForTests, revokeDevice, verifySessionToken } from '../../src/main/server/auth'
 import { SolusServer } from '../../src/main/server/server'
+import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
+import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
 import { attachWebSocketTransport } from '../../src/main/transports/websocket'
 import { WsTransport, type ConnectionStatus } from '../../src/client-core/ws-transport'
 
@@ -9,6 +11,7 @@ interface Harness {
   server: SolusServer
   http: HttpServer
   url: string
+  events: HostEventPublisher
   transport: ReturnType<typeof attachWebSocketTransport>
 }
 
@@ -80,21 +83,20 @@ describe('Socket.IO transport', () => {
   test('replays CSR events without reset and resets after a fresh Socket.IO session', async () => {
     const harness = await createHarness(false)
     const client = createClient(harness.url)
-    const api = client.buildSolusApi() as Record<string, unknown>
     const taskEvents: unknown[] = []
     let resets = 0
-    ;(api.onTasksChanged as (cb: (...args: unknown[]) => void) => () => void)((...args) => taskEvents.push(args))
-    ;(api.onResetRuntime as (cb: () => void) => () => void)(() => { resets++ })
+    client.events.subscribe('tasks.invalidated', (payload) => taskEvents.push(payload))
+    client.onReset(() => { resets++ })
 
     client.start()
     await waitForStatus(client, 'connected')
     closeClientEngine(client)
     await waitForStatus(client, 'reconnecting')
-    harness.server.broadcast('tasks-changed', '/project')
+    harness.events.broadcast('tasks.invalidated', { projectRoot: '/project' })
     await waitForStatus(client, 'connected')
     await waitFor(() => taskEvents.length === 1)
 
-    expect(taskEvents).toEqual([['/project']])
+    expect(taskEvents).toEqual([{ projectRoot: '/project' }])
     expect(resets).toBe(0)
 
     closeClientEngine(client, true)
@@ -109,19 +111,20 @@ describe('Socket.IO transport', () => {
     const second = createClient(harness.url)
     const firstEvents: unknown[] = []
     const secondEvents: unknown[] = []
-    const firstApi = first.buildSolusApi() as Record<string, unknown>
-    const secondApi = second.buildSolusApi() as Record<string, unknown>
-    ;(firstApi.onEvent as (cb: (...args: unknown[]) => void) => () => void)((...args) => firstEvents.push(args))
-    ;(secondApi.onEvent as (cb: (...args: unknown[]) => void) => () => void)((...args) => secondEvents.push(args))
+    first.events.subscribe('session.eventReceived', (payload) => firstEvents.push(payload))
+    second.events.subscribe('session.eventReceived', (payload) => secondEvents.push(payload))
 
     first.start()
     second.start()
     await Promise.all([waitForStatus(first, 'connected'), waitForStatus(second, 'connected')])
     const clientId = `ws:local:${getClientInstanceId(first)}`
-    expect(harness.server.sendTargeted(clientId, 'normalized-event', 'tab-1', { type: 'message' })).toBe(true)
+    expect(harness.events.publish(clientId, 'session.eventReceived', {
+      tabId: 'tab-1',
+      event: { type: 'assistant_message', text: 'hello' },
+    })).toBe(1)
     await waitFor(() => firstEvents.length === 1)
 
-    expect(firstEvents).toEqual([['tab-1', { type: 'message' }]])
+    expect(firstEvents).toEqual([{ tabId: 'tab-1', event: { type: 'assistant_message', text: 'hello' } }])
     expect(secondEvents).toEqual([])
   })
 })
@@ -129,11 +132,13 @@ describe('Socket.IO transport', () => {
 async function createHarness(requireAuth: boolean): Promise<Harness> {
   const http = createServer()
   const server = new SolusServer()
-  const transport = attachWebSocketTransport(http, server, { requireAuth })
+  const clientEvents = new ClientEventRegistry()
+  const events = new HostEventPublisher(clientEvents)
+  const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
-  const harness = { server, http, transport, url: `http://127.0.0.1:${address.port}` }
+  const harness = { server, http, events, transport, url: `http://127.0.0.1:${address.port}` }
   cleanups.push(() => transport.close())
   return harness
 }

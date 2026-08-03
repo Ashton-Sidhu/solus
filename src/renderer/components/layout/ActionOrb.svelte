@@ -690,7 +690,11 @@
       }
     },
     {
-      enabled: () => tabId === session.focusedChatTabId && isVisibleOrb(),
+      enabled: () =>
+        tabId === session.focusedChatTabId &&
+        isVisibleOrb() &&
+        showContinueWorktree &&
+        !isCreatingWorktree,
     },
   );
   useKeybinding("orb.toggle", () => toggleExpanded(), {

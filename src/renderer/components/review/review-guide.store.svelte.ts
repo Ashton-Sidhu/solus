@@ -1,6 +1,8 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { reviewGuideKeyFor, type ReviewGuideStatusEvent } from '../../../shared/review'
 import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffort, type Session } from '../../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
+import type { HostEventSubscriber } from '@client-core/host-event-subscriber'
 
 type SolusApi = typeof window.solus
 type ReviewScope = 'branch' | 'session'
@@ -58,6 +60,10 @@ export class ReviewGuideStore {
   private loadedTargetsByApi = new WeakMap<SolusApi, Map<string, string>>()
   private revisionsByApi = new WeakMap<SolusApi, Map<string, string>>()
 
+  constructor(
+    private readonly eventsForApi: (api: SolusApi) => HostEventSubscriber = (api) => serverConnections.eventsForApi(api),
+  ) {}
+
   private rememberRevision(api: SolusApi, identity: ReviewGuideIdentity): void {
     if (identity.revision === undefined) return
     let revisions = this.revisionsByApi.get(api)
@@ -71,7 +77,7 @@ export class ReviewGuideStore {
   bind(api: SolusApi): void {
     if (this.subscribedApis.has(api)) return
     this.subscribedApis.add(api)
-    api.onReviewGuideStatus((event) => this.set(api, event))
+    this.eventsForApi(api).subscribe('review.guideStatusChanged', (event) => this.set(api, event))
   }
 
   async load(

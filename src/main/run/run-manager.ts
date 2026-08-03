@@ -67,7 +67,7 @@ export class RunManager {
   constructor(private opts: { broadcast(status: RunStatus): void; broadcastLog(batch: RunLogBatch): void }) {}
 
   async status(cwd: string): Promise<RunProjectStatus> {
-    const repoRoot = await this.repoRootFor(cwd)
+    const repoRoot = await this.resolveRepoRoot(cwd)
     return this.statusForRoot(repoRoot, await this.resolveCommands(repoRoot))
   }
 
@@ -101,7 +101,7 @@ export class RunManager {
   }
 
   async start(cwd: string, commandId: string): Promise<RunProjectStatus> {
-    const repoRoot = await this.repoRootFor(cwd)
+    const repoRoot = await this.resolveRepoRoot(cwd)
     const specs = await this.resolveCommands(repoRoot)
     const spec = specs.find((s) => s.id === commandId)
     if (!spec) return this.statusForRoot(repoRoot, specs)
@@ -179,14 +179,14 @@ export class RunManager {
   }
 
   async stop(cwd: string, commandId: string): Promise<RunProjectStatus> {
-    const repoRoot = await this.repoRootFor(cwd)
+    const repoRoot = await this.resolveRepoRoot(cwd)
     const run = this.runs.get(repoRoot)?.get(commandId)
     if (run) this.stopRun(run, false)
     return this.statusForRoot(repoRoot, await this.resolveCommands(repoRoot))
   }
 
   async restart(cwd: string, commandId: string): Promise<RunProjectStatus> {
-    const repoRoot = await this.repoRootFor(cwd)
+    const repoRoot = await this.resolveRepoRoot(cwd)
     const run = this.runs.get(repoRoot)?.get(commandId)
     // SIGTERM the live process group, then spawn fresh. The old process's exit
     // handler is neutralised by the run.child identity guard in start().
@@ -203,11 +203,11 @@ export class RunManager {
   }
 
   async logs(cwd: string, commandId: string): Promise<RunLogLine[]> {
-    const repoRoot = await this.repoRootFor(cwd)
+    const repoRoot = await this.resolveRepoRoot(cwd)
     return [...(this.runs.get(repoRoot)?.get(commandId)?.logs ?? [])]
   }
 
-  private async repoRootFor(cwd: string): Promise<string> {
+  async resolveRepoRoot(cwd: string): Promise<string> {
     const cached = this.repoRootByCwd.get(cwd)
     if (cached) return cached
     const root = await runAsync('git', ['rev-parse', '--show-toplevel'], cwd, { timeout: 5_000 }).catch(() => null)

@@ -10,6 +10,7 @@
   } from "phosphor-svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
+  import { serverConnections } from "@client-core/server-connections";
   import type { RecentProject } from "../../../shared/types";
   import {
     getWindowContext,
@@ -68,6 +69,11 @@
   }: Props = $props();
 
   const workspace = getWorkspaceContext();
+  // A browser with no host is choosing where to work, not dispatching from
+  // somewhere to somewhere: picking a host reloads the page onto it. A host
+  // only ever arrives by that reload, so this is settled at mount.
+  const webNoHost =
+    window.solus.getPlatform() === "web" && !serverConnections.connectionFor();
   const session = $derived(workspace.sessionFor(tabId));
   // A tab with no session yet has no host to move, but it does still choose the
   // shape of its next checkout, so the header chip stays live until one starts.
@@ -243,6 +249,15 @@
   }
 
   async function chooseServer(event: Event, server: ServerItem) {
+    // With no host connected there is nothing to dispatch from — activating the
+    // chosen host reloads the client straight onto it.
+    if (webNoHost) {
+      event.preventDefault();
+      open = false;
+      serversStore.switchTo(server.id);
+      return;
+    }
+
     // Staying on the host you're already using isn't a dispatch, so it needs no
     // directory of its own; every real move does.
     if (
@@ -318,7 +333,7 @@
 {#snippet serverRow(server: ServerItem)}
   {@const isSelectedHost = server.id === selectedHostId}
   {@const affinity = hostAffinityGlyph(server, server.status)}
-  {@const blocked = !availability.canDispatch && !isSelectedHost}
+  {@const blocked = !webNoHost && !availability.canDispatch && !isSelectedHost}
   <DropdownMenu.Item
     data-menu-current={isSelectedHost ? "" : undefined}
     disabled={blocked}
@@ -339,8 +354,20 @@
   </DropdownMenu.Item>
 {/snippet}
 
+{#snippet connectHostRow()}
+  <DropdownMenu.Item
+    onSelect={() => {
+      open = false;
+      window.dispatchEvent(new CustomEvent("solus:open-server-connect"));
+    }}
+  >
+    <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+    <span class="min-w-0 flex-1 truncate">Connect a host…</span>
+  </DropdownMenu.Item>
+{/snippet}
+
 {#snippet availabilityNote()}
-  {#if !availability.canDispatch}
+  {#if !webNoHost && !availability.canDispatch}
     <p class="text-pretty px-2.5 pb-1 pt-1 text-[0.6875rem] leading-snug text-(--solus-text-tertiary)">
       {availability.note}
     </p>
@@ -621,6 +648,7 @@
               {@render serverRow(server)}
             {/each}
             {#if otherHosts.length > 0}{@render availabilityNote()}{/if}
+            {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               {#each serversStore.nearbyHosts as host (host.server.installationId)}
@@ -633,6 +661,7 @@
               {@render serverRow(server)}
             {/each}
             {@render availabilityNote()}
+            {#if webNoHost}{@render connectHostRow()}{/if}
             {#if serversStore.nearbyHosts.length > 0}
               <DropdownMenu.Separator />
               <DropdownMenu.Label>Nearby</DropdownMenu.Label>

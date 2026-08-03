@@ -1,14 +1,14 @@
 import { dialog, shell } from 'electron'
 import type { BrowserWindow } from 'electron'
-import { join, basename, extname, dirname, resolve as pathResolve, relative as pathRelative } from 'path'
+import { join, basename, dirname, resolve as pathResolve, relative as pathRelative } from 'path'
 import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
-import { appendFile, mkdir, open, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
+import { appendFile, mkdir, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
-import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
+import type { AgentId, Attachment, IpcContext, OpenInEditorRequest, FilePreviewRequest, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal, EditorId } from '../../../shared/types'
 import { AGENT_BIN } from '../../../shared/types'
 import { MAX_VOICE_SAMPLES, MAX_VOICE_WAV_BYTES } from '../../../shared/voice-audio'
-import { transcribeAudio } from '../../transcription'
+import { transcribeAudio, warmTranscription } from '../../transcription'
 import { readWav } from '../../transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '../../model-downloader'
 import { launchInTerminal } from '../../terminal-launcher'
@@ -17,8 +17,9 @@ import { createLogger } from '../../logger'
 import { solusDir } from '../../platform/paths'
 import { getFinder, refreshFinder } from '../file-finder'
 import { sortDirEntries } from './filesystem-handlers'
+import { isInsideRoot, projectRootForRequest, readFilePreview, resolvePreviewPath } from './lib/file-preview'
 import type { SolusServer } from '../server'
-import { filePathsToAttachments, mimeTypeForExtension } from '../attachment-utils'
+import { filePathsToAttachments } from '../attachment-utils'
 
 const log = createLogger('main', 'file-handlers')
 
@@ -111,28 +112,6 @@ function buildAgentTerminalCommand(agentId: AgentId, agentBin: string, sessionId
   return sessionId ? `${agentBin} --resume ${shellQuote(sessionId)}` : agentBin
 }
 
-function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
-  if (rawPath.startsWith('~/')) return join(homedir(), rawPath.slice(2))
-  if (rawPath === '~') return homedir()
-  if (rawPath.startsWith('/')) return pathResolve(rawPath)
-  return pathResolve(cwd || process.cwd(), rawPath)
-}
-
-function projectRootForRequest(ctx: IpcContext, cwd?: string): string | null {
-  const raw =
-    cwd ||
-    ctx.session.gitContext?.worktreePath ||
-    (ctx.session.workingDirectory && ctx.session.workingDirectory !== '~'
-      ? ctx.session.workingDirectory
-      : undefined)
-  return raw ? resolvePreviewPath(raw, undefined) : null
-}
-
-function isInsideRoot(root: string, target: string): boolean {
-  const rel = pathRelative(root, target)
-  return rel === '' || (!!rel && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('/'))
-}
-
 function normalizeFinderRelativePath(input: string): string {
   return input.replaceAll('\\', '/').replace(/\/+$/, '')
 }
@@ -169,86 +148,6 @@ async function listIndexedProjectFiles(root: string): Promise<ProjectFilesResult
     files,
     truncated: result.value.totalMatched > PROJECT_FILES_MAX_ENTRIES,
     source: 'index',
-  }
-}
-
-function isBinaryBuffer(buf: Buffer): boolean {
-  const sampleLength = Math.min(buf.length, 8000)
-  for (let i = 0; i < sampleLength; i++) {
-    if (buf[i] === 0) return true
-  }
-  return false
-}
-
-async function readFilePrefix(path: string, size: number): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const sample = Buffer.alloc(Math.min(size, 8000))
-    const result = await handle.read(sample, 0, sample.length, 0)
-    return sample.subarray(0, result.bytesRead)
-  } finally {
-    await handle.close()
-  }
-}
-
-async function readTextFile(
-  ctx: IpcContext,
-  request: FilePreviewRequest,
-  options: { requireProjectRoot?: boolean } = {},
-): Promise<FilePreviewResult> {
-  const rawRoot = projectRootForRequest(ctx, request.cwd) ?? undefined
-  const resolved = resolvePreviewPath(request.path, rawRoot)
-  let root: string | undefined
-  let target = resolved
-
-  try {
-    if (options.requireProjectRoot) {
-      if (!rawRoot) {
-        return { ok: false, path: request.path, error: 'No project directory is available.' }
-      }
-      root = await realpath(rawRoot)
-      target = await realpath(resolved)
-      if (!isInsideRoot(root, target)) {
-        return { ok: false, path: target, error: 'File path is outside the project directory.' }
-      }
-    } else if (rawRoot) {
-      try {
-        root = await realpath(rawRoot)
-      } catch {
-        root = rawRoot
-      }
-    }
-
-    const fileStat = await stat(target)
-    if (!fileStat.isFile()) {
-      return { ok: false, path: target, error: 'Only files can be previewed.' }
-    }
-    const sample = await readFilePrefix(target, fileStat.size)
-    if (isBinaryBuffer(sample)) {
-      return { ok: false, path: target, error: 'Binary files cannot be previewed.' }
-    }
-
-    const buf = await readBinaryFile(target)
-    const ext = extname(target).toLowerCase()
-    const displayPath =
-      root && isInsideRoot(root, target)
-        ? pathRelative(root, target)
-        : target
-
-    return {
-      ok: true,
-      path: target,
-      displayPath,
-      contents: buf.toString('utf-8'),
-      size: fileStat.size,
-      mimeType: mimeTypeForExtension(ext),
-    }
-  } catch (err: any) {
-    return {
-      ok: false,
-      path: target,
-      error: err?.message ?? String(err),
-    }
   }
 }
 
@@ -448,6 +347,8 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     return { error: 'Transcription received an unsupported audio payload.', transcript: null }
   })
 
+  server.register('warmTranscription', () => warmTranscription())
+
   server.register('voiceModelStatus', () => getVoiceModelStatus())
 
   server.register('voiceModelRetry', async () => {
@@ -574,7 +475,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
   server.register('readProjectFile', async (args) => {
     const [ctx, request] = args as [IpcContext, FilePreviewRequest]
-    return readTextFile(ctx, request, { requireProjectRoot: true })
+    return readFilePreview(ctx, request)
   })
 
   server.register('listProjectFiles', async (args) => {

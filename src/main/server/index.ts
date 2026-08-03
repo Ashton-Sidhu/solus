@@ -7,6 +7,8 @@ import { getServerSettings, setRemoteAccess } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { attachWebSocketTransport } from '../transports/websocket'
 import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
+import { ClientEventRegistry } from '../events/client-event-registry'
+import { HostEventPublisher } from '../events/host-event-publisher'
 import type { ControlPlane } from '../control-plane'
 import type { NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent, SessionStatus } from '../../shared/types'
 import type { AgentId, IpcContext } from '../../shared/types'
@@ -21,15 +23,15 @@ import { registerReviewHandlers } from './handlers/review-handlers'
 import { registerAutomationHandlers } from './handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from '../automations/automation-scheduler'
 import { setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher } from '../automations/automation-runner'
-import { setAutomationsChangedListener } from '../automations/automations-store'
+import { onAutomationsChanged } from '../automations/automations-store'
 import { setSessionController, setSessionCreator } from '../sessions/session-tools'
-import { setAnnotationsChangedNotifier } from '../annotations/annotation-events'
+import { onAnnotationsChanged } from '../annotations/annotation-events'
 import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerSettingsHandlers } from './handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { registerProviderHandlers } from './handlers/provider-handlers'
-import { setPrsChangedNotifier } from '../providers/pr-tools'
+import { onPrsChanged } from '../providers/pr-tools'
 import { registerStackHandlers } from './handlers/stack-handlers'
 import { registerChecksHandlers } from './handlers/checks-handlers'
 import { registerUsageHandlers } from './handlers/usage-handlers'
@@ -42,11 +44,13 @@ import { registerTasksHandlers } from './handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from '../model-downloader'
 import { createLogger } from '../logger'
 import type { RunManager } from '../run/run-manager'
+import type { RunLogSubscriptions } from '../run/run-log-subscriptions'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
 import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../package.json'
 import { solusDir } from '../platform/paths'
+import { onTasksChanged } from '../tasks/task-service'
 
 const log = createLogger('main', 'server-boot')
 
@@ -67,10 +71,12 @@ export interface BootOptions {
   /** Optional voice transcription implementation supplied by the desktop host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
   runManager?: RunManager
+  runLogSubscriptions?: RunLogSubscriptions
 }
 
 export interface BootedServer {
   server: SolusServer
+  events: HostEventPublisher
   http: HttpServer
   host: string
   port: number
@@ -149,6 +155,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let actualPort = port
 
   const server = new SolusServer()
+  const clientEvents = new ClientEventRegistry()
+  const events = new HostEventPublisher(clientEvents)
+  const domainEventUnsubscribes = [
+    onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
+    onPrsChanged((projectRoot) => events.broadcast('prs.invalidated', { projectRoot })),
+    onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
+    onTasksChanged((projectRoot) => events.broadcast('tasks.invalidated', { projectRoot })),
+  ]
   const pushNotifications = new PushNotificationService()
   const hasDesktopHandlers = !!opts.windowDeps && !!opts.fileDeps
 
@@ -169,6 +183,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerFilesystemHandlers(server)
   registerHistoryHandlers(server, {
     controlPlane: opts.controlPlane,
+    events,
     agentIdFromContext: opts.agentIdFromContext,
   })
   if (opts.fileDeps) {
@@ -180,7 +195,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     registerThemeHandlers(server)
   }
   registerFolioHandlers(server)
-  registerReviewHandlers(server, opts.controlPlane)
+  registerReviewHandlers(server, opts.controlPlane, events)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
   // were created in (full conversation context), routed through the control plane.
@@ -190,8 +205,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setAutomationBackgroundSessionDispatcher((o) => opts.controlPlane.startAutomationSession(o))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
-  setAutomationsChangedListener((event) => server.broadcast('automations-changed', event))
-  setPrsChangedNotifier((cwd) => server.broadcast('prs-changed', cwd))
   // Let the create_session tool spawn fresh background sessions via the control plane.
   setSessionCreator((req) => opts.controlPlane.createSession(req))
   setSessionController({
@@ -210,7 +223,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     listPlans: (provider, projectPath, allProjects) => opts.controlPlane.listPlans(provider, projectPath, allProjects),
     invalidatePlanCaches: (sessionId) => opts.controlPlane.invalidatePlanCaches(sessionId),
   })
-  setAnnotationsChangedNotifier((change) => server.broadcast('annotations-changed', change))
   // Agent-conversation cards drive sessions that have no bound tab in the renderer.
   server.register('promptSession', async (args) => {
     const [sessionId, prompt, delivery] = args as [unknown, unknown, unknown]
@@ -226,21 +238,24 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
   startAutomationScheduler()
-  if (opts.runManager) registerRunHandlers(server, opts.runManager)
+  if (opts.runManager && opts.runLogSubscriptions) {
+    registerRunHandlers(server, opts.runManager, opts.runLogSubscriptions)
+  }
   registerProjectConfigHandlers(server)
   registerTasksHandlers(server)
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerProviderHandlers(server, {
     dispatcher: opts.controlPlane,
+    events,
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
   })
-  registerStackHandlers(server)
-  const checksHandlers = registerChecksHandlers(server)
-  registerUsageHandlers(server, { controlPlane: opts.controlPlane })
+  registerStackHandlers(server, events)
+  const checksHandlers = registerChecksHandlers(server, { events })
+  registerUsageHandlers(server, { controlPlane: opts.controlPlane, events })
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
   registerSavedPromptsHandlers(server)
-  registerSetupHandlers(server)
+  registerSetupHandlers(server, { events })
 
   server.register('getServerCapabilities', () => probeServerCapabilities({
     headless: !opts.windowDeps,
@@ -265,7 +280,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let isDeviceOnline = (_deviceId: string) => false
   let lastAttentionKeys = new Set(opts.controlPlane.attention.list().map(attentionEntryKey))
   opts.controlPlane.attention.onChange((entries) => {
-    server.broadcast('attention-changed', entries)
+    events.broadcast('attention.snapshotChanged', { entries })
 
     const { created, nextKeys } = diffNewPushAttentionEntries(lastAttentionKeys, entries)
     lastAttentionKeys = nextKeys
@@ -277,22 +292,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       })
     }
   })
-  setVoiceModelStatusListener((status) => server.broadcast('voice-model-status', status))
+  setVoiceModelStatusListener((status) => events.broadcast('voice.modelStatusChanged', status))
 
   opts.controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
     const clientId = opts.controlPlane.getTabClientId(tabId)
-    if (clientId) server.sendTargeted(clientId, 'normalized-event', tabId, event)
+    if (clientId) events.publish(clientId, 'session.eventReceived', { tabId, event })
   })
   opts.controlPlane.on('error', (tabId: string, error: EnrichedError) => {
     const clientId = opts.controlPlane.getTabClientId(tabId)
-    if (clientId) server.sendTargeted(clientId, 'enriched-error', tabId, error)
+    if (clientId) events.publish(clientId, 'session.errorReceived', { tabId, error })
   })
   opts.controlPlane.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
-    server.broadcast('session-index-updated', event)
+    events.broadcast('session.indexChanged', event)
   })
   // Global session-status feed: agent-conversation cards track agents without tabs.
   opts.controlPlane.on('session-status', (event: { sessionId: string; status: SessionStatus; at: number }) => {
-    server.broadcast('session-status-changed', event)
+    events.broadcast('session.statusChanged', event)
   })
 
   ensureClaimWindow()
@@ -307,8 +322,18 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
   let ws = attachWebSocketTransport(http, server, {
+    clientEvents,
     requireAuth: () => requireAuth,
     responseBudget: responseReceiptBudget,
+    onClientConnected: ({ clientId }) => {
+      opts.controlPlane.handleClientConnected(clientId)
+      checksHandlers.handleClientConnected(clientId)
+    },
+    onClientDisconnected: ({ clientId, deviceId }) => {
+      opts.controlPlane.handleClientDisconnected(clientId, deviceId ?? undefined)
+      checksHandlers.handleClientDisconnected(clientId)
+    },
+    onClientExpired: ({ clientId }) => opts.runLogSubscriptions?.releaseClient(clientId),
   })
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
@@ -344,17 +369,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   scheduleSessionIndexPoll()
-  server.subscribe('presence', (payload) => {
-    const event = payload[0] as { type?: string; id?: string; clientId?: string; deviceId?: string | null } | undefined
-    const clientId = event?.clientId ?? (event?.id ? `ws:${event.id}` : undefined)
-    if (event?.type === 'connect' && clientId) {
-      opts.controlPlane.handleClientConnected(clientId)
-      checksHandlers.handleClientConnected(clientId)
-    } else if (event?.type === 'disconnect' && clientId) {
-      opts.controlPlane.handleClientDisconnected(clientId, event.deviceId ?? undefined)
-      checksHandlers.handleClientDisconnected(clientId)
-    }
-  })
   isDeviceOnline = (deviceId: string) => {
     for (const session of ws.sessions.values()) {
       if (session.deviceId === deviceId) return true
@@ -439,12 +453,23 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // keep the plain http.close() callback from ever firing, since Node waits
     // for all live sockets to end on their own. Force them closed first.
     checksHandlers.handleTransportClosed()
+    opts.runLogSubscriptions?.clear()
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
     ws = attachWebSocketTransport(http, server, {
+      clientEvents,
       requireAuth: () => requireAuth,
       responseBudget: responseReceiptBudget,
+      onClientConnected: ({ clientId }) => {
+        opts.controlPlane.handleClientConnected(clientId)
+        checksHandlers.handleClientConnected(clientId)
+      },
+      onClientDisconnected: ({ clientId, deviceId }) => {
+        opts.controlPlane.handleClientDisconnected(clientId, deviceId ?? undefined)
+        checksHandlers.handleClientDisconnected(clientId)
+      },
+      onClientExpired: ({ clientId }) => opts.runLogSubscriptions?.releaseClient(clientId),
     })
     lock = acquireLock(host, actualPort)
     if (!lock) log.warn('lock_acquisition_failed_after_rebind')
@@ -474,6 +499,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   return {
     server,
+    events,
     http,
     host,
     port: actualPort,
@@ -481,10 +507,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         stopAutomationScheduler()
+        for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
         await lanDiscovery.close()
         checksHandlers.handleTransportClosed()
+        opts.runLogSubscriptions?.clear()
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         lock?.release()

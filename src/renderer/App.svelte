@@ -31,6 +31,7 @@
     retargetSessionHost,
   } from "./components/servers/run-on";
   import DesignAnnotation from "./components/artifact/DesignAnnotation.svelte";
+  import RenameSessionDialog from "./components/session/RenameSessionDialog.svelte";
   import { Toaster } from "./components/ui/sonner/index.js";
   import * as Tooltip from "./components/ui/tooltip";
   import type { Command } from "./components/command-palette/lib/commands";
@@ -159,6 +160,7 @@
         return {
           tabId,
           title: tab.title ?? "New Tab",
+          titleCustom: tab.titleCustom ?? false,
           serverId: sess?.serverId ?? LOCAL_SERVER_ID,
           serverInstallationId: savedServers.find(
             (server) => server.id === sess?.serverId,
@@ -345,6 +347,7 @@
   // lives on the UI store so the palette, the action orb, and create-from-session
   // can all open it. Saves straight through to the provider.
   const taskComposer = $derived(session.ui.taskComposer);
+  const sessionRename = $derived(session.ui.sessionRename);
   const taskComposerConfig = $derived(
     taskComposer ? projectConfigStore.configFor(taskComposer.cwd) : undefined,
   );
@@ -538,7 +541,7 @@
 
   $effect(() => {
     refreshTheme(settings.setSystemTheme.bind(settings));
-    const unsub = window.solus.onThemeChange((isDark: boolean) =>
+    const unsub = window.solusNative.onThemeChange((isDark: boolean) =>
       settings.setSystemTheme(isDark),
     );
     return unsub;
@@ -652,7 +655,7 @@
       setIgnore(true);
     };
     const onResize = () => recomputeRects();
-    const unsubShown = window.solus.onWindowShown((pos) => {
+    const unsubShown = window.solusNative.onWindowShown((pos) => {
       if (pos) {
         recomputeRects();
         applyAt(pos.x, pos.y);
@@ -671,21 +674,22 @@
   });
 
   $effect(() => {
-    const unsubRun = window.solus.onRunStatus((status) =>
+    const events = serverConnections.eventsFor();
+    const unsubRun = events.subscribe('run.statusChanged', (status) =>
       runStore.apply(status),
     );
-    const unsubVoiceModel = window.solus.onVoiceModelStatus((status) =>
+    const unsubVoiceModel = events.subscribe('voice.modelStatusChanged', (status) =>
       voiceModelStore.apply(status),
     );
     void voiceModelStore.refresh();
-    const unsubUsage = window.solus.onUsageLimits((snapshots) =>
+    const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
       agent.applyUsage(snapshots),
     );
     void agent.refreshUsage();
     // Live automation state: scheduler fires, run transitions, and agent-tool
     // saves all land here. Failures get a toast — an unattended run breaking
     // is otherwise invisible until the user happens to open the page.
-    const unsubAutomations = window.solus.onAutomationsChanged((event) => {
+    const unsubAutomations = events.subscribe('automation.changed', (event) => {
       session.automationsStore.applyChange(event);
       if (event.kind === "run-finished" && event.run.status === "failed") {
         toasts.error(`Automation "${event.automation.name}" failed`, {
@@ -699,7 +703,7 @@
     // An agent left comment threads on a plan or a work. Re-read that target's
     // annotations so the rail updates under the reader, rather than making them
     // close and reopen the document to see the review.
-    const unsubAnnotations = window.solus.onAnnotationsChanged((change) => {
+    const unsubAnnotations = events.subscribe('annotations.changed', (change) => {
       if (change.kind === "work") void session.worksStore.loadAnnotations(change.targetId);
       else void session.planStore.hydrateAnnotations(change.targetId);
     });
@@ -709,7 +713,7 @@
     const unsubNeedsReview = session.prsStore.subscribeNeedsReview(
       () => session.ctx,
     );
-    const unsubShown = window.solus.onWindowShown(() => {
+    const unsubShown = window.solusNative.onWindowShown(() => {
       const active = session.sessionFor(session.activeTabId);
       const cwd =
         active?.gitContext?.worktreePath ??
@@ -744,6 +748,20 @@
       !!session.activeSession?.prReview;
     untrack(() =>
       session.prsStore.setChecksReviewSurface(reviewSurfaceOpen, session.ctx),
+    );
+  });
+
+  // The needs-review count answers "in this project", so crossing into another
+  // one makes the count the sidebar is showing not just stale but wrong — the
+  // store zeroes it rather than report another project's number. Fetch the new
+  // project now; leaving it to the poll blanks the badge for up to a cycle.
+  const needsReviewProjectKey = $derived(
+    session.ctx.session.projectPath || session.ctx.session.workingDirectory,
+  );
+  $effect(() => {
+    void needsReviewProjectKey;
+    untrack(() =>
+      void session.prsStore.refreshNeedsReview(session.ctx).catch(() => {}),
     );
   });
 
@@ -926,6 +944,9 @@
   );
   useKeybinding("global.session-picker-j", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
+  );
+  useKeybinding("global.filter-tasks", () =>
+    window.dispatchEvent(new CustomEvent("solus:focus-task-filter")),
   );
   useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
     enabled: () => viewMode === "pill",
@@ -1698,13 +1719,6 @@
   }
 
   $effect(() => {
-    const unsub = window.solus.onEnterDesignMode(() => {
-      if (desktopHandlersAvailable) handleDesignMode();
-    });
-    return unsub;
-  });
-
-  $effect(() => {
     const handler = (event: Event) => {
       const detail = (
         event as CustomEvent<{
@@ -2176,6 +2190,13 @@
     {@const HostOnboarding = hostOnboardingModule.default}
     <HostOnboarding />
   {/await}
+{/if}
+
+{#if sessionRename && session.tabs[sessionRename.tabId]}
+  <RenameSessionDialog
+    tabId={sessionRename.tabId}
+    onClose={() => (session.ui.sessionRename = null)}
+  />
 {/if}
 
 {#if taskComposer && taskComposerConfig !== undefined}

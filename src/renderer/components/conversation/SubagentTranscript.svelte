@@ -1,6 +1,5 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { CheckIcon, WarningCircleIcon } from "phosphor-svelte";
   import type { Message } from "../../../shared/types";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -11,6 +10,7 @@
   import {
     formatOffset,
     reportSections,
+    reportText,
     subagentTail,
     subagentTimeline,
   } from "./lib/subagent-view";
@@ -22,6 +22,11 @@
    * every step keeps one left edge, and tool calls fold into the same grouped
    * activity row the main thread uses rather than a step list of their own — a
    * run is read by its shape first and its calls second.
+   *
+   * §4 finish: nothing tinted, nothing uppercase, nothing rounded. Sections open
+   * on a hairline, labels are sentence case at body weight, numbers are tabular
+   * mono at one size so the stream's right edge is a true column, and the only
+   * colours are foreground and muted.
    */
   interface Props {
     message: Message;
@@ -48,6 +53,11 @@
         : "done",
   );
 
+  // The answer exists whether or not it is also the last block in this stream —
+  // a blocking agent returns it as the tool result — so the hand-off at the end
+  // is offered off the report itself, not off the entry that happens to carry it.
+  const hasReport = $derived(!!reportText(message));
+
   // The rail the Report view will draw, so the closing block can say what shape
   // the answer came back in. Null when the agent wrote no ordered headings.
   const outline = $derived.by(() => {
@@ -62,8 +72,8 @@
          offset — a card's own padding, prose's cap height, a row's wash — so the
          numeral is nudged to sit on the first line of text rather than above it. -->
     <div
-      class="font-mono text-[0.625rem] tabular-nums text-(--muted-foreground) opacity-45 {i === 0
-        ? 'pt-3'
+      class="font-mono text-[0.6875rem] tabular-nums text-(--muted-foreground) opacity-75 {i === 0
+        ? 'pt-px'
         : entry.kind === 'tools'
           ? 'pt-[1.0625rem]'
           : 'pt-[1.1875rem]'}"
@@ -74,38 +84,37 @@
     <div class={i === 0 ? "" : entry.kind === "tools" ? "pt-2.5" : "pt-3"}>
       {#if entry.kind === "dispatch"}
         <!-- The brief is the one thing in the stream the agent didn't write, so
-             it keeps a chassis: everything below it is the agent talking. -->
+             it is bound by a hanging rule rather than a box: a hairline says
+             "this side is the instruction" without the tinted chassis turn 4
+             took out, and it holds the label, the prompt and the asks as one
+             object instead of three stacked blocks. -->
         <div
-          class="rounded-xl bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)] px-[0.8125rem] pt-[0.6875rem] pb-3 shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+          class="flex flex-col gap-2 border-l border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pl-3"
         >
-          <div class="mb-1.5 flex items-center gap-2">
-            <span
-              class="text-[0.59375rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
-              >Dispatched by the main agent</span
-            >
-            <span class="flex-1"></span>
-            <span class="font-mono text-[0.625rem] text-(--muted-foreground) opacity-50"
+          <div class="flex items-baseline justify-between gap-3 text-[0.78125rem]">
+            <span class="min-w-0 truncate font-medium">Dispatched by the main agent</span>
+            <span class="shrink-0 font-mono text-[0.6875rem] text-(--muted-foreground)"
               >{entry.call}</span
             >
           </div>
           {#if entry.prompt}
-            <p class="m-0 text-[0.84375rem] leading-normal whitespace-pre-wrap">
-              {entry.prompt}
-            </p>
-          {/if}
-          {#if entry.asks.length > 1}
-            <!-- The prompt's own ordered list, which is what the Report rail
-                 numbers against — so it is listed, never renumbered. -->
-            <div class="mt-2 flex flex-col gap-0.5 pl-0.5">
-              {#each entry.asks as ask, n (n)}
-                <div class="flex items-baseline gap-2.5 text-[0.78125rem]">
-                  <span
-                    class="w-3.5 shrink-0 font-mono text-[0.65625rem] tabular-nums text-(--muted-foreground) opacity-50"
-                    >{String(n + 1).padStart(2, "0")}</span
-                  >
-                  <span class="truncate text-(--muted-foreground)">{ask}</span>
-                </div>
-              {/each}
+            <!-- The prompt is markdown, because the main agent wrote it that way:
+                 its asks are a numbered list, not lines that happen to start with
+                 digits. Rendering it whole also means the stream never prints a
+                 second, truncated copy of the same list beneath it. Muted, since
+                 the agent's own prose is the stream — but on the secondary step,
+                 as the brief is what every entry below is measured against. -->
+            <!-- `.prose-transcript` is unlayered, so its own `color` and
+                 `max-width` outrank any utility here. Step the variable it reads
+                 rather than fighting the cascade, and let its measure stand. -->
+            <div
+              class="prose-cloud prose-transcript min-w-0 [--solus-text-primary:var(--solus-text-secondary)]"
+            >
+              <SvelteMarkdown
+                source={entry.prompt}
+                renderers={markdownRenderers}
+                sanitizeUrl={markdownSanitizeUrl}
+              />
             </div>
           {/if}
         </div>
@@ -118,14 +127,11 @@
         <div
           class="mt-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pt-[1.125rem]"
         >
-          <div class="mb-2 flex items-center gap-2">
-            <span
-              class="text-[0.59375rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
-              >Final text block · shown as Report</span
-            >
+          <div class="mb-2 flex items-baseline gap-2">
+            <span class="text-[0.78125rem] font-medium">Final answer</span>
             <span class="flex-1"></span>
             {#if outline}
-              <span class="font-mono text-[0.625rem] text-(--muted-foreground) opacity-50"
+              <span class="shrink-0 font-mono text-[0.6875rem] text-(--muted-foreground)"
                 >{outline.sections.length} heading{outline.sections.length === 1
                   ? ""
                   : "s"}</span
@@ -142,23 +148,18 @@
             </div>
           {/if}
           {#if outline}
-            <div class="mt-2.5 flex flex-col gap-[0.4375rem]">
+            <div class="mt-2.5 flex flex-col gap-[0.1875rem]">
               {#each outline.sections as section (section.n)}
                 <div class="flex items-baseline gap-2.5 text-[0.78125rem]">
                   <span
-                    class="w-3.5 shrink-0 font-mono text-[0.65625rem] tabular-nums text-(--muted-foreground) opacity-50"
-                    >{String(section.n).padStart(2, "0")}</span
+                    class="shrink-0 font-mono text-[0.6875rem] tabular-nums text-(--muted-foreground)"
+                    >{section.n}</span
                   >
-                  <span class="truncate font-medium">{section.heading}</span>
+                  <span class="truncate">{section.heading}</span>
                 </div>
               {/each}
             </div>
           {/if}
-          <button
-            type="button"
-            class="mt-3 cursor-pointer border-none bg-transparent p-0 text-left text-[0.78125rem] text-(--muted-foreground) underline decoration-dotted underline-offset-[3px] transition-colors hover:text-(--foreground)"
-            onclick={onOpenReport}>Read the full answer in Report</button
-          >
         </div>
       {:else}
         <!-- Mid-turn prose sits in the stream at full weight: it is the agent
@@ -176,33 +177,34 @@
 
   <div class="pt-5"></div>
   <div class="pt-[1.125rem]">
+    <!-- How the run ended, on a hairline rather than in a wash — the state is
+         carried by the words and, when it failed, by the one colour that means it. -->
     <div
-      class="-mx-2 flex items-center gap-2.5 rounded-md bg-[color-mix(in_oklch,var(--foreground)_3%,transparent)] px-2 py-1.5"
+      class="flex items-baseline gap-2.5 border-t border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pt-2.5"
     >
       <span
-        class="inline-flex w-[1.125rem] shrink-0 items-center justify-center {state === 'failed'
+        class="text-[0.78125rem] {state === 'failed'
           ? 'text-[color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]'
-          : state === 'done'
-            ? 'text-[color-mix(in_oklch,var(--solus-art-3)_62%,var(--foreground))]'
-            : 'text-(--muted-foreground)'}"
-        aria-hidden="true"
+          : state === 'running'
+            ? 'activity-shimmer'
+            : 'text-(--muted-foreground)'}">{tail.label}</span
       >
-        {#if state === "running"}
-          <span class="activity-spinner"></span>
-        {:else if state === "failed"}
-          <WarningCircleIcon size={12} weight="regular" />
-        {:else}
-          <CheckIcon size={12} weight="bold" />
-        {/if}
-      </span>
-      <span class="text-[0.78125rem]">{tail.label}</span>
       <span class="flex-1"></span>
       {#if tail.facts}
         <span
-          class="shrink-0 font-mono text-[0.65625rem] tabular-nums text-(--muted-foreground) opacity-55"
+          class="shrink-0 font-mono text-[0.6875rem] tabular-nums text-(--muted-foreground)"
           >{tail.facts}</span
         >
       {/if}
     </div>
+    {#if hasReport}
+      <!-- The stream prints the answer's shape, never its markdown, so the last
+           thing in the transcript is the way through to the full text. -->
+      <button
+        type="button"
+        class="mt-2.5 cursor-pointer border-none bg-transparent p-0 text-left text-[0.78125rem] text-(--muted-foreground) underline decoration-dotted underline-offset-[3px] transition-colors hover:text-(--foreground)"
+        onclick={onOpenReport}>Read the full answer in Report</button
+      >
+    {/if}
   </div>
 </div>

@@ -142,4 +142,33 @@ describe('transcription worker lifecycle', () => {
     expect(await replacement).toEqual({ error: null, transcript: 'replacement' })
     jest.useRealTimers()
   })
+
+  test('record-start warm pre-forks the worker the following transcription reuses', async () => {
+    const { warmTranscription, transcribeAudio } = await import('../../src/main/transcription')
+
+    // Retire the worker left over from the previous test so the warm below is
+    // provably what forks the process the transcription reuses.
+    workers[workers.length - 1].emit('exit', 0)
+    const forkCountBeforeWarm = forkCount
+
+    await warmTranscription()
+    expect(forkCount).toBe(forkCountBeforeWarm + 1)
+    const warmPost = posted[posted.length - 1] as { worker: FakeUtilityProcess; message: { type: string } }
+    expect(warmPost.message.type).toBe('warm')
+
+    const transcription = transcribeAudio(new Float32Array(16))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(forkCount).toBe(forkCountBeforeWarm + 1)
+    const transcribePost = posted[posted.length - 1] as { worker: FakeUtilityProcess; message: { id: number; type: string } }
+    expect(transcribePost.message.type).toBe('transcribe')
+    expect(transcribePost.worker).toBe(warmPost.worker)
+    transcribePost.worker.emit('message', {
+      id: transcribePost.message.id,
+      type: 'result',
+      transcript: 'warmed',
+      phaseMs: {},
+    })
+    expect(await transcription).toEqual({ error: null, transcript: 'warmed' })
+  })
 })

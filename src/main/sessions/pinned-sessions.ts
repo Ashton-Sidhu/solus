@@ -25,6 +25,13 @@ export async function readManifest(): Promise<PinnedSession[]> {
   }))
 }
 
+/** Keep a pin's label in step with the session it points at. The pin stores its
+ *  own title (it must render without the session index), so a rename has to
+ *  reach in here too or the pinned row keeps the old name forever. */
+export function renamePinnedSession(sessionId: string, title: string): void {
+  getDb().prepare('UPDATE pinned_sessions SET title = ? WHERE session_id = ?').run(title, sessionId)
+}
+
 export async function togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]> {
   withTx(() => {
     const db = getDb()

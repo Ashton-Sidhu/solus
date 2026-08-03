@@ -91,6 +91,23 @@ function moveIndex(current: number, delta: number, count: number) {
   return count === 0 ? 0 : (current + delta + count) % count;
 }
 
+export function shouldUnwrapFileReferenceOnBackspace(
+  event: Pick<
+    KeyboardEvent,
+    "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
+  >,
+  hasActiveFileCompletion: boolean,
+): boolean {
+  return (
+    event.key === "Backspace" &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !hasActiveFileCompletion
+  );
+}
+
 export function filterPlanAutocompleteDescriptors(
   descriptors: PlanDescriptor[],
   filter: string,
@@ -716,8 +733,12 @@ export class AutocompleteController {
    *  Restoring the text re-matches FILE_TRIGGER_RE on the next editor update,
    *  which reopens the menu at that path. */
   #handleFileRefBackspace(e: KeyboardEvent): boolean {
-    if (e.key !== "Backspace") return false;
-    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    // While an @path trigger is being edited it is also parseable as a file
+    // reference. Do not mistake that live autocomplete text for an accepted
+    // file chip, or Backspace will only reveal the already-visible text and
+    // swallow the deletion.
+    if (!shouldUnwrapFileReferenceOnBackspace(e, this.fileFilter !== null))
+      return false;
     if (this.deps.readOnly()) return false;
     const editor = this.deps.getEditor();
     if (!editor?.unwrapFileReferenceBeforeCursor()) return false;

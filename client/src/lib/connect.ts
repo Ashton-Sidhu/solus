@@ -37,6 +37,8 @@ export interface ProbedServer {
   ok: boolean
   name?: string
   claimable?: boolean
+  /** Identifies the host across every address it answers on. */
+  installationId?: string
 }
 
 /** One /health dial with a timeout — no registry, usable before a server is saved. */
@@ -44,8 +46,18 @@ export async function probeServer(url: string, timeoutMs = 3_000): Promise<Probe
   try {
     const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!response.ok) return { ok: false }
-    const body = await response.json() as { ok?: boolean; name?: string; claimable?: boolean }
-    return { ok: body.ok === true, name: body.name, claimable: body.claimable }
+    const body = await response.json() as {
+      ok?: boolean
+      name?: string
+      claimable?: boolean
+      installationId?: string
+    }
+    return {
+      ok: body.ok === true,
+      name: body.name,
+      claimable: body.claimable,
+      installationId: body.installationId,
+    }
   } catch {
     return { ok: false }
   }

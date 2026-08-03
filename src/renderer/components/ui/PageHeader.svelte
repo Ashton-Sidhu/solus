@@ -40,7 +40,7 @@
 
     <h1
       class="text-foreground {size === 'large'
-        ? 'text-[2.375rem] leading-none font-[620] tracking-[-0.035em]'
+        ? 'text-[2.375rem] leading-none font-medium tracking-[-0.035em]'
         : 'text-[26px] font-semibold tracking-[-0.02em]'}"
     >
       {title}

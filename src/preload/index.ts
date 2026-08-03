@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest } from '../shared/types'
+import type { AgentId, AgentUsageLimits, ReasoningEffort, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, NormalizedEvent, EnrichedError, Attachment, SessionMeta, SessionStatus, SessionSearchResult, SessionScanEvent, SessionIndexUpdatedEvent, SessionTitleChangedEvent, RecentProject, DetectedEditor, DetectedTerminal, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectFilesRequest, ProjectFilesResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, SkillStatus, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, WorktreePRResult, GitCommitPushResult, GitCommitResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, RunStatus, RunProjectStatus, RunLogLine, RunLogBatch, ProjectConfig, ProjectEntry, ProjectIdentity, PlanDescriptor, PlanAnnotations, AnnotationsChanged, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationsChangedEvent, AutomationTrigger, AuthStatus, DeviceCodePrompt, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupLogEvent, SetupSshAccessResult, SetupStatusEvent, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest } from '../shared/types'
 import type { PrEffortRequest, PrEffortResult, PrFilter, PrListPage, PrReviewer, PullRequestDetail, PullRequestOverview, PullRequestSummary, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from '../shared/providers'
 import type { Task, TaskListResult, TaskProviderStatus, TaskSessionLink } from '../shared/task-types'
 import type { SessionLoadMessage, SessionPreviewResult } from '../shared/session-history'
@@ -37,6 +37,7 @@ export interface SolusAPI {
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
   transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
+  warmTranscription(ctx?: IpcContext): Promise<void>
   voiceModelStatus(ctx?: IpcContext): Promise<VoiceModelStatus>
   voiceModelRetry(ctx?: IpcContext): Promise<VoiceModelStatus>
   logVoiceTranscription(row: {
@@ -71,6 +72,10 @@ export interface SolusAPI {
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
+  /** Name a session from its opening prompt. Null when no backend CLI is installed. */
+  generateSessionTitle(promptText: string, cwd: string): Promise<string | null>
+  /** Persist a session name; null clears it back to the derived title. */
+  setSessionTitle(sessionId: string, title: string | null): Promise<void>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>
@@ -85,7 +90,6 @@ export interface SolusAPI {
   detectEditors(ctx?: IpcContext): Promise<{ editors: DetectedEditor[]; terminals: DetectedTerminal[] }>
   openInEditor(ctx: IpcContext, request: OpenInEditorRequest): Promise<boolean>
   getTheme(): Promise<{ isDark: boolean }>
-  onThemeChange(callback: (isDark: boolean) => void): () => void
 
   googleUploadDoc(args: { title: string; markdown: string }): Promise<{ docUrl: string } | { error: string }>
   googleDisconnect(): Promise<void>
@@ -104,7 +108,7 @@ export interface SolusAPI {
   setProjectsBaseDirectory(path: string): Promise<{ projectsBaseDirectory?: string }>
   setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
-  /** Runs the agent CLI's browser-auth flow on the host, streaming on `setup-log`. */
+  /** Runs the agent CLI's browser-auth flow on the host, publishing typed setup events. */
   setupAgentSignIn(args: { agent: SetupAgent }): Promise<SetupStepResult>
   /** Sends a browser-returned code to an agent sign-in waiting on stdin. */
   setupSubmitAgentSignInCode(args: { agent: SetupAgent; code: string }): Promise<{ submitted: boolean }>
@@ -127,16 +131,12 @@ export interface SolusAPI {
   setupAuthorizeGhCli(): Promise<{ ok: true }>
   /** Points git at `solus git-credential` so pushes stop prompting. */
   setupInstallGitCredentialHelper(): Promise<{ ok: true }>
-  onSetupLog(callback: (event: SetupLogEvent) => void): () => void
-  onSetupStatus(callback: (event: SetupStatusEvent) => void): () => void
 
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>
   pushGetPublicKey(): Promise<string>
   pushSubscribe(subscription: WebPushSubscriptionJSON): Promise<{ ok: boolean }>
   pushUnsubscribe(): Promise<{ ok: boolean }>
-  /** Fires with the full active attention list whenever it changes. */
-  onAttentionChanged(callback: (entries: AttentionEntry[]) => void): () => void
 
   /** Create a durable provider session without tab ownership or routing state. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
@@ -144,9 +144,6 @@ export interface SolusAPI {
   promptSession(sessionId: string, prompt: string, delivery?: PromptDelivery): Promise<{ disposition: 'started' | 'steered' | 'queued' }>
   /** Stop another agent whose session has no bound tab (card interrupt). */
   stopSession(sessionId: string): Promise<boolean>
-  /** Global session-status feed — fires on every session's status transition,
-   *  bound tab or not, so agent-conversation cards can live-track them. */
-  onSessionStatusChanged(callback: (event: { sessionId: string; status: SessionStatus; at: number }) => void): () => void
 
   providerStatus(ctx: IpcContext): Promise<AuthStatus>
   providerConnect(ctx: IpcContext): Promise<AuthStatus>
@@ -154,8 +151,6 @@ export interface SolusAPI {
   providerCancelConnect(ctx: IpcContext): Promise<void>
   providerDisconnect(ctx: IpcContext): Promise<void>
   providerViewer(ctx: IpcContext): Promise<string>
-  /** Fires with the device/user code while `providerConnect` polls. */
-  onProviderDeviceCode(callback: (prompt: DeviceCodePrompt) => void): () => void
 
   // PR review mode
   prList(ctx: IpcContext, filter?: PrFilter, page?: number): Promise<PrListPage>
@@ -180,22 +175,18 @@ export interface SolusAPI {
   prReplyThread(ctx: IpcContext, number: number, threadId: string, body: string): Promise<ReviewComment>
   prResolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
   prUnresolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
-  /** Queue background guide generation for these PRs; resolves once queued.
-   *  Per-PR progress streams over `onPrGuideStatus`. */
+  /** Queue background guide generation for these PRs; resolves once queued. */
   prGenerateGuides(ctx: IpcContext, numbers: number[]): Promise<void>
-  onPrGuideStatus(callback: (event: PrGuideStatusEvent) => void): () => void
   prMerge(ctx: IpcContext, number: number, method: MergeMethod): Promise<PrMergeResult>
   prPrepareConflictResolution(ctx: IpcContext, number: number): Promise<PrConflictResolutionResult>
   /** Cached checks for the repository's open PRs; failures are represented in the snapshot. */
   prChecks(ctx: IpcContext, numbers?: number[]): Promise<PrChecksSnapshot>
   /** Power/cadence hint from the active renderer surface. */
   prChecksActivity(ctx: IpcContext, reviewSurfaceOpen: boolean, active: boolean): Promise<void>
-  onPrChecksUpdate(callback: (snapshot: PrChecksSnapshot) => void): () => void
 
   /** Cached subscription quota per provider. Asking also keeps the backend's
    *  poll alive — it suspends itself once nobody is watching. */
   usageLimits(): Promise<AgentUsageLimits[]>
-  onUsageLimits(callback: (snapshots: AgentUsageLimits[]) => void): () => void
 
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
@@ -233,14 +224,6 @@ export interface SolusAPI {
   tasksComment(cwd: string, id: string, body: string): Promise<Task>
   tasksLinkSession(cwd: string, taskId: string, sessionId: string): Promise<void>
   tasksSessions(cwd: string): Promise<Record<string, TaskSessionLink[]>>
-  /** Fires with the project cwd whenever any path (renderer, agent tool, session
-   *  write-back) mutates that project's tasks. */
-  onTasksChanged(callback: (cwd: string) => void): () => void
-  /** Fires with the project cwd whenever an agent mutates PR review state. */
-  onPrsChanged(callback: (cwd: string) => void): () => void
-  /** Fires whenever an agent writes comment threads onto a plan or a work, so
-   *  the open document's rail refreshes without being reopened. */
-  onAnnotationsChanged(callback: (change: AnnotationsChanged) => void): () => void
 
   automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>
@@ -252,9 +235,6 @@ export interface SolusAPI {
   automationCancel(id: string): Promise<boolean>
   automationListRuns(id: string): Promise<AutomationRun[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
-  /** Fires on every automation mutation in main — saves, deletes, and run
-   *  transitions, including background scheduler fires. */
-  onAutomationsChanged(callback: (event: AutomationsChangedEvent) => void): () => void
 
   skillsSearch(query: string): Promise<RemoteSkill[]>
   skillsInstall(id: string): Promise<SkillInstallResult>
@@ -286,7 +266,8 @@ export interface SolusAPI {
   runStart(cwd: string, commandId: string): Promise<RunProjectStatus>
   runStop(cwd: string, commandId: string): Promise<RunProjectStatus>
   runRestart(cwd: string, commandId: string): Promise<RunProjectStatus>
-  runLogs(cwd: string, commandId: string): Promise<RunLogLine[]>
+  runLogsRetain(cwd: string, commandId: string): Promise<{ repoRoot: string; lines: RunLogLine[] }>
+  runLogsRelease(repoRoot: string, commandId: string): Promise<void>
   projectConfigLoad(cwd: string): Promise<ProjectConfig | null>
   projectConfigSave(cwd: string, config: ProjectConfig): Promise<ProjectConfig>
   listProjects(): Promise<ProjectEntry[]>
@@ -309,21 +290,7 @@ export interface SolusAPI {
   designModeReady(): Promise<void>
   exitDesignMode(): Promise<void>
   submitDesignAnnotations(data: { dataUrl: string; annotations: DesignAnnotation[] }, ctx?: IpcContext): Promise<Attachment | null>
-  onEnterDesignMode(callback: () => void): () => void
 
-  onEvent(callback: (tabId: string, event: NormalizedEvent) => void): () => void
-  onError(callback: (tabId: string, error: EnrichedError) => void): () => void
-  onSkillStatus(callback: (status: SkillStatus) => void): () => void
-  onWindowShown(callback: (cursorPos: { x: number; y: number } | null) => void): () => void
-  onWindowHidden(callback: () => void): () => void
-  onSessionScan(callback: (event: SessionScanEvent) => void): () => void
-  onSessionIndexUpdated(callback: (event: SessionIndexUpdatedEvent) => void): () => void
-  onReviewProgress(callback: (event: ReviewProgressEvent) => void): () => void
-  onReviewGuideStatus(callback: (event: ReviewGuideStatusEvent) => void): () => void
-  onResetRuntime(callback: () => void): () => void
-  onRunStatus(callback: (status: RunStatus) => void): () => void
-  onRunLog(callback: (batch: RunLogBatch) => void): () => void
-  onVoiceModelStatus(callback: (status: VoiceModelStatus) => void): () => void
   /** Native-only: resolves the OS path for a File. Web stub returns ''. */
   getPathForFile(file: File): string
 
@@ -339,7 +306,6 @@ export interface SolusAPI {
   stackDetect(ctx: IpcContext): Promise<{ repoRoot: string; graph: StackGraph }>
   stackAddManualEdge(ctx: IpcContext, parent: number, child: number): Promise<StackGraph>
   stackRemoveManualEdge(ctx: IpcContext, parent: number, child: number): Promise<StackGraph>
-  onStackGraphUpdate(callback: (repoRoot: string, graph: StackGraph) => void): () => void
 }
 
 export interface NativeSolusAPI {
@@ -355,6 +321,9 @@ export interface NativeSolusAPI {
   setQuoteContext(tabId: string | null): void
   onQuoteSelection(callback: (text: string, sourceTabId: string) => void): () => void
   onAskSelectionInNewSession(callback: (text: string, sourceTabId: string) => void): () => void
+  onThemeChange(callback: (isDark: boolean) => void): () => void
+  onWindowShown(callback: (cursorPos: { x: number; y: number } | null) => void): () => void
+  onWindowHidden(callback: () => void): () => void
 }
 
 // Main has finished booting the local server before it creates either renderer
@@ -386,6 +355,21 @@ const nativeApi: NativeSolusAPI = {
     const handler = (_e: unknown, text: string, sourceTabId: string) => cb(text, sourceTabId)
     ipcRenderer.on('solus:ask-selection-in-new-session', handler)
     return () => ipcRenderer.removeListener('solus:ask-selection-in-new-session', handler)
+  },
+  onThemeChange: (cb: (isDark: boolean) => void) => {
+    const handler = (_event: unknown, isDark: boolean) => cb(isDark)
+    ipcRenderer.on('solus:theme-changed', handler)
+    return () => ipcRenderer.removeListener('solus:theme-changed', handler)
+  },
+  onWindowShown: (cb: (cursorPos: { x: number; y: number } | null) => void) => {
+    const handler = (_event: unknown, cursorPos: { x: number; y: number } | null) => cb(cursorPos)
+    ipcRenderer.on('solus:window-shown', handler)
+    return () => ipcRenderer.removeListener('solus:window-shown', handler)
+  },
+  onWindowHidden: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('solus:window-hidden', handler)
+    return () => ipcRenderer.removeListener('solus:window-hidden', handler)
   },
 }
 

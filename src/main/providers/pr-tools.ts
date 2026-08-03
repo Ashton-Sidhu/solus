@@ -14,10 +14,17 @@ const REVIEW_EVENTS = ['COMMENT', 'REQUEST_CHANGES'] as const
 const PR_STATES = ['open', 'closed', 'all'] as const
 const SIDES = ['LEFT', 'RIGHT'] as const
 
-let notifyPrsChanged: ((cwd: string) => void) | null = null
+type PrsChangedListener = (cwd: string) => void
+const prsChangedListeners = new Set<PrsChangedListener>()
 
-export function setPrsChangedNotifier(fn: (cwd: string) => void): void {
-  notifyPrsChanged = fn
+/** Internal domain signal adapted to a host event by the composition root. */
+export function onPrsChanged(listener: PrsChangedListener): () => void {
+  prsChangedListeners.add(listener)
+  return () => prsChangedListeners.delete(listener)
+}
+
+function notifyPrsChanged(cwd: string): void {
+  for (const listener of prsChangedListeners) listener(cwd)
 }
 
 const listPrsShape = {
@@ -191,7 +198,7 @@ export async function executePrTool(
       if (!threadId) return { ok: false, text: 'reply_pr_thread requires thread_id.' }
       if (!body) return { ok: false, text: 'reply_pr_thread requires a non-empty body.' }
       const comment = await provider.review.replyToThread(repo, threadId, body)
-      notifyPrsChanged?.(cwd)
+      notifyPrsChanged(cwd)
       return { ok: true, text: `Replied to thread ${threadId} with comment ${comment.id}.` }
     }
 
@@ -199,7 +206,7 @@ export async function executePrTool(
       const threadId = String(args.thread_id ?? '').trim()
       if (!threadId) return { ok: false, text: 'resolve_pr_thread requires thread_id.' }
       await provider.review.resolveThread(repo, threadId)
-      notifyPrsChanged?.(cwd)
+      notifyPrsChanged(cwd)
       return { ok: true, text: `Resolved thread ${threadId}.` }
     }
 
@@ -241,7 +248,7 @@ export async function executePrTool(
       } else {
         log.warn('pr_review_merge_base_unresolved', { prNumber: number })
       }
-      notifyPrsChanged?.(cwd)
+      notifyPrsChanged(cwd)
       return { ok: true, text: `Submitted ${event} review on PR #${number} anchored to headSha ${detail.headSha}.` }
     }
 

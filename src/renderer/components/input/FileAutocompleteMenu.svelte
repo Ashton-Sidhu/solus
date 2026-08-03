@@ -80,7 +80,7 @@
     >
       <div
         bind:this={listEl}
-        class="overflow-y-auto py-0.5 transition-[height] duration-120 ease-in-out [&::-webkit-scrollbar]:w-[0.1875rem] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-[color-mix(in_srgb,var(--solus-text-tertiary)_40%,transparent)] [&::-webkit-scrollbar-track]:bg-transparent"
+        class="overflow-y-auto py-0.5 transition-[height] duration-120 ease-in-out [&::-webkit-scrollbar]:w-[0.5rem] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-[color-mix(in_srgb,var(--solus-text-tertiary)_30%,transparent)] [&::-webkit-scrollbar-thumb]:bg-clip-content [&::-webkit-scrollbar-track]:my-1.5 [&::-webkit-scrollbar-track]:bg-transparent"
         style="height:{listHeight}rem"
         role="listbox"
       >

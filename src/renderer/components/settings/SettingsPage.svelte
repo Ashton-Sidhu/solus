@@ -21,6 +21,7 @@
     serversStore,
   } from "../../contexts";
   import { connectionsNav } from "../connections/connections-nav.svelte";
+  import * as Breadcrumb from "../ui/breadcrumb";
   import { Button } from "../ui/button";
   import { SearchField } from "../ui/search-field";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
@@ -374,28 +375,38 @@
       <header
         class="h-(--settings-header-height) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0"
       >
-        <nav
-          class="flex items-center gap-2 min-w-0 text-[0.75rem] text-muted-foreground"
-          aria-label="Breadcrumb"
-        >
-          <span>Settings</span>
-          <span class="opacity-50">&#8260;</span>
-          {#if openHostLabel}
-            <button
-              type="button"
-              class="truncate transition-colors hover:text-foreground"
-              onclick={() => connectionsNav.back()}>{activeTabMeta.label}</button
-            >
-            <span class="opacity-50">&#8260;</span>
-            <span class="font-medium text-foreground truncate" aria-current="page"
-              >{openHostLabel}</span
-            >
-          {:else}
-            <span class="font-medium text-foreground truncate" aria-current="page"
-              >{activeTabMeta.label}</span
-            >
-          {/if}
-        </nav>
+        <Breadcrumb.Root class="min-w-0">
+          <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-[0.75rem]">
+            <Breadcrumb.Item>Settings</Breadcrumb.Item>
+            <Breadcrumb.Separator class="opacity-50">&#8260;</Breadcrumb.Separator>
+            {#if openHostLabel}
+              <Breadcrumb.Item class="min-w-0">
+                <Breadcrumb.Link class="truncate">
+                  {#snippet child({ props })}
+                    <button
+                      {...props}
+                      type="button"
+                      onclick={() => connectionsNav.back()}
+                      >{activeTabMeta.label}</button
+                    >
+                  {/snippet}
+                </Breadcrumb.Link>
+              </Breadcrumb.Item>
+              <Breadcrumb.Separator class="opacity-50">&#8260;</Breadcrumb.Separator>
+              <Breadcrumb.Item class="min-w-0">
+                <Breadcrumb.Page class="font-medium truncate"
+                  >{openHostLabel}</Breadcrumb.Page
+                >
+              </Breadcrumb.Item>
+            {:else}
+              <Breadcrumb.Item class="min-w-0">
+                <Breadcrumb.Page class="font-medium truncate"
+                  >{activeTabMeta.label}</Breadcrumb.Page
+                >
+              </Breadcrumb.Item>
+            {/if}
+          </Breadcrumb.List>
+        </Breadcrumb.Root>
         <Button
           variant="ghost"
           size="icon-sm"

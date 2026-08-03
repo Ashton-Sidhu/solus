@@ -9,6 +9,7 @@ import {
   type SavedServer,
 } from './server-registry'
 import { WsTransport, type ConnectionStatus } from './ws-transport'
+import type { HostEventSubscriber } from './host-event-subscriber'
 import type { SolusAPI } from '../preload'
 
 export interface LocalConnectionInfoLike {
@@ -29,6 +30,7 @@ export interface SolusServerTarget {
 export interface InstalledSolusConnection {
   transport: WsTransport
   api: SolusAPI
+  events: HostEventSubscriber
 }
 
 export interface CreateSolusConnectionOptions {
@@ -92,7 +94,7 @@ export function installWsBackedSolusApi(
     nativeApi,
   ) as unknown as SolusAPI
   installWindowSolusApi(api as unknown as Record<string, unknown>)
-  return { transport: connection.transport, api }
+  return { transport: connection.transport, api, events: connection.events }
 }
 
 export function createSolusConnection(
@@ -127,5 +129,5 @@ export function createSolusConnection(
     },
   })
   const api = transport.buildSolusApi() as unknown as SolusAPI
-  return { transport, api }
+  return { transport, api, events: transport.events }
 }

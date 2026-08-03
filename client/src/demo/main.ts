@@ -21,6 +21,8 @@ import { registerAgentIntercept } from './handlers/agent-intercept'
 import { seedDemoStorage } from './seed'
 import { DemoBackend } from './server'
 import { DemoStore } from './store'
+import { serverConnections } from '@client-core/server-connections'
+import type { WsTransport } from '@client-core/ws-transport'
 import { armReplay, createReplayEngine } from './replay/engine'
 import DemoCtaOverlay from './DemoCtaOverlay.svelte'
 import DemoHintsOverlay from './DemoHintsOverlay.svelte'
@@ -51,6 +53,20 @@ registerDiffHandlers(backend, store)
 registerFilesHandlers(backend, store)
 registerAgentIntercept(backend, store)
 window.solus = createDemoSolusApi(backend)
+serverConnections.registerPrimary('demo', window.solus, {
+  events: backend.events,
+  destroy: () => {},
+  start: () => {},
+  reconnectNow: () => {},
+  onReset: () => () => {},
+} as unknown as WsTransport, {
+  id: 'demo',
+  label: 'Solus Demo',
+  url: window.location.origin,
+  sessionToken: '',
+  installationId: DEMO_INSTALLATION_ID,
+  local: false,
+})
 
 setTabPersistenceServerInstallationId(DEMO_INSTALLATION_ID)
 seedDemoStorage(fixtures)

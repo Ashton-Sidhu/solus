@@ -19,6 +19,12 @@ function installRendererGlobals(): void {
     writable: true,
     value: {
       dispatchEvent: () => true,
+      // The analytics client wires listeners onto `window` the moment the
+      // workspace context is imported. Without these the whole file passes or
+      // fails on whether some *earlier* test file happened to import it first,
+      // which makes a red here mean nothing.
+      addEventListener: () => {},
+      removeEventListener: () => {},
       matchMedia: () => ({
         matches: false,
         addEventListener: () => {},
@@ -75,6 +81,8 @@ describe('WorkspaceContext tab clearing', () => {
     workspace.ctxFor = () => ({ session: { tabId: 'tab-a' } })
     workspace.eventReducer = { streaming: { text: {} } }
     workspace.environment = { refreshTab: async () => {} }
+    // A class field, so an Object.create'd instance never gets one.
+    workspace.autoNamedTabs = new Set<string>()
 
     workspace.clearTab('tab-a')
 

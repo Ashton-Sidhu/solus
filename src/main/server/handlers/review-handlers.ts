@@ -6,8 +6,9 @@ import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, requestReview
 import { guideKeyFor } from '../../review/review-target'
 import { readReviewState, writeReviewState } from '../../review/review-state'
 import type { AgentDispatcher } from '../../agents/agent-runner'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 
-export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDispatcher): void {
+export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDispatcher, events: HostEventPublisher): void {
   server.register('readLedger', async (args) => {
     const [ctx] = args as [IpcContext]
     return readLedger(ctx)
@@ -31,8 +32,8 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
       dispatcher,
       ctx,
       opts,
-      (event) => server.broadcast('review-progress', event),
-      (event) => server.broadcast('review-guide-status', event),
+      (event) => events.broadcast('review.progressChanged', event),
+      (event) => events.broadcast('review.guideStatusChanged', event),
     )
   })
 
@@ -45,8 +46,8 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
       dispatcher,
       ctx,
       opts,
-      (event) => server.broadcast('review-progress', event),
-      (event) => server.broadcast('review-guide-status', event),
+      (event) => events.broadcast('review.progressChanged', event),
+      (event) => events.broadcast('review.guideStatusChanged', event),
     )
   })
 
@@ -60,7 +61,7 @@ export function registerReviewHandlers(server: SolusServer, dispatcher: AgentDis
     return cancelGenerateGuide(
       ctx,
       opts,
-      (event) => server.broadcast('review-guide-status', event),
+      (event) => events.broadcast('review.guideStatusChanged', event),
     )
   })
 

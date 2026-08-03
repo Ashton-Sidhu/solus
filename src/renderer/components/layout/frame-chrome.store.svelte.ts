@@ -7,7 +7,7 @@ class FrameChromeStore {
   sidebarOpen = $state(true)
   projectPanelOpen = $state(false)
   expandSidebar = $state<(() => void) | null>(null)
-  expandProjectPanel = $state<(() => void) | null>(null)
+  toggleProjectPanelFromFrame = $state<(() => void) | null>(null)
 }
 
 export const frameChrome = new FrameChromeStore()

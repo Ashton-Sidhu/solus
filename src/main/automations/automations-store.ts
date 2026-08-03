@@ -50,15 +50,18 @@ interface AutomationRunRow {
 // scheduled fires happen with no renderer in the loop, so push is the only way
 // the UI learns a run started/finished without reopening the page.
 type AutomationsChangedListener = (event: AutomationsChangedEvent) => void
-let changedListener: AutomationsChangedListener | null = null
-export function setAutomationsChangedListener(listener: AutomationsChangedListener): void {
-  changedListener = listener
+const changedListeners = new Set<AutomationsChangedListener>()
+export function onAutomationsChanged(listener: AutomationsChangedListener): () => void {
+  changedListeners.add(listener)
+  return () => changedListeners.delete(listener)
 }
 function emitChanged(event: AutomationsChangedEvent): void {
-  try {
-    changedListener?.(event)
-  } catch (err: any) {
-    log.error('automations_changed_listener_failed', { error: err instanceof Error ? err.message : String(err) })
+  for (const listener of changedListeners) {
+    try {
+      listener(event)
+    } catch (err: any) {
+      log.error('automations_changed_listener_failed', { error: err instanceof Error ? err.message : String(err) })
+    }
   }
 }
 

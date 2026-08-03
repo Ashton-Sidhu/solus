@@ -16,7 +16,7 @@ type AutomationPatch = {
 }
 
 export function registerAutomationsHandlers(backend: DemoServer, store: DemoStore): void {
-  const broadcast = (event: AutomationsChangedEvent) => backend.broadcast('automations-changed', event)
+  const broadcast = (event: AutomationsChangedEvent) => backend.broadcast('automation.changed', event)
   backend.register('automationList', () => store.listAutomations())
   backend.register('automationRead', (args) => store.readAutomation(args[0] as string))
   backend.register('automationListRuns', (args) => store.listAutomationRuns(args[0] as string))

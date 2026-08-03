@@ -99,7 +99,14 @@ function revisionContext(status: Session['status']) {
   const session = { status, provider: 'claude-code', messages: [] } as unknown as Session
   const tab = { sessionId: 'renderer-session-1', input: { planRefs: [], workRefs: [] } } as unknown as Tab
 
-  const calls = { denied: [] as string[], stops: 0, interrupts: 0, prompts: [] as string[] }
+  const calls = {
+    denied: [] as string[],
+    stops: 0,
+    interrupts: 0,
+    prompts: [] as string[],
+    permissionModeTabIds: [] as Array<string | undefined>,
+    promptTabIds: [] as Array<string | undefined>,
+  }
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -124,8 +131,11 @@ function revisionContext(status: Session['status']) {
     }),
     ctxFor: () => ({}),
     interruptTab: () => { calls.interrupts++ },
-    setPermissionMode: () => {},
-    sendMessage: (text: string) => { calls.prompts.push(text) },
+    setPermissionMode: (_mode: string, tabId?: string) => { calls.permissionModeTabIds.push(tabId) },
+    sendMessage: (text: string, _projectPath?: string, tabId?: string) => {
+      calls.prompts.push(text)
+      calls.promptTabIds.push(tabId)
+    },
   }
 
   return { ctx, plan, calls }
@@ -146,6 +156,8 @@ describe('plan revision', () => {
     expect(calls.interrupts).toBe(0)
     expect(plan.status).toBe('rejected')
     expect(calls.prompts).toHaveLength(1)
+    expect(calls.permissionModeTabIds).toEqual(['tab-1'])
+    expect(calls.promptTabIds).toEqual(['tab-1'])
   })
 
   test('stops the run when there is no pending permission left to answer', async () => {

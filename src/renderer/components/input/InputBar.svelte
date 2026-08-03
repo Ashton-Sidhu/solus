@@ -38,6 +38,7 @@
   import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
   import { formatReleaseTime } from "../conversation/lib/queued-prompts";
   import { quotedReplyDraft } from "../../lib/quoted-reply";
+  import { pendingPlanForPrompt } from "./lib/pending-plan";
 
   const HISTORY_KEY = "solus-prompt-history";
   const MAX_HISTORY = 100;
@@ -79,6 +80,9 @@
   );
   const sess = $derived(session.sessionFor(targetTabId));
   const input = $derived(session.inputFor(targetTabId));
+  const pendingPlan = $derived(
+    pendingPlanForPrompt(sess, session.planStore.plans),
+  );
   const isActiveMode = $derived(mode === windowCtx.viewMode);
   const isMobile = $derived(runtime.isMobileViewport);
   const isBusy = $derived(
@@ -335,6 +339,8 @@
         ? "Initializing..."
         : voiceState === "transcribing"
           ? "Transcribing..."
+          : pendingPlan
+            ? "Send feedback to revise the pending plan..."
           : isRateLimited
             ? resetsAt
               ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
@@ -542,17 +548,17 @@
 
   $effect(() => {
     if (!isPrimary) return;
-    const unsub = window.solus.onWindowShown(() => {
+    const unsub = window.solusNative?.onWindowShown(() => {
       if (!isActiveMode) return;
       if (!session.sessionPickerOpen && !isReadOnly) {
         requestInputFocus();
       }
     });
-    return unsub;
+    return unsub ?? (() => {});
   });
 
   $effect(() => {
-    const unsub = window.solus.onWindowHidden(() => {
+    const unsub = window.solusNative?.onWindowHidden(() => {
       if (
         isActiveMode &&
         ownsVoice &&
@@ -560,7 +566,7 @@
       )
         voice.cancel();
     });
-    return unsub;
+    return unsub ?? (() => {});
   });
 
   // Single source of truth for (re)arming the recorder. Fires on any rising
@@ -841,12 +847,19 @@
     if (sentSavedPromptId && composerProjectRoot) {
       void savedPrompts.remove(composerProjectRoot, sentSavedPromptId);
     }
-    session.sendMessage(
-      prompt || "See attached files",
-      undefined,
-      tabId,
-      options.delivery,
-    );
+    if (pendingPlan) {
+      // Match the plan surface's Revise action: answer the held ExitPlanMode
+      // request, keep the provider in plan mode, and send this text as feedback
+      // instead of letting it become an ordinary queued prompt.
+      void session.rejectPlan(pendingPlan.id, prompt || "See attached files");
+    } else {
+      session.sendMessage(
+        prompt || "See attached files",
+        undefined,
+        tabId,
+        options.delivery,
+      );
+    }
 
     if (options.refocus !== false) {
       refocusComposer();
@@ -1102,51 +1115,57 @@
 {/snippet}
 
 {#snippet editorOrWaveform()}
-  {#if hasMountedWaveform}
-    <div
-      class="flex items-center gap-2 py-3"
-      style:display={showWaveform ? null : "none"}
-    >
-      <div class="min-w-0 flex-1">
-        <WaveformVisualizer
-          rmsRef={voice.rmsRef}
-          color="var(--solus-accent)"
-          active={showWaveform}
-        />
+  <!-- The editor's type vars live on this wrapper, not on the editor itself, so
+       the waveform inherits the same padding and stands exactly as tall as the
+       text well it replaces — entering voice mode must not resize the card. -->
+  <div
+    class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
+    'editor'
+      ? '[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
+      : ''}"
+  >
+    {#if hasMountedWaveform}
+      <div
+        class="flex items-center gap-2 [padding:var(--plain-editor-padding,0.9375rem_0_0.9375rem_0.25rem)]"
+        style:display={showWaveform ? null : "none"}
+      >
+        <div class="min-w-0 flex-1">
+          <WaveformVisualizer
+            rmsRef={voice.rmsRef}
+            color="var(--solus-accent)"
+            active={showWaveform}
+          />
+        </div>
       </div>
+    {/if}
+    <div style:display={showWaveform ? "none" : null}>
+      <PromptEditor
+        bind:this={composerEl}
+        value={editorValue}
+        onValueChange={handleEditorChange}
+        onEmptyChange={(empty) => (editorHasText = !empty)}
+        {pluginCommands}
+        provider={activeProvider}
+        tabId={targetTabId}
+        workingDirectory={composerCwd}
+        onRefsChange={handleRefsChange}
+        includeSolusCommands
+        onSolusCommand={handleSolusCommand}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        onPlanRefClick={(planId) => session.openPlanModal(planId)}
+        onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
+        onPrRefClick={(number, title) =>
+          void session.enterPrReview(number, title, {
+            ctx: session.ctxForDirectory(composerCwd),
+          })}
+        onFileRefClick={previewFile}
+        {placeholder}
+        readOnly={isReadOnly}
+        disabled={isReadOnly || isConnecting || voiceState === "transcribing"}
+        maxHeight={INPUT_MAX_HEIGHT}
+      />
     </div>
-  {/if}
-  <div style:display={showWaveform ? "none" : null}>
-    <PromptEditor
-      bind:this={composerEl}
-      value={editorValue}
-      onValueChange={handleEditorChange}
-      onEmptyChange={(empty) => (editorHasText = !empty)}
-      {pluginCommands}
-      provider={activeProvider}
-      tabId={targetTabId}
-      workingDirectory={composerCwd}
-      onRefsChange={handleRefsChange}
-      includeSolusCommands
-      onSolusCommand={handleSolusCommand}
-      onKeyDown={handleKeyDown}
-      onPaste={handlePaste}
-      onPlanRefClick={(planId) => session.openPlanModal(planId)}
-      onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
-      onPrRefClick={(number, title) =>
-        void session.enterPrReview(number, title, {
-          ctx: session.ctxForDirectory(composerCwd),
-        })}
-      onFileRefClick={previewFile}
-      {placeholder}
-      readOnly={isReadOnly}
-      disabled={isReadOnly || isConnecting || voiceState === "transcribing"}
-      maxHeight={INPUT_MAX_HEIGHT}
-      class="[--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
-      'editor'
-        ? '[--plain-editor-font-size:0.84375rem] [--plain-editor-padding:1.25rem_0_1.25rem_0]'
-        : ''}"
-    />
   </div>
 {/snippet}
 

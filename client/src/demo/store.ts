@@ -559,7 +559,7 @@ export class DemoStore {
   readProjectFile(path: string): FilePreviewResult {
     const contents = this.fixtures.files.contents[path]
     if (contents === undefined) return { ok: false, path, error: `File not found: ${path}` }
-    return { ok: true, path, displayPath: path, contents, size: contents.length }
+    return { ok: true, path, displayPath: path, contents, size: contents.length, isReadOnly: false }
   }
 
   writeFile(path: string, contents: string): WriteFileResult {

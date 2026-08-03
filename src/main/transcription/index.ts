@@ -141,6 +141,27 @@ export async function prepareTranscriptionModel(): Promise<void> {
   }
 }
 
+/**
+ * Fork the worker and load its ONNX sessions ahead of the transcription that
+ * follows a recording. Called at record start so the ~1s model load overlaps
+ * the recording instead of adding to post-stop latency.
+ */
+export async function warmTranscription(): Promise<void> {
+  if (pending.size > 0) return
+  if (!(await isParakeetModelReady())) {
+    void ensureParakeetModel().catch(() => {})
+    return
+  }
+  const transcriptionWorker = ensureWorker()
+  try {
+    transcriptionWorker.postMessage({ id: 0, type: 'warm' })
+  } catch {
+    return
+  }
+  log.info('transcription_worker_warmed')
+  scheduleWorkerIdleStop()
+}
+
 export async function transcribeAudio(samples: Float32Array): Promise<{ error: string | null; transcript: string | null }> {
   const startedAt = Date.now()
   if (samples.length === 0) {

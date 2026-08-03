@@ -1,7 +1,7 @@
 import {
   HandPalmIcon,
   ClipboardTextIcon,
-  ArrowsClockwiseIcon,
+  SpinnerGapIcon,
   CheckCircleIcon,
   XCircleIcon,
   StopCircleIcon,
@@ -91,7 +91,7 @@ export function getAttentionIcon(state: AttentionState): StatusIcon | null {
   if (state === 'unread')
     return { component: CheckCircleIcon, color: 'var(--solus-status-complete)', spin: false }
   if (state === 'running')
-    return { component: ArrowsClockwiseIcon, color: 'var(--solus-status-running)', spin: true }
+    return { component: SpinnerGapIcon, color: 'var(--solus-status-running-icon)', spin: true }
   return null
 }
 
@@ -105,6 +105,9 @@ export function hasSessionStarted(session: Session | undefined): boolean {
   )
 }
 
+/** The one naming rule for an open session, used by every surface that shows one
+ *  (tab strip, sidebar rows, breadcrumb): the custom name when the session has
+ *  one — it lives on `tab.title` — otherwise the opening prompt. */
 export function sessionTitle(sess: Session, tab: Tab): string {
   if (tab.title && tab.title !== 'New Tab') return tab.title
   for (const m of sess.messages) {
@@ -207,7 +210,7 @@ export function getStatusIcon(status: SessionStatus): StatusIcon | null {
   if (status === 'rate_limited')
     return { component: ClockIcon, color: 'var(--solus-status-permission)', spin: false }
   if (status === 'running' || status === 'connecting')
-    return { component: ArrowsClockwiseIcon, color: 'var(--solus-status-running)', spin: true }
+    return { component: SpinnerGapIcon, color: 'var(--solus-status-running-icon)', spin: true }
   if (status === 'failed' || status === 'dead')
     return { component: XCircleIcon, color: 'var(--solus-status-error)', spin: false }
   if (status === 'completed')

@@ -30,6 +30,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { serverConnections } from "@client-core/server-connections";
   import {
     buildTaskGroups,
     relativeTime,
@@ -140,7 +141,7 @@
   // list. Debounced so a bulk operation's burst collapses into one reload.
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = window.solus.onTasksChanged((changedCwd) => {
+    const unsub = serverConnections.eventsFor().subscribe('tasks.invalidated', ({ projectRoot: changedCwd }) => {
       if (!session.tasksOpen || !session.tasksProjectCwd) return;
       if (changedCwd !== session.tasksProjectCwd) return;
       clearTimeout(timer);

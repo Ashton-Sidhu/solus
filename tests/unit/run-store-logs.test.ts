@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { RunLogLine, RunProjectStatus } from '../../src/shared/types'
+import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousWindow = globalThis.window
@@ -30,12 +31,12 @@ describe('run log subscription retention', () => {
       value: {
         solus: {
           runStatus: async () => project,
-          runLogs: async () => backfill,
-          onRunLog: () => () => {},
+          runLogsRetain: async () => ({ repoRoot: '/repo', lines: await backfill }),
+          runLogsRelease: async () => {},
         },
       },
     })
-    const store = new RunStore()
+    const store = new RunStore(() => new HostEventSubscriber())
     await store.status('/repo')
 
     const release = store.retainLogs('/repo', '/repo', 'dev')

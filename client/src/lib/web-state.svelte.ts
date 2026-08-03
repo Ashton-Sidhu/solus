@@ -7,6 +7,7 @@ class WebState {
   hasConnected = $state(false)
   connectedServer: SavedServer | null = $state(null)
   sidebarDrawerOpen: boolean = $state(false)
+  serverSetupOpen: boolean = $state(false)
 
   setConnectionStatus(status: ConnectionStatus, attempt: number) {
     this.connectionStatus = status
@@ -25,6 +26,14 @@ class WebState {
 
   closeSidebarDrawer() {
     this.sidebarDrawerOpen = false
+  }
+
+  openServerSetup() {
+    this.serverSetupOpen = true
+  }
+
+  closeServerSetup() {
+    this.serverSetupOpen = false
   }
 }
 

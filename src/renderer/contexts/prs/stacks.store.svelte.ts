@@ -1,6 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { resolveStackDiffBase, type DiffBase, type StackGraph } from '../../../shared/stack-types'
 import type { IpcContext } from '../../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
 
 export class StacksStore {
   graphs = new SvelteMap<string, StackGraph>()
@@ -12,7 +13,7 @@ export class StacksStore {
   }
 
   subscribe(): () => void {
-    return window.solus.onStackGraphUpdate((repoRoot, graph) => this.apply(repoRoot, graph))
+    return serverConnections.eventsFor().subscribe('stack.graphChanged', ({ repoRoot, graph }) => this.apply(repoRoot, graph))
   }
 
   async load(ctx: IpcContext): Promise<StackGraph> {

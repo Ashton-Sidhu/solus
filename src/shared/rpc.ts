@@ -1,15 +1,14 @@
 // ─── RPC method/topic registry ───
 //
-// Single source of truth for every channel name in the Solus client/server
-// protocol. The WebSocket transport dispatches through
-// `SolusServer.handle(method, args)` and `SolusServer.broadcast(topic, ...)`.
+// Single source of truth for every request name in the Solus client/server
+// protocol. Host events are declared separately in `host-events.ts`.
 //
 // The renderer continues to call `window.solus.<method>(...args)`. The preload
 // (or web client) wraps each call into a single envelope `{ method, args }`
 // sent on one channel (`solus:rpc` for Electron, `/ws` JSON frames for web).
 //
-// To add a new method: add the name here and register a handler against
-// `SolusServer`. To add a new event: add it to RPC_TOPICS and wire a publisher.
+// To add a new method, add the name here and register a handler against
+// `SolusServer`.
 
 export const RPC_INVOKE_METHODS = [
   // Lifecycle / window
@@ -54,6 +53,7 @@ export const RPC_INVOKE_METHODS = [
   'takeScreenshot',
   'pasteImage',
   'transcribeAudio',
+  'warmTranscription',
   'voiceModelStatus',
   'voiceModelRetry',
   'logVoiceTranscription',
@@ -72,6 +72,8 @@ export const RPC_INVOKE_METHODS = [
   'loadSession',
   'loadSessionPreview',
   'getSessionInfo',
+  'generateSessionTitle',
+  'setSessionTitle',
   'listRecentProjects',
   'trackRecentProject',
   'listPlans',
@@ -113,7 +115,8 @@ export const RPC_INVOKE_METHODS = [
   'runStart',
   'runStop',
   'runRestart',
-  'runLogs',
+  'runLogsRetain',
+  'runLogsRelease',
   'projectConfigLoad',
   'projectConfigSave',
   'listProjects',
@@ -289,45 +292,6 @@ export interface SearchSessionsRequest {
   sinceTs?: number
   limit?: number
 }
-
-export const RPC_TOPICS = [
-  'normalized-event',
-  'enriched-error',
-  'skill-status',
-  'theme-changed',
-  'enter-design-mode',
-  'window-shown',
-  'window-hidden',
-  'presence',
-  'session-scan',
-  'session-index-updated',
-  'run-status',
-  'run-log',
-  'setup-status',
-  'setup-log',
-  'voice-model-status',
-  'automations-changed',
-  'provider-device-code',
-  'review-progress',
-  'review-guide-status',
-  'tasks-changed',
-  'prs-changed',
-  'annotations-changed',
-  'attention-changed',
-  'session-status-changed',
-  'stack-graph-update',
-  'pr-checks-update',
-  'pr-guide-status',
-  'usage-limits-update',
-] as const
-
-export type RpcTopic = (typeof RPC_TOPICS)[number]
-
-// Single channel used by the Electron IPC transport. Each request carries
-// `{ method, args }`; results return through ipcRenderer.invoke's promise.
-export const ELECTRON_RPC_CHANNEL = 'solus:rpc'
-export const ELECTRON_RPC_SEND_CHANNEL = 'solus:rpc-send'
-export const ELECTRON_EVENT_CHANNEL = 'solus:event'
 
 export interface RpcEnvelope {
   method: RpcMethod

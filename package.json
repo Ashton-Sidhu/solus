@@ -157,7 +157,7 @@
     "@iconify-json/logos": "^1.2.11",
     "@iconify-json/simple-icons": "^1.2.92",
     "@internationalized/date": "^3.12.2",
-    "@lucide/svelte": "^1.27.0",
+    "@lucide/svelte": "^1.28.0",
     "@playwright/test": "^1.62.0",
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "@tailwindcss/vite": "^4.3.3",

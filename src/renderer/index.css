@@ -198,6 +198,9 @@
   /* Status */
   --solus-status-idle: #8a8a80;
   --solus-status-running: #d97757;
+  /* A running session is motion, not an alert. Keep its spinner neutral so
+     terracotta remains reserved for attention states. */
+  --solus-status-running-icon: var(--solus-text-tertiary);
   --solus-status-running-bg: rgba(217, 119, 87, 0.1);
   /* Live service (a running process/server) — reads as healthy, so green, not
      the brand orange that signals "agent working" elsewhere. */
@@ -442,90 +445,92 @@
 
 .dark {
   /* Container */
-  --solus-edge-bg: #1c1b18;
-  --solus-container-bg: rgba(30, 29, 26, 0.98);
-  --solus-container-bg-collapsed: rgba(26, 25, 22, 0.98);
-  --solus-container-border: rgba(255, 255, 255, 0.14);
-  --solus-sidebar-bg: #232120;
-  --solus-sidebar-bg-left: #29251f;
-  --solus-sidebar-bg-right: #29251f;
+  --solus-edge-bg: #21201d;
+  --solus-container-bg: #262522fa;
+  --solus-container-bg-collapsed: #222120fa;
+  --solus-container-border: #ffffff20;
+  --solus-sidebar-bg: #262522;
+  --solus-sidebar-bg-left: #262522;
+  --solus-sidebar-bg-right: #262522;
   --solus-container-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
   --solus-card-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
   --solus-card-shadow-collapsed: 0 0.25rem 1.25rem rgba(0,0,0,0.40), 0 0.0625rem 0.375rem rgba(0,0,0,0.25);
   /* Surface */
-  --solus-surface-primary: #38281c;
-  --solus-surface-secondary: #3c3a33;
-  --solus-surface-hover: rgba(255, 255, 255, 0.06);
-  --solus-surface-active: rgba(255, 255, 255, 0.09);
+  --solus-surface-primary: #3d2c1f;
+  --solus-surface-secondary: #3a3935;
+  --solus-surface-hover: #ffffff14;
+  --solus-surface-active: #ffffff1f;
   /* Input */
   --solus-input-bg: transparent;
-  --solus-input-border: rgba(255, 255, 255, 0.10);
+  --solus-input-border: #ffffff1f;
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
-  --solus-input-pill-bg: rgba(24, 23, 20, 0.98);
-  --solus-pill-opaque-bg: #181714;
+  --solus-input-pill-bg: #222120fa;
+  --solus-pill-opaque-bg: #222120;
   /* Text */
-  --solus-text-primary: #f0ece3;
-  --solus-text-secondary: #bfb9aa;
-  --solus-text-tertiary: #7a7568;
-  --solus-text-muted: #2e2c27;
+  --solus-text-primary: #f0ede5;
+  --solus-text-secondary: #bdbab3;
+  --solus-text-tertiary: #8d8a83;
+  --solus-text-muted: #302f2b;
   /* Accent */
-  --solus-accent: #e08a6e;
-  --solus-accent-light: rgba(224, 138, 110, 0.09);
-  --solus-accent-soft: rgba(224, 138, 110, 0.15);
-  --solus-accent-border: rgba(224, 138, 110, 0.22);
-  --solus-accent-border-medium: rgba(224, 138, 110, 0.28);
+  --solus-accent: #e68e6b;
+  --solus-accent-light: #e68e6b1a;
+  --solus-accent-soft: #e68e6b29;
+  --solus-accent-border: #e68e6b3d;
+  --solus-accent-border-medium: #e68e6b4d;
   /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
-  --solus-accent-wash: rgba(224, 138, 110, 0.20);
+  --solus-accent-wash: #e68e6b38;
   /* Status */
-  --solus-status-idle: #8a8578;
-  --solus-status-running: #e08a6e;
-  --solus-status-running-bg: rgba(224, 138, 110, 0.10);
-  --solus-status-live: #6ec98b;
-  --solus-status-live-bg: rgba(110, 201, 139, 0.10);
-  --solus-status-live-glow: rgba(110, 201, 139, 0.4);
-  --solus-status-complete: #6ec98b;
-  --solus-status-complete-bg: rgba(110, 201, 139, 0.10);
-  --solus-status-error: #e06060;
-  --solus-status-error-bg: rgba(224, 96, 96, 0.08);
-  --solus-status-dead: #e06060;
-  --solus-status-permission: #e08a6e;
+  --solus-status-idle: #8d8a83;
+  --solus-status-running: var(--solus-accent);
+  --solus-status-running-icon: var(--solus-text-tertiary);
+  --solus-status-running-bg: rgba(230, 142, 107, 0.10);
+  --solus-status-live: #6fc884;
+  --solus-status-live-bg: rgba(111, 200, 132, 0.10);
+  --solus-status-live-glow: rgba(111, 200, 132, 0.4);
+  --solus-status-complete: #6fc884;
+  --solus-status-complete-bg: rgba(111, 200, 132, 0.10);
+  --solus-status-error: #e3645e;
+  --solus-status-error-bg: rgba(227, 100, 94, 0.08);
+  --solus-status-dead: var(--solus-status-error);
+  --solus-status-permission: var(--solus-accent);
+  --solus-brand-gold: #dcb872;
   /* Tab */
-  --solus-tab-active: #2e2c27;
-  --solus-tab-active-border: rgba(255, 255, 255, 0.10);
+  --solus-tab-active: #302f2b;
+  --solus-tab-active-border: #ffffff1f;
   --solus-tab-inactive: transparent;
-  --solus-tab-hover: rgba(255, 255, 255, 0.06);
+  --solus-tab-hover: #ffffff14;
   --solus-unread-canvas: rgba(255, 255, 255, 0.05);
   --solus-unread-ink: var(--solus-accent);
   /* User bubble */
   --solus-user-bubble: var(--solus-surface-primary);
-  --solus-user-bubble-text: #f0ece3;
+  --solus-user-bubble-text: var(--solus-text-primary);
   /* Tool card */
-  --solus-tool-bg: #2e2c27;
-  --solus-tool-border: rgba(255, 255, 255, 0.10);
-  --solus-tool-running-border: rgba(224, 138, 110, 0.3);
-  --solus-tool-running-bg: rgba(224, 138, 110, 0.06);
+  --solus-tool-bg: #302f2b;
+  --solus-tool-border: #ffffff1f;
+  --solus-tool-running-border: rgba(230, 142, 107, 0.3);
+  --solus-tool-running-bg: rgba(230, 142, 107, 0.06);
   /* Timeline */
-  --solus-timeline-line: #2e2c27;
-  --solus-timeline-node: rgba(224, 138, 110, 0.2);
-  --solus-timeline-node-active: #e08a6e;
-  --solus-timeline-node-done: rgba(110, 201, 139, 0.35);
+  --solus-timeline-line: #3a3935;
+  --solus-timeline-node: rgba(230, 142, 107, 0.2);
+  --solus-timeline-node-active: var(--solus-accent);
+  --solus-timeline-node-done: rgba(111, 200, 132, 0.35);
   /* Scrollbar */
   --solus-scroll-thumb: rgba(255, 255, 255, 0.09);
   --solus-scroll-thumb-hover: rgba(255, 255, 255, 0.18);
   /* Buttons */
   --solus-stop-bg: #ef4444;
   --solus-stop-hover: #dc2626;
-  --solus-send-bg: #e08a6e;
-  --solus-send-hover: #d07a5e;
-  --solus-send-disabled: rgba(224, 138, 110, 0.3);
-  --solus-send-glow: rgba(224, 138, 110, 0.35);
-  --solus-btn-disabled: #3c3a33;
-  --solus-btn-hover-color: #bfb9aa;
-  --solus-btn-hover-bg: #262520;
+  --solus-send-bg: #e68e6b;
+  --solus-send-hover: #d87f5c;
+  --solus-send-disabled: rgba(230, 142, 107, 0.3);
+  --solus-send-glow: rgba(230, 142, 107, 0.35);
+  --solus-btn-disabled: #3a3935;
+  --solus-btn-hover-color: var(--solus-text-secondary);
+  --solus-btn-hover-bg: #33322e;
   /* Popover */
-  --solus-popover-bg: #1e1d1a;
-  --solus-popover-border: rgba(255, 255, 255, 0.10);
+  --solus-popover-bg: #353430fc;
+  --solus-popover-border: #ffffff20;
   --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.09), 0 0.125rem 0.375rem rgba(0,0,0,0.35), 0 0.875rem 2.25rem rgba(0,0,0,0.45);
   /* Menu — see the light-mode block. --solus-menu-bg, the ring and the dividers
      are all derived from tokens this block already redefines, so they re-resolve
@@ -538,10 +543,10 @@
     0 2.25rem 4.375rem -1.875rem rgba(0, 0, 0, 0.55);
   --solus-menu-hover-ink: rgba(255, 255, 255, 0.055);
   /* Code */
-  --solus-code-bg: #252420;
+  --solus-code-bg: #393834;
   --solus-code-shadow: 0 0.0625rem 0.1875rem rgba(0,0,0,0.25), 0 0 0 0.0625rem rgba(255,255,255,0.04);
   /* Warm parchment for prose code blocks (dark twin of the light sand panel). */
-  --solus-code-tint: #2b2926;
+  --solus-code-tint: #3d3c38;
   /* Balanced syntax palette (dark twin) — brighter, still muted. */
   --solus-syntax-comment: #8a8475;
   --solus-syntax-keyword: #e08a9b;
@@ -553,20 +558,20 @@
   --solus-syntax-deletion: #e0846a;
   --solus-syntax-addition: #7fc08e;
   /* Mic */
-  --solus-mic-bg: #2e2c27;
-  --solus-mic-color: #bfb9aa;
-  --solus-mic-disabled: #3c3a33;
+  --solus-mic-bg: #393834;
+  --solus-mic-color: var(--solus-text-secondary);
+  --solus-mic-disabled: #3a3935;
   /* Rail */
-  --solus-rail-bg: #161513;
-  --solus-rail-border: #100f0d;
+  --solus-rail-bg: #1a1916;
+  --solus-rail-border: #131210;
   --solus-rail-icon: rgba(255, 255, 255, 0.5);
   --solus-rail-icon-hover: rgba(255, 255, 255, 0.85);
   --solus-rail-icon-hover-bg: rgba(255, 255, 255, 0.1);
   --solus-rail-danger-color: #fecaca;
   --solus-rail-danger-bg: rgba(239, 68, 68, 0.5);
   /* Misc */
-  --solus-placeholder: #6e6960;
-  --solus-text-on-accent: #ffffff;
+  --solus-placeholder: #838079;
+  --solus-text-on-accent: #2c1a12;
   /* Permissions */
   --solus-permission-border: rgba(245, 158, 11, 0.3);
   /* Diff */
@@ -576,36 +581,36 @@
   --solus-diff-removed-text: #d4897c;
   --solus-diff-removed-bg: rgba(212, 137, 124, 0.16);
   --solus-diff-gutter-bg: rgba(255, 255, 255, 0.015);
-  --solus-diff-gutter-text: rgba(240, 236, 227, 0.40);
+  --solus-diff-gutter-text: rgba(240, 237, 229, 0.40);
   --solus-diff-hunk-bg: rgba(255, 255, 255, 0.03);
-  --solus-diff-hunk-text: rgba(240, 236, 227, 0.80);
+  --solus-diff-hunk-text: rgba(240, 237, 229, 0.80);
   --solus-diff-selection-bg: rgba(190, 135, 52, 0.30);
-  /* Opaque twin of --solus-container-bg (rgba(30, 29, 26, 0.98)) — see the light
+  /* Opaque twin of --solus-container-bg — see the light
      block. --solus-diff-line-selection-bg is declared there and resolves through
      the mode-aware accent, so it isn't restated here. */
-  --solus-diff-surface: #1e1d1a;
+  --solus-diff-surface: #262522;
   /* Diff (vivid) — the added/removed tokens are declared once in the light block
      above; they resolve through --solus-art-3 / --solus-stop-bg, which are
      already mode-aware. Only the neutral gutter text needs a dark value. */
-  --solus-diff-gutter-text-vivid: rgba(240, 236, 227, 0.58);
+  --solus-diff-gutter-text-vivid: rgba(240, 237, 229, 0.58);
   /* Find-in-diff highlight — see light-mode block above. */
   --solus-diff-find-bg: rgba(230, 184, 64, 0.30);
   --solus-diff-find-text: inherit;
-  --solus-diff-find-active-bg: rgba(224, 138, 110, 0.85);
+  --solus-diff-find-active-bg: rgba(230, 142, 107, 0.85);
   --solus-diff-find-active-text: #1a1814;
   /* File slot */
   --solus-file-slot-well: rgba(255, 255, 255, 0.03);
-  --solus-file-slot-well-focused: rgba(224, 138, 110, 0.08);
+  --solus-file-slot-well-focused: rgba(230, 142, 107, 0.08);
   --solus-file-slot-divider: rgba(255, 255, 255, 0.06);
-  --solus-file-header-bg: #252420;
+  --solus-file-header-bg: #393834;
   --solus-file-header-name: #c8b889;
   /* Polish */
   --solus-tool-result-badge-bg: rgba(255, 255, 255, 0.06);
-  --solus-empty-state-bg: rgba(224, 138, 110, 0.07);
-  --solus-activity-strip-bg-from: rgba(30, 29, 26, 0);
-  --solus-message-divider: rgba(255, 255, 255, 0.05);
+  --solus-empty-state-bg: rgba(230, 142, 107, 0.07);
+  --solus-activity-strip-bg-from: rgba(38, 37, 34, 0);
+  --solus-message-divider: #ffffff12;
   /* Soft input background — used by textareas / inline forms */
-  --solus-input-bg-soft: rgba(255, 255, 255, 0.04);
+  --solus-input-bg-soft: #ffffff0d;
   /* File token */
   /* Work token */
   --solus-work-token: #c58cb9;
@@ -615,17 +620,17 @@
      Same warm family as the light ramp, brightened for dark surfaces. Neutrals
      stay warm brown (never grey); borders carry a faint sand tint so hairlines
      read warm rather than cold. */
-  --solus-art-surface: #221f1a;
-  --solus-art-raised: #2c2820;
+  --solus-art-surface: #2b2a26;
+  --solus-art-raised: #35342f;
   --solus-art-border: rgba(232, 200, 150, 0.13);
   --solus-art-border-strong: rgba(232, 200, 150, 0.24);
-  --solus-art-1: #e08a6e; /* terracotta (brand accent) */
+  --solus-art-1: var(--solus-accent); /* terracotta (brand accent) */
   --solus-art-2: #e0a85f; /* amber */
   --solus-art-3: #6ec98b; /* sage */
   --solus-art-4: #5cc4b8; /* teal */
   --solus-art-5: #6fb3df; /* dusty blue */
   --solus-art-6: #b79ae8; /* plum */
-  --solus-art-positive: #6ec98b;
+  --solus-art-positive: #6fc884;
   --solus-art-negative: #e0846a;
 }
 
@@ -739,6 +744,10 @@
    here, not in the .dark block above, so it stays beside the light values it
    mirrors — same specificity, later in the file, so it wins. */
 .dark {
+  --card: #302f2b;
+  --popover: #353430fc;
+  --solus-tx-hairline: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 9%, transparent);
   --solus-tx-card-bg: color-mix(in oklch, white 4%, var(--solus-container-bg));
   --solus-tx-card-highlight: rgba(255, 255, 255, 0.07);
   --solus-tx-card-lift:
@@ -858,6 +867,28 @@ html.solus-web #root {
 }
 .outer-scroll-source::-webkit-scrollbar {
   display: none;
+}
+
+/* ─── Toast typography ───
+   Sonner ships its own unlayered `:global` rules: a system-font stack on the
+   toaster and a hard 13px/12px on the toast and its buttons. Those beat every
+   Tailwind utility (unlayered outranks @layer), so toast text ignored both the
+   font-family picker and --solus-font-scale. Unlayered here for the same
+   reason, and doubled attribute selectors so the win doesn't depend on which
+   of the two stylesheets Vite emits last. */
+[data-sonner-toaster][data-sonner-toaster] {
+  font-family: var(--solus-font-family);
+}
+[data-sonner-toast][data-sonner-toast] {
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+}
+[data-sonner-toast][data-styled='true'] [data-title][data-title] {
+  font-weight: var(--font-weight-secondary);
+}
+[data-sonner-toast][data-styled='true'] [data-button][data-button] {
+  font-family: inherit;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-weight: var(--font-weight-secondary);
 }
 
 /* ─── Glass surface — shared card/pill style ─── */

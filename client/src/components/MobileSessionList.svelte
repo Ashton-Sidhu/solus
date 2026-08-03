@@ -164,12 +164,13 @@
           {@const multiBranch = group.branches.length > 1 || branch.tabIds.length > 1}
           {#each branch.tabIds as tabId (tabId)}
             {@const child = store.childForTab(tabId)}
+            {@const isActive = tabId === session.activeTabId}
             {@const reviewRunning = isReviewRunning(tabId)}
             <div
-              class="{rowBase} {child.active ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
+              class="{rowBase} {isActive ? 'bg-(--solus-accent-light)' : 'bg-transparent active:bg-(--solus-surface-hover)'}"
               role="button"
               tabindex="0"
-              data-active={child.active ? "true" : undefined}
+              data-active={isActive ? "true" : undefined}
               onclick={() => selectTab(tabId)}
               onkeydown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -178,9 +179,9 @@
                 }
               }}
             >
-              {#if child.active}{@render activeBar()}{/if}
+              {#if isActive}{@render activeBar()}{/if}
               <span class="flex-1 min-w-0 flex flex-col gap-px">
-                <span class="truncate text-[0.8125rem] leading-tight font-normal {child.active ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
+                <span class="truncate text-[0.8125rem] leading-tight font-normal {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{child.label}</span>
                 {#if multiBranch}
                   <span class="truncate text-[0.6875rem] leading-tight text-(--solus-text-tertiary)">{branch.label}</span>
                 {/if}

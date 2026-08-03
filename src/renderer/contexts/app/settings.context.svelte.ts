@@ -38,6 +38,11 @@ function defaultRunDockHeight(): number {
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
 export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
 
+/** Two views over the same task list: `flat` sorts across every project on
+ *  state, `grouped` sorts inside project headings. */
+export const SIDEBAR_VIEW_MODES = ['flat', 'grouped'] as const
+export type SidebarViewMode = (typeof SIDEBAR_VIEW_MODES)[number]
+
 export type SettingsFields = {
   themeMode: ThemeMode
   soundEnabled: boolean
@@ -55,6 +60,7 @@ export type SettingsFields = {
   reviewWarmingByProject: Record<string, boolean>
   rateLimitBehavior: RateLimitBehavior
   worktreeEnabled: boolean
+  autoRenameSessions: boolean
   fontFamily: AppFontFamily
   fontSize: number
   codeFontFamily: AppCodeFontFamily
@@ -70,6 +76,9 @@ export type SettingsFields = {
   runDockOpen: boolean
   runDockHeight: number
   tabGroupMode: TabGroupMode
+  sidebarViewMode: SidebarViewMode
+  /** Project key the sidebar rail is filtered to; null is "All tasks". */
+  sidebarProjectFilter: string | null
   splitLayout: SplitLayoutSettings | null
 }
 
@@ -252,6 +261,7 @@ function loadSettings(): SettingsFields {
         reviewWarmingByProject: loadBooleanRecord(parsed.reviewWarmingByProject),
         rateLimitBehavior: (['ask', 'queue', 'continue', 'stop'].includes(parsed.rateLimitBehavior) ? parsed.rateLimitBehavior : 'ask') as RateLimitBehavior,
         worktreeEnabled: typeof parsed.worktreeEnabled === 'boolean' ? parsed.worktreeEnabled : false,
+        autoRenameSessions: typeof parsed.autoRenameSessions === 'boolean' ? parsed.autoRenameSessions : true,
         fontFamily: VALID_FONT_FAMILIES.includes(parsed.fontFamily) ? parsed.fontFamily : 'inter',
         fontSize: typeof parsed.fontSize === 'number' && parsed.fontSize >= 8 ? parsed.fontSize : DEFAULT_FONT_SIZE,
         codeFontFamily: VALID_CODE_FONT_FAMILIES.includes(parsed.codeFontFamily) ? parsed.codeFontFamily : 'jetbrains-mono',
@@ -268,6 +278,8 @@ function loadSettings(): SettingsFields {
         runDockOpen: typeof parsed.runDockOpen === 'boolean' ? parsed.runDockOpen : false,
         runDockHeight: typeof parsed.runDockHeight === 'number' && parsed.runDockHeight >= 96 ? parsed.runDockHeight : defaultRunDockHeight(),
         tabGroupMode: ((TAB_GROUP_MODES as readonly string[]).includes(parsed.tabGroupMode) ? parsed.tabGroupMode : 'flat') as TabGroupMode,
+        sidebarViewMode: ((SIDEBAR_VIEW_MODES as readonly string[]).includes(parsed.sidebarViewMode) ? parsed.sidebarViewMode : 'flat') as SidebarViewMode,
+        sidebarProjectFilter: typeof parsed.sidebarProjectFilter === 'string' ? parsed.sidebarProjectFilter : null,
         splitLayout: loadSplitLayout(parsed.splitLayout),
       }
     }
@@ -289,6 +301,7 @@ function loadSettings(): SettingsFields {
     reviewWarmingByProject: {},
     rateLimitBehavior: 'ask',
     worktreeEnabled: false,
+    autoRenameSessions: true,
     fontFamily: 'inter',
     fontSize: DEFAULT_FONT_SIZE,
     codeFontFamily: 'jetbrains-mono',
@@ -304,6 +317,8 @@ function loadSettings(): SettingsFields {
     runDockOpen: false,
     runDockHeight: defaultRunDockHeight(),
     tabGroupMode: 'flat',
+    sidebarViewMode: 'flat',
+    sidebarProjectFilter: null,
     splitLayout: null,
   }
 }
@@ -325,6 +340,7 @@ export class SettingsContext {
   reviewWarmingByProject = $state<Record<string, boolean>>({})
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
   worktreeEnabled = $state(false)
+  autoRenameSessions = $state(true)
   fontFamily = $state<AppFontFamily>('inter')
   fontSize = $state(13)
   codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
@@ -340,6 +356,8 @@ export class SettingsContext {
   runDockOpen = $state(false)
   runDockHeight = $state(defaultRunDockHeight())
   tabGroupMode = $state<TabGroupMode>('flat')
+  sidebarViewMode = $state<SidebarViewMode>('flat')
+  sidebarProjectFilter = $state<string | null>(null)
   splitLayout = $state<SplitLayoutSettings | null>(null)
   // Seeded from the media query so 'system' paints correctly before the main
   // process answers; `setSystemTheme` takes over from there.
@@ -363,6 +381,7 @@ export class SettingsContext {
     this.reviewWarmingByProject = saved.reviewWarmingByProject
     this.rateLimitBehavior = saved.rateLimitBehavior
     this.worktreeEnabled = saved.worktreeEnabled
+    this.autoRenameSessions = saved.autoRenameSessions
     this.fontFamily = saved.fontFamily
     this.fontSize = saved.fontSize
     this.codeFontFamily = saved.codeFontFamily
@@ -378,6 +397,8 @@ export class SettingsContext {
     this.runDockOpen = saved.runDockOpen
     this.runDockHeight = saved.runDockHeight
     this.tabGroupMode = saved.tabGroupMode
+    this.sidebarViewMode = saved.sidebarViewMode
+    this.sidebarProjectFilter = saved.sidebarProjectFilter
     this.splitLayout = saved.splitLayout
 
     // Must run before first paint so CSS variables resolve to the saved palette.
@@ -456,6 +477,7 @@ export class SettingsContext {
     if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
     if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
     if (patch.worktreeEnabled !== undefined) this.worktreeEnabled = patch.worktreeEnabled
+    if (patch.autoRenameSessions !== undefined) this.autoRenameSessions = patch.autoRenameSessions
     if (patch.fontFamily !== undefined) {
       this.fontFamily = patch.fontFamily
       applyFontFamily(this.fontFamily)
@@ -491,6 +513,8 @@ export class SettingsContext {
     if (patch.runDockOpen !== undefined) this.runDockOpen = patch.runDockOpen
     if (patch.runDockHeight !== undefined) this.runDockHeight = Math.max(96, patch.runDockHeight)
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
+    if (patch.sidebarViewMode !== undefined) this.sidebarViewMode = patch.sidebarViewMode
+    if (patch.sidebarProjectFilter !== undefined) this.sidebarProjectFilter = patch.sidebarProjectFilter
     if (patch.splitLayout !== undefined) this.splitLayout = patch.splitLayout
     this.saveSettings()
   }
@@ -522,6 +546,7 @@ export class SettingsContext {
         reviewWarmingByProject: this.reviewWarmingByProject,
         rateLimitBehavior: this.rateLimitBehavior,
         worktreeEnabled: this.worktreeEnabled,
+        autoRenameSessions: this.autoRenameSessions,
         fontFamily: this.fontFamily,
         fontSize: this.fontSize,
         codeFontFamily: this.codeFontFamily,
@@ -537,6 +562,8 @@ export class SettingsContext {
         runDockOpen: this.runDockOpen,
         runDockHeight: this.runDockHeight,
         tabGroupMode: this.tabGroupMode,
+        sidebarViewMode: this.sidebarViewMode,
+        sidebarProjectFilter: this.sidebarProjectFilter,
         splitLayout: this.splitLayout,
       }))
     } catch {}

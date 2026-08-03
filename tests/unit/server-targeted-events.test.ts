@@ -1,58 +1,98 @@
 import { describe, expect, test } from 'bun:test'
-import { SolusServer } from '../../src/main/server/server'
-import type { RpcTopic } from '../../src/shared/rpc'
+import type { HostEvent } from '../../src/shared/host-events'
+import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
+import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
 
-interface ReceivedEvent {
-  topic: RpcTopic
-  payload: unknown[]
-}
-
-function captureClient(server: SolusServer, clientId: string): {
-  events: ReceivedEvent[]
+function captureClient(registry: ClientEventRegistry, clientId: string): {
+  events: HostEvent[]
   unsubscribe: () => void
 } {
-  const events: ReceivedEvent[] = []
-  const unsubscribe = server.registerDirectClient(clientId, (topic, payload) => {
-    events.push({ topic, payload })
-  })
+  const events: HostEvent[] = []
+  const unsubscribe = registry.register(clientId, (event) => events.push(event))
   return { events, unsubscribe }
 }
 
-// Sequencing and reconnect replay are owned by the WebSocket transport's
-// per-client stream (see transports/websocket.ts and client-core tests); the
-// server's job is only that a tab-scoped event never leaks to another client.
-describe('SolusServer targeted event routing', () => {
-  test('delivers each tab event only to its owning client', () => {
-    const server = new SolusServer()
-    const clientA = captureClient(server, 'ws:a')
-    const clientB = captureClient(server, 'ws:b')
+describe('HostEventPublisher', () => {
+  test('publishes to one client without leaking to another client', () => {
+    const registry = new ClientEventRegistry()
+    const publisher = new HostEventPublisher(registry)
+    const clientA = captureClient(registry, 'ws:a')
+    const clientB = captureClient(registry, 'ws:b')
 
-    server.sendTargeted('ws:a', 'normalized-event', 'tab-a', { type: 'assistant_message', text: 'A' })
-    server.sendTargeted('ws:b', 'normalized-event', 'tab-b', { type: 'assistant_message', text: 'B' })
-    server.sendTargeted('ws:a', 'normalized-event', 'tab-a', { type: 'task_complete' })
+    expect(publisher.publish('ws:a', 'session.eventReceived', {
+      tabId: 'tab-a',
+      event: { type: 'assistant_message', text: 'A' },
+    })).toBe(1)
 
-    expect(clientA.events.map(({ payload }) => payload[0])).toEqual(['tab-a', 'tab-a'])
-    expect(clientB.events.map(({ payload }) => payload[0])).toEqual(['tab-b'])
+    expect(clientA.events).toHaveLength(1)
+    expect(clientA.events[0]).toMatchObject({
+      type: 'session.eventReceived',
+      payload: { tabId: 'tab-a', event: { type: 'assistant_message', text: 'A' } },
+    })
+    expect(clientB.events).toEqual([])
   })
 
-  test('reports undeliverable when the client has no registration', () => {
-    const server = new SolusServer()
-    const client = captureClient(server, 'ws:a')
-    client.unsubscribe()
+  test('accepts many client ids and deduplicates them', () => {
+    const registry = new ClientEventRegistry()
+    const publisher = new HostEventPublisher(registry)
+    const clientA = captureClient(registry, 'ws:a')
+    const clientB = captureClient(registry, 'ws:b')
 
-    expect(server.sendTargeted('ws:a', 'normalized-event', 'tab-a', { type: 'text_chunk', text: 'gone' })).toBe(false)
+    expect(publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'tasks.invalidated', {
+      projectRoot: '/project',
+    })).toBe(2)
+
+    expect(clientA.events).toHaveLength(1)
+    expect(clientB.events).toHaveLength(1)
   })
 
-  test('routes to the newest registration and restores the older one when it drops', () => {
-    const server = new SolusServer()
-    const older = captureClient(server, 'ws:a')
-    const replacement = captureClient(server, 'ws:a')
+  test('reports only routable recipients and broadcasts to every registered client', () => {
+    const registry = new ClientEventRegistry()
+    const publisher = new HostEventPublisher(registry)
+    const clientA = captureClient(registry, 'ws:a')
+    const clientB = captureClient(registry, 'ws:b')
 
-    server.sendTargeted('ws:a', 'normalized-event', 'tab-a', { type: 'text_chunk', text: 'new socket' })
+    expect(publisher.publish(['ws:a', 'ws:missing'], 'tasks.invalidated', {
+      projectRoot: '/targeted',
+    })).toBe(1)
+    expect(publisher.broadcast('tasks.invalidated', { projectRoot: '/all' })).toBe(2)
+
+    expect(clientA.events.map((event) => event.payload)).toEqual([
+      { projectRoot: '/targeted' },
+      { projectRoot: '/all' },
+    ])
+    expect(clientB.events.map((event) => event.payload)).toEqual([{ projectRoot: '/all' }])
+  })
+
+  test('treats an empty recipient list as a successful no-op', () => {
+    const publisher = new HostEventPublisher(new ClientEventRegistry())
+    expect(publisher.publish([], 'tasks.invalidated', { projectRoot: '/project' })).toBe(0)
+  })
+
+  test('continues after one client delivery endpoint throws', () => {
+    const registry = new ClientEventRegistry()
+    const publisher = new HostEventPublisher(registry)
+    registry.register('ws:broken', () => { throw new Error('broken endpoint') })
+    const healthy = captureClient(registry, 'ws:healthy')
+
+    expect(publisher.publish(['ws:broken', 'ws:healthy'], 'tasks.invalidated', {
+      projectRoot: '/project',
+    })).toBe(1)
+    expect(healthy.events).toHaveLength(1)
+  })
+
+  test('routes to the newest registration and removes it safely', () => {
+    const registry = new ClientEventRegistry()
+    const publisher = new HostEventPublisher(registry)
+    const older = captureClient(registry, 'ws:a')
+    const replacement = captureClient(registry, 'ws:a')
+
+    publisher.publish('ws:a', 'tasks.invalidated', { projectRoot: '/newest' })
     replacement.unsubscribe()
-    server.sendTargeted('ws:a', 'normalized-event', 'tab-a', { type: 'text_chunk', text: 'old socket restored' })
+    expect(publisher.publish('ws:a', 'tasks.invalidated', { projectRoot: '/gone' })).toBe(0)
+    older.unsubscribe()
 
-    expect(replacement.events.map(({ payload }) => (payload[1] as { text: string }).text)).toEqual(['new socket'])
-    expect(older.events.map(({ payload }) => (payload[1] as { text: string }).text)).toEqual(['old socket restored'])
+    expect(replacement.events.map((event) => event.payload)).toEqual([{ projectRoot: '/newest' }])
+    expect(older.events).toEqual([])
   })
 })

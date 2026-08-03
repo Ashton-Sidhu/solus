@@ -1,13 +1,14 @@
 import type { AnnotationsChanged } from '../../shared/types'
 
-let notifier: ((change: AnnotationsChanged) => void) | null = null
+type AnnotationsChangedListener = (change: AnnotationsChanged) => void
+const listeners = new Set<AnnotationsChangedListener>()
 
-/** Wired to the server's broadcast in `server/index.ts`, mirroring
- *  `setTasksChangedNotifier` — keeps the comment tools free of the server layer. */
-export function setAnnotationsChangedNotifier(fn: (change: AnnotationsChanged) => void): void {
-  notifier = fn
+/** Internal domain signal adapted to a host event by the composition root. */
+export function onAnnotationsChanged(listener: AnnotationsChangedListener): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
 }
 
 export function notifyAnnotationsChanged(change: AnnotationsChanged): void {
-  notifier?.(change)
+  for (const listener of listeners) listener(change)
 }

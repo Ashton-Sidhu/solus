@@ -193,7 +193,10 @@ export class ClaudeAgent {
       // ends the query, so hold it open until nothing is still in flight —
       // otherwise those tasks get cut off mid-run.
       let sawResult = false
-      let backgroundTasks = 0
+      // Tracked by id, not counted: a task settles twice (`task_updated` and
+      // `task_notification` both normalize to `background_task_settled`), so a
+      // counter drains ahead of the real work and closes the stream mid-turn.
+      const backgroundTasks = new Set<string>()
       try {
         const cquery = query({ prompt: promptInput, options: claudeOptions })
 
@@ -212,8 +215,8 @@ export class ClaudeAgent {
 
           const normalized = normalizer.push(msg)
           for (const evt of normalized) {
-            if (evt.type === 'background_task_started') backgroundTasks++
-            else if (evt.type === 'background_task_settled' && backgroundTasks > 0) backgroundTasks--
+            if (evt.type === 'background_task_started') backgroundTasks.add(evt.taskId)
+            else if (evt.type === 'background_task_settled') backgroundTasks.delete(evt.taskId)
           }
           // An aborted request is reported as a result before the SDK restarts
           // its loop on the same query. Closing the input there would pull the
@@ -244,7 +247,7 @@ export class ClaudeAgent {
               catch (e) { log.warn('on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) }) }
             }
           }
-          if (sawResult && backgroundTasks === 0) input?.close()
+          if (sawResult && backgroundTasks.size === 0) input?.close()
           for (const evt of normalized) yield evt
         }
 

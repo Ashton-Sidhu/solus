@@ -97,7 +97,7 @@ class ServersStore {
         local: true,
         status: this.statusFor(LOCAL_SERVER_ID),
       })
-    } else if (this.isWebClient) {
+    } else if (this.isWebClient && this.hasPrimaryConnection) {
       // A web client has no machine of its own: the host it is connected to
       // plays the local role, so it heads the list as the unmarked case.
       const active = this.remotes.find((server) => server.id === this.activeServerId)
@@ -115,7 +115,7 @@ class ServersStore {
     return [
       ...local,
       ...this.remotes
-        .filter((server) => !this.isWebClient || server.id !== this.activeServerId)
+        .filter((server) => !this.isWebClient || !this.hasPrimaryConnection || server.id !== this.activeServerId)
         .map((server) => ({
           id: server.id,
           label: server.label,
@@ -133,13 +133,17 @@ class ServersStore {
     return typeof window !== 'undefined' && window.solus?.getPlatform?.() === 'web'
   }
 
+  private get hasPrimaryConnection(): boolean {
+    return !!serverConnections.connectionFor()
+  }
+
   /**
    * The two names the web primary answers to, folded onto the one that has
    * state: transport status lives under the real server id, while the host
    * list shows that server as the local row.
    */
   private resolveHostId(serverId: string): string {
-    if (this.local || !this.isWebClient) return serverId
+    if (this.local || !this.isWebClient || !this.hasPrimaryConnection) return serverId
     if (serverId === LOCAL_SERVER_ID) return this.activeServerId
     return serverId
   }
@@ -257,6 +261,12 @@ class ServersStore {
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
+      if (this.isWebClient && !this.hasPrimaryConnection) {
+        // Without a connected host the stub RPC never resolves. Saved remotes
+        // can still answer health checks directly, so retain their reachability.
+        await Promise.all(this.remotes.map((server) => this.checkReachable(server.id)))
+        return { newServers: 0 }
+      }
       // Discovery runs where a network can be scanned: the local app on
       // desktop, and the connected server's own network on web — so a phone
       // still sees the hosts sitting next to the machine it is paired with.
@@ -342,6 +352,10 @@ class ServersStore {
    */
   async checkReachable(serverId: string): Promise<boolean> {
     serverId = this.resolveHostId(serverId)
+    if (this.isWebClient && !this.hasPrimaryConnection && serverId === LOCAL_SERVER_ID) {
+      this.connectionStateFor(serverId).probeStatus = 'offline'
+      return false
+    }
     let health = null
     try {
       health = await serverConnections.probeHealth(serverId, true)
@@ -363,6 +377,10 @@ class ServersStore {
 
   /** Loads repository identity only from the host that owns the source path. */
   async loadProjectIdentities(serverId: string): Promise<void> {
+    if (this.isWebClient && !this.hasPrimaryConnection && serverId === LOCAL_SERVER_ID) {
+      this.projectIdentitiesByServer[serverId] = []
+      return
+    }
     try {
       this.projectIdentitiesByServer[serverId] = await serverConnections.withTemporaryConnection(
         serverId,
@@ -378,6 +396,13 @@ class ServersStore {
     if (cached && cached.expiresAt > Date.now()) return cached.projects
 
     let projects: Awaited<ReturnType<SolusAPI['listRecentProjects']>> = []
+    if (this.isWebClient && !this.hasPrimaryConnection && serverId === LOCAL_SERVER_ID) {
+      this.recentProjectsByServer.set(serverId, {
+        projects,
+        expiresAt: Date.now() + RECENT_PROJECTS_STALE_MS,
+      })
+      return projects
+    }
     try {
       projects = await serverConnections.withTemporaryConnection(
         serverId,
@@ -415,7 +440,7 @@ class ServersStore {
     if (!serverId) return null
     // On web the active server is listed as the local row, so its real id
     // resolves to that row rather than reading as a forgotten host.
-    if (!this.local && this.isWebClient && serverId === this.activeServerId) {
+    if (!this.local && this.isWebClient && this.hasPrimaryConnection && serverId === this.activeServerId) {
       serverId = LOCAL_SERVER_ID
     }
     const host = this.servers.find((server) => server.id === serverId)

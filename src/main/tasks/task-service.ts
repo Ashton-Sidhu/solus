@@ -22,17 +22,25 @@ import {
 
 const log = createLogger('main', 'task-service')
 
-// Broadcast hook, wired by the RPC layer at startup. Mutations funnel through
-// this module (renderer handlers, agent tools, and session write-backs alike),
-// so notifying here is the one place that reaches every write path.
-let notifyTasksChanged: ((cwd: string) => void) | null = null
+type TasksChangedListener = (cwd: string) => void
+const tasksChangedListeners = new Set<TasksChangedListener>()
 
-export function setTasksChangedNotifier(fn: (cwd: string) => void): void {
-  notifyTasksChanged = fn
+/** Internal domain signal adapted to a host event by the composition root. */
+export function onTasksChanged(listener: TasksChangedListener): () => void {
+  tasksChangedListeners.add(listener)
+  return () => tasksChangedListeners.delete(listener)
 }
 
 function notify(cwd: string): void {
-  notifyTasksChanged?.(cwd)
+  for (const listener of tasksChangedListeners) {
+    try {
+      listener(cwd)
+    } catch (error) {
+      log.error('tasks_changed_listener_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 }
 
 /** Mark auth/connection failures with a stable prefix so the renderer can offer

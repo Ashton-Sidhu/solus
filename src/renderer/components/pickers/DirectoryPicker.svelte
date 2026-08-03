@@ -28,6 +28,7 @@
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { abbreviateHome } from "../../lib/paths";
   import Kbd from "../ui/Kbd.svelte";
+  import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import type { DirectoryEntry, RecentProject } from "../../../shared/types";
   import {
     centringPadding,
@@ -77,6 +78,9 @@
     serverId = undefined,
   }: Props = $props();
 
+  /** Glyph a Places row carries — what kind of location it is, not its label. */
+  type PlaceIcon = "workspace" | "home" | "folder" | "recent";
+
   const layer = getPopoverLayer();
 
   const host = $derived(api ?? window.solus);
@@ -102,7 +106,9 @@
   let highlightedIndex = $state(-1);
   let showHidden = $state(false);
   let remoteRecents = $state<RecentProject[]>([]);
-  let sidebarLocations = $state<Array<{ label: string; path: string }>>([]);
+  let sidebarLocations = $state<
+    Array<{ label: string; path: string; icon: PlaceIcon }>
+  >([]);
   let popoverEl: HTMLDivElement | null = $state(null);
   let pathInputEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let pathBarEl: HTMLElement | null = $state(null);
@@ -234,21 +240,38 @@
         resolvedHomePath,
         hostPlatform,
       )[0]?.path;
+      // My Workspace pins to the top: it is the app's default working directory,
+      // always present on the host, and never surfaces in recents.
+      const workspaceLocation = capabilities?.workspacePath
+        ? {
+            label: "My Workspace",
+            path: ensureDirectoryPath(capabilities.workspacePath, hostPlatform),
+            icon: "workspace" as const,
+          }
+        : null;
       sidebarLocations = [
+        ...(workspaceLocation ? [workspaceLocation] : []),
         ...(projectsPath && projectsPath !== homePath && projectsPath !== resolvedHomePath
-          ? [{ label: "Projects", path: projectsPath }]
+          ? [{ label: "Projects", path: projectsPath, icon: "folder" as const }]
           : []),
-        { label: "Home", path: homePath },
+        { label: "Home", path: homePath, icon: "home" as const },
         ...(filesystemRoot &&
         filesystemRoot !== homePath &&
         filesystemRoot !== resolvedHomePath
-          ? [{ label: hostPlatform === "win32" ? filesystemRoot : "Root", path: filesystemRoot }]
+          ? [
+              {
+                label: hostPlatform === "win32" ? filesystemRoot : "Root",
+                path: filesystemRoot,
+                icon: "folder" as const,
+              },
+            ]
           : []),
         ...standardNames
           .filter((name) => home?.entries.some((entry) => entry.isDir && entry.name === name))
           .map((name) => ({
             label: name,
             path: appendPathSegment(homePath, name, hostPlatform),
+            icon: "folder" as const,
           })),
       ];
 
@@ -496,7 +519,7 @@
             max-md:[touch-action:pan-x] max-md:[-webkit-overflow-scrolling:touch]"
           aria-label="Places"
         >
-          {#snippet place(label: string, target: string, icon: "home" | "folder" | "recent")}
+          {#snippet place(label: string, target: string, icon: PlaceIcon)}
             <button
               type="button"
               class="flex h-[1.875rem] w-full shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-[0.78125rem] outline-none
@@ -511,7 +534,9 @@
               onclick={() => navigateTo(target)}
               title={target}
             >
-              {#if icon === "home"}
+              {#if icon === "workspace"}
+                <WorkspaceMark class="size-3.5 shrink-0" />
+              {:else if icon === "home"}
                 <HouseIcon size={13} class="shrink-0" />
               {:else if icon === "recent"}
                 <ClockCounterClockwiseIcon size={12} class="shrink-0" />
@@ -523,7 +548,7 @@
           {/snippet}
 
           {#each sidebarLocations as loc (loc.path)}
-            {@render place(loc.label, loc.path, loc.label === "Home" ? "home" : "folder")}
+            {@render place(loc.label, loc.path, loc.icon)}
           {/each}
 
           <div class="my-2 h-px shrink-0 bg-border max-md:my-0 max-md:h-5 max-md:w-px max-md:self-center"></div>

@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process'
 import { registerStackHandlers } from '../../src/main/server/handlers/stack-handlers'
 import type { SolusServer } from '../../src/main/server/server'
 import type { IpcContext } from '../../src/shared/types'
+import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
+import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
 
 const temporaryDirectories: string[] = []
 
@@ -39,9 +41,8 @@ describe('stacked pull request settings gate', () => {
       register(method: string, handler: (args: unknown[]) => unknown) {
         handlers.set(method, handler)
       },
-      broadcast() {},
     } as unknown as SolusServer
-    registerStackHandlers(server)
+    registerStackHandlers(server, new HostEventPublisher(new ClientEventRegistry()))
 
     const stackGet = handlers.get('stackGet')!
     const disabled = await stackGet([context(cwd, false)]) as { graph: { edges: unknown[] } }

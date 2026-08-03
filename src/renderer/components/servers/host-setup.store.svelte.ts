@@ -94,13 +94,13 @@ export class HostSetupSession {
    */
   retain(): void {
     if (this.holders++ > 0) return
-    const api = this.store.resolveApi(this.serverId)
+    const events = serverConnections.eventsFor(this.serverId)
     this.unsubscribes = [
-      api.onSetupLog((event: SetupLogEvent) => {
+      events.subscribe('setup.logAppended', (event: SetupLogEvent) => {
         this.logLines.push(event.line)
         if (this.logLines.length > LOG_LIMIT) this.logLines.splice(0, this.logLines.length - LOG_LIMIT)
       }),
-      api.onSetupStatus((event: SetupStatusEvent) => {
+      events.subscribe('setup.statusChanged', (event: SetupStatusEvent) => {
         if (event.verification) {
           const provider = providerForSetupStep(event.step)
           if (!provider) return
@@ -118,7 +118,7 @@ export class HostSetupSession {
           if (provider) this.verifications[provider] = null
         }
       }),
-      api.onProviderDeviceCode((prompt: DeviceCodePrompt) => {
+      events.subscribe('provider.deviceCodeReceived', (prompt: DeviceCodePrompt) => {
         this.deviceCode = prompt
       }),
     ]

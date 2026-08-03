@@ -40,6 +40,28 @@ export function hasStartedConversation(
 }
 
 /**
+ * Whether the conversation column is showing the new-tab home rather than a
+ * transcript. Mirrors ConversationView's own gate so the shell can lay the home
+ * out as one centred block with the composer, instead of docking the composer at
+ * the bottom of an otherwise empty column.
+ */
+export function isHomeVisible(
+  tabCount: number,
+  session:
+    | Pick<Session, 'agentSessionId' | 'messages' | 'statusCard' | 'loadingHistory'>
+    | undefined,
+): boolean {
+  if (tabCount === 0) return true
+  if (!session) return false
+  return (
+    !session.loadingHistory &&
+    !session.agentSessionId &&
+    session.messages.length === 0 &&
+    !session.statusCard
+  )
+}
+
+/**
  * A fresh tab starts without the project rail, even when the user's conversation
  * preference is open. The rail may still be revealed explicitly; once the
  * session starts, its persisted conversation preference takes over.
@@ -74,8 +96,21 @@ export function retainedConversationTabIds(
   return retained.slice(0, Math.max(limit, visibleTabIds.length))
 }
 
+/**
+ * The task column's measure. It holds one line of text per row, so it is sized
+ * rather than shared: past 440px the titles stop being the thing that runs out
+ * of room and the column just gets emptier, and under 300px the row's trailing
+ * slot starts eating the title.
+ */
+export const SIDEBAR_MIN_WIDTH = 300
+export const SIDEBAR_DEFAULT_WIDTH = 360
+export const SIDEBAR_MAX_WIDTH = 440
+
+/** 360px, giving ground only on a window too narrow to spare it. */
 export function defaultWorkspaceRailWidth(viewportWidth: number): number {
-  return Math.round(Math.min(400, Math.max(280, viewportWidth * 0.19)))
+  return Math.round(
+    Math.min(SIDEBAR_DEFAULT_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth * 0.24)),
+  )
 }
 
 export function clampSecondaryPaneWidth(

@@ -65,6 +65,8 @@
   import { assistantMarkdownOptions } from "./lib/assistant-markdown";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
+  import SessionBreadcrumb from "./SessionBreadcrumb.svelte";
+  import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import NewTabHome from "../layout/NewTabHome.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { LOCAL_SERVER_ID } from "@client-core/server-registry";
@@ -125,6 +127,22 @@
   const streamingText = $derived(
     session.streamingTextFor(tabId, isVisible),
   );
+
+  // ─── Breadcrumb — the window band that replaced the session tab strip ───
+  // One line that always says where you are, so it belongs to the window rather
+  // than to a pane: the split-pane instance (forceVisible) never draws it, and
+  // neither does a hidden tab in the pool.
+  const showBreadcrumb = $derived(isEditorMode && isVisible && !forceVisible);
+  // The band floats over the transcript, so the thread reserves its own room
+  // instead of being pushed down: 46px of band plus the gap under it.
+  const CRUMB_OFFSET = 54;
+  let stripMenu = $state<{ tabId: string; x: number; y: number } | null>(null);
+  // Anchor the session menu under the kebab rather than at a pointer position —
+  // it can be opened from the keyboard too.
+  function openSessionMenu(menuTabId: string, anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    stripMenu = { tabId: menuTabId, x: rect.left, y: rect.bottom + 4 };
+  }
 
   // ── Smooth typewriter reveal ──────────────────────────────────────────────
   // Text arrives in coarse ~300ms batches (control-plane TEXT_FLUSH_INTERVAL_MS).
@@ -940,6 +958,9 @@
     class={isEditorMode ? "flex flex-col h-full min-h-0" : ""}
   >
     <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
+      {#if showBreadcrumb}
+        <SessionBreadcrumb {tabId} onSessionMenu={openSessionMenu} />
+      {/if}
       {#if findOpen}
         <div class="absolute top-2 right-3 z-20">
           <FindBar
@@ -975,9 +996,11 @@
              narrow pill window. -->
         <div
           class="w-full"
-          style={isEditorMode
-            ? "max-width:var(--solus-reading-max);margin-inline:auto"
-            : "padding-inline:var(--cv-pill-gutter)"}
+          style="{isEditorMode
+            ? 'max-width:var(--solus-reading-max);margin-inline:auto'
+            : 'padding-inline:var(--cv-pill-gutter)'}{showBreadcrumb
+            ? `;padding-top:${CRUMB_OFFSET}px`
+            : ''}"
         >
           {#if runtime.isMobileViewport}
             <!-- Mobile has no action row, so progress stays as a top card here.
@@ -1362,6 +1385,15 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if stripMenu}
+  <SessionContextMenu
+    x={stripMenu.x}
+    y={stripMenu.y}
+    tabId={stripMenu.tabId}
+    onClose={() => (stripMenu = null)}
+  />
 {/if}
 
 <style>

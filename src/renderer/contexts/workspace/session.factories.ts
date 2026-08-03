@@ -65,6 +65,7 @@ export function makeTab(sessionId: string, overrides?: Partial<Tab>): Tab {
     id: uuid(),
     sessionId,
     title: 'New Tab',
+    titleCustom: false,
     hasUnread: false,
     input: makeInputState(),
     diffComments: [],

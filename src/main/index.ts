@@ -246,6 +246,10 @@ function allWindows(): BrowserWindow[] {
   return [mainWindow, editorWindow].filter(isLive)
 }
 
+function broadcastNativeEvent(channel: string, ...payload: unknown[]): void {
+  for (const win of allWindows()) win.webContents.send(channel, ...payload)
+}
+
 /** The window the user is in: focused, else last-focused live, else the pill. */
 function activeWindow(): BrowserWindow | null {
   const focused = BrowserWindow.getFocusedWindow()
@@ -277,7 +281,7 @@ function focusPillWindow(): void {
   if (process.platform === 'darwin') app.focus({ steal: true })
   mainWindow.focus()
   mainWindow.webContents.focus()
-  booted?.server.broadcast('window-shown', windowCursorRelative())
+  broadcastNativeEvent('solus:window-shown', windowCursorRelative())
 }
 
 function focusEditorWindow(): void {
@@ -285,7 +289,7 @@ function focusEditorWindow(): void {
   if (process.platform === 'darwin') app.focus({ steal: true })
   editorWindow.focus()
   editorWindow.webContents.focus()
-  booted?.server.broadcast('window-shown', null)
+  broadcastNativeEvent('solus:window-shown', null)
 }
 
 // Cursor position relative to the window's content area, in DIPs (matches CSS px).
@@ -394,7 +398,7 @@ function createPillWindow(options: { showWhenReady?: boolean; source?: string } 
   if (options.showWhenReady) pendingPillShowSource = options.source ?? 'pill ready'
 
   mainWindow.once('ready-to-show', () => {
-    if (!mainWindow?.isVisible()) booted?.server.broadcast('window-hidden')
+    if (!mainWindow?.isVisible()) broadcastNativeEvent('solus:window-hidden')
     if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
@@ -409,7 +413,7 @@ function createPillWindow(options: { showWhenReady?: boolean; source?: string } 
   mainWindow.on('blur', () => {
     setPillWindowLevel(false)
   })
-  mainWindow.on('hide', () => booted?.server.broadcast('window-hidden'))
+  mainWindow.on('hide', () => broadcastNativeEvent('solus:window-hidden'))
   attachContextMenu(mainWindow)
 
   if (SPACES_DEBUG) {
@@ -467,7 +471,7 @@ function createEditorWindow(): BrowserWindow {
     }
   })
   editorWindow.on('hide', () => {
-    booted?.server.broadcast('window-hidden')
+    broadcastNativeEvent('solus:window-hidden')
   })
 
   attachContextMenu(editorWindow)
@@ -1051,6 +1055,7 @@ if (isPairUrl) {
         requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
         staticDir: join(__dirname, '../client'),
         transcribeAudio,
+        onRunStatus: syncPowerSaveBlocker,
       })
     } catch (err) {
       // Unblock the renderer's getLocalConnection with the failure so it can show
@@ -1063,7 +1068,6 @@ if (isPairUrl) {
     booted = bootedCore.booted
     resolveBoot(bootedCore)
     bootedCore.controlPlane.on('active-work-changed', syncPowerSaveBlocker)
-    bootedCore.booted.server.subscribe('run-status', syncPowerSaveBlocker)
     syncPowerSaveBlocker()
     // Independent of which window (if any) boots first — the editor is now the
     // default boot surface and the pill is created lazily on first summon, so
@@ -1084,7 +1088,7 @@ if (isPairUrl) {
       })
 
       nativeTheme.on('updated', () => {
-        booted?.server.broadcast('theme-changed', nativeTheme.shouldUseDarkColors)
+        broadcastNativeEvent('solus:theme-changed', nativeTheme.shouldUseDarkColors)
       })
 
       // Track the last-focused Solus window for dialog/capture targeting.

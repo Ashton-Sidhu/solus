@@ -3,6 +3,8 @@ import type { IpcContext } from '../../src/shared/types'
 import type { Provider, RepoRef } from '../../src/main/providers/types'
 import { SolusServer } from '../../src/main/server/server'
 import { registerChecksHandlers } from '../../src/main/server/handlers/checks-handlers'
+import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
+import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
 
 afterEach(() => jest.useRealTimers())
 
@@ -15,6 +17,7 @@ describe('PR checks client lifecycle', () => {
     const lookupGate = new Promise<void>((resolve) => { releaseLookup = resolve })
     let lookupCount = 0
     const lifecycle = registerChecksHandlers(server, {
+      events: new HostEventPublisher(new ClientEventRegistry()),
       resolveReviewTarget: async () => {
         lookupCount += 1
         if (lookupCount === 1) await lookupGate
@@ -55,6 +58,7 @@ describe('PR checks client lifecycle', () => {
     } as unknown as Provider
     const server = new SolusServer()
     const lifecycle = registerChecksHandlers(server, {
+      events: new HostEventPublisher(new ClientEventRegistry()),
       resolveReviewTarget: async () => ({
         repo: { host: 'github.com', owner: 'owner', repo: 'transport-close' },
         provider,

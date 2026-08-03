@@ -8,7 +8,7 @@ export interface SessionHistorySource {
 
 export interface SessionHistoryLoaderOptions {
   listSessions: Window['solus']['listSessions']
-  onSessionScan: Window['solus']['onSessionScan']
+  onSessionScan: (listener: (event: SessionScanEvent) => void) => () => void
 }
 
 export interface LoadHistoryOptions {

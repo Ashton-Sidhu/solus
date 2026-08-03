@@ -3,6 +3,7 @@ import type { ReviewGuide, ReviewLedger, ReviewProgressStep } from "../../../../
 import type { AgentId, DiffScope, IpcContext, ReasoningEffort } from "../../../../shared/types";
 import { loadDiffFiles as loadScopedDiffFiles } from "../../../lib/diff-file-loader";
 import { requestInputFocus } from "../../../lib/inputFocus";
+import { serverConnections } from "@client-core/server-connections";
 
 export interface GuideLoaderOptions {
   /** RPC surface that owns the review checkout. */
@@ -67,7 +68,7 @@ export class GuideLoader {
       this.progressStep = "preparing";
       // Match progress events to this key's generation (events broadcast to
       // every subscriber); drop ones for other keys.
-      const unsubscribe = api.onReviewProgress((event) => {
+      const unsubscribe = serverConnections.eventsForApi(api).subscribe('review.progressChanged', (event) => {
         if (event.key !== key) return;
         this.progressStep = event.step;
       });

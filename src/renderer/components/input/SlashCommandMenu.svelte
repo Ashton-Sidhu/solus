@@ -46,7 +46,7 @@
     btn?.scrollIntoView({ block: "nearest" });
   });
 
-  const scrollThumb = `color-mix(in srgb, var(--solus-text-tertiary) 40%, transparent)`;
+  const scrollThumb = `color-mix(in srgb, var(--solus-text-tertiary) 30%, transparent)`;
 </script>
 
 {#if totalCount > 0 && anchorRect && layer.el}
@@ -60,7 +60,7 @@
   >
     <div
       bind:this={listEl}
-      class="slash-menu-list overflow-y-auto rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) py-0.5 [&::-webkit-scrollbar]:w-[0.1875rem] [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-(--scroll-thumb) [&::-webkit-scrollbar-track]:bg-transparent"
+      class="slash-menu-list overflow-y-auto rounded-[14px] border border-(--solus-popover-border) bg-(--solus-popover-bg) py-0.5 [&::-webkit-scrollbar]:w-[0.5rem] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-(--scroll-thumb) [&::-webkit-scrollbar-thumb]:bg-clip-content [&::-webkit-scrollbar-track]:my-1.5 [&::-webkit-scrollbar-track]:bg-transparent"
       style="max-height:12.25rem;backdrop-filter:blur(1.25rem);box-shadow:var(--solus-popover-shadow);--scroll-thumb:{scrollThumb}"
     >
       {@render commandSection(null, solusFiltered, 0)}

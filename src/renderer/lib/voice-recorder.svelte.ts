@@ -99,6 +99,10 @@ export class VoiceRecorder {
 
     track('voice_recording_started', {})
 
+    // The ~1s worker fork + ONNX session load overlaps the recording itself
+    // instead of adding to post-stop transcription latency.
+    void window.solus.warmTranscription?.().catch(() => {})
+
     let stream: MediaStream
     try {
       stream = await requestMicrophoneStream()

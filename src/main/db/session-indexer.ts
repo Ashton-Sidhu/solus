@@ -31,6 +31,7 @@ interface SessionRow {
   is_worktree: number | null
   slug: string | null
   first_message: string | null
+  custom_title: string | null
   last_timestamp: number | null
   size: number | null
   model: string | null
@@ -559,6 +560,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     sessionId: row.session_id,
     slug: row.slug,
     firstMessage: row.first_message,
+    customTitle: row.custom_title ?? undefined,
     lastTimestamp: new Date(row.last_timestamp ?? 0).toISOString(),
     size: row.size ?? 0,
     cwd: row.cwd ?? '',
@@ -572,7 +574,7 @@ function rowToSession(row: SessionRow): SessionMeta {
 
 const SESSION_SELECT = `
   session_id, provider, cwd, project_path, is_worktree, slug, first_message,
-  last_timestamp, size, model, reasoning_effort, project_root
+  custom_title, last_timestamp, size, model, reasoning_effort, project_root
 `
 
 export function getIndexedSession(sessionId: string): SessionMeta | null {
@@ -618,6 +620,13 @@ export function persistIndexedSessionStart(
     model,
     reasoningEffort,
   )
+}
+
+/** Name a session, or clear the name back to the derived one with null. Only
+ *  ever an UPDATE: every session that can be renamed is already a row (live
+ *  sessions land one at session_init, history sessions come from the index). */
+export function setSessionCustomTitle(sessionId: string, title: string | null): void {
+  getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, sessionId)
 }
 
 export function listIndexedSessions(projectPaths: string[], limit?: number): SessionMeta[] {

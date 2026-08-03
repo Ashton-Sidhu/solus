@@ -1,27 +1,16 @@
-import { EventEmitter } from 'events'
-import type { RpcMethod, RpcTopic } from '../../shared/rpc'
+import type { RpcMethod } from '../../shared/rpc'
 import { createLogger, isDebugEnabled } from '../logger'
 
 const log = createLogger('server', 'server.ts')
 
 /**
  * The single dispatch core. The WebSocket transport forwards requests through
- * `handle()`. Global events flow through `broadcast()`. Tab-scoped events use
- * `sendTargeted()` so only their owning client receives the payload.
- *
  * The server is transport-agnostic: it doesn't know about IPC channels,
  * BrowserWindow, or sockets. Transports are thin shims that translate
  * their wire format into method+args.
  */
 export class SolusServer {
   private handlers = new Map<RpcMethod, Handler>()
-  private emitter = new EventEmitter()
-  private directClients = new Map<string, DirectTopicListener[]>()
-
-  constructor() {
-    // Allow many transports to subscribe per topic without warnings.
-    this.emitter.setMaxListeners(100)
-  }
 
   register<M extends RpcMethod>(method: M, handler: Handler): void {
     if (this.handlers.has(method)) {
@@ -41,44 +30,6 @@ export class SolusServer {
     return this.handlers.has(method as RpcMethod)
   }
 
-  subscribe(topic: RpcTopic, listener: TopicListener): () => void {
-    this.emitter.on(topic, listener)
-    return () => this.emitter.off(topic, listener)
-  }
-
-  registerDirectClient(clientId: string, listener: DirectTopicListener): () => void {
-    const listeners = this.directClients.get(clientId) ?? []
-    listeners.push(listener)
-    this.directClients.set(clientId, listeners)
-    return () => {
-      const current = this.directClients.get(clientId)
-      if (!current) return
-      const index = current.indexOf(listener)
-      if (index === -1) return
-      current.splice(index, 1)
-      if (current.length > 0) return
-      this.directClients.delete(clientId)
-    }
-  }
-
-  broadcast(topic: RpcTopic, ...payload: unknown[]): void {
-    if (isDebugEnabled) log.debug('topic_broadcast', { topic, payload })
-    this.emitter.emit(topic, payload)
-  }
-
-  sendTo(clientId: string, topic: RpcTopic, ...payload: unknown[]): boolean {
-    const listener = this.directClients.get(clientId)?.at(-1)
-    if (!listener) return false
-    listener(topic, payload)
-    return true
-  }
-
-  sendTargeted(clientId: string, topic: 'normalized-event' | 'enriched-error', ...payload: unknown[]): boolean {
-    const listener = this.directClients.get(clientId)?.at(-1)
-    if (!listener) return false
-    listener(topic, payload)
-    return true
-  }
 }
 
 export type Handler = (args: unknown[], ctx: HandlerCtx) => unknown | Promise<unknown>
@@ -94,6 +45,3 @@ export interface HandlerCtx {
    */
   deviceId?: string
 }
-
-export type TopicListener = (payload: unknown[]) => void
-export type DirectTopicListener = (topic: RpcTopic, payload: unknown[]) => void

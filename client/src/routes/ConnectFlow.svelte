@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { loadServers, upsertServer, removeServer, type SavedServer } from "@client-core/server-registry";
-  import { claimServer, defaultDeviceLabel, pairServer, urlHost } from "@client-core/pairing";
+  import { loadServers, removeServer, type SavedServer } from "@client-core/server-registry";
+  import { defaultDeviceLabel, urlHost } from "@client-core/pairing";
   import { classifyConnectInput, probeServer } from "../lib/connect";
+  import { addHostFromInput } from "../lib/add-host";
   import { toasts } from "../lib/toast.store.svelte";
-  import { track } from "@renderer/lib/analytics";
 
   interface Props {
     onConnect: (server: SavedServer) => Promise<void>;
@@ -47,60 +47,23 @@
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
-    const deviceLabel = defaultDeviceLabel();
-    const serverLabel = labelInput.trim();
-
-    if (classified.kind === "empty") {
-      toasts.error("Paste a pairing link or enter a server address");
-      return;
+    // The connecting overlay replaces the whole form, so only a submission
+    // that has a host to dial earns it.
+    if (classified.kind !== "empty") {
+      busy = true;
+      connectingServer = labelInput.trim() || urlHost(classified.url);
     }
-
-    busy = true;
-    connectingServer = serverLabel || urlHost(classified.url);
-    let pairingMethod: "token" | "claim" = classified.kind === "link" ? "token" : "claim";
     try {
-      let server: SavedServer;
-      if (classified.kind === "link") {
-        ({ server } = await pairServer({
-          url: classified.url,
-          pairToken: classified.pairToken,
-          deviceLabel,
-          serverLabel,
-        }));
-      } else {
-        const code = codeInput.trim();
-        if (!/^\d{6}$/.test(code)) {
-          toasts.error("Enter the 6-digit code from the server");
-          return;
-        }
-        // A fresh, unclaimed server takes its code at /claim; an owned one
-        // treats the same 6 digits as a pairing code.
-        const health = await probeServer(classified.url);
-        if (health.claimable) {
-          ({ server } = await claimServer({
-            url: classified.url,
-            code,
-            deviceLabel,
-            serverLabel: serverLabel || health.name,
-          }));
-        } else {
-          pairingMethod = "token";
-          ({ server } = await pairServer({
-            url: classified.url,
-            pairToken: code,
-            deviceLabel,
-            serverLabel: serverLabel || health.name,
-          }));
-        }
-      }
-      upsertServer(server);
-      track('pairing_completed', { method: pairingMethod });
+      const server = await addHostFromInput({
+        input: smartInput,
+        code: codeInput,
+        serverLabel: labelInput,
+      });
       servers = loadServers();
       resetForm();
       view = "servers";
       await onConnect(server);
     } catch (err) {
-      track('pairing_failed', { method: pairingMethod });
       toasts.error(err instanceof Error ? err.message : String(err));
     } finally {
       busy = false;

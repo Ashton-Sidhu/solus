@@ -8,6 +8,20 @@ describe('automation templates', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  test('offers a weekly Luna maintenance pass with guarded cleanup', () => {
+    const maintenance = AUTOMATION_TEMPLATES.find(
+      (template) => template.id === 'computer-maintenance',
+    )
+
+    expect(maintenance).toBeDefined()
+    expect(maintenance?.agentProvider).toBe('codex')
+    expect(maintenance?.modelId).toBe('gpt-5.6-luna')
+    expect(maintenance?.trigger).toEqual({ type: 'cron', expr: '0 3 * * 0' })
+    expect(maintenance?.prompt).toContain('Never kill by name or pattern')
+    expect(maintenance?.prompt).toContain('broader user caches')
+    expect(maintenance?.prompt).toContain('further opportunities')
+  })
+
   test('offers a Friday noon report covering the last week across all projects', () => {
     const report = AUTOMATION_TEMPLATES.find((template) => template.id === 'weekly-work-report')
 

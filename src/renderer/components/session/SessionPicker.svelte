@@ -37,6 +37,7 @@
   import SessionPreview from "./SessionPreview.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { worktreeProjectRoot, type SessionMeta } from "../../../shared/types";
+  import { serverConnections } from "@client-core/server-connections";
 
   interface Props {
     open: boolean;
@@ -354,7 +355,7 @@
   });
 
   onMount(() =>
-    window.solus.onSessionIndexUpdated((event) => {
+    serverConnections.eventsFor().subscribe('session.indexChanged', (event) => {
       if (!open || event.provider !== "codex") return;
       const affectsScope = historyScopeRoots.some((root) =>
         event.projectPaths.some(

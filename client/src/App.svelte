@@ -14,7 +14,6 @@
   import {
     createReconnectDetector,
     initializeRuntime,
-    refreshTheme,
   } from "@renderer/contexts/app/runtime-boot";
   import { createAppCore } from "@renderer/contexts/app/app-core";
   import { subscribe } from "@client-core/connection-state";
@@ -102,6 +101,7 @@
         return {
           tabId,
           title: tab.title ?? "New Tab",
+          titleCustom: tab.titleCustom ?? false,
           serverId: sess?.serverId ?? LOCAL_SERVER_ID,
           serverInstallationId: savedServers.find(
             (server) => server.id === sess?.serverId,
@@ -184,6 +184,7 @@
   let hasMountedOpenProject = $state(false);
   let hasMountedHostOnboarding = $state(false);
   let hasMountedAddServer = $state(false);
+  let hasMountedServerSetup = $state(false);
   /** Offered as the prefill when a remote host has no commit identity of its own. */
   let localGitIdentity = $state<{ name: string; email: string } | null>(null);
   let shortcutsActiveScopes = $state<import("@renderer/lib/keybindings/types").Scope[]>([]);
@@ -194,12 +195,13 @@
     if (openProjectStore.isOpen) hasMountedOpenProject = true;
     if (hostOnboardingStore.isOpen) hasMountedHostOnboarding = true;
     if (serversStore.addServerOpen) hasMountedAddServer = true;
+    if (webState.serverSetupOpen) hasMountedServerSetup = true;
   });
 
   // A bare host has no commit identity; this machine's is the obvious prefill.
   // On web "local" resolves to the connected server, which plays that role.
   $effect(() => {
-    if (!openProjectStore.isOpen || localGitIdentity) return;
+    if (!openProjectStore.isOpen || localGitIdentity || !serverConnections.connectionFor()) return;
     void serverConnections
       .apiFor(LOCAL_SERVER_ID)
       .setupHostReadiness()
@@ -272,16 +274,17 @@
   });
 
   $effect(() => {
-    refreshTheme(settings.setSystemTheme.bind(settings));
-    const unsub = window.solus.onThemeChange((isDark: boolean) =>
-      settings.setSystemTheme(isDark),
-    );
-    return unsub;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => settings.setSystemTheme(media.matches);
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
   });
 
   $effect(() => {
-    const unsubRun = window.solus.onRunStatus((status) => runStore.apply(status));
-    const unsubUsage = window.solus.onUsageLimits((snapshots) =>
+    const events = serverConnections.eventsFor();
+    const unsubRun = events.subscribe('run.statusChanged', (status) => runStore.apply(status));
+    const unsubUsage = events.subscribe('usage.limitsChanged', ({ snapshots }) =>
       agent.applyUsage(snapshots),
     );
     void agent.refreshUsage();
@@ -321,7 +324,7 @@
     const reconnected = detectReconnect(connectionStatus);
     if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
     if (reconnected) {
-      refreshTheme(settings.setSystemTheme.bind(settings));
+      settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
       initializeRuntime(session, sessionSidebarStore);
       void connectionsStore.refreshCapabilities();
       session.prsStore.reportChecksActivity(session.ctx);
@@ -747,6 +750,17 @@
   {:then addServerModule}
     {@const AddServerModal = addServerModule.default}
     <AddServerModal />
+  {/await}
+{/if}
+
+{#if hasMountedServerSetup}
+  {#await import("./components/ServerSetupSurface.svelte")}
+    {#if webState.serverSetupOpen}
+      <div class="lazy-modal-loading" role="status">Loading hosts…</div>
+    {/if}
+  {:then serverSetupModule}
+    {@const ServerSetupSurface = serverSetupModule.default}
+    <ServerSetupSurface />
   {/await}
 {/if}
 

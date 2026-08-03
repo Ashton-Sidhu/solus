@@ -27,7 +27,8 @@ type ParakeetModel = {
 }
 
 type WorkerRequest =
-  { id: number; type: 'transcribe'; samples: Float32Array }
+  | { id: number; type: 'transcribe'; samples: Float32Array }
+  | { id: number; type: 'warm' }
 
 type WorkerResponse =
   | { id: number; type: 'result'; transcript: string; phaseMs: PhaseMetrics }
@@ -216,5 +217,11 @@ async function handleTranscribe(request: Extract<WorkerRequest, { type: 'transcr
 const parentPort = (process as any).parentPort
 parentPort?.on('message', (event: { data: WorkerRequest } | WorkerRequest) => {
   const request = 'data' in event ? event.data : event
+  if (request.type === 'warm') {
+    // Session creation is the expensive part (~1s); a failure here surfaces on
+    // the real transcribe that follows, with its error path.
+    void loadModel().catch(() => {})
+    return
+  }
   void handleTranscribe(request)
 })

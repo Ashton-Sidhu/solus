@@ -25,6 +25,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { agentLabel } from "../../lib/agentAvailability";
+  import * as Breadcrumb from "../ui/breadcrumb";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
@@ -217,7 +218,7 @@
 
   // Run history for the live automation. Keyed on the id (not `current`, which
   // is replaced on every save/push) so history only reloads when the id changes;
-  // subsequent run updates arrive over the automations-changed push.
+  // subsequent run updates arrive through `automation.changed`.
   const runsKey = $derived(current?.id ?? null);
   const runs = $derived(runsKey ? (store.runs.get(runsKey) ?? []) : []);
   let isRunHistoryExpanded = $state(false);
@@ -519,18 +520,28 @@
   <div
     class="flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-5"
   >
-    <nav class="flex min-w-0 items-center gap-[0.4375rem] text-xs" aria-label="Breadcrumb">
-      <button
-        type="button"
-        class={CRUMB_LINK}
-        onclick={inline ? paneBackToList : onDone}>Automations</button
-      >
-      <span class="text-muted-foreground/45" aria-hidden="true">/</span>
-      <span
-        class="truncate font-[550] tracking-[-0.01em] text-[color:color-mix(in_oklab,var(--foreground)_80%,var(--muted-foreground))]"
-        aria-current="page">{name || "Untitled automation"}</span
-      >
-    </nav>
+    <Breadcrumb.Root class="min-w-0">
+      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-xs">
+        <Breadcrumb.Item>
+          <Breadcrumb.Link class={CRUMB_LINK}>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                onclick={inline ? paneBackToList : onDone}>Automations</button
+              >
+            {/snippet}
+          </Breadcrumb.Link>
+        </Breadcrumb.Item>
+        <Breadcrumb.Separator class="text-muted-foreground/45">/</Breadcrumb.Separator>
+        <Breadcrumb.Item class="min-w-0">
+          <Breadcrumb.Page
+            class="truncate font-[550] tracking-[-0.01em] text-[color:color-mix(in_oklab,var(--foreground)_80%,var(--muted-foreground))]"
+            >{name || "Untitled automation"}</Breadcrumb.Page
+          >
+        </Breadcrumb.Item>
+      </Breadcrumb.List>
+    </Breadcrumb.Root>
     {@render saveStatus()}
   </div>
 {/snippet}

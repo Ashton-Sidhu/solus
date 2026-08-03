@@ -26,6 +26,7 @@
   } from "../../contexts";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { serverConnections } from "@client-core/server-connections";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import GuideSurface from "../review/GuideSurface.svelte";
   import { GuideLoader } from "../review/lib/guide-loader.svelte";
@@ -382,7 +383,7 @@
     const currentNumber = target.number;
     const prCwd = pr?.worktreePath;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = window.solus.onPrsChanged((changedCwd) => {
+    const unsub = serverConnections.eventsFor().subscribe('prs.invalidated', ({ projectRoot: changedCwd }) => {
       const paneCtx = prCtx();
       const ctxCwd = paneCtx.session.projectPath || paneCtx.session.workingDirectory;
       if (changedCwd !== ctxCwd && changedCwd !== prCwd) return;

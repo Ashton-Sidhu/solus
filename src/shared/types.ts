@@ -31,6 +31,8 @@ export interface ServerCapabilities {
   serverName?: string
   /** Where this host's folder picker starts when opening a new project. */
   projectsBaseDirectory?: string
+  /** This host's general-purpose workspace — the app's default working directory. */
+  workspacePath?: string
 }
 
 export type SetupAgent = 'claude' | 'codex'
@@ -480,6 +482,9 @@ export interface Tab {
   id: string
   sessionId: string
   title: string
+  /** The user named this tab (or accepted a generated name), so nothing —
+   *  auto-titling included — may overwrite it. */
+  titleCustom: boolean
   hasUnread: boolean
   input: InputState
   diffComments: DiffComment[]
@@ -1009,6 +1014,13 @@ export interface SessionIndexUpdatedEvent {
   sessionIds: string[]
 }
 
+/** The authoritative persisted name for a session changed on its host. */
+export interface SessionTitleChangedEvent {
+  sessionId: string
+  /** Null clears the custom name back to the opening prompt. */
+  title: string | null
+}
+
 export interface RunResult {
   totalCostUsd: number
   durationMs: number
@@ -1510,6 +1522,8 @@ export interface SessionMeta {
   sessionId: string
   slug: string | null
   firstMessage: string | null
+  /** User-set or auto-generated session name; wins over slug/firstMessage everywhere a session is listed. */
+  customTitle?: string | null
   lastTimestamp: string
   size: number
   cwd: string         // actual working directory read from the JSONL cwd field
@@ -1722,6 +1736,8 @@ export type FilePreviewResult =
       displayPath: string
       contents: string
       size: number
+      /** Files outside the active project can be previewed but not edited. */
+      isReadOnly: boolean
       mimeType?: string
     }
   | {
@@ -1999,7 +2015,7 @@ export interface AutomationsManifest {
 }
 
 /**
- * Pushed over the `automations-changed` RPC topic whenever the main-process
+ * Published as `automation.changed` whenever the main-process
  * automation store mutates — saves, deletes, scheduler fires, run transitions —
  * so every client stays live without polling (scheduled runs fire with no
  * renderer involvement at all).
@@ -2037,6 +2053,5 @@ export interface DeviceCodePrompt {
 export * from './git-types'
 export * from './run-types'
 
-// RPC method and topic registries live in `shared/rpc.ts` (RPC_INVOKE_METHODS,
-// RPC_TOPICS). The WebSocket transport dispatches every request through a
-// single `{ id, method, args }` envelope.
+// RPC method names live in `shared/rpc.ts`; host event contracts live in
+// `shared/host-events.ts`. Requests use one `{ id, method, args }` envelope.

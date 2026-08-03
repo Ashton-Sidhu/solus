@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
 import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type GitCommitIdentity, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '../../../shared/types'
 import type { SolusServer, HandlerCtx } from '../server'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { loadToken as loadGithubToken } from '../../providers/github/token-store'
@@ -13,6 +14,7 @@ import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '../../../shared/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
 import { getServerSettings, setProjectsBaseDirectory, setServerName } from '../settings'
+import { WORKSPACE_DIR } from '../../workspace'
 import { expandHome } from './lib/host-path'
 import { sshConnectionOptions } from './lib/ssh-options'
 import { writeTempSecretScript } from './lib/temp-secret-script'
@@ -63,6 +65,7 @@ export type SpawnProcess = (
 ) => ChildProcess
 
 export interface SetupHandlerDeps extends AgentAuthProbeDeps {
+  events?: HostEventPublisher
   spawnProcess?: SpawnProcess
   hasCommand?: (command: string) => boolean
   loadGithubToken?: typeof loadGithubToken
@@ -107,6 +110,7 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
     },
     serverName: getServerSettings().name,
     projectsBaseDirectory: getServerSettings().projectsBaseDirectory,
+    workspacePath: WORKSPACE_DIR,
   }
 }
 
@@ -240,8 +244,14 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   /** The one path `clean: true` is allowed to delete: what this host's last clone left behind. */
   let lastFailedCloneDestination: string | null = null
 
-  const emitStatus = (event: SetupStatusEvent) => server.broadcast('setup-status', event)
-  const emitLog = (event: SetupLogEvent) => server.broadcast('setup-log', event)
+  const eventSink = (clientId: string | undefined) => ({
+    emitStatus: (event: SetupStatusEvent) => {
+      if (clientId) deps.events?.publish(clientId, 'setup.statusChanged', event)
+    },
+    emitLog: (event: SetupLogEvent) => {
+      if (clientId) deps.events?.publish(clientId, 'setup.logAppended', event)
+    },
+  })
 
   server.register('setServerName', (args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
@@ -259,6 +269,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupInstallAgentCli', async (args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
+    const { emitStatus, emitLog } = eventSink(ctx.clientId)
     const [{ agent }] = args as [{ agent: unknown }]
     const setupAgent = coerceSetupAgent(agent)
     const step = installStepForAgent(setupAgent)
@@ -287,6 +298,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupAgentSignIn', async (args, ctx): Promise<SetupStepResult> => {
     requireAuthenticatedSetupContext(ctx)
+    const { emitStatus, emitLog } = eventSink(ctx.clientId)
     const [{ agent }] = args as [{ agent: unknown }]
     const setupAgent = coerceSetupAgent(agent)
     const step = signInStepForAgent(setupAgent)
@@ -401,16 +413,22 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupInstallGit', (_args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
-    return installPackage('git', 'install-git', 'git')
+    return installPackage('git', 'install-git', 'git', ctx.clientId)
   })
 
   server.register('setupInstallGh', (_args, ctx) => {
     requireAuthenticatedSetupContext(ctx)
-    return installPackage('gh', 'install-gh', 'the GitHub CLI')
+    return installPackage('gh', 'install-gh', 'the GitHub CLI', ctx.clientId)
   })
 
   /** The two packages Solus installs on a host, run the same way and reported on the same channel. */
-  async function installPackage(pkg: InstallablePackage, step: SetupStreamStep, label: string) {
+  async function installPackage(
+    pkg: InstallablePackage,
+    step: SetupStreamStep,
+    label: string,
+    clientId: string | undefined,
+  ) {
+    const { emitStatus, emitLog } = eventSink(clientId)
     const spec = buildPackageInstallCommand(pkg, { hasCommand })
     if (!spec) throw new Error(`No package manager was found on this host. Install ${label} manually, then re-check.`)
     if (!spec.autoRunnable) {
@@ -514,6 +532,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
     requireAuthenticatedSetupContext(ctx)
+    const { emitStatus, emitLog } = eventSink(ctx.clientId)
     const [{ cloneUrl, name, destination, protocol, clean }] = args as [{
       cloneUrl: unknown
       name?: unknown

@@ -238,6 +238,12 @@ CREATE TABLE saved_prompts (
 );
 CREATE INDEX saved_prompts_by_project ON saved_prompts(project_root, created_at DESC);
 `,
+  // Session names — auto-generated from the first prompt or typed by the user.
+  // Lives on the sessions row (not a side table) so every listing query that
+  // already selects a session picks the name up for free.
+  `
+ALTER TABLE sessions ADD COLUMN custom_title TEXT;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

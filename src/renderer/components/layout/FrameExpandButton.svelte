@@ -29,12 +29,12 @@
       ? !frameChrome.sidebarOpen && !!frameChrome.expandSidebar
       : import.meta.env.DEV &&
           !frameChrome.projectPanelOpen &&
-          !!frameChrome.expandProjectPanel,
+          !!frameChrome.toggleProjectPanelFromFrame,
   );
 
   function expand() {
     if (variant === "sidebar") frameChrome.expandSidebar?.();
-    else frameChrome.expandProjectPanel?.();
+    else frameChrome.toggleProjectPanelFromFrame?.();
   }
 </script>
 

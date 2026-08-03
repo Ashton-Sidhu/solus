@@ -17,6 +17,7 @@ import type { IpcContext, MergeMethod, PrConflictResolutionResult, PrMergeResult
 import type { SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 
 const log = createLogger('main', 'provider-handlers')
 const EFFORT_FETCH_CONCURRENCY = 4
@@ -175,6 +176,7 @@ async function persistReviewCheckpoint(
 export interface ProviderHandlerDeps {
   isWorktreeInUse: (path: string) => boolean
   dispatcher: AgentDispatcher
+  events: HostEventPublisher
 }
 
 export function registerProviderHandlers(server: SolusServer, deps: ProviderHandlerDeps): void {
@@ -185,7 +187,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return provider.auth.status()
   })
 
-  server.register('providerConnect', async (args) => {
+  server.register('providerConnect', async (args, handlerCtx) => {
     const [ctx] = args as [IpcContext]
     const provider = await providerForContext(ctx)
     if (!provider) throw new Error('No git provider is available for this repository.')
@@ -193,7 +195,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       // Stream the device/user code to the renderer without blocking the
       // promise — the modal shows the code while connect() keeps polling.
       return await provider.auth.connect((prompt) => {
-        server.broadcast('provider-device-code', prompt)
+        if (handlerCtx.clientId) deps.events.publish(handlerCtx.clientId, 'provider.deviceCodeReceived', prompt)
       })
     } catch (err) {
       // User-initiated cancellation isn't a failure; surface it without log noise.
@@ -263,7 +265,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         openPullRequests: result.items,
         openPullRequestsComplete: isCompleteOpenList,
         onUpdate: (graph) => {
-          server.broadcast('stack-graph-update', repoRoot, graph)
+          deps.events.broadcast('stack.graphChanged', { repoRoot, graph })
           if (isCompleteOpenList) {
             scheduleGuideWarming({
               dispatcher: deps.dispatcher,
@@ -316,7 +318,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const result = await provider.review.mergePullRequest(repo, number, method)
     if (result.merged) {
       const cwd = ctx.session.projectPath || ctx.session.workingDirectory
-      if (cwd) server.broadcast('prs-changed', cwd)
+      if (cwd) deps.events.broadcast('prs.invalidated', { projectRoot: cwd })
     }
     return result
   })
@@ -491,7 +493,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   })
 
   // Explicit opt-in guide generation: queue the PRs and return immediately;
-  // progress streams back over `pr-guide-status`.
+  // progress is published as typed host events.
   server.register('prGenerateGuides', async (args) => {
     const [ctx, numbers] = args as [IpcContext, number[]]
     const { repo, provider } = await reviewTargetFor(ctx)
@@ -504,7 +506,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       provider,
       graph: ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null,
       isWorktreeInUse: deps.isWorktreeInUse,
-      onStatus: (number, status, metadata) => server.broadcast('pr-guide-status', {
+      onStatus: (number, status, metadata) => deps.events.broadcast('pr.guideStatusChanged', {
         repoRoot,
         number,
         status,

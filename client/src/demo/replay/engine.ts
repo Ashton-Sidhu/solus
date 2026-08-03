@@ -55,10 +55,10 @@ export function createReplayEngine(
     pendingPermission = null
     if (autoContinueTimer) clearTimeout(autoContinueTimer)
     autoContinueTimer = null
-    backend.broadcast('normalized-event', tabId, {
-      type: 'permission_resolved',
-      questionId,
-    } satisfies NormalizedEvent)
+    backend.broadcast('session.eventReceived', {
+      tabId,
+      event: { type: 'permission_resolved', questionId } satisfies NormalizedEvent,
+    })
     releaseWaiters()
     return true
   }
@@ -84,7 +84,7 @@ export function createReplayEngine(
         }
       }
 
-      backend.broadcast('normalized-event', step.tabId, step.event)
+      backend.broadcast('session.eventReceived', { tabId: step.tabId, event: step.event })
 
       if (step.event.type === 'permission_request' && pendingPermission?.questionId === step.event.questionId) {
         const { questionId, defaultOptionId } = pendingPermission

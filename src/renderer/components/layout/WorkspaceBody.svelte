@@ -7,15 +7,15 @@
     getRunDockStore,
     getSettingsContext,
     getSessionEnvironmentStore,
-    environmentBranchKey,
   } from "../../contexts";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
   import RunDock from "../run/RunDock.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SessionSidebar from "../session/SessionSidebar.svelte";
+  import SessionContextMenu from "../session/SessionContextMenu.svelte";
+  import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
-  import TabStrip from "./TabStrip.svelte";
   import SessionPicker from "../session/SessionPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
@@ -36,8 +36,11 @@
     defaultWorkspaceRailWidth,
     focusedSplitChatTabId,
     hasStartedConversation,
+    isHomeVisible,
     isSecondaryContentVisible,
     listSidebarPrimaryWidth,
+    SIDEBAR_MAX_WIDTH,
+    SIDEBAR_MIN_WIDTH,
     MIN_LIST_PRIMARY_PANE_WIDTH,
     MIN_PRIMARY_PANE_WIDTH,
     primaryPaneMinSize,
@@ -47,7 +50,6 @@
     secondaryPaneDefaultSize,
     SECONDARY_CONTENT_DELAY_MS,
     SECONDARY_SHELL_EXIT_MS,
-    visibleWorkspaceTabIds,
   } from "./lib/workspace-body";
   import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
@@ -117,6 +119,12 @@
   const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
   const hasStartedSession = $derived(hasStartedConversation(sess));
+  // The home reads as a headline sitting on top of the composer, so the column
+  // centres the pair as one block rather than pinning the composer to the floor.
+  const centerHome = $derived(
+    isHomeVisible(session.tabOrder.length, sess) &&
+      panes.primaryContent.kind === "conversation",
+  );
   const activeProjectPanelTabKey = $derived(session.activeTabId || "new-tab-home");
   let projectPanelPopoutTabKey = $state<string | null>(null);
   const newTabProjectPanelPoppedOut = $derived(
@@ -167,6 +175,23 @@
   const conversationChromeVisible = $derived(
     panes.primaryContent.kind === "conversation" && !panes.maximized,
   );
+  const showHomeBreadcrumb = $derived(
+    active && centerHome && conversationChromeVisible && !!session.activeTabId,
+  );
+  let homeSessionMenu = $state<{
+    tabId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  function openHomeSessionMenu(tabId: string, anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    homeSessionMenu = { tabId, x: rect.left, y: rect.bottom + 4 };
+  }
+
+  $effect(() => {
+    if (!showHomeBreadcrumb) homeSessionMenu = null;
+  });
   // Run dock scope mirrors ProjectPanel: prefer the active session's worktree.
   const runCwd = $derived(
     sess?.gitContext?.worktreePath ??
@@ -176,19 +201,6 @@
   const dockRuns = $derived(runStore.runsFor(runCwd) ?? []);
   const showRunDock = $derived(
     active && enableRunDock && runDock.open && conversationChromeVisible && dockRuns.length > 0,
-  );
-
-  const visibleTabIds = $derived.by(() =>
-    visibleWorkspaceTabIds(
-      session,
-      session.activeTabId,
-      panes.chatTabIn("secondary", session.activeTabId),
-      (tabId) =>
-        environmentBranchKey(
-          session.environment.environmentFor(tabId),
-          session.sessionFor(tabId)?.projectGroupPath,
-      ),
-    ),
   );
 
   // Lazy-mount the conversation pool: only mount a tab's ConversationView the
@@ -253,7 +265,7 @@
   let sidebarClosedForOverlay = $state(false);
 
   const sidebarBounds = $derived(
-    paneBoundsPercent(workspaceBodyWidth, 160, 400),
+    paneBoundsPercent(workspaceBodyWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
   );
   const sidebarDefaultSize = $derived(
     workspaceBodyWidth > 0
@@ -326,7 +338,7 @@
   // headers don't offer to expand chrome that isn't on screen.
   frameChrome.expandSidebar = toggleSidebar;
   // Full-page views never host a split chat, so this only ever means the primary.
-  frameChrome.expandProjectPanel = () => toggleProjectPanel("primary");
+  frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel("primary");
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpenForChrome : true;
     frameChrome.projectPanelOpen = active ? isPrimaryProjectPanelOpen : true;
@@ -662,25 +674,12 @@
 <svelte:window onmousemove={handleMouseMove} onmouseup={handleMouseUp} />
 
 {#snippet dragBar()}
+  <!-- No chrome row at all: the conversation names where you are with the
+       SessionBreadcrumb band floating over its own transcript, full-page views
+       own their headers, and macOS `hiddenInset` supplies the draggable
+       titlebar space. Zero height, so the content starts at the top. -->
   <div class="drag-bar flex-shrink-0">
-    {#if conversationChromeVisible}
-      <TabStrip
-        variant="editor"
-        tabIds={visibleTabIds}
-        sidebarOpen={sidebarOpenForChrome}
-        onToggleSidebar={toggleSidebar}
-        projectPanelOpen={enableProjectPanel
-          ? isPrimaryProjectPanelOpen
-          : undefined}
-        onToggleProjectPanel={enableProjectPanel
-          ? () => toggleProjectPanel("primary")
-          : undefined}
-      />
-    {:else}
-      <!-- Full-page views own their page chrome. The OS header now provides
-           the draggable titlebar space, so don't reserve an internal row. -->
-      <div class="page-drag-strip" aria-hidden="true"></div>
-    {/if}
+    <div class="page-drag-strip" aria-hidden="true"></div>
   </div>
 {/snippet}
 
@@ -720,18 +719,20 @@
         onToggleCollapse={toggleSidebar}
       />
     </Resizable.Pane>
+    <!-- The panel is inset 4px and its 1px border paints inward, so its
+         centreline sits 4.5px left of the PaneForge boundary. -->
     <Resizable.Handle
       aria-label="Resize sidebar"
       disabled={!sidebarOpen}
-      class={!sidebarOpen ? "pointer-events-none opacity-0" : ""}
+      class={`-translate-x-[4.5px] ${!sidebarOpen ? "pointer-events-none opacity-0" : ""}`}
     />
 
     <Resizable.Pane order={2} class="min-w-0">
-      <!-- Conversation view | secondary. The conversation view owns the tab strip
-           AND the project rail, so the strip spans exactly what it belongs to and
-           its right edge tracks the secondary divider in this same layout pass —
-           no measured width, no lag. The rail rides inside, which is why it needs
-           no collapse rules of its own. -->
+      <!-- Conversation view | secondary. The conversation view owns the
+           breadcrumb band AND the project rail, so the band spans exactly what
+           it belongs to and its right edge tracks the secondary divider in this
+           same layout pass — no measured width, no lag. The rail rides inside,
+           which is why it needs no collapse rules of its own. -->
       <div
         class="conversation-split relative flex h-full min-h-0 min-w-0"
         bind:clientWidth={conversationSplitWidth}
@@ -770,17 +771,27 @@
           portalTarget={conversationAreaEl}
         />
 
-          <div class="primary-column relative flex h-full flex-1 flex-col min-w-0">
+          <div
+            class="primary-column relative flex h-full flex-1 flex-col min-w-0"
+            class:justify-center={centerHome}
+            class:home-measure={centerHome}
+          >
+            {#if showHomeBreadcrumb}
+              <SessionBreadcrumb
+                tabId={session.activeTabId}
+                onSessionMenu={openHomeSessionMenu}
+                showNewSessionAction={false}
+              />
+            {/if}
             <!-- Frame-level session-expand affordance. Rendered once here so
-                 full-page views other than settings show it in the identical
-                 top-left spot instead of each page placing its own. Self-gates
-                 via frameChrome (hidden unless the sidebar is collapsed); the
-                 lead inset var — published on the collapsed primary-column —
-                 clears the mac traffic lights. Scoped to a non-conversation
-                 primary so it never overlaps the conversation's TabStrip,
-                 which carries its own sidebar toggle. -->
-            {#if panes.primaryContent.kind !== "conversation" &&
-              panes.primaryContent.kind !== "settings"}
+                 every view shows it in the identical top-left spot instead of
+                 each page placing its own. Self-gates via frameChrome (hidden
+                 unless the sidebar is collapsed); the lead inset var —
+                 published on the collapsed primary-column — clears the mac
+                 traffic lights. Conversations rely on it too now: the chrome
+                 row that used to carry their sidebar toggle is gone, and the
+                 capsule is centred, so nothing collides at the left edge. -->
+            {#if panes.primaryContent.kind !== "settings"}
               <div
                 class="no-drag absolute left-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] top-2.5 z-20"
               >
@@ -793,7 +804,8 @@
                  with derived state, scroll, and editor drafts intact — never
                  re-mounted. -->
             <div
-              class="conversation-pool flex-1 flex flex-col min-h-0 no-drag"
+              class="conversation-pool flex flex-col min-h-0 no-drag"
+              class:flex-1={!centerHome}
               class:mode-hidden={panes.primaryContent.kind !== "conversation"}
               onfocusin={() => panes.focusPane("primary")}
             >
@@ -928,6 +940,15 @@
   </Resizable.PaneGroup>
 </div>
 
+{#if homeSessionMenu}
+  <SessionContextMenu
+    x={homeSessionMenu.x}
+    y={homeSessionMenu.y}
+    tabId={homeSessionMenu.tabId}
+    onClose={() => (homeSessionMenu = null)}
+  />
+{/if}
+
 <style>
   .workspace-body {
     position: relative;
@@ -1024,6 +1045,12 @@
      specificity). */
   .workspace-body.page-flush .content-column {
     padding: 0;
+  }
+  /* On the home the composer is a card floating under a headline, not the floor
+     of a transcript — so it takes a prompt's measure rather than the reading
+     column's. The card already sizes itself off this var. */
+  .primary-column.home-measure {
+    --solus-reading-max: clamp(40rem, 50%, 52rem);
   }
   .conversation-card {
     background: var(--solus-container-bg);

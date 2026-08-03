@@ -81,6 +81,9 @@
     if (connectionTimer) clearTimeout(connectionTimer);
     connectionTimer = null;
 
+    // With no host paired, "disconnected" is the resting state — not an outage.
+    if (!webState.connectedServer) return;
+
     if (status === "blocked") {
       showBlockedToast();
       return;

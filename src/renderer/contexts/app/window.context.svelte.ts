@@ -47,8 +47,8 @@ export class WindowContext {
         this.workAreaHeight = window.innerHeight
       })
     })
-    window.solus.onWindowShown(() => { this.visible = true })
-    window.solus.onWindowHidden(() => { this.visible = false })
+    window.solusNative?.onWindowShown(() => { this.visible = true })
+    window.solusNative?.onWindowHidden(() => { this.visible = false })
 
     if (this.isWeb) {
       const mq = window.matchMedia(MOBILE_QUERY)

@@ -28,7 +28,8 @@ import type {
   GitProjectStatus,
   TurnSnapshot,
 } from '../../../../src/shared/git-types'
-import type { RpcInvokeMethod, RpcTopic } from '../../../../src/shared/rpc'
+import type { RpcInvokeMethod } from '../../../../src/shared/rpc'
+import type { HostEventMap, HostEventName } from '../../../../src/shared/host-events'
 import type { PersistedTabs } from '../../../../src/renderer/contexts/workspace/tab-persistence'
 
 export const DEMO_PROJECT = '/home/demo/acme'
@@ -96,5 +97,5 @@ export interface DemoServer {
     method: RpcInvokeMethod,
     fn: (args: unknown[]) => unknown | Promise<unknown>,
   ): void
-  broadcast(topic: RpcTopic, ...payload: unknown[]): void
+  broadcast<K extends HostEventName>(type: K, payload: HostEventMap[K]): void
 }

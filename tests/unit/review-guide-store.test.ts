@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { ReviewGuideStatusEvent } from '../../src/shared/review'
+import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -27,17 +28,14 @@ describe('ReviewGuideStore', () => {
       '../../src/renderer/components/review/review-guide.store.svelte'
     )
     const cached = status()
-    const api = {
-      onReviewGuideStatus: () => () => {},
-      reviewGuideStatus: async () => cached,
-    } as unknown as typeof window.solus
+    const api = { reviewGuideStatus: async () => cached } as unknown as typeof window.solus
     const identity = {
       repoRoot: '/repo',
       key: 'feature__reviews',
       headSha: 'head-a',
       revision: 'head-a|src/a.ts',
     }
-    const store = new ReviewGuideStore()
+    const store = new ReviewGuideStore(() => new HostEventSubscriber())
 
     await store.load(api, {} as never, identity, 'branch')
 
@@ -51,10 +49,8 @@ describe('ReviewGuideStore', () => {
     const { ReviewGuideStore } = await import(
       '../../src/renderer/components/review/review-guide.store.svelte'
     )
-    const store = new ReviewGuideStore()
-    const api = {
-      onReviewGuideStatus: () => () => {},
-    } as unknown as typeof window.solus
+    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const api = {} as typeof window.solus
 
     store.set(api, status())
 
@@ -72,13 +68,12 @@ describe('ReviewGuideStore', () => {
     )
     const resolvers = new Map<string, (event: ReviewGuideStatusEvent) => void>()
     const api = {
-      onReviewGuideStatus: () => () => {},
       reviewGuideStatus: (ctx: { request: string }) =>
         new Promise<ReviewGuideStatusEvent>((resolve) => {
           resolvers.set(ctx.request, resolve)
         }),
     } as unknown as typeof window.solus
-    const store = new ReviewGuideStore()
+    const store = new ReviewGuideStore(() => new HostEventSubscriber())
     const first = {
       repoRoot: '/repo',
       key: 'feature__reviews',
@@ -106,26 +101,24 @@ describe('ReviewGuideStore', () => {
     const { ReviewGuideStore } = await import(
       '../../src/renderer/components/review/review-guide.store.svelte'
     )
-    let listener: ((event: ReviewGuideStatusEvent) => void) | null = null
+    const events = new HostEventSubscriber()
     const queued = status({ status: 'queued' })
-    const api = {
-      onReviewGuideStatus: (callback: (event: ReviewGuideStatusEvent) => void) => {
-        listener = callback
-        return () => {}
-      },
-      requestReviewGuide: async () => queued,
-    } as unknown as typeof window.solus
+    const api = { requestReviewGuide: async () => queued } as unknown as typeof window.solus
     const identity = {
       repoRoot: '/repo',
       key: 'feature__reviews',
       revision: 'head-a|src/a.ts',
     }
-    const store = new ReviewGuideStore()
+    const store = new ReviewGuideStore(() => events)
 
     await store.generate(api, {} as never, identity, { scope: 'branch' })
     expect(store.statusFor(api, identity)?.status).toBe('queued')
 
-    listener?.(status({ status: 'ready', updatedAt: 2 }))
+    events.receive({
+      type: 'review.guideStatusChanged',
+      payload: status({ status: 'ready', updatedAt: 2 }),
+      occurredAt: 2,
+    })
     expect(store.statusFor(api, identity)?.status).toBe('ready')
   })
 })

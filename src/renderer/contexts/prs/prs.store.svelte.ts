@@ -14,6 +14,7 @@ import type { PrChecksSummary } from '../../../shared/checks-types'
 import type { PrGuideMetadata, PrGuideStatus } from '../../../shared/review'
 import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
 import { SvelteMap } from 'svelte/reactivity'
+import { serverConnections } from '@client-core/server-connections'
 
 const PR_CACHE_TTL_MS = 30_000
 export const PR_CACHE_MAX_ENTRIES = 64
@@ -477,7 +478,7 @@ export class PrsStore {
       if (document.visibilityState !== 'visible') return
       void this.refreshNeedsReview(getCtx()).catch(() => {})
     }
-    const unsubscribe = window.solus.onPrsChanged((cwd) => {
+    const unsubscribe = serverConnections.eventsFor().subscribe('prs.invalidated', ({ projectRoot: cwd }) => {
       if (cwd === this.contextKey(getCtx())) refresh()
     })
     const interval = window.setInterval(refresh, NEEDS_REVIEW_POLL_MS)
@@ -561,7 +562,7 @@ export class PrsStore {
   }
 
   subscribeGuideStatus(): () => void {
-    return window.solus.onPrGuideStatus((event) => {
+    return serverConnections.eventsFor().subscribe('pr.guideStatusChanged', (event) => {
       // Statuses are keyed by PR number only, so a request in another repo
       // resets the map rather than bleeding into this one's numbers.
       if (this.guideStatusRepoRoot !== event.repoRoot) {
@@ -597,7 +598,7 @@ export class PrsStore {
   }
 
   subscribeChecks(getCtx: () => IpcContext): () => void {
-    const unsubscribe = window.solus.onPrChecksUpdate((snapshot) => this.applyChecks(snapshot))
+    const unsubscribe = serverConnections.eventsFor().subscribe('pr.checksChanged', (snapshot) => this.applyChecks(snapshot))
     const reportActivity = () => this.reportChecksActivity(getCtx())
     window.addEventListener('focus', reportActivity)
     window.addEventListener('blur', reportActivity)

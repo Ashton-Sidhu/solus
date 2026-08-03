@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { SignOutIcon } from "phosphor-svelte";
+  import { PlugsIcon, SignOutIcon } from "phosphor-svelte";
   import EditorInputCard from "@renderer/components/input/EditorInputCard.svelte";
   import WorkspaceBody from "@renderer/components/layout/WorkspaceBody.svelte";
   import { connectionStatusLabel } from "@client-core/connection-display";
+  import { serverConnections } from "@client-core/server-connections";
   import { runtime } from "@renderer/contexts";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { webState } from "../lib/web-state.svelte";
@@ -20,6 +21,10 @@
       hasConnected: webState.hasConnected,
     }),
   );
+  // No host at all is a different problem from a host that dropped: there is
+  // nothing to reconnect to, so the chrome offers the fix instead of a status.
+  // A host only ever arrives by page reload, so this is settled at mount.
+  const noHost = !serverConnections.connectionFor();
   const showConnectionStatus = $derived(webState.connectionStatus !== "connected");
 </script>
 
@@ -37,7 +42,23 @@
         onAttachFile={() => onAttachFile()}
       >
         {#snippet trailingActions()}
-          {#if showConnectionStatus}
+          {#if noHost}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button
+                    {...tooltipProps}
+                    class="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-(--solus-surface-hover) px-2 text-[0.75rem] text-(--solus-text-tertiary) transition-[background-color,color] hover:bg-(--solus-accent-light) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+                    onclick={() => webState.openServerSetup()}
+                  >
+                    <PlugsIcon size={13} class="shrink-0" />
+                    <span>No host</span>
+                  </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value="Connect a host to start working" />
+            </TooltipUI.Root>
+          {:else if showConnectionStatus}
             <TooltipUI.Root>
               <TooltipUI.Trigger>
                 {#snippet child({ props: tooltipProps })}

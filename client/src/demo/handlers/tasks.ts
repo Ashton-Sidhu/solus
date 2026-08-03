@@ -15,30 +15,30 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
   backend.register('tasksUpdate', (args) => {
     const [cwd, id, patch] = args as [string, string, Partial<Task>]
     const task = store.updateTask(id, patch)
-    backend.broadcast('tasks-changed', cwd || DEMO_PROJECT)
+    backend.broadcast('tasks.invalidated', { projectRoot: cwd || DEMO_PROJECT })
     return task
   })
   backend.register('tasksCreate', (args) => {
     const [cwd, input] = args as [string, Partial<Task>]
     const task = store.createTask(input)
-    backend.broadcast('tasks-changed', cwd || DEMO_PROJECT)
+    backend.broadcast('tasks.invalidated', { projectRoot: cwd || DEMO_PROJECT })
     return task
   })
   backend.register('tasksComment', (args) => {
     const [cwd, id, body] = args as [string, string, string]
     const task = store.commentTask(id, body)
-    backend.broadcast('tasks-changed', cwd || DEMO_PROJECT)
+    backend.broadcast('tasks.invalidated', { projectRoot: cwd || DEMO_PROJECT })
     return task
   })
   backend.register('tasksDelete', (args) => {
     const [cwd, id] = args as [string, string]
     const deleted = store.deleteTask(id)
-    if (deleted) backend.broadcast('tasks-changed', cwd || DEMO_PROJECT)
+    if (deleted) backend.broadcast('tasks.invalidated', { projectRoot: cwd || DEMO_PROJECT })
     return deleted
   })
   backend.register('tasksLinkSession', (args) => {
     const [cwd, taskId, sessionId] = args as [string, string, string]
     store.linkTaskSession(taskId, sessionId)
-    backend.broadcast('tasks-changed', cwd || DEMO_PROJECT)
+    backend.broadcast('tasks.invalidated', { projectRoot: cwd || DEMO_PROJECT })
   })
 }

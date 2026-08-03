@@ -18,7 +18,7 @@ function showCta(): void {
 
 function streamReply(backend: DemoBackend, tabId: string): void {
   const broadcast = (event: NormalizedEvent): void => {
-    backend.broadcast('normalized-event', tabId, event)
+    backend.broadcast('session.eventReceived', { tabId, event })
   }
 
   broadcast({ type: 'status_change', status: 'running', oldStatus: 'connecting' })

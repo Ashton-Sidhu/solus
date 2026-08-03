@@ -48,7 +48,7 @@ export class AutomationsStore {
     else this.items[i] = a
   }
 
-  /** Apply a pushed `automations-changed` event from main. This is how the UI
+  /** Apply a pushed `automation.changed` event from the host. This is how the UI
    *  learns about background activity (scheduler fires, run transitions, agent
    *  tool saves) without polling; RPC-initiated mutations also echo here, which
    *  the upsert absorbs idempotently. */

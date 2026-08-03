@@ -5,7 +5,8 @@ import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } f
 import { createSolusConnection, savedServerTarget } from '@client-core/server-connection'
 import { serverConnections } from '@client-core/server-connections'
 import { setConnectionState, subscribe } from '@client-core/connection-state'
-import { getActiveServerId, loadServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
+import { clearActiveServerId, getActiveServerId, loadServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@client-core/server-registry'
+import { createNoHostSolusApi } from '@client-core/no-host-api'
 import { defaultDeviceLabel, pairServer } from '@client-core/pairing'
 import { pairTokenFromLocation } from './lib/connect'
 import { setTabPersistenceServerInstallationId } from '@renderer/contexts/workspace/tab-persistence'
@@ -18,6 +19,11 @@ import WebToast from './components/WebToast.svelte'
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
 })
+
+window.addEventListener('solus:open-server-connect', () => webState.openServerSetup())
+
+/** One-shot boot flag: land in the host chooser instead of auto-connecting. */
+const CHOOSE_HOST_KEY = 'solus.chooseHostOnBoot'
 
 const root = document.getElementById('root')!
 mount(WebToast, { target: root })
@@ -57,7 +63,13 @@ function installServiceWorkerMessageBridge(): void {
 
 function installLogoutListener(): void {
   if (logoutListener) document.removeEventListener('solus:logout', logoutListener)
-  logoutListener = () => showConnectFlow()
+  logoutListener = () => {
+    clearActiveServerId()
+    // One-shot: without it the single-saved-server fallback below reconnects
+    // to the host the user just left (or to a credential that was rejected).
+    sessionStorage.setItem(CHOOSE_HOST_KEY, '1')
+    location.reload()
+  }
   document.addEventListener('solus:logout', logoutListener, { once: true })
 }
 
@@ -142,6 +154,27 @@ async function connectToServer(server: SavedServer): Promise<void> {
   }
 }
 
+async function bootWithoutServer(): Promise<void> {
+  const generation = ++connectionGeneration
+  toasts.dismiss()
+  window.solus = createNoHostSolusApi()
+  webState.setConnectedServer(null)
+  setConnectionState({ status: 'disconnected', attempt: 0 })
+  router.navigateToChat()
+
+  try {
+    const { default: App } = await loadWorkspaceApp()
+    if (generation !== connectionGeneration) return
+    if (connectFlowApp) { unmount(connectFlowApp); connectFlowApp = null }
+    solusApp = mount(App, { target: root })
+    installLogoutListener()
+    webState.openServerSetup()
+  } catch (error) {
+    if (generation !== connectionGeneration) return
+    toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
+  }
+}
+
 function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
   try {
     const activeServerId = getActiveServerId()
@@ -180,6 +213,8 @@ const bootPairToken = pairTokenFromLocation(location.href)
 const servers = loadServers()
 const activeServer = resolveActiveSavedServer(servers)
 const hash = location.hash
+const chooseHostRequested = sessionStorage.getItem(CHOOSE_HOST_KEY) === '1'
+sessionStorage.removeItem(CHOOSE_HOST_KEY)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)
@@ -190,6 +225,10 @@ if (bootPairToken) {
   showConnectFlow({ initialAddress: location.origin })
 } else if (hash.startsWith('#/connect')) {
   showConnectFlow()
+} else if (chooseHostRequested) {
+  // "Switch server" landed here on purpose — offer the host chooser instead of
+  // auto-reconnecting to whatever single host happens to be saved.
+  void bootWithoutServer()
 } else if (activeServer) {
   void connectToServer(activeServer)
 } else if (servers.length === 1) {
@@ -198,5 +237,5 @@ if (bootPairToken) {
   // Dev server is at our origin; connect directly — no pairing needed since requireAuth defaults to false.
   void connectToServer({ id: 'local', url: window.location.origin, sessionToken: '', label: 'Local browser', lastConnected: Date.now() })
 } else {
-  showConnectFlow()
+  void bootWithoutServer()
 }

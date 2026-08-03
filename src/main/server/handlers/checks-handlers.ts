@@ -2,6 +2,7 @@ import type { PrChecksSnapshot } from '../../../shared/checks-rpc-types'
 import type { PrChecksSummary } from '../../../shared/checks-types'
 import type { IpcContext } from '../../../shared/types'
 import { createLogger } from '../../logger'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 import type { Provider, RepoRef } from '../../providers/types'
 import { reviewTargetFor } from './provider-handlers'
 import type { HandlerCtx, SolusServer } from '../server'
@@ -109,6 +110,7 @@ async function refreshCache(
 }
 
 interface ChecksHandlersDeps {
+  events: HostEventPublisher
   resolveReviewTarget?: typeof reviewTargetFor
 }
 
@@ -121,7 +123,7 @@ export interface ChecksHandlersLifecycle {
 
 export function registerChecksHandlers(
   server: SolusServer,
-  deps: ChecksHandlersDeps = {},
+  deps: ChecksHandlersDeps,
 ): ChecksHandlersLifecycle {
   const resolveReviewTarget = deps.resolveReviewTarget ?? reviewTargetFor
   const activities = new Map<string, ClientChecksActivity>()
@@ -161,7 +163,10 @@ export function registerChecksHandlers(
     const cache = caches.get(key)
     if (!cache) return
     await refreshCache(cache)
-    server.broadcast('pr-checks-update', snapshot(cache))
+    const recipientClientIds = [...activities]
+      .filter(([, activity]) => activity.repoKey === key)
+      .map(([clientId]) => clientId)
+    deps.events.publish(recipientClientIds, 'pr.checksChanged', snapshot(cache))
     schedule(key)
   }
 

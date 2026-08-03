@@ -1,5 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionMeta, SessionStatus } from '../../../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
+import type { HostEventSubscriber } from '@client-core/host-event-subscriber'
 
 type SolusApi = typeof window.solus
 
@@ -7,7 +9,7 @@ type SolusApi = typeof window.solus
  * Live status + indexed metadata for agents shown in conversation cards.
  *
  * These agents have no bound tab, so their state can't come from the tab registry —
- * it rides the global `session-status-changed` topic, with `getSessionInfo`
+ * it rides the host's `session.statusChanged` event, with `getSessionInfo`
  * hydration for the slower facts (slug title, model, cwd) and re-hydration when
  * the session index names a tracked agent. An agent lives on whichever server its
  * caller's tab is bound to, so each agent is tracked against that tab's api and
@@ -21,14 +23,19 @@ class AgentConversationStatusStore {
   private hydrationGeneration = new Map<string, number>()
   private subscribedApis = new WeakSet<object>()
 
+  constructor(
+    private readonly eventsForApi: (api: SolusApi) => HostEventSubscriber = (api) => serverConnections.eventsForApi(api),
+  ) {}
+
   private subscribe(api: SolusApi): void {
     if (this.subscribedApis.has(api)) return
     this.subscribedApis.add(api)
-    api.onSessionStatusChanged?.((event) => {
+    const events = this.eventsForApi(api)
+    events.subscribe('session.statusChanged', (event) => {
       // Only tracked agents, so the maps stay bounded by agents actually shown.
       if (this.apiByAgent.has(event.sessionId)) this.statuses.set(event.sessionId, event.status)
     })
-    api.onSessionIndexUpdated?.((event) => {
+    events.subscribe('session.indexChanged', (event) => {
       for (const sessionId of event.sessionIds ?? []) {
         if (this.apiByAgent.has(sessionId)) void this.hydrate(sessionId)
       }

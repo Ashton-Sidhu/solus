@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FloppyDiskIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { FloppyDiskIcon, LockSimpleIcon, WarningCircleIcon } from "phosphor-svelte";
   import Icon from "@iconify/svelte";
   import type { IpcContext } from "../../../shared/types";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -49,12 +49,14 @@
   let displayPath = $state("");
   let contents = $state<string | null>(null);
   let size = $state<number | null>(null);
+  let isReadOnly = $state(false);
   let saveState = $state<FileSaveState>("idle");
   let loadGeneration = 0;
   const headerPath = $derived(displayPath || file.path);
   const headerIcon = $derived(fileTypeIcon(headerPath));
 
   const statusLabel = $derived.by(() => {
+    if (isReadOnly) return "Read only";
     if (saveState === "dirty") return "Unsaved";
     if (saveState === "saving") return "Saving...";
     if (saveState === "saved") return "Saved";
@@ -81,6 +83,7 @@
     fileError = null;
     contents = null;
     size = null;
+    isReadOnly = false;
     saveState = "idle";
 
     const result = await workspace.apiFor(ctx.session.tabId).readProjectFile(ctx, { path, cwd });
@@ -90,6 +93,7 @@
       displayPath = result.displayPath;
       contents = result.contents;
       size = result.size;
+      isReadOnly = result.isReadOnly;
     } else {
       filePath = path;
       displayPath = path;
@@ -130,7 +134,11 @@
     </div>
     {#if statusLabel}
       <div class="flex shrink-0 items-center gap-1 text-[0.625rem] font-medium {statusClass}" role="status">
-        <FloppyDiskIcon size={11} class="shrink-0" />
+        {#if isReadOnly}
+          <LockSimpleIcon size={11} class="shrink-0" />
+        {:else}
+          <FloppyDiskIcon size={11} class="shrink-0" />
+        {/if}
         <span class="tabular-nums">{statusLabel}</span>
       </div>
     {/if}
@@ -165,6 +173,7 @@
       {contents}
       line={file.line}
       {isDark}
+      {isReadOnly}
       onSaveStateChange={(state) => {
         saveState = state;
       }}

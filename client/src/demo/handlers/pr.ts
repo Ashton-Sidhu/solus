@@ -24,18 +24,18 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   backend.register('prReplyThread', (args) => {
     const [ctx, , threadId, body] = args as [IpcContext, number, string, string]
     const comment = store.replyToPrThread(threadId, body)
-    backend.broadcast('prs-changed', projectCwd(ctx))
+    backend.broadcast('prs.invalidated', { projectRoot: projectCwd(ctx) })
     return comment
   })
   backend.register('prResolveThread', (args) => {
     const [ctx, , threadId] = args as [IpcContext, number, string]
     store.setPrThreadResolved(threadId, true)
-    backend.broadcast('prs-changed', projectCwd(ctx))
+    backend.broadcast('prs.invalidated', { projectRoot: projectCwd(ctx) })
   })
   backend.register('prUnresolveThread', (args) => {
     const [ctx, , threadId] = args as [IpcContext, number, string]
     store.setPrThreadResolved(threadId, false)
-    backend.broadcast('prs-changed', projectCwd(ctx))
+    backend.broadcast('prs.invalidated', { projectRoot: projectCwd(ctx) })
   })
   backend.register('prSubmitReview', (args) => {
     const [, , review] = args as [IpcContext, number, DraftReview]

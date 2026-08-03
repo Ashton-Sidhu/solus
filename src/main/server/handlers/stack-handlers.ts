@@ -10,8 +10,9 @@ import { resolveRepoRoot } from '../../git/git-helpers'
 import type { Provider, RepoRef } from '../../providers/types'
 import { reviewTargetFor } from './provider-handlers'
 import type { SolusServer } from '../server'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 
-export function registerStackHandlers(server: SolusServer): void {
+export function registerStackHandlers(server: SolusServer, events: HostEventPublisher): void {
   server.register('stackGet', async (args) => {
     const [ctx] = args as [IpcContext]
     const repoRoot = await repoRootFor(ctx)
@@ -26,7 +27,7 @@ export function registerStackHandlers(server: SolusServer): void {
     }
     const { repoRoot, repo, provider } = await detectionTargetFor(ctx)
     const graph = await detectStackGraph({ repoRoot, repo, provider })
-    server.broadcast('stack-graph-update', repoRoot, graph)
+    events.broadcast('stack.graphChanged', { repoRoot, graph })
     return { repoRoot, graph }
   })
 
@@ -39,7 +40,7 @@ export function registerStackHandlers(server: SolusServer): void {
       graph = await detectStackGraph({ repoRoot, repo, provider })
     }
     graph = await addManualStackEdge(repoRoot, parent, child)
-    server.broadcast('stack-graph-update', repoRoot, graph)
+    events.broadcast('stack.graphChanged', { repoRoot, graph })
     return graph
   })
 
@@ -50,7 +51,7 @@ export function registerStackHandlers(server: SolusServer): void {
     await removeManualStackEdge(repoRoot, parent, child)
     // Removing intent immediately exposes any still-live inferred relationship.
     const graph = await detectStackGraph({ repoRoot, repo, provider })
-    server.broadcast('stack-graph-update', repoRoot, graph)
+    events.broadcast('stack.graphChanged', { repoRoot, graph })
     return graph
   })
 }

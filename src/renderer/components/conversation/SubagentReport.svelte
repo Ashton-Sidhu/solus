@@ -82,7 +82,12 @@
             class="mb-1 block text-[0.59375rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
             >Dispatch brief · from you</span
           >
-          <span class="block truncate text-[0.8125rem] font-medium">{briefTitle}</span>
+          <!-- The title is the brief's own first line, so it is a stand-in for
+               the prompt, not a heading over it: once the prompt is open it
+               would print the same sentence twice. -->
+          {#if !briefOpen}
+            <span class="block truncate text-[0.8125rem] font-medium">{briefTitle}</span>
+          {/if}
           {#if meta.length > 0}
             <span
               class="mt-[0.1875rem] flex items-center gap-[0.4375rem] text-[0.71875rem] text-(--muted-foreground)"
@@ -95,18 +100,30 @@
           {/if}
         </span>
         <span
-          class="mt-[0.875rem] flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-[0.65625rem] font-medium text-(--muted-foreground)"
+          class="flex shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] py-0.5 pr-2 pl-1.5 text-[0.65625rem] font-medium text-(--muted-foreground) {briefOpen
+            ? ''
+            : 'mt-[0.875rem]'}"
         >
           <LockIcon size={9} aria-hidden="true" />
           {writesClause(message)}
         </span>
       </button>
       {#if briefOpen}
-        <p
-          class="m-0 pt-1 pr-[0.8125rem] pb-3 pl-[2.4375rem] text-[0.8125rem] leading-relaxed whitespace-pre-wrap text-(--muted-foreground)"
+        <!-- The prompt is markdown — the main agent wrote it that way, and its
+             asks are a numbered list, not eight lines that happen to start with
+             digits. Rendered, not printed, so the emphasis and the list read as
+             what they are rather than as asterisks. `.prose-transcript` is
+             unlayered, so a `text-*` utility here never lands: step the variable
+             its own rule reads instead. -->
+        <div
+          class="prose-cloud prose-transcript min-w-0 pt-1 pr-[0.8125rem] pb-3 pl-[2.4375rem] [--solus-text-primary:var(--muted-foreground)]"
         >
-          {brief}
-        </p>
+          <SvelteMarkdown
+            source={brief}
+            renderers={markdownRenderers}
+            sanitizeUrl={markdownSanitizeUrl}
+          />
+        </div>
       {/if}
     </div>
   {/if}
@@ -161,8 +178,11 @@
             ? 'pt-4'
             : 'mt-2 pt-6'}"
         >
+          <!-- The kicker stays a kicker, but on the secondary step rather than
+               the tertiary one: at this size a label the reader scans for can't
+               also be the faintest thing on the tab. -->
           <div
-            class="mb-1.5 text-[0.59375rem] font-medium tracking-[0.12em] text-(--muted-foreground) uppercase opacity-70"
+            class="mb-1.5 text-[0.59375rem] font-medium tracking-[0.12em] text-(--solus-text-secondary) uppercase"
           >
             {section.heading}
           </div>

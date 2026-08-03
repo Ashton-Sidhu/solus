@@ -58,6 +58,7 @@
     displayPath: string;
     contents: string;
     isDark: boolean;
+    isReadOnly?: boolean;
     line?: number;
     onSaveStateChange?: (state: FileSaveState) => void;
   }
@@ -70,6 +71,7 @@
     displayPath,
     contents,
     isDark,
+    isReadOnly = false,
     line,
     onSaveStateChange,
   }: Props = $props();
@@ -113,6 +115,7 @@
 
   useScope("file-editor");
   useKeybinding("file-editor.save", () => {
+    if (isReadOnly) return;
     void flushSave();
   });
 
@@ -390,6 +393,7 @@
   }
 
   async function flushSave() {
+    if (isReadOnly) return;
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
@@ -419,6 +423,7 @@
   }
 
   function scheduleSave(nextContents: string) {
+    if (isReadOnly) return;
     latestContents = nextContents;
     setSaveState("dirty");
     if (saveTimer) clearTimeout(saveTimer);
@@ -461,16 +466,18 @@
           containerWrapper: rootEl,
           lineAnnotations: buildAnnotations(),
         });
-        editor = new Editor<AnnotationMeta>({
-          onChange: (file, annotations) => {
-            scheduleSave(file.contents);
-            applyRemappedAnnotations(
-              file.contents,
-              annotations as LineAnnotation<AnnotationMeta>[] | undefined,
-            );
-          },
-        });
-        detachEditor = editor.edit(fileInstance);
+        if (!isReadOnly) {
+          editor = new Editor<AnnotationMeta>({
+            onChange: (file, annotations) => {
+              scheduleSave(file.contents);
+              applyRemappedAnnotations(
+                file.contents,
+                annotations as LineAnnotation<AnnotationMeta>[] | undefined,
+              );
+            },
+          });
+          detachEditor = editor.edit(fileInstance);
+        }
         syncContainerBackground();
         revealLinkedLine();
       });

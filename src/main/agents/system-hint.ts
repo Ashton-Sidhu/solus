@@ -34,9 +34,6 @@ function preamble(agent: 'claude' | 'codex', subagent: boolean): string {
     '- Use code blocks with language tags for syntax highlighting.',
     '- Images render too, so embed them when they help: find real URLs via WebSearch/WebFetch and render with ![alt](url).',
     '  Never guess or construct an image URL — if you cannot find a real one, link to the page instead and say so briefly.',
-    // A subagent has no user to approve a plan, so entering plan mode would only
-    // strand it there — it reports its plan as its final text instead.
-    ...(subagent ? [] : ['', 'When coming up with a plan, switch to plan mode.']),
   ].join('\n')
 }
 

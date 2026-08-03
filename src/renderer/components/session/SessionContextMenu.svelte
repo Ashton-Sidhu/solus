@@ -1,9 +1,12 @@
 <script lang="ts">
   import {
+    CheckIcon,
     GitForkIcon,
     TreeStructureIcon,
     ChatsIcon,
     CopyIcon,
+    PencilSimpleIcon,
+    StopCircleIcon,
     XIcon,
   } from "phosphor-svelte";
   import { getWorkspaceContext, toasts } from "../../contexts";
@@ -23,6 +26,17 @@
     showSplit?: boolean;
     /** Override for "Open in split" — pinned sessions resume before splitting. */
     onOpenInSplit?: () => void;
+    /** Override for "Rename" — the sidebar edits its row in place instead of
+     *  opening the dialog every other surface uses. */
+    onStartRename?: () => void;
+    /** What the sidebar's rows moved off themselves and into this menu. Omitted
+     *  everywhere else: a pill-mode tab has no user-set "done". */
+    rowActions?: {
+      /** Present only while something in the row is still working. */
+      onStop?: () => void;
+      done?: boolean;
+      onToggleDone?: () => void;
+    } | null;
     onClose: () => void;
   }
 
@@ -33,6 +47,8 @@
     sessionId = null,
     showSplit = false,
     onOpenInSplit,
+    onStartRename,
+    rowActions = null,
     onClose,
   }: Props = $props();
 
@@ -89,6 +105,14 @@
     requestInputFocus();
   }
 
+  function startRename() {
+    const targetTabId = tabId;
+    const startInPlace = onStartRename;
+    onClose();
+    if (startInPlace) startInPlace();
+    else if (targetTabId) session.ui.sessionRename = { tabId: targetTabId };
+  }
+
   function openInSplit() {
     const targetTabId = tabId;
     const openTargetInSplit = onOpenInSplit;
@@ -117,6 +141,35 @@
 >
   <ContextMenu.PointTrigger {x} {y} />
   <ContextMenu.Content class="min-w-44">
+    <!-- Stopping a run and ticking a task off are the two things the sidebar's
+         rows used to spend a button on each. They live here now: one is
+         destructive, the other is the user's own verdict, and neither is worth
+         four glyphs appearing under the cursor. -->
+    {#if rowActions?.onStop}
+      <ContextMenu.Item
+        onSelect={() => {
+          onClose();
+          rowActions?.onStop?.();
+        }}
+      >
+        <StopCircleIcon />
+        Stop Run
+      </ContextMenu.Item>
+    {/if}
+    {#if rowActions?.onToggleDone}
+      <ContextMenu.Item
+        onSelect={() => {
+          onClose();
+          rowActions?.onToggleDone?.();
+        }}
+      >
+        <CheckIcon />
+        {rowActions.done ? "Mark Not Done" : "Mark Done"}
+      </ContextMenu.Item>
+    {/if}
+    {#if rowActions?.onStop || rowActions?.onToggleDone}
+      <ContextMenu.Separator />
+    {/if}
     {#if sess?.agentSessionId}
       <ContextMenu.Item onSelect={fork}>
         <GitForkIcon />
@@ -133,6 +186,12 @@
         </ContextMenu.Item>
       {/if}
       <ContextMenu.Separator />
+    {/if}
+    {#if tabId}
+      <ContextMenu.Item onSelect={startRename}>
+        <PencilSimpleIcon />
+        Rename
+      </ContextMenu.Item>
     {/if}
     {#if copyableSessionId}
       <ContextMenu.Item onSelect={copySessionId}>

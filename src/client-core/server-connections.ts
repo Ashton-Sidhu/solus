@@ -2,6 +2,7 @@ import type { SolusAPI } from '../preload'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import { loadServers, LOCAL_SERVER_ID } from './server-registry'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
+import type { HostEventSubscriber } from './host-event-subscriber'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -18,6 +19,7 @@ export interface ManagedConnection {
   target: SolusServerTarget
   transport: WsTransport
   api: SolusAPI
+  events: HostEventSubscriber
   status: ConnectionStatus
   attempt: number
 }
@@ -69,6 +71,7 @@ export class ServerConnections {
       target: resolvedTarget,
       transport,
       api,
+      events: transport.events,
       status: existing?.status ?? 'disconnected',
       attempt: existing?.attempt ?? 0,
     }
@@ -102,7 +105,7 @@ export class ServerConnections {
     if (existing) return existing
 
     const target = this.resolveTarget(serverId)
-    const { api, transport } = createSolusConnection(target, {
+    const { api, transport, events } = createSolusConnection(target, {
       onStatusChange: (status, attempt) => this.updateStatus(serverId, status, attempt),
       refreshLocalSessionToken: this.localTokenRefreshers.get(serverId),
     })
@@ -111,6 +114,7 @@ export class ServerConnections {
       target,
       transport,
       api,
+      events,
       status: 'disconnected',
       attempt: 0,
     }
@@ -124,6 +128,19 @@ export class ServerConnections {
     const resolvedId = serverId ?? this.primaryServerId
     if (!resolvedId) throw new Error('Primary Solus connection has not been registered')
     return this.ensure(resolvedId).api
+  }
+
+  eventsFor(serverId?: string): HostEventSubscriber {
+    const resolvedId = serverId ?? this.primaryServerId
+    if (!resolvedId) throw new Error('Primary Solus connection has not been registered')
+    return this.ensure(resolvedId).events
+  }
+
+  eventsForApi(api: SolusAPI): HostEventSubscriber {
+    for (const connection of this.connections.values()) {
+      if (connection.api === api) return connection.events
+    }
+    throw new Error('Solus API is not owned by a registered server connection')
   }
 
   /**

@@ -247,11 +247,11 @@ export async function rejectPlan(ctx: WorkspaceContext, planId: string, comment?
 
   const inlineComments = plan.comments
   if (comment || inlineComments.length > 0) {
-    ctx.setPermissionMode('plan')
+    ctx.setPermissionMode('plan', tabId)
     const parts: string[] = []
     if (comment) parts.push(comment)
     if (inlineComments.length > 0) parts.push(`Inline comments:\n${formatInlineComments(inlineComments)}`)
-    ctx.sendMessage(`Please revise the plan with these comments:\n\n${parts.join('\n\n')}`)
+    ctx.sendMessage(`Please revise the plan with these comments:\n\n${parts.join('\n\n')}`, undefined, tabId)
   }
 
   requestConversationScrollToBottom(tabId)

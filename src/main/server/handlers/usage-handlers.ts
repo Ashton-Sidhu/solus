@@ -2,6 +2,7 @@ import type { AgentId, AgentUsageLimits } from '../../../shared/types'
 import type { ControlPlane } from '../../control-plane'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 
 const log = createLogger('main', 'usage-handlers')
 
@@ -12,7 +13,7 @@ const REFRESH_MS = 5 * 60_000
  *  next `usageLimits` call starts it again. */
 const IDLE_TIMEOUT_MS = 15 * 60_000
 
-export function registerUsageHandlers(server: SolusServer, deps: { controlPlane: ControlPlane }): void {
+export function registerUsageHandlers(server: SolusServer, deps: { controlPlane: ControlPlane; events: HostEventPublisher }): void {
   const cache = new Map<AgentId, AgentUsageLimits>()
   let timer: ReturnType<typeof setTimeout> | null = null
   let refresh: Promise<void> | null = null
@@ -62,7 +63,7 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
       return
     }
     await refreshAll()
-    server.broadcast('usage-limits-update', snapshot())
+    deps.events.broadcast('usage.limitsChanged', { snapshots: snapshot() })
     schedule()
   }
 
@@ -70,7 +71,7 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
     lastRequestAt = Date.now()
     if (Date.now() - lastAttemptAt >= REFRESH_MS) {
       const pending = refreshAll()
-        .then(() => server.broadcast('usage-limits-update', snapshot()))
+        .then(() => deps.events.broadcast('usage.limitsChanged', { snapshots: snapshot() }))
         .catch((err) => log.warn('usage_broadcast_failed', {
           error: err instanceof Error ? err.message : String(err),
         }))

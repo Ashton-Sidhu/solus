@@ -1,5 +1,5 @@
 import { createContext } from 'svelte'
-import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
+import type { AgentId, NormalizedEvent, EnrichedError, Message, Tab, InputState, Session, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '../../../shared/types'
 import type { PullRequestSummary } from '../../../shared/providers'
 import type { Via } from '../../../shared/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
@@ -34,6 +34,7 @@ import { type AgentContext } from '../app/agent.context.svelte'
 import { type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 import { makeSession, makeTab, makeInputState } from './session.factories'
 import { removeDraft } from './tab-persistence'
+import { applySessionTitleChange } from './session-title-change'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
@@ -182,7 +183,10 @@ export class WorkspaceContext {
       onGoalDefined: (tabId) => this.revealGoal(tabId),
       applyGoalUpdated: (tabId, goal) => this.goalSync.applyUpdated(tabId, goal),
       applyGoalCleared: (tabId, threadId) => this.goalSync.applyCleared(tabId, threadId),
-      onSessionInitialized: (tabId) => { void this.definePendingGoal(tabId) },
+      onSessionInitialized: (tabId) => {
+        void this.definePendingGoal(tabId)
+        void this.autoNameSession(tabId)
+      },
       handlePendingInputSync: (session, events) => syncPendingInputFromEvent(this, session, events),
       log: (tab, eventType, session) => logDevSessionState(tab, eventType, session),
     })
@@ -578,6 +582,77 @@ export class WorkspaceContext {
         `Couldn't create goal: ${error instanceof Error ? error.message : String(error)}`,
         tabId,
       )
+    }
+  }
+
+  /** Tabs whose auto-name has been attempted. Both providers can re-emit
+   *  session_init for a live session (Claude does it when a background task
+   *  resumes the parent), and naming is a paid round trip — once per tab. */
+  private autoNamedTabs = new Set<string>()
+
+  applySessionTitleChanged(
+    serverId: string,
+    event: SessionTitleChangedEvent,
+  ): void {
+    for (const tabId of applySessionTitleChange(this, serverId, event)) {
+      this.autoNamedTabs.add(tabId)
+    }
+  }
+
+  /**
+   * Name a thread from the prompt that opened it, once its agent session id
+   * exists to persist against. Silent on failure: the prompt-derived title the
+   * tab already shows is a fine fallback.
+   */
+  private async autoNameSession(tabId: string): Promise<void> {
+    const tab = this.tabs[tabId]
+    const session = this.sessionFor(tabId)
+    const agentSessionId = session?.agentSessionId
+    if (!tab || !session || !agentSessionId) return
+    if (this.autoNamedTabs.has(tabId)) return
+
+    if (tab.titleCustom) {
+      // A name typed into a tab before its session existed had nowhere to
+      // persist — this is the first moment there's a session id to hang it on.
+      this.autoNamedTabs.add(tabId)
+      await this.apiFor(tabId).setSessionTitle(agentSessionId, tab.title).catch(() => {})
+      return
+    }
+    if (!this.settings.autoRenameSessions) return
+
+    // Only the opening turn names a thread — a later init is a resume, and a
+    // resumed thread either has a name already or was deliberately left unnamed.
+    const userMessages = session.messages.filter((message) => message.role === 'user' && message.content)
+    if (userMessages.length !== 1) return
+    this.autoNamedTabs.add(tabId)
+
+    const title = await this.apiFor(tabId)
+      .generateSessionTitle(userMessages[0].content, session.workingDirectory)
+      .catch(() => null)
+    if (!title) return
+
+    // The tab may have been closed, reset, renamed by hand, or resumed into a
+    // different session while the naming round trip was in flight.
+    const currentTab = this.tabs[tabId]
+    if (!currentTab || currentTab.titleCustom) return
+    if (this.sessionFor(tabId)?.agentSessionId !== agentSessionId) return
+    currentTab.title = title
+    await this.apiFor(tabId).setSessionTitle(agentSessionId, title).catch(() => {})
+  }
+
+  /** Rename a tab's session by hand. An empty name clears back to the derived title. */
+  async renameTab(tabId: string, title: string): Promise<void> {
+    const tab = this.tabs[tabId]
+    if (!tab) return
+    const trimmed = title.trim()
+    const session = this.sessionFor(tabId)
+    // 'New Tab' is what sessionTitle() reads as "unnamed", so clearing a name
+    // there falls the display back to the session's first prompt.
+    tab.title = trimmed || 'New Tab'
+    tab.titleCustom = !!trimmed
+    this.autoNamedTabs.add(tabId)
+    if (session?.agentSessionId) {
+      await this.apiFor(tabId).setSessionTitle(session.agentSessionId, trimmed || null)
     }
   }
 
@@ -991,6 +1066,7 @@ export class WorkspaceContext {
       this.planStore.plans,
     ).flatMap((section) => section.tabIds)
     const adjacentDisplayedTabId = adjacentTabAfterClose(visualTabIds, tabId)
+    const closedTabIndex = this.tabOrder.indexOf(tabId)
     const newOrder = this.tabOrder.filter((id) => id !== tabId)
     delete this.tabs[tabId]
     // Purge the closed tab's persisted input draft so the drafts map can't grow
@@ -1019,7 +1095,9 @@ export class WorkspaceContext {
         this.setActiveTab(adjacentDisplayedTabId ?? fallbackTabId)
       }
     }
-    this.tabOrder = newOrder
+    // Preserve the reactive array identity so closing one tab only invalidates the
+    // removed index instead of rebuilding every tab-strip item.
+    if (closedTabIndex !== -1) this.tabOrder.splice(closedTabIndex, 1)
     track('tab_closed', { via })
   }
 
@@ -1048,7 +1126,11 @@ export class WorkspaceContext {
     session.worktreeBaseBranch = session.gitContext?.worktreePath ? null : session.worktreeBaseBranch
     // Reset tab title
     const tab = this.tabs[targetTabId]
-    if (tab) tab.title = 'New Tab'
+    if (tab) {
+      tab.title = 'New Tab'
+      tab.titleCustom = false
+    }
+    this.autoNamedTabs.delete(targetTabId)
     this.clearStreamingText(targetTabId)
     if (session.workingDirectory && !session.gitContext) {
       void this.environment.refreshTab(this, { tabId: targetTabId })
@@ -1113,6 +1195,7 @@ export class WorkspaceContext {
       session.readOnlyReason = null
       session.loadingHistory = true
       tab.title = title
+      tab.titleCustom = !!meta.customTitle
       if (shouldActivate) {
         if (!background) this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
@@ -1130,6 +1213,7 @@ export class WorkspaceContext {
       session.gitContext = null
       session.loadingHistory = true
       targetTab!.title = title
+      targetTab!.titleCustom = !!meta.customTitle
 
       if (!background && !intoTabId) {
         this.setActiveTab(targetTab!.id)
@@ -1366,6 +1450,16 @@ export class WorkspaceContext {
     if (session.status === 'connecting') return
     if (session.readOnlyReason) return
 
+    if (
+      window.solus.getPlatform() === 'web'
+      && !serverConnections.connectionFor()
+      && !session.pendingHostDispatch
+    ) {
+      window.dispatchEvent(new CustomEvent('solus:open-server-connect'))
+      toasts.info('Connect a host to start working')
+      return
+    }
+
     if (session.pendingHostDispatch) {
       session.status = 'connecting'
       void this.prepareHostDispatchAndSend(targetTabId, prompt, projectPath, delivery)
@@ -1396,7 +1490,7 @@ export class WorkspaceContext {
     const workRefs = input.workRefs.length > 0 ? [...input.workRefs] : undefined
     const sessionRefs = input.sessionRefs.length > 0 ? [...input.sessionRefs] : undefined
 
-    const title = session.messages.length === 0
+    const title = session.messages.length === 0 && !tab.titleCustom
       ? (prompt.length > 80 ? prompt.substring(0, 80) : prompt)
       : tab.title
 

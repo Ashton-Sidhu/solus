@@ -209,6 +209,7 @@ function _materializeTabs(
       tab = makeTab(session.id, {
         id: snapTab.tabId,
         title: snapTab.title || 'New Tab',
+        titleCustom: snapTab.titleCustom ?? false,
         input: makeInputState({ text: draftText }),
       })
       tab.hasUnread = snapTab.hasUnread ?? false

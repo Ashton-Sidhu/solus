@@ -1,5 +1,6 @@
 import type { AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '../../../shared/types'
 import { TransportDisconnectedError } from '@client-core/ws-transport'
+import { serverConnections } from '@client-core/server-connections'
 
 export interface PairToken {
   token: string
@@ -178,7 +179,7 @@ export class ConnectionsStore {
   listenForProviderDeviceCodes(): () => void {
     this.deviceCodeSubscribers++
     if (!this.deviceCodeUnsubscribe) {
-      this.deviceCodeUnsubscribe = window.solus.onProviderDeviceCode((prompt) => {
+      this.deviceCodeUnsubscribe = serverConnections.eventsFor().subscribe('provider.deviceCodeReceived', (prompt) => {
         this.providerPrompt = prompt
       })
     }

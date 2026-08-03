@@ -52,8 +52,9 @@
     side === "right" ? "--solus-sidebar-bg-right" : "--solus-sidebar-bg-left",
   );
   const panelBg = $derived(background ?? `var(${panelColorVar})`);
-  // Horizontal space the shell's gutter steals from the root — flush panels
-  // have none, so the root spans the pane edge to edge.
+  // Horizontal space the shell's gutter steals from a fixed-width root. A
+  // managed root uses 100% because percentages already resolve against the
+  // shell's content box; subtracting this again would double its right inset.
   const gutter = $derived(flush ? 0 : 8);
   const windowCtx = getWindowContext();
 </script>
@@ -66,7 +67,7 @@
   style:--panel-min-width="{minWidth}px"
   style:--panel-max-width="{maxWidth}px"
   style:--panel-root-width={managedWidth
-    ? `calc(100% - ${gutter}px)`
+    ? "100%"
     : width
       ? `${width - gutter}px`
       : undefined}
@@ -97,6 +98,11 @@
           windowCtx.viewMode === 'editor' &&
           side === 'left'
             ? 'side-panel-header--mac-left'
+            : ''} {windowCtx.isMac &&
+          windowCtx.viewMode === 'editor' &&
+          side === 'left' &&
+          !title
+            ? 'side-panel-header--untitled'
             : ''}"
         >
           {#if title}
@@ -208,6 +214,12 @@
     grid-template-rows: var(--solus-titlebar-height, 2.375rem) auto;
     align-items: center;
     padding: 0 0.75rem 0.75rem 1rem;
+  }
+
+  /* An untitled sidebar has no second-row label to clear. Keep its action in
+     the traffic-light row, but do not reserve the otherwise empty lower pad. */
+  :global(.side-panel-header--mac-left.side-panel-header--untitled) {
+    padding-bottom: 0;
   }
 
   :global(.side-panel-header--mac-left .side-panel-title) {

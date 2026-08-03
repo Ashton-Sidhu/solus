@@ -1,4 +1,5 @@
 import type { AgentDispatcher } from './agent-runner'
+import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
 import { isWorkspacePath } from '../workspace'
 import type { AgentId, ReasoningEffort } from '../../shared/types'
@@ -18,6 +19,11 @@ export interface TextGenerationOptions {
   abortSignal?: AbortSignal
   timeoutMs?: number
   maxTurns?: number
+  /** Capture tools for structured answers — the caller reads the arguments the
+   *  model submits rather than scraping its prose. */
+  tools?: AgentTool[]
+  /** Background runs must never park on an interaction no surface can answer. */
+  unattended?: boolean
 }
 
 export class TextGenerator {
@@ -34,7 +40,8 @@ export class TextGenerator {
       provider: options.provider,
       prompt: options.prompt,
       cwd: options.cwd,
-      tools: [],
+      tools: options.tools ?? [],
+      unattended: options.unattended,
       model: options.model,
       reasoningEffort: options.disableReasoning ? 'none' : reasoningEffort,
       permissionMode: options.provider === 'codex' ? 'plan' : 'auto',

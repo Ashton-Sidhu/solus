@@ -1,6 +1,8 @@
 import { createContext } from 'svelte'
 import { worktreeProjectRoot, type RunLogBatch, type RunLogLine, type RunProjectStatus, type RunStatus } from '../../../shared/types'
 import { MAX_RENDERER_RUN_LOG_LINES, mergeRunLogBackfill } from './lib/run-log-buffer'
+import { serverConnections } from '@client-core/server-connections'
+import type { HostEventSubscriber } from '@client-core/host-event-subscriber'
 
 export class RunStore {
   /** repoRoot -> commandId -> status */
@@ -10,6 +12,12 @@ export class RunStore {
   private repoRootByCwd = $state<Record<string, string>>({})
   private logConsumers = new Map<string, { count: number; generation: number; unsubscribe: () => void }>()
   private nextLogConsumerGeneration = 1
+
+  constructor(
+    private readonly events: () => HostEventSubscriber = () => serverConnections.eventsFor(),
+    private readonly onConnectionReset: (listener: () => void) => () => void = (listener) =>
+      serverConnections.connectionFor()?.transport.onReset(listener) ?? (() => {}),
+  ) {}
 
   apply(status: RunStatus): void {
     let byId = this.projects[status.repoRoot]
@@ -90,13 +98,19 @@ export class RunStore {
   }
 
   /** Seed from the backend ring buffer once, covering lines produced before we subscribed. */
-  async backfillLogs(cwd: string, commandId: string, consumerKey?: string, generation?: number): Promise<void> {
+  async backfillLogs(
+    cwd: string,
+    commandId: string,
+    consumerKey?: string,
+    generation?: number,
+    force = false,
+  ): Promise<void> {
     if (!cwd || cwd === '~') return
     const repoRoot = this.repoRootByCwd[cwd]
     if (!repoRoot) return
     const existing = this.logsByCommand[repoRoot]?.[commandId]
-    if (existing && existing.length > 0) return
-    const lines = await window.solus.runLogs(cwd, commandId)
+    if (!force && existing && existing.length > 0) return
+    const retained = await window.solus.runLogsRetain(cwd, commandId)
     if (consumerKey) {
       const consumer = this.logConsumers.get(consumerKey)
       if (!consumer || consumer.generation !== generation) return
@@ -104,7 +118,7 @@ export class RunStore {
     // Merge rather than replacing: a stream delta may have arrived while the
     // snapshot RPC was in flight.
     const buf = this.ensureBuffer(repoRoot, commandId)
-    const merged = mergeRunLogBackfill(lines, buf, MAX_RENDERER_RUN_LOG_LINES)
+    const merged = mergeRunLogBackfill(retained.lines, buf, MAX_RENDERER_RUN_LOG_LINES)
     buf.splice(0, buf.length, ...merged)
   }
 
@@ -119,9 +133,17 @@ export class RunStore {
       existing.count += 1
     } else {
       const generation = this.nextLogConsumerGeneration++
-      const unsubscribe = window.solus.onRunLog((batch) => {
+      const unsubscribeEvent = this.events().subscribe('run.logAppended', (batch) => {
         if (batch.repoRoot === repoRoot && batch.commandId === commandId) this.applyLog(batch)
       })
+      const unsubscribeReset = this.onConnectionReset(() => {
+        this.clearLogsForRoot(repoRoot, commandId)
+        void this.backfillLogs(cwd, commandId, key, generation, true)
+      })
+      const unsubscribe = () => {
+        unsubscribeEvent()
+        unsubscribeReset()
+      }
       this.logConsumers.set(key, { count: 1, generation, unsubscribe })
       void this.backfillLogs(cwd, commandId, key, generation)
     }
@@ -134,6 +156,7 @@ export class RunStore {
       consumer.unsubscribe()
       this.logConsumers.delete(key)
       this.clearLogsForRoot(repoRoot, commandId)
+      void window.solus.runLogsRelease(repoRoot, commandId)
     }
   }
 

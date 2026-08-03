@@ -114,6 +114,7 @@
     { id: "ratelimit", keywords: ["rate", "limit", "behavior", "queue", "throttle"] },
     { id: "projects-base", keywords: ["project", "projects", "folder", "directory", "base", "start", "open", "picker", "path"] },
     { id: "worktree", keywords: ["git", "worktree", "branch", "isolate", "session"] },
+    { id: "auto-rename", keywords: ["rename", "name", "title", "session", "tab", "auto", "summarize"] },
     { id: "analytics", keywords: ["analytics", "telemetry", "tracking", "privacy", "data"] },
   ];
 
@@ -365,7 +366,7 @@
 
 <SettingsSection
   label="Workspace"
-  visible={["projects-base", "worktree"].some(isVisible)}
+  visible={["projects-base", "worktree", "auto-rename"].some(isVisible)}
 >
   <SettingsRow
     label="Projects folder"
@@ -416,6 +417,21 @@
         }}
         size="default"
         aria-label="Toggle default worktree mode"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Name sessions automatically"
+    description="Summarize the first prompt into a short session name."
+    visible={isVisible("auto-rename")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.autoRenameSessions}
+        onCheckedChange={(next) => theme.update({ autoRenameSessions: next })}
+        size="default"
+        aria-label="Toggle automatic session naming"
       />
     {/snippet}
   </SettingsRow>

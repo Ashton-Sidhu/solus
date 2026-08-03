@@ -1,4 +1,5 @@
 import type { AgentId, IpcContext, SessionMeta } from '../../../shared/types'
+import { serverConnections } from '@client-core/server-connections'
 import {
   SessionHistoryLoader,
   sortedDedupedHistorySessions,
@@ -17,7 +18,7 @@ interface SessionHistoryStoreLoadOptions {
 function defaultHistoryLoaderOptions(): SessionHistoryLoaderOptions {
   return {
     listSessions: window.solus.listSessions,
-    onSessionScan: window.solus.onSessionScan,
+    onSessionScan: (listener) => serverConnections.eventsFor().subscribe('session.scanProgressed', listener),
   }
 }
 

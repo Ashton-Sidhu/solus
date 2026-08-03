@@ -1,22 +1,26 @@
 import type { ControlPlane } from '../../control-plane'
-import type { AgentId, IpcContext, PlanAnnotations, SessionMeta, SessionScanEvent } from '../../../shared/types'
+import type { AgentId, IpcContext, PlanAnnotations, SessionMeta, SessionScanEvent, SessionTitleChangedEvent } from '../../../shared/types'
 import type { SearchSessionsRequest } from '../../../shared/rpc'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
-import { searchIndexedSessions } from '../../db/session-indexer'
+import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
+import { renamePinnedSession } from '../../sessions/pinned-sessions'
+import { generateSessionTitle } from '../../sessions/session-title'
 import { takeSessionScanBatch } from '../session-scan'
+import type { HostEventPublisher } from '../../events/host-event-publisher'
 
 const log = createLogger('main', 'history-handlers')
 
 export interface HistoryDeps {
   controlPlane: ControlPlane
+  events: HostEventPublisher
   agentIdFromContext(ctx?: IpcContext): AgentId
 }
 
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
-  const { controlPlane, agentIdFromContext } = deps
+  const { controlPlane, events, agentIdFromContext } = deps
 
   server.register('listSessions', async (args, handlerCtx) => {
     const [projectPath, , , streamId, requestedLimit] = args as [string | undefined, unknown, unknown, string | undefined, number | undefined]
@@ -33,7 +37,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         if (batchBuffer.length === 0) return
         const sessions = takeSessionScanBatch(batchBuffer, BATCH_SIZE)
         if (handlerCtx.clientId) {
-          server.sendTo(handlerCtx.clientId, 'session-scan', { streamId: streamId!, type: 'batch', sessions } satisfies SessionScanEvent)
+          events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId: streamId!, type: 'batch', sessions } satisfies SessionScanEvent)
         }
         flushScheduled = false
       }
@@ -53,7 +57,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       if (streamId) {
         while (batchBuffer.length > 0) flushBatch()
         if (handlerCtx.clientId) {
-          server.sendTo(handlerCtx.clientId, 'session-scan', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
+          events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
         }
       }
       log.metric('list_sessions', Date.now() - t0, { count: sessions.length })
@@ -62,7 +66,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       log.error('list_sessions_failed', { error: String(err), projectPath, streamId })
       if (streamId) {
         if (handlerCtx.clientId) {
-          server.sendTo(handlerCtx.clientId, 'session-scan', { streamId, type: 'done', totalSessions: 0 } satisfies SessionScanEvent)
+          events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'done', totalSessions: 0 } satisfies SessionScanEvent)
         }
       }
       return []
@@ -137,6 +141,27 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       log.error('get_session_info_failed', { error: String(err), sessionId })
       return null
     }
+  })
+
+  server.register('generateSessionTitle', (args) => {
+    const [promptText, cwd] = args as [string, string]
+    return generateSessionTitle(controlPlane, promptText, cwd)
+  })
+
+  server.register('setSessionTitle', (args) => {
+    const [sessionId, title] = args as [string, string | null]
+    const trimmed = title?.trim()
+    const customTitle = trimmed || null
+    setSessionCustomTitle(sessionId, customTitle)
+    // A pin carries its own label, so it has to be told: the custom name when
+    // there is one, otherwise back to what the session derives its title from.
+    const pinLabel = trimmed || getIndexedSession(sessionId)?.firstMessage?.replace(/\s+/g, ' ').slice(0, 80)
+    if (pinLabel) renamePinnedSession(sessionId, pinLabel)
+    events.broadcast('session.titleChanged', {
+      sessionId,
+      title: customTitle,
+    } satisfies SessionTitleChangedEvent)
+    log.info('session_renamed', { sessionId, cleared: !trimmed })
   })
 
   server.register('listPlans', async (args) => {

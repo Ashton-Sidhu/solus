@@ -15,23 +15,23 @@ import { fileURLToPath } from 'url'
 const RESOURCES = join(dirname(fileURLToPath(import.meta.url)), '..', 'resources')
 const ICONSET = join(RESOURCES, 'icon.iconset')
 
-// macOS Big Sur+ icon grid: an 824pt body centred on a 1024pt canvas. The
+// macOS Big Sur+ icon grid: a 742pt body centred on a 1024pt canvas. The
 // surrounding padding is what makes the icon sit at the same visual weight as
 // native apps in the Dock — without it the artwork reads oversized.
 const SIZE = 1024
 const CENTER = SIZE / 2
-const BODY_HALF = 824 / 2
+const BODY_HALF = 742 / 2
 
 // The mark is favicon.svg verbatim — a solid core inside three broken arcs,
 // authored on a 32pt grid. Drawing it in its own coordinates and scaling the
 // whole group keeps this file and the favicon a single design, not two drifting
 // copies. The scale is derived per slot from the arc's outer edge so a heavier
 // small-size stroke thickens inward instead of growing the mark's footprint,
-// which stays at 556pt — about two-thirds of the 824pt body.
+// which stays at 500pt — about two-thirds of the 742pt body.
 const FAVICON_GRID = 32
 const ARC_R = 11
 const ARC_STROKE = 2.2
-const MARK_HALF = 278 // outer half-extent of the mark on the 1024pt canvas
+const MARK_HALF = 250 // outer half-extent of the mark on the 1024pt canvas
 
 // Surface: the white badge behind the Codex mark in the input-bar model picker.
 const SURFACE = '#ffffff'

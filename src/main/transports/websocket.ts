@@ -2,8 +2,7 @@ import { randomBytes } from 'crypto'
 import type { Server as HttpServer } from 'http'
 import { Server, type Socket } from 'socket.io'
 import type { SolusServer } from '../server/server'
-import { RPC_TOPICS } from '../../shared/rpc'
-import type { RpcTopic } from '../../shared/rpc'
+import type { ClientEventRegistry } from '../events/client-event-registry'
 import { verifySessionToken } from '../server/auth'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
@@ -43,9 +42,13 @@ export function attachWebSocketTransport(
   http: HttpServer,
   server: SolusServer,
   opts: {
+    clientEvents: ClientEventRegistry
     requireAuth?: boolean | (() => boolean)
     responseBudget?: ResponseReceiptBudget
-  } = {},
+    onClientConnected?: (client: { clientId: string; deviceId: string | null }) => void
+    onClientDisconnected?: (client: { clientId: string; deviceId: string | null }) => void
+    onClientExpired?: (client: { clientId: string; deviceId: string | null }) => void
+  },
 ): { close: () => void; sessions: Map<string, ClientSession> } {
   const requireAuth = () => typeof opts.requireAuth === 'function' ? opts.requireAuth() : (opts.requireAuth ?? true)
   const io = new Server(http, {
@@ -74,11 +77,8 @@ export function attachWebSocketTransport(
   const responseCaches = new Map<string, ResponseReceiptCache<WsResponse>>()
   const responseBudget = opts.responseBudget ?? new ResponseReceiptBudget()
   const clientSocketCounts = new Map<string, number>()
-  const directUnsubs = new Map<string, () => void>()
+  const eventUnregisters = new Map<string, () => void>()
   const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  const topicUnsubs = RPC_TOPICS.map((topic) =>
-    server.subscribe(topic, (payload) => io.emit('ev', topic, payload)),
-  )
   let closing = false
 
   io.use((socket, next) => {
@@ -116,16 +116,16 @@ export function attachWebSocketTransport(
 
     const previousCount = clientSocketCounts.get(clientId) ?? 0
     clientSocketCounts.set(clientId, previousCount + 1)
-    if (previousCount === 0 && !directUnsubs.has(clientId)) {
-      directUnsubs.set(clientId, server.registerDirectClient(clientId, (topic, payload) => {
-        io.to(room).emit('ev', topic, payload)
+    if (previousCount === 0 && !eventUnregisters.has(clientId)) {
+      eventUnregisters.set(clientId, opts.clientEvents.register(clientId, (event) => {
+        io.to(room).emit('host-event', event)
       }))
     }
 
     const id = randomBytes(8).toString('hex')
     const session: ClientSession = { id, clientId, socket, deviceId, deviceLabel, connectedAt: Date.now() }
     sessions.set(id, session)
-    server.broadcast('presence', { type: 'connect', id, clientId, deviceLabel, deviceId })
+    opts.onClientConnected?.({ clientId, deviceId })
     socket.emit('hello')
 
     socket.on('rpc', async (id: unknown, method: unknown, args: unknown, ack: unknown) => {
@@ -146,14 +146,15 @@ export function attachWebSocketTransport(
       else clientSocketCounts.delete(clientId)
 
       if (!closing && remaining === 0) {
-        server.broadcast('presence', { type: 'disconnect', id, clientId, deviceId })
+        opts.onClientDisconnected?.({ clientId, deviceId })
         const timer = setTimeout(() => {
           cleanupTimers.delete(clientId)
           if ((clientSocketCounts.get(clientId) ?? 0) > 0) return
-          directUnsubs.get(clientId)?.()
-          directUnsubs.delete(clientId)
+          eventUnregisters.get(clientId)?.()
+          eventUnregisters.delete(clientId)
           responseCaches.get(clientId)?.close()
           responseCaches.delete(clientId)
+          opts.onClientExpired?.({ clientId, deviceId })
         }, STREAM_TTL_MS)
         ;(timer as unknown as { unref?: () => void }).unref?.()
         cleanupTimers.set(clientId, timer)
@@ -176,9 +177,8 @@ export function attachWebSocketTransport(
       closing = true
       for (const timer of cleanupTimers.values()) clearTimeout(timer)
       cleanupTimers.clear()
-      for (const unsubscribe of topicUnsubs) unsubscribe()
-      for (const unsubscribe of directUnsubs.values()) unsubscribe()
-      directUnsubs.clear()
+      for (const unregister of eventUnregisters.values()) unregister()
+      eventUnregisters.clear()
       for (const cache of responseCaches.values()) cache.close()
       responseCaches.clear()
       clientSocketCounts.clear()

@@ -67,6 +67,8 @@ function readStorageWithMigration(base: string): string | null {
 export interface PersistedTab {
   tabId: string
   title: string
+  /** Missing in legacy snapshots — an unnamed tab is free to be auto-named. */
+  titleCustom?: boolean
   /** Saved-server registry id used for routing. Missing in legacy snapshots means local. */
   serverId?: string
   /** Stable server identity used to recover from a changed registry id after re-pairing. */

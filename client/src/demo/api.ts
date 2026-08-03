@@ -1,8 +1,5 @@
 import { RPC_INVOKE_METHODS } from '../../../src/shared/rpc'
-import type { RpcTopic } from '../../../src/shared/rpc'
 import type { DemoBackend } from './server'
-
-type Listener = (...payload: unknown[]) => void
 
 export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
   const api: Record<string, unknown> = {
@@ -20,39 +17,6 @@ export function createDemoSolusApi(backend: DemoBackend): Window['solus'] {
   api.transcribeAudio = async () => ''
   api.attachFiles = async () => null
   api.uploadFiles = async () => null
-
-  const on = (topic: RpcTopic) => (callback: Listener) => backend.subscribe(topic, callback)
-  api.onEvent = on('normalized-event')
-  api.onError = on('enriched-error')
-  api.onSkillStatus = on('skill-status')
-  api.onThemeChange = on('theme-changed')
-  api.onEnterDesignMode = on('enter-design-mode')
-  api.onWindowShown = on('window-shown')
-  api.onWindowHidden = on('window-hidden')
-  api.onSessionScan = on('session-scan')
-  api.onSessionIndexUpdated = on('session-index-updated')
-  api.onReviewProgress = on('review-progress')
-  api.onReviewGuideStatus = on('review-guide-status')
-  api.onRunStatus = on('run-status')
-  api.onRunLog = on('run-log')
-  api.onVoiceModelStatus = on('voice-model-status')
-  api.onSetupStatus = on('setup-status')
-  api.onSetupLog = on('setup-log')
-  api.onAutomationsChanged = on('automations-changed')
-  api.onProviderDeviceCode = on('provider-device-code')
-  api.onTasksChanged = on('tasks-changed')
-  api.onPrsChanged = on('prs-changed')
-  api.onAnnotationsChanged = on('annotations-changed')
-  api.onAttentionChanged = on('attention-changed')
-  api.onUsageLimits = on('usage-limits-update')
-
-  let resetRuntimeCallback: (() => void) | null = null
-  api.onResetRuntime = (callback: () => void) => {
-    resetRuntimeCallback = callback
-    return () => {
-      if (resetRuntimeCallback === callback) resetRuntimeCallback = null
-    }
-  }
 
   return api as unknown as Window['solus']
 }
