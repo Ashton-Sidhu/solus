@@ -272,7 +272,12 @@ export function serializeDiagram(doc: DiagramDoc): string {
 }
 
 export function summarizeDiagram(doc: DiagramDoc): string {
-  const n = doc.nodes.length
+  // Groups are containers, not diagram content — they count as clusters, and
+  // only when the diagram has any, so an ungrouped diagram reads as before.
+  const clusters = doc.nodes.filter((node) => node.group).length
+  const n = doc.nodes.length - clusters
   const e = doc.edges.length
-  return `${n} ${n === 1 ? 'node' : 'nodes'} · ${e} ${e === 1 ? 'connection' : 'connections'}`
+  const summary = `${n} ${n === 1 ? 'node' : 'nodes'} · ${e} ${e === 1 ? 'connection' : 'connections'}`
+  if (!clusters) return summary
+  return `${summary} · ${clusters} ${clusters === 1 ? 'cluster' : 'clusters'}`
 }

@@ -1176,9 +1176,6 @@ button.solus-token {
   font-size: calc(1.0625rem * var(--solus-font-scale, 1)); margin: 1em 0 0.3em; line-height: 1.35;
   border-bottom: none; padding-bottom: 0;
 }
-.doc-prompt-editor .solus-doc-editor .ProseMirror h3 {
-  font-size: calc(0.9375rem * var(--solus-font-scale, 1)); margin: 0.85em 0 0.25em; line-height: 1.4;
-}
 .solus-doc-editor .ProseMirror > * + * {
   margin-top: 0.5em;
 }
@@ -1817,6 +1814,42 @@ button.solus-token {
     line-height: 1.7;
     padding-top: 1.25rem;
   }
+}
+
+/* Workspace peek — the document itself, shrunk to the preview column. It joins
+   the doc shell rather than the base editor precisely so it inherits the face
+   that makes a document look like a document: Lora on h1/h2, the hanging mono
+   numerals, the ink ladder, the whitespace rhythm. Everything below is the two
+   size variables plus the page furniture; the type scale follows on its own,
+   which is what those variables are for.
+
+   Placed after the responsive ladder and qualified on the root so neither the
+   `@container doc-shell` steps nor the phone `@media` rule can outrank it. */
+.doc-shell-root.doc-peek .doc-shell-column {
+  --solus-doc-size: calc(0.78125rem * var(--solus-font-scale, 1));
+  /* A 19rem column *is* the measure — there is nothing to hold it in. */
+  --solus-doc-measure: 100%;
+  /* Just clear of the text, the way the narrow-pane step pulls them in. */
+  --solus-doc-gutter: 1.5rem;
+}
+.doc-shell-root.doc-peek .solus-doc-editor .ProseMirror {
+  --doc-pad-x: 0rem;
+  /* Only the left gutter survives, and only because the numerals hang in it. */
+  padding: 0 0 0 var(--solus-doc-gutter);
+  min-height: 0;
+  /* Rendered markdown, not a ProseMirror doc: the whitespace between blocks is
+     real text under pre-wrap and would print as blank lines. */
+  white-space: normal;
+  cursor: default;
+}
+/* The ledger row's title is already the pane's headline, so the document's own
+   H1 would print it twice. Hiding it leaves the lead paragraph to open the
+   preview — which is the rule immediately below it in the shell. */
+.doc-shell-root.doc-peek .solus-doc-editor .ProseMirror > h1:first-child {
+  display: none;
+}
+.doc-shell-root.doc-peek .solus-doc-editor .ProseMirror > h1:first-child + * {
+  margin-top: 0;
 }
 
 /* ─── Annotation marks ─────────────────────────────────────────────────────

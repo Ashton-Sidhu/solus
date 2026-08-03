@@ -72,7 +72,7 @@
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       panes.openFilePreview(detail, sourceTabId);
       session.settingsOpen = false;
-      session.plansGalleryOpen = false;
+      session.workspacePageOpen = false;
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);

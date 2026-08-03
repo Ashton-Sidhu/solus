@@ -26,8 +26,7 @@
     prs: () => import('../prs/PrsPage.svelte'),
     'review-mode': () => import('../review-mode/ReviewModeHost.svelte'),
     settings: () => import('../settings/SettingsPage.svelte'),
-    'plans-gallery': () => import('../plan/PlanGallery.svelte'),
-    'folio-gallery': () => import('../artifact/FolioGallery.svelte'),
+    workspace: () => import('../workspace/WorkspacePage.svelte'),
     'automations-list': () => import('../automations/AutomationsPage.svelte'),
   }
 

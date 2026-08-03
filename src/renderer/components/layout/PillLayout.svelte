@@ -48,7 +48,7 @@
   const pillMargin = $derived(clamp(windowCtx.workAreaHeight * 0.025, 16, 48));
   const isExpanded = $derived(session.isExpanded);
   const isEditorMode = $derived(windowCtx.viewMode === "editor");
-  const noTabs = $derived(session.tabOrder.length === 0 && !session.plansGalleryOpen && !session.folioGalleryOpen && !session.settingsOpen);
+  const noTabs = $derived(session.tabOrder.length === 0 && !session.workspacePageOpen && !session.settingsOpen);
   const pillPlanModal = $derived.by(() => {
     const planId = session.panes.activePlanId;
     const plan = planId ? planStore.get(planId) : planStore.previewPlan;
@@ -78,13 +78,12 @@
   // App's full-window async fallback—has mounted and can receive input.
   onMount(() => window.solusNative.rendererReady("pill"));
 
-  // Galleries own their enter/exit behavior and retain local filters between
-  // opens. Mount each on first use, then leave it alive; the module import and
+  // The workspace page owns its enter/exit behavior and retains filters between
+  // opens. Mount on first use, then leave it alive; the module import and
   // component tree are both absent from a typical conversation-only launch.
-  const mountedGalleries = new SvelteSet<"plans" | "folio">();
+  let hasMountedWorkspace = $state(false);
   $effect(() => {
-    if (session.plansGalleryOpen) mountedGalleries.add("plans");
-    if (session.folioGalleryOpen) mountedGalleries.add("folio");
+    if (session.workspacePageOpen) hasMountedWorkspace = true;
   });
 
   // Lazy-mount the pill conversation pool. Only create a tab's ConversationView
@@ -123,7 +122,7 @@
       session.sessionPickerOpen = next;
       if (next) {
         session.isExpanded = true;
-        session.plansGalleryOpen = false;
+        session.workspacePageOpen = false;
       }
     };
     window.addEventListener("solus:toggle-session-picker", handler);
@@ -188,20 +187,12 @@
             {/await}
           </div>
         {:else}
-          {#if mountedGalleries.has("plans")}
-            {#await import("../plan/PlanGallery.svelte")}
-              {@render loadingSurface("Loading plans…")}
-            {:then planGalleryModule}
-              {@const PlanGallery = planGalleryModule.default}
-              <PlanGallery />
-            {/await}
-          {/if}
-          {#if mountedGalleries.has("folio")}
-            {#await import("../artifact/FolioGallery.svelte")}
-              {@render loadingSurface("Loading works…")}
-            {:then folioGalleryModule}
-              {@const FolioGallery = folioGalleryModule.default}
-              <FolioGallery />
+          {#if hasMountedWorkspace}
+            {#await import("../workspace/WorkspacePage.svelte")}
+              {@render loadingSurface("Loading workspace…")}
+            {:then workspaceModule}
+              {@const WorkspacePage = workspaceModule.default}
+              <WorkspacePage />
             {/await}
           {/if}
           {#if session.automationsOpen}
@@ -234,7 +225,7 @@
               {/await}
             </div>
           {/if}
-          {#if !session.plansGalleryOpen && !session.folioGalleryOpen && !session.automationsOpen && !session.tasksOpen && !session.prsOpen}
+          {#if !session.workspacePageOpen && !session.automationsOpen && !session.tasksOpen && !session.prsOpen}
             {#if pickerOpen}
               <div
                 class="flex flex-col"

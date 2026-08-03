@@ -1,9 +1,8 @@
 <script lang="ts">
   import {
     PlusIcon,
+    BooksIcon,
     GearIcon,
-    ArticleIcon,
-    FileTextIcon,
     ClockIcon,
     XIcon,
     PushPinIcon,
@@ -226,8 +225,7 @@
         <Icon size={18} /><span>{label}</span>
       </button>
     {/snippet}
-    {@render footBtn("Plans", ArticleIcon, () => session.togglePlansGallery())}
-    {@render footBtn("Folio", FileTextIcon, () => session.toggleFolioGallery())}
+    {@render footBtn("Workspace", BooksIcon, () => session.toggleWorkspacePage())}
     {@render footBtn("History", ClockIcon, () => window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")))}
     {@render footBtn("Settings", GearIcon, () => session.showSettings())}
   </footer>

@@ -6,7 +6,6 @@
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
   // so it cannot sit behind one itself.
   import DocumentModalSkeleton from "@renderer/components/document-modal/DocumentModalSkeleton.svelte";
-  import { SvelteSet } from "svelte/reactivity";
   import { getPlanStore, getWorkspaceContext, runtime } from "@renderer/contexts";
   import WebMobileLayout from "./WebMobileLayout.svelte";
   import WebDesktopLayout from "./WebDesktopLayout.svelte";
@@ -129,8 +128,7 @@
     editorFile = null;
   }
   registerBackOverlay("settings", () => isMobile && session.settingsOpen, () => session.closeSettings());
-  registerBackOverlay("plans-gallery", () => isMobile && session.plansGalleryOpen, () => (session.plansGalleryOpen = false));
-  registerBackOverlay("folio-gallery", () => isMobile && session.folioGalleryOpen, () => (session.folioGalleryOpen = false));
+  registerBackOverlay("workspace", () => isMobile && session.workspacePageOpen, () => (session.workspacePageOpen = false));
   registerBackOverlay("work-modal", () => isMobile && !!activeWork, () => session.closeWorkModal());
   registerBackOverlay("diff-panel", () => isMobile && diffPanelOpen, closeDiffPanel);
 
@@ -141,12 +139,11 @@
     else hasMountedDesktop = true;
   });
 
-  // Galleries retain filters and scroll state between opens. Keep each tree
-  // alive after first use without loading either module on a chat-only launch.
-  const mountedGalleries = new SvelteSet<"plans" | "folio">();
+  // The workspace page retains filters and scroll state between opens. Keep the
+  // tree alive after first use without loading the module on a chat-only launch.
+  let hasMountedWorkspace = $state(false);
   $effect(() => {
-    if (session.plansGalleryOpen) mountedGalleries.add("plans");
-    if (session.folioGalleryOpen) mountedGalleries.add("folio");
+    if (session.workspacePageOpen) hasMountedWorkspace = true;
   });
 
   let prevActiveTabId: string | undefined;
@@ -222,7 +219,7 @@
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
       session.settingsOpen = false;
-      session.plansGalleryOpen = false;
+      session.workspacePageOpen = false;
       if (!isMobile) {
         panes.openFilePreview(detail, sourceTabId);
         return;
@@ -257,8 +254,8 @@
     }
   });
 
-  function togglePlans() {
-    session.togglePlansGallery();
+  function toggleWorkspace() {
+    session.toggleWorkspacePage();
   }
 
   function toggleDiff() {
@@ -299,30 +296,20 @@
       </div>
     {/await}
   {:else}
-    {#if mountedGalleries.has("plans")}
-      {#await import("@renderer/components/plan/PlanGallery.svelte")}
-        {@render loadingSurface("Loading plans…")}
-      {:then planGalleryModule}
-        {@const PlanGallery = planGalleryModule.default}
-        <!-- The gallery stays mounted and gates itself on open; the wrapper
+    {#if hasMountedWorkspace}
+      {#await import("@renderer/components/workspace/WorkspacePage.svelte")}
+        {@render loadingSurface("Loading workspace…")}
+      {:then workspaceModule}
+        {@const WorkspacePage = workspaceModule.default}
+        <!-- The page stays mounted and gates itself on open; the wrapper
              collapses to display:none so it never splits the flex column, and
              re-adding the class replays the entrance on every open. -->
-        <div class="min-h-0 flex-col {session.plansGalleryOpen ? 'mobile-surface flex flex-1' : 'hidden'}">
-          <PlanGallery />
+        <div class="min-h-0 flex-col {session.workspacePageOpen ? 'mobile-surface flex flex-1' : 'hidden'}">
+          <WorkspacePage />
         </div>
       {/await}
     {/if}
-    {#if mountedGalleries.has("folio")}
-      {#await import("@renderer/components/artifact/FolioGallery.svelte")}
-        {@render loadingSurface("Loading works…")}
-      {:then folioGalleryModule}
-        {@const FolioGallery = folioGalleryModule.default}
-        <div class="min-h-0 flex-col {session.folioGalleryOpen ? 'mobile-surface flex flex-1' : 'hidden'}">
-          <FolioGallery />
-        </div>
-      {/await}
-    {/if}
-    {#if !session.plansGalleryOpen && !session.folioGalleryOpen}
+    {#if !session.workspacePageOpen}
       {#if activeWork}
         {#await import("@renderer/components/document-modal/DocumentModal.svelte")}
           <!-- No workId on mobile, so no comment margin to reserve. -->
@@ -353,7 +340,7 @@
         {/await}
       {:else}
         <div class="flex min-h-0 flex-1 flex-col">
-          {#if session.tabOrder.length === 0 && !session.plansGalleryOpen}
+          {#if session.tabOrder.length === 0 && !session.workspacePageOpen}
             <NewTabHome />
           {/if}
           {#each session.tabOrder as tId (tId)}
@@ -432,9 +419,9 @@
       {diffPanelOpen}
       canShowDiffPanel={canShowSidePanel}
       changedFilesCount={changedFiles.length}
-      onTogglePlans={() => {
+      onToggleWorkspace={() => {
         if (session.settingsOpen) session.closeSettings();
-        togglePlans();
+        toggleWorkspace();
       }}
       onToggleDiff={() => {
         if (session.settingsOpen) session.closeSettings();

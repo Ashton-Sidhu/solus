@@ -1,10 +1,9 @@
 <script lang="ts">
   import {
     PaperclipIcon,
-    ArticleIcon,
+    BooksIcon,
     GitDiffIcon,
     GearIcon,
-    FileTextIcon,
     FolderOpenIcon,
     ArrowsClockwiseIcon,
     GitCommitIcon,
@@ -36,7 +35,7 @@
     open: boolean;
     onClose: () => void;
     onAttachFile: () => void;
-    onTogglePlans: () => void;
+    onToggleWorkspace: () => void;
     onToggleDiff: () => void;
     canShowDiffPanel: boolean;
     diffPanelOpen: boolean;
@@ -47,7 +46,7 @@
     open,
     onClose,
     onAttachFile,
-    onTogglePlans,
+    onToggleWorkspace,
     onToggleDiff,
     canShowDiffPanel,
     diffPanelOpen,
@@ -247,9 +246,9 @@
           <span class={heroLabel}>Project</span>
         </button>
 
-        <button class={heroCard} onclick={() => handleAction(() => session.toggleFolioGallery())}>
-          <span class={heroIcon}><FileTextIcon size={22} /></span>
-          <span class={heroLabel}>Folio</span>
+        <button class={heroCard} onclick={() => handleAction(onToggleWorkspace)}>
+          <span class={heroIcon}><BooksIcon size={22} /></span>
+          <span class={heroLabel}>Workspace</span>
         </button>
         <div class={rowDivider}></div>
         <WebPushBell variant="row" />
@@ -280,12 +279,6 @@
           {#if changedFilesCount > 0}
             <span class="shrink-0 min-w-[1.125rem] h-[1.125rem] px-1.5 rounded-[0.5625rem] bg-(--solus-accent) text-(--solus-text-on-accent) text-[0.6875rem] font-semibold flex items-center justify-center leading-none tabular-nums">{changedFilesCount}</span>
           {/if}
-          <CaretRightIcon size={16} class={chevronClass} />
-        </button>
-        <div class={rowDivider}></div>
-        <button class={listRow} onclick={() => handleAction(onTogglePlans)}>
-          <span class={listIcon}><ArticleIcon size={18} /></span>
-          <span class={listLabel}>Plans</span>
           <CaretRightIcon size={16} class={chevronClass} />
         </button>
         <div class={rowDivider}></div>

@@ -24,8 +24,7 @@ export const KEYBINDINGS = {
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' },        scope: 'global',             label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
   'global.toggle-project-panel': { combo: { alt: true, code: 'KeyM' },                   scope: 'global',             label: 'Toggle project panel',     group: 'View' },
-  'global.toggle-plans':         { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open plans gallery',       group: 'View' },
-  'global.toggle-folio':      { combo: { alt: true, shift: true, code: 'Semicolon' },     scope: 'global',             label: 'Open folio gallery',       group: 'View' },
+  'global.toggle-workspace':     { combo: { alt: true, shift: true, code: 'KeyL' },       scope: 'global',             label: 'Open workspace',           group: 'View' },
   'global.toggle-automations': { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Open automations',         group: 'View' },
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' },                       scope: 'global',             label: 'Toggle sidebar',           group: 'View' },
@@ -92,16 +91,14 @@ export const KEYBINDINGS = {
   'files-pane.next-file':         { combo: { alt: true, code: 'KeyJ' },                    scope: 'files-pane',         label: 'Next file',                group: 'Navigate' },
   'files-pane.prev-file':         { combo: { alt: true, code: 'KeyK' },                    scope: 'files-pane',         label: 'Previous file',            group: 'Navigate' },
 
-  // ── Plan gallery ───────────────────────────────────────────────────────────
-  'plan-gallery.close':           { combo: { code: 'Escape' },                             scope: 'plan-gallery',       label: 'Close',                    group: 'Gallery' },
-  'plan-gallery.focus-search':    { combo: { code: 'Slash' },                              scope: 'plan-gallery',       label: 'Focus search',             group: 'Gallery' },
-  'plan-gallery.open':            { combo: { code: 'Enter' },                              scope: 'plan-gallery',       label: 'Open plan',                group: 'Gallery' },
-  'plan-gallery.resume':          { combo: { shift: true, code: 'Enter' },                 scope: 'plan-gallery',       label: 'Resume session',           group: 'Gallery' },
-  'plan-gallery.next':            { combo: { code: 'ArrowRight' },                         scope: 'plan-gallery',       label: 'Next (grid)',              group: 'Navigate' },
-  'plan-gallery.prev':            { combo: { code: 'ArrowLeft' },                          scope: 'plan-gallery',       label: 'Previous (grid)',          group: 'Navigate' },
-  'plan-gallery.down':            { combo: { code: 'ArrowDown' },                          scope: 'plan-gallery',       label: 'Down',                     group: 'Navigate' },
-  'plan-gallery.up':              { combo: { code: 'ArrowUp' },                            scope: 'plan-gallery',       label: 'Up',                       group: 'Navigate' },
-  'plan-gallery.toggle-bookmark': { combo: { alt: true, code: 'KeyB' },                    scope: 'plan-gallery',       label: 'Toggle bookmark',          group: 'Gallery' },
+  // ── Workspace (plans + docs + diagrams ledger) ─────────────────────────────
+  'workspace.close':              { combo: { code: 'Escape' },                             scope: 'workspace',          label: 'Close',                    group: 'Workspace' },
+  'workspace.focus-search':       { combo: { code: 'Slash' },                              scope: 'workspace',          label: 'Focus search',             group: 'Workspace' },
+  'workspace.open':               { combo: { code: 'Enter' },                              scope: 'workspace',          label: 'Open item',                group: 'Workspace' },
+  'workspace.resume':             { combo: { shift: true, code: 'Enter' },                 scope: 'workspace',          label: 'Resume session',           group: 'Workspace' },
+  'workspace.next':               { combo: { code: 'ArrowDown' }, repeatable: true,        scope: 'workspace',          label: 'Next',                     group: 'Navigate' },
+  'workspace.prev':               { combo: { code: 'ArrowUp' }, repeatable: true,          scope: 'workspace',          label: 'Previous',                 group: 'Navigate' },
+  'workspace.toggle-pin':         { combo: { alt: true, code: 'KeyP' },                    scope: 'workspace',          label: 'Pin / unpin',              group: 'Workspace' },
 
   // ── Plan review ────────────────────────────────────────────────────────────
   'plan-review.approve-ask':      { combo: { alt: true, code: 'KeyY' },                    scope: 'plan-action-bar',    label: 'Approve (ask mode)',       group: 'Review' },
@@ -133,14 +130,6 @@ export const KEYBINDINGS = {
   'document-modal.pin-outline':   { combo: { mod: true, alt: true, code: 'Backslash' },    scope: 'document-modal',     label: 'Pin table of contents',    group: 'Modal' },
   'document-modal.google-upload': { combo: { alt: true, code: 'KeyG' },                    scope: 'document-modal',     label: 'Open in Google Docs',      group: 'Modal' },
   'plan-modal.google-upload':     { combo: { alt: true, code: 'KeyG' },                    scope: 'plan-modal',         label: 'Open in Google Docs',      group: 'Modal' },
-
-  // ── Folio gallery ──────────────────────────────────────────────────────────
-  'folio-gallery.close':          { combo: { code: 'Escape' },                             scope: 'folio-gallery',      label: 'Close',                    group: 'Gallery' },
-  'folio-gallery.focus-search':   { combo: { code: 'Slash' },                              scope: 'folio-gallery',      label: 'Focus search',             group: 'Gallery' },
-  'folio-gallery.open':           { combo: { code: 'Enter' },                              scope: 'folio-gallery',      label: 'Open document',            group: 'Gallery' },
-  'folio-gallery.next':           { combo: { code: 'ArrowDown' },                          scope: 'folio-gallery',      label: 'Next',                     group: 'Navigate' },
-  'folio-gallery.prev':           { combo: { code: 'ArrowUp' },                            scope: 'folio-gallery',      label: 'Previous',                 group: 'Navigate' },
-  'folio-gallery.delete':         { combo: { alt: true, code: 'Backspace' },               scope: 'folio-gallery',      label: 'Delete document',          group: 'Gallery' },
 
   // ── Automations ────────────────────────────────────────────────────────────
   'automations.close':            { combo: { code: 'Escape' },                             scope: 'automations',        label: 'Close',                    group: 'Automations' },

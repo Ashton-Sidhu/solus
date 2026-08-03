@@ -33,7 +33,7 @@
   const RAIL_GROUPS: { key: string; label: string; scopes: Scope[] }[] = [
     { key: "global", label: "Global", scopes: ["global"] },
     { key: "diff-panel", label: "Diff Panel", scopes: ["diff-panel"] },
-    { key: "galleries", label: "Galleries", scopes: ["plan-gallery", "folio-gallery", "attachment-preview"] },
+    { key: "workspace", label: "Workspace", scopes: ["workspace", "attachment-preview"] },
     { key: "editors", label: "Editors", scopes: ["plan-modal", "document-modal"] },
     { key: "review", label: "Review & Annotate", scopes: ["plan-action-bar", "design-annotation"] },
     { key: "diagram", label: "Diagram", scopes: ["diagram"] },
@@ -44,8 +44,7 @@
   const SCOPE_LABELS: Record<string, string> = {
     global: "Global",
     "diff-panel": "Diff Panel",
-    "plan-gallery": "Plan gallery",
-    "folio-gallery": "Folio gallery",
+    workspace: "Workspace",
     "attachment-preview": "Attachment preview",
     "plan-modal": "Plan modal",
     "document-modal": "Document modal",

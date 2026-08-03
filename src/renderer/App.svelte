@@ -1017,8 +1017,7 @@
       enabled: () => viewMode === "editor",
     },
   );
-  useKeybinding("global.toggle-plans", () => session.togglePlansGallery("keybinding"));
-  useKeybinding("global.toggle-folio", () => session.toggleFolioGallery("keybinding"));
+  useKeybinding("global.toggle-workspace", () => session.toggleWorkspacePage("keybinding"));
   useKeybinding("global.toggle-automations", () => session.toggleAutomations("keybinding"));
   useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
   useKeybinding("global.settings", () => session.showSettings("general", "keybinding"));

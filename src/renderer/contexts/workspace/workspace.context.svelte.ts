@@ -38,9 +38,10 @@ import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import { gitCheckoutFromState, isSessionBusyStatus, isSolusWorktreePath, isSteerableStatus, worktreeProjectRoot } from '../../../shared/types'
 import { syncPendingInputFromEvent, loadSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { addDiffComment, updateDiffComment, removeDiffComment, restoreDiffComment, clearDiffComments, setDiffCommentDraft, updateDiffCommentDraftValue, setDiffGeneralComment, submitDiffFeedback, submitDiffFeedbackToNewSession } from './session-diff-feedback'
-import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, type ApprovePlanOptions } from './session-plan-operations'
+import { clearPlanWaiting, openPlanModal, closePlanModal, requestConversationScrollToBottom, approvePlanWithModel, rejectPlan, openPlanFromDescriptor, closePlanPreview, resumeSessionFromDescriptor, loadPlanContent, type ApprovePlanOptions } from './session-plan-operations'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { projectDirLabel } from '../../lib/paths'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@client-core/server-connections'
@@ -71,6 +72,14 @@ function logDevSessionState(tab: Tab, eventType: string, session: Session): void
     eventType,
     messageCount: session.messages.length,
   })
+}
+
+/** An open project and every path root that belongs to it. */
+export type OpenProject = {
+  /** Repo root when git, else the working directory. Identifies the project. */
+  key: string
+  label: string
+  roots: string[]
 }
 
 export type SessionFields = {
@@ -254,8 +263,8 @@ export class WorkspaceContext {
   get lastActiveTabByBranch() { return this.registry.lastActiveTabByBranch }
   get isExpanded(): boolean { return this.ui.isExpanded }
   set isExpanded(value: boolean) { this.ui.isExpanded = value }
-  get plansGalleryOpen(): boolean { return this.ui.plansGalleryOpen }
-  set plansGalleryOpen(value: boolean) { this.ui.plansGalleryOpen = value }
+  get workspacePageOpen(): boolean { return this.ui.workspacePageOpen }
+  set workspacePageOpen(value: boolean) { this.ui.workspacePageOpen = value }
   get sessionPickerOpen(): boolean { return this.ui.sessionPickerOpen }
   set sessionPickerOpen(value: boolean) { this.ui.sessionPickerOpen = value }
   get settingsOpen(): boolean { return this.ui.settingsOpen }
@@ -264,8 +273,6 @@ export class WorkspaceContext {
   set settingsTab(value: SettingsTab) { this.ui.settingsTab = value }
   get settingsProjectCwd(): string | null { return this.ui.settingsProjectCwd }
   set settingsProjectCwd(value: string | null) { this.ui.settingsProjectCwd = value }
-  get folioGalleryOpen(): boolean { return this.ui.folioGalleryOpen }
-  set folioGalleryOpen(value: boolean) { this.ui.folioGalleryOpen = value }
   get automationsOpen(): boolean { return this.ui.automationsOpen }
   set automationsOpen(value: boolean) { this.ui.automationsOpen = value }
   get automationsFocusId(): string | null { return this.ui.automationsFocusId }
@@ -377,34 +384,42 @@ export class WorkspaceContext {
     return this.activeSession?.workingDirectory ?? this.globalDefaults.workingDirectory ?? '~'
   }
 
-  /** Distinct project keys across all open tabs — repo root when git, else the
-   *  working directory. Mirrors how the sidebar groups sessions into projects;
-   *  its length drives whether galleries show a per-item project badge. */
-  get openProjectKeys(): string[] {
-    const keys = new Set<string>()
+  /** The open projects, each with the path roots that belong to it — repo root,
+   *  worktree path, and working directory — so an item created in any
+   *  branch/worktree/subfolder of an open repo still attributes to its project.
+   *  Mirrors how the sidebar groups sessions into projects. */
+  get openProjects(): OpenProject[] {
+    const byKey = new Map<string, OpenProject>()
     for (const tabId of this.tabOrder) {
       const sess = this.sessionFor(tabId)
       if (!sess) continue
-      keys.add(sess.gitContext?.repoRoot ?? sess.workingDirectory ?? '~')
+      const key = sess.gitContext?.repoRoot ?? sess.workingDirectory ?? '~'
+      let project = byKey.get(key)
+      if (!project) {
+        project = { key, label: projectDirLabel(key, this.staticInfo?.workspacePath), roots: [] }
+        byKey.set(key, project)
+      }
+      for (const root of [sess.gitContext?.repoRoot, sess.gitContext?.worktreePath, sess.workingDirectory]) {
+        if (root && !project.roots.includes(root)) project.roots.push(root)
+      }
+      if (project.roots.length === 0) project.roots.push(key)
     }
-    if (keys.size === 0) keys.add(this.galleryProjectPath)
-    return [...keys]
+    if (byKey.size === 0) {
+      const key = this.galleryProjectPath
+      return [{ key, label: projectDirLabel(key, this.staticInfo?.workspacePath), roots: [key] }]
+    }
+    return [...byKey.values()]
   }
 
-  /** Path roots used to scope plans/works to the open projects. Includes each
-   *  open tab's repo root, worktree path, and working directory so an item
-   *  created in any branch/worktree/subfolder of an open repo still matches. */
+  /** Distinct project keys across all open tabs. Its length drives whether
+   *  galleries show a per-item project badge. */
+  get openProjectKeys(): string[] {
+    return this.openProjects.map((project) => project.key)
+  }
+
+  /** Path roots used to scope plans/works to the open projects. */
   get openProjectScopeRoots(): string[] {
-    const roots = new Set<string>()
-    for (const tabId of this.tabOrder) {
-      const sess = this.sessionFor(tabId)
-      if (!sess) continue
-      if (sess.gitContext?.repoRoot) roots.add(sess.gitContext.repoRoot)
-      if (sess.gitContext?.worktreePath) roots.add(sess.gitContext.worktreePath)
-      if (sess.workingDirectory) roots.add(sess.workingDirectory)
-    }
-    if (roots.size === 0) roots.add(this.galleryProjectPath)
-    return [...roots]
+    return [...new Set(this.openProjects.flatMap((project) => project.roots))]
   }
 
   addTabToOrder(tabId: string): void {
@@ -1680,6 +1695,7 @@ export class WorkspaceContext {
   }
   closePlanPreview(): void { closePlanPreview(this) }
   async resumeSessionFromDescriptor(d: PlanDescriptor): Promise<void> { return resumeSessionFromDescriptor(this, d) }
+  async loadPlanContent(d: PlanDescriptor): Promise<string> { return loadPlanContent(this, d) }
 
   /** Open a work as an artifact. By default it takes the Focus pane (or the
    *  secondary slot if one is already open); `secondary: true` forces it beside
@@ -1698,7 +1714,7 @@ export class WorkspaceContext {
       if (!(await this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback', cwd))) return
       resolvedId = entry[0]
     }
-    this.folioGalleryOpen = false
+    this.workspacePageOpen = false
     if (opts.secondary) this.panes.moveToSecondary({ kind: 'work', workId: resolvedId })
     else this.panes.openWork(resolvedId)
     track('surface_viewed', { surface: 'work_modal', via: opts.via })
@@ -1738,14 +1754,14 @@ export class WorkspaceContext {
     const provider: AgentId = sess?.provider ?? 'claude-code'
     const work = await window.solus.createWork(title, type, content, workPreview(type, content), undefined, provider, cwd)
     this.worksStore.works[work.id] = work
-    this.folioGalleryOpen = false
+    this.workspacePageOpen = false
     this.panes.openWork(work.id)
   }
 
   async openChatForWork(workId: string, mode: 'resume' | 'new'): Promise<void> {
     const work = this.worksStore.get(workId)
     if (!work) return
-    this.folioGalleryOpen = false
+    this.workspacePageOpen = false
     this.settingsOpen = false
 
     // Resume targets the most recently linked session (newest in sessionIds),
@@ -1799,10 +1815,10 @@ export class WorkspaceContext {
     requestInputFocus()
   }
 
-  // ─── Folio gallery ───
+  // ─── Workspace page (plans + docs + diagrams ledger) ───
 
-  toggleFolioGallery(via: Via = 'click'): void {
-    if (this.ui.toggleFolioGallery()) track('surface_viewed', { surface: 'folio', via })
+  toggleWorkspacePage(via: Via = 'click'): void {
+    if (this.ui.toggleWorkspacePage()) track('surface_viewed', { surface: 'workspace', via })
   }
 
   // ─── Tasks page ───
@@ -2197,14 +2213,6 @@ export class WorkspaceContext {
 
   closeSettings() {
     this.ui.closeSettings()
-  }
-
-  // ─── Plans gallery ───
-
-  togglePlansGallery(via: Via = 'click'): void {
-    if (this.ui.togglePlansGallery()) {
-      track('surface_viewed', { surface: 'plans', via })
-    }
   }
 
 }
