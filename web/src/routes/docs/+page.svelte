@@ -224,7 +224,7 @@
 				shape its plan, review every change, ship the PR, and hand the recurring stuff to
 				automations. The full keybinding reference is at the end.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated August 1, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated August 4, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -328,6 +328,12 @@
 						['Open and close tabs', `${kbdHtml('⌘T')} opens a new tab, ${kbdHtml('⌥⇧W')} closes the current one, and ${kbdHtml('⌥⇧N')} / ${kbdHtml('⌥⇧P')} move between them.`],
 						['Fork a session', `Press ${kbdHtml('⌥F')} to branch the current conversation into a new tab. The fork keeps all context up to that point — useful when you want to explore two approaches from the same starting state.`],
 						['Resume past work', `Press ${kbdHtml('⌥⇧R')} to open the session history picker and jump back into any previous session with its full conversation intact.`],
+						['Know where you are', `In editor mode the conversation is topped by a breadcrumb — <strong class="text-[#1A1714] font-medium">project › task › session</strong> — instead of a strip of everything you happen to have open. Each crumb opens a menu to switch, the ⋯ button holds the session actions, and + starts another session in the same task. Pill mode keeps the compact tab strip.`],
+						['The task rail', `The sidebar lists <strong class="text-[#1A1714] font-medium">tasks</strong> — your open sessions, grouped by the branch or worktree they run on. A row carries what it wants from you (a question, a plan, an error), how long the turn in flight has been running, and the pull request that came out of it. Expand a row to see the sessions underneath, and use the list header to switch between one flat queue and per-project groups.`],
+						['Filter to one project', `Press ${kbdHtml('⌘⇧F')} to narrow the rail to a single project. The ✕ beside the count brings every task back.`],
+						['Name a session', `New sessions are named from your first prompt automatically — turn that off in Settings if you'd rather they weren't. Rename one from its row or the session context menu; clear the field to fall back to the prompt-derived name.`],
+						['Act on a row', `Right-click a task or session in the sidebar for its actions — stop the run, mark it done, rename, fork, or close it.`],
+						['Answer without opening the card', 'When a session stops to ask you something, the input bar becomes the answer box: type a note, send it, and the agent unblocks.'],
 						['Queue while busy', 'Sending a message while the agent is working queues it for the next turn — you never have to wait for a stopping point to say the next thing.'],
 						['Isolate risky work', `Toggle worktree mode with ${kbdHtml('⌥⇧B')} to run the session on an isolated git worktree, keeping your working branch clean while the agent experiments. Switch between worktrees with ${kbdHtml('⌥⇧H')}.`],
 						['Switch branches from the picker', `Picking a branch in the git dropdown checks it out for the tab. If that branch is already checked out in a worktree, Solus takes you to that worktree instead of cutting a second one.`],
@@ -403,6 +409,7 @@
 						['General feedback', 'Add a top-level comment that applies to the whole plan.'],
 						['Approve', 'Choose whether your agent should continue in Ask or Auto mode, then confirm. It proceeds with your feedback incorporated.'],
 						['Reject', 'The agent stops — redirect it with a new prompt.'],
+						['Revise from the composer', 'While a plan is waiting on you, the input bar sends revision feedback instead of a new prompt — type what should change and the agent redrafts, exactly as the Revise action on the plan surface does.'],
 						['Pin', 'Pin a plan to keep it at the top of the plans gallery for quick reference.'],
 						['Save for later', 'Bookmark a plan without pinning it — useful for plans you want to revisit.'],
 						['Revisions', 'When your agent updates a plan, previous versions are preserved. Use the revision dropdown in the plan view to compare or revert.'],
@@ -433,6 +440,8 @@
 						['Diffs and files', `Open the diff with ${kbdHtml('⌥⇧D')}, the files pane with ${kbdHtml('⌥⇧O')}, or changed files with ${kbdHtml('⌥⇧F')}; they appear beside the active conversation so you can inspect code and keep prompting.`],
 						['PR review', 'Opening a pull request starts with the review surface maximized. Use the Chat control to reveal the worktree-rooted conversation beside Activity, Guide, and Diff.'],
 						['State stays put', 'Closing a pane restores the conversation underneath without resetting scroll position, mounted tabs, or prompt drafts.'],
+						['Back and forward', `Every surface Solus opens is somewhere you can return to. ${kbdHtml('⌘[')} steps back through the panes, pages, and sessions you visited; ${kbdHtml('⌘]')} steps forward again.`],
+						['Links land in a pane', `A <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">plan://</code>, <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">work://</code>, or <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">pr://</code> link your agent writes into the transcript opens the same pane a notification or the sidebar would — one destination however you get there.`],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -827,6 +836,13 @@
 					http://&lt;your-mac-ip&gt;:3000 &nbsp;·&nbsp; e.g. http://192.168.1.42:3000
 				</div>
 				<p class="mt-3 text-[14px] text-[#A09488]">
+					The web UI opens straight into the workspace with a <strong class="text-[#A09488] font-medium">Connect a host</strong>
+					sheet on top, rather than a separate pairing screen. The address you're already on is offered
+					as a host to connect to, alongside the hosts you've saved and any Solus servers found nearby;
+					one field takes either a pairing link or an address plus code. <strong class="text-[#A09488] font-medium">Switch server</strong>
+					brings the chooser back at any time.
+				</p>
+				<p class="mt-3 text-[14px] text-[#A09488]">
 					The exact addresses Solus is reachable from are listed in
 					<strong class="text-[#A09488] font-medium">Settings → Connections</strong> — including localhost,
 					LAN, and any Tailscale / VPN addresses.
@@ -987,8 +1003,9 @@ solus claim                           # claim the server from this machine</div>
 						['Default agent', 'Choose which CLI agent to use for new sessions. Solus auto-detects installed agents and disables unavailable ones.'],
 						['Rate limit behavior', 'Global default for how Solus handles API rate limits. Options: <strong class="text-[#1A1714] font-medium">Ask</strong> (prompt each time), <strong class="text-[#1A1714] font-medium">Queue</strong> (wait and retry automatically), <strong class="text-[#1A1714] font-medium">Continue</strong> (proceed without waiting), or <strong class="text-[#1A1714] font-medium">Stop</strong> (halt the task). Individual tabs can override this.'],
 						['Git worktrees', 'When enabled, new sessions automatically run in an isolated git worktree so your working branch stays clean. Changes are merged back when the session completes.'],
+						['Session naming', 'On by default: Solus summarizes your first prompt into a short session name using the cheapest model your installed agent offers. Turn it off to keep the raw first prompt as the name — you can always rename a session by hand.'],
 					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 3 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>
@@ -1105,6 +1122,9 @@ solus claim                           # claim the server from this machine</div>
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Navigation</h3>
 				{@render kbTable([
 					['⌥⇧R / ⌥⇧J', 'Toggle session history picker'],
+					['⌘[', 'Back'],
+					['⌘]', 'Forward'],
+					['⌘⇧F', 'Filter tasks by project'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Voice</h3>
